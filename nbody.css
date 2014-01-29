@@ -1,0 +1,42 @@
+html {
+	margin: 0;
+	padding: 0;
+}
+
+body {
+	background-color: rgb(255, 255, 255);
+	font-family: "Helvetica Neue", Helvetica, sans-serif;
+	font-size: 15px;
+	margin: 0;
+	padding: 0;
+}
+
+#main {
+	margin: 1em auto 0 auto;
+	width: 850px;
+	background-color: rgb(255, 255, 255);
+	/*border: 1px dotted black;*/
+	padding: 0 1em 1em 1em;
+}
+
+.heading {
+	margin-top: 0;
+	padding-top: 0;
+	width: 700px;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+.content {
+	width: 100%;
+	margin: 0;
+	padding: 0;
+	text-align: center;
+}
+
+#simulation {
+	margin: 0 auto 0 auto;
+	border: 1px solid black;
+	width: 700px;
+	height: 700px;
+}
