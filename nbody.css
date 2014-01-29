@@ -13,7 +13,7 @@ body {
 
 #main {
 	margin: 1em auto 0 auto;
-	width: 850px;
+	width: 702px;
 	background-color: rgb(255, 255, 255);
 	/*border: 1px dotted black;*/
 	padding: 0 1em 1em 1em;
@@ -22,9 +22,19 @@ body {
 .heading {
 	margin-top: 0;
 	padding-top: 0;
-	width: 700px;
 	margin-left: auto;
 	margin-right: auto;
+}
+
+.title {
+	float: left;
+	margin-top: 10px;
+}
+
+#step-button {
+	font-size: 12pt;
+	float: right;
+	margin-top: 25px;
 }
 
 .content {
@@ -36,7 +46,28 @@ body {
 
 #simulation {
 	margin: 0 auto 0 auto;
+	padding: 0;
 	border: 1px solid black;
 	width: 700px;
 	height: 700px;
+}
+
+#message-box {
+	width: 100%;
+	text-align: left;
+	margin-top: 1em;
+}
+#messages {
+	list-style-type: none;
+	list-style-position: outside;
+	padding: 0;
+}
+.msg-info {
+	color: rgb(68, 98, 175);
+}
+.msg-warn {
+	color: rgb(213, 128, 0);
+}
+.msg-error {
+	color: rgb(196, 0, 0);
 }
