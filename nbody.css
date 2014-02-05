@@ -42,14 +42,19 @@ body {
 	margin: 0;
 	padding: 0;
 	text-align: center;
+	clear: both;
+}
+
+.sim-container {
+	/*background-color: blue;*/
 }
 
 #simulation {
 	margin: 0 auto 0 auto;
 	padding: 0;
 	border: 1px solid black;
-	width: 400px;
-	height: 400px;
+	/*width: 700px;*/
+	/*height: 700px;*/
 }
 
 #message-box {
