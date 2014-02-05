@@ -31,18 +31,24 @@ attribute vec4 curPos;
 varying vec4 vColor;
 
 void main(void) {
-    vec4 pos;
-    pos.xy = curPos.xy;
-    pos.z = 0.0;
-    pos.w  = 1.0;
-    gl_Position = mvp * pos;
+    vec4 pos = mvp * curPos;
+    gl_Position = pos;
 
     float maxSize = 8.0;
     float size = maxSize * (1.0 - curPos.z);
     if(size < 1.0) size = 1.0;
     if(size > maxSize) size = maxSize;
-
-    vColor = vec4(1.0, 0.0, 0.0, 1.0);
-
+    
     gl_PointSize  = size;
+    // gl_PointSize = 5.0;
+    
+    // vec4 color = vec4(1.0, 1.0, 1.0, 1.0);
+    // if(pos.x < 0.0) {
+    //     color[0] = 0.0;
+    // }
+    // if(pos.y < 0.0) {
+    //     color[1] = 0.0;
+    // }
+    // vColor = color;
+    vColor = vec4(1.0, 0.0, 0.0, 1.0);
 }
