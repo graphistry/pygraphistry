@@ -1,11 +1,11 @@
 // Number of elements per 2d point
 #define COMPONENTS_2D 2
 
-#define POINT_REPULSION 1.0
-#define EDGE_REPULSION 0.5
+#define POINT_REPULSION 1.0f
+// #define EDGE_REPULSION 0.5f
 
-#define SPRING_LENGTH 0.1
-#define SPRING_FORCE 0.1
+// #define SPRING_LENGTH 0.1f
+// #define SPRING_FORCE 0.1f
 
 // TODO: Add in a repulsive force from the four walls
 // TODO: Allow the wall coordinates to be passed as a kernel argument
@@ -22,23 +22,23 @@ __kernel void nbody_compute_repulsion(
 	// use clamp() to ensure that points are within (-1,1)
 	// Effects of points should generally be proportional to 1/(distance^2)
 
-	float4 walls = (float4) (0.05, 0.95, 0.05, 0.95);
+	float4 walls = (float4) (0.05f, 0.95f, 0.05f, 0.95f);
 
-	unsigned int threadLocalId = get_local_id(0);
-	unsigned int pointId = get_global_id(0) * COMPONENTS_2D;
+	unsigned int threadLocalId = (unsigned int) get_local_id(0);
+	unsigned int pointId = (unsigned int) get_global_id(0) * COMPONENTS_2D;
 
 	// // The point we're updating
 	// // TODO: Convert to vector read
 	float2 myPos = (float2) (inputPositions[pointId + 0], inputPositions[pointId + 1]);
 
 	// Points per tile = threads per workgroup
-	unsigned int tileSize = get_local_size(0);
+	unsigned int tileSize = (unsigned int) get_local_size(0);
 	unsigned int numTiles = numPoints / tileSize;
 	numTiles = max(numTiles, (uint) 1);
 
 	float2 posDelta = (float2) (0.0f, 0.0f);
 
-	for(int tile = 0; tile < numTiles; tile++) {
+	for(unsigned int tile = 0; tile < numTiles; tile++) {
 		unsigned int tileStart = (tile * (tileSize * COMPONENTS_2D));
 		unsigned int tilePointId = tileStart + (threadLocalId * COMPONENTS_2D);
 
@@ -65,7 +65,7 @@ __kernel void nbody_compute_repulsion(
 
 			if(dist > 0) {
 				// Force magnitude is POINT_REPULSION * (1/(distance^2))
-				force = POINT_REPULSION * (1.0/(dist*dist));
+				force = POINT_REPULSION * (1.0f/(dist*dist));
 				// Force direction is the direction of the other point
 				dir = otherPoint - myPos;
 			} else {
@@ -75,11 +75,11 @@ __kernel void nbody_compute_repulsion(
 				dir = (float2) (cachedPoint - pointId, pointId - cachedPoint);
 			}
 
-			force = clamp(force, (float) 0.0, (float) POINT_REPULSION);
+			force = clamp(force, 0.0f, POINT_REPULSION);
 			dir = normalize(dir);
 
-			float2 change = dir * force * timeDelta * -1;
-			posDelta += change;
+			// float2 change =
+			posDelta += dir * force * timeDelta * -1;;
 		}
 
 		// Calculate force from walls
@@ -104,16 +104,16 @@ __kernel void nbody_compute_repulsion(
 }
 
 
-__kernel void nbody2d_compute_springs(
-	unsigned int numEdges,
-	__global unsigned int* springList,
-	__global float* springPositions,
-	__global float* inputPositions,
-	__global float* outputPositions,
-	float timeDelta)
-{
-	// From Hooke's Law, we generally have that the force exerted by a spring is given by
-	//	F = -k * X, where X is the distance the spring has been displaced from it's natural
-	// distance, and k is some constant positive real number.
-	return;
-}
+// __kernel void nbody2d_compute_springs(
+// 	unsigned int numEdges,
+// 	__global unsigned int* springList,
+// 	__global float* springPositions,
+// 	__global float* inputPositions,
+// 	__global float* outputPositions,
+// 	float timeDelta)
+// {
+// 	// From Hooke's Law, we generally have that the force exerted by a spring is given by
+// 	//	F = -k * X, where X is the distance the spring has been displaced from it's natural
+// 	// distance, and k is some constant positive real number.
+// 	return;
+// }
