@@ -33,6 +33,7 @@ body {
 
 #step-button {
 	font-size: 12pt;
+	width: 6em;
 	float: right;
 	margin-top: 25px;
 }
