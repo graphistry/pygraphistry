@@ -3,12 +3,12 @@
 <head>
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	
+
 	<title>WebCL N-body (Na&iuml;ve)</title>
-	
+
 	<link rel="stylesheet" href="nbody.css">
 	<script data-main="js/main" src="js/libs/require.js"></script>
-	
+
 	<script type="text/javascript">
 		window.addEventListener("beforeunload", function(){console.clear();})
 	</script>
@@ -19,21 +19,21 @@
 			<h1 class="title">N-body Simulation (na&iuml;ve WebCL)</h1>
 			<button type=button id="step-button" disabled>Run</button>
 		</div>
-		
+
 		<div class="content">
 			<div class="sim-container">
 				<canvas id="simulation" width="700" height="700" class="sim">
 					WebGL not supported
 				</canvas>
 			</div>
-			
+
 			<div id="message-box">
 				<ul id="messages">
 					<!-- <li class="msg-error">An info message</li> -->
 				</ul>
 			</div>
-		</div>		
-		
+		</div>
+
 		<div id="matrices"></div>
 	</div>
 </body>

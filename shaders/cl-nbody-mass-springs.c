@@ -12,7 +12,7 @@ __kernel void nbody_compute_repulsion(
 	__global float* inputPositions,
 	__global float* outputPositions,
 	float timeDelta,
-	__local float* tilePoints) 
+	__local float* tilePoints)
 {
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
@@ -21,12 +21,12 @@ __kernel void nbody_compute_repulsion(
 	
 	unsigned int localId = get_local_id(0);
 	unsigned int pointId = get_global_id(0) * COMPONENTS_2D;
-	
+
 	// // The point we're updating
 	// // TODO: Convert to vector read
 	// float4 myPos = (float4) (inputPositions[pointId + 0], inputPositions[pointId + 1], inputPositions[pointId + 2], inputPositions[pointId + 3]);
 	float2 myPos = (float2) (inputPositions[pointId + 0], inputPositions[pointId + 1]);
-	
+
 	// Points per tile = threads per workgroup
 	// unsigned int tileSize = get_local_size(0);
 	// unsigned int numTiles = numPoints / tileSize;
@@ -43,7 +43,7 @@ __kernel void nbody_compute_repulsion(
 	outputPositions[pointId + 1] = myPos.y;
 	// outputPositions[pointId + 2] = myPos.z;
 	// outputPositions[pointId + 3] = myPos.w;
-	
+
 	return;
 }
 
@@ -54,10 +54,10 @@ __kernel void nbody2d_compute_springs(
 	__global float* springPositions,
 	__global float* inputPositions,
 	__global float* outputPositions,
-	float timeDelta) 
+	float timeDelta)
 {
 	// From Hooke's Law, we generally have that the force exerted by a spring is given by
-	//	F = -k * X, where X is the distance the spring has been displaced from it's natural 
+	//	F = -k * X, where X is the distance the spring has been displaced from it's natural
 	// distance, and k is some constant positive real number.
 	return;
 }
