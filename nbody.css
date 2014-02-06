@@ -32,10 +32,10 @@ body {
 }
 
 .control-button {
-	font-size: 12pt;
-	width: 6em;
+	font-size: 11pt;
+	width: 5em;
 	float: right;
-	margin-top: 25px;
+	margin-top: 22px;
 	margin-left: 1em;
 }
 
@@ -77,4 +77,8 @@ body {
 }
 .msg-error {
 	color: rgb(196, 0, 0);
+}
+
+#matrices {
+	display: none;
 }
