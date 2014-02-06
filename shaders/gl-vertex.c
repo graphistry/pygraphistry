@@ -26,21 +26,20 @@
 */
 
 precision mediump float;
-uniform mat4 mvp;
-attribute vec4 curPos;
+uniform mat3 mvp;
+attribute vec2 curPos;
 varying vec4 vColor;
 
 void main(void) {
-    vec4 pos = mvp * curPos;
-    gl_Position = pos;
+    float w = 1.0;
 
-    float maxSize = 8.0;
-    float size = maxSize * (1.0 - curPos.z);
-    if(size < 1.0) size = 1.0;
-    if(size > maxSize) size = maxSize;
+    // float maxSize = 8.0;
+    // float size = maxSize * (1.0 - curPos.z);
+    // if(size < 1.0) size = 1.0;
+    // if(size > maxSize) size = maxSize;
     
-    gl_PointSize  = size;
-    // gl_PointSize = 5.0;
+    // gl_PointSize  = size;
+    gl_PointSize = 5.0;
     
     // vec4 color = vec4(1.0, 1.0, 1.0, 1.0);
     // if(pos.x < 0.0) {
@@ -51,4 +50,7 @@ void main(void) {
     // }
     // vColor = color;
     vColor = vec4(1.0, 0.0, 0.0, 1.0);
+    
+    vec3 pos = mvp * vec3(curPos[0], curPos[1], w);
+    gl_Position = vec4(pos[0], pos[1], 0, pos[2]);
 }
