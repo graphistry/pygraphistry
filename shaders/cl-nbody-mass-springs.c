@@ -72,7 +72,7 @@ __kernel void nbody_compute_repulsion(
 				// If dist <= 0, leave force as 100% of FORCE_REPULSION
 				force = POINT_REPULSION;
 				// Force direction is set to a (sorta) random direction
-				dir = (float2) (pointId, pointId);
+				dir = (float2) (cachedPoint - pointId, pointId - cachedPoint);
 			}
 
 			force = clamp(force, (float) 0.0, (float) POINT_REPULSION);
