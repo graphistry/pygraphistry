@@ -1,7 +1,7 @@
 // Number of elements per 2d point
 #define COMPONENTS_2D 2
 
-#define POINT_REPULSION 1.0
+#define POINT_REPULSION 0.00001
 #define EDGE_REPULSION 0.5
 
 #define SPRING_LENGTH 0.1
@@ -18,26 +18,55 @@ __kernel void nbody_compute_repulsion(
 	// use vloadn() and vstoren() to read/write vectors.
 	// use clamp() to ensure that points are within (-1,1)
 	// Effects of points should generally be proportional to 1/(distance^2)
-	
-	unsigned int localId = get_local_id(0);
+
+	float4 walls = (float4) (0.05, 0.95, 0.05, 0.95);
+
+	unsigned int threadLocalId = get_local_id(0);
 	unsigned int pointId = get_global_id(0) * COMPONENTS_2D;
 
 	// // The point we're updating
 	// // TODO: Convert to vector read
-	// float4 myPos = (float4) (inputPositions[pointId + 0], inputPositions[pointId + 1], inputPositions[pointId + 2], inputPositions[pointId + 3]);
 	float2 myPos = (float2) (inputPositions[pointId + 0], inputPositions[pointId + 1]);
 
 	// Points per tile = threads per workgroup
-	// unsigned int tileSize = get_local_size(0);
-	// unsigned int numTiles = numPoints / tileSize;
-	
-	// for(int i = 0; i < numTilesl i++) {
-	// 	unsigned int tilePointId = (i * tileSize) + localId;
-		
-	// 	// TODO: Convert to a bulk local, synchronized read
-	// 	tilePoints[(4*localId) + 0] = inputPositions
-	// }
-	
+	unsigned int tileSize = get_local_size(0);
+	unsigned int numTiles = numPoints / tileSize;
+
+	float2 posDelta = (float2) (0.0f, 0.0f);
+
+	for(int tile = 0; tile < numTiles; tile++) {
+		unsigned int tilePointId = (tile * tileSize) + threadLocalId;
+
+		// TODO: Convert to a bulk local, synchronized read
+		tilePoints[(COMPONENTS_2D * threadLocalId) + 0] = inputPositions[(COMPONENTS_2D * tilePointId) + 0];
+		tilePoints[(COMPONENTS_2D * threadLocalId) + 1] = inputPositions[(COMPONENTS_2D * tilePointId) + 1];
+
+		barrier(CLK_LOCAL_MEM_FENCE);
+
+		for(unsigned int j = 0; j < tileSize; j++) {
+			float2 otherPoint = (float2) (tilePoints[(COMPONENTS_2D * j) + 0], tilePoints[(COMPONENTS_2D * j) + 1]);
+
+			float2 dir = otherPoint - myPos;
+			dir = normalize(dir);
+
+			float dist = distance(myPos, otherPoint);
+			float force = POINT_REPULSION * ((1.0/(dist*dist))/1000);
+
+			float2 change = dir * force * timeDelta;
+			posDelta += change;
+		}
+
+		myPos += posDelta;
+
+		// Clamp myPos to be within the walls
+		myPos.x = clamp(myPos.x, walls[0], walls[1]);
+		myPos.y = clamp(myPos.y, walls[2], walls[3]);
+
+		// Calculate force from walls
+
+		barrier(CLK_LOCAL_MEM_FENCE);
+	}
+
 	// TODO: Convert to vector write
 	outputPositions[pointId + 0] = myPos.x;
 	outputPositions[pointId + 1] = myPos.y;
