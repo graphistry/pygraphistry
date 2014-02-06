@@ -78,8 +78,7 @@ __kernel void nbody_compute_repulsion(
 			force = clamp(force, 0.0f, POINT_REPULSION);
 			dir = normalize(dir);
 
-			// float2 change =
-			posDelta += dir * force * timeDelta * -1;;
+			posDelta += dir * force * timeDelta * -1.0f;
 		}
 
 		// Calculate force from walls
