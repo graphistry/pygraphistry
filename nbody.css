@@ -27,17 +27,22 @@ body {
 }
 
 .title {
-	float: left;
-	margin-top: 10px;
+	margin-top: 0.5em;
+	margin-bottom: 0.5em;
 }
 
-.control-button {
+#fileData { float: left; }
+#exploreData { float: right; }
+
+#datasets, .control-button, #fileData > span {
 	font-size: 11pt;
 	width: 5em;
-	float: right;
-	margin-top: 22px;
 	margin-left: 1em;
 }
+
+#datasets, .control-button { float: right; }
+#datasets { width: auto; }
+
 
 .content {
 	width: 100%;

@@ -4,9 +4,10 @@
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 
-	<title>WebCL N-body (Na&iuml;ve)</title>
+	<title>WebCL N-Body (Na&iuml;ve)</title>
 
 	<link rel="stylesheet" href="nbody.css">
+	<link rel="stylesheet" href="css/bootstrap.min.css">
 	<script data-main="js/main" src="js/libs/require.js"></script>
 
 	<script type="text/javascript">
@@ -16,9 +17,16 @@
 <body>
 	<div id="main">
 		<div class="heading">
-			<h1 class="title">N-body Simulation (na&iuml;ve WebCL)</h1>
-			<button type=button id="anim-button" class="control-button" disabled>Animate</button>
-			<button type=button id="step-button" class="control-button" disabled>Step</button>
+			<h1 class="title">N-Body (na&iuml;ve WebCL)</h1>			
+			<div id="fileData">
+			  <span id="filenodes"></span>
+			  <span id="fileedges"></span>
+			</div>
+			<div id="exploreData">
+			  <button type=button id="anim-button" class="control-button" disabled>Animate</button>
+			  <button type=button id="step-button" class="control-button" disabled>Step</button>
+			  <select id="datasets"></select>
+			</div>
 		</div>
 
 		<div class="content">
