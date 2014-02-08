@@ -5,7 +5,7 @@
 // computation. (Reason: forces are calculated using the inverse of the (distance squared). If the
 // actual width of the graph is < 1.0, then all forces will always be > the base enegery, e.g.
 // POINT_REPULSION. We rarely want that, so we scale distances to be a fraction of GRAPH_WIDTH.)
-#define GRAPH_WIDTH 1000.0f
+// #define GRAPH_WIDTH 1000.0f
 
 // The energy with which points repulse each other
 #define POINT_REPULSION 0.01f
@@ -15,7 +15,7 @@
 // So '10' means two points can repulse with a maximum energy of POINT_REPULSION * 10.
 // (Normally, as the distance between points approaches 0, the energy approaches infinity. This
 // value clamps that.)
-#define REPULSION_MAX_MULTIPLE 10.0f
+// #define REPULSION_MAX_MULTIPLE 10.0f
 
 // #define EDGE_REPULSION 0.5f
 
@@ -29,13 +29,15 @@
 // Calculate the force of point b on point a, returning a vector indicating the movement to point a
 float2 calculatePointForce(float2 a, float2 b);
 
-
+// TODO: Convert the positions array from float* to float2*
+// TODO: add __constant, __read_only and __write_only qualifiers to the arguments
 __kernel void nbody_compute_repulsion(
 	unsigned int numPoints,
 	__global float* inputPositions,
 	__global float* outputPositions,
-	float timeDelta,
-	__local float* tilePoints)
+	__local float* tilePoints,
+	float2 dimensions,
+	float timeDelta)
 {
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
@@ -43,7 +45,7 @@ __kernel void nbody_compute_repulsion(
 	// (left, right, bottom, top)
 	const float4 walls = (float4) (0.05f, 0.95f, 0.05f, 0.95f);
 	// const float2 w = (float2) (distance(walls.xz, walls.yz), distance(walls.xz, walls.xw)) * GRAPH_WIDTH;
-	const float2 w = GRAPH_WIDTH / (float2) (walls.y - walls.x, walls.w - walls.z);
+	// const float2 w = GRAPH_WIDTH / (float2) (walls.y - walls.x, walls.w - walls.z);
 
 	const unsigned int threadLocalId = (unsigned int) get_local_id(0);
 	const unsigned int pointId = (unsigned int) get_global_id(0) * COMPONENTS_2D;
@@ -87,8 +89,8 @@ __kernel void nbody_compute_repulsion(
 	myPos += posDelta;// * timeDelta;
 
 	// Clamp myPos to be within the walls
-	myPos.x = clamp(myPos.x, walls[0], walls[1]);
-	myPos.y = clamp(myPos.y, walls[2], walls[3]);
+	myPos.x = clamp(myPos.x, 0.0f, dimensions.x);
+	myPos.y = clamp(myPos.y, 0.0f, dimensions.y);
 
 	outputPositions[pointId + 0] = myPos.x;
 	outputPositions[pointId + 1] = myPos.y;
