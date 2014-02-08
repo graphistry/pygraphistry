@@ -15,7 +15,9 @@
 // So '10' means two points can repulse with a maximum energy of POINT_REPULSION * 10.
 // (Normally, as the distance between points approaches 0, the energy approaches infinity. This
 // value clamps that.)
-// #define REPULSION_MAX_MULTIPLE 10.0f
+#define REPULSION_MAX_MULTIPLE 10.0f
+
+#define RAND_LENGTH 73 //146
 
 // #define EDGE_REPULSION 0.5f
 
@@ -27,23 +29,23 @@
 
 
 // Calculate the force of point b on point a, returning a vector indicating the movement to point a
-float2 calculatePointForce(float2 a, float2 b);
+float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues);
 
 // TODO: Convert the positions array from float* to float2*
-// TODO: add __constant, __read_only and __write_only qualifiers to the arguments
 __kernel void nbody_compute_repulsion(
 	unsigned int numPoints,
 	__global float* inputPositions,
 	__global float* outputPositions,
 	__local float* tilePoints,
 	float2 dimensions,
-	float timeDelta)
+	float timeDelta,
+	__constant float2* randValues)
 {
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
 
 	// (left, right, bottom, top)
-	const float4 walls = (float4) (0.05f, 0.95f, 0.05f, 0.95f);
+	// const float4 walls = (float4) (0.05f, 0.95f, 0.05f, 0.95f);
 	// const float2 w = (float2) (distance(walls.xz, walls.yz), distance(walls.xz, walls.xw)) * GRAPH_WIDTH;
 	// const float2 w = GRAPH_WIDTH / (float2) (walls.y - walls.x, walls.w - walls.z);
 
@@ -77,7 +79,7 @@ __kernel void nbody_compute_repulsion(
 
 			float2 otherPoint = (float2) (tilePoints[cachedPoint + 0], tilePoints[cachedPoint + 1]);
 
-			posDelta += (calculatePointForce(myPos, otherPoint));
+			posDelta += calculatePointForce(myPos, otherPoint, randValues);
 		}
 
 		barrier(CLK_LOCAL_MEM_FENCE);
@@ -85,8 +87,7 @@ __kernel void nbody_compute_repulsion(
 
 	// Calculate force from walls
 
-
-	myPos += posDelta;// * timeDelta;
+	myPos += posDelta / max(length(posDelta) / (length(dimensions) / REPULSION_MAX_MULTIPLE), 1.0f);// * timeDelta;
 
 	// Clamp myPos to be within the walls
 	myPos.x = clamp(myPos.x, 0.0f, dimensions.x);
@@ -99,17 +100,22 @@ __kernel void nbody_compute_repulsion(
 }
 
 
-float2 calculatePointForce(float2 a, float2 b) {
+float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues) {
 	float r = (b.x - a.x)*(b.x - a.x) + (b.y - a.y)*(b.y - a.y); //distance(a, b);
 
-	if(r < FLT_EPSILON) {
-		return (float2) (0.0f, 0.0f);
+	if(r < FLT_EPSILON * FLT_EPSILON) {
+		// Move a toward the center by a small amount
+		// float2 center = dimensions / 2.0f;
+		// float2 delta = normalize(center - a) * ((length(dimensions) / 100) / get_global_id(0));
+		// a += delta;
+
+		// return normalize((float2) (get_global_id(0) * ((float) (get_local_id(0) % 2) * -1.0f), get_global_id(0) * ((float) (get_global_id(0) % 2) * -1.0f))) * (length(dimensions) / 10.0f);
+		// b =
+		b = randValues[get_global_id(0) % RAND_LENGTH];
+		r = (b.x - a.x)*(b.x - a.x) + (b.y - a.y)*(b.y - a.y);
 	}
 
-	float2 force = ((float2) ((b.x - a.x)/r, (b.y - a.y)/r)) * POINT_REPULSION * -1.0f;
-
-	// TODO: Clamp the force at some maximum
-	return force;
+	return ((float2) ((b.x - a.x)/r, (b.y - a.y)/r)) * POINT_REPULSION * -1.0f;
 }
 
 
