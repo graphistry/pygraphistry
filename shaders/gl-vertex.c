@@ -28,7 +28,7 @@
 precision mediump float;
 uniform mat3 mvp;
 attribute vec2 curPos;
-varying vec4 vColor;
+// varying vec4 vColor;
 
 void main(void) {
     float w = 1.0;
@@ -49,7 +49,7 @@ void main(void) {
     //     color[1] = 0.0;
     // }
     // vColor = color;
-    vColor = vec4(1.0, 0.0, 0.0, 1.0);
+    // vColor = vec4(1.0, 0.0, 0.0, 1.0);
 
     vec3 pos = mvp * vec3(curPos[0], curPos[1], w);
     gl_Position = vec4(pos[0], pos[1], 0, pos[2]);

@@ -1,17 +1,17 @@
 /*
 * Copyright (C) 2011 Samsung Electronics Corporation. All rights reserved.
-* 
+*
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided the following conditions
 * are met:
-* 
+*
 * 1.  Redistributions of source code must retain the above copyright
 *     notice, this list of conditions and the following disclaimer.
-* 
+*
 * 2.  Redistributions in binary form must reproduce the above copyright
 *     notice, this list of conditions and the following disclaimer in the
 *     documentation and/or other materials provided with the distribution.
-* 
+*
 * THIS SOFTWARE IS PROVIDED BY SAMSUNG ELECTRONICS CORPORATION AND ITS
 * CONTRIBUTORS "AS IS", AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING
 * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
@@ -52,7 +52,7 @@ void main(void) {
     // // If we're between r1 and r, set the alpha of this pixel to a proportionate value
     // else
     //     gl_FragColor[3] = 1.0 - ((r - r1)/(0.5 - r1))*vColor[3];
-    
+
     // gl_FragColor = 2.0 * (0.5 - r) * vColor;
-    gl_FragColor = vColor;
+    gl_FragColor = vec4(1.0, 0.0, 0.0, 0.5);;
 }
