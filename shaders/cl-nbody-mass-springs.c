@@ -18,7 +18,7 @@
 
 
 // Calculate the force of point b on point a, returning a vector indicating the movement to point a
-float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues);
+float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues, unsigned int randOffset);
 
 
 __kernel void nbody_compute_repulsion(
@@ -46,11 +46,11 @@ __kernel void nbody_compute_repulsion(
 
 	float2 posDelta = (float2) (0.0f, 0.0f);
 
-    unsigned int modulus = numTiles / 7; // tiles per iteration: 
+    unsigned int modulus = numTiles / 7; // tiles per iteration:
 
 	for(unsigned int tile = 0; tile < numTiles; tile++) {
-		    
-	    if (tile % modulus != stepNumber % modulus) continue; 
+
+	    if (tile % modulus != stepNumber % modulus) continue;
 
 		const unsigned int tileStart = (tile * tileSize);
 
@@ -75,7 +75,7 @@ __kernel void nbody_compute_repulsion(
 
 			float2 otherPoint = tilePoints[cachedPoint];
 
-			posDelta += calculatePointForce(myPos, otherPoint, randValues);
+			posDelta += calculatePointForce(myPos, otherPoint, randValues, stepNumber);
 		}
 
 		barrier(CLK_LOCAL_MEM_FENCE);
@@ -92,7 +92,7 @@ __kernel void nbody_compute_repulsion(
 }
 
 
-float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues) {
+float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues, unsigned int randOffset) {
 	float r = (b.x - a.x)*(b.x - a.x) + (b.y - a.y)*(b.y - a.y); //distance(a, b);
 
 	if(r < FLT_EPSILON * FLT_EPSILON) {
@@ -100,7 +100,7 @@ float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues) {
 		// randomness, then add that to the global id. Right now, the specific random value each
 		// point uses is constant. If this point isn't strong enough to get the point 'unstuck'
 		// (from, say, a corner,) then it will remain there forever more.
-		b = randValues[get_global_id(0) % RAND_LENGTH];
+		b = randValues[(get_global_id(0) * randOffset) % RAND_LENGTH];
 		r = (b.x - a.x)*(b.x - a.x) + (b.y - a.y)*(b.y - a.y);
 	}
 
