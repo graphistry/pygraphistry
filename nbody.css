@@ -87,3 +87,9 @@ body {
 #matrices {
 	/*display: none;*/
 }
+
+.fps {
+	float: left;
+	text-align: left;
+	margin: 1em;
+}
