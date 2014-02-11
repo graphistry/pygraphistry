@@ -1,3 +1,8 @@
+// The fraction of tiles to process each execution of this kernel. For example, a value of '10' will
+// cause an execution of this kernel to only process every 10th tile.
+// The particular subset of tiles is chosen based off of stepNumber.
+#define TILES_PER_ITERATION 7
+
 // The energy with which points repulse each other
 #define POINT_REPULSION -0.00001f
 // The strength of the force pulling points toward the center of the graph
@@ -46,7 +51,7 @@ __kernel void nbody_compute_repulsion(
 
 	float2 posDelta = (float2) (0.0f, 0.0f);
 
-    unsigned int modulus = numTiles / 7; // tiles per iteration:
+    unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
 
 	for(unsigned int tile = 0; tile < numTiles; tile++) {
 
@@ -83,9 +88,10 @@ __kernel void nbody_compute_repulsion(
 		barrier(CLK_LOCAL_MEM_FENCE);
 	}
 
-
 	// Force of gravity pulling the points toward the center
 	float2 center = dimensions / 2.0f;
+	// TODO: Should we be dividing the stength of gravity by TILES_PER_ITERATION? We only consider
+	// 1 / TILES_PER_ITERATION of the total points in any executuin, but here we apply full gravity.
 	posDelta += ((float2) ((center.x - myPos.x), (center.y - myPos.y)) * (GRAVITY_FROM_CENTER * alpha));
 
 	// Calculate force from walls
