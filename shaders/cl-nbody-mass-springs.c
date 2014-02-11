@@ -33,11 +33,12 @@ __kernel void nbody_compute_repulsion(
 	__constant float2* randValues,
 	unsigned int stepNumber)
 {
-    const float2 dimensions = (float2) (width, height);
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
 
-	float alpha = 1.0f / clamp(((float) stepNumber)/2.0f, 1.0f, 30.0f);
+    const float2 dimensions = (float2) (width, height);
+
+	float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), FLT_EPSILON * 2.0f);  //1.0f / (clamp(((float) stepNumber), 1.0f, 50.0f) + 10.0f);
 
 	const unsigned int threadLocalId = (unsigned int) get_local_id(0);
 	const unsigned int pointId = (unsigned int) get_global_id(0);
