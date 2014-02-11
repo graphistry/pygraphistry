@@ -64,6 +64,25 @@ body {
 	/*height: 700px;*/
 }
 
+#sliders {
+    width: 30%;
+    position: absolute;
+    padding: 1em;
+    text-align: left;
+}
+#sliders div {
+    margin-bottom: 1em; 
+}
+
+#sliders input[type="range"] {
+    width: 50%; display: inline;
+}
+
+#sliders label {
+    background-color: rgba(255,255,255,0.8);
+    margin-left: 1em;
+}
+
 #message-box {
 	width: 100%;
 	text-align: left;
