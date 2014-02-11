@@ -30,6 +30,7 @@ __kernel void nbody_compute_repulsion(
 	float2 dimensions,
 	__constant float2* randValues)
 {
+    dimensions = (float2) (1.0f, 1.0f);
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
 
