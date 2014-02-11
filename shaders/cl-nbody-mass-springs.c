@@ -1,5 +1,5 @@
 // The energy with which points repulse each other
-#define POINT_REPULSION 0.01f
+#define POINT_REPULSION 0.00001f
 // The energy with which the walls repulse points
 // #define WALL_REPULSION  1.0f
 
@@ -28,7 +28,8 @@ __kernel void nbody_compute_repulsion(
 	__global float2* outputPositions,
 	__local float2* tilePoints,
 	float2 dimensions,
-	__constant float2* randValues)
+	__constant float2* randValues,
+	unsigned int stepNumber)
 {
     dimensions = (float2) (1.0f, 1.0f);
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
@@ -72,7 +73,7 @@ __kernel void nbody_compute_repulsion(
 
 	// Calculate force from walls
 
-	myPos += posDelta / max(length(posDelta) / (length(dimensions) / REPULSION_MAX_MULTIPLE), 1.0f);// * timeDelta;
+	myPos += posDelta / clamp((float) stepNumber, 1.0f, 15.0f);
 
 	// Clamp myPos to be within the walls
 	outputPositions[pointId] = clamp(myPos, (float2) (0.0f, 0.0f), dimensions);;
