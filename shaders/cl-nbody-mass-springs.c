@@ -23,11 +23,12 @@ __kernel void nbody_compute_repulsion(
 	__global float2* inputPositions,
 	__global float2* outputPositions,
 	__local float2* tilePoints,
-	float2 dimensions,
+	float width,
+	float height,
 	__constant float2* randValues,
 	unsigned int stepNumber)
 {
-    dimensions = (float2) (1.0f, 1.0f);
+    const float2 dimensions = (float2) (width, height);
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
 
