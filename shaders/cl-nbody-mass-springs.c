@@ -38,7 +38,6 @@ __kernel void nbody_compute_repulsion(
 	__global float* outputPositions,
 	__local float* tilePoints,
 	float2 dimensions,
-	float timeDelta,
 	__constant float2* randValues)
 {
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
@@ -57,7 +56,7 @@ __kernel void nbody_compute_repulsion(
 
 	// Points per tile = threads per workgroup
 	const unsigned int tileSize = (unsigned int) get_local_size(0);
-	const unsigned int numTiles = max(numPoints / tileSize, (uint) 1);
+	const unsigned int numTiles = (unsigned int) get_num_groups(0); //max(numPoints / tileSize, (uint) 1);
 
 	float2 posDelta = (float2) (0.0f, 0.0f);
 
@@ -104,13 +103,10 @@ float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues) {
 	float r = (b.x - a.x)*(b.x - a.x) + (b.y - a.y)*(b.y - a.y); //distance(a, b);
 
 	if(r < FLT_EPSILON * FLT_EPSILON) {
-		// Move a toward the center by a small amount
-		// float2 center = dimensions / 2.0f;
-		// float2 delta = normalize(center - a) * ((length(dimensions) / 100) / get_global_id(0));
-		// a += delta;
-
-		// return normalize((float2) (get_global_id(0) * ((float) (get_local_id(0) % 2) * -1.0f), get_global_id(0) * ((float) (get_global_id(0) % 2) * -1.0f))) * (length(dimensions) / 10.0f);
-		// b =
+		// TODO: We should pass the current tick # into the kernel as an additional source of
+		// randomness, then add that to the global id. Right now, the specific random value each
+		// point uses is constant. If this point isn't strong enough to get the point 'unstuck'
+		// (from, say, a corner,) then it will remain there forever more.
 		b = randValues[get_global_id(0) % RAND_LENGTH];
 		r = (b.x - a.x)*(b.x - a.x) + (b.y - a.y)*(b.y - a.y);
 	}
