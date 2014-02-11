@@ -1,13 +1,9 @@
 // The energy with which points repulse each other
 #define POINT_REPULSION -0.00001f
+// The strength of the force pulling points toward the center of the graph
+#define GRAVITY_FROM_CENTER 0.2f
 // The energy with which the walls repulse points
-// #define WALL_REPULSION  1.0f
-
-// The maximum energy we a point can be repulsed by, as a multiple of the base energy.
-// So '10' means two points can repulse with a maximum energy of POINT_REPULSION * 10.
-// (Normally, as the distance between points approaches 0, the energy approaches infinity. This
-// value clamps that.)
-#define REPULSION_MAX_MULTIPLE 10.0f
+// #define WALL_REPULSION  -0.0002f
 
 // The length of the 'randValues' array
 #define RAND_LENGTH 73 //146
@@ -86,12 +82,30 @@ __kernel void nbody_compute_repulsion(
 		barrier(CLK_LOCAL_MEM_FENCE);
 	}
 
+
+	// Force of gravity pulling the points toward the center
+	float2 center = dimensions / 2.0f;
+	posDelta += ((float2) ((center.x - myPos.x), (center.y - myPos.y)) * (GRAVITY_FROM_CENTER * alpha));
+
 	// Calculate force from walls
+	// The force will come from a bit 'outside' the wall (to move points which are collected on the
+	// wall.) This value controls how much outside.
+	// float2 wallBuffer = dimensions / 100.0f;
+	// // left wall
+	// posDelta += calculatePointForce(myPos, (float2) (0.0f - wallBuffer.x, myPos.y), WALL_REPULSION * alpha, randValues, stepNumber);
+	// // right wall
+	// posDelta += calculatePointForce(myPos, (float2) (dimensions.x + wallBuffer.x, myPos.y), WALL_REPULSION * alpha, randValues, stepNumber);
+	// // bottom wall
+	// posDelta += calculatePointForce(myPos, (float2) (myPos.x, 0.0f - wallBuffer.y), WALL_REPULSION * alpha, randValues, stepNumber);
+	// // top wall
+	// posDelta += calculatePointForce(myPos, (float2) (myPos.x, dimensions.y + wallBuffer.y), WALL_REPULSION * alpha, randValues, stepNumber);
 
 	myPos += posDelta;
 
 	// Clamp myPos to be within the walls
-	outputPositions[pointId] = clamp(myPos, (float2) (0.0f, 0.0f), dimensions);;
+	// outputPositions[pointId] = clamp(myPos, (float2) (0.0f, 0.0f), dimensions);
+
+	outputPositions[pointId] = myPos;
 
 	return;
 }
