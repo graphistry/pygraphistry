@@ -1,5 +1,5 @@
 // The energy with which points repulse each other
-#define POINT_REPULSION 0.00001f
+#define POINT_REPULSION -0.00001f
 // The energy with which the walls repulse points
 // #define WALL_REPULSION  1.0f
 
@@ -9,6 +9,7 @@
 // value clamps that.)
 #define REPULSION_MAX_MULTIPLE 10.0f
 
+// The length of the 'randValues' array
 #define RAND_LENGTH 73 //146
 
 // #define EDGE_REPULSION 0.5f
@@ -18,7 +19,7 @@
 
 
 // Calculate the force of point b on point a, returning a vector indicating the movement to point a
-float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues, unsigned int randOffset);
+float2 calculatePointForce(float2 a, float2 b, float force, __constant float2* randValues, unsigned int randOffset);
 
 
 __kernel void nbody_compute_repulsion(
@@ -33,6 +34,8 @@ __kernel void nbody_compute_repulsion(
     dimensions = (float2) (1.0f, 1.0f);
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
+
+	float alpha = 1.0f / clamp(((float) stepNumber)/2.0f, 1.0f, 30.0f);
 
 	const unsigned int threadLocalId = (unsigned int) get_local_id(0);
 	const unsigned int pointId = (unsigned int) get_global_id(0);
@@ -50,7 +53,9 @@ __kernel void nbody_compute_repulsion(
 
 	for(unsigned int tile = 0; tile < numTiles; tile++) {
 
-	    if (tile % modulus != stepNumber % modulus) continue;
+	    if (tile % modulus != stepNumber % modulus) {
+	    	continue;
+	    }
 
 		const unsigned int tileStart = (tile * tileSize);
 
@@ -75,7 +80,7 @@ __kernel void nbody_compute_repulsion(
 
 			float2 otherPoint = tilePoints[cachedPoint];
 
-			posDelta += calculatePointForce(myPos, otherPoint, randValues, stepNumber);
+			posDelta += calculatePointForce(myPos, otherPoint, POINT_REPULSION * alpha, randValues, stepNumber);
 		}
 
 		barrier(CLK_LOCAL_MEM_FENCE);
@@ -83,7 +88,7 @@ __kernel void nbody_compute_repulsion(
 
 	// Calculate force from walls
 
-	myPos += posDelta / clamp(((float) stepNumber)/2.0f, 1.0f, 30.0f);
+	myPos += posDelta;
 
 	// Clamp myPos to be within the walls
 	outputPositions[pointId] = clamp(myPos, (float2) (0.0f, 0.0f), dimensions);;
@@ -92,19 +97,20 @@ __kernel void nbody_compute_repulsion(
 }
 
 
-float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues, unsigned int randOffset) {
-	float r = (b.x - a.x)*(b.x - a.x) + (b.y - a.y)*(b.y - a.y); //distance(a, b);
+float2 calculatePointForce(float2 a, float2 b, float force, __constant float2* randValues, unsigned int randOffset) {
+	// r = distance^2
+	float2 d = (float2) ((b.x - a.x), (b.y - a.y));
+	float r = (d.x * d.x) + (d.y * d.y);
 
-	if(r < FLT_EPSILON * FLT_EPSILON) {
-		// TODO: We should pass the current tick # into the kernel as an additional source of
-		// randomness, then add that to the global id. Right now, the specific random value each
-		// point uses is constant. If this point isn't strong enough to get the point 'unstuck'
-		// (from, say, a corner,) then it will remain there forever more.
+	if(r < (FLT_EPSILON * FLT_EPSILON)) {
 		b = randValues[(get_global_id(0) * randOffset) % RAND_LENGTH];
-		r = (b.x - a.x)*(b.x - a.x) + (b.y - a.y)*(b.y - a.y);
-	}
 
-	return ((float2) ((b.x - a.x)/r, (b.y - a.y)/r)) * POINT_REPULSION * -1.0f;
+		d = (float2) ((b.x - a.x), (b.y - a.y));
+		r = (d.x * d.x) + (d.y * d.y);
+	}
+	float k = force / r;
+
+	return (float2) (d.x * k, d.y * k);
 }
 
 
