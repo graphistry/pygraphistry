@@ -73,7 +73,7 @@ __kernel void nbody_compute_repulsion(
 
 	// Calculate force from walls
 
-	myPos += posDelta / clamp((float) stepNumber, 1.0f, 15.0f);
+	myPos += posDelta / clamp(((float) stepNumber)/2.0f, 1.0f, 30.0f);
 
 	// Clamp myPos to be within the walls
 	outputPositions[pointId] = clamp(myPos, (float2) (0.0f, 0.0f), dimensions);;

@@ -39,7 +39,7 @@ void main(void) {
     // if(size > maxSize) size = maxSize;
 
     // gl_PointSize  = size;
-    gl_PointSize = 8.0;
+    gl_PointSize = 3.0;
 
     // vec4 color = vec4(1.0, 1.0, 1.0, 1.0);
     // if(pos.x < 0.0) {
