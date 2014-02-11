@@ -3,13 +3,6 @@
 // The particular subset of tiles is chosen based off of stepNumber.
 #define TILES_PER_ITERATION 7
 
-// The energy with which points repulse each other
-#define POINT_REPULSION -0.00001f
-// The strength of the force pulling points toward the center of the graph
-#define GRAVITY_FROM_CENTER 0.2f
-// The energy with which the walls repulse points
-// #define WALL_REPULSION  -0.0002f
-
 // The length of the 'randValues' array
 #define RAND_LENGTH 73 //146
 
@@ -30,6 +23,8 @@ __kernel void nbody_compute_repulsion(
 	__local float2* tilePoints,
 	float width,
 	float height,
+	float charge,
+	float gravity,
 	__constant float2* randValues,
 	unsigned int stepNumber)
 {
@@ -83,7 +78,7 @@ __kernel void nbody_compute_repulsion(
 
 			float2 otherPoint = tilePoints[cachedPoint];
 
-			posDelta += calculatePointForce(myPos, otherPoint, POINT_REPULSION * alpha, randValues, stepNumber);
+			posDelta += calculatePointForce(myPos, otherPoint, charge * alpha, randValues, stepNumber);
 		}
 
 		barrier(CLK_LOCAL_MEM_FENCE);
@@ -93,7 +88,7 @@ __kernel void nbody_compute_repulsion(
 	float2 center = dimensions / 2.0f;
 	// TODO: Should we be dividing the stength of gravity by TILES_PER_ITERATION? We only consider
 	// 1 / TILES_PER_ITERATION of the total points in any executuin, but here we apply full gravity.
-	posDelta += ((float2) ((center.x - myPos.x), (center.y - myPos.y)) * (GRAVITY_FROM_CENTER * alpha));
+	posDelta += ((float2) ((center.x - myPos.x), (center.y - myPos.y)) * (gravity * alpha));
 
 	// Calculate force from walls
 	// The force will come from a bit 'outside' the wall (to move points which are collected on the
