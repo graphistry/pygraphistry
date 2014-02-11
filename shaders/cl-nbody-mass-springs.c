@@ -21,7 +21,6 @@
 float2 calculatePointForce(float2 a, float2 b, __constant float2* randValues);
 
 
-// TODO: Convert the positions array from float* to float2*
 __kernel void nbody_compute_repulsion(
 	unsigned int numPoints,
 	__global float2* inputPositions,
@@ -46,15 +45,21 @@ __kernel void nbody_compute_repulsion(
 	float2 posDelta = (float2) (0.0f, 0.0f);
 
 	for(unsigned int tile = 0; tile < numTiles; tile++) {
-
 		const unsigned int tileStart = (tile * tileSize);
-		const unsigned int tilePointId = tileStart + threadLocalId;
 
-		tilePoints[threadLocalId] = inputPositions[tilePointId];
+		// If numPoints isn't a multiple of tileSize, the last tile will have less than the full
+		// number of points. If we detect we'd be reading out-of-bounds data, clamp the number of
+		// points we read to be within bounds.
+		unsigned int thisTileSize =  tileStart + tileSize < numPoints ?
+										tileSize : numPoints - tileStart;
+
+		if(threadLocalId < thisTileSize){
+			tilePoints[threadLocalId] = inputPositions[tileStart + threadLocalId];
+		}
 
 		barrier(CLK_LOCAL_MEM_FENCE);
 
-		for(unsigned int j = 0; j < tileSize; j++) {
+		for(unsigned int j = 0; j < thisTileSize; j++) {
 			unsigned int cachedPoint = j;
 			// Don't calculate the forces of a point on itself
 			if(tileStart + cachedPoint == pointId) {
