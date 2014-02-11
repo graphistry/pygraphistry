@@ -47,7 +47,11 @@ __kernel void nbody_compute_repulsion(
 
 	float2 posDelta = (float2) (0.0f, 0.0f);
 
+    unsigned int modulus = numTiles / 7; // tiles per iteration: 
+
 	for(unsigned int tile = 0; tile < numTiles; tile++) {
+		    
+	    if (tile % modulus != stepNumber % modulus) continue; 
 
 		const unsigned int tileStart = (tile * tileSize);
 		const unsigned int tilePointId = tileStart + threadLocalId;
