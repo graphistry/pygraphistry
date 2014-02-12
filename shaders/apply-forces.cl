@@ -179,7 +179,7 @@ __kernel void apply_springs(
 		// target -= (target - source) * force;
 		// outputPoints[curSpring[1]] = (float2) (0.75f, 0.25f);
 
-		springPositions[workItem] = (float4) (source.x, source.y, target.x, target.y);
+		springPositions[curSpringIdx] = (float4) (source.x, source.y, target.x, target.y);
 	}
 
 	return;
