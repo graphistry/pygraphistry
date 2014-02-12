@@ -130,15 +130,16 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 
 // TODO: Instead of writing out a list
 __kernel void apply_springs(
-	__global uint2* workList, 	       // Array of [index, length] pairs to consider (read-only)
 	__global uint2* springs,	       // Array of springs, of the form [source node, targer node] (read-only)
+	__global uint2* workList, 	       // Array of spring [index, length] pairs to compute (read-only)
 	__global float2* inputPoints,      // Current point positions (read-only)
 	__global float2* outputPoints,     // Point positions after spring forces have been applied (write-only)
-	__global float2* springPositions,  // Positions of the springs after forces are applied. Length
+	__global float4* springPositions,  // Positions of the springs after forces are applied. Length
 	                                   // len(springs) * 2: one float2 for start, one float2 for
 	                                   // end. (write-only)
 	float springStrength,              // The rigidity of the springs
-	float springDistance               // The 'at rest' length of a spring
+	float springDistance,              // The 'at rest' length of a spring
+	unsigned int stepNumber
 	)
 {
 	// From Hooke's Law, we generally have that the force exerted by a spring is given by
@@ -153,6 +154,24 @@ __kernel void apply_springs(
 	// target -= distance * k;
 	// k = 1 - k;
 	// source += distance * k;
+
+	const size_t workItem = (unsigned int) get_global_id(0);
+
+	const uint springsStart = workList[workItem][0];
+	const uint springsCount = workList[workItem][1];
+
+	for(uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
+		const uint2 curSpring = springs[curSpringIdx];
+
+		float2 source = inputPoints[curSpring[0]];
+		float2 target = inputPoints[curSpring[1]];
+
+		// outputPoints[curSpring[0]] = (float2) (0.25f, 0.75f);
+		// outputPoints[curSpring[1]] = (float2) (0.75f, 0.25f);
+
+		springPositions[workItem] = (float4) (source.x, source.y, target.x, target.y);
+	}
+
 	return;
 }
 
