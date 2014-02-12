@@ -20,7 +20,7 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 	unsigned int randOffset);
 
 
-__kernel void nbody_compute_repulsion(
+__kernel void apply_points(
 	unsigned int numPoints,
 	__global float2* inputPositions,
 	__global float2* outputPositions,
