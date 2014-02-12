@@ -37,7 +37,7 @@ __kernel void apply_points(
 
     const float2 dimensions = (float2) (width, height);
 
-	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), FLT_EPSILON * 2.0f);  //1.0f / (clamp(((float) stepNumber), 1.0f, 50.0f) + 10.0f);
+	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);  //1.0f / (clamp(((float) stepNumber), 1.0f, 50.0f) + 10.0f);
 
 	const unsigned int threadLocalId = (unsigned int) get_local_id(0);
 	const unsigned int pointId = (unsigned int) get_global_id(0);
@@ -142,7 +142,8 @@ __kernel void apply_springs(
 	unsigned int stepNumber
 	)
 {
-	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), FLT_EPSILON * 2.0f);
+	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);
+	// const float alpha = max(0.1f * pown(0.99f, stepNumber), FLT_EPSILON * 2.0f);
 
 	// From Hooke's Law, we generally have that the force exerted by a spring is given by
 	//	F = -k * X, where X is the distance the spring has been displaced from it's natural
