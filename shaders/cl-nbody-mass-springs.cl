@@ -95,28 +95,14 @@ __kernel void nbody_compute_repulsion(
 	// Force of gravity pulling the points toward the center
 	float2 center = dimensions / 2.0f;
 	// TODO: Should we be dividing the stength of gravity by TILES_PER_ITERATION? We only consider
-	// 1 / TILES_PER_ITERATION of the total points in any executuin, but here we apply full gravity.
+	// 1 / TILES_PER_ITERATION of the total points in any execution, but here we apply full gravity.
 	posDelta += ((float2) ((center.x - myPos.x), (center.y - myPos.y)) * (gravity * alpha));
 
-	// Calculate force from walls
-	// The force will come from a bit 'outside' the wall (to move points which are collected on the
-	// wall.) This value controls how much outside.
-	// float2 wallBuffer = dimensions / 100.0f;
-	// // left wall
-	// posDelta += pointForce(myPos, (float2) (0.0f - wallBuffer.x, myPos.y), WALL_REPULSION * alpha, randValues, stepNumber);
-	// // right wall
-	// posDelta += pointForce(myPos, (float2) (dimensions.x + wallBuffer.x, myPos.y), WALL_REPULSION * alpha, randValues, stepNumber);
-	// // bottom wall
-	// posDelta += pointForce(myPos, (float2) (myPos.x, 0.0f - wallBuffer.y), WALL_REPULSION * alpha, randValues, stepNumber);
-	// // top wall
-	// posDelta += pointForce(myPos, (float2) (myPos.x, dimensions.y + wallBuffer.y), WALL_REPULSION * alpha, randValues, stepNumber);
-
-	myPos += posDelta;
 
 	// Clamp myPos to be within the walls
-	// outputPositions[pointId] = clamp(myPos, (float2) (0.0f, 0.0f), dimensions);
+	// outputPositions[pointId] = clamp(myPos + posDelta, (float2) (0.0f, 0.0f), dimensions);
 
-	outputPositions[pointId] = myPos;
+	outputPositions[pointId] = myPos + posDelta;
 
 	return;
 }
@@ -142,18 +128,32 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 }
 
 
-// __kernel void nbody2d_compute_springs(
-// 	unsigned int numEdges,
-// 	__global unsigned int* springList,
-// 	__global float* springPositions,
-// 	__global float* inputPositions,
-// 	__global float* outputPositions,
-// 	float timeDelta)
-// {
-// 	// From Hooke's Law, we generally have that the force exerted by a spring is given by
-// 	//	F = -k * X, where X is the distance the spring has been displaced from it's natural
-// 	// distance, and k is some constant positive real number.
-// 	return;
-// }
+// TODO: Instead of writing out a list
+__kernel void apply_springs(
+	__global uint2* workList, 	       // Array of [index, length] pairs to consider (read-only)
+	__global uint2* springs,	       // Array of springs, of the form [source node, targer node] (read-only)
+	__global float2* inputPoints,      // Current point positions (read-only)
+	__global float2* outputPoints,     // Point positions after spring forces have been applied (write-only)
+	__global float2* springPositions,  // Positions of the springs after forces are applied. Length
+	                                   // len(springs) * 2: one float2 for start, one float2 for
+	                                   // end. (write-only)
+	float springStrength,              // The rigidity of the springs
+	float springDistance               // The 'at rest' length of a spring
+	)
+{
+	// From Hooke's Law, we generally have that the force exerted by a spring is given by
+	//	F = -k * X, where X is the distance the spring has been displaced from it's natural
+	// distance, and k is some constant positive real number.
+
+	// d = target - source;
+	// l1 = Math.sqrt(distance^2);
+	// l = alpha * strengths[i] * ((l1) - distances[i]) / l1;
+	// distance *= l;
+	// k = source.weight / (target.weight + source.weight)
+	// target -= distance * k;
+	// k = 1 - k;
+	// source += distance * k;
+	return;
+}
 
 
