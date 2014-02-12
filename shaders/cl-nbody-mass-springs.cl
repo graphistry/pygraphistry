@@ -13,7 +13,11 @@
 
 
 // Calculate the force of point b on point a, returning a vector indicating the movement to point a
-float2 calculatePointForce(float2 a, float2 b, float force, __constant float2* randValues, unsigned int randOffset);
+float2 pointForce(float2 a, float2 b, float force);
+
+// Retrieves a random point from a set of points
+float2 randomPoint(__local float2* points, unsigned int numPoints, __constant float2* randValues,
+	unsigned int randOffset);
 
 
 __kernel void nbody_compute_repulsion(
@@ -69,8 +73,7 @@ __kernel void nbody_compute_repulsion(
 
 		barrier(CLK_LOCAL_MEM_FENCE);
 
-		for(unsigned int j = 0; j < thisTileSize; j++) {
-			unsigned int cachedPoint = j;
+		for(unsigned int cachedPoint = 0; cachedPoint < thisTileSize; cachedPoint++) {
 			// Don't calculate the forces of a point on itself
 			if(tileStart + cachedPoint == pointId) {
 				continue;
@@ -78,7 +81,12 @@ __kernel void nbody_compute_repulsion(
 
 			float2 otherPoint = tilePoints[cachedPoint];
 
-			posDelta += calculatePointForce(myPos, otherPoint, charge * alpha, randValues, stepNumber);
+			// for(uchar tries = 0; fast_distance(otherPoint, myPos) <= FLT_EPSILON && tries < 100; tries++) {
+			if(fast_distance(otherPoint, myPos) <= FLT_EPSILON) {
+				otherPoint = randomPoint(tilePoints, thisTileSize, randValues, stepNumber);
+			}
+
+			posDelta += pointForce(myPos, otherPoint, charge * alpha);
 		}
 
 		barrier(CLK_LOCAL_MEM_FENCE);
@@ -95,13 +103,13 @@ __kernel void nbody_compute_repulsion(
 	// wall.) This value controls how much outside.
 	// float2 wallBuffer = dimensions / 100.0f;
 	// // left wall
-	// posDelta += calculatePointForce(myPos, (float2) (0.0f - wallBuffer.x, myPos.y), WALL_REPULSION * alpha, randValues, stepNumber);
+	// posDelta += pointForce(myPos, (float2) (0.0f - wallBuffer.x, myPos.y), WALL_REPULSION * alpha, randValues, stepNumber);
 	// // right wall
-	// posDelta += calculatePointForce(myPos, (float2) (dimensions.x + wallBuffer.x, myPos.y), WALL_REPULSION * alpha, randValues, stepNumber);
+	// posDelta += pointForce(myPos, (float2) (dimensions.x + wallBuffer.x, myPos.y), WALL_REPULSION * alpha, randValues, stepNumber);
 	// // bottom wall
-	// posDelta += calculatePointForce(myPos, (float2) (myPos.x, 0.0f - wallBuffer.y), WALL_REPULSION * alpha, randValues, stepNumber);
+	// posDelta += pointForce(myPos, (float2) (myPos.x, 0.0f - wallBuffer.y), WALL_REPULSION * alpha, randValues, stepNumber);
 	// // top wall
-	// posDelta += calculatePointForce(myPos, (float2) (myPos.x, dimensions.y + wallBuffer.y), WALL_REPULSION * alpha, randValues, stepNumber);
+	// posDelta += pointForce(myPos, (float2) (myPos.x, dimensions.y + wallBuffer.y), WALL_REPULSION * alpha, randValues, stepNumber);
 
 	myPos += posDelta;
 
@@ -114,20 +122,23 @@ __kernel void nbody_compute_repulsion(
 }
 
 
-float2 calculatePointForce(float2 a, float2 b, float force, __constant float2* randValues, unsigned int randOffset) {
-	// r = distance^2
-	float2 d = (float2) ((b.x - a.x), (b.y - a.y));
-	float r = (d.x * d.x) + (d.y * d.y);
-
-	if(r < (FLT_EPSILON * FLT_EPSILON)) {
-		b = randValues[(get_global_id(0) * randOffset) % RAND_LENGTH];
-
-		d = (float2) ((b.x - a.x), (b.y - a.y));
-		r = (d.x * d.x) + (d.y * d.y);
-	}
-	float k = force / r;
+float2 pointForce(float2 a, float2 b, float force) {
+	const float2 d = (float2) ((b.x - a.x), (b.y - a.y));
+	// k = force / distance^2
+	const float k = force / max((d.x * d.x) + (d.y * d.y), FLT_EPSILON);
 
 	return (float2) (d.x * k, d.y * k);
+}
+
+
+float2 randomPoint(__local float2* points, unsigned int numPoints, __constant float2* randValues, unsigned int randSeed) {
+	// First, we need to get one of the random values from the randValues array, using our randSeed
+	const float2 rand2 = randValues[(get_global_id(0) * randSeed) % RAND_LENGTH];
+	const float rand = rand2[0] + rand2[1];
+
+	// Now, we need to use the random value to grab one of the points
+	const unsigned int pointIndex = convert_uint(numPoints * rand) % numPoints;
+	return points[pointIndex];
 }
 
 
