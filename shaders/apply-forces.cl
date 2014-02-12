@@ -170,9 +170,10 @@ __kernel void apply_springs(
 		float2 target = inputPoints[curSpring[1]];
 
 		float dist = distance(target, source); //sqrt((delta.x * delta.x) + (delta.y * delta.y));
-		float force = alpha * springStrength * (dist - springDistance) / dist;
-
-		source += (target - source) * force;
+		if(dist > FLT_EPSILON) {
+			float force = alpha * springStrength * (dist - springDistance) / dist;
+			source += (target - source) * force;
+		}
 		outputPoints[curSpring[0]] = source;
 
 		// target -= (target - source) * force;
