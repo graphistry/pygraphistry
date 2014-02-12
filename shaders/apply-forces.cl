@@ -67,11 +67,19 @@ __kernel void apply_points(
 		unsigned int thisTileSize =  tileStart + tileSize < numPoints ?
 										tileSize : numPoints - tileStart;
 
-		if(threadLocalId < thisTileSize){
-			tilePoints[threadLocalId] = inputPositions[tileStart + threadLocalId];
-		}
+		// if(threadLocalId < thisTileSize){
+		// 	tilePoints[threadLocalId] = inputPositions[tileStart + threadLocalId];
+		// }
 
-		barrier(CLK_LOCAL_MEM_FENCE);
+		// barrier(CLK_LOCAL_MEM_FENCE);
+
+
+		event_t waitEvents[1];
+		waitEvents[0] = async_work_group_copy(tilePoints, inputPositions + tileStart, thisTileSize, 0);
+		wait_group_events(1, waitEvents);
+
+		prefetch(inputPositions + ((tile + 1) * tileSize), thisTileSize);
+
 
 		for(unsigned int cachedPoint = 0; cachedPoint < thisTileSize; cachedPoint++) {
 			// Don't calculate the forces of a point on itself
