@@ -71,7 +71,10 @@ __kernel void apply_midpoints(
 
 		for(unsigned int cachedPoint = 0; cachedPoint < thisTileSize; cachedPoint++) {
 			// Don't calculate the forces of a point on itself
-			if(tileStart + cachedPoint == pointId) {
+			// Only attract similar control points
+			// FIXME manipulate stride rather than comparing
+			if ((tileStart + cachedPoint == pointId) 
+				|| ((pointId % numSplits) != ((cachedPoint + tileStart) % numSplits))) {
 				continue;
 			}
 
@@ -82,7 +85,7 @@ __kernel void apply_midpoints(
 
 			float2 delta = pointForce(myPos, otherPoint, charge * alpha);
 
-			posDelta +=  ((pointId % numSplits) == ((cachedPoint + tileStart) % numSplits)) ? -delta : delta;
+			posDelta -=  delta;
 
 		}
 
