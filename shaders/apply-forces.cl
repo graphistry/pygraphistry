@@ -19,6 +19,44 @@ float2 pointForce(float2 a, float2 b, float force);
 float2 randomPoint(__local float2* points, unsigned int numPoints, __constant float2* randValues,
 	unsigned int randOffset);
 
+//
+__kernel void apply_midpoints(
+    unsigned int numPoints,
+    unsigned int numSplits,
+	__global float2* inputMidPositions,
+	__global float2* outputMidPositions,
+	__local float2* tilePoints,
+	float width,
+	float height,
+	float charge,
+	float gravity,
+	__constant float2* randValues,
+	unsigned int stepNumber) {
+
+   return;   
+}    
+
+//Compute elements based on original edges and predefined number of splits in each one
+__kernel void apply_midsprings(
+	unsigned int numSplits,              // How many times each edge is split (> 0)
+	__global uint2* springs,	         // Array of (unsplit) springs, of the form [source node, targer node] (read-only)
+	__global uint2* workList, 	         // Array of (unsplit) spring [index, length] pairs to compute (read-only)
+	__global float2* inputPoints,        // Current point positions (read-only)
+	__global float2* inputMidPoints,     // Current midpoint positions (read-only)
+	__global float2* outputMidPoints,    // Point positions after spring forces have been applied (write-only)
+	__global float4* springMidPositions, // Positions of the springs after forces are applied. Length
+	                                     // len(springs) * 2: one float2 for start, one float2 for
+	                                     // end. (write-only)
+	float springStrength,                // The rigidity of the springs
+	float springDistance,                // The 'at rest' length of a spring
+	unsigned int stepNumber
+	)
+{
+
+    return;
+}
+    
+    
 
 __kernel void apply_points(
 	unsigned int numPoints,
