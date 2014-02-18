@@ -117,7 +117,35 @@ __kernel void apply_midsprings(
 	)
 {
 
-    return;
+	if (numSplits == 0) return;
+
+/*
+
+  parallel edges.each(function (edge, i)) {
+	 start = edge.src
+	 edge.outgoing.forEach(function (dst) {
+	    curQP = edge.src
+	    firstQPIdx = ??
+	    nextQP = inputMidPoints[firstQPIdx]
+	    nextForce = delta(curQP, nextQP)
+	    firstOutEdge = i * numSPlits
+	    for (qp = 0; qp < numSplits; qp)  {
+	    	prevQP = curQP
+	    	prevForce = -nextForce //opposite dir
+	    	curQP = nextQP
+	    	nextQP = qp == numSplits - 1 ? edge.dst : midPoints[firstQPIdx + qp + 1]
+	    	nextForce = delta(curQP, nextQP)	    	
+	    	curQP += prevForce + nextForce
+	    	outputMidPoints[firstQPIdx + qp] = curQP
+	    	springMidPosition[firstOutEdge + qp] = (prevQP, curQP)
+	    }
+	    springMidPosition[firstOutEdge + numSplits] = (curQP, edge.dst)
+	 })
+  }
+
+*/
+
+	return;
 }
     
     
