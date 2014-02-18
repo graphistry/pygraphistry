@@ -273,25 +273,26 @@ __kernel void apply_springs(
 	const uint springsStart = workList[workItem][0];
 	const uint springsCount = workList[workItem][1];
 
+    const uint sourceIdx = springs[springsStart][0];
+
+	float2 source = inputPoints[sourceIdx];
 	for(uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
 		const uint2 curSpring = springs[curSpringIdx];
-
-		float2 source = inputPoints[curSpring[0]];
 		float2 target = inputPoints[curSpring[1]];
-
 		float dist = distance(target, source); //sqrt((delta.x * delta.x) + (delta.y * delta.y));
 		if(dist > FLT_EPSILON) {
 			float force = alpha * springStrength * (dist - springDistance) / dist;
 			source += (target - source) * force;
 		}
-		outputPoints[curSpring[0]] = source;
+	}
+	outputPoints[sourceIdx] = source;
 
-		// target -= (target - source) * force;
-		// outputPoints[curSpring[1]] = (float2) (0.75f, 0.25f);
-
+    //FIXME do later? target is out of date
+	for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
+		const uint2 curSpring = springs[curSpringIdx];
+		float2 target = inputPoints[curSpring[1]];
 		springPositions[curSpringIdx] = (float4) (source.x, source.y, target.x, target.y);
 	}
-
 	return;
 }
 
