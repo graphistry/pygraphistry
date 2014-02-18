@@ -33,7 +33,68 @@ __kernel void apply_midpoints(
 	__constant float2* randValues,
 	unsigned int stepNumber) {
 
-   return;   
+
+    const float2 dimensions = (float2) (width, height);
+	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);  //1.0f / (clamp(((float) stepNumber), 1.0f, 50.0f) + 10.0f);
+
+	const unsigned int threadLocalId = (unsigned int) get_local_id(0);
+	const unsigned int pointId = (unsigned int) get_global_id(0);
+
+	float2 myPos = inputMidPositions[pointId];
+
+	const unsigned int tileSize = (unsigned int) get_local_size(0);
+	const unsigned int numTiles = (unsigned int) get_num_groups(0);
+
+	float2 posDelta = (float2) (0.0f, 0.0f);
+
+    unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
+
+	for(unsigned int tile = 0; tile < numTiles; tile++) {
+
+	    if (tile % modulus != stepNumber % modulus) {
+	    	continue;
+	    }
+
+		const unsigned int tileStart = (tile * tileSize);
+
+		unsigned int thisTileSize =  tileStart + tileSize < numPoints ?
+										tileSize : numPoints - tileStart;
+
+
+		event_t waitEvents[1];
+		waitEvents[0] = async_work_group_copy(tilePoints, inputMidPositions + tileStart, thisTileSize, 0);
+		wait_group_events(1, waitEvents);
+
+		prefetch(inputMidPositions + ((tile + 1) * tileSize), thisTileSize);
+
+		
+
+		for(unsigned int cachedPoint = 0; cachedPoint < thisTileSize; cachedPoint++) {
+			// Don't calculate the forces of a point on itself
+			if(tileStart + cachedPoint == pointId) {
+				continue;
+			}
+
+			float2 otherPoint = tilePoints[cachedPoint];
+			if(fast_distance(otherPoint, myPos) <= FLT_EPSILON) {
+				otherPoint = randomPoint(tilePoints, thisTileSize, randValues, stepNumber);
+			}
+
+			float2 delta = pointForce(myPos, otherPoint, charge * alpha);
+
+			posDelta +=  ((pointId % numSplits) == ((cachedPoint + tileStart) % numSplits)) ? -delta : delta;
+
+		}
+
+		barrier(CLK_LOCAL_MEM_FENCE);		
+	}
+
+	float2 center = dimensions / 2.0f;
+	posDelta += ((float2) ((center.x - myPos.x), (center.y - myPos.y)) * (gravity * alpha));
+
+	outputMidPositions[pointId] = myPos + posDelta;
+
+	return; 
 }    
 
 //Compute elements based on original edges and predefined number of splits in each one
