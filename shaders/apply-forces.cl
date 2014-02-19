@@ -33,7 +33,6 @@ __kernel void apply_midpoints(
 	__constant float2* randValues,
 	unsigned int stepNumber) {
 
-
     const float2 dimensions = (float2) (width, height);
 	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);  //1.0f / (clamp(((float) stepNumber), 1.0f, 50.0f) + 10.0f);
 
@@ -119,33 +118,41 @@ __kernel void apply_midsprings(
 
 	if (numSplits == 0) return;
 
-/*
+    const size_t workItem = (unsigned int) get_global_id(0);
+    const uint springsStart = workList[workItem][0];
+	const uint springsCount = workList[workItem][1];
+    const uint sourceIdx = springs[springsStart][0];
+    float2 start = inputPoints[sourceIdx];
 
-  parallel edges.each(function (edge, i)) {
-	 start = edge.src
-	 edge.outgoing.forEach(function (dst) {
-	    curQP = edge.src
-	    firstQPIdx = ??
-	    nextQP = inputMidPoints[firstQPIdx]
-	    nextForce = delta(curQP, nextQP)
-	    firstOutEdge = i * numSPlits
-	    for (qp = 0; qp < numSplits; qp)  {
-	    	prevQP = curQP
-	    	prevForce = -nextForce //opposite dir
-	    	curQP = nextQP
-	    	nextQP = qp == numSplits - 1 ? edge.dst : midPoints[firstQPIdx + qp + 1]
-	    	nextForce = delta(curQP, nextQP)	    	
-	    	curQP += prevForce + nextForce
-	    	outputMidPoints[firstQPIdx + qp] = curQP
-	    	springMidPosition[firstOutEdge + qp] = (prevQP, curQP)
-	    }
-	    springMidPosition[firstOutEdge + numSplits] = (curQP, edge.dst)
-	 })
-  }
+	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);
+    
+    for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
+		float2 curQP = start;
+		uint firstQPIdx = curSpringIdx * numSplits;
+		float2 nextQP = inputMidPoints[firstQPIdx];
 
-*/
+		float dist = distance(curQP, nextQP);
+		float2 nextForce = (dist > FLT_EPSILON) ?
+		    (curQP - nextQP) * alpha * springStrength * (dist - springDistance) / dist 
+		    : 0.0f;
 
-	return;
+        for (uint qp = 0; qp < numSplits; qp++) {
+			float2 prevQP = curQP;
+			float2 prevForce = nextForce;
+			curQP = nextQP;
+			nextQP = qp < numSplits - 1 ? inputMidPoints[firstQPIdx + qp + 1] : inputPoints[springs[curSpringIdx][1]];
+			nextForce = (dist > FLT_EPSILON) ?
+		        (nextQP - curQP) * alpha * springStrength * (dist - springDistance) / dist 
+		        : 0.0f;
+		    outputMidPoints[firstQPIdx + qp] = curQP + nextForce + prevForce;// + nextForce;//inputMidPoints[firstQPIdx + qp];
+		    springMidPositions[curSpringIdx * (numSplits + 1) + qp] = (float4) (prevQP.x, prevQP.y, curQP.x, curQP.y);
+		}
+        const uint dstIdx = springs[curSpringIdx][1];
+	    float2 end = inputPoints[dstIdx];
+		springMidPositions[(curSpringIdx + 1) * numSplits - 1] = (float4) (curQP.x, curQP.y, end.x, end.y);
+    }
+    
+    return;
 }
     
     
