@@ -138,13 +138,14 @@ __kernel void apply_midsprings(
 
         for (uint qp = 0; qp < numSplits; qp++) {
 			float2 prevQP = curQP;
-			float2 prevForce = -1.0f * nextForce;
+			float2 prevForce = nextForce;
 			curQP = nextQP;
 			nextQP = qp < numSplits - 1 ? inputMidPoints[firstQPIdx + qp + 1] : inputPoints[springs[curSpringIdx][1]];
 			nextForce = (dist > FLT_EPSILON) ?
 		        (nextQP - curQP) * alpha * springStrength * (dist - springDistance) / dist 
 		        : 0.0f;
-		    outputMidPoints[firstQPIdx + qp] = curQP + (qp == numSplits - 1 ? 1.0f : 1.0f) * nextForce + (qp == 0 ? 1.0f : 1.0f) * prevForce;// + nextForce;//inputMidPoints[firstQPIdx + qp];
+		    float2 delta = (qp == numSplits - 1 ? 1.0f : 1.0f) * nextForce - (qp == 0 ? 1.0f : 1.0f) * prevForce;
+		    outputMidPoints[firstQPIdx + qp] = curQP + delta;
 		    springMidPositions[curSpringIdx * (numSplits + 1) + qp] = (float4) (prevQP.x, prevQP.y, curQP.x, curQP.y);
 		}
         const uint dstIdx = springs[curSpringIdx][1];
