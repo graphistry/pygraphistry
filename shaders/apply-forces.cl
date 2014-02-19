@@ -33,6 +33,10 @@ __kernel void apply_midpoints(
 	__constant float2* randValues,
 	unsigned int stepNumber) {
 
+    //for debugging: passthrough    
+    //outputMidPositions[(unsigned int) get_global_id(0)] = inputMidPositions[(unsigned int) get_global_id(0)];
+	//return;
+
     const float2 dimensions = (float2) (width, height);
 	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);  //1.0f / (clamp(((float) stepNumber), 1.0f, 50.0f) + 10.0f);
 
@@ -64,27 +68,23 @@ __kernel void apply_midpoints(
 		waitEvents[0] = async_work_group_copy(tilePoints, inputMidPositions + tileStart, thisTileSize, 0);
 		wait_group_events(1, waitEvents);
 
-		prefetch(inputMidPositions + ((tile + 1) * tileSize), thisTileSize);
-
-		
+		prefetch(inputMidPositions + ((tile + 1) * tileSize), thisTileSize);		
 
 		for(unsigned int cachedPoint = 0; cachedPoint < thisTileSize; cachedPoint++) {
 			// Don't calculate the forces of a point on itself
-			// Only attract similar control points
-			// FIXME manipulate stride rather than comparing
-			if ((tileStart + cachedPoint == pointId) 
-				|| ((pointId % numSplits) != ((cachedPoint + tileStart) % numSplits))) {
+			if (tileStart + cachedPoint == pointId) {
 				continue;
 			}
 
 			float2 otherPoint = tilePoints[cachedPoint];
-			if(fast_distance(otherPoint, myPos) <= FLT_EPSILON) {
+			float err = fast_distance(otherPoint, myPos);
+			if (err <= FLT_EPSILON) {
 				otherPoint = randomPoint(tilePoints, thisTileSize, randValues, stepNumber);
 			}
 
-			float2 delta = pointForce(myPos, otherPoint, charge * alpha);
+			float2 delta = (err <= FLT_EPSILON ? 0.1f : 1.0f) * pointForce(myPos, otherPoint, charge * alpha);
 
-			posDelta -=  delta;
+			posDelta += (((pointId % numSplits) != ((cachedPoint + tileStart) % numSplits)) ? 1.0f : -1.0f) * delta;
 
 		}
 
@@ -127,29 +127,29 @@ __kernel void apply_midsprings(
 	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);
     
     for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
+		
 		float2 curQP = start;
 		uint firstQPIdx = curSpringIdx * numSplits;
 		float2 nextQP = inputMidPoints[firstQPIdx];
-
 		float dist = distance(curQP, nextQP);
 		float2 nextForce = (dist > FLT_EPSILON) ?
-		    (curQP - nextQP) * alpha * springStrength * (dist - springDistance) / dist 
+		    -1.0f * (curQP - nextQP) * alpha * springStrength * (dist - springDistance) / dist 
 		    : 0.0f;
 
         for (uint qp = 0; qp < numSplits; qp++) {
 			float2 prevQP = curQP;
-			float2 prevForce = nextForce;
+			float2 prevForce = -1.0f * nextForce;
 			curQP = nextQP;
 			nextQP = qp < numSplits - 1 ? inputMidPoints[firstQPIdx + qp + 1] : inputPoints[springs[curSpringIdx][1]];
 			nextForce = (dist > FLT_EPSILON) ?
 		        (nextQP - curQP) * alpha * springStrength * (dist - springDistance) / dist 
 		        : 0.0f;
-		    outputMidPoints[firstQPIdx + qp] = curQP + nextForce + prevForce;// + nextForce;//inputMidPoints[firstQPIdx + qp];
+		    outputMidPoints[firstQPIdx + qp] = curQP + (qp == numSplits - 1 ? 1.0f : 1.0f) * nextForce + (qp == 0 ? 1.0f : 1.0f) * prevForce;// + nextForce;//inputMidPoints[firstQPIdx + qp];
 		    springMidPositions[curSpringIdx * (numSplits + 1) + qp] = (float4) (prevQP.x, prevQP.y, curQP.x, curQP.y);
 		}
         const uint dstIdx = springs[curSpringIdx][1];
 	    float2 end = inputPoints[dstIdx];
-		springMidPositions[(curSpringIdx + 1) * numSplits - 1] = (float4) (curQP.x, curQP.y, end.x, end.y);
+		springMidPositions[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (curQP.x, curQP.y, end.x, end.y);
     }
     
     return;
