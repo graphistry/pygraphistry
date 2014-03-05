@@ -10,8 +10,20 @@
 # this script in the terminal.
 ########
 
-server_port="8888"
+
+# TODO: Do we want to `cd` to the location of this script before serving files,
+# or stay in the same directory to allow us to serve different directories?
+
 # TODO: Have Python only listen on loopback address
+
+# TODO: Add option to relaunch WebKit.app in a loop or not (either a command
+# line switch, or an explicit 'y/n' prompt to the user.)
+
+# TODO: In our AppleScript, after opening the browser to our server's URL and
+# disabling caches, (maybe?) we should open the browser's inspector pane.
+
+
+server_port="8888"
 server_addr="127.0.0.1"
 
 
@@ -20,8 +32,6 @@ message_color="$(tput bold)$(tput setab 6)"
 quit_color="$(tput bold)$(tput setab 1)"
 reset_color="$(tput sgr0)"
 
-# TODO: Do we want to `cd` to the location of this script before serving files,
-# or stay in the same directory to allow us to serve different directories?
 
 # The command to run a web server, serving this directory
 if type 'serve' 2>&1 >/dev/null; then
