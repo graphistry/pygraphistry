@@ -22,7 +22,12 @@
 # TODO: In our AppleScript, after opening the browser to our server's URL and
 # disabling caches, (maybe?) we should open the browser's inspector pane.
 
+# TODO: If we can't find $WEBKITWEBCL_PATH, pop open an AppleScript dialog
+# box to choose it, and write the output to $WEBKITWEBCL_PATH
 
+
+# TODO: Only set these if not already set (in the environment, or by sourcing
+# ~/.webkitwebcl.)
 server_port="8888"
 server_addr="127.0.0.1"
 
@@ -57,7 +62,7 @@ if [ -z  $WEBKITWEBCL_PATH ]; then
 	exit
 fi
 
-webkit_path="$WEBKITWEBCL_PATH" #"/Users/mtorok/Documents/repositories/Safari-WebCL-latest/WebKit.app"
+webkit_path="$WEBKITWEBCL_PATH"
 
 
 
@@ -90,7 +95,7 @@ tell application "System Events"
 	end tell
 end tell
 
-tell application "/Users/mtorok/Documents/repositories/Safari-WebCL-latest/WebKit.app"
+tell application "$webkit_path"
 	tell window 1
 		set URL of current tab to "http://${server_addr}:${server_port}" --:${server_port}
 	end tell
@@ -112,10 +117,7 @@ APPLESCRIPT
 
 # The code to run when we exit (either by pressing Ctrl+C, or other means)
 trapped() {
-	# do_run=
-	if [[ -n $quit_script ]]; then
-		echo "$quit_script" | osascript -
-	fi
+	echo "$quit_script" | osascript -
 	if [[ $server_pid ]]; then
 		echo "Killing web server"
 		kill $server_pid 2>/dev/null
