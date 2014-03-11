@@ -25,6 +25,11 @@
 # TODO: If we can't find $WEBKITWEBCL_PATH, pop open an AppleScript dialog
 # box to choose it, and write the output to $WEBKITWEBCL_PATH
 
+# TODO: When WebKit.app quits, make the Terminal.app window containing the tab
+# running this script active so that OS X switches to that Desktop. That way,
+# WebKit.app always runs in the same Desktop, rather than launching in the
+# Desktop of the last app the user was in before they quit WebKit.app.
+
 
 # TODO: Only set these if not already set (in the environment, or by sourcing
 # ~/.webkitwebcl.)
