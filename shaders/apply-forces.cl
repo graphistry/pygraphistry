@@ -19,7 +19,8 @@ float2 pointForce(float2 a, float2 b, float force);
 float2 randomPoint(__local float2* points, unsigned int numPoints, __constant float2* randValues,
 	unsigned int randOffset);
 
-//
+
+
 __kernel void apply_midpoints(
     unsigned int numPoints,
     unsigned int numSplits,
@@ -33,7 +34,7 @@ __kernel void apply_midpoints(
 	__constant float2* randValues,
 	unsigned int stepNumber) {
 
-    //for debugging: passthrough    
+    //for debugging: passthrough
     //outputMidPositions[(unsigned int) get_global_id(0)] = inputMidPositions[(unsigned int) get_global_id(0)];
 	//return;
 
@@ -68,7 +69,7 @@ __kernel void apply_midpoints(
 		waitEvents[0] = async_work_group_copy(tilePoints, inputMidPositions + tileStart, thisTileSize, 0);
 		wait_group_events(1, waitEvents);
 
-		prefetch(inputMidPositions + ((tile + 1) * tileSize), thisTileSize);		
+		prefetch(inputMidPositions + ((tile + 1) * tileSize), thisTileSize);
 
 		for(unsigned int cachedPoint = 0; cachedPoint < thisTileSize; cachedPoint++) {
 			// Don't calculate the forces of a point on itself
@@ -88,7 +89,7 @@ __kernel void apply_midpoints(
 
 		}
 
-		barrier(CLK_LOCAL_MEM_FENCE);		
+		barrier(CLK_LOCAL_MEM_FENCE);
 	}
 
 	float2 center = dimensions / 2.0f;
@@ -96,8 +97,9 @@ __kernel void apply_midpoints(
 
 	outputMidPositions[pointId] = myPos + posDelta;
 
-	return; 
-}    
+	return;
+}
+
 
 //Compute elements based on original edges and predefined number of splits in each one
 __kernel void apply_midsprings(
@@ -125,15 +127,15 @@ __kernel void apply_midsprings(
     float2 start = inputPoints[sourceIdx];
 
 	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);
-    
+
     for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
-		
+
 		float2 curQP = start;
 		uint firstQPIdx = curSpringIdx * numSplits;
 		float2 nextQP = inputMidPoints[firstQPIdx];
 		float dist = distance(curQP, nextQP);
 		float2 nextForce = (dist > FLT_EPSILON) ?
-		    -1.0f * (curQP - nextQP) * alpha * springStrength * (dist - springDistance) / dist 
+		    -1.0f * (curQP - nextQP) * alpha * springStrength * (dist - springDistance) / dist
 		    : 0.0f;
 
         for (uint qp = 0; qp < numSplits; qp++) {
@@ -142,7 +144,7 @@ __kernel void apply_midsprings(
 			curQP = nextQP;
 			nextQP = qp < numSplits - 1 ? inputMidPoints[firstQPIdx + qp + 1] : inputPoints[springs[curSpringIdx][1]];
 			nextForce = (dist > FLT_EPSILON) ?
-		        (nextQP - curQP) * alpha * springStrength * (dist - springDistance) / dist 
+		        (nextQP - curQP) * alpha * springStrength * (dist - springDistance) / dist
 		        : 0.0f;
 		    float2 delta = (qp == numSplits - 1 ? 1.0f : 1.0f) * nextForce - (qp == 0 ? 1.0f : 1.0f) * prevForce;
 		    outputMidPoints[firstQPIdx + qp] = curQP + delta;
@@ -152,11 +154,10 @@ __kernel void apply_midsprings(
 	    float2 end = inputPoints[dstIdx];
 		springMidPositions[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (curQP.x, curQP.y, end.x, end.y);
     }
-    
+
     return;
 }
-    
-    
+
 
 __kernel void apply_points(
 	unsigned int numPoints,
@@ -274,7 +275,6 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 }
 
 
-// TODO: Instead of writing out a list
 __kernel void apply_springs(
 	__global uint2* springs,	       // Array of springs, of the form [source node, targer node] (read-only)
 	__global uint2* workList, 	       // Array of spring [index, length] pairs to compute (read-only)
@@ -331,5 +331,3 @@ __kernel void apply_springs(
 	}
 	return;
 }
-
-
