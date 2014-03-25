@@ -14,8 +14,6 @@
 # TODO: Do we want to `cd` to the location of this script before serving files,
 # or stay in the same directory to allow us to serve different directories?
 
-# TODO: Have Python only listen on loopback address
-
 # TODO: If we can't find $WEBKITWEBCL_PATH, pop open an AppleScript dialog
 # box to choose it, and write the output to $WEBKITWEBCL_PATH
 
@@ -24,6 +22,11 @@
 # in the same location, even if the user changes the location after launch.
 # (Presently, we only record position on launch and restore that position when
 # launching subsequent WebKit windows.)
+
+
+server_port="8888"
+server_addr="127.0.0.1"
+
 
 if [[ $1 == "-h" ]] || [[ $1 == "--help" ]]; then
 	echo "Usage: $(basename "$0") [--dev] [-h|--help]"
@@ -43,26 +46,11 @@ else
 	dev_mode=''
 fi
 
-# TODO: Only set these if not already set (in the environment, or by sourcing
-# ~/.webkitwebcl.)
-server_port="8888"
-server_addr="127.0.0.1"
-
 
 # Output message colors
 message_color="$(tput bold)$(tput setab 6)"
 quit_color="$(tput bold)$(tput setab 1)"
 reset_color="$(tput sgr0)"
-
-
-# The command to run a web server, serving this directory
-if type 'serve' 2>&1 >/dev/null; then
-	# Some of our dev machines have the 'serve' command. If present, use that
-	server='serve'
-else
-	# If `serve` isn't found, just use a Python SimpleHTTPServer
-	server="python -m SimpleHTTPServer $server_port"
-fi
 
 
 # If $WEBKITWEBCL_PATH isn't set, and ~/.superconductorrc exists, source it and
@@ -84,7 +72,36 @@ webkit_path="$WEBKITWEBCL_PATH"
 
 
 # Run the server in the background, but save its PID so we can kill it when this script exits
-${server} &
+echo "$(cat <<PYTHONSCRIPT
+from __future__ import print_function
+import sys
+
+if sys.version_info[0] <= 2:
+    import SimpleHTTPServer, BaseHTTPServer
+    HandlerClass = SimpleHTTPServer.SimpleHTTPRequestHandler
+    ServerClass = BaseHTTPServer.HTTPServer
+else: # Python >= 3
+    import http.server
+    HandlerClass = http.server.SimpleHTTPRequestHandler
+    ServerClass = http.server.HTTPServer
+
+server_address = ("${server_addr}", ${server_port})
+
+HandlerClass.protocol_version = "HTTP/1.0"
+httpd = ServerClass(server_address, HandlerClass)
+sa = httpd.socket.getsockname()
+print("Serving HTTP on", sa[0], "port", sa[1], "...\n")
+
+try:
+    httpd.serve_forever()
+except KeyboardInterrupt:
+    print("\nKeyboard interrupt received, exiting.")
+    httpd.server_close()
+    sys.exit(0)
+
+PYTHONSCRIPT
+)" | python &
+
 server_pid="$!"
 
 
