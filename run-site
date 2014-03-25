@@ -16,9 +16,6 @@
 
 # TODO: Have Python only listen on loopback address
 
-# TODO: Add option to relaunch WebKit.app in a loop or not (either a command
-# line switch, or an explicit 'y/n' prompt to the user.)
-
 # TODO: If we can't find $WEBKITWEBCL_PATH, pop open an AppleScript dialog
 # box to choose it, and write the output to $WEBKITWEBCL_PATH
 
@@ -28,6 +25,23 @@
 # (Presently, we only record position on launch and restore that position when
 # launching subsequent WebKit windows.)
 
+if [[ $1 == "-h" ]] || [[ $1 == "--help" ]]; then
+	echo "Usage: $(basename "$0") [--dev] [-h|--help]"
+	echo "Run a web server on http://localhost:8888 and open WebKit.app to it, so we can"
+	echo "test our WebCL code."
+	echo
+	echo "Options:"
+	echo "  --dev        Run in development mode (open the Web Inspector automatically,"
+	echo "               and continually re-launch WebKit.app when it exits)"
+	echo "  -h, --help   Show this help message and exit"
+	exit 0
+fi
+
+if [[ $1 == "--dev" ]]; then
+	dev_mode=1
+else
+	dev_mode=''
+fi
 
 # TODO: Only set these if not already set (in the environment, or by sourcing
 # ~/.webkitwebcl.)
@@ -154,6 +168,7 @@ on run argv
 		end tell
 	end tell
 
+	if "${dev_mode}" equals "1"
 		tell application "System Events"
 			-- set SafariCL to application process "WebKit"
 			-- set frontmost of SafariCL to true
@@ -170,6 +185,7 @@ on run argv
 				end tell
 			end tell
 		end tell
+	end if
 
 	return webkitBounds
 end run
@@ -191,28 +207,32 @@ APPLESCRIPT
 
 # The code to run when we exit (either by pressing Ctrl+C, or other means)
 trapped() {
+	printf "\n\n%sExiting...%s\n" "$quit_color" "$reset_color"
 	echo "$quit_script" | osascript -
 	if [[ $server_pid ]]; then
-		echo "Killing web server"
 		kill $server_pid 2>/dev/null
 	fi
 
-	printf "\n%sExiting...%s\n\n" "$quit_color" "$reset_color"
 	exit
 }
 
-
-# Infinitely re-launch WebKit WebCL, until Ctrl+C is called
-while :
-do
+if [[ $dev_mode ]]; then
+	# Infinitely re-launch WebKit WebCL, until Ctrl+C is called
+	while :
+	do
 		# Run the "launch WebKit" AppleScript, passing $safari_window_bounds as the
 		# first argument, and saving the return value of the script as the new
 		# $safari_window_bounds.
 		safari_window_bounds=$(echo "$launch_script" | osascript - "${safari_window_bounds}")
+		trap trapped SIGINT
+		open -W -a "$webkit_path" >/dev/null
+
+		printf "\n%sRelaunching Safari. Press Ctrl+C to stop.%s\n\n" "$message_color" "$reset_color"
+	done
+else
+	echo "$launch_script" | osascript - >/dev/null
 	trap trapped SIGINT
 	open -W -a "$webkit_path" >/dev/null
-
-	printf "\n%sRelaunching Safari. Press Ctrl+C to stop.%s\n\n" "$message_color" "$reset_color"
-done
+fi
 
 trapped
