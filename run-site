@@ -11,12 +11,6 @@
 ########
 
 
-# TODO: Do we want to `cd` to the location of this script before serving files,
-# or stay in the same directory to allow us to serve different directories?
-
-# TODO: If we can't find $WEBKITWEBCL_PATH, pop open an AppleScript dialog
-# box to choose it, and write the output to $WEBKITWEBCL_PATH
-
 # TODO: We should periodically check the position of the WebKit.app window and
 # re-record its position. This will allow us to launch subsequent WebKit windows
 # in the same location, even if the user changes the location after launch.
@@ -133,12 +127,12 @@ defaults write org.webkit.nightly.WebKit ApplePersistenceIgnoreState 0
 # The TTY of the terminal that spawned this script, so that we can activate
 # the terminal window/tab (identified by TTY) later
 spawning_tty="$(tty)"
-safari_window_bounds=''
+webkit_window_bounds=''
 
 # The AppleScript to launch WebKit WebCL, disable its caches, and open the page to the local server
-launch_script=$(cat <<APPLESCRIPT
+launch_script="$(cat <<APPLESCRIPT
 on run argv
-	-- The bounds of the last Safari script may be passed as the first argument
+	-- The bounds of the last WebKit window may be passed as the first argument
 	-- on the command line
 	if length of argv > 0
 		-- Split argv into a list with ',' as the seperator (if argv[0] is
@@ -229,18 +223,18 @@ on run argv
 end run
 
 APPLESCRIPT
-)
+)"
 
 
 # The AppleScript to quit WebKit WebCL (called when this script exits)
-quit_script=$(cat <<APPLESCRIPT
+quit_script="$(cat <<APPLESCRIPT
 	tell application "$webkit_path"
 		if it is running then
 			quit
 		end if
 	end tell
 APPLESCRIPT
-)
+)"
 
 
 # The code to run when we exit (either by pressing Ctrl+C, or other means)
@@ -254,14 +248,15 @@ trapped() {
 	exit
 }
 
+
 if [[ $dev_mode ]]; then
 	# Infinitely re-launch WebKit WebCL, until Ctrl+C is called
 	while :
 	do
-		# Run the "launch WebKit" AppleScript, passing $safari_window_bounds as the
+		# Run the "launch WebKit" AppleScript, passing $webkit_window_bounds as the
 		# first argument, and saving the return value of the script as the new
-		# $safari_window_bounds.
-		safari_window_bounds=$(echo "$launch_script" | osascript - "${safari_window_bounds}")
+		# $webkit_window_bounds.
+		webkit_window_bounds=$(echo "$launch_script" | osascript - "${webkit_window_bounds}")
 		trap trapped SIGINT
 		open -W -a "$webkit_path" >/dev/null
 
@@ -271,6 +266,10 @@ else
 	echo "$launch_script" | osascript - >/dev/null
 	trap trapped SIGINT
 	open -W -a "$webkit_path" >/dev/null
+
+	trapped
 fi
 
+# In case it didn't get run above, for whatever reason (if it is run above, then
+# trapped should `exit` the script, and this line will never be seen.)
 trapped
