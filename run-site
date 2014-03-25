@@ -19,9 +19,6 @@
 # TODO: Add option to relaunch WebKit.app in a loop or not (either a command
 # line switch, or an explicit 'y/n' prompt to the user.)
 
-# TODO: In our AppleScript, after opening the browser to our server's URL and
-# disabling caches, (maybe?) we should open the browser's inspector pane.
-
 # TODO: If we can't find $WEBKITWEBCL_PATH, pop open an AppleScript dialog
 # box to choose it, and write the output to $WEBKITWEBCL_PATH
 
@@ -157,6 +154,22 @@ on run argv
 		end tell
 	end tell
 
+		tell application "System Events"
+			-- set SafariCL to application process "WebKit"
+			-- set frontmost of SafariCL to true
+			tell process "WebKit"
+				tell menu "Develop" of menu bar 1
+					if (exists menu item "Show Web Inspector")
+						-- We also tried checking and if
+						-- (value of attribute "AXEnabled" of menu item "Show Web Inspector")
+						-- is true, to make sure we're able to click the menu
+						-- item, but it seemed to be always false, and its
+						-- falseness didn't seem to impede clicking it.
+						click menu item "Show Web Inspector"
+					end if -- /menu exists
+				end tell
+			end tell
+		end tell
 
 	return webkitBounds
 end run
