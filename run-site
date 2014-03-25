@@ -25,10 +25,11 @@
 # TODO: If we can't find $WEBKITWEBCL_PATH, pop open an AppleScript dialog
 # box to choose it, and write the output to $WEBKITWEBCL_PATH
 
-# TODO: When WebKit.app quits, make the Terminal.app window containing the tab
-# running this script active so that OS X switches to that Desktop. That way,
-# WebKit.app always runs in the same Desktop, rather than launching in the
-# Desktop of the last app the user was in before they quit WebKit.app.
+# TODO: We should periodically check the position of the WebKit.app window and
+# re-record its position. This will allow us to launch subsequent WebKit windows
+# in the same location, even if the user changes the location after launch.
+# (Presently, we only record position on launch and restore that position when
+# launching subsequent WebKit windows.)
 
 
 # TODO: Only set these if not already set (in the environment, or by sourcing
@@ -80,34 +81,89 @@ server_pid="$!"
 # Tell WebKit WebCL to not save/restore window on exit/launch
 defaults write org.webkit.nightly.WebKit ApplePersistenceIgnoreState 0
 
+# The TTY of the terminal that spawned this script, so that we can activate
+# the terminal window/tab (identified by TTY) later
+spawning_tty="$(tty)"
+safari_window_bounds=''
 
 # The AppleScript to launch WebKit WebCL, disable its caches, and open the page to the local server
 launch_script=$(cat <<APPLESCRIPT
-tell application "$webkit_path" to activate
+on run argv
+	-- The bounds of the last Safari script may be passed as the first argument
+	-- on the command line
+	if length of argv > 0
+		-- Split argv into a list with ',' as the seperator (if argv[0] is
+		-- empty, it will turn into a 0-length list, which is fine.)
+		set AppleScript's text item delimiters to ", "
+		set oldBounds to (text items of (item 1 of argv))
+	else
+		set oldBounds to {}
+	end if
 
-tell application "System Events"
-	-- set SafariCL to application process "WebKit"
-	-- set frontmost of SafariCL to true
-	tell process "WebKit"
-		tell menu bar 1
-			tell menu "Develop"
+	-- Activate the terminal window containing the tab running this script. This
+	-- will (hopfully) activate the Desktop that the Terminal window containing
+	-- that tab is running in.
+	-- This is not sufficient to launch WebKit in the same desktop as it in
+	-- multi-monitor setups, since OS X will still happily launch WebKit in
+	-- the other monitor (since it sees it as all one desktop.) For that, we
+	-- need to set the window bounds,
+	tell application "Terminal"
+		repeat with win in windows
+			repeat with curTab in (tabs in win)
+				if tty in curTab is "${spawning_tty}" then
+					activate
+					activate win
+					set frontmost of win to true
+				end if
+			end repeat -- /tabs
+		end repeat -- /windows
+	end tell
+
+	tell application "$webkit_path" to activate
+
+	tell application "System Events"
+		tell process "WebKit"
+			tell menu "Develop" of menu bar 1
 				click menu item "Empty Caches"
+				-- If "Disable Caches" isn't already checked, click it
 				if (value of attribute "AXMenuItemMarkChar" of menu item "Disable Caches") ≠ "✓" then
 					click menu item "Disable Caches"
 				end if
 			end tell
 		end tell
 	end tell
-end tell
 
-tell application "$webkit_path"
-	tell window 1
-		set URL of current tab to "http://${server_addr}:${server_port}" --:${server_port}
+	tell application "$webkit_path"
+		tell window 1
+			-- If we know the bounds of the WebKit window from the last time we
+			-- launched it, move the new window to that position
+			if length of oldBounds >= 2
+				-- Calculate the current width and height
+				set curBounds to bounds
+				set curWidth to (item 3 of curBounds) - (item 1 of curBounds)
+				set curHeight to (item 4 of curBounds) - (item 2 of curBounds)
+
+				-- Calculate the new width and height by placing the upper-left
+				-- corner in the old position, and the lower-right corner in
+				-- a position so that the width and height are equal to the
+				-- current width and height
+				set newBounds to {item 1 of oldBounds, item 2 of oldBounds, ((item 1 of oldBounds) + curWidth), ((item 2 of oldBounds) + curHeight)}
+
+				set bounds to newBounds
+			end if
+			set webkitBounds to bounds
+
+			set URL of current tab to "http://${server_addr}:${server_port}" --:${server_port}
+		end tell
 	end tell
-end tell
+
+
+	return webkitBounds
+end run
 
 APPLESCRIPT
 )
+
 
 # The AppleScript to quit WebKit WebCL (called when this script exits)
 quit_script=$(cat <<APPLESCRIPT
@@ -136,7 +192,10 @@ trapped() {
 # Infinitely re-launch WebKit WebCL, until Ctrl+C is called
 while :
 do
-	echo "$launch_script" | osascript -
+		# Run the "launch WebKit" AppleScript, passing $safari_window_bounds as the
+		# first argument, and saving the return value of the script as the new
+		# $safari_window_bounds.
+		safari_window_bounds=$(echo "$launch_script" | osascript - "${safari_window_bounds}")
 	trap trapped SIGINT
 	open -W -a "$webkit_path" >/dev/null
 
