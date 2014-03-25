@@ -59,12 +59,33 @@ if [ -z $WEBKITWEBCL_PATH ] && [ -e ~/.webkitwebcl ]; then
 	. ~/.webkitwebcl
 fi
 if [ -z  $WEBKITWEBCL_PATH ]; then
-	printf '\n%sCould not find WebKit WebCL app. Not launching app; just running server.%s\n\n' "$quit_color" "$reset_color"
-	printf '%sTo change this, set the $WEBKITWEBCL_PATH variable in your environment, or in%s\n' "$quit_color" "$reset_color"
-	printf '%s~/.webkitwebcl.%s\n\n' "$quit_color" "$reset_color"
+	# If we could not load the WebKit.app path from either environment or from
+	# the config file, then display a dialog asking the user to locate it. If
+	# they do so, save the path to the config file. If they don't, display an
+	# error and don't continue with this script.
+	WEBKITWEBCL_PATH="$(echo "$(cat <<APPCHOOSER
+try
+	set webKitApp to choose application as alias with title "Select WebKit.app" with prompt "Please select WebKit.app"
 
-	${server}
-	exit
+	display dialog "The location of WebKit.app has been set to:
+" & (POSIX path of webKitApp) & "
+
+This location will be remembered. To reset it, delete the hidden file '~/.webkitwebcl'." with title "WebKit.app Location Saved" buttons {"OK"} with icon note
+
+	return POSIX path of webKitApp
+on error number -128
+	display alert "WebKit.app not selected.
+
+WebKit.app could not be located. Script exiting." as critical
+	return ""
+end try
+APPCHOOSER
+)" | osascript - )"
+
+	if [[ ! $WEBKITWEBCL_PATH ]]; then
+		exit 1
+	fi
+	printf 'WEBKITWEBCL_PATH="%s"\n' "$WEBKITWEBCL_PATH" > ~/.webkitwebcl
 fi
 
 webkit_path="$WEBKITWEBCL_PATH"
