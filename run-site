@@ -11,6 +11,9 @@
 ########
 
 
+# TODO: Should we store the config file in the local directory, rather than in
+# the user's home directory? We'd have to be sure it was in .gitignore.
+
 # TODO: We should periodically check the position of the WebKit.app window and
 # re-record its position. This will allow us to launch subsequent WebKit windows
 # in the same location, even if the user changes the location after launch.
