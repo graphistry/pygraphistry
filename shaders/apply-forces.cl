@@ -77,16 +77,17 @@ __kernel void apply_midpoints(
 				continue;
 			}
 
+			if((pointId % numSplits) != ((cachedPoint + tileStart) % numSplits)) {
+				continue;
+			}
+
 			float2 otherPoint = tilePoints[cachedPoint];
 			float err = fast_distance(otherPoint, myPos);
 			if (err <= FLT_EPSILON) {
 				otherPoint = randomPoint(tilePoints, thisTileSize, randValues, stepNumber);
 			}
 
-			float2 delta = (err <= FLT_EPSILON ? 0.1f : 1.0f) * pointForce(myPos, otherPoint, charge * alpha);
-
-			posDelta += (((pointId % numSplits) != ((cachedPoint + tileStart) % numSplits)) ? 1.0f : -1.0f) * delta;
-
+			posDelta += (err <= FLT_EPSILON ? 0.1f : 1.0f) * pointForce(myPos, otherPoint, charge * alpha) * -1;
 		}
 
 		barrier(CLK_LOCAL_MEM_FENCE);
