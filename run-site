@@ -21,7 +21,7 @@
 # launching subsequent WebKit windows.)
 
 
-server_port="8888"
+server_port="7070"
 server_addr="127.0.0.1"
 
 
