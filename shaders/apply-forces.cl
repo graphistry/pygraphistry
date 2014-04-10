@@ -104,21 +104,21 @@ __kernel void apply_midpoints(
 
 //Compute elements based on original edges and predefined number of splits in each one
 __kernel void apply_midsprings(
-	unsigned int numSplits,              // How many times each edge is split (> 0)
-	__global uint2* springs,	         // Array of (unsplit) springs, of the form [source node, targer node] (read-only)
-	__global uint2* workList, 	         // Array of (unsplit) spring [index, length] pairs to compute (read-only)
-	__global float2* inputPoints,        // Current point positions (read-only)
-	__global float2* inputMidPoints,     // Current midpoint positions (read-only)
-	__global float2* outputMidPoints,    // Point positions after spring forces have been applied (write-only)
-	__global float4* springMidPositions, // Positions of the springs after forces are applied. Length
-	                                     // len(springs) * 2: one float2 for start, one float2 for
-	                                     // end. (write-only)
-	float springStrength,                // The rigidity of the springs
-	float springDistance,                // The 'at rest' length of a spring
-	unsigned int stepNumber
-	)
+	unsigned int numSplits,                // 0: How many times each edge is split (> 0)
+	__global uint2* springs,	           // 1: Array of (unsplit) springs, of the form [source node, targer node] (read-only)
+	__global uint2* workList, 	           // 2: Array of (unsplit) spring [index, length] pairs to compute (read-only)
+	__global float2* inputPoints,          // 3: Current point positions (read-only)
+	__global float2* inputMidPoints,       // 4: Current midpoint positions (read-only)
+	__global float2* outputMidPoints,      // 5: Point positions after spring forces have been applied (write-only)
+	__global float4* springMidPositions,   // 6: Positions of the springs after forces are applied. Length
+	                                       // len(springs) * 2: one float2 for start, one float2 for
+	                                       // end. (write-only)
+	__global float2* midSpringColorCoords, // 7: The x,y coordinate to read the edges color from
+	float springStrength,                  // 8: The rigidity of the springs
+	float springDistance,                  // 9: The 'at rest' length of a spring
+	unsigned int stepNumber				   // 10:
+)
 {
-
 	if (numSplits == 0) return;
 
     const size_t workItem = (unsigned int) get_global_id(0);
