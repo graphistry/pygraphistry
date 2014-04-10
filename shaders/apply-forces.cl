@@ -41,7 +41,6 @@ __kernel void apply_midpoints(
     const float2 dimensions = (float2) (width, height);
 	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);  //1.0f / (clamp(((float) stepNumber), 1.0f, 50.0f) + 10.0f);
 
-	const unsigned int threadLocalId = (unsigned int) get_local_id(0);
 	const unsigned int pointId = (unsigned int) get_global_id(0);
 
 	float2 myPos = inputMidPositions[pointId];
@@ -179,7 +178,6 @@ __kernel void apply_points(
 
 	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);  //1.0f / (clamp(((float) stepNumber), 1.0f, 50.0f) + 10.0f);
 
-	const unsigned int threadLocalId = (unsigned int) get_local_id(0);
 	const unsigned int pointId = (unsigned int) get_global_id(0);
 
 	// The point we're updating
