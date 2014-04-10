@@ -139,6 +139,9 @@ __kernel void apply_midsprings(
 		    : 0.0f;
 
         for (uint qp = 0; qp < numSplits; qp++) {
+        	// Set the color coordinate for this mid-spring to the coordinate of the start point
+        	midSpringColorCoords[curSpringIdx * (numSplits + 1) + qp] = start;
+
 			float2 prevQP = curQP;
 			float2 prevForce = nextForce;
 			curQP = nextQP;
