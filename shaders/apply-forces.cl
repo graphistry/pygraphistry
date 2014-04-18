@@ -112,7 +112,7 @@ __kernel void apply_midsprings(
 	__global float4* springMidPositions,   // 6: Positions of the springs after forces are applied. Length
 	                                       // len(springs) * 2: one float2 for start, one float2 for
 	                                       // end. (write-only)
-	__global float2* midSpringColorCoords, // 7: The x,y coordinate to read the edges color from
+	__global float4* midSpringColorCoords, // 7: The x,y coordinate to read the edges color from
 	float springStrength,                  // 8: The rigidity of the springs
 	float springDistance,                  // 9: The 'at rest' length of a spring
 	unsigned int stepNumber				   // 10:
@@ -140,7 +140,7 @@ __kernel void apply_midsprings(
 
         for (uint qp = 0; qp < numSplits; qp++) {
         	// Set the color coordinate for this mid-spring to the coordinate of the start point
-        	midSpringColorCoords[curSpringIdx * (numSplits + 1) + qp] = start;
+        	midSpringColorCoords[curSpringIdx * (numSplits + 1) + qp] = (float4)(start, start);
 
 			float2 prevQP = curQP;
 			float2 prevForce = nextForce;
@@ -156,6 +156,8 @@ __kernel void apply_midsprings(
         const uint dstIdx = springs[curSpringIdx][1];
 	    float2 end = inputPoints[dstIdx];
 		springMidPositions[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (curQP.x, curQP.y, end.x, end.y);
+		midSpringColorCoords[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (start, start);
+
     }
 
     return;
