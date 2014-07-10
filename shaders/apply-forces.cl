@@ -176,6 +176,8 @@ __kernel void apply_points(
 	__constant float2* randValues,
 	unsigned int stepNumber)
 {
+
+
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
 
@@ -196,6 +198,7 @@ __kernel void apply_points(
 
     unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
 
+
 	for(unsigned int tile = 0; tile < numTiles; tile++) {
 
 	    if (tile % modulus != stepNumber % modulus) {
@@ -210,6 +213,7 @@ __kernel void apply_points(
 		unsigned int thisTileSize =  tileStart + tileSize < numPoints ?
 										tileSize : numPoints - tileStart;
 
+
 		// if(threadLocalId < thisTileSize){
 		// 	tilePoints[threadLocalId] = inputPositions[tileStart + threadLocalId];
 		// }
@@ -218,6 +222,9 @@ __kernel void apply_points(
 
 
 		event_t waitEvents[1];
+
+		continue; //FIXME continuing loop from here busts code
+
 		waitEvents[0] = async_work_group_copy(tilePoints, inputPositions + tileStart, thisTileSize, 0);
 		wait_group_events(1, waitEvents);
 
@@ -242,6 +249,8 @@ __kernel void apply_points(
 
 		barrier(CLK_LOCAL_MEM_FENCE);
 	}
+
+	return;
 
 	// Force of gravity pulling the points toward the center
 	float2 center = dimensions / 2.0f;
