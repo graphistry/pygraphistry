@@ -118,6 +118,7 @@ __kernel void apply_midsprings(
 	unsigned int stepNumber				   // 10:
 )
 {
+
 	if (numSplits == 0) return;
 
     const size_t workItem = (unsigned int) get_global_id(0);
@@ -169,7 +170,7 @@ __kernel void apply_points(
 	unsigned int numPoints,
 	__global float2* inputPositions,
 	__global float2* outputPositions,
-	__local float2* tilePointsDYNAMIC_UNUSED,
+	__local float2* tilePoints,
 	float width,
 	float height,
 	float charge,
@@ -181,7 +182,7 @@ __kernel void apply_points(
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
 
-	__local float2 tilePoints[1000];
+	__local float2 tilePointsZZ[1000];
 
     const float2 dimensions = (float2) (width, height);
 
@@ -225,7 +226,7 @@ __kernel void apply_points(
 
 		event_t waitEvents[1];
 
-		//continue; //FIXME continuing loop from here busts code
+		//continue; //FIXME continuing loop from here busts code if tilePoints is dynamic param
 
 		waitEvents[0] = async_work_group_copy(tilePoints, inputPositions + tileStart, thisTileSize, 0);
 		wait_group_events(1, waitEvents);
