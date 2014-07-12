@@ -26,7 +26,7 @@ __kernel void apply_midpoints(
     unsigned int numSplits,
 	__global float2* inputMidPositions,
 	__global float2* outputMidPositions,
-	__local float2* tilePoints,
+	__local float2* tilePointsZZZ,
 	float width,
 	float height,
 	float charge,
@@ -53,7 +53,7 @@ __kernel void apply_midpoints(
     unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
 
 
-	//__local float2 tilePoints[1000];
+	__local float2 tilePoints[1000];
 
 	for(unsigned int tile = 0; tile < numTiles; tile++) {
 
@@ -173,7 +173,7 @@ __kernel void apply_points(
 	unsigned int numPoints,
 	__global float2* inputPositions,
 	__global float2* outputPositions,
-	__local float2* tilePoints, //FIXME make nodecl accept local params
+	__local float2* tilePointsZZZ, //FIXME make nodecl accept local params
 	float width,
 	float height,
 	float charge,
@@ -185,7 +185,7 @@ __kernel void apply_points(
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
 
-	//__local float2 tilePoints[1000];
+	__local float2 tilePoints[1000];
 
     const float2 dimensions = (float2) (width, height);
 
