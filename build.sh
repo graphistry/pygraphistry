@@ -1,6 +1,6 @@
 #### Generates "naivebundle.js", "naivebundle.min.js"
 
-EXTERNAL="-x jQuery" #"-x node-webcl -x node-webgl --ignore fs"
+EXTERNAL="-x jQuery -x node-webcl -x node-webgl --ignore fs"
 REQUIRE="-r jQuery"
 OUT="dist/naivebundle"
 VENDORS="dist/vendors"
