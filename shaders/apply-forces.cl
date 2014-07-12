@@ -1,3 +1,16 @@
+
+//nodecl sets "#define NODECL" for bug https://github.com/Motorola-Mobility/node-webcl/issues/41
+
+#ifdef NODECL
+	#define TILEPOINTS tilePointsInline
+#else
+	#define TILEPOINTS tilePointsParam
+#endif
+
+
+
+
+
 // The fraction of tiles to process each execution of this kernel. For example, a value of '10' will
 // cause an execution of this kernel to only process every 10th tile.
 // The particular subset of tiles is chosen based off of stepNumber.
@@ -26,7 +39,7 @@ __kernel void apply_midpoints(
     unsigned int numSplits,
 	__global float2* inputMidPositions,
 	__global float2* outputMidPositions,
-	__local float2* tilePointsZZZ,
+	__local float2* tilePointsParam,
 	float width,
 	float height,
 	float charge,
@@ -53,7 +66,7 @@ __kernel void apply_midpoints(
     unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
 
 
-	__local float2 tilePoints[1000];
+	__local float2 tilePointsInline[1000];
 
 	for(unsigned int tile = 0; tile < numTiles; tile++) {
 
@@ -68,7 +81,7 @@ __kernel void apply_midpoints(
 
 
 		event_t waitEvents[1];
-		waitEvents[0] = async_work_group_copy(tilePoints, inputMidPositions + tileStart, thisTileSize, 0);
+		waitEvents[0] = async_work_group_copy(TILEPOINTS, inputMidPositions + tileStart, thisTileSize, 0);
 		wait_group_events(1, waitEvents);
 
 		prefetch(inputMidPositions + ((tile + 1) * tileSize), thisTileSize);
@@ -83,10 +96,10 @@ __kernel void apply_midpoints(
 				continue;
 			}
 
-			float2 otherPoint = tilePoints[cachedPoint];
+			float2 otherPoint = TILEPOINTS[cachedPoint];
 			float err = fast_distance(otherPoint, myPos);
 			if (err <= FLT_EPSILON) {
-				otherPoint = randomPoint(tilePoints, thisTileSize, randValues, stepNumber);
+				otherPoint = randomPoint(TILEPOINTS, thisTileSize, randValues, stepNumber);
 			}
 
 			posDelta += (err <= FLT_EPSILON ? 0.1f : 1.0f) * pointForce(myPos, otherPoint, charge * alpha) * -1;
@@ -173,7 +186,7 @@ __kernel void apply_points(
 	unsigned int numPoints,
 	__global float2* inputPositions,
 	__global float2* outputPositions,
-	__local float2* tilePointsZZZ, //FIXME make nodecl accept local params
+	__local float2* tilePointsParam, //FIXME make nodecl accept local params
 	float width,
 	float height,
 	float charge,
@@ -185,7 +198,7 @@ __kernel void apply_points(
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
 
-	__local float2 tilePoints[1000];
+	__local float2 tilePointsInline[1000];
 
     const float2 dimensions = (float2) (width, height);
 
@@ -231,7 +244,7 @@ __kernel void apply_points(
 
 		//continue; //FIXME continuing loop from here busts code if tilePoints is dynamic param
 
-		waitEvents[0] = async_work_group_copy(tilePoints, inputPositions + tileStart, thisTileSize, 0);
+		waitEvents[0] = async_work_group_copy(TILEPOINTS, inputPositions + tileStart, thisTileSize, 0);
 		wait_group_events(1, waitEvents);
 		prefetch(inputPositions + ((tile + 1) * tileSize), thisTileSize);
 
@@ -242,11 +255,11 @@ __kernel void apply_points(
 				continue;
 			}
 
-			float2 otherPoint = tilePoints[cachedPoint];
+			float2 otherPoint = TILEPOINTS[cachedPoint];
 
 			// for(uchar tries = 0; fast_distance(otherPoint, myPos) <= FLT_EPSILON && tries < 100; tries++) {
 			if(fast_distance(otherPoint, myPos) <= FLT_EPSILON) {
-				otherPoint = randomPoint(tilePoints, thisTileSize, randValues, stepNumber);
+				otherPoint = randomPoint(TILEPOINTS, thisTileSize, randValues, stepNumber);
 			}
 
 			posDelta += pointForce(myPos, otherPoint, charge * alpha);
