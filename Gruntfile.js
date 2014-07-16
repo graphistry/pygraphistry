@@ -22,7 +22,8 @@ module.exports = function(grunt) {
                         debug: true
                     },
                     watch: grunt.option('dev'),
-                    keepAlive: grunt.option('dev')
+                    keepAlive: grunt.option('dev'),
+                    transform: ['brfs']
                 }
             }
         },
