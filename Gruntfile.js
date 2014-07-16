@@ -19,7 +19,7 @@ module.exports = function(grunt) {
                 options: {
                     // external: []
                     bundleOptions: {
-                        debug: grunt.option('dev')
+                        debug: true
                     },
                     watch: grunt.option('dev'),
                     keepAlive: grunt.option('dev')
