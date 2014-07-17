@@ -15,6 +15,7 @@
     "grunt-contrib-jshint": "^0.10.0",
     "grunt-contrib-watch": "^0.6.1",
     "grunt-exorcise": "^0.1.0",
-    "grunt-jsdoc": "^0.5.6"
+    "grunt-jsdoc": "^0.5.6",
+    "rx-jquery": "^1.1.6"
   }
 }
