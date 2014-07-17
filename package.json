@@ -13,7 +13,8 @@
     "jquery": "^2.1.1",
     "node-webcl": "^0.8.3",
     "node-webgl": "^0.4.3",
-    "q": "^1.0.1"
+    "q": "^1.0.1",
+    "underscore": "^1.6.0"
   },
   "devDependencies": {
     "browserify": "^4.2.0",
