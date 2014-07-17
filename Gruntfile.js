@@ -50,7 +50,7 @@ module.exports = function(grunt) {
         watch: {
             all: {
                 files: ['dist/<%= pkg.name %>.js'],
-                tasks: ['jshint', 'jsdoc', 'maybeExorcise'],
+                tasks: ['jshint', 'maybeExorcise'],
                 options: {
                     event: ['added', 'deleted', 'changed'],
                     spawn: false
