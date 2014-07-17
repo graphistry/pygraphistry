@@ -53,7 +53,8 @@ module.exports = function(grunt) {
                 tasks: ['jshint', 'maybeExorcise'],
                 options: {
                     event: ['added', 'deleted', 'changed'],
-                    spawn: false
+                    spawn: false,
+                    livereload: 35729
                 },
             },
 
