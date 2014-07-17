@@ -8,7 +8,7 @@ module.exports = function(grunt) {
             main: ['src/**/*.js'],
             options: {
                 jshintrc: '.jshintrc',
-                force: grunt.option('dev')
+                force: true
             }
         },
 
@@ -17,25 +17,80 @@ module.exports = function(grunt) {
                 src: ['src/main.js'],
                 dest: 'dist/<%= pkg.name %>.js',
                 options: {
-                    // external: []
-                    bundleOptions: {
-                        debug: true
-                    },
-                    watch: grunt.option('dev'),
-                    keepAlive: grunt.option('dev'),
-                    transform: ['brfs']
+                    bundleOptions: { debug: true },
+                    transform: ['brfs'],
+                    watch: false,
+                    keepAlive: false,
+                    didRun: false,
+                    postBundleCB: function(err, src, next) {
+                        global['browserifyDidRun'] = true;
+                        next(err, src);
+                    }
+                }
+            }
+        },
+
+        exorcise: {
+            bundle: {
+                files: {
+                    'dist/<%= pkg.name %>.map': ['dist/<%= pkg.name %>.js'],
+                }
+            }
+        },
+
+        jsdoc : {
+            dist : {
+                src: ['src/*.js'],
+                options: {
+                    destination: 'doc'
+                }
+            }
+        },
+
+        watch: {
+            all: {
+                files: ['dist/<%= pkg.name %>.js'],
+                tasks: ['jshint', 'jsdoc', 'maybeExorcise'],
+                options: {
+                    event: ['added', 'deleted', 'changed'],
+                    spawn: false
+                },
+            },
+
+            configFiles: {
+                files: [ 'Gruntfile.js' ],
+                options: {
+                    reload: true
                 }
             }
         },
 
         clean: {
-            main: ['dist']
+            main: ['dist', 'doc']
         }
     });
 
     grunt.loadNpmTasks('grunt-browserify');
     grunt.loadNpmTasks('grunt-contrib-jshint');
     grunt.loadNpmTasks('grunt-contrib-clean');
+    grunt.loadNpmTasks('grunt-contrib-watch');
+    grunt.loadNpmTasks('grunt-exorcise');
+    grunt.loadNpmTasks('grunt-jsdoc');
 
-    grunt.registerTask('default', ['jshint', 'browserify']);
+    grunt.registerTask('default', ['jshint', 'browserify', 'jsdoc', 'exorcise']);
+
+    grunt.registerTask('live', 'Set a global variable.', function() {
+        grunt.config.set("browserify.main.options.watch", true);
+        grunt.task.run('default', "watch");
+    });
+
+    grunt.registerTask('maybeExorcise', 'Run Exorcise as long as browserify has run first', function() {
+        if(global['browserifyDidRun']) {
+            grunt.log.oklns("Running exorcise becuase browserify has run before");
+            grunt.task.run('exorcise');
+            global['browserifyDidRun'] = false;
+        } else {
+            grunt.log.errorlns("Not running exorcise becuase browserify did NOT run before");
+        }
+    });
 }
