@@ -4,7 +4,7 @@ EXTERNAL="-x jQuery -x node-webcl -x node-webgl --ignore fs"
 REQUIRE="-r jQuery"
 OUT="dist/naivebundle"
 VENDORS="dist/vendors"
-ENTRY="js/main.js"
+ENTRY="js/naivegraph.browser.js"
 OUTPACKAGE="Grapher"
 
 
