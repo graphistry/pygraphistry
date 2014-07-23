@@ -19,26 +19,24 @@ module.exports = function(grunt) {
                 options: {
                     bundleOptions: { debug: true },
                     transform: ['brfs'],
-                    watch: false,
+                    watch: true,
                     keepAlive: false,
                     didRun: false,
-                    external: ['ClientRenderers'],
+                    external: ['render-config'],
                     postBundleCB: function(err, src, next) {
                         global['browserifyDidRun'] = true;
                         next(err, src);
                     },
                     preBundleCB: function(browserifyInstance) {
-                        // The first (and only first) time this task is run, install an event
-                        // handler on watchify's "update" event. We then limit the files jshint is
-                        // run on to those files.
-                        if(global['browserifyDidSetWatchers']) { return; }
-
-                        browserifyInstance.on('update', function(files) {
-                            grunt.config.set("jshint.main", files);
-                        })
-
-                        global['browserifyDidSetWatchers'] = true;
-                    }
+                        // On "update", limit jshint to checking only updated files
+                        if(!global['browserifyDidSetWatchers']) {
+                            global['browserifyDidSetWatchers'] = true;
+                            browserifyInstance.on('update', function(files) {
+                                grunt.config.set("jshint.main", files);
+                            });
+                        }
+                    },
+                    force: true
                 }
             },
 
@@ -105,10 +103,15 @@ module.exports = function(grunt) {
                 files: ['dist/<%= pkg.name %>.js'],
                 tasks: ['jshint', 'maybeExorcise'],
                 options: {
-                    event: ['added', 'deleted', 'changed'],
-                    spawn: false,
+                    spawn: false
+                }
+            },
+
+            livereload: {
+                files: ['dist/*.js', 'index.html', './*.css'],
+                options: {
                     livereload: 35729
-                },
+                }
             },
 
             configFiles: {
@@ -132,18 +135,13 @@ module.exports = function(grunt) {
     grunt.loadNpmTasks('grunt-jsdoc');
 
     grunt.registerTask('default', ['jshint', 'browserify', 'exorcise']);
-
-    grunt.registerTask('live', 'Set a global variable.', function() {
-        grunt.config.set("browserify.main.options.watch", true);
-        // grunt.config.set("browserify.SCRenderer.options.watch", true);
-        // grunt.config.set("browserify.GraphRenderer.options.watch", true);
-        grunt.task.run('default', "watch");
-    });
+    grunt.registerTask('live', ['default', 'watch']);
 
     grunt.registerTask('maybeExorcise', 'Run Exorcise as long as browserify has run first', function() {
         if(global['browserifyDidRun']) {
             grunt.log.oklns("Running exorcise becuase browserify has run before");
             grunt.task.run('exorcise');
+
             global['browserifyDidRun'] = false;
         } else {
             grunt.log.errorlns("Not running exorcise becuase browserify did NOT run before");
