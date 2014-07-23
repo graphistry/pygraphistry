@@ -41,13 +41,13 @@ module.exports = function(grunt) {
             },
 
             SCRenderer: {
-                src: ['src/renderer.sc.js'],
-                dest: 'dist/render-config.superconductor.js',
+                src: ['src/renderer.config.sc.js'],
+                dest: 'dist/render-config.sc.js',
                 options: {
                     transform: ['brfs'],
                     watch: true,
                     keepAlive: false,
-                    alias: ['src/renderer.sc.js:render-config'],
+                    alias: ['src/renderer.config.sc.js:render-config'],
                     bundleOptions: {
                         debug: true,
                     },
