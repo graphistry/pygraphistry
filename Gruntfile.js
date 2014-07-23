@@ -14,7 +14,7 @@ module.exports = function(grunt) {
 
         browserify: {
             main: {
-                src: ['src/main.js'],
+                src: ['src/streamgl.main.js'],
                 dest: 'dist/<%= pkg.name %>.js',
                 options: {
                     bundleOptions: { debug: true },
