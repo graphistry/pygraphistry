@@ -40,31 +40,19 @@ module.exports = function(grunt) {
                 }
             },
 
-            // ClientRenderers: {
-            //     src: ['src/renderer.sc.js'],
-            //     dest: 'dist/ClientRenderers.js',
-            //     options: {
-            //         transform: ['brfs'],
-            //         bundleOptions: {
-            //             debug: true,
-            //             standalone: 'ClientRenderers'
-            //         },
-            //     }
-            // }
-
-            // SCRenderer: {
-            //     src: ['src/renderer.sc.js'],
-            //     dest: 'dist/ClientRenderers.SCRenderer.js',
-            //     options: {
-            //         transform: ['brfs'],
-            //         watch: false,
-            //         keepAlive: false,
-            //         alias: ['src/renderer.sc.js:ClientRenderers'],
-            //         bundleOptions: {
-            //             debug: true,
-            //         },
-            //     }
-            // },
+            SCRenderer: {
+                src: ['src/renderer.sc.js'],
+                dest: 'dist/render-config.superconductor.js',
+                options: {
+                    transform: ['brfs'],
+                    watch: true,
+                    keepAlive: false,
+                    alias: ['src/renderer.sc.js:render-config'],
+                    bundleOptions: {
+                        debug: true,
+                    },
+                }
+            }
 
             // GraphRenderer: {
             //     src: ['src/renderer.graph.js'],
