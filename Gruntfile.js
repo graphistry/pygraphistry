@@ -21,7 +21,6 @@ module.exports = function(grunt) {
                     transform: ['brfs'],
                     watch: true,
                     keepAlive: false,
-                    didRun: false,
                     external: ['render-config'],
                     postBundleCB: function(err, src, next) {
                         global['browserifyDidRun'] = true;
@@ -53,35 +52,12 @@ module.exports = function(grunt) {
                     },
                 }
             }
-
-            // GraphRenderer: {
-            //     src: ['src/renderer.graph.js'],
-            //     dest: 'dist/ClientRenderers.Graph.js',
-            //     options: {
-            //         transform: ['brfs'],
-            //         watch: false,
-            //         keepAlive: false,
-            //         alias: ['src/renderer.sc.js:ClientRenderers'],
-            //         bundleOptions: {
-            //             debug: true,
-            //         },
-            //     }
-            // }
         },
 
         exorcise: {
             bundle: {
                 files: {
                     'dist/<%= pkg.name %>.map': ['dist/<%= pkg.name %>.js'],
-                }
-            }
-        },
-
-        jsdoc : {
-            dist : {
-                src: ['src/*.js'],
-                options: {
-                    destination: 'doc'
                 }
             }
         },
@@ -120,7 +96,6 @@ module.exports = function(grunt) {
     grunt.loadNpmTasks('grunt-contrib-clean');
     grunt.loadNpmTasks('grunt-contrib-watch');
     grunt.loadNpmTasks('grunt-exorcise');
-    grunt.loadNpmTasks('grunt-jsdoc');
 
     grunt.registerTask('default', ['jshint', 'browserify', 'exorcise']);
     grunt.registerTask('live', ['default', 'watch']);
