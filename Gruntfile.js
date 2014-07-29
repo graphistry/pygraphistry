@@ -48,6 +48,10 @@ module.exports = function(grunt) {
                     watch: true,
                     keepAlive: false,
                     alias: ['src/renderer.config.sc.js:render-config'],
+                    postBundleCB: function(err, src, next) {
+                        console.warn("==== WARNING: manually create stripped dist/renderer.config.sc.mod.js ====");
+                        next(err, src);
+                    },
                     bundleOptions: {
                         debug: true,
                     },
