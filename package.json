@@ -4,7 +4,9 @@
   "description": "Stream WebGL buffers into the browser from a remote server",
   "dependencies": {
     "jquery": "^2.1.1",
-    "rx": "^2.2.27"
+    "rx": "^2.2.27",
+    "rx-jquery": "^1.1.6",
+    "underscore": "^1.6.0"
   },
   "devDependencies": {
     "brfs": "<=1.1.1",
@@ -15,7 +17,6 @@
     "grunt-contrib-jshint": "^0.10.0",
     "grunt-contrib-watch": "^0.6.1",
     "grunt-exorcise": "^0.1.0",
-    "grunt-jsdoc": "^0.5.6",
-    "rx-jquery": "^1.1.6"
+    "grunt-jsdoc": "^0.5.6"
   }
 }
