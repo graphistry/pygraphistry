@@ -10,12 +10,14 @@
   "license": "ISC",
   "dependencies": {
     "chalk": "^0.5.1",
+    "express": "^4.6.1",
     "gl-matrix": "^2.1.0",
     "jquery": "^2.1.1",
     "node-webcl": "^0.8.3",
     "node-webgl": "^0.4.3",
     "q": "^1.0.1",
     "rx": "^2.2.27",
+    "socket.io": "^1.0.6",
     "underscore": "^1.6.0"
   },
   "devDependencies": {
