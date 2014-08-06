@@ -15,7 +15,7 @@ module.exports = function(grunt) {
         browserify: {
             main: {
                 src: ['src/streamgl.main.js'],
-                dest: 'dist/<%= pkg.name %>.js',
+                dest: 'dist/StreamGL.sc.js',
                 options: {
                     bundleOptions: { debug: true },
                     transform: ['brfs'],
@@ -61,14 +61,14 @@ module.exports = function(grunt) {
         exorcise: {
             bundle: {
                 files: {
-                    'dist/<%= pkg.name %>.map': ['dist/<%= pkg.name %>.js'],
+                    'dist/StreamGL.sc.map': ['dist/StreamGL.sc.js'],
                 }
             }
         },
 
         watch: {
             all: {
-                files: ['dist/<%= pkg.name %>.js'],
+                files: ['dist/StreamGL.sc.js'],
                 tasks: ['jshint', 'maybeExorcise'],
                 options: {
                     spawn: false
