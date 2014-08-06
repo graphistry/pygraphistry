@@ -14,7 +14,7 @@ module.exports = function(grunt) {
 
         browserify: {
             main: {
-                src: ['src/streamgl.main.js'],
+                src: ['src/main.sc.js'],
                 dest: 'dist/StreamGL.sc.js',
                 options: {
                     bundleOptions: { debug: true },
@@ -48,7 +48,6 @@ module.exports = function(grunt) {
                     keepAlive: false,
                     alias: ['src/renderer.config.sc.js:render-config'],
                     postBundleCB: function(err, src, next) {
-                        console.warn("==== WARNING: manually create stripped dist/renderer.config.sc.mod.js ====");
                         next(err, src);
                     },
                     bundleOptions: {
