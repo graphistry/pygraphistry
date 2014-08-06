@@ -9,6 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "chalk": "^0.5.1",
     "gl-matrix": "^2.1.0",
     "jquery": "^2.1.1",
     "node-webcl": "^0.8.3",
