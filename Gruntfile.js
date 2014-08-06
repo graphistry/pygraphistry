@@ -13,7 +13,7 @@ module.exports = function(grunt) {
         },
 
         browserify: {
-            main: {
+            SCMain: {
                 src: ['src/main.sc.js'],
                 dest: 'dist/StreamGL.sc.js',
                 options: {
