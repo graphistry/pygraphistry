@@ -15,6 +15,7 @@
     "node-webcl": "^0.8.3",
     "node-webgl": "^0.4.3",
     "q": "^1.0.1",
+    "rx": "^2.2.27",
     "underscore": "^1.6.0"
   },
   "devDependencies": {
