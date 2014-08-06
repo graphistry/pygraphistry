@@ -80,6 +80,23 @@ module.exports = function(grunt) {
                         debug: true,
                     },
                 }
+            },
+
+            GraphRenderer: {
+                src: ['src/renderer.config.graph.js'],
+                dest: 'dist/render-config.graph.js',
+                options: {
+                    transform: ['brfs'],
+                    watch: true,
+                    keepAlive: false,
+                    alias: ['src/renderer.config.graph.js:render-config'],
+                    postBundleCB: function(err, src, next) {
+                        next(err, src);
+                    },
+                    bundleOptions: {
+                        debug: true,
+                    },
+                }
             }
         },
 
