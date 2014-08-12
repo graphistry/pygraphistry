@@ -4,6 +4,7 @@
 
 var Rx = require("rx");
 var _ = require("underscore");
+var chalk = require("chalk");
 
 var driver = require("./js/node-driver.js");
 
@@ -25,14 +26,14 @@ app.use(nocache, express.static("/Users/mtorok/Documents/repositories/supercondu
 // Use the first argument to this script on the command line, if it exists, as the listen port.
 var httpPort = process.argv.length > 2 ? process.argv[2] : 10000;
 http.listen(httpPort, "localhost", function() {
-    console.log("listening on localhost:" + httpPort);
+    console.log(chalk.bgBlue("\nServer listening on localhost:" + httpPort) + "\n");
 });
 
 
 var vboUpdated = driver.create();
 
 io.on("connection", function(socket) {
-    console.log("\n####### Client connected\n");
+    console.log(chalk.bgCyan("\n####### Client connected") + "\n");
 
     var emitObs = Rx.Observable.fromCallback(socket.emit, socket);
     var acknowledged = new Rx.BehaviorSubject(true);
