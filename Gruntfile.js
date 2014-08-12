@@ -109,7 +109,7 @@ module.exports = function(grunt) {
 
             graph: {
                 files: {
-                    'dist/StreamGL.sc.map': ['dist/StreamGL.graph.js'],
+                    'dist/StreamGL.graph.map': ['dist/StreamGL.graph.js'],
                 }
             }
         },
