@@ -2,6 +2,7 @@
   "name": "StreamGL",
   "version": "0.1.0",
   "description": "Stream WebGL buffers into the browser from a remote server",
+  "private": true,
   "dependencies": {
     "jquery": "^2.1.1",
     "rx": "^2.2.27",
