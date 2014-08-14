@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "browserify": "^4.2.0",
+    "debug": "^1.0.4",
     "uglifyjs": "^2.3.6"
   }
 }

@@ -4,7 +4,7 @@
 
 var Rx = require("rx");
 var _ = require("underscore");
-var chalk = require("chalk");
+var debug = require("debug")("StreamGL:server");
 
 var driver = require("./js/node-driver.js");
 
@@ -26,14 +26,14 @@ app.use(nocache, express.static("/Users/mtorok/Documents/repositories/supercondu
 // Use the first argument to this script on the command line, if it exists, as the listen port.
 var httpPort = process.argv.length > 2 ? process.argv[2] : 10000;
 http.listen(httpPort, "localhost", function() {
-    console.log(chalk.bgBlue("\nServer listening on localhost:" + httpPort) + "\n");
+    console.log("\nServer listening on localhost:" + httpPort);
 });
 
 
 var vboUpdated = driver.create();
 
 io.on("connection", function(socket) {
-    console.log(chalk.bgCyan("\n####### Client connected") + "\n");
+    debug("Client connected");
 
     var emitObs = Rx.Observable.fromCallback(socket.emit, socket);
     var acknowledged = new Rx.BehaviorSubject(true);
@@ -43,18 +43,16 @@ io.on("connection", function(socket) {
         .merge(vboUpdated.take(1))  // Ensure we fire one event to kick off the loop
         .subscribe(
             function(vbos) {
-                var vboSizeBytes = _.reduce(_.values(vbos.buffers),
-                    function(sum, v) {return sum + v.byteLength; }, 0 );
+                var vboSizeBytes = _.reduce(_.values(vbos.buffers), function(sum, v) {
+                        return sum + v.byteLength;
+                    }, 0 );
                 var vboSizeMB = Math.round((Math.round(vboSizeBytes / 1024) / 1024) * 100) / 100;
-                console.debug("Emitting VBOs with size", vboSizeMB, "MB");
-
-                var emitTime = Date.now();
+                debug("Socket", "Emitting VBOs: " + vboSizeMB + "MB");
 
                 emitObs("vbo_update", vbos)
                     .subscribe(function(clientElapsed) {
-                        var serverElapsed = Date.now() - emitTime;
-                        console.debug("    Got handshake (server time:", serverElapsed,
-                            "ms; client time:", clientElapsed, "ms");
+                        debug("Socket", "...client acknowledged. Reported performance: " +
+                            clientElapsed + "ms");
                         acknowledged.onNext();
                     },
                     function(err) { console.err("Error receiving handshake from client:", err); });
