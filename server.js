@@ -11,6 +11,7 @@ var driver = require("./js/node-driver.js");
 var express = require("express");
 var app = express();
 var http = require("http").Server(app);
+/* global -io */ //Set jshint to ignore `predef:"io"` in .jshintrc so we can manually define io here
 var io = require("socket.io")(http, {transports: ["websocket"]});
 
 
