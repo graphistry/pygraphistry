@@ -11,7 +11,7 @@ var driver = require("./js/node-driver.js");
 var express = require("express");
 var app = express();
 var http = require("http").Server(app);
-var io = require("socket.io")(http); // , {transports: ["websocket"]}
+var io = require("socket.io")(http, {transports: ["websocket"]});
 
 
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
