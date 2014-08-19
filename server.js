@@ -41,7 +41,7 @@ http.listen(httpPort, "localhost", function() {
 });
 
 
-var vboUpdated = driver.create();
+var animStep = driver.create();
 
 io.on("connection", function(socket) {
     debug("Client connected");
@@ -49,25 +49,26 @@ io.on("connection", function(socket) {
     var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
     var acknowledged = new Rx.BehaviorSubject(0);
 
-    var doEmit = vboUpdated
+    animStep
         .sample(acknowledged)
-        .merge(vboUpdated.take(1));  // Ensure we fire one event to kick off the loop
-    doEmit.subscribe(
-        function(vbos) {
-            debug("Socket", "Emitting VBOs: " + vboSizeMB(vbos.buffers) + "MB");
-
-            emitFnWrapper("vbo_update", vbos).subscribe(
-                function(clientElapsed) {
-                    debug("Socket", "...client acknowledged. Reported performance: " +
-                        clientElapsed + "ms");
-                    acknowledged.onNext(clientElapsed);
-                },
-                function(err) { console.err("Error receiving handshake from client:", err); }
-            );
-        },
-        function(err) {
-            console.error("Error sending VBO update:", err);
-        }
-    );
+        .merge(animStep.take(1))  // Ensure we fire one event to kick off the loop
+        .flatMap(function(graph) {
+            // TODO: Proactively fetch the graph as soon as we've sent the last one, or the data
+            // gets stale, and use this data when sending to the client
+            return driver.fetchData(graph);
+        })
+        .subscribe(
+            function(vbos) {
+                debug("Socket", "Emitting VBOs: " + vboSizeMB(vbos.buffers) + "MB");
+                emitFnWrapper("vbo_update", vbos).subscribe(
+                    function(clientElapsed) {
+                        debug("Socket", "...client acknowledged with time " + clientElapsed + "ms");
+                        acknowledged.onNext(clientElapsed);
+                    },
+                    function(err) { console.err("Error receiving handshake from client:", err); }
+                );
+            },
+            function(err) { console.error("Error sending VBO update:", err); }
+        );
 
 });
