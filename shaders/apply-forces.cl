@@ -9,6 +9,33 @@
 
 
 
+//====== FORCE ATLAS 2
+
+#define REPULSION_OVERLAP 100.0f
+
+// bound whether d(a,b) == 0
+#define EPSILON 0.01f
+
+//set by kernel
+//compress booleans into flags
+#define GRAPH_PARAMS  \
+	float scalingRatio, \
+    float gravity, \
+    uint edgeWidthInfluence, \
+    uint flags
+#define GRAPH_ARGS \
+	scalingRatio, \
+	gravity, \
+	edgeWidthInfluence, \
+	flags
+#define IS_PREVENT_OVERLAP(GRAPH_PARAMS) (flags & 1)
+#define IS_STRONG_GRAVITY(GRAPH_PARAMS) (flags & 2)
+#define IS_DISSUADE_HUBS(GRAPH_PARAMS) (flags & 4)
+
+
+//====================
+
+
 
 
 // The fraction of tiles to process each execution of this kernel. For example, a value of '10' will
@@ -181,6 +208,30 @@ __kernel void apply_midsprings(
 }
 
 
+__kernel void repulsePointsAndApplyGravity (
+	//input
+    GRAPH_CONFIG_PARAMETERS(),
+	unsigned int numPoints,
+	__global float2* inputPositions,
+	float width,
+	float height,
+	unsigned int stepNumber
+) {
+
+}
+
+void attractEdgesAndApplyForces(
+    //input
+    GRAPH_CONFIG_PARAMETERS()
+	__global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
+	__global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
+	__global float2* inputPoints,      // Current point positions (read-only)
+	unsigned int stepNumber
+
+) {
+
+}
+
 
 __kernel void apply_points(
 	unsigned int numPoints,
@@ -305,8 +356,8 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 
 
 __kernel void apply_springs(
-	__global uint2* springs,	       // Array of springs, of the form [source node, targer node] (read-only)
-	__global uint2* workList, 	       // Array of spring [index, length] pairs to compute (read-only)
+	__global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
+	__global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
 	__global float2* inputPoints,      // Current point positions (read-only)
 	__global float2* outputPoints,     // Point positions after spring forces have been applied (write-only)
 	__global float4* springPositions,  // Positions of the springs after forces are applied. Length
