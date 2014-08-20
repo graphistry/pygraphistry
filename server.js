@@ -32,7 +32,7 @@ function nocache(req, res, next) {
     next();
 }
 
-app.use(nocache, express.static("/Users/mtorok/Documents/repositories/superconductor2/nodecl/GPUStreaming/"));
+app.use(nocache, express.static("/Users/lmeyerov/Desktop/Superconductor2/nodecl/GPUStreaming/"));
 
 // Use the first argument to this script on the command line, if it exists, as the listen port.
 var httpPort = process.argv.length > 2 ? process.argv[2] : 10000;
