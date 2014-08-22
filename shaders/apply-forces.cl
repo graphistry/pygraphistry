@@ -207,32 +207,6 @@ __kernel void apply_midsprings(
     return;
 }
 
-
-__kernel void repulsePointsAndApplyGravity (
-	//input
-    GRAPH_CONFIG_PARAMETERS(),
-	unsigned int numPoints,
-	__global float2* inputPositions,
-	float width,
-	float height,
-	unsigned int stepNumber
-) {
-
-}
-
-void attractEdgesAndApplyForces(
-    //input
-    GRAPH_CONFIG_PARAMETERS()
-	__global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
-	__global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
-	__global float2* inputPoints,      // Current point positions (read-only)
-	unsigned int stepNumber
-
-) {
-
-}
-
-
 __kernel void apply_points(
 	unsigned int numPoints,
 	__global float2* inputPositions,
@@ -411,3 +385,40 @@ __kernel void apply_springs(
 	}
 	return;
 }
+
+
+
+
+
+//========== FORCE ATLAS 2
+
+
+__kernel void repulsePointsAndApplyGravity (
+	//input
+    GRAPH_PARAMS,
+	unsigned int numPoints,
+	__global float2* inputPositions,
+	float width,
+	float height,
+	unsigned int stepNumber
+) {
+
+	return;
+
+}
+
+__kernel void attractEdgesAndApplyForces(
+    //input
+    GRAPH_PARAMS,
+	__global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
+	__global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
+	__global float2* inputPoints,      // Current point positions (read-only)
+	unsigned int stepNumber
+) {
+
+	return;
+
+}
+
+
+
