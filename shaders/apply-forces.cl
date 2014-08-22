@@ -404,6 +404,8 @@ __kernel void repulsePointsAndApplyGravity (
 	float width,
 	float height,
 	unsigned int stepNumber,
+	__global uint* inDegrees,
+	__global uint* outDegrees,
 
 	//output
 	__global float2* outputVelocities
@@ -420,14 +422,13 @@ __kernel void repulsePointsAndApplyGravity (
 
 
     float2 n1Pos = inputPositions[n1Idx];
-    //TODO f(n1D_prev)?
     float2 n1D = (float2) (0.0f, 0.0f);
+
+    uint n1Degree = inDegrees[n1Idx] + outDegrees[n1Idx];
 
 
     //FIXME IS_PREVENT_OVERLAP(GRAPH_ARGS) ? sizes[n1Idx] : 0.0f;
     float n1Size = 1.0f;
-    uint n1Degree = 1;
-
 
     for(unsigned int tile = 0; tile < numTiles; tile++) {
         if (tile % modulus != stepNumber % modulus) {
@@ -456,7 +457,8 @@ __kernel void repulsePointsAndApplyGravity (
 
 			//FIXME include in prefetch etc.
 	        float n2Size = 1.0f; //graphSettings->isPreventOverlap ? sizes[n2Idx] : 0.0f;
-	        uint n2Degree = 1; //graphSettings->isPreventOverlap ? degrees[n2Idx] : 0;
+	        uint n2Idx = tileStart + cachedPoint;
+	        uint n2Degree = IS_PREVENT_OVERLAP(GRAPH_ARGS) ? inDegrees[n2Idx] + outDegrees[n2Idx] : 0;
 
 	        float force;
 	        if (IS_PREVENT_OVERLAP(GRAPH_ARGS)) {
