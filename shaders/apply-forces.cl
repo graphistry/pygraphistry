@@ -22,12 +22,12 @@
 #define GRAPH_PARAMS  \
 	float scalingRatio, \
     float gravity, \
-    uint edgeWidthInfluence, \
+    uint edgeWeightInfluence, \
     uint flags
 #define GRAPH_ARGS \
 	scalingRatio, \
 	gravity, \
-	edgeWidthInfluence, \
+	edgeWeightInfluence, \
 	flags
 #define IS_PREVENT_OVERLAP(GRAPH_PARAMS) (flags & 1)
 #define IS_STRONG_GRAVITY(GRAPH_PARAMS) (flags & 2)
