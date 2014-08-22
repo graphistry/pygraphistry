@@ -1,5 +1,6 @@
 
-//nodecl sets "#define NODECL" for bug https://github.com/Motorola-Mobility/node-webcl/issues/41
+//NODECL defined by including file
+// (nodecl sets "#define NODECL" for bug https://github.com/Motorola-Mobility/node-webcl/issues/41 )
 
 #ifdef NODECL
 	#define TILEPOINTS tilePointsInline
