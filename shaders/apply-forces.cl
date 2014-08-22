@@ -397,25 +397,117 @@ __kernel void apply_springs(
 __kernel void repulsePointsAndApplyGravity (
 	//input
     GRAPH_PARAMS,
+	__local float2* tilePointsParam, //FIXME make nodecl accept local params
 	unsigned int numPoints,
 	__global float2* inputPositions,
 	float width,
 	float height,
-	unsigned int stepNumber
+	unsigned int stepNumber,
+
+	//output
+	__global float2* outputVelocities
 ) {
 
-	return;
 
+    const unsigned int n1Idx = (unsigned int) get_global_id(0);
+    const unsigned int tileSize = (unsigned int) get_local_size(0);
+    const unsigned int numTiles = (unsigned int) get_num_groups(0);
+    unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
+
+
+	__local float2 tilePointsInline[1000];
+
+
+    float2 n1Pos = inputPositions[n1Idx];
+    float2 n1D = (0.0f, 0.0f);
+
+    //FIXME IS_PREVENT_OVERLAP(GRAPH_ARGS) ? sizes[n1Idx] : 0.0f;
+    float n1Size = 1.0f;
+    uint n1Degree = 1;
+
+
+    for(unsigned int tile = 0; tile < numTiles; tile++) {
+        if (tile % modulus != stepNumber % modulus) {
+            continue;
+        }
+
+		const unsigned int tileStart = (tile * tileSize);
+		unsigned int thisTileSize =  tileStart + tileSize < numPoints ?
+										tileSize : numPoints - tileStart;
+
+		event_t waitEvents[1];
+		waitEvents[0] = async_work_group_copy(TILEPOINTS, inputPositions + tileStart, thisTileSize, 0);
+		wait_group_events(1, waitEvents);
+
+		prefetch(inputPositions + ((tile + 1) * tileSize), thisTileSize);
+
+		for(unsigned int cachedPoint = 0; cachedPoint < thisTileSize; cachedPoint++) {
+			// Don't calculate the forces of a point on itself
+			if (tileStart + cachedPoint == n1Idx) {
+				continue;
+			}
+
+			float2 n2Pos = TILEPOINTS[cachedPoint];
+			float2 dist = n1Pos - n2Pos;
+			float distanceSqr = dist.x * dist.x + dist.y * dist.y;
+
+			//FIXME include in prefetch etc.
+	        float n2Size = 1.0f; //graphSettings->isPreventOverlap ? sizes[n2Idx] : 0.0f;
+	        uint n2Degree = 1; //graphSettings->isPreventOverlap ? degrees[n2Idx] : 0;
+
+	        float force;
+	        if (IS_PREVENT_OVERLAP(GRAPH_ARGS)) {
+
+	            //FIXME only apply after convergence <-- use stepNumber?
+
+	            //border-to-border approximation
+	            float distance = sqrt(distanceSqr) - n1Size - n2Size;
+	            int degrees = (n1Degree + 1) * (n2Degree + 1);
+
+	            force =
+	                  distance > EPSILON    ? (scalingRatio * degrees / distance)
+	                : distance < -EPSILON   ? (REPULSION_OVERLAP * degrees)
+	                : 0.0f;
+
+	        } else {
+	            force = scalingRatio / distanceSqr;
+	        }
+
+        	n1D += dist * force;
+		}
+		barrier(CLK_LOCAL_MEM_FENCE);
+	}
+
+	//FIXME use mass
+	//FIXME gravity relative to width/height center?
+
+    const float2 dimensions = (float2) (width, height);
+    const float2 centerDist = (dimensions/2.0f) - n1Pos;
+
+    float gravityForce =
+        1.0f //mass
+        * gravity
+        * (n1Degree + 1.0f)
+        / (IS_STRONG_GRAVITY(GRAPH_ARGS)) ? 1.0f : sqrt(centerDist.x * centerDist.x + centerDist.y * centerDist.y);
+
+
+    outputVelocities[n1Idx] = n1D - n1Pos * gravityForce;
+
+	return;
 }
 
 __kernel void attractEdgesAndApplyForces(
     //input
     GRAPH_PARAMS,
-	__global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
-	__global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
-	__global float2* inputPoints,      // Current point positions (read-only)
+	__local float2* tilePointsParam, 	//FIXME make nodecl accept local params
+	__global uint2* springs,	       	// Array of springs, of the form [source node, target node] (read-only)
+	__global uint2* workList, 	       	// Array of spring [source index, sinks length] pairs to compute (read-only)
+	__global float2* inputPoints,      	// Current point positions (read-only)
 	unsigned int stepNumber
 ) {
+
+	__local float2 tilePointsInline[1000];
+
 
 	return;
 
