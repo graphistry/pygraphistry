@@ -32,6 +32,7 @@
 #define IS_PREVENT_OVERLAP(GRAPH_PARAMS) (flags & 1)
 #define IS_STRONG_GRAVITY(GRAPH_PARAMS) (flags & 2)
 #define IS_DISSUADE_HUBS(GRAPH_PARAMS) (flags & 4)
+#define IS_LIN_LOG(GRAPH_PARAMS) (flags & 8)
 
 
 //====================
@@ -419,7 +420,9 @@ __kernel void repulsePointsAndApplyGravity (
 
 
     float2 n1Pos = inputPositions[n1Idx];
-    float2 n1D = (0.0f, 0.0f);
+    //TODO f(n1D_prev)?
+    float2 n1D = (float2) (0.0f, 0.0f);
+
 
     //FIXME IS_PREVENT_OVERLAP(GRAPH_ARGS) ? sizes[n1Idx] : 0.0f;
     float n1Size = 1.0f;
@@ -503,11 +506,64 @@ __kernel void attractEdgesAndApplyForces(
 	__global uint2* springs,	       	// Array of springs, of the form [source node, target node] (read-only)
 	__global uint2* workList, 	       	// Array of spring [source index, sinks length] pairs to compute (read-only)
 	__global float2* inputPoints,      	// Current point positions (read-only)
-	unsigned int stepNumber
+	unsigned int stepNumber,
+
+	//output
+	__global float2* outputPoints
 ) {
 
 	__local float2 tilePointsInline[1000];
 
+    const size_t workItem = (unsigned int) get_global_id(0);
+    const uint springsStart = workList[workItem][0];
+    const uint springsCount = workList[workItem][1];
+    const uint sourceIdx = springs[springsStart][0];
+
+    //====== attact edges
+
+    float2 n1Pos = inputPoints[sourceIdx];
+
+    //FIXME IS_PREVENT_OVERLAP(GRAPH_ARGS) ? sizes[n1Idx] : 0.0f;
+    float n1Size = 1.0f;
+
+    //FIXME start with previous deriv?
+    float2 n1D = (float2) (0.0f, 0.0f);
+
+	for(uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
+
+        const uint2 curSpring = springs[curSpringIdx];
+
+        float2 n2Pos = inputPoints[curSpring[1]];
+
+        //FIXME from param
+        float n2Size = 1.0f; //graphSettings->isPreventOverlap ? sizes[curSpring[1]] : 0.0f;
+        uint wMode = edgeWeightInfluence;
+        float weight = 1.0f; //wMode ? edgeWeight[curSpringIdx] : 0.0f;
+
+        float weightMultiplier =
+            wMode == 0      ? 1.0f
+            : wMode == 1    ? weight
+            : pown(weight, wMode);
+
+        float2 dist = n1Pos - n2Pos;
+
+        float distance =
+            sqrt(dist.x * dist.x + dist.y * dist.y)
+            - (IS_PREVENT_OVERLAP(GRAPH_ARGS) ? n1Size + n2Size : 0.0f);
+
+        float force =
+            (IS_PREVENT_OVERLAP(GRAPH_ARGS) && distance < EPSILON)
+                ? 0.0f
+                : (weightMultiplier
+                    * (IS_LIN_LOG(GRAPH_ARGS) ? log(1.0f + distance) : distance)
+                    / (IS_DISSUADE_HUBS(GRAPH_ARGS) ? springsCount + 1.0f : 1.0f));
+
+        n1D += dist * force;
+    }
+
+    //====== apply
+
+    outputPoints[sourceIdx] = n1Pos + n1D * 0.001f;
 
 	return;
 
