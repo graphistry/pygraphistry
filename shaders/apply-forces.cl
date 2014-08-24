@@ -4,8 +4,12 @@
 
 #ifdef NODECL
 	#define TILEPOINTS tilePointsInline
+	#define TILEPOINTS2 tilePointsInline2
+	#define TILEPOINTS3 tilePointsInline3
 #else
 	#define TILEPOINTS tilePointsParam
+	#define TILEPOINTS2 tilePointsParam2
+	#define TILEPOINTS3 tilePointsParam3
 #endif
 
 
@@ -19,20 +23,14 @@
 
 //set by kernel
 //compress booleans into flags
-#define GRAPH_PARAMS  \
-	float scalingRatio, \
-    float gravity, \
-    uint edgeWeightInfluence, \
-    uint flags
-#define GRAPH_ARGS \
-	scalingRatio, \
-	gravity, \
-	edgeWeightInfluence, \
-	flags
-#define IS_PREVENT_OVERLAP(GRAPH_PARAMS) (flags & 1)
-#define IS_STRONG_GRAVITY(GRAPH_PARAMS) (flags & 2)
-#define IS_DISSUADE_HUBS(GRAPH_PARAMS) (flags & 4)
-#define IS_LIN_LOG(GRAPH_PARAMS) (flags & 8)
+//#define GRAPH_PARAMS_RAW() float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags
+//#define GRAPH_PARAMS GRAPH_PARAMS_RAW()
+//#define GRAPH_ARGS_RAW scalingRatio, gravity, edgeWeightInfluence, flags
+//#define GRAPH_ARGS GRAPH_ARGS_RAW()
+#define IS_PREVENT_OVERLAP(flags) (flags & 1)
+#define IS_STRONG_GRAVITY(flags) (flags & 2)
+#define IS_DISSUADE_HUBS(flags) (flags & 4)
+#define IS_LIN_LOG(flags) (flags & 8)
 
 
 //====================
@@ -108,11 +106,12 @@ __kernel void apply_midpoints(
 		unsigned int thisTileSize =  tileStart + tileSize < numPoints ?
 										tileSize : numPoints - tileStart;
 
-
+		//block on fetching current tile
 		event_t waitEvents[1];
 		waitEvents[0] = async_work_group_copy(TILEPOINTS, inputMidPositions + tileStart, thisTileSize, 0);
 		wait_group_events(1, waitEvents);
 
+		//hint fetch of next tile
 		prefetch(inputMidPositions + ((tile + 1) * tileSize), thisTileSize);
 
 		for(unsigned int cachedPoint = 0; cachedPoint < thisTileSize; cachedPoint++) {
@@ -394,11 +393,16 @@ __kernel void apply_springs(
 
 //========== FORCE ATLAS 2
 
-
+//TODO restrict
 __kernel void repulsePointsAndApplyGravity (
 	//input
-    GRAPH_PARAMS,
+
+	//GRAPH_PARAMS
+    float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
+
 	__local float2* tilePointsParam, //FIXME make nodecl accept local params
+	__local uint* tilePointsParam2, //FIXME make nodecl accept local params
+	__local uint* tilePointsParam3, //FIXME make nodecl accept local params
 	unsigned int numPoints,
 	__global float2* inputPositions,
 	float width,
@@ -411,7 +415,7 @@ __kernel void repulsePointsAndApplyGravity (
 	__global float2* outputVelocities
 ) {
 
-
+/*
     const unsigned int n1Idx = (unsigned int) get_global_id(0);
     const unsigned int tileSize = (unsigned int) get_local_size(0);
     const unsigned int numTiles = (unsigned int) get_num_groups(0);
@@ -427,7 +431,7 @@ __kernel void repulsePointsAndApplyGravity (
     uint n1Degree = inDegrees[n1Idx] + outDegrees[n1Idx];
 
 
-    //FIXME IS_PREVENT_OVERLAP(GRAPH_ARGS) ? sizes[n1Idx] : 0.0f;
+    //FIXME IS_PREVENT_OVERLAP(flags) ? sizes[n1Idx] : 0.0f;
     float n1Size = 1.0f;
 
     for(unsigned int tile = 0; tile < numTiles; tile++) {
@@ -439,11 +443,19 @@ __kernel void repulsePointsAndApplyGravity (
 		unsigned int thisTileSize =  tileStart + tileSize < numPoints ?
 										tileSize : numPoints - tileStart;
 
-		event_t waitEvents[1];
+		//block on fetching current tile
+		event_t waitEvents[3];
 		waitEvents[0] = async_work_group_copy(TILEPOINTS, inputPositions + tileStart, thisTileSize, 0);
-		wait_group_events(1, waitEvents);
+		if (IS_PREVENT_OVERLAP(flags)) {
+			waitEvents[1] = async_work_group_copy(TILEPOINTS2, inDegrees + tileStart, thisTileSize, 0);
+			waitEvents[2] = async_work_group_copy(TILEPOINTS3, outDegrees + tileStart, thisTileSize, 0);
+		}
+		wait_group_events(IS_PREVENT_OVERLAP(flags) ? 3 : 1, waitEvents);
 
+		//hint fetch of next tile
 		prefetch(inputPositions + ((tile + 1) * tileSize), thisTileSize);
+		prefetch(inDegrees + ((tile + 1) * tileSize), thisTileSize);
+		prefetch(outDegrees + ((tile + 1) * tileSize), thisTileSize);
 
 		for(unsigned int cachedPoint = 0; cachedPoint < thisTileSize; cachedPoint++) {
 			// Don't calculate the forces of a point on itself
@@ -458,10 +470,10 @@ __kernel void repulsePointsAndApplyGravity (
 			//FIXME include in prefetch etc.
 	        float n2Size = 1.0f; //graphSettings->isPreventOverlap ? sizes[n2Idx] : 0.0f;
 	        uint n2Idx = tileStart + cachedPoint;
-	        uint n2Degree = IS_PREVENT_OVERLAP(GRAPH_ARGS) ? inDegrees[n2Idx] + outDegrees[n2Idx] : 0;
+	        uint n2Degree = IS_PREVENT_OVERLAP(flags) ? TILEPOINTS2[n2Idx] + TILEPOINTS3[n2Idx] : 0;
 
 	        float force;
-	        if (IS_PREVENT_OVERLAP(GRAPH_ARGS)) {
+	        if (IS_PREVENT_OVERLAP(flags)) {
 
 	            //FIXME only apply after convergence <-- use stepNumber?
 
@@ -493,18 +505,21 @@ __kernel void repulsePointsAndApplyGravity (
         1.0f //mass
         * gravity
         * (n1Degree + 1.0f)
-        / (IS_STRONG_GRAVITY(GRAPH_ARGS)) ? 1.0f : sqrt(centerDist.x * centerDist.x + centerDist.y * centerDist.y);
+        / (IS_STRONG_GRAVITY(flags)) ? 1.0f : sqrt(centerDist.x * centerDist.x + centerDist.y * centerDist.y);
 
 
     outputVelocities[n1Idx] = n1D - n1Pos * gravityForce;
-
+*/
 	return;
 }
 
+//TODO restrict
 __kernel void attractEdgesAndApplyForces(
     //input
-    GRAPH_PARAMS,
-	__local float2* tilePointsParam, 	//FIXME make nodecl accept local params
+
+    //GRAPH_PARAMS
+    float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
+
 	__global uint2* springs,	       	// Array of springs, of the form [source node, target node] (read-only)
 	__global uint2* workList, 	       	// Array of spring [source index, sinks length] pairs to compute (read-only)
 	__global float2* inputPoints,      	// Current point positions (read-only)
@@ -514,7 +529,7 @@ __kernel void attractEdgesAndApplyForces(
 	__global float2* outputPoints
 ) {
 
-	__local float2 tilePointsInline[1000];
+/*
 
     const size_t workItem = (unsigned int) get_global_id(0);
     const uint springsStart = workList[workItem][0];
@@ -525,7 +540,7 @@ __kernel void attractEdgesAndApplyForces(
 
     float2 n1Pos = inputPoints[sourceIdx];
 
-    //FIXME IS_PREVENT_OVERLAP(GRAPH_ARGS) ? sizes[n1Idx] : 0.0f;
+    //FIXME IS_PREVENT_OVERLAP(flags) ? sizes[n1Idx] : 0.0f;
     float n1Size = 1.0f;
 
     //FIXME start with previous deriv?
@@ -551,14 +566,14 @@ __kernel void attractEdgesAndApplyForces(
 
         float distance =
             sqrt(dist.x * dist.x + dist.y * dist.y)
-            - (IS_PREVENT_OVERLAP(GRAPH_ARGS) ? n1Size + n2Size : 0.0f);
+            - (IS_PREVENT_OVERLAP(flags) ? n1Size + n2Size : 0.0f);
 
         float force =
-            (IS_PREVENT_OVERLAP(GRAPH_ARGS) && distance < EPSILON)
+            (IS_PREVENT_OVERLAP(flags) && distance < EPSILON)
                 ? 0.0f
                 : (weightMultiplier
-                    * (IS_LIN_LOG(GRAPH_ARGS) ? log(1.0f + distance) : distance)
-                    / (IS_DISSUADE_HUBS(GRAPH_ARGS) ? springsCount + 1.0f : 1.0f));
+                    * (IS_LIN_LOG(flags) ? log(1.0f + distance) : distance)
+                    / (IS_DISSUADE_HUBS(flags) ? springsCount + 1.0f : 1.0f));
 
         n1D += dist * force;
     }
@@ -566,6 +581,7 @@ __kernel void attractEdgesAndApplyForces(
     //====== apply
 
     outputPoints[sourceIdx] = n1Pos + n1D * 0.001f;
+*/
 
 	return;
 
