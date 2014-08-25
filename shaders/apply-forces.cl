@@ -394,8 +394,6 @@ __kernel void gaussSeidelSprings(
 
 
 
-
-
 //========== FORCE ATLAS 2
 
 //repulse points and apply gravity
