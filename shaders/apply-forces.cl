@@ -1,15 +1,20 @@
-
 //NODECL defined by including file
 // (nodecl sets "#define NODECL" for bug https://github.com/Motorola-Mobility/node-webcl/issues/41 )
 
 #ifdef NODECL
 	#define TILEPOINTS tilePointsInline
-	#define TILEPOINTS2 tilePointsInline2
-	#define TILEPOINTS3 tilePointsInline3
+	#define TILEPOINTS2 tilePoints2Inline
+	#define TILEPOINTS3 tilePoints3Inline
+	#define TILEPOINTS_INLINE_DECL __local float2 tilePointsInline[1000];
+	#define TILEPOINTS2_INLINE_DECL __local uint tilePoints2Inline[1000];
+	#define TILEPOINTS3_INLINE_DECL __local uint tilePoints3Inline[1000];
 #else
 	#define TILEPOINTS tilePointsParam
-	#define TILEPOINTS2 tilePointsParam2
-	#define TILEPOINTS3 tilePointsParam3
+	#define TILEPOINTS2 tilePoints2Param
+	#define TILEPOINTS3 tilePoints3Param
+	#define TILEPOINTS_INLINE_DECL
+	#define TILEPOINTS2_INLINE_DECL
+	#define TILEPOINTS3_INLINE_DECL
 #endif
 
 
@@ -19,7 +24,7 @@
 #define REPULSION_OVERLAP 100.0f
 
 // bound whether d(a,b) == 0
-#define EPSILON 0.01f
+#define EPSILON 0.0001f
 
 //set by kernel
 //compress booleans into flags
@@ -64,7 +69,7 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 __kernel void apply_midpoints(
     unsigned int numPoints,
     unsigned int numSplits,
-	__global float2* inputMidPositions,
+	const __global float2* inputMidPositions,
 	__global float2* outputMidPositions,
 	__local float2* tilePointsParam,
 	float width,
@@ -93,7 +98,7 @@ __kernel void apply_midpoints(
     unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
 
 
-	__local float2 tilePointsInline[1000];
+	TILEPOINTS_INLINE_DECL;
 
 	for(unsigned int tile = 0; tile < numTiles; tile++) {
 
@@ -148,10 +153,10 @@ __kernel void apply_midpoints(
 //Compute elements based on original edges and predefined number of splits in each one
 __kernel void apply_midsprings(
 	unsigned int numSplits,                // 0: How many times each edge is split (> 0)
-	__global uint2* springs,	           // 1: Array of (unsplit) springs, of the form [source node, targer node] (read-only)
-	__global uint2* workList, 	           // 2: Array of (unsplit) spring [index, length] pairs to compute (read-only)
-	__global float2* inputPoints,          // 3: Current point positions (read-only)
-	__global float2* inputMidPoints,       // 4: Current midpoint positions (read-only)
+	const __global uint2* springs,	           // 1: Array of (unsplit) springs, of the form [source node, targer node] (read-only)
+	const __global uint2* workList, 	           // 2: Array of (unsplit) spring [index, length] pairs to compute (read-only)
+	const __global float2* inputPoints,          // 3: Current point positions (read-only)
+	const __global float2* inputMidPoints,       // 4: Current midpoint positions (read-only)
 	__global float2* outputMidPoints,      // 5: Point positions after spring forces have been applied (write-only)
 	__global float4* springMidPositions,   // 6: Positions of the springs after forces are applied. Length
 	                                       // len(springs) * 2: one float2 for start, one float2 for
@@ -210,7 +215,7 @@ __kernel void apply_midsprings(
 
 __kernel void apply_points(
 	unsigned int numPoints,
-	__global float2* inputPositions,
+	const __global float2* inputPositions,
 	__global float2* outputPositions,
 	__local float2* tilePointsParam, //FIXME make nodecl accept local params
 	float width,
@@ -224,7 +229,7 @@ __kernel void apply_points(
 	// use async_work_group_copy() and wait_group_events() to fetch the data from global to local
 	// use vloadn() and vstoren() to read/write vectors.
 
-	__local float2 tilePointsInline[1000];
+	TILEPOINTS_INLINE_DECL;
 
     const float2 dimensions = (float2) (width, height);
 
@@ -331,9 +336,9 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 
 
 __kernel void apply_springs(
-	__global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
-	__global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
-	__global float2* inputPoints,      // Current point positions (read-only)
+	const __global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
+	const __global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
+	const __global float2* inputPoints,      // Current point positions (read-only)
 	__global float2* outputPoints,     // Point positions after spring forces have been applied (write-only)
 	__global float4* springPositions,  // Positions of the springs after forces are applied. Length
 	                                   // len(springs) * 2: one float2 for start, one float2 for
@@ -393,7 +398,6 @@ __kernel void apply_springs(
 
 //========== FORCE ATLAS 2
 
-//TODO restrict
 __kernel void repulsePointsAndApplyGravity (
 	//input
 
@@ -401,28 +405,28 @@ __kernel void repulsePointsAndApplyGravity (
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
 
 	__local float2* tilePointsParam, //FIXME make nodecl accept local params
-	__local uint* tilePointsParam2, //FIXME make nodecl accept local params
-	__local uint* tilePointsParam3, //FIXME make nodecl accept local params
+	__local uint* tilePoints2Param, //FIXME make nodecl accept local params
+	__local uint* tilePoints3Param, //FIXME make nodecl accept local params
 	unsigned int numPoints,
-	__global float2* inputPositions,
+	const __global float2* inputPositions,
 	float width,
 	float height,
 	unsigned int stepNumber,
-	__global uint* inDegrees,
-	__global uint* outDegrees,
+	const __global uint* inDegrees,
+	const __global uint* outDegrees,
 
 	//output
-	__global float2* outputVelocities
+	__global float2* outputPositions
 ) {
 
-/*
     const unsigned int n1Idx = (unsigned int) get_global_id(0);
     const unsigned int tileSize = (unsigned int) get_local_size(0);
     const unsigned int numTiles = (unsigned int) get_num_groups(0);
     unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
 
-
-	__local float2 tilePointsInline[1000];
+	TILEPOINTS_INLINE_DECL;
+	TILEPOINTS2_INLINE_DECL;
+	TILEPOINTS3_INLINE_DECL;
 
 
     float2 n1Pos = inputPositions[n1Idx];
@@ -439,11 +443,13 @@ __kernel void repulsePointsAndApplyGravity (
             continue;
         }
 
+
 		const unsigned int tileStart = (tile * tileSize);
 		unsigned int thisTileSize =  tileStart + tileSize < numPoints ?
 										tileSize : numPoints - tileStart;
 
 		//block on fetching current tile
+
 		event_t waitEvents[3];
 		waitEvents[0] = async_work_group_copy(TILEPOINTS, inputPositions + tileStart, thisTileSize, 0);
 		if (IS_PREVENT_OVERLAP(flags)) {
@@ -451,6 +457,7 @@ __kernel void repulsePointsAndApplyGravity (
 			waitEvents[2] = async_work_group_copy(TILEPOINTS3, outDegrees + tileStart, thisTileSize, 0);
 		}
 		wait_group_events(IS_PREVENT_OVERLAP(flags) ? 3 : 1, waitEvents);
+
 
 		//hint fetch of next tile
 		prefetch(inputPositions + ((tile + 1) * tileSize), thisTileSize);
@@ -470,7 +477,7 @@ __kernel void repulsePointsAndApplyGravity (
 			//FIXME include in prefetch etc.
 	        float n2Size = 1.0f; //graphSettings->isPreventOverlap ? sizes[n2Idx] : 0.0f;
 	        uint n2Idx = tileStart + cachedPoint;
-	        uint n2Degree = IS_PREVENT_OVERLAP(flags) ? TILEPOINTS2[n2Idx] + TILEPOINTS3[n2Idx] : 0;
+	        uint n2Degree = IS_PREVENT_OVERLAP(flags) ? TILEPOINTS2[cachedPoint] + TILEPOINTS3[cachedPoint] : 0;
 
 	        float force;
 	        if (IS_PREVENT_OVERLAP(flags)) {
@@ -493,6 +500,7 @@ __kernel void repulsePointsAndApplyGravity (
         	n1D += dist * force;
 		}
 		barrier(CLK_LOCAL_MEM_FENCE);
+
 	}
 
 	//FIXME use mass
@@ -505,13 +513,17 @@ __kernel void repulsePointsAndApplyGravity (
         1.0f //mass
         * gravity
         * (n1Degree + 1.0f)
-        / (IS_STRONG_GRAVITY(flags)) ? 1.0f : sqrt(centerDist.x * centerDist.x + centerDist.y * centerDist.y);
+        / (IS_STRONG_GRAVITY(flags) ? 1.0f : sqrt(centerDist.x * centerDist.x + centerDist.y * centerDist.y));
 
 
-    outputVelocities[n1Idx] = n1D - n1Pos * gravityForce;
-*/
+    outputPositions[n1Idx] =
+    	n1Pos
+    	+ 0.1f * centerDist * gravityForce
+    	+ 0.0001f * n1D;
+
 	return;
 }
+
 
 //TODO restrict
 __kernel void attractEdgesAndApplyForces(
@@ -520,16 +532,14 @@ __kernel void attractEdgesAndApplyForces(
     //GRAPH_PARAMS
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
 
-	__global uint2* springs,	       	// Array of springs, of the form [source node, target node] (read-only)
-	__global uint2* workList, 	       	// Array of spring [source index, sinks length] pairs to compute (read-only)
-	__global float2* inputPoints,      	// Current point positions (read-only)
+	const __global uint2* springs,	       	// Array of springs, of the form [source node, target node] (read-only)
+	const __global uint2* workList, 	       	// Array of spring [source index, sinks length] pairs to compute (read-only)
+	const __global float2* inputPoints,      	// Current point positions (read-only)
 	unsigned int stepNumber,
 
 	//output
 	__global float2* outputPoints
 ) {
-
-/*
 
     const size_t workItem = (unsigned int) get_global_id(0);
     const uint springsStart = workList[workItem][0];
@@ -581,7 +591,6 @@ __kernel void attractEdgesAndApplyForces(
     //====== apply
 
     outputPoints[sourceIdx] = n1Pos + n1D * 0.001f;
-*/
 
 	return;
 
