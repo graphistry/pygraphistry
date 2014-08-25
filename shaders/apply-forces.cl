@@ -518,8 +518,8 @@ __kernel void repulsePointsAndApplyGravity (
 
     outputPositions[n1Idx] =
     	n1Pos
-    	+ 0.1f * centerDist * gravityForce
-    	+ 0.0001f * n1D;
+    	+ 0.01f * centerDist * gravityForce
+    	+ 0.00001f * n1D;
 
 	return;
 }
@@ -538,7 +538,8 @@ __kernel void attractEdgesAndApplyForces(
 	unsigned int stepNumber,
 
 	//output
-	__global float2* outputPoints
+	__global float2* outputPoints,
+	__global float4* springPositions  // Positions of the springs after forces are applied.
 ) {
 
     const size_t workItem = (unsigned int) get_global_id(0);
@@ -572,7 +573,7 @@ __kernel void attractEdgesAndApplyForces(
             : wMode == 1    ? weight
             : pown(weight, wMode);
 
-        float2 dist = n1Pos - n2Pos;
+        float2 dist = n2Pos - n1Pos;
 
         float distance =
             sqrt(dist.x * dist.x + dist.y * dist.y)
@@ -590,7 +591,15 @@ __kernel void attractEdgesAndApplyForces(
 
     //====== apply
 
-    outputPoints[sourceIdx] = n1Pos + n1D * 0.001f;
+    float2 source = n1Pos + n1D * 0.001f;
+
+    outputPoints[sourceIdx] = source;
+
+	for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
+		const uint2 curSpring = springs[curSpringIdx];
+		float2 target = inputPoints[curSpring[1]];
+		springPositions[curSpringIdx] = (float4) (source.x, source.y, target.x, target.y);
+	}
 
 	return;
 
