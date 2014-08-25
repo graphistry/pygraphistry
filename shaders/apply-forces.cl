@@ -66,7 +66,7 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 
 
 
-__kernel void apply_midpoints(
+__kernel void gaussSeidelMidpoints(
     unsigned int numPoints,
     unsigned int numSplits,
 	const __global float2* inputMidPositions,
@@ -151,7 +151,7 @@ __kernel void apply_midpoints(
 
 
 //Compute elements based on original edges and predefined number of splits in each one
-__kernel void apply_midsprings(
+__kernel void gaussSeidelMidsprings(
 	unsigned int numSplits,                // 0: How many times each edge is split (> 0)
 	const __global uint2* springs,	           // 1: Array of (unsplit) springs, of the form [source node, targer node] (read-only)
 	const __global uint2* workList, 	           // 2: Array of (unsplit) spring [index, length] pairs to compute (read-only)
@@ -213,7 +213,7 @@ __kernel void apply_midsprings(
     return;
 }
 
-__kernel void apply_points(
+__kernel void gaussSeidelPoints(
 	unsigned int numPoints,
 	const __global float2* inputPositions,
 	__global float2* outputPositions,
@@ -335,7 +335,7 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 }
 
 
-__kernel void apply_springs(
+__kernel void gaussSeidelSprings(
 	const __global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
 	const __global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
 	const __global float2* inputPoints,      // Current point positions (read-only)
@@ -398,7 +398,8 @@ __kernel void apply_springs(
 
 //========== FORCE ATLAS 2
 
-__kernel void repulsePointsAndApplyGravity (
+//repulse points and apply gravity
+__kernel void forceAtlasPoints (
 	//input
 
 	//GRAPH_PARAMS
@@ -525,8 +526,8 @@ __kernel void repulsePointsAndApplyGravity (
 }
 
 
-//TODO restrict
-__kernel void attractEdgesAndApplyForces(
+//attract edges and apply forces
+__kernel void forceAtlasEdges(
     //input
 
     //GRAPH_PARAMS
