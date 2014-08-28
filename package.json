@@ -4,6 +4,7 @@
   "description": "Stream WebGL buffers into the browser from a remote server",
   "private": true,
   "dependencies": {
+    "immutable": "^2.0.11",
     "jquery": "^2.1.1",
     "rx": "^2.2.27",
     "rx-jquery": "^1.1.6",
