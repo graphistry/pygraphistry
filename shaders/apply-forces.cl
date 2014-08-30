@@ -21,10 +21,10 @@
 
 //====== FORCE ATLAS 2
 
-#define REPULSION_OVERLAP 100.0f
+#define REPULSION_OVERLAP 0.00000001f
 
 // bound whether d(a,b) == 0
-#define EPSILON 0.0001f
+#define EPSILON 1.0f
 
 //set by kernel
 //compress booleans into flags
@@ -36,6 +36,8 @@
 #define IS_STRONG_GRAVITY(flags) (flags & 2)
 #define IS_DISSUADE_HUBS(flags) (flags & 4)
 #define IS_LIN_LOG(flags) (flags & 8)
+
+#define DEFAULT_NODE_SIZE 0.000001f
 
 
 //====================
@@ -435,7 +437,7 @@ __kernel void forceAtlasPoints (
 
 
     //FIXME IS_PREVENT_OVERLAP(flags) ? sizes[n1Idx] : 0.0f;
-    float n1Size = 1.0f;
+    float n1Size = DEFAULT_NODE_SIZE;
 
     for(unsigned int tile = 0; tile < numTiles; tile++) {
         if (tile % modulus != stepNumber % modulus) {
@@ -474,7 +476,7 @@ __kernel void forceAtlasPoints (
 			float distanceSqr = dist.x * dist.x + dist.y * dist.y;
 
 			//FIXME include in prefetch etc.
-	        float n2Size = 1.0f; //graphSettings->isPreventOverlap ? sizes[n2Idx] : 0.0f;
+	        float n2Size = DEFAULT_NODE_SIZE; //graphSettings->isPreventOverlap ? sizes[n2Idx] : 0.0f;
 	        uint n2Idx = tileStart + cachedPoint;
 	        uint n2Degree = IS_PREVENT_OVERLAP(flags) ? TILEPOINTS2[cachedPoint] + TILEPOINTS3[cachedPoint] : 0;
 
@@ -551,7 +553,7 @@ __kernel void forceAtlasEdges(
     float2 n1Pos = inputPoints[sourceIdx];
 
     //FIXME IS_PREVENT_OVERLAP(flags) ? sizes[n1Idx] : 0.0f;
-    float n1Size = 1.0f;
+    float n1Size = DEFAULT_NODE_SIZE;
 
     //FIXME start with previous deriv?
     float2 n1D = (float2) (0.0f, 0.0f);
@@ -563,7 +565,7 @@ __kernel void forceAtlasEdges(
         float2 n2Pos = inputPoints[curSpring[1]];
 
         //FIXME from param
-        float n2Size = 1.0f; //graphSettings->isPreventOverlap ? sizes[curSpring[1]] : 0.0f;
+        float n2Size = DEFAULT_NODE_SIZE; //graphSettings->isPreventOverlap ? sizes[curSpring[1]] : 0.0f;
         uint wMode = edgeWeightInfluence;
         float weight = 1.0f; //wMode ? edgeWeight[curSpringIdx] : 0.0f;
 
@@ -582,7 +584,7 @@ __kernel void forceAtlasEdges(
             (IS_PREVENT_OVERLAP(flags) && distance < EPSILON)
                 ? 0.0f
                 : (weightMultiplier
-                    * (IS_LIN_LOG(flags) ? log(1.0f + distance) : distance)
+                    * (IS_LIN_LOG(flags) ? log(1.0f + 100.0f * distance) : distance)
                     / (IS_DISSUADE_HUBS(flags) ? springsCount + 1.0f : 1.0f));
 
         n1D += dist * force;
@@ -590,7 +592,7 @@ __kernel void forceAtlasEdges(
 
     //====== apply
 
-    float2 source = n1Pos + n1D * 0.001f;
+    float2 source = n1Pos+ n1D * 0.0001f;
 
     outputPoints[sourceIdx] = source;
 
