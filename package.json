@@ -11,7 +11,7 @@
     "express": "^4.6.1",
     "gl-matrix": "^2.1.0",
     "jquery": "^2.1.1",
-    "node-webcl": "^0.8.3",
+    "node-webcl": "git://github.com/lmeyerov/node-webcl#master",
     "node-webgl": "^0.4.3",
     "q": "^1.0.1",
     "rx": "^2.2.27",
