@@ -13,9 +13,9 @@ module.exports = function(grunt) {
         },
 
         browserify: {
-            SCMain: {
-                src: ['src/main.sc.js'],
-                dest: 'dist/StreamGL.sc.js',
+            Main: {
+                src: ['src/main.js'],
+                dest: 'dist/StreamGL.js',
                 options: {
                     bundleOptions: { debug: true },
                     transform: ['brfs'],
@@ -23,39 +23,13 @@ module.exports = function(grunt) {
                     keepAlive: false,
                     external: ['render-config'],
                     postBundleCB: function(err, src, next) {
-                        global['browserifyDidRunSC'] = true;
+                        global['browserifyDidRun'] = true;
                         next(err, src);
                     },
                     preBundleCB: function(browserifyInstance) {
                         // On "update", limit jshint to checking only updated files
-                        if(!global['browserifyDidSetWatchersSC']) {
-                            global['browserifyDidSetWatchersSC'] = true;
-                            browserifyInstance.on('update', function(files) {
-                                grunt.config.set("jshint.main", files);
-                            });
-                        }
-                    },
-                    force: true
-                }
-            },
-
-            GraphMain: {
-                src: ['src/main.graph.js'],
-                dest: 'dist/StreamGL.graph.js',
-                options: {
-                    bundleOptions: { debug: true },
-                    transform: ['brfs'],
-                    watch: true,
-                    keepAlive: false,
-                    external: ['render-config'],
-                    postBundleCB: function(err, src, next) {
-                        global['browserifyDidRunGraph'] = true;
-                        next(err, src);
-                    },
-                    preBundleCB: function(browserifyInstance) {
-                        // On "update", limit jshint to checking only updated files
-                        if(!global['browserifyDidSetWatchersGraph']) {
-                            global['browserifyDidSetWatchersGraph'] = true;
+                        if(!global['browserifyDidSetWatchers']) {
+                            global['browserifyDidSetWatchers'] = true;
                             browserifyInstance.on('update', function(files) {
                                 grunt.config.set("jshint.main", files);
                             });
@@ -101,31 +75,17 @@ module.exports = function(grunt) {
         },
 
         exorcise: {
-            SC: {
+            Main: {
                 files: {
-                    'dist/StreamGL.sc.map': ['dist/StreamGL.sc.js'],
-                }
-            },
-
-            graph: {
-                files: {
-                    'dist/StreamGL.graph.map': ['dist/StreamGL.graph.js'],
+                    'dist/StreamGL.map': ['dist/StreamGL.js'],
                 }
             }
         },
 
         watch: {
-            SC: {
-                files: ['dist/StreamGL.sc.js'],
-                tasks: ['jshint', 'maybeExorciseSC'],
-                options: {
-                    spawn: false
-                }
-            },
-
-            graph: {
-                files: ['dist/StreamGL.graph.js'],
-                tasks: ['jshint', 'maybeExorciseGraph'],
+            Main: {
+                files: ['dist/StreamGL.js'],
+                tasks: ['jshint', 'maybeExorcise'],
                 options: {
                     spawn: false
                 }
@@ -160,24 +120,12 @@ module.exports = function(grunt) {
     grunt.registerTask('default', ['jshint', 'browserify', 'exorcise']);
     grunt.registerTask('live', ['default', 'watch']);
 
-    grunt.registerTask('maybeExorciseSC', 'Run Exorcise as long as browserify has run first', function() {
-        if(global['browserifyDidRunSC']) {
+    grunt.registerTask('maybeExorcise', 'Run Exorcise as long as browserify has run first', function() {
+        if(global['browserifyDidRun']) {
             grunt.log.oklns("Running exorcise becuase browserify has run before");
-            grunt.task.run('exorcise:SC');
+            grunt.task.run('exorcise:Main');
 
-            global['browserifyDidRunSC'] = false;
-        } else {
-            grunt.log.errorlns("Not running exorcise becuase browserify did NOT run before");
-        }
-    });
-
-    // I am really not a fan of Grunt...
-    grunt.registerTask('maybeExorciseGraph', 'Run Exorcise as long as browserify has run first', function() {
-        if(global['browserifyDidRunGraph']) {
-            grunt.log.oklns("Running exorcise becuase browserify has run before");
-            grunt.task.run('exorcise:graph');
-
-            global['browserifyDidRunGraph'] = false;
+            global['browserifyDidRun'] = false;
         } else {
             grunt.log.errorlns("Not running exorcise becuase browserify did NOT run before");
         }
