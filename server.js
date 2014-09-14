@@ -89,7 +89,7 @@ io.on("connection", function(socket) {
     var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
     var acknowledged = new Rx.BehaviorSubject(0);
 
-    var activeBuffers = renderer.getActiveBufferNames(renderConfig);
+    var activeBuffers = renderer.getServerBufferNames(renderConfig);
     var activePrograms = renderConfig.scene.render;
 
     var lastGraph = null;
