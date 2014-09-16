@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-var NODE_CL_PATH = "/home/mtorok/graphistry/sc2/nodecl/",
+var NODE_CL_PATH = "/Users/lmeyerov/Desktop/Superconductor2/nodecl/",
     GPU_STREAMING_PATH = NODE_CL_PATH + "GPUStreaming/",
     STREAMGL_PATH = GPU_STREAMING_PATH + "StreamGL/src/";
 
