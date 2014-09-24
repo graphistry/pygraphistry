@@ -134,7 +134,7 @@ io.on("connection", function(socket) {
                         function(err) { console.err("Error receiving handshake from client:", err); }
                     );
             },
-            function(err) { console.error("Error sending VBO update:", err); }
+            function(err) { console.error("Error sending VBO update:", err, err.stack); }
         );
 
 });
