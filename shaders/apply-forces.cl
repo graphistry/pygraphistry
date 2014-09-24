@@ -342,9 +342,6 @@ __kernel void gaussSeidelSprings(
 	const __global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
 	const __global float2* inputPoints,      // Current point positions (read-only)
 	__global float2* outputPoints,     // Point positions after spring forces have been applied (write-only)
-	__global float4* springPositions,  // Positions of the springs after forces are applied. Length
-	                                   // len(springs) * 2: one float2 for start, one float2 for
-	                                   // end. (write-only)
 	float springStrength,              // The rigidity of the springs
 	float springDistance,              // The 'at rest' length of a spring
 	unsigned int stepNumber
@@ -384,16 +381,34 @@ __kernel void gaussSeidelSprings(
 		}
 	}
 	outputPoints[sourceIdx] = source;
+}
 
-    //FIXME do later? target is out of date
+
+__kernel void gaussSeidelSpringsGather(
+	const __global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
+	const __global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
+	const __global float2* inputPoints,      // Current point positions (read-only)
+	__global float4* springPositions   // Positions of the springs after forces are applied. Length
+	                                   // len(springs) * 2: one float2 for start, one float2 for
+	                                   // end. (write-only)
+	)
+{
+
+	const size_t workItem = (unsigned int) get_global_id(0);
+	const uint springsStart = workList[workItem][0];
+	const uint springsCount = workList[workItem][1];
+
+    const uint sourceIdx = springs[springsStart][0];
+	float2 source = inputPoints[sourceIdx];
+
 	for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
 		const uint2 curSpring = springs[curSpringIdx];
 		float2 target = inputPoints[curSpring[1]];
 		springPositions[curSpringIdx] = (float4) (source.x, source.y, target.x, target.y);
 	}
 	return;
-}
 
+}
 
 
 //========== FORCE ATLAS 2
@@ -539,8 +554,7 @@ __kernel void forceAtlasEdges(
 	unsigned int stepNumber,
 
 	//output
-	__global float2* outputPoints,
-	__global float4* springPositions  // Positions of the springs after forces are applied.
+	__global float2* outputPoints
 ) {
 
     const size_t workItem = (unsigned int) get_global_id(0);
@@ -596,13 +610,7 @@ __kernel void forceAtlasEdges(
 
     outputPoints[sourceIdx] = source;
 
-	for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
-		const uint2 curSpring = springs[curSpringIdx];
-		float2 target = inputPoints[curSpring[1]];
-		springPositions[curSpringIdx] = (float4) (source.x, source.y, target.x, target.y);
-	}
-
-	return;
+    return;
 
 }
 
