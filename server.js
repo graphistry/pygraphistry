@@ -11,7 +11,7 @@ var Rx          = require("rx"),
     debug       = require("debug")("StreamGL:server");
 
 var driver      = require("./js/node-driver.js"),
-    compress    = require(NODE_CL_PATH + "compress/compress.js"),
+    compress    = require(NODE_CL_PATH + "/compress/compress.js"),
     proxyUtils  = require(STREAMGL_PATH + 'proxyutils.js'),
     renderer    = require(STREAMGL_PATH + 'renderer.js');
 
