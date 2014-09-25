@@ -104,8 +104,23 @@ io.on("connection", function(socket) {
         .flatMap(function(graph) {
             // TODO: Proactively fetch the graph as soon as we've sent the last one, or the data
             // gets stale, and use this data when sending to the client
+
+            var retryCount = 0;
+
             lastGraph = graph;
-            return driver.fetchData(graph, compress, activeBuffers, activePrograms);
+            return Rx.Observable.return(1)
+                .flatMap(function () {
+                    retryCount++;
+                    if (retryCount > 1) {
+                        console.error('retrying', retryCount);
+                    }
+                    return Rx.Observable.return(1)
+                        .delay(retryCount - 1)
+                        .flatMap(function () {
+                            return driver.fetchData(graph, compress, activeBuffers, activePrograms);
+                        });
+                })
+                .retry(25);
         })
         .subscribe(
             function(vbos) {
@@ -134,7 +149,7 @@ io.on("connection", function(socket) {
                         function(err) { console.err("Error receiving handshake from client:", err); }
                     );
             },
-            function(err) { console.error("Error sending VBO update:", err); }
+            function(err) { console.error("Error sending VBO update:", err, err.stack); }
         );
 
 });
