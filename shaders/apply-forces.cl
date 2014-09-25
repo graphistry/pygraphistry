@@ -337,6 +337,7 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 }
 
 
+//for each edge source, find corresponding point and tension from destination points
 __kernel void gaussSeidelSprings(
 	const __global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
 	const __global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
@@ -399,14 +400,13 @@ __kernel void gaussSeidelSpringsGather(
 	const uint springsCount = workList[workItem][1];
 
     const uint sourceIdx = springs[springsStart][0];
-	float2 source = inputPoints[sourceIdx];
+	const float2 source = inputPoints[sourceIdx];
 
 	for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
 		const uint2 curSpring = springs[curSpringIdx];
-		float2 target = inputPoints[curSpring[1]];
+		const float2 target = inputPoints[curSpring[1]];
 		springPositions[curSpringIdx] = (float4) (source.x, source.y, target.x, target.y);
 	}
-	return;
 
 }
 
