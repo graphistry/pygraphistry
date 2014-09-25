@@ -62,6 +62,7 @@
 // Calculate the force of point b on point a, returning a vector indicating the movement to point a
 float2 pointForce(float2 a, float2 b, float force);
 
+
 // Retrieves a random point from a set of points
 float2 randomPoint(__local float2* points, unsigned int numPoints, __constant float2* randValues,
 	unsigned int randOffset);
@@ -173,9 +174,9 @@ __kernel void gaussSeidelMidsprings(
 	if (numSplits == 0) return;
 
     const size_t workItem = (unsigned int) get_global_id(0);
-    const uint springsStart = workList[workItem][0];
-	const uint springsCount = workList[workItem][1];
-    const uint sourceIdx = springs[springsStart][0];
+    const uint springsStart = workList[workItem].x;
+	const uint springsCount = workList[workItem].y;
+    const uint sourceIdx = springs[springsStart].x;
     float2 start = inputPoints[sourceIdx];
 
 	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);
@@ -197,7 +198,7 @@ __kernel void gaussSeidelMidsprings(
 			float2 prevQP = curQP;
 			float2 prevForce = nextForce;
 			curQP = nextQP;
-			nextQP = qp < numSplits - 1 ? inputMidPoints[firstQPIdx + qp + 1] : inputPoints[springs[curSpringIdx][1]];
+			nextQP = qp < numSplits - 1 ? inputMidPoints[firstQPIdx + qp + 1] : inputPoints[springs[curSpringIdx].y];
 			nextForce = (dist > FLT_EPSILON) ?
 		        (nextQP - curQP) * alpha * springStrength * (dist - springDistance) / dist
 		        : 0.0f;
@@ -205,7 +206,7 @@ __kernel void gaussSeidelMidsprings(
 		    outputMidPoints[firstQPIdx + qp] = curQP + delta;
 		    springMidPositions[curSpringIdx * (numSplits + 1) + qp] = (float4) (prevQP.x, prevQP.y, curQP.x, curQP.y);
 		}
-        const uint dstIdx = springs[curSpringIdx][1];
+        const uint dstIdx = springs[curSpringIdx].y;
 	    float2 end = inputPoints[dstIdx];
 		springMidPositions[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (curQP.x, curQP.y, end.x, end.y);
 		midSpringColorCoords[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (start, start);
@@ -325,13 +326,12 @@ float2 pointForce(float2 a, float2 b, float force) {
 	return (float2) (d.x * k, d.y * k);
 }
 
-
-float2 randomPoint(__local float2* points, unsigned int numPoints, __constant float2* randValues, unsigned int randSeed) {
+float2 randomPoint(__local float2* points, unsigned int numPoints, __constant float2* randValues, unsigned int randOffset) {
 	// First, we need to get one of the random values from the randValues array, using our randSeed
-	const float2 rand2 = randValues[(get_global_id(0) * randSeed) % RAND_LENGTH];
-	const float rand = rand2[0] + rand2[1];
+	const float2 rand2 = randValues[(get_global_id(0) * randOffset) % RAND_LENGTH];
+	const float rand = rand2.x + rand2.y;
 
-	// Now, we need to use the random value to grab one of the points
+	// // Now, we need to use the random value to grab one of the points
 	const unsigned int pointIndex = convert_uint(numPoints * rand) % numPoints;
 	return points[pointIndex];
 }
@@ -366,15 +366,15 @@ __kernel void gaussSeidelSprings(
 
 	const size_t workItem = (unsigned int) get_global_id(0);
 
-	const uint springsStart = workList[workItem][0];
-	const uint springsCount = workList[workItem][1];
+	const uint springsStart = workList[workItem].x;
+	const uint springsCount = workList[workItem].y;
 
-    const uint sourceIdx = springs[springsStart][0];
+    const uint sourceIdx = springs[springsStart].x;
 
 	float2 source = inputPoints[sourceIdx];
 	for(uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
 		const uint2 curSpring = springs[curSpringIdx];
-		float2 target = inputPoints[curSpring[1]];
+		float2 target = inputPoints[curSpring.y];
 		float dist = distance(target, source); //sqrt((delta.x * delta.x) + (delta.y * delta.y));
 		if(dist > FLT_EPSILON) {
 			float force = alpha * springStrength * (dist - springDistance) / dist;
@@ -396,15 +396,15 @@ __kernel void gaussSeidelSpringsGather(
 {
 
 	const size_t workItem = (unsigned int) get_global_id(0);
-	const uint springsStart = workList[workItem][0];
-	const uint springsCount = workList[workItem][1];
+	const uint springsStart = workList[workItem].x;
+	const uint springsCount = workList[workItem].y;
 
-    const uint sourceIdx = springs[springsStart][0];
+    const uint sourceIdx = springs[springsStart].x;
 	const float2 source = inputPoints[sourceIdx];
 
 	for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
 		const uint2 curSpring = springs[curSpringIdx];
-		const float2 target = inputPoints[curSpring[1]];
+		const float2 target = inputPoints[curSpring.y];
 		springPositions[curSpringIdx] = (float4) (source.x, source.y, target.x, target.y);
 	}
 
@@ -558,9 +558,9 @@ __kernel void forceAtlasEdges(
 ) {
 
     const size_t workItem = (unsigned int) get_global_id(0);
-    const uint springsStart = workList[workItem][0];
-    const uint springsCount = workList[workItem][1];
-    const uint sourceIdx = springs[springsStart][0];
+    const uint springsStart = workList[workItem].x;
+    const uint springsCount = workList[workItem].y;
+    const uint sourceIdx = springs[springsStart].x;
 
     //====== attact edges
 
@@ -576,7 +576,7 @@ __kernel void forceAtlasEdges(
 
         const uint2 curSpring = springs[curSpringIdx];
 
-        float2 n2Pos = inputPoints[curSpring[1]];
+        float2 n2Pos = inputPoints[curSpring.y];
 
         //FIXME from param
         float n2Size = DEFAULT_NODE_SIZE; //graphSettings->isPreventOverlap ? sizes[curSpring[1]] : 0.0f;
