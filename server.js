@@ -47,16 +47,16 @@ function nocache(req, res, next) {
 app.use(nocache, express.static(config.GPU_STREAMING_PATH));
 
 // If an argument is supplied to this script, use it as the listening address:port
-var listenAddress = DEFAULT_LISTEN_ADDRESS;
-var listenPort = DEFAULT_LISTEN_PORT;
+var listenAddress = config.DEFAULT_LISTEN_ADDRESS;
+var listenPort = config.DEFAULT_LISTEN_PORT;
 if(process.argv.length > 2) {
     var addressParts = process.argv[2].match(
         /^(([0-9]{1,3}\.){3}[0-9]{1,3}|localhost)?(:?([0-9]+)?)?$/i);
 
     var listenAddress = addressParts[1] !== undefined && addressParts[1] !== "" ?
-        addressParts[1] : DEFAULT_LISTEN_ADDRESS;
+        addressParts[1] : config.DEFAULT_LISTEN_ADDRESS;
     var listenPort = addressParts[4] !== undefined && addressParts[4] !== "" ?
-        parseInt(addressParts[4], 10) : DEFAULT_LISTEN_PORT;
+        parseInt(addressParts[4], 10) : config.DEFAULT_LISTEN_PORT;
 }
 
 
