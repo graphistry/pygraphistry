@@ -1,0 +1,32 @@
+---
+- group: name=www state=present
+  sudo: yes
+
+- user: name=www group=www
+  sudo: yes
+
+- command: usermod -a -G www ubuntu
+  sudo: yes
+  
+- name: install supervisor
+  apt: pkg={{ item }} state=installed
+  sudo: yes
+  with_items:
+    - supervisor
+
+- name: node supervisor
+  template: src=supervisor.j2 dest=/etc/supervisor/conf.d/node-server.conf
+  sudo: yes
+  notify: restart supervisor
+
+- name: update graphistry repo
+  git: repo=git@github.com:lmeyerov/graphistry.git dest=/opt/graphistry version=master
+
+- name: update Superconductor repo
+  git: repo=git@github.com:lmeyerov/Superconductor2.git dest=/opt/Superconductor2 version=master
+  
+- command: chown -R www:www /opt/Superconductor2
+  sudo: yes
+  
+- command: chown -R www:www /opt/graphistry
+  sudo: yes

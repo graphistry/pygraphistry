@@ -1,0 +1,11 @@
+let g:netrw_dirhistmax  =10
+let g:netrw_dirhist_cnt =9
+let g:netrw_dirhist_1='/Users/abestanway/code/hackerleague.org/lib/tasks'
+let g:netrw_dirhist_2='/Users/abestanway/Sites/abe.is/_layouts'
+let g:netrw_dirhist_3='/Users/abestanway/code/sputnik/config'
+let g:netrw_dirhist_4='/Users/abestanway/Sites/abe.is/a/human'
+let g:netrw_dirhist_5='/Users/abestanway/Sites/abe.is/a'
+let g:netrw_dirhist_6='/Users/abestanway/Sites/abe.is/_site'
+let g:netrw_dirhist_7='/Users/abestanway/Sites/abe.is/_site/in-support-of-unconditional-basic-income'
+let g:netrw_dirhist_8='/Users/abestanway/Downloads/crunchbase_monthly_export/data/company'
+let g:netrw_dirhist_9='/Users/abestanway/code/skyline/.git/refs'

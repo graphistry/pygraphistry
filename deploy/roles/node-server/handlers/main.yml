@@ -1,0 +1,5 @@
+---
+- name: restart supervisor
+  supervisorctl: name='node-server' state=restarted
+  sudo: yes
+  ignore_errors: true
