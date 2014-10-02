@@ -11,6 +11,9 @@
   
 - synchronize: src=bash_profile dest=/home/{{ user }}/.bash_profile
   sudo: yes
+  
+- synchronize: src=vim/vimrc dest=/home/{{ user }}/.vimrc
+  sudo: yes
 
 - name: vim plugins
   synchronize: src=vim dest=/home/{{ user }}/.vim
