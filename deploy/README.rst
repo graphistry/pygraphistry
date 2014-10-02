@@ -1,3 +1,1 @@
-To run:
-
-ansible-playbook -i <hostfile> system.yml
+`ansible-playbook -i hosts system.yml`
