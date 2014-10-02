@@ -62,7 +62,7 @@
   when: wanted_version_installed.rc == 1
   sudo: yes
   
-- name: opt dir to admin group
+- name: opt dir to www group
   command: chown www:www /opt
   sudo: yes
 

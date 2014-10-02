@@ -1,5 +1,4 @@
 ---
-- name: restart supervisor
-  supervisorctl: name='node-server' state=restarted
+- name: reload supervisord
+  command: supervisorctl reload
   sudo: yes
-  ignore_errors: true
