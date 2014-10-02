@@ -14,13 +14,11 @@
   with_items:
     - supervisor
 
-- name: node supervisor
-  template: src=supervisor.j2 dest=/etc/supervisor/conf.d/node-server.conf
-  sudo: yes
-  notify: restart supervisor
-
 - name: update graphistry repo
   git: repo=git@github.com:lmeyerov/graphistry.git dest=/opt/graphistry version=master update=yes
+  
+- name: graphistry config
+  template: src=config.j2 dest=/opt/graphistry/experiments/nbody/naive/config.js
 
 - name: update Superconductor repo
   git: repo=git@github.com:lmeyerov/Superconductor2.git dest=/opt/Superconductor2 version=master update=yes
@@ -36,3 +34,9 @@
   
 - command: chmod g+w -R /opt/graphistry
   sudo: yes
+
+- name: node supervisor
+  template: src=supervisor.j2 dest=/etc/supervisor/conf.d/node-server.conf
+  sudo: yes
+  notify: restart supervisor
+
