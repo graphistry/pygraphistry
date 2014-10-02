@@ -2,6 +2,6 @@
 - name: provisioning
   hosts: dev
   roles:
-#    - { role: astanway, user: astanway }
-#    - common
-    - node-server
+   - { role: astanway, user: astanway }
+   - common
+   - node-server
