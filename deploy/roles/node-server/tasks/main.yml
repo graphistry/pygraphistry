@@ -40,6 +40,9 @@
 # NPM
 - command: mkdir /home/ubuntu/.npm_global
   ignore_errors: true
+  
+- command: chmod g+w -R /home/ubuntu/.npm_global
+
 - command: npm config set prefix "/home/ubuntu/.npm_global"
 - command: npm install --global grunt-cli
   sudo: yes
@@ -65,12 +68,11 @@
   with_items:
     - node-webcl
     - node-webgl
-    
-- command: chdir=/opt/Superconductor2/nodecl npm install
+
 - command: chdir=/opt/Superconductor2/nodecl/compress npm install
 - command: chdir=/opt/Superconductor2/nodecl/scproxy npm install
-- command: chdir=/opt/Superconductor2/nodecl npm install
 - command: chdir=/opt/Superconductor2/nodecl npm link ./compress
+- command: chdir=/opt/Superconductor2/nodecl npm install
 - command: chdir=/opt/Superconductor2/nodecl/GPUStreaming/StreamGL npm install
 - command: chdir=/opt/Superconductor2/superconductorjs npm install
 - command: chdir=/opt/graphistry/experiments/nbody/naive npm install
