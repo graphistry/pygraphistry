@@ -5,14 +5,16 @@
 - user: name=www group=www
   sudo: yes
 
-- command: usermod -a -G www ubuntu
-  sudo: yes
-
-- name: install supervisor
-  apt: pkg={{ item }} state=installed
+- apt: pkg={{ item }} state=installed
   sudo: yes
   with_items:
     - supervisor
+    - npm
+    - libxrandr-dev
+    - libxcursor-dev
+    - libglew-dev
+    - libglu1-mesa-dev
+    - libfreeimage-dev
 
 - name: update graphistry repo
   git: repo=git@github.com:lmeyerov/graphistry.git dest=/opt/graphistry version=master update=yes
@@ -34,9 +36,47 @@
   
 - command: chmod g+w -R /opt/graphistry
   sudo: yes
+  
+# NPM
+- command: mkdir /home/ubuntu/.npm_global
+  ignore_errors: true
+- command: npm config set prefix "/home/ubuntu/.npm_global"
+- command: npm install --global grunt-cli
+  sudo: yes
+
+# AntTweakBar
+# - command: chdir=/tmp/ wget -O 'AntTweakBar_116.zip' 'http://sourceforge.net/projects/anttweakbar/files/latest/download?source=dlp'
+# - command: chdir=/tmp/ unzip AntTweakBar_116.zip
+# - command: chdir=/tmp/AntTweakBar/src make
+# - command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so /usr/lib/
+#   sudo: yes
+# - command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so.1 /usr/lib/
+#   sudo: yes
+# TODO: register changed and skip
+
+# GLFW
+# - git: repo=git@github.com:glfw/glfw.git dest=/opt/glfw version=master update=yes
+# - command: chdir=/opt/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
+# - command: chdir=/opt/glfw make install
+#   sudo: yes
+# TODO: Try running the cmake command without `-DCMAKE_INSTALL_PREFIX=/usr`, so `cmake -G "Unix Makefiles"  -DBUILD_SHARED_LIBS=TRUE`. You'll need to manually move `libglfw.so` and its pkg-config file after, but it should work.
+
+- command: npm install {{ item }} 
+  with_items:
+    - node-webcl
+    - node-webgl
+    
+- command: chdir=/opt/Superconductor2/nodecl npm install
+- command: chdir=/opt/Superconductor2/nodecl/compress npm install
+- command: chdir=/opt/Superconductor2/nodecl/scproxy npm install
+- command: chdir=/opt/Superconductor2/nodecl npm install
+- command: chdir=/opt/Superconductor2/nodecl npm link ./compress
+- command: chdir=/opt/Superconductor2/nodecl/GPUStreaming/StreamGL npm install
+- command: chdir=/opt/Superconductor2/superconductorjs npm install
+- command: chdir=/opt/graphistry/experiments/nbody/naive npm install
+- command: chdir=/opt/graphistry/experiments/nbody/loader npm install
 
 - name: node supervisor
   template: src=supervisor.j2 dest=/etc/supervisor/conf.d/node-server.conf
   sudo: yes
   notify: restart supervisor
-

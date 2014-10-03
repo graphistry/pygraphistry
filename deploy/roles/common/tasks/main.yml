@@ -66,6 +66,10 @@
   command: chown www:www /opt
   sudo: yes
 
+- name: write perms
+  command: chmod g+w -R /opt
+  sudo: yes
+
 - name: sshd config
   template: src=sshd_config dest=/etc/ssh/sshd_config
   sudo: yes

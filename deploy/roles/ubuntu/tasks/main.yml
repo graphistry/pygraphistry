@@ -1,0 +1,9 @@
+---
+- user: name={{ user }} groups="admin,www" state=present
+  sudo: yes
+
+- synchronize: src=bash_profile dest=/home/{{ user }}/.bash_profile
+  sudo: yes
+
+- synchronize: src=bashrc dest=/home/{{ user }}/.bashrc
+  sudo: yes
