@@ -102,29 +102,17 @@ io.on("connection", function(socket) {
         animStep.proxy(payload);
     });
 
-    animStep.ticks
-        .sample(acknowledged)
-        .merge(animStep.ticks.take(1))  // Ensure we fire one event to kick off the loop
-        .flatMap(function(graph) {
-            // TODO: Proactively fetch the graph as soon as we've sent the last one, or the data
-            // gets stale, and use this data when sending to the client
 
-            var retryCount = 0;
+    animStep.ticks.take(1)
+        .expand(function() {
+            return acknowledged.flatMap(function(graph) {
 
-            lastGraph = graph;
-            return Rx.Observable.return(1)
-                .flatMap(function () {
-                    retryCount++;
-                    if (retryCount > 1) {
-                        console.error('retrying', retryCount);
-                    }
-                    return Rx.Observable.return(1)
-                        .delay(retryCount - 1)
-                        .flatMap(function () {
-                            return driver.fetchData(graph, compress, activeBuffers, activePrograms);
-                        });
-                })
-                .retry(25);
+                lastGraph = graph;
+                // TODO: Proactively fetch the graph as soon as we've sent the last one, or the data
+                // gets stale, and use this data when sending to the client
+
+                return driver.fetchData(graph, compress, activeBuffers, activePrograms);
+            })
         })
         .subscribe(
             function(vbos) {
