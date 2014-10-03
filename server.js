@@ -1,31 +1,22 @@
 #!/usr/bin/env node
 "use strict";
 
-var NODE_CL_PATH = "/Users/lmeyerov/Desktop/Superconductor2/nodecl/",
-    GPU_STREAMING_PATH = NODE_CL_PATH + "GPUStreaming/",
-    STREAMGL_PATH = GPU_STREAMING_PATH + "StreamGL/src/";
-
-// Default IP and port the server listens on. Can be overridden by the user by passing an argument
-// to this script on the command line of form <IP>:<PORT>. <IP> is either 4 numbers ('192.169.0.1')
-// or 'localhost'; <PORT> is a number. Both are optional. If only 1 is supplied, ':' is optional.
-var DEFAULT_LISTEN_ADDRESS = 'localhost';
-var DEFAULT_LISTEN_PORT = 10000;
-
+var config = require('./config')
 
 var Rx          = require("rx"),
     _           = require("underscore"),
     debug       = require("debug")("StreamGL:server");
 
 var driver      = require("./js/node-driver.js"),
-    compress    = require(NODE_CL_PATH + "/compress/compress.js"),
-    proxyUtils  = require(STREAMGL_PATH + 'proxyutils.js'),
-    renderer    = require(STREAMGL_PATH + 'renderer.js');
+    compress    = require(config.NODE_CL_PATH + "/compress/compress.js"),
+    proxyUtils  = require(config.STREAMGL_PATH + 'proxyutils.js'),
+    renderer    = require(config.STREAMGL_PATH + 'renderer.js');
 
 
 //FIXME CHEAP HACK TO WORK AROUND CONFIG FILE INCLUDE PATH
 var cwd = process.cwd();
-process.chdir(GPU_STREAMING_PATH + 'StreamGL');
-var renderConfig = require(STREAMGL_PATH + 'renderer.config.graph.js');
+process.chdir(config.GPU_STREAMING_PATH + 'StreamGL');
+var renderConfig = require(config.STREAMGL_PATH + 'renderer.config.graph.js');
 process.chdir(cwd);
 
 
@@ -53,19 +44,19 @@ function nocache(req, res, next) {
     next();
 }
 
-app.use(nocache, express.static(GPU_STREAMING_PATH));
+app.use(nocache, express.static(config.GPU_STREAMING_PATH));
 
 // If an argument is supplied to this script, use it as the listening address:port
-var listenAddress = DEFAULT_LISTEN_ADDRESS;
-var listenPort = DEFAULT_LISTEN_PORT;
+var listenAddress = config.DEFAULT_LISTEN_ADDRESS;
+var listenPort = config.DEFAULT_LISTEN_PORT;
 if(process.argv.length > 2) {
     var addressParts = process.argv[2].match(
         /^(([0-9]{1,3}\.){3}[0-9]{1,3}|localhost)?(:?([0-9]+)?)?$/i);
 
     var listenAddress = addressParts[1] !== undefined && addressParts[1] !== "" ?
-        addressParts[1] : DEFAULT_LISTEN_ADDRESS;
+        addressParts[1] : config.DEFAULT_LISTEN_ADDRESS;
     var listenPort = addressParts[4] !== undefined && addressParts[4] !== "" ?
-        parseInt(addressParts[4], 10) : DEFAULT_LISTEN_PORT;
+        parseInt(addressParts[4], 10) : config.DEFAULT_LISTEN_PORT;
 }
 
 
