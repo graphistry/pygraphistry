@@ -116,9 +116,14 @@ io.on("connection", function(socket) {
         acknowledged.onNext(lastGraph);
     });
 
-    animStep
+    socket.on('graph_settings', function (payload) {
+        debug('new settings', payload);
+        animStep.proxy(payload);
+    });
+
+    animStep.ticks
         .sample(acknowledged)
-        .merge(animStep.take(1))  // Ensure we fire one event to kick off the loop
+        .merge(animStep.ticks.take(1))  // Ensure we fire one event to kick off the loop
         .flatMap(function(graph) {
             // TODO: Proactively fetch the graph as soon as we've sent the last one, or the data
             // gets stale, and use this data when sending to the client
