@@ -56,6 +56,7 @@ http.listen(listenPort, listenAddress, function() {
 
 
 //Serve most recent compressed binary buffers
+//FIXME this seems broken in case of multiuser
 var lastCompressedVbos = {};
 var finishBufferTransfer = function () {};
 var server = connect()
@@ -82,20 +83,16 @@ var server = connect()
 
 var animStep = driver.create();
 
+//make available to all clients
+var graph = new Rx.ReplaySubject(1);
+animStep.ticks.take(1).subscribe(graph);
+
 io.on("connection", function(socket) {
     debug("Client connected");
 
-    var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
-    var acknowledged = new Rx.BehaviorSubject(0);
 
     var activeBuffers = renderer.getServerBufferNames(renderConfig);
     var activePrograms = renderConfig.scene.render;
-
-    var lastGraph = null;
-    socket.on('received_buffers', function (time) {
-        debug("Client end-to-end time", time);
-        acknowledged.onNext(lastGraph);
-    });
 
     socket.on('graph_settings', function (payload) {
         debug('new settings', payload);
@@ -103,45 +100,82 @@ io.on("connection", function(socket) {
     });
 
 
-    animStep.ticks.take(1)
-        .expand(function() {
-            return acknowledged.flatMap(function(graph) {
+    // ============= EVENT LOOP
 
-                lastGraph = graph;
-                // TODO: Proactively fetch the graph as soon as we've sent the last one, or the data
-                // gets stale, and use this data when sending to the client
+    //starts true, set to false whenever transfer starts, true again when ack'd
+    var clientReady = new Rx.ReplaySubject(1);
+    clientReady.onNext(true);
+    socket.on('received_buffers', function (time) {
+        debug("Client end-to-end time", time);
+        clientReady.onNext(true);
+    });
 
-                return driver.fetchData(graph, compress, activeBuffers, activePrograms);
-            })
-        })
-        .subscribe(
-            function(vbos) {
+    clientReady.subscribe(
+        debug.bind('CLIENT STATUS'));
 
-                debug("Socket", "Emitting VBOs: " + vboSizeMB(vbos.compressed) + "MB");
+    debug('SETTING UP CLIENT EVENT LOOP');
+    graph.expand(function (graph) {
 
+        debug('1. Prefetch VBOs')
+        return driver.fetchData(graph, compress, activeBuffers, activePrograms)
+            .do(function (vbos) {
+                debug("prefetched VBOs for xhr2: " + vboSizeMB(vbos.compressed) + "MB");
+                //tell XHR2 sender about it
                 lastCompressedVbos = vbos.compressed;
+            })
+            .flatMap(function (vbos) {
+                debug('2. Waiting for client to finish previous');
+                return clientReady
+                    .filter(_.identity)
+                    .take(1)
+                    .do(function () {
+                        debug('2b. Client ready, proceed and mark as processing.')
+                        clientReady.onNext(false);
+                    })
+                    .map(_.constant(vbos))
+            })
+            .flatMap(function (vbos) {
+                debug('3. tell client about availablity');
 
-                emitFnWrapper("vbo_update", _.pick(vbos, ['bufferByteLengths', 'elements']))
-                    .subscribe(
-                        function(clientElapsed) {
+                //for each buffer transfer
+                var sendingAllBuffers = new Rx.Subject();
+                var clientAckStartTime;
+                var clientElapsed;
+                var transferredBuffers = [];
+                finishBufferTransfer = function (bufferName) {
+                    debug('3a ?. sending a buffer', bufferName)
+                    transferredBuffers.push(bufferName);
+                    if (transferredBuffers.length == activeBuffers.length) {
+                        debug('3b. started sending all');
+                        debug("Socket", "...client ping " + clientElapsed + "ms");
+                        debug("Socket", "...client asked for all buffers",
+                            Date.now() - clientAckStartTime, 'ms');
+                        sendingAllBuffers.onNext();
+                    }
+                };
 
-                            var clientAckStartTime = Date.now();
+                var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
+                var sending = emitFnWrapper("vbo_update",
+                    _.pick(vbos, ['bufferByteLengths', 'elements']));
 
-                            var transferredBuffers = [];
-                            finishBufferTransfer = function (bufferName) {
-                                transferredBuffers.push(bufferName);
-                                if (transferredBuffers.length == activeBuffers.length) {
-                                    debug("Socket", "...client ping " + clientElapsed + "ms");
-                                    debug("Socket", "...client asked for all buffers",
-                                        Date.now() - clientAckStartTime, 'ms');
-                                }
-                            };
+                sending.subscribe(function (clientElapsedMsg) {
+                        debug('3d ?. client all received')
+                        clientElapsed = clientElapsedMsg;
+                        clientAckStartTime = Date.now();
+                    });
 
-                        },
-                        function(err) { console.err("Error receiving handshake from client:", err); }
-                    );
-            },
-            function(err) { console.error("Error sending VBO update:", err, err.stack); }
-        );
+                return sendingAllBuffers
+                    .take(1)
+                    .do(debug.bind('3c. All in transit'));
+            })
+            .flatMap(function () {
+                debug('4. Wait for next anim step');
+                return animStep.ticks
+                    .take(1)
+                    .do(function () { debug('4b. next ready!'); });
+            })
+            .map(_.constant(graph));
+    })
+    .subscribe(function () { debug('LOOP ITERATED.') });
 
 });
