@@ -5,7 +5,8 @@ var config      = require('./config')(process.argv.length > 2 ? JSON.parse(proce
 
 var Rx          = require("rx"),
     _           = require("underscore"),
-    debug       = require("debug")("StreamGL:server");
+    debug       = require("debug")("StreamGL:server"),
+    url         = require('url');
 
 var driver      = require("./js/node-driver.js"),
     compress    = require(config.NODE_CL_PATH + "/compress/compress.js"),
@@ -56,12 +57,18 @@ http.listen(listenPort, listenAddress, function() {
 
 
 //Serve most recent compressed binary buffers
-//FIXME this seems broken in case of multiuser
+//TODO reuse across users
+//{socketID -> {buffer...}
 var lastCompressedVbos = {};
-var finishBufferTransfer = function () {};
+var finishBufferTransfers = {};
 var server = connect()
-    .use(function (req, res, next) {
-        var bufferName = req.url.split('=')[1];
+    .use('/vbo', function (req, res, next) {
+
+        debug('got req', req.url);
+        var args = url.parse(req.url, true).query;
+        var bufferName = args.buffer;
+        var id = args.id;
+
         try {
             res.writeHead(200, {
                 'Content-Encoding': 'gzip',
@@ -70,11 +77,11 @@ var server = connect()
                 'Access-Control-Allow-Headers': 'X-Requested-With,Content-Type,Authorization',
                 'Access-Control-Allow-Methods': 'GET,PUT,PATCH,POST,DELETE'
             });
-            res.end(lastCompressedVbos[bufferName]);
+            res.end(lastCompressedVbos[id][bufferName]);
         } catch (e) {
             console.error('bad request', e, e.stack);
         }
-        finishBufferTransfer(bufferName);
+        finishBufferTransfers[id](bufferName);
     })
     .listen(proxyUtils.BINARY_PORT);
 
@@ -82,14 +89,22 @@ var server = connect()
 
 
 var animStep = driver.create();
+var ticksMulti = animStep.ticks.publish();
+ticksMulti.connect();
 
 //make available to all clients
 var graph = new Rx.ReplaySubject(1);
-animStep.ticks.take(1).subscribe(graph);
+ticksMulti.take(1).subscribe(graph);
+
 
 io.on("connection", function(socket) {
     debug("Client connected");
 
+    lastCompressedVbos[socket.id] = {};
+    socket.on('disconnect', function () {
+        debug('disconnecting', socket.id);
+        delete lastCompressedVbos[socket.id];
+    });
 
     var activeBuffers = renderer.getServerBufferNames(renderConfig);
     var activePrograms = renderConfig.scene.render;
@@ -142,8 +157,8 @@ io.on("connection", function(socket) {
                 var clientAckStartTime;
                 var clientElapsed;
                 var transferredBuffers = [];
-                finishBufferTransfer = function (bufferName) {
-                    debug('3a ?. sending a buffer', bufferName)
+                finishBufferTransfers[socket.id] = function (bufferName) {
+                    debug('3a ?. sending a buffer', bufferName, socket.id)
                     transferredBuffers.push(bufferName);
                     if (transferredBuffers.length == activeBuffers.length) {
                         debug('3b. started sending all');
@@ -169,8 +184,8 @@ io.on("connection", function(socket) {
                     .do(debug.bind('3c. All in transit'));
             })
             .flatMap(function () {
-                debug('4. Wait for next anim step');
-                return animStep.ticks
+                debug('4. Wait for next anim step', socket.id);
+                return ticksMulti
                     .take(1)
                     .do(function () { debug('4b. next ready!'); });
             })
