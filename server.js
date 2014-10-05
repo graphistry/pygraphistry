@@ -98,7 +98,7 @@ ticksMulti.take(1).subscribe(graph);
 
 
 io.on("connection", function(socket) {
-    debug("Client connected");
+    debug("Client connected", socket.id);
 
     lastCompressedVbos[socket.id] = {};
     socket.on('disconnect', function () {
@@ -110,7 +110,7 @@ io.on("connection", function(socket) {
     var activePrograms = renderConfig.scene.render;
 
     socket.on('graph_settings', function (payload) {
-        debug('new settings', payload);
+        debug('new settings', payload, socket.id);
         animStep.proxy(payload);
     });
 
@@ -131,26 +131,26 @@ io.on("connection", function(socket) {
     debug('SETTING UP CLIENT EVENT LOOP');
     graph.expand(function (graph) {
 
-        debug('1. Prefetch VBOs')
+        debug('1. Prefetch VBOs', socket.id)
         return driver.fetchData(graph, compress, activeBuffers, activePrograms)
             .do(function (vbos) {
                 debug("prefetched VBOs for xhr2: " + vboSizeMB(vbos.compressed) + "MB");
                 //tell XHR2 sender about it
-                lastCompressedVbos = vbos.compressed;
+                lastCompressedVbos[socket.id] = vbos.compressed;
             })
             .flatMap(function (vbos) {
-                debug('2. Waiting for client to finish previous');
+                debug('2. Waiting for client to finish previous', socket.id);
                 return clientReady
                     .filter(_.identity)
                     .take(1)
                     .do(function () {
-                        debug('2b. Client ready, proceed and mark as processing.')
+                        debug('2b. Client ready, proceed and mark as processing.', socket.id)
                         clientReady.onNext(false);
                     })
                     .map(_.constant(vbos))
             })
             .flatMap(function (vbos) {
-                debug('3. tell client about availablity');
+                debug('3. tell client about availablity', socket.id);
 
                 //for each buffer transfer
                 var sendingAllBuffers = new Rx.Subject();
@@ -161,7 +161,7 @@ io.on("connection", function(socket) {
                     debug('3a ?. sending a buffer', bufferName, socket.id)
                     transferredBuffers.push(bufferName);
                     if (transferredBuffers.length == activeBuffers.length) {
-                        debug('3b. started sending all');
+                        debug('3b. started sending all', socket.id);
                         debug("Socket", "...client ping " + clientElapsed + "ms");
                         debug("Socket", "...client asked for all buffers",
                             Date.now() - clientAckStartTime, 'ms');
@@ -174,23 +174,23 @@ io.on("connection", function(socket) {
                     _.pick(vbos, ['bufferByteLengths', 'elements']));
 
                 sending.subscribe(function (clientElapsedMsg) {
-                        debug('3d ?. client all received')
+                        debug('3d ?. client all received', socket.id)
                         clientElapsed = clientElapsedMsg;
                         clientAckStartTime = Date.now();
                     });
 
                 return sendingAllBuffers
                     .take(1)
-                    .do(debug.bind('3c. All in transit'));
+                    .do(debug.bind('3c. All in transit', socket.id));
             })
             .flatMap(function () {
                 debug('4. Wait for next anim step', socket.id);
                 return ticksMulti
                     .take(1)
-                    .do(function () { debug('4b. next ready!'); });
+                    .do(function () { debug('4b. next ready!', socket.id); });
             })
             .map(_.constant(graph));
     })
-    .subscribe(function () { debug('LOOP ITERATED.') });
+    .subscribe(function () { debug('LOOP ITERATED', socket.id) });
 
 });
