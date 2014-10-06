@@ -1,18 +1,26 @@
 #!/usr/bin/env node
-"use strict";
+'use strict';
+
+//Set jshint to ignore `predef:'io'` in .jshintrc so we can manually define io here
+/* global -io */
 
 var config      = require('./config')(process.argv.length > 2 ? JSON.parse(process.argv[2]) : {});
 
-var Rx          = require("rx"),
-    _           = require("underscore"),
-    debug       = require("debug")("StreamGL:server"),
+var Rx          = require('rx'),
+    _           = require('underscore'),
+    debug       = require('debug')('StreamGL:server'),
     url         = require('url');
 
-var driver      = require("./js/node-driver.js"),
-    compress    = require(config.NODE_CL_PATH + "/compress/compress.js"),
+var driver      = require('./js/node-driver.js'),
+    compress    = require(config.NODE_CL_PATH + '/compress/compress.js'),
     proxyUtils  = require(config.STREAMGL_PATH + 'proxyutils.js'),
     renderer    = require(config.STREAMGL_PATH + 'renderer.js');
 
+var express = require('express'),
+    app = express(),
+    http = require('http').Server(app),
+    io = require('socket.io')(http, {transports: ['websocket']}),
+    connect = require('connect');
 
 //FIXME CHEAP HACK TO WORK AROUND CONFIG FILE INCLUDE PATH
 var cwd = process.cwd();
@@ -20,13 +28,6 @@ process.chdir(config.GPU_STREAMING_PATH + 'StreamGL');
 var renderConfig = require(config.STREAMGL_PATH + 'renderer.config.graph.js');
 process.chdir(cwd);
 
-
-var express = require("express"),
-    app = express(),
-    http = require("http").Server(app),
-/* global -io */ //Set jshint to ignore `predef:"io"` in .jshintrc so we can manually define io here
-    io = require("socket.io")(http, {transports: ["websocket"]}),
-    connect = require('connect');
 
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
 function vboSizeMB(vbos) {
@@ -39,11 +40,12 @@ function vboSizeMB(vbos) {
 
 
 function nocache(req, res, next) {
-    res.header("Cache-Control", "private, no-cache, no-store, must-revalidate");
-    res.header("Expires", "-1");
-    res.header("Pragma", "no-cache");
+    res.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+    res.header('Expires', '-1');
+    res.header('Pragma', 'no-cache');
     next();
 }
+
 
 app.use(nocache, express.static(config.GPU_STREAMING_PATH));
 
@@ -52,7 +54,7 @@ var listenAddress = config.DEFAULT_LISTEN_ADDRESS;
 var listenPort = config.DEFAULT_LISTEN_PORT;
 
 http.listen(listenPort, listenAddress, function() {
-    console.log("\nServer listening on %s:%d", listenAddress, listenPort);
+    console.log('\nServer listening on %s:%d', listenAddress, listenPort);
 });
 
 
@@ -97,8 +99,8 @@ var graph = new Rx.ReplaySubject(1);
 ticksMulti.take(1).subscribe(graph);
 
 
-io.on("connection", function(socket) {
-    debug("Client connected", socket.id);
+io.on('connection', function(socket) {
+    debug('Client connected', socket.id);
 
     lastCompressedVbos[socket.id] = {};
     socket.on('disconnect', function () {
@@ -121,7 +123,7 @@ io.on("connection", function(socket) {
     var clientReady = new Rx.ReplaySubject(1);
     clientReady.onNext(true);
     socket.on('received_buffers', function (time) {
-        debug("Client end-to-end time", time);
+        debug('Client end-to-end time', time);
         clientReady.onNext(true);
     });
 
@@ -131,10 +133,11 @@ io.on("connection", function(socket) {
     debug('SETTING UP CLIENT EVENT LOOP');
     graph.expand(function (graph) {
 
-        debug('1. Prefetch VBOs', socket.id)
+        debug('1. Prefetch VBOs', socket.id);
+
         return driver.fetchData(graph, compress, activeBuffers, activePrograms)
             .do(function (vbos) {
-                debug("prefetched VBOs for xhr2: " + vboSizeMB(vbos.compressed) + "MB");
+                debug('prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB');
                 //tell XHR2 sender about it
                 lastCompressedVbos[socket.id] = vbos.compressed;
             })
@@ -144,10 +147,10 @@ io.on("connection", function(socket) {
                     .filter(_.identity)
                     .take(1)
                     .do(function () {
-                        debug('2b. Client ready, proceed and mark as processing.', socket.id)
+                        debug('2b. Client ready, proceed and mark as processing.', socket.id);
                         clientReady.onNext(false);
                     })
-                    .map(_.constant(vbos))
+                    .map(_.constant(vbos));
             })
             .flatMap(function (vbos) {
                 debug('3. tell client about availablity', socket.id);
@@ -158,23 +161,23 @@ io.on("connection", function(socket) {
                 var clientElapsed;
                 var transferredBuffers = [];
                 finishBufferTransfers[socket.id] = function (bufferName) {
-                    debug('3a ?. sending a buffer', bufferName, socket.id)
+                    debug('3a ?. sending a buffer', bufferName, socket.id);
                     transferredBuffers.push(bufferName);
-                    if (transferredBuffers.length == activeBuffers.length) {
+                    if (transferredBuffers.length === activeBuffers.length) {
                         debug('3b. started sending all', socket.id);
-                        debug("Socket", "...client ping " + clientElapsed + "ms");
-                        debug("Socket", "...client asked for all buffers",
+                        debug('Socket', '...client ping ' + clientElapsed + 'ms');
+                        debug('Socket', '...client asked for all buffers',
                             Date.now() - clientAckStartTime, 'ms');
                         sendingAllBuffers.onNext();
                     }
                 };
 
                 var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
-                var sending = emitFnWrapper("vbo_update",
+                var sending = emitFnWrapper('vbo_update',
                     _.pick(vbos, ['bufferByteLengths', 'elements']));
 
                 sending.subscribe(function (clientElapsedMsg) {
-                        debug('3d ?. client all received', socket.id)
+                        debug('3d ?. client all received', socket.id);
                         clientElapsed = clientElapsedMsg;
                         clientAckStartTime = Date.now();
                     });
@@ -191,6 +194,6 @@ io.on("connection", function(socket) {
             })
             .map(_.constant(graph));
     })
-    .subscribe(function () { debug('LOOP ITERATED', socket.id) });
+    .subscribe(function () { debug('LOOP ITERATED', socket.id); });
 
 });
