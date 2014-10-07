@@ -3,6 +3,7 @@
   hosts: dev
   roles:
    - common
-   - { role: ubuntu, user: ubuntu }
    - { role: astanway, user: astanway }
+   - { role: www, user: www }
+   - { role: ubuntu, user: ubuntu }
    - node-server

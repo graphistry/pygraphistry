@@ -1,0 +1,24 @@
+---
+- group: name={{ user }} state=present
+  sudo: yes
+
+- user: name={{ user }} groups="www" state=present
+  sudo: yes
+
+- synchronize: src=bash_profile dest=/home/{{ user }}/.bash_profile
+  sudo: yes
+
+- synchronize: src=bashrc dest=/home/{{ user }}/.bashrc
+  sudo: yes
+  
+- command: chown -R www:www /home/{{ user }}/.bashrc
+  sudo: yes
+
+- command: chown -R www:www /home/{{ user }}/.bash_profile
+  sudo: yes
+
+- command: chmod g+w -R /home/{{ user }}/.bash_profile
+  sudo: yes
+
+- command: chmod g+w -R /home/{{ user }}/.bashrc
+  sudo: yes
