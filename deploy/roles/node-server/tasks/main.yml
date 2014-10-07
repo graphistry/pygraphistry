@@ -92,7 +92,11 @@
   sudo: yes
   sudo_user: www
 
-- command: chdir=/opt/Superconductor2/nodecl/GPUStreaming/demos/uber npm install
+- command: chdir=/opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap-slider npm install
+  sudo: yes
+  sudo_user: www
+
+- command: chdir=/opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap-slider /home/www/.npm_global/bin/grunt
   sudo: yes
   sudo_user: www
 
