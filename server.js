@@ -8,19 +8,16 @@ var config      = require('./config')(process.argv.length > 2 ? JSON.parse(proce
 
 var Rx          = require('rx'),
     _           = require('underscore'),
-    debug       = require('debug')('StreamGL:server'),
-    url         = require('url');
+    debug       = require('debug')('StreamGL:server');
 
 var driver      = require('./js/node-driver.js'),
     compress    = require(config.NODE_CL_PATH + '/compress/compress.js'),
-    proxyUtils  = require(config.STREAMGL_PATH + 'proxyutils.js'),
     renderer    = require(config.STREAMGL_PATH + 'renderer.js');
 
 var express = require('express'),
     app = express(),
     http = require('http').Server(app),
-    io = require('socket.io')(http, {transports: ['websocket']}),
-    connect = require('connect');
+    io = require('socket.io')(http, {transports: ['websocket']});
 
 //FIXME CHEAP HACK TO WORK AROUND CONFIG FILE INCLUDE PATH
 var cwd = process.cwd();
@@ -54,30 +51,24 @@ app.use(nocache);
 //{socketID -> {buffer...}
 var lastCompressedVbos = {};
 var finishBufferTransfers = {};
-var server = connect()
-    .use('/vbo', function (req, res, next) {
 
-        debug('got req', req.url);
-        var args = url.parse(req.url, true).query;
-        var bufferName = args.buffer;
-        var id = args.id;
+app.get('/vbo', function(req, res) {
+    debug('VBOs: HTTP GET %s', req.originalUrl);
 
-        try {
-            res.writeHead(200, {
-                'Content-Encoding': 'gzip',
-                'Content-Type': 'text/javascript',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': 'X-Requested-With,Content-Type,Authorization',
-                'Access-Control-Allow-Methods': 'GET,PUT,PATCH,POST,DELETE'
-            });
-            res.end(lastCompressedVbos[id][bufferName]);
-        } catch (e) {
-            console.error('bad request', e, e.stack);
-        }
-        finishBufferTransfers[id](bufferName);
-    })
-    .listen(proxyUtils.BINARY_PORT);
+    try {
+        // TODO: check that query parameters are present, and that given id, buffer exist
+        var bufferName = req.query.buffer;
+        var id = req.query.id;
 
+        res.set('Content-Encoding', 'gzip');
+
+        res.send(lastCompressedVbos[id][bufferName]);
+    } catch (e) {
+        console.error('bad request', e, e.stack);
+    }
+
+    finishBufferTransfers[id](bufferName);
+});
 
 
 
