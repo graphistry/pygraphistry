@@ -49,7 +49,6 @@
 - command: npm install --global grunt-cli
   sudo: yes
   sudo_user: www
-  remote_user: www
 
 # AntTweakBar
 # - command: chdir=/tmp/ wget -O 'AntTweakBar_116.zip' 'http://sourceforge.net/projects/anttweakbar/files/latest/download?source=dlp'
@@ -60,7 +59,7 @@
 # - command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so.1 /usr/lib/
 #   sudo: yes
 # TODO: register changed and skip
-
+# 
 # GLFW
 # - git: repo=git@github.com:glfw/glfw.git dest=/opt/glfw version=master update=yes
 # - command: chdir=/opt/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
@@ -68,61 +67,58 @@
 #   sudo: yes
 # TODO: Try running the cmake command without `-DCMAKE_INSTALL_PREFIX=/usr`, so `cmake -G "Unix Makefiles"  -DBUILD_SHARED_LIBS=TRUE`. You'll need to manually move `libglfw.so` and its pkg-config file after, but it should work.
 
-# THESE DON'T WORK - MANUALLY RUN THEM AS WWW USER FOR NOW
-# - command: npm install node-webcl
+# - command: chdir=/home/www npm install --global node-gyp
 #   sudo: yes
 #   sudo_user: www
-#   remote_user: www
 # 
-# - command: npm install node-webgl
+# No idea why these don't work, can't seem to get Ansible run-as-user correct
+# - command: chdir=/home/www npm install node-webcl
 #   sudo: yes
 #   sudo_user: www
-#   remote_user: www
+# 
+# - command: chdir=/home/www npm install node-webgl
+#   sudo: yes
+#   sudo_user: www
 
 - command: chdir=/opt/Superconductor2/nodecl/compress npm install
   sudo: yes
   sudo_user: www
-  remote_user: www
 
 - command: chdir=/opt/Superconductor2/nodecl/scproxy npm install
   sudo: yes
   sudo_user: www
-  remote_user: www
 
 - command: chdir=/opt/Superconductor2/nodecl npm link ./compress
   sudo: yes
   sudo_user: www
-  remote_user: www
 
 - command: chdir=/opt/Superconductor2/nodecl npm install
   sudo: yes
   sudo_user: www
-  remote_user: www
+
+- command: chdir=/opt/Superconductor2/nodecl/GPUStreaming/demos/uber npm install
+  sudo: yes
+  sudo_user: www
 
 - command: chdir=/opt/Superconductor2/nodecl/GPUStreaming/StreamGL npm install
   sudo: yes
   sudo_user: www
-  remote_user: www
   
-# - command: chdir=/opt/Superconductor2/nodecl/GPUStreaming/StreamGL grunt
-#   sudo: yes
-#   sudo_user: www
-#   remote_user: www
+- command: chdir=/opt/Superconductor2/nodecl/GPUStreaming/StreamGL /home/www/.npm_global/bin/grunt
+  sudo: yes
+  sudo_user: www
 
 - command: chdir=/opt/Superconductor2/superconductorjs npm install
   sudo: yes
   sudo_user: www
-  remote_user: www
 
 - command: chdir=/opt/graphistry/experiments/nbody/naive npm install
   sudo: yes
   sudo_user: www
-  remote_user: www
 
 - command: chdir=/opt/graphistry/experiments/nbody/loader npm install
   sudo: yes
   sudo_user: www
-  remote_user: www
 
 - command: mkdir /var/log/node-server
   ignore_errors: true

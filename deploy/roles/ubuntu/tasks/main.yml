@@ -4,6 +4,3 @@
 
 - synchronize: src=bash_profile dest=/home/{{ user }}/.bash_profile
   sudo: yes
-
-- synchronize: src=bashrc dest=/home/{{ user }}/.bashrc
-  sudo: yes
