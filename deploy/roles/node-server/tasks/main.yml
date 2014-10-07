@@ -63,11 +63,11 @@
 #   sudo: yes
 # TODO: Try running the cmake command without `-DCMAKE_INSTALL_PREFIX=/usr`, so `cmake -G "Unix Makefiles"  -DBUILD_SHARED_LIBS=TRUE`. You'll need to manually move `libglfw.so` and its pkg-config file after, but it should work.
 
-# Sudo su install node-gyp? Not sure.
-# - command: npm install --global node-gyp
-# sudo: yes
-#
-# No idea why these don't work, can't seem to get Ansible run-as-user correct
+- command: npm install --global node-gyp
+  sudo: yes
+  sudo_user: root
+
+# No idea why these don't work, can't seem to get Ansible run-as-user correct. Likely because these shell out.
 # - command: chdir=/home/www npm install node-webcl
 #   sudo: yes
 #   sudo_user: www
