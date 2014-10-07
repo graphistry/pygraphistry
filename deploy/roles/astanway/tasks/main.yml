@@ -1,5 +1,6 @@
 ---
-- user: name={{ user }} group=admin password=FVgH9nIEdN5tk shell=/bin/bash # this is an encrypted password
+# this is an encrypted password. to generate one, do this: python -c 'import crypt; print crypt.crypt("This is my Password", "$1$SomeSalt$")'
+- user: name={{ user }} group=admin password=FVgH9nIEdN5tk shell=/bin/bash
   sudo: yes
 
 - command: mkdir /home/{{ user }}/.ssh creates=/home/{{ user }}/.ssh
