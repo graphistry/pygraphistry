@@ -117,7 +117,7 @@
   sudo: yes
   tags: node-server
 
-- shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap-slider && /home/www/.npm_global/bin/grunt"
+- shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap-slider && grunt"
   sudo: yes
   tags: node-server
 
@@ -133,7 +133,7 @@
   sudo: yes
   tags: node-server
 
-- shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/GPUStreaming/StreamGL && /home/www/.npm_global/bin/grunt"
+- shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/GPUStreaming/StreamGL && grunt"
   sudo: yes
   tags: node-server
 
