@@ -18,12 +18,15 @@
 
 - name: update graphistry repo
   git: repo=git@github.com:lmeyerov/graphistry.git dest=/opt/graphistry version=master update=yes
+  sudo_user: www
   
 - name: graphistry config
   template: src=config.j2 dest=/opt/graphistry/experiments/nbody/naive/config.js
+  sudo_user: www
 
 - name: update Superconductor repo
   git: repo=git@github.com:lmeyerov/Superconductor2.git dest=/opt/Superconductor2 version=master update=yes
+  sudo_user: www
   
 - command: chown -R www:www /opt/Superconductor2
   sudo: yes
@@ -38,14 +41,21 @@
   sudo: yes
   
 # NPM
-- command: mkdir /home/ubuntu/.npm_global
+- command: mkdir /home/www/.npm_global
   ignore_errors: true
-  
-- command: chmod g+w -R /home/ubuntu/.npm_global
-
-- command: npm config set prefix "/home/ubuntu/.npm_global"
-- command: npm install --global grunt-cli
   sudo: yes
+
+- command: chown -R www:www /home/www/.npm_global
+  sudo: yes
+  
+- command: chmod g+w -R /home/www/.npm_global
+  sudo: yes
+
+- command: npm config set prefix "/home/www/.npm_global"
+  sudo_user: www
+
+- command: npm install --global grunt-cli
+  sudo_user: www
 
 # AntTweakBar
 # - command: chdir=/tmp/ wget -O 'AntTweakBar_116.zip' 'http://sourceforge.net/projects/anttweakbar/files/latest/download?source=dlp'
@@ -68,17 +78,39 @@
   with_items:
     - node-webcl
     - node-webgl
+  sudo_user: www
 
 - command: chdir=/opt/Superconductor2/nodecl/compress npm install
+  sudo_user: www
+
 - command: chdir=/opt/Superconductor2/nodecl/scproxy npm install
+  sudo_user: www
+
 - command: chdir=/opt/Superconductor2/nodecl npm link ./compress
+  sudo_user: www
+
 - command: chdir=/opt/Superconductor2/nodecl npm install
+  sudo_user: www
+
 - command: chdir=/opt/Superconductor2/nodecl/GPUStreaming/StreamGL npm install
+  sudo_user: www
+
 - command: chdir=/opt/Superconductor2/superconductorjs npm install
+  sudo_user: www
+
 - command: chdir=/opt/graphistry/experiments/nbody/naive npm install
+  sudo_user: www
+
 - command: chdir=/opt/graphistry/experiments/nbody/loader npm install
+  sudo_user: www
+
+- command: mkdir /var/log/node-server
+  sudo: yes
 
 - name: node supervisor
   template: src=supervisor.j2 dest=/etc/supervisor/conf.d/node-server.conf
   sudo: yes
-  notify: restart supervisor
+  notify: update supervisor
+
+- command: supervisorctl reload
+  sudo: yes
