@@ -14,7 +14,7 @@
   git: repo=git@github.com:lmeyerov/graphistry.git dest=/opt/graphistry version=master update=yes
   
 - name: graphistry config
-  template: src=config.j2 dest=/opt/graphistry/experiments/nbody/naive/config.js
+  template: src=config.j2 dest=/opt/graphistry/experiments/nbody/naive/config.js group=www owner=www
 
 - name: update Superconductor repo
   git: repo=git@github.com:lmeyerov/Superconductor2.git dest=/opt/Superconductor2 version=master update=yes
@@ -30,8 +30,7 @@
   
 - command: chmod g+w -R /opt/graphistry
   sudo: yes
-  
-# NPM
+
 - command: mkdir /home/www/.npm_global
   ignore_errors: true
   sudo: yes
@@ -67,10 +66,10 @@
 #   sudo: yes
 # TODO: Try running the cmake command without `-DCMAKE_INSTALL_PREFIX=/usr`, so `cmake -G "Unix Makefiles"  -DBUILD_SHARED_LIBS=TRUE`. You'll need to manually move `libglfw.so` and its pkg-config file after, but it should work.
 
-# - command: chdir=/home/www npm install --global node-gyp
-#   sudo: yes
-#   sudo_user: www
-# 
+- command: npm install --global node-gyp
+  sudo: yes
+  sudo_user: www
+
 # No idea why these don't work, can't seem to get Ansible run-as-user correct
 # - command: chdir=/home/www npm install node-webcl
 #   sudo: yes
