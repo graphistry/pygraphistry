@@ -29,6 +29,7 @@ var renderConfig = require(config.STREAMGL_PATH + 'renderer.config.graph.js');
 process.chdir(cwd);
 
 
+
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
 function vboSizeMB(vbos) {
     var vboSizeBytes = _.reduce(_.values(vbos.buffers), function(sum, v) {
@@ -38,24 +39,14 @@ function vboSizeMB(vbos) {
 }
 
 
-
+// Express middleware function for sending "don't cache" headers to the browser
 function nocache(req, res, next) {
     res.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
     res.header('Expires', '-1');
     res.header('Pragma', 'no-cache');
     next();
 }
-
-
-app.use(nocache, express.static(config.GPU_STREAMING_PATH));
-
-// If an argument is supplied to this script, use it as the listening address:port
-var listenAddress = config.DEFAULT_LISTEN_ADDRESS;
-var listenPort = config.DEFAULT_LISTEN_PORT;
-
-http.listen(listenPort, listenAddress, function() {
-    console.log('\nServer listening on %s:%d', listenAddress, listenPort);
-});
+app.use(nocache);
 
 
 //Serve most recent compressed binary buffers
@@ -127,8 +118,7 @@ io.on('connection', function(socket) {
         clientReady.onNext(true);
     });
 
-    clientReady.subscribe(
-        debug.bind('CLIENT STATUS'));
+    clientReady.subscribe(debug.bind('CLIENT STATUS'));
 
     debug('SETTING UP CLIENT EVENT LOOP');
     graph.expand(function (graph) {
@@ -196,4 +186,12 @@ io.on('connection', function(socket) {
     })
     .subscribe(function () { debug('LOOP ITERATED', socket.id); });
 
+});
+
+
+app.use(express.static(config.GPU_STREAMING_PATH));
+
+
+http.listen(config.DEFAULT_LISTEN_PORT, config.DEFAULT_LISTEN_ADDRESS, function() {
+    console.log('\nServer listening on %s:%d', config.DEFAULT_LISTEN_ADDRESS, config.DEFAULT_LISTEN_PORT);
 });
