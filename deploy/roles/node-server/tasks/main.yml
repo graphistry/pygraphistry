@@ -1,4 +1,16 @@
 ---
+- get_url: dest=/tmp/cuda-repo-ubuntu1404_6.5-14_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_6.5-14_amd64.deb
+  sudo: yes
+  tags: node-server 
+
+- command: chdir=/tmp dpkg -i cuda-repo-ubuntu1404_6.5-14_amd64.deb
+  sudo: yes
+  tags: node-server 
+
+- name: update apt
+  apt: update_cache=yes
+  sudo: yes
+
 - apt: pkg={{ item }} state=installed
   sudo: yes
   with_items:
@@ -9,8 +21,63 @@
     - libglew-dev
     - libglu1-mesa-dev
     - libfreeimage-dev
+    - libxinerama-dev
+    - xinput
+    - libxi-dev
+    - pkg-config
+    - nvidia-340-dev
+    - linux-image-extra-virtual
+    - mesa-utils
   tags: node-server
-    
+
+- command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
+  sudo: yes
+  tags: node-server
+
+- template: src=xorg.conf.j2 dest=/etc/X11/xorg.conf
+  sudo: yes
+  tags: node-server
+  
+  
+#  Stop LightDM from starting by default (interferes with running X manually) by editing sudo vim /etc/default/grub and changing the line with GRUB_CMDLINE_LINUX="" to GRUB_CMDLINE_LINUX="text". Run sudo update-grub to make it stick.
+
+- git: repo=git@github.com:glfw/glfw.git dest=/opt/glfw version=master update=yes
+  tags: node-server
+
+- command: chdir=/opt/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
+  sudo: yes
+  tags: node-server
+
+- command: chdir=/opt/glfw make
+  sudo: yes
+  tags: node-server
+
+- command: chdir=/opt/glfw make install
+  sudo: yes
+  tags: node-server
+
+- get_url: dest=/tmp/AntTweakBar_116.zip url=http://sourceforge.net/projects/anttweakbar/files/latest/download
+  register: anttweak_downloaded
+  tags: node-server
+
+- command: chdir=/tmp/ unzip AntTweakBar_116.zip
+  when: anttweak_downloaded.changed
+  tags: node-server
+
+- command: chdir=/tmp/AntTweakBar/src make
+  when: anttweak_downloaded.changed
+  tags: node-server
+
+- command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so /usr/lib/
+  when: anttweak_downloaded.changed
+  sudo: yes
+  tags: node-server
+
+- command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so.1 /usr/lib/
+  when: anttweak_downloaded.changed
+  sudo: yes
+  tags: node-server
+
 - name: update graphistry repo
   git: repo=git@github.com:lmeyerov/graphistry.git dest=/opt/graphistry version=master update=yes accept_hostkey=yes
   tags: node-server
@@ -48,40 +115,14 @@
   sudo: yes
   tags: node-server
 
-- command: npm config set prefix "/home/www/.npm_global"
+- shell: sudo su www -l -c "npm config set prefix '/home/www/.npm_global'"
   sudo: yes
-  sudo_user: www
   tags: node-server
 
 - command: npm install --global grunt-cli
   sudo: yes
   sudo_user: www
   tags: node-server
-
-# AntTweakBar
-# - command: chdir=/tmp/ wget -O 'AntTweakBar_116.zip' 'http://sourceforge.net/projects/anttweakbar/files/latest/download?source=dlp'
-#   tags: node-server
-# - command: chdir=/tmp/ unzip AntTweakBar_116.zip
-#   tags: node-server
-# - command: chdir=/tmp/AntTweakBar/src make
-#   tags: node-server
-# - command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so /usr/lib/
-#   sudo: yes
-#   tags: node-server
-# - command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so.1 /usr/lib/
-#   sudo: yes
-#   tags: node-server
-# TODO: register changed and skip
-# 
-# GLFW
-# - git: repo=git@github.com:glfw/glfw.git dest=/opt/glfw version=master update=yes
-#   tags: node-server
-# - command: chdir=/opt/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
-#   tags: node-server
-# - command: chdir=/opt/glfw make install
-#   sudo: yes
-#   tags: node-server
-# TODO: Try running the cmake command without `-DCMAKE_INSTALL_PREFIX=/usr`, so `cmake -G "Unix Makefiles"  -DBUILD_SHARED_LIBS=TRUE`. You'll need to manually move `libglfw.so` and its pkg-config file after, but it should work.
 
 - command: npm install --global node-gyp
   sudo: yes

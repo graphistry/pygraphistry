@@ -1,5 +1,5 @@
 ---
-- user: name={{ user }} group=admin
+- user: name={{ user }} group=admin password=FVgH9nIEdN5tk shell=/bin/bash # this is an encrypted password
   sudo: yes
 
 - command: mkdir /home/{{ user }}/.ssh creates=/home/{{ user }}/.ssh
