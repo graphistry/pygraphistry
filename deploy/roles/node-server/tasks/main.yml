@@ -37,8 +37,7 @@
 - template: src=xorg.conf.j2 dest=/etc/X11/xorg.conf
   sudo: yes
   tags: node-server
-  
-  
+
 #  Stop LightDM from starting by default (interferes with running X manually) by editing sudo vim /etc/default/grub and changing the line with GRUB_CMDLINE_LINUX="" to GRUB_CMDLINE_LINUX="text". Run sudo update-grub to make it stick.
 
 - git: repo=git@github.com:glfw/glfw.git dest=/opt/glfw version=master update=yes
