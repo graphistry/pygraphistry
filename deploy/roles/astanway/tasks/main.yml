@@ -2,6 +2,12 @@
 - user: name={{ user }} group=admin
   sudo: yes
 
+- command: mkdir /home/{{ user }}/.ssh creates=/home/{{ user }}/.ssh
+  sudo: yes
+
+- command: touch /home/{{ user }}/.ssh/authorized_keys owner={{ user }}
+  sudo: yes
+
 - name: authorized key for {{ user }}
   lineinfile: dest=/home/{{ user }}/.ssh/authorized_keys line="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC/dZ802GnBvfx6I5QTrdjFIPr5pipmlg9eUwGGfrvyTUYzBZTZxfkqUdygsM9J9CxhjUZmuIQMYzyc0MFfzwTlu8bM8kXu/PrzQUvra9HZTmjBSomMOaVWJhFRBWTQ03QjuNq+P2enlGqe3w65vaDEoEe5XW3uoZpeVq+4UjUZstN2lEykxKej+AblfxJC3VPwMuvkWanJzeSQj9wTIAZUelyGuYE17om+V/uZV2It7qdQRWFc4t2sMu4+41Y/w0OwBZrOPlfyZirJ9zXyHchHiQrevZCoitBmFD+S7MkRWRmXOn5IBNHqRtNU/fG1/hqoWxInkL47zxISJds7h+L9 abestanway@localhost.local"
   sudo: yes
@@ -17,4 +23,8 @@
 
 - name: vim plugins
   synchronize: src=vim dest=/home/{{ user }}/.vim
+  sudo: yes
+  
+- name: perms
+  command: chown -R {{ user }} /home/{{ user }}
   sudo: yes

@@ -1,5 +1,6 @@
 [dev]
 54.183.9.137 ansible_ssh_user=ubuntu ansible_ssh_port=61630 ansible_ssh_private_key_file=ansible_id_rsa.pem
+# 54.183.155.35 ansible_ssh_user=ubuntu ansible_ssh_port=61630 ansible_ssh_private_key_file=ansible_id_rsa.pem
 
 #[prod]
 #54.183.188.128 ansible_ssh_user=ubuntu ansible_ssh_port=61630 ansible_ssh_private_key_file=ansible_id_rsa.pem
