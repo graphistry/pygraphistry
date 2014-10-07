@@ -105,6 +105,7 @@
   sudo_user: www
 
 - command: mkdir /var/log/node-server
+  ignore_errors: true
   sudo: yes
 
 - name: node supervisor
