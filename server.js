@@ -10,7 +10,8 @@ console.log("Config set to %j", config);
 
 var Rx          = require('rx'),
     _           = require('underscore'),
-    debug       = require('debug')('StreamGL:server');
+    debug       = require('debug')('StreamGL:server'),
+    fs          = require('fs');
 
 var driver      = require('./js/node-driver.js'),
     compress    = require(config.NODE_CL_PATH + '/compress/compress.js'),
@@ -55,7 +56,7 @@ var lastCompressedVbos = {};
 var finishBufferTransfers = {};
 
 app.get('/vbo', function(req, res) {
-    debug('VBOs: HTTP GET %s', req.originalUrl);
+    debug('VBOs: HTTP GET %s', req.originalUrl, req.query);
 
     try {
         // TODO: check that query parameters are present, and that given id, buffer exist
@@ -72,6 +73,72 @@ app.get('/vbo', function(req, res) {
     finishBufferTransfers[id](bufferName);
 });
 
+var colorTexture = new Rx.ReplaySubject(1);
+var img =
+    Rx.Observable.fromNodeCallback(fs.readFile)('test-colormap2.rgba')
+    .flatMap(function (buffer) {
+        debug('Loaded raw colorTexture', buffer.length);
+        return Rx.Observable.fromNodeCallback(compress.deflate)(
+                buffer,//binary,
+                {output: new Buffer(
+                    Math.max(1024, Math.round(buffer.length * 1.5)))})
+            .map(function (compressed) {
+                return {
+                    raw: buffer,
+                    compressed: compressed
+                };
+            });
+    })
+    .do(function () { debug('Compressed color texture'); })
+    .map(function (pair) {
+        debug('colorMap bytes', pair.raw.length);
+        return {
+            buffer: pair.compressed[0],
+            bytes: pair.raw.length,
+            width: 512,
+            height: 512
+        };
+    });
+
+img.take(1).subscribe(colorTexture);
+colorTexture.subscribe(function() { debug('HAS COLOR TEXTURE'); }, function (err) { debug('oops', err, err.stack); });
+
+
+
+app.get('/vbo', function(req, res) {
+    debug('VBOs: HTTP GET %s', req.originalUrl);
+
+    try {
+        // TODO: check that query parameters are present, and that given id, buffer exist
+        var bufferName = req.query.buffer;
+        var id = req.query.id;
+
+        res.set('Content-Encoding', 'gzip');
+        res.send(lastCompressedVbos[id][bufferName]);
+
+    } catch (e) {
+        console.error('bad request', e, e.stack);
+    }
+
+    finishBufferTransfers[id](bufferName);
+});
+
+app.get('/texture', function (req, res) {
+    debug('got texture req', req.originalUrl, req.query);
+    try {
+
+        var textureName = req.query.texture;
+        var id = req.query.id;
+
+        colorTexture.pluck('buffer').subscribe(function (data) {
+            res.set('Content-Encoding', 'gzip');
+            res.send(data);
+        });
+
+    } catch (e) {
+        console.error('bad request', e, e.stack);
+    }
+});
 
 
 var animStep = driver.create();
@@ -93,7 +160,10 @@ io.on('connection', function(socket) {
     });
 
     var activeBuffers = renderer.getServerBufferNames(renderConfig);
+    var activeTextures = renderer.getServerTextureNames(renderConfig);
     var activePrograms = renderConfig.scene.render;
+
+    debug('active buffers/textures/programs', activeBuffers, activeTextures, activePrograms);
 
     socket.on('graph_settings', function (payload) {
         debug('new settings', payload, socket.id);
@@ -156,10 +226,22 @@ io.on('connection', function(socket) {
                 };
 
                 var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
-                var sending = emitFnWrapper('vbo_update',
-                    _.pick(vbos, ['bufferByteLengths', 'elements']));
 
-                sending.subscribe(function (clientElapsedMsg) {
+                //notify of buffer/texture metadata
+                //FIXME make more generic and account in buffer notification status
+                colorTexture.flatMap(function (colorTexture) {
+                        debug('========got texture meta');
+                        var lengths =
+                            _.pick(
+                                _.extend(
+                                    vbos,
+                                    {textures:
+                                        {colorMap: _.pick(colorTexture, ['width', 'height', 'bytes']) }}),
+                                ['bufferByteLengths', 'textures', 'elements']);
+
+                        debug('notifying client of byte lengths', lengths);
+                        return emitFnWrapper('vbo_update', lengths);
+                    }).subscribe(function (clientElapsedMsg) {
                         debug('3d ?. client all received', socket.id);
                         clientElapsed = clientElapsedMsg;
                         clientAckStartTime = Date.now();
