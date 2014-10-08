@@ -29,6 +29,59 @@ var renderConfig = require(config.STREAMGL_PATH + 'renderer.config.graph.js');
 process.chdir(cwd);
 
 
+/**** GLOBALS ****************************************************/
+
+// ----- BUFFERS (multiplexed over clients) ----------
+//Serve most recent compressed binary buffers
+//TODO reuse across users
+//{socketID -> {buffer...}
+var lastCompressedVbos;
+var finishBufferTransfers;
+
+
+// ----- ANIMATION ------------------------------------
+//current animation
+var animStep;
+
+//multicast of current animation's ticks
+var ticksMulti;
+
+//most recent tick
+var graph;
+
+
+// ----- INITIALIZATION ------------------------------------
+
+//Do more innocuous initialization inline (famous last words..)
+
+function resetState () {
+    debug('RESETTING APP STATE');
+
+    //FIXME explicitly destroy last graph if it exists?
+
+    lastCompressedVbos = {};
+    finishBufferTransfers = {};
+
+
+    animStep = driver.create();
+    ticksMulti = animStep.ticks.publish();
+    ticksMulti.connect();
+
+    //make available to all clients
+    graph = new Rx.ReplaySubject(1);
+    ticksMulti.take(1).subscribe(graph);
+
+
+    debug('RESET APP STATE.');
+}
+
+
+resetState();
+
+
+/**** END GLOBALS ****************************************************/
+
+
 
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
 function vboSizeMB(vbos) {
@@ -49,11 +102,6 @@ function nocache(req, res, next) {
 app.use(nocache);
 
 
-//Serve most recent compressed binary buffers
-//TODO reuse across users
-//{socketID -> {buffer...}
-var lastCompressedVbos = {};
-var finishBufferTransfers = {};
 
 app.get('/vbo', function(req, res) {
     debug('VBOs: HTTP GET %s', req.originalUrl, req.query);
@@ -141,17 +189,11 @@ app.get('/texture', function (req, res) {
 });
 
 
-var animStep = driver.create();
-var ticksMulti = animStep.ticks.publish();
-ticksMulti.connect();
-
-//make available to all clients
-var graph = new Rx.ReplaySubject(1);
-ticksMulti.take(1).subscribe(graph);
-
 
 io.on('connection', function(socket) {
     debug('Client connected', socket.id);
+
+    // ========== BASIC COMMANDS
 
     lastCompressedVbos[socket.id] = {};
     socket.on('disconnect', function () {
@@ -168,6 +210,12 @@ io.on('connection', function(socket) {
     socket.on('graph_settings', function (payload) {
         debug('new settings', payload, socket.id);
         animStep.proxy(payload);
+    });
+
+    socket.on('reset_graph', function (_, cb) {
+        debug('reset_graph command');
+        resetState();
+        cb();
     });
 
 
