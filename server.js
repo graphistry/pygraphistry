@@ -232,7 +232,9 @@ io.on('connection', function(socket) {
     clientReady.subscribe(debug.bind('CLIENT STATUS'));
 
     debug('SETTING UP CLIENT EVENT LOOP');
+    var step = 0;
     graph.expand(function (graph) {
+        step++;
 
         debug('1. Prefetch VBOs', socket.id);
 
@@ -278,22 +280,38 @@ io.on('connection', function(socket) {
                 //notify of buffer/texture metadata
                 //FIXME make more generic and account in buffer notification status
                 colorTexture.flatMap(function (colorTexture) {
-                        debug('========got texture meta');
-                        var lengths =
-                            _.pick(
-                                _.extend(
-                                    vbos,
-                                    {textures:
-                                        {colorMap: _.pick(colorTexture, ['width', 'height', 'bytes']) }}),
-                                ['bufferByteLengths', 'textures', 'elements']);
+                        debug('unwrapped texture meta');
 
-                        debug('notifying client of byte lengths', lengths);
-                        return emitFnWrapper('vbo_update', lengths);
-                    }).subscribe(function (clientElapsedMsg) {
-                        debug('3d ?. client all received', socket.id);
-                        clientElapsed = clientElapsedMsg;
-                        clientAckStartTime = Date.now();
-                    });
+                        var textures = {
+                            colorMap: _.pick(colorTexture, ['width', 'height', 'bytes'])
+                        };
+
+                        var versions = {
+                            buffers:
+                                _.object(_.keys(vbos.bufferByteLengths).map(function (name) {
+                                    return [name, step];
+                                })),
+                            textures: {
+                                colorMap: 1
+                            }
+                        };
+
+                        var metadata =
+                            _.extend(
+                                _.pick(vbos, ['bufferByteLengths', 'elements']),
+                                {textures: textures,
+                                 versions: versions});
+
+                        debug('notifying client of buffer metadata', metadata);
+                        return emitFnWrapper('vbo_update', metadata);
+
+                    }).subscribe(
+                        function (clientElapsedMsg) {
+                            debug('3d ?. client all received', socket.id);
+                            clientElapsed = clientElapsedMsg;
+                            clientAckStartTime = Date.now();
+                        },
+                        debug.bind('ERROR SENDING METADATA'));
 
                 return sendingAllBuffers
                     .take(1)
