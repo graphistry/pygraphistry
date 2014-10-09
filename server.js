@@ -69,7 +69,7 @@ function resetState () {
 
     //make available to all clients
     graph = new Rx.ReplaySubject(1);
-    ticksMulti.take(1).subscribe(graph);
+    ticksMulti.take(1).subscribe(graph, debug.bind('ERROR ticksMulti'));
 
 
     debug('RESET APP STATE.');
@@ -148,8 +148,10 @@ var img =
         };
     });
 
-img.take(1).subscribe(colorTexture);
-colorTexture.subscribe(function() { debug('HAS COLOR TEXTURE'); }, function (err) { debug('oops', err, err.stack); });
+img.take(1).subscribe(colorTexture, debug.bind('ERROR IMG'));
+colorTexture.subscribe(
+    function() { debug('HAS COLOR TEXTURE'); }, function (err) { debug('oops', err, err.stack); },
+    debug.bind('ERROR colorTexture'));
 
 
 
@@ -178,10 +180,12 @@ app.get('/texture', function (req, res) {
         var textureName = req.query.texture;
         var id = req.query.id;
 
-        colorTexture.pluck('buffer').subscribe(function (data) {
-            res.set('Content-Encoding', 'gzip');
-            res.send(data);
-        });
+        colorTexture.pluck('buffer').subscribe(
+            function (data) {
+                res.set('Content-Encoding', 'gzip');
+                res.send(data);
+            },
+            debug.bind('ERROR colorTexture pluck'));
 
     } catch (e) {
         console.error('bad request', e, e.stack);
@@ -233,6 +237,7 @@ io.on('connection', function(socket) {
     });
 
 
+
     // ============= EVENT LOOP
 
     //starts true, set to false whenever transfer starts, true again when ack'd
@@ -243,7 +248,7 @@ io.on('connection', function(socket) {
         clientReady.onNext(true);
     });
 
-    clientReady.subscribe(debug.bind('CLIENT STATUS'));
+    clientReady.subscribe(debug.bind('CLIENT STATUS'), debug.bind('ERROR clientReady'));
 
     debug('SETTING UP CLIENT EVENT LOOP');
     var step = 0;
@@ -350,7 +355,7 @@ io.on('connection', function(socket) {
             })
             .map(_.constant(graph));
     })
-    .subscribe(function () { debug('LOOP ITERATED', socket.id); });
+    .subscribe(function () { debug('LOOP ITERATED', socket.id); }, debug.bind('ERROR LOOP'));
 
 });
 
