@@ -201,9 +201,23 @@ io.on('connection', function(socket) {
         delete lastCompressedVbos[socket.id];
     });
 
-    var activeBuffers = renderer.getServerBufferNames(renderConfig);
-    var activeTextures = renderer.getServerTextureNames(renderConfig);
-    var activePrograms = renderConfig.scene.render;
+
+
+    //Used for tracking what needs to be sent
+    //Starts as all active, and as client caches, whittles down
+    var activeBuffers = renderer.getServerBufferNames(renderConfig),
+        activeTextures = renderer.getServerTextureNames(renderConfig),
+        activePrograms = renderConfig.scene.render;
+
+    var requestedBuffers = activeBuffers,
+        requestedTextures = activeTextures;
+
+    //Knowing this helps overlap communication and computations
+    socket.on('planned_binary_requests', function (request) {
+        requestedBuffers = request.buffers;
+        requestedTextures = request.textures;
+    });
+
 
     debug('active buffers/textures/programs', activeBuffers, activeTextures, activePrograms);
 
@@ -266,7 +280,7 @@ io.on('connection', function(socket) {
                 finishBufferTransfers[socket.id] = function (bufferName) {
                     debug('3a ?. sending a buffer', bufferName, socket.id);
                     transferredBuffers.push(bufferName);
-                    if (transferredBuffers.length === activeBuffers.length) {
+                    if (transferredBuffers.length === requestedBuffers.length) {
                         debug('3b. started sending all', socket.id);
                         debug('Socket', '...client ping ' + clientElapsed + 'ms');
                         debug('Socket', '...client asked for all buffers',
@@ -286,10 +300,21 @@ io.on('connection', function(socket) {
                             colorMap: _.pick(colorTexture, ['width', 'height', 'bytes'])
                         };
 
+                        //FIXME: should show all active VBOs, not those based on prev req
                         var versions = {
                             buffers:
                                 _.object(_.keys(vbos.bufferByteLengths).map(function (name) {
-                                    return [name, step];
+                                    var knownConstants = [
+                                        'pointSizes',
+                                        'pointColors',
+                                        'edgeColors',
+                                        'midSpringsColorCoord'
+                                    ];
+                                    if (step == 1 || knownConstants.indexOf(name) == -1) {
+                                        return [name, step]
+                                    } else {
+                                        return [name, 1];
+                                    }
                                 })),
                             textures: {
                                 colorMap: 1
