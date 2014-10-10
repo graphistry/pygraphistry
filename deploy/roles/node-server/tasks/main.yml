@@ -48,17 +48,21 @@
   tags: node-server
 
 - git: repo=git@github.com:glfw/glfw.git dest=/opt/glfw version=master update=yes accept_hostkey=yes
+  register: glfw
   tags: node-server
 
 - command: chdir=/opt/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
+  when: glfw.changed
   sudo: yes
   tags: node-server
 
 - command: chdir=/opt/glfw make
+  when: glfw.changed
   sudo: yes
   tags: node-server
 
 - command: chdir=/opt/glfw make install
+  when: glfw.changed
   sudo: yes
   tags: node-server
 
