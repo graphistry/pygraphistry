@@ -202,18 +202,22 @@
   sudo: yes
   tags: node-server
 
+- name: remove all old supervisor configs to prevent drift
+  shell: rm /etc/supervisor/conf.d/node-server*
+  sudo: yes
+  tags: node-server
+
 - name: node supervisor
-  template: src=supervisor.j2 dest=/etc/supervisor/conf.d/node-server-{{ listen_port }}.conf
+  template: src=supervisor.j2 dest=/etc/supervisor/conf.d/node-server-{{ item.listen_port }}.conf
   with_items:
-    - listen_port: 10000
-    - listen_port: 10001
-    - listen_port: 10002
-    - listen_port: 10003
-    - listen_port: 10004
-    - listen_port: 10005
-    - listen_port: 10006
-    - listen_port: 10007
-    - listen_port: 10008
+    - { listen_port: 10000 }
+    - { listen_port: 10001 }
+    - { listen_port: 10002 }
+    - { listen_port: 10003 }
+    - { listen_port: 10004 }
+    - { listen_port: 10005 }
+    - { listen_port: 10006 }
+    - { listen_port: 10007 }
   sudo: yes
   notify: update supervisor
   tags: node-server
