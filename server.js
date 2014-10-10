@@ -314,7 +314,6 @@ io.on('connection', function(socket) {
 
 app.use(express.static(config.GPU_STREAMING_PATH));
 
-
-http.listen(config.DEFAULT_LISTEN_PORT, config.DEFAULT_LISTEN_ADDRESS, function() {
-    console.log('\nServer listening on %s:%d', config.DEFAULT_LISTEN_ADDRESS, config.DEFAULT_LISTEN_PORT);
+http.listen(config.LISTEN_PORT, config.LISTEN_ADDRESS, function() {
+    console.log('\nServer listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT);
 });
