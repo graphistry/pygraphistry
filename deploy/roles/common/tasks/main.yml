@@ -1,4 +1,13 @@
 ---
+- command: hostname {{ hostname }}
+  sudo: yes
+
+- template: src=hostname.j2 dest=/etc/hostname
+  sudo: yes
+
+- template: src=hosts.j2 dest=/etc/hosts
+  sudo: yes
+
 - command: rm /var/lib/apt/lists/lock
   sudo: yes
   ignore_errors: true
