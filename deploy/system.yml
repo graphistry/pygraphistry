@@ -8,10 +8,10 @@
    - node-server
 
 
-- hosts: dev-central
-  roles:
-   - { role: astanway, user: astanway }
-   - { role: www, user: www }
-   - { role: ubuntu, user: ubuntu }
-   - common
-   - mysql
+# - hosts: dev-central
+#   roles:
+#    - { role: astanway, user: astanway }
+#    - { role: www, user: www }
+#    - { role: ubuntu, user: ubuntu }
+#    - common
+#    - mysql
