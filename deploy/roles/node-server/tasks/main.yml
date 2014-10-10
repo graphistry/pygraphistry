@@ -209,6 +209,7 @@
 - name: remove all old supervisor configs to prevent drift
   shell: rm /etc/supervisor/conf.d/node-server*
   sudo: yes
+  ignore_errors: true
   tags: node-server
 
 - name: node supervisor
