@@ -11,7 +11,7 @@
   apt: update_cache=yes
   sudo: yes
 
-- apt: pkg={{ item }} state=installed
+- apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes
   with_items:
     - supervisor
@@ -28,6 +28,7 @@
     - nvidia-340-dev
     - linux-image-extra-virtual
     - mesa-utils
+    - cuda
   tags: node-server
 
 - command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
@@ -38,9 +39,15 @@
   sudo: yes
   tags: node-server
 
-#  Stop LightDM from starting by default (interferes with running X manually) by editing sudo vim /etc/default/grub and changing the line with GRUB_CMDLINE_LINUX="" to GRUB_CMDLINE_LINUX="text". Run sudo update-grub to make it stick.
+- template: src=grub.j2 dest=/etc/default/grub
+  sudo: yes
+  tags: node-server
+  
+- command: update-grub
+  sudo: yes
+  tags: node-server
 
-- git: repo=git@github.com:glfw/glfw.git dest=/opt/glfw version=master update=yes
+- git: repo=git@github.com:glfw/glfw.git dest=/opt/glfw version=master update=yes accept_hostkey=yes
   tags: node-server
 
 - command: chdir=/opt/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
