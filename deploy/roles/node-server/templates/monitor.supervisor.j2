@@ -1,0 +1,10 @@
+[program:monitor]
+command=sudo python /opt/monitor.py
+process_name=%(program_name)s
+numprocs=1
+autostart=true
+autorestart=true
+stopsignal=TERM
+stopwaitsecs=10
+stdout_logfile=/var/log/node-monitor.log
+redirect_stderr=true

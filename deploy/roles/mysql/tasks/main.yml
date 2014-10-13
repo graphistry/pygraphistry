@@ -94,4 +94,4 @@
 #   `updated` timestamp NULL DEFAULT NULL
 # ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
-# GRANT ALL on node_monitor.* to node_monitor@'172.31.13.165' IDENTIFIED BY 'graphtheplanet'; # allows everyone in the security group to access it.
+# GRANT ALL on node_monitor.* to node_monitor@'%' IDENTIFIED BY 'graphtheplanet'; # allows everyone in the security group to access it.

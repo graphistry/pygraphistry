@@ -1,50 +1,67 @@
 import subprocess
 import socket
 import MySQLdb
-import psutil
-import json
+import time
+import os
+import signal
 
-# Connect to central db
-db = MySQLdb.connect(host="172.31.9.211",
-                     user="node_monitor",
-                     passwd="graphtheplanet",
-                     db="node_monitor")
-cur = db.cursor()
-
-# Get host IP
-ip = socket.gethostbyname(socket.getfqdn())
-
-# Remove all old entries from this IP
-cur.execute("DELETE FROM gpu_monitor WHERE ip = '%s'" % ip)
-
-# Get GPU data from nvidia-smi
-p = subprocess.Popen(["nvidia-smi", 
-                      "--query-compute-apps=used_gpu_memory,name,pid",
-                      "--format=csv,noheader"], stdout=subprocess.PIPE)
-gpu_data = p.communicate()[0].split('\n')
-
-# Update db for each process talking to the GPU
-for process in gpu_data:
-    process = process.replace(' ', '').split(',')
-    if process == ['']:
-        continue
-
-    gpu_memory_used = process[0]
-    name = process[1]
-    pid = process[2]
-
-    p = psutil.Process(int(pid))
-    cmd = p.cmdline
-    port = json.loads(cmd[2])['LISTEN_PORT']
-
-    # Reap here. What will the endpoint be?
-    status = 0
-
+def monitor(db):
+    """
+    This monitors GPU usage using nvidia-smi and updates it in the gpu_monitor
+    table.
+    """
     cur = db.cursor()
-    query = "INSERT INTO gpu_monitor VALUES ( \
-            '{0}', '{1}', '{2}', '{3}', '{4}', '{5}', NOW())".format(
-            ip, gpu_memory_used, name, pid, port, status)
-    cur.execute(query)
 
-db.commit()
-db.close()
+    # Get host IP
+    ip = socket.gethostbyname(socket.getfqdn())
+
+    # Remove all old entries from this IP
+    cur.execute("DELETE FROM gpu_monitor WHERE ip = '%s'" % ip)
+
+    # Get GPU data from nvidia-smi
+    p = subprocess.Popen(["nvidia-smi", 
+                        "--query-compute-apps=used_gpu_memory,name,pid",
+                        "--format=csv,noheader"], stdout=subprocess.PIPE)
+    gpu_data = p.communicate()[0].split('\n')
+
+    # Update db for each process talking to the GPU
+    for process in gpu_data:
+        process = process.replace(' ', '').split(',')
+        if process == ['']:
+            continue
+
+        gpu_memory_used = process[0]
+        name = process[1]
+        pid = process[2]
+
+        cur = db.cursor()
+        query = "INSERT INTO gpu_monitor VALUES ('{0}', '{1}', '{2}', '{3}')".format(
+                ip, gpu_memory_used, name, pid)
+        cur.execute(query)
+
+    db.commit()
+
+def reap(db):
+    """
+    This reaps all dead processes by checking the node_monitor table for outdated rows,
+    The rows should be updated every ten seconds by each node process itself.
+    """
+    # Select all checkins older than 30 seconds
+    cur = db.cursor()
+    cur.execute("SELECT pid, ip, port FROM node_monitor WHERE updated < NOW() - INTERVAL 30 SECOND;")
+    for pid, ip, port in cur:
+        os.kill(pid, signal.SIGKILL)
+        cur.execute("DELETE FROM node_monitor WHERE pid = '{0}' and ip = '{1}' and port = '{2}'".format(pid, ip, port))
+    db.commit()
+
+while 1:
+    # Connect to central db
+    db = MySQLdb.connect(host="172.31.0.126",
+                        user="node_monitor",
+                        passwd="graphtheplanet",
+                        db="node_monitor")
+    monitor(db)
+    reap(db)
+    db.close()
+
+    time.sleep(10)

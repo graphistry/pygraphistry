@@ -29,6 +29,8 @@
     - linux-image-extra-virtual
     - mesa-utils
     - cuda
+    - ubuntu-drivers-common
+    - nvidia-common
   tags: node-server
 
 - command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
@@ -207,13 +209,13 @@
   tags: node-server
 
 - name: remove all old supervisor configs to prevent drift
-  shell: rm /etc/supervisor/conf.d/node-server*
+  shell: rm /etc/supervisor/conf.d/*
   sudo: yes
   ignore_errors: true
   tags: node-server
 
 - name: node supervisor
-  template: src=supervisor.j2 dest=/etc/supervisor/conf.d/node-server-{{ item.listen_port }}.conf
+  template: src=node-server.supervisor.j2 dest=/etc/supervisor/conf.d/node-server-{{ item.listen_port }}.conf
   with_items:
     - { listen_port: 10000 }
     - { listen_port: 10001 }
@@ -223,6 +225,17 @@
     - { listen_port: 10005 }
     - { listen_port: 10006 }
     - { listen_port: 10007 }
+  sudo: yes
+  notify: update supervisor
+  tags: node-server
+
+- name: add monitoring agent
+  template: src=monitor.py.j2 dest=/opt/monitor.py
+  sudo: yes
+  tags: node-server
+
+- name: monitoring supervisor
+  template: src=monitor.supervisor.j2 dest=/etc/supervisor/conf.d/monitor.conf
   sudo: yes
   notify: update supervisor
   tags: node-server

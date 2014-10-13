@@ -39,6 +39,7 @@
     - npm
     - unattended-upgrades
     - python-psutil
+    - python-mysqldb
 
 - name: create apt auto-upgrades job configuration
   template: >
