@@ -36,7 +36,7 @@ let g:ctrlp_max_height = 25
 :syntax enable
 :set background=dark
 ":colorscheme solarized
-call pathogen#infect()
+"call pathogen#infect()
 filetype plugin indent on
 
 if has('mouse')

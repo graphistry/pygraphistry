@@ -1,183 +1,32 @@
-#
-# FromDual configuration file template for MySQL
-# Location: /etc/my.cnf or /etc/mysql/my.cnf
-# This template is intended to work with MySQL 5.5 and newer
-#
-
 [client]
-
-user                           = root
-password                       = graphtheplanet
-port                           = 3306
-socket                         = /tmp/mysql.sock
-
-
-[mysqld_safe]
-
-open_files_limit               = 8192                                # You possibly have to adapt your O/S settings as well
-user                           = mysql
-log-error                      = error.log
-
-
-[mysqld]
-
-# Connection and Thread variables
-
-port                           = 3306
-socket                         = /tmp/mysql.sock
-
-max_allowed_packet             = 16M
-default_storage_engine         = InnoDB                              # Defaults since 5.5
-
-# character_set_server           = utf8                                # If you prefer utf8
-# collation_server               = utf8_general_ci
-
-
-max_connections                = 151                                 # Values < 1000 are typically good
-max_user_connections           = 50                                  # Limit one specific user/application
-thread_cache_size              = 151                                 # Up to max_connections makes sense
-
-
-# Query Cache
-
-query_cache_type               = 1                                   # Set to 0 to avoid global QC Mutex
-query_cache_size               = 64M                                 # Avoid too big (> 128M) QC because of QC clean-up lock!
-
-
-# Session variables
-
-sort_buffer_size               = 2M                                  # Could be too big for many small sorts
-tmp_table_size                 = 32M                                 # Make sure your temporary results do NOT contain BLOB/TEXT attributes
-
-read_buffer_size               = 128k                                # Resist to change this parameter if you do not know what you are doing
-read_rnd_buffer_size           = 256k                                # Resist to change this parameter if you do not know what you are doing
-join_buffer_size               = 128k                                # Resist to change this parameter if you do not know what you are doing
-
-
-# Other buffers and caches
-
-table_definition_cache         = 400                                 # As big as many tables you have
-table_open_cache               = 400                                 # connections x tables/connection (~2)
-
-
-# MySQL error log
-
-log_error                      = error.log
-log_warnings                   = 2
-# innodb_print_all_deadlocks     = 1
-# wsrep_log_conflicts            = 1                                   # for Galera only!
-
-# Slow Query Log
-
-slow_query_log_file            = slow.log
-slow_query_log                 = 0
-log_queries_not_using_indexes  = 1
-long_query_time                = 0.5
-min_examined_row_limit         = 100
-
-
-# General Query Log
-
-general_log_file               = general.log
-general_log                    = 0
-
-
-# Binary logging and Replication
-
-server_id                      = 42
-log_bin                        = mysql-bin
-binlog_cache_size              = 1M
-# binlog_stmt_cache_size         = 1M                                  # Since 5.5
-max_binlog_size                = 128M                                # Make bigger for high traffic to reduce number of files
-sync_binlog                    = 0                                   # Set to 1 or higher to reduce potential loss of binary-log data
-expire_logs_days               = 5                                   # We will survive easter holidays
-binlog_format                  = ROW                                 # Use MIXED if you experience some troubles
-# binlog_row_image               = MINIMAL                             # Since 5.6
-# auto_increment_increment       = 1                                   # For Master/Master set-ups use 1 and 2
-# auto_increment_offset          = 2                                   # For Master/Master set-ups use 2 for both nodes
-
-
-# Slave variables
-
-log_slave_updates              = 1                                   # Use if Slave is used for Backup and PiTR
-read_only                      = 0                                   # Set to 1 to prevent writes on Slave
-skip_slave_start               = 0                                   # To avoid start of Slave threads
-
-
-# Security variables
-
-# local_infile                   = 0                                   # If you are security aware
-# secure_auth                    = 1                                   # If you are security aware
-# sql_mode                       = TRADITIONAL,ONLY_FULL_GROUP_BY,NO_ENGINE_SUBSTITUTION,STRICT_TRANS_TABLES   # Be careful changing this afterwards
-# skip_name_resolve              = 0                                   # Set to 1 if you do not trust your DNS or experience problems
-
-
-# MyISAM variables
-
-key_buffer_size                = 8M                                  # Set to 25 - 33 % of RAM if you still use MyISAM
-# myisam_recover_options         = 'BACKUP,FORCE'                      # Since 5.5
-myisam_recover                 = 'BACKUP,FORCE'
-
-
-# MEMORY variables
-
-max_heap_table_size            = 64M                                 # Should be greater or equal to tmp_table_size
-
-
-# InnoDB variables
-
-innodb_buffer_pool_size        = 128M                                # Go up to 80% of your available RAM
-# innodb_buffer_pool_instances   = <n>                               # Bigger if huge InnoDB Buffer Pool or high concurrency
-innodb_file_per_table          = 1                                   # Is the recommended way nowadays
-# innodb_flush_method            = O_DIRECT                            # O_DIRECT is sometimes better for direct attached storage
-# innodb_write_io_threads        = 8                                 # If you have a strong I/O system or SSD
-# innodb_read_io_threads         = 8                                 # If you have a strong I/O system or SSD
-# innodb_io_capacity             = 1000                              # If you have a strong I/O system or SSD
-
-
-innodb_flush_log_at_trx_commit = 0                                   # 1 for durability, 0 or 2 for performance
-innodb_log_buffer_size         = 8M                                  # Bigger if innodb_flush_log_at_trx_commit                                    = 0
-innodb_log_file_size           = 256M                                # Bigger means more write throughput but longer recovery time
-
-# Galera specific MySQL parameter
-
-# default_storage_engine         = InnoDB                            # Galera only works with InnoDB
-# innodb_flush_log_at_trx_commit = 0                                 # Durability is achieved by committing to the Group
-# innodb_autoinc_lock_mode       = 2                                 # For parallel applying
-# binlog_format                  = row                               # Galera only works with RBR
-# query_cache_type               = 0                                 # Use QC with Galera only in a Master/Slave set-up
-# query_cache_size               = 0
-
-
-# WSREP parameter
-
-# wsrep_provider                 = none                                # Start mysqld without Galera
-# wsrep_provider                 = /usr/lib/galera/libgalera_smm.so    # Location of Galera Plugin
-# wsrep_provider_options         = 'gcache.size = 1G'                  # Depends on you workload, WS kept for IST
-
-# wsrep_cluster_name             = "My cool Galera Cluster"            # Same Cluster name for all nodes
-# wsrep_cluster_address          = "gcomm://"                          # Initial Cluster start
-# wsrep_cluster_address          = "gcomm://192.168.0.2,192.168.0.3"   # Start other nodes like this
-
-# wsrep_node_name                = "Node A"                            # Unique node name
-# wsrep_node_address             = 192.168.0.1                         # Our address where replication is done
-# wsrep_node_incoming_address    = 10.0.0.1                            # Our external interface where application comes from
-# wsrep_causal_reads             = 0                                   # If you need real synchronous replication set to 1
-# wsrep_slave_threads            = 1                                   # 4 - 8 per core, not more than wsrep_cert_deps_distance
-
-# wsrep_sst_method               = mysqldump                           # SST method (initial full sync): mysqldump, rsync, rsync_wan, xtrabackup
-# wsrep_sst_auth                 = sst:sst                             # Username/password for sst user
-# wsrep_sst_receive_address      = 192.168.0.1                         # Our address where to receive SST
-
-
-[mysql]
-
-no_auto_rehash
-max_allowed_packet             = 16M
-prompt                         = '\u@\h [\d]> '
-default_character_set          = utf8                                # Possibly this setting is correct for most recent Linux systems
-
-
-[mysqldump]
-
-max_allowed_packet             = 16M
+port                      = 3306
+socket                    = /var/run/mysqld/mysqld.sock
+                     
+[mysqld_safe]             
+socket		                = /var/run/mysqld/mysqld.sock
+nice		                  = 0
+
+[mysqld]                  
+user                      = mysql
+port                      = 3306
+pid-file                  = /var/run/mysqld/mysqld.pid
+socket	                  = /var/run/mysqld/mysqld.sock
+basedir                   = /usr
+datadir     	            = /var/lib/mysql
+tmpdir		                = /tmp
+lc-messages-dir           = /usr/share/mysql
+bind-address              = "0.0.0.0" 
+key_buffer            		= 16M
+max_allowed_packet	      = 16M
+thread_stack	          	= 192K
+thread_cache_size         = 8
+query_cache_limit       	= 1M
+query_cache_size          = 16M
+log_error                 = /var/log/mysql/error.log
+default_storage_engine    = InnoDB
+server_id                 = 42
+log_bin                   = mysql-bin
+max_binlog_size           = 128M
+expire_logs_days          = 5
+
+!includedir /etc/mysql/conf.d/
