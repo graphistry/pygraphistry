@@ -1,0 +1,50 @@
+import subprocess
+import socket
+import MySQLdb
+import psutil
+import json
+
+# Connect to central db
+db = MySQLdb.connect(host="172.31.9.211",
+                     user="node_monitor",
+                     passwd="graphtheplanet",
+                     db="node_monitor")
+cur = db.cursor()
+
+# Get host IP
+ip = socket.gethostbyname(socket.getfqdn())
+
+# Remove all old entries from this IP
+cur.execute("DELETE FROM gpu_monitor WHERE ip = '%s'" % ip)
+
+# Get GPU data from nvidia-smi
+p = subprocess.Popen(["nvidia-smi", 
+                      "--query-compute-apps=used_gpu_memory,name,pid",
+                      "--format=csv,noheader"], stdout=subprocess.PIPE)
+gpu_data = p.communicate()[0].split('\n')
+
+# Update db for each process talking to the GPU
+for process in gpu_data:
+    process = process.replace(' ', '').split(',')
+    if process == ['']:
+        continue
+
+    gpu_memory_used = process[0]
+    name = process[1]
+    pid = process[2]
+
+    p = psutil.Process(int(pid))
+    cmd = p.cmdline
+    port = json.loads(cmd[2])['LISTEN_PORT']
+
+    # Reap here. What will the endpoint be?
+    status = 0
+
+    cur = db.cursor()
+    query = "INSERT INTO gpu_monitor VALUES ( \
+            '{0}', '{1}', '{2}', '{3}', '{4}', '{5}', NOW())".format(
+            ip, gpu_memory_used, name, pid, port, status)
+    cur.execute(query)
+
+db.commit()
+db.close()

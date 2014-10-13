@@ -38,6 +38,7 @@
     - python-pip
     - npm
     - unattended-upgrades
+    - python-psutil
 
 - name: create apt auto-upgrades job configuration
   template: >

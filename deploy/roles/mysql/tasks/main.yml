@@ -71,13 +71,27 @@
   mysql_db: name=test state=absent login_user=root login_password=graphtheplanet
   tags: mysql
 
-- name: Create the database
-  mysql_db: name=node_monitor state=present login_user=root login_password=graphtheplanet
-  tags: mysql
-
 - name: Create the database users
   mysql_user: name={{ item.name }}  password={{ item.pass }} priv={{ item.priv }} state=present 
               host={{ item.host | default("localhost") }} login_password=graphtheplanet login_user=root
   with_items:
     - { name: node_monitor, pass: graphtheplanet, priv: "*.*:ALL" }
   tags: mysql
+
+- name: Create the database
+  mysql_db: name=node_monitor state=present login_user=root login_password=graphtheplanet
+  tags: mysql
+
+# We will create tables by hand, because a lot can go wrong here. We'll take dumps of schemas, though.
+
+# CREATE TABLE `gpu_monitor` (
+#   `ip` varchar(20) DEFAULT NULL,
+#   `gpu_memory_used` varchar(20) DEFAULT NULL,
+#   `name` varchar(265) DEFAULT NULL,
+#   `pid` bigint(20) DEFAULT NULL,
+#   `port` bigint(20) DEFAULT NULL,
+#   `status` int(11) DEFAULT NULL,
+#   `updated` timestamp NULL DEFAULT NULL
+# ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+# GRANT ALL on node_monitor.* to node_monitor@'172.31.13.165' IDENTIFIED BY 'graphtheplanet'; # allows everyone in the security group to access it.
