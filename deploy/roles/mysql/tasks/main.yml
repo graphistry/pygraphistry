@@ -12,6 +12,7 @@
   sudo: yes
   notify:
    - restart mysql
+  ignore_errors: true
   tags: mysql
 
 - service: name=mysql state=started enabled=yes
@@ -88,10 +89,15 @@
 #   `ip` varchar(20) DEFAULT NULL,
 #   `gpu_memory_used` varchar(20) DEFAULT NULL,
 #   `name` varchar(265) DEFAULT NULL,
-#   `pid` bigint(20) DEFAULT NULL,
+#   `pid` bigint(20) DEFAULT NULL
+# ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+# CREATE TABLE `node_monitor` (
 #   `port` bigint(20) DEFAULT NULL,
-#   `status` int(11) DEFAULT NULL,
-#   `updated` timestamp NULL DEFAULT NULL
+#   `ip` varchar(20) DEFAULT NULL,
+#   `pid` bigint(20) DEFAULT NULL,
+#   `updated` timestamp NULL DEFAULT NULL,
+#   UNIQUE KEY `port` (`port`,`ip`)
 # ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
 # GRANT ALL on node_monitor.* to node_monitor@'%' IDENTIFIED BY 'graphtheplanet'; # allows everyone in the security group to access it.
