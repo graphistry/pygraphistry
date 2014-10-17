@@ -5,6 +5,18 @@ import time
 import os
 import signal
 
+import logging
+import sys
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+ch = logging.StreamHandler(sys.stdout)
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s :: %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
+
 def monitor(db):
     """
     This monitors GPU usage using nvidia-smi and updates it in the gpu_monitor
@@ -26,6 +38,7 @@ def monitor(db):
 
     # Update db for each process talking to the GPU
     for process in gpu_data:
+        logger.info(process)
         process = process.replace(' ', '').split(',')
         if process == ['']:
             continue
@@ -51,7 +64,10 @@ def reap(db):
     cur.execute("SELECT pid, ip, port FROM node_monitor WHERE updated < NOW() - INTERVAL 30 SECOND;")
     for pid, ip, port in cur:
         os.kill(pid, signal.SIGKILL)
-        cur.execute("DELETE FROM node_monitor WHERE pid = '{0}' and ip = '{1}' and port = '{2}'".format(pid, ip, port))
+        logger.info("killing {0}".format(pid))
+        query = "DELETE FROM node_monitor WHERE pid = '{0}' and ip = '{1}' and port = '{2}'".format(pid, ip, port)
+        logger.info(query)
+        cur.execute(query)
     db.commit()
 
 while 1:
