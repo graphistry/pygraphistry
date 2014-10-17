@@ -80,6 +80,7 @@ while 1:
     # Connect to central db
     conn = MongoClient('mongodb://graphistry:graphtheplanet@ds047030.mongolab.com:47030/graphistry')
     db = conn.graphistry
+    db.node_monitor.ensure_index( [("port", ASCENDING), ("ip", ASCENDING), ("pid", ASCENDING)], unique=True )
     monitor(db)
     reap(db)
     conn.close()
