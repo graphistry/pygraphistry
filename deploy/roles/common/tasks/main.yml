@@ -59,6 +59,7 @@
   with_items:
     - setuptools
     - distribute
+    - pymongo
     
 - name: check installed version of node.js
   shell: /usr/bin/test "$(node -v 2> /dev/null)" = v{{node_version}}

@@ -1,0 +1,8 @@
+---
+- command: npm install --global {{ item }}
+  with_items:
+    - s3
+    - passport
+  sudo: yes
+  sudo_user: www
+  tags: node-server

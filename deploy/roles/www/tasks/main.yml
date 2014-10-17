@@ -16,3 +16,16 @@
 
 - command: chmod g+w -R /home/{{ user }}/.bash_profile
   sudo: yes
+  
+- command: mkdir /home/www/.npm_global
+  ignore_errors: true
+  sudo: yes
+
+- command: chown -R www:www /home/www/.npm_global
+  sudo: yes
+
+- command: chmod g+w -R /home/www/.npm_global
+  sudo: yes
+
+- shell: sudo su www -l -c "npm config set prefix '/home/www/.npm_global'"
+  sudo: yes

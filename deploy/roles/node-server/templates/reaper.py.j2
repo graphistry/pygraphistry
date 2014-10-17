@@ -1,6 +1,7 @@
+from pymongo import MongoClient
+from datetime import datetime
 import subprocess
 import socket
-import MySQLdb
 import time
 import os
 import signal
@@ -22,13 +23,13 @@ def monitor(db):
     This monitors GPU usage using nvidia-smi and updates it in the gpu_monitor
     table.
     """
-    cur = db.cursor()
+    collection = db['gpu_monitor']
 
     # Get host IP
     ip = socket.gethostbyname(socket.getfqdn())
 
     # Remove all old entries from this IP
-    cur.execute("DELETE FROM gpu_monitor WHERE ip = '%s'" % ip)
+    collection.remove({"ip": ip})
 
     # Get GPU data from nvidia-smi
     p = subprocess.Popen(["nvidia-smi", 
@@ -47,12 +48,14 @@ def monitor(db):
         name = process[1]
         pid = process[2]
 
-        cur = db.cursor()
-        query = "INSERT INTO gpu_monitor VALUES ('{0}', '{1}', '{2}', '{3}')".format(
-                ip, gpu_memory_used, name, pid)
-        cur.execute(query)
+        doc = {
+                'ip': ip,
+                'gpu_memory_used': gpu_memory_used,
+                'name': name,
+                'pid': pid
+            }
 
-    db.commit()
+        collection.insert(doc)
 
 def reap(db):
     """
@@ -60,24 +63,25 @@ def reap(db):
     The rows should be updated every ten seconds by each node process itself.
     """
     # Select all checkins older than 30 seconds
-    cur = db.cursor()
-    cur.execute("SELECT pid, ip, port FROM node_monitor WHERE updated < NOW() - INTERVAL 30 SECOND;")
-    for pid, ip, port in cur:
+    collection = db['node_monitor']
+
+    old = collection.find({"updated": {"$lt": datetime.now()}})
+
+    for doc in old:
+        pid = doc['pid']
+        ip = doc['ip']
+        port = doc['port']
         os.kill(pid, signal.SIGKILL)
         logger.info("killing {0}".format(pid))
-        query = "DELETE FROM node_monitor WHERE pid = '{0}' and ip = '{1}' and port = '{2}'".format(pid, ip, port)
+        collection.remove({"_id": doc['id']})
         logger.info(query)
-        cur.execute(query)
-    db.commit()
 
 while 1:
     # Connect to central db
-    db = MySQLdb.connect(host="172.31.0.126",
-                        user="node_monitor",
-                        passwd="graphtheplanet",
-                        db="node_monitor")
+    conn = MongoClient('mongodb://graphistry:graphtheplanet@ds047030.mongolab.com:47030/graphistry')
+    db = conn.graphistry
     monitor(db)
     reap(db)
-    db.close()
+    conn.close()
 
     time.sleep(10)
