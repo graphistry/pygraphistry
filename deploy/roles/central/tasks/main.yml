@@ -1,8 +1,31 @@
 ---
-- command: npm install --global {{ item }}
-  with_items:
-    - s3
-    - passport
+- name: update graphistry repo
+  git: repo=git@github.com:lmeyerov/graphistry.git dest=/opt/graphistry version=master update=yes accept_hostkey=yes
+
+- command: mkdir /var/log/central-app
+  sudo: yes
+  ignore_errors: true
+
+- command: chown -R www:www /opt/graphistry
+  sudo: yes
+
+- command: chmod g+w -R /opt/graphistry
+  sudo: yes
+
+- command: npm install --global bower
   sudo: yes
   sudo_user: www
-  tags: node-server
+
+- command: npm install --global grunt-cli
+  sudo: yes
+  sudo_user: www
+
+- shell: sudo su www -l -c "cd /opt/graphistry/central-app && npm install"
+  sudo: yes
+
+- template: src=central-app.supervisor.j2 dest=/etc/supervisor/conf.d/central-app.conf
+  sudo: yes
+  notify: update supervisor
+
+- command: supervisorctl reload
+  sudo: yes

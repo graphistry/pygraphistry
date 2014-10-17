@@ -1,0 +1,11 @@
+[program:central-app]
+command=sudo -u www grunt
+directory=/opt/graphistry/central-app
+process_name=%(program_name)s
+numprocs=1
+autostart=true
+autorestart=true
+stopsignal=TERM
+stopwaitsecs=10
+stdout_logfile=/var/log/central-app/app.log
+redirect_stderr=true

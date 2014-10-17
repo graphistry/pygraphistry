@@ -1,3 +1,8 @@
 ---
-- name: restart mysql
-  service: name=mysql state=restarted
+- name: update supervisor
+  command: supervisorctl update
+  sudo: yes
+  
+- name: reload supervisord
+  command: supervisorctl reload
+  sudo: yes
