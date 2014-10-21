@@ -69,8 +69,7 @@ function resetState () {
 
     //make available to all clients
     graph = new Rx.ReplaySubject(1);
-    ticksMulti.take(1).subscribe(graph);
-
+    ticksMulti.take(1).subscribe(graph, debug.bind('ERROR ticksMulti'));
 
     debug('RESET APP STATE.');
 }
@@ -85,10 +84,11 @@ resetState();
 
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
 function vboSizeMB(vbos) {
-    var vboSizeBytes = _.reduce(_.values(vbos.buffers), function(sum, v) {
-            return sum + v.byteLength;
-        }, 0);
-    return Math.round((Math.round(vboSizeBytes / 1024) / 1024) * 100) / 100;
+    var vboSizeBytes =
+        _.reduce(
+            _.pluck(_.values(vbos.buffers), 'byteLength'),
+            function(acc, v) { return acc + v; }, 0);
+    return (vboSizeBytes / (1024 * 1024)).toFixed(1);
 }
 
 
@@ -148,8 +148,10 @@ var img =
         };
     });
 
-img.take(1).subscribe(colorTexture);
-colorTexture.subscribe(function() { debug('HAS COLOR TEXTURE'); }, function (err) { debug('oops', err, err.stack); });
+img.take(1).subscribe(colorTexture, debug.bind('ERROR IMG'));
+colorTexture.subscribe(
+    function() { debug('HAS COLOR TEXTURE'); },
+    debug.bind('ERROR colorTexture'));
 
 
 
@@ -178,10 +180,12 @@ app.get('/texture', function (req, res) {
         var textureName = req.query.texture;
         var id = req.query.id;
 
-        colorTexture.pluck('buffer').subscribe(function (data) {
-            res.set('Content-Encoding', 'gzip');
-            res.send(data);
-        });
+        colorTexture.pluck('buffer').subscribe(
+            function (data) {
+                res.set('Content-Encoding', 'gzip');
+                res.send(data);
+            },
+            debug.bind('ERROR colorTexture pluck'));
 
     } catch (e) {
         console.error('bad request', e, e.stack);
@@ -201,9 +205,24 @@ io.on('connection', function(socket) {
         delete lastCompressedVbos[socket.id];
     });
 
-    var activeBuffers = renderer.getServerBufferNames(renderConfig);
-    var activeTextures = renderer.getServerTextureNames(renderConfig);
-    var activePrograms = renderConfig.scene.render;
+
+
+    //Used for tracking what needs to be sent
+    //Starts as all active, and as client caches, whittles down
+    var activeBuffers = renderer.getServerBufferNames(renderConfig),
+        activeTextures = renderer.getServerTextureNames(renderConfig),
+        activePrograms = renderConfig.scene.render;
+
+    var requestedBuffers = activeBuffers,
+        requestedTextures = activeTextures;
+
+    //Knowing this helps overlap communication and computations
+    socket.on('planned_binary_requests', function (request) {
+        debug('CLIENT SETTING PLANNED REQUESTS', request.buffers, request.textures);
+        requestedBuffers = request.buffers;
+        requestedTextures = request.textures;
+    });
+
 
     debug('active buffers/textures/programs', activeBuffers, activeTextures, activePrograms);
 
@@ -219,6 +238,7 @@ io.on('connection', function(socket) {
     });
 
 
+
     // ============= EVENT LOOP
 
     //starts true, set to false whenever transfer starts, true again when ack'd
@@ -229,12 +249,14 @@ io.on('connection', function(socket) {
         clientReady.onNext(true);
     });
 
-    clientReady.subscribe(debug.bind('CLIENT STATUS'));
+    clientReady.subscribe(debug.bind('CLIENT STATUS'), debug.bind('ERROR clientReady'));
 
     debug('SETTING UP CLIENT EVENT LOOP');
+    var step = 0;
     graph.expand(function (graph) {
+        step++;
 
-        debug('1. Prefetch VBOs', socket.id);
+        debug('1. Prefetch VBOs', socket.id, activeBuffers);
 
         return driver.fetchData(graph, compress, activeBuffers, activePrograms)
             .do(function (vbos) {
@@ -264,7 +286,7 @@ io.on('connection', function(socket) {
                 finishBufferTransfers[socket.id] = function (bufferName) {
                     debug('3a ?. sending a buffer', bufferName, socket.id);
                     transferredBuffers.push(bufferName);
-                    if (transferredBuffers.length === activeBuffers.length) {
+                    if (transferredBuffers.length === requestedBuffers.length) {
                         debug('3b. started sending all', socket.id);
                         debug('Socket', '...client ping ' + clientElapsed + 'ms');
                         debug('Socket', '...client asked for all buffers',
@@ -278,22 +300,34 @@ io.on('connection', function(socket) {
                 //notify of buffer/texture metadata
                 //FIXME make more generic and account in buffer notification status
                 colorTexture.flatMap(function (colorTexture) {
-                        debug('========got texture meta');
-                        var lengths =
-                            _.pick(
-                                _.extend(
-                                    vbos,
-                                    {textures:
-                                        {colorMap: _.pick(colorTexture, ['width', 'height', 'bytes']) }}),
-                                ['bufferByteLengths', 'textures', 'elements']);
+                        debug('unwrapped texture meta');
 
-                        debug('notifying client of byte lengths', lengths);
-                        return emitFnWrapper('vbo_update', lengths);
-                    }).subscribe(function (clientElapsedMsg) {
-                        debug('3d ?. client all received', socket.id);
-                        clientElapsed = clientElapsedMsg;
-                        clientAckStartTime = Date.now();
-                    });
+                        var textures = {
+                            colorMap: _.pick(colorTexture, ['width', 'height', 'bytes'])
+                        };
+
+                        //FIXME: should show all active VBOs, not those based on prev req
+                        var metadata =
+                            _.extend(
+                                _.pick(vbos, ['bufferByteLengths', 'elements']),
+                                {textures: textures,
+                                 versions: {
+                                    buffers: vbos.versions,
+                                    textures: {
+                                        colorMap: 1
+                                    }
+                                }});
+
+                        debug('notifying client of buffer metadata', metadata);
+                        return emitFnWrapper('vbo_update', metadata);
+
+                    }).subscribe(
+                        function (clientElapsedMsg) {
+                            debug('3d ?. client all received', socket.id);
+                            clientElapsed = clientElapsedMsg;
+                            clientAckStartTime = Date.now();
+                        },
+                        debug.bind('ERROR SENDING METADATA'));
 
                 return sendingAllBuffers
                     .take(1)
@@ -307,7 +341,7 @@ io.on('connection', function(socket) {
             })
             .map(_.constant(graph));
     })
-    .subscribe(function () { debug('LOOP ITERATED', socket.id); });
+    .subscribe(function () { debug('LOOP ITERATED', socket.id); }, debug.bind('ERROR LOOP'));
 
 });
 
