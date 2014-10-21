@@ -85,10 +85,11 @@ resetState();
 
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
 function vboSizeMB(vbos) {
-    var vboSizeBytes = _.reduce(_.values(vbos.buffers), function(sum, v) {
-            return sum + v.byteLength;
-        }, 0);
-    return Math.round((Math.round(vboSizeBytes / 1024) / 1024) * 100) / 100;
+    var vboSizeBytes =
+        _.reduce(
+            _.pluck(_.values(vbos.buffers), 'byteLength'),
+            function(acc, v) { return acc + v; }, 0);
+    return (vboSizeBytes / (1024 * 1024)).toFixed(1);
 }
 
 
@@ -306,31 +307,16 @@ io.on('connection', function(socket) {
                         };
 
                         //FIXME: should show all active VBOs, not those based on prev req
-                        var versions = {
-                            buffers:
-                                _.object(_.keys(vbos.bufferByteLengths).map(function (name) {
-                                    var knownConstants = [
-                                        'pointSizes',
-                                        'pointColors',
-                                        'edgeColors',
-                                        'midSpringsColorCoord'
-                                    ];
-                                    if (step == 1 || knownConstants.indexOf(name) == -1) {
-                                        return [name, step]
-                                    } else {
-                                        return [name, 1];
-                                    }
-                                })),
-                            textures: {
-                                colorMap: 1
-                            }
-                        };
-
                         var metadata =
                             _.extend(
                                 _.pick(vbos, ['bufferByteLengths', 'elements']),
                                 {textures: textures,
-                                 versions: versions});
+                                 versions: {
+                                    buffers: vbos.versions,
+                                    textures: {
+                                        colorMap: 1
+                                    }
+                                }});
 
                         debug('notifying client of buffer metadata', metadata);
                         return emitFnWrapper('vbo_update', metadata);
