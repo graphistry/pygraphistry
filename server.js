@@ -71,7 +71,6 @@ function resetState () {
     graph = new Rx.ReplaySubject(1);
     ticksMulti.take(1).subscribe(graph, debug.bind('ERROR ticksMulti'));
 
-
     debug('RESET APP STATE.');
 }
 
@@ -151,7 +150,7 @@ var img =
 
 img.take(1).subscribe(colorTexture, debug.bind('ERROR IMG'));
 colorTexture.subscribe(
-    function() { debug('HAS COLOR TEXTURE'); }, function (err) { debug('oops', err, err.stack); },
+    function() { debug('HAS COLOR TEXTURE'); },
     debug.bind('ERROR colorTexture'));
 
 
@@ -219,6 +218,7 @@ io.on('connection', function(socket) {
 
     //Knowing this helps overlap communication and computations
     socket.on('planned_binary_requests', function (request) {
+        debug('CLIENT SETTING PLANNED REQUESTS', request.buffers, request.textures);
         requestedBuffers = request.buffers;
         requestedTextures = request.textures;
     });
@@ -256,7 +256,7 @@ io.on('connection', function(socket) {
     graph.expand(function (graph) {
         step++;
 
-        debug('1. Prefetch VBOs', socket.id);
+        debug('1. Prefetch VBOs', socket.id, activeBuffers);
 
         return driver.fetchData(graph, compress, activeBuffers, activePrograms)
             .do(function (vbos) {
