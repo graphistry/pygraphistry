@@ -1,5 +1,5 @@
-from pymongo import MongoClient
-from datetime import datetime
+from pymongo import MongoClient, ASCENDING
+from datetime import datetime, timedelta
 import subprocess
 import socket
 import time
@@ -18,44 +18,59 @@ formatter = logging.Formatter('%(asctime)s :: %(message)s')
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
+def convert(gpu_memory_used):
+    if 'GiB' in gpu_memory_used:
+        gpu_memory_used = int(gpu_memory_used.replace('GiB','')) * 1024 * 1024 * 1024
+
+    elif 'MiB' in gpu_memory_used:
+        gpu_memory_used = int(gpu_memory_used.replace('MiB','')) * 1024 * 1024
+
+    elif 'KiB' in gpu_memory_used:
+        gpu_memory_used = int(gpu_memory_used.replace('KiB','')) * 1024
+
+    return gpu_memory_used
+
 def monitor(db):
     """
     This monitors GPU usage using nvidia-smi and updates it in the gpu_monitor
-    table.
+    table (for overall usage) and the node_monitor table (for individual usage)
     """
-    collection = db['gpu_monitor']
-
     # Get host IP
     ip = socket.gethostbyname(socket.getfqdn())
 
-    # Remove all old entries from this IP
-    collection.remove({"ip": ip})
-
-    # Get GPU data from nvidia-smi
+    # Get GPU free memory from nvidia-smi
     p = subprocess.Popen(["nvidia-smi", 
-                        "--query-compute-apps=used_gpu_memory,name,pid",
+                        "--query-gpu=memory.free",
                         "--format=csv,noheader"], stdout=subprocess.PIPE)
-    gpu_data = p.communicate()[0].split('\n')
+    gpu_data = p.communicate()[0]
+    gpu_memory_free = convert(gpu_data)
+    collection = db['gpu_monitor']
+    collection.update({'ip': ip}, {'$set': {'gpu_memory_free' : gpu_memory_free, 'updated': datetime.now() } }, True)
+    logger.info('gpu_memory_free %s' % gpu_memory_free)
+
+    # Get per-process data from nvidia-smi
+    p = subprocess.Popen(["nvidia-smi", 
+                        "--query-compute-apps=used_gpu_memory,pid",
+                        "--format=csv,noheader"], stdout=subprocess.PIPE)
+    process_data = p.communicate()[0].split('\n')
 
     # Update db for each process talking to the GPU
-    for process in gpu_data:
+    # Todo: set this up with Graphite
+    collection = db['node_monitor']
+    for process in process_data:
         logger.info(process)
         process = process.replace(' ', '').split(',')
         if process == ['']:
             continue
 
-        gpu_memory_used = process[0]
-        name = process[1]
-        pid = process[2]
+        gpu_memory_used = convert(process[0])
 
         doc = {
                 'ip': ip,
-                'gpu_memory_used': gpu_memory_used,
-                'name': name,
-                'pid': pid
-            }
+                'pid': process[1]
+               }
 
-        collection.insert(doc)
+        collection.update(doc, {'$set': {'gpu_memory_used' : gpu_memory_used } })
 
 def reap(db):
     """
@@ -64,16 +79,14 @@ def reap(db):
     """
     # Select all checkins older than 30 seconds
     collection = db['node_monitor']
-
-    old = collection.find({"updated": {"$lt": datetime.now()}})
-
+    old = collection.find({"updated": {"$lt": datetime.now() - timedelta(seconds=30)}})
     for doc in old:
         pid = doc['pid']
         ip = doc['ip']
         port = doc['port']
         os.kill(pid, signal.SIGKILL)
         logger.info("killing {0}".format(pid))
-        collection.remove({"_id": doc['id']})
+        collection.remove({"_id": doc['_id']})
         logger.info(query)
 
 while 1:
