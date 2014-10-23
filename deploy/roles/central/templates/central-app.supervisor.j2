@@ -1,5 +1,5 @@
 [program:central-app]
-command=sudo -u www grunt
+command=sudo node app.js
 directory=/opt/graphistry/central-app
 process_name=%(program_name)s
 numprocs=1

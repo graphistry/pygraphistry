@@ -15,6 +15,7 @@
   sudo: yes
   with_items:
     - supervisor
+    - linux-headers-generic
     - npm
     - libxrandr-dev
     - libxcursor-dev

@@ -12,17 +12,6 @@
 - command: chmod g+w -R /opt/graphistry
   sudo: yes
 
-- command: npm install --global bower
-  sudo: yes
-  sudo_user: www
-
-- command: npm install --global grunt-cli
-  sudo: yes
-  sudo_user: www
-
-- shell: sudo su www -l -c "cd /opt/graphistry/central-app && npm install"
-  sudo: yes
-
 - template: src=central-app.supervisor.j2 dest=/etc/supervisor/conf.d/central-app.conf
   sudo: yes
   notify: update supervisor
