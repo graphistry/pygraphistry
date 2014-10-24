@@ -14,7 +14,7 @@ var Rx          = require('rx'),
     fs          = require('fs');
 
 var driver      = require('./js/node-driver.js'),
-    compress    = require(config.NODE_CL_PATH + '/compress/compress.js'),
+    compress    = require('node-pigz'),
     renderer    = require(config.STREAMGL_PATH + 'renderer.js');
 
 var express = require('express'),
