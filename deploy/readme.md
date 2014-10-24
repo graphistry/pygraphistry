@@ -1,7 +1,12 @@
 For fresh dev servers:
 
-Log onto box. Run: (must be done by hand for now)
-`sudo apt-get install linux-headers-generic`
+Create new machine, provision with ansible_id_rsa key.
+
+Log onto box:
+ssh -A -i ansible_id_rsa.pem ubuntu@XXXXXXX
+
+Run: (must be done by hand for now)
+`sudo apt-get update && sudo apt-get install linux-headers-generic`
 
 Comment out ansible port in hosts.yml (box is started with port 22 open instead of 61630)
 `ansible-playbook -i hosts system.yml -vvvv --tags ssh`
