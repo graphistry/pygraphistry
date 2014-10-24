@@ -26,6 +26,3 @@
 
 - command: chmod g+w -R /home/www/.npm_global
   sudo: yes
-
-- shell: sudo su www -l -c "npm config set prefix '/home/www/.npm_global'"
-  sudo: yes
