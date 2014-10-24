@@ -25,6 +25,7 @@
     - libglu1-mesa-dev
     - libfreeimage-dev
     - pkg-config
+    - pigz
   tags: node-server-reboot
 
 - command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
@@ -51,17 +52,6 @@
   sudo: yes
   with_items:
     - cuda
-    - supervisor
-    - npm
-    - libxrandr-dev
-    - libxcursor-dev
-    - libglew-dev
-    - libglu1-mesa-dev
-    - libfreeimage-dev
-    - libxinerama-dev
-    - xinput
-    - libxi-dev
-    - pkg-config
     - cmake
     - unzip
   tags: node-server
