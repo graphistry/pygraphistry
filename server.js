@@ -6,7 +6,6 @@
 
 var config      = require('./config')(process.argv.length > 2 ? JSON.parse(process.argv[2]) : {});
 
-console.log("Config set to %j", config);
 
 var Rx          = require('rx'),
     _           = require('underscore'),
@@ -16,6 +15,10 @@ var Rx          = require('rx'),
 var driver      = require('./js/node-driver.js'),
     compress    = require('node-pigz'),
     renderer    = require(config.STREAMGL_PATH + 'renderer.js');
+
+
+debug("Config set to %j", config);
+
 
 var express = require('express'),
     app = express(),
