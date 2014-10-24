@@ -6,3 +6,7 @@
 - name: reload supervisord
   command: supervisorctl reload
   sudo: yes
+
+- name: restart nginx
+  command: service nginx restart
+  sudo: yes
