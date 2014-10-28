@@ -4,17 +4,17 @@
 //Set jshint to ignore `predef:'io'` in .jshintrc so we can manually define io here
 /* global -io */
 
-var config      = require('./config')(process.argv.length > 2 ? JSON.parse(process.argv[2]) : {});
-
+var config      = require('./config')();
 
 var Rx          = require('rx'),
     _           = require('underscore'),
     debug       = require('debug')('StreamGL:server'),
-    fs          = require('fs');
+    fs          = require('fs'),
+    path        = require('path');
 
 var driver      = require('./js/node-driver.js'),
     compress    = require('node-pigz'),
-    renderer    = require(config.STREAMGL_PATH + 'renderer.js');
+    renderer    = require(path.resolve(config.STREAMGL_PATH, 'renderer.js'));
 
 
 debug("Config set to %j", config);
@@ -27,8 +27,8 @@ var express = require('express'),
 
 //FIXME CHEAP HACK TO WORK AROUND CONFIG FILE INCLUDE PATH
 var cwd = process.cwd();
-process.chdir(config.GPU_STREAMING_PATH + 'StreamGL');
-var renderConfig = require(config.STREAMGL_PATH + 'renderer.config.graph.js');
+process.chdir(path.resolve(config.GPU_STREAMING_PATH, 'StreamGL'));
+var renderConfig = require(path.resolve(config.STREAMGL_PATH, 'renderer.config.graph.js'));
 process.chdir(cwd);
 
 
