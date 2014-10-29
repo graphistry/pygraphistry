@@ -6,7 +6,7 @@
   "main": "index.js",
   "author": "",
   "scripts": {
-    "preinstall": "npm list --global 'node-pigz' 2>&1 >/dev/null || (echo 'Please run \"npm link\" from the node-pigz directory first.' >&2 && exit 1)"
+    "preinstall": "npm link node-pigz && npm link StreamGL"
   },
   "license": "ISC",
   "dependencies": {
@@ -20,7 +20,8 @@
     "rx": "^2.2.27",
     "socket.io": "^1.0.6",
     "underscore": "^1.6.0",
-    "node-pigz": "*"
+    "node-pigz": "*",
+    "StreamGL": "*"
   },
   "devDependencies": {
     "browserify": "^4.2.0",

@@ -14,7 +14,10 @@ var Rx          = require('rx'),
 
 var driver      = require('./js/node-driver.js'),
     compress    = require('node-pigz'),
-    renderer    = require(path.resolve(config.STREAMGL_PATH, 'renderer.js'));
+    StreamGL    = require('StreamGL');
+
+var renderer = StreamGL.renderer;
+var renderConfig = StreamGL.render_config.graph;
 
 
 debug("Config set to %j", config);
@@ -24,12 +27,6 @@ var express = require('express'),
     app = express(),
     http = require('http').Server(app),
     io = require('socket.io')(http, {transports: ['websocket']});
-
-//FIXME CHEAP HACK TO WORK AROUND CONFIG FILE INCLUDE PATH
-var cwd = process.cwd();
-process.chdir(path.resolve(config.GPU_STREAMING_PATH, 'StreamGL'));
-var renderConfig = require(path.resolve(config.STREAMGL_PATH, 'renderer.config.graph.js'));
-process.chdir(cwd);
 
 
 /**** GLOBALS ****************************************************/
@@ -349,7 +346,7 @@ io.on('connection', function(socket) {
 });
 
 
-app.use(express.static(config.GPU_STREAMING_PATH));
+app.use(express.static(StreamGL.STATIC_HTTP_PATH));
 
 http.listen(config.LISTEN_PORT, config.LISTEN_ADDRESS, function() {
     console.log('\nServer listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT);
