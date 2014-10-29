@@ -378,7 +378,7 @@ app.use(express.static(StreamGL.STATIC_HTTP_PATH));
 MongoClient.connect(config.MONGO_SERVER, {auto_reconnect: true}, function(err, database) {
   if(err) debug(err);
 
-  db = database.db('graphistry');
+  db = database.db('graphistry-prod');
 
   http.listen(config.LISTEN_PORT, config.LISTEN_ADDRESS, function() {
       console.log('\nServer listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT);
