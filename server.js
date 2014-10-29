@@ -375,7 +375,7 @@ io.on('connection', function(socket) {
 
 app.use(express.static(StreamGL.STATIC_HTTP_PATH));
 
-mongodb.MongoClient.connect(config.MONGO_SERVER, {auto_reconnect: true}, function(err, database) {
+MongoClient.connect(config.MONGO_SERVER, {auto_reconnect: true}, function(err, database) {
   if(err) debug(err);
 
   db = database.db('graphistry');
