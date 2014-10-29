@@ -10,7 +10,9 @@ var Rx          = require('rx'),
     _           = require('underscore'),
     debug       = require('debug')('StreamGL:server'),
     fs          = require('fs'),
-    path        = require('path');
+    path        = require('path'),
+    request     = require('request'),
+    mongo       = require('mongodb');
 
 var driver      = require('./js/node-driver.js'),
     compress    = require('node-pigz'),
@@ -18,6 +20,8 @@ var driver      = require('./js/node-driver.js'),
 
 var renderer = StreamGL.renderer;
 var renderConfig = StreamGL.render_config.graph;
+var MongoClient = mongo.MongoClient;
+var currentlyServing = false;
 
 
 debug("Config set to %j", config);
@@ -71,11 +75,41 @@ function resetState () {
     graph = new Rx.ReplaySubject(1);
     ticksMulti.take(1).subscribe(graph, debug.bind('ERROR ticksMulti'));
 
+    currentlyServing = false;
     debug('RESET APP STATE.');
 }
 
 
 resetState();
+
+// Ping home with state info
+setInterval(function(){
+    request('http://169.254.169.254/latest/meta-data/public-ipv4', function (error, response, body) {
+    if (!error && response.statusCode == 200) {
+        MongoClient.connect(config.MONGO_SERVER, function(err, client) {
+            if (err) {
+                debug(err);
+                return;
+            }
+
+            var client = client.db('graphistry');
+            var query = {
+                            'port': config.LISTEN_PORT,
+                            'ip': body,
+                            'pid': process.pid
+                        }
+            client.collection('node_monitor').update( query,
+                                                    { '$set':
+                                                            {'active': currentlyServing,
+                                                            'updated': new Date() }
+                                                    }, {'upsert': true}, function(){
+                query['currentlyServing'] = currentlyServing;
+                debug(query);
+            });
+        });
+    }
+    })
+}, 3000)
 
 
 /**** END GLOBALS ****************************************************/
@@ -196,6 +230,7 @@ app.get('/texture', function (req, res) {
 
 io.on('connection', function(socket) {
     debug('Client connected', socket.id);
+    currentlyServing = true;
 
     // ========== BASIC COMMANDS
 
