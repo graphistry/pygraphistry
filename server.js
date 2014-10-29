@@ -75,7 +75,6 @@ function resetState () {
     graph = new Rx.ReplaySubject(1);
     ticksMulti.take(1).subscribe(graph, debug.bind('ERROR ticksMulti'));
 
-    currentlyServing = false;
     debug('RESET APP STATE.');
 }
 
@@ -228,6 +227,7 @@ io.on('connection', function(socket) {
 
     lastCompressedVbos[socket.id] = {};
     socket.on('disconnect', function () {
+        currentlyServing = false;
         debug('disconnecting', socket.id);
         delete lastCompressedVbos[socket.id];
     });
