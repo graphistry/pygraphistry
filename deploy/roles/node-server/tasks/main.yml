@@ -1,83 +1,91 @@
 ---
 - get_url: dest=/tmp/cuda-repo-ubuntu1404_6.5-14_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_6.5-14_amd64.deb
   sudo: yes
-  tags: node-server 
+  tags: node-server-reboot 
 
 - command: chdir=/tmp dpkg -i cuda-repo-ubuntu1404_6.5-14_amd64.deb
   sudo: yes
-  tags: node-server 
+  tags: node-server-reboot
 
-- name: update apt
-  apt: update_cache=yes
+- command: apt-get update
   sudo: yes
+  tags: node-server-reboot
 
 - apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes
   with_items:
+    - nvidia-340-dev
+    - linux-image-extra-virtual
+    - mesa-utils
     - supervisor
-    - linux-headers-generic
     - npm
     - libxrandr-dev
     - libxcursor-dev
     - libglew-dev
     - libglu1-mesa-dev
     - libfreeimage-dev
-    - libxinerama-dev
-    - xinput
-    - libxi-dev
     - pkg-config
-    - nvidia-340-dev
-    - linux-image-extra-virtual
-    - mesa-utils
-    - cuda
-    - ubuntu-drivers-common
-    - nvidia-common
-  tags: node-server
+  tags: node-server-reboot
 
 - command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
   sudo: yes
-  tags: node-server
+  tags: node-server-reboot
 
 - template: src=xorg.conf.j2 dest=/etc/X11/xorg.conf
   sudo: yes
-  tags: node-server
+  tags: node-server-reboot
 
 - template: src=grub.j2 dest=/etc/default/grub
   sudo: yes
-  tags: node-server
+  tags: node-server-reboot
   
 - command: update-grub
   sudo: yes
+  tags: node-server-reboot
+  
+- command: reboot
+  sudo: yes
+  tags: node-server-reboot
+  
+- apt: pkg={{ item }} state=installed update_cache=yes
+  sudo: yes
+  with_items:
+    - cuda
+    - libxinerama-dev
+    - xinput
+    - libxi-dev
+    - cmake
+    - unzip
+    - pigz
   tags: node-server
 
 - git: repo=git@github.com:glfw/glfw.git dest=/opt/glfw version=master update=yes accept_hostkey=yes
-  register: glfw
   tags: node-server
 
 - command: chdir=/opt/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
-  when: glfw.changed
   sudo: yes
   tags: node-server
 
 - command: chdir=/opt/glfw make
-  when: glfw.changed
   sudo: yes
   tags: node-server
 
 - command: chdir=/opt/glfw make install
-  when: glfw.changed
   sudo: yes
   tags: node-server
 
 - get_url: dest=/tmp/AntTweakBar_116.zip url=http://sourceforge.net/projects/anttweakbar/files/latest/download
+  sudo: yes
   register: anttweak_downloaded
   tags: node-server
 
-- command: chdir=/tmp/ unzip AntTweakBar_116.zip
+- shell: cd /tmp && unzip AntTweakBar_116.zip
+  sudo: yes
   when: anttweak_downloaded.changed
   tags: node-server
 
 - command: chdir=/tmp/AntTweakBar/src make
+  sudo: yes
   when: anttweak_downloaded.changed
   tags: node-server
 

@@ -39,7 +39,6 @@
     - npm
     - unattended-upgrades
     - python-psutil
-    - python-mysqldb
     - supervisor
 
 - name: create apt auto-upgrades job configuration
@@ -96,7 +95,14 @@
   command: chmod g+w -R /opt
   sudo: yes
 
+- shell: sudo su www -l -c "npm config set prefix '/home/www/.npm_global'"
+  sudo: yes
+
 - name: sshd config
   template: src=sshd_config dest=/etc/ssh/sshd_config
   sudo: yes
-  notify: restart sshd
+  tags: ssh
+
+- command: service ssh restart
+  sudo: yes
+  tags: ssh

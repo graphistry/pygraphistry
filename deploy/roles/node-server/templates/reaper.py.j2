@@ -5,6 +5,7 @@ import socket
 import time
 import os
 import signal
+import urllib2
 
 import logging
 import sys
@@ -36,7 +37,7 @@ def monitor(db):
     table (for overall usage) and the node_monitor table (for individual usage)
     """
     # Get host IP
-    ip = socket.gethostbyname(socket.getfqdn())
+    ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
 
     # Get GPU free memory from nvidia-smi
     p = subprocess.Popen(["nvidia-smi", 

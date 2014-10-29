@@ -12,6 +12,15 @@
 - command: chmod g+w -R /opt/graphistry
   sudo: yes
 
+- apt: pkg={{ item }} state=installed update_cache=yes
+  sudo: yes
+  with_items:
+    - nginx
+
+- template: src=nginx.j2 dest=/etc/nginx/sites-enabled/default
+  sudo: yes
+  notify: restart nginx
+
 - template: src=central-app.supervisor.j2 dest=/etc/supervisor/conf.d/central-app.conf
   sudo: yes
   notify: update supervisor
