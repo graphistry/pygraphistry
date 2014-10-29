@@ -6,10 +6,20 @@
   sudo: yes
   ignore_errors: true
 
+- command: mkdir /opt/static
+  sudo: yes
+  ignore_errors: true
+
 - command: chown -R www:www /opt/graphistry
   sudo: yes
 
 - command: chmod g+w -R /opt/graphistry
+  sudo: yes
+
+- command: chown -R www:www /opt/static
+  sudo: yes
+
+- command: chmod g+w -R /opt/static
   sudo: yes
 
 - apt: pkg={{ item }} state=installed update_cache=yes
