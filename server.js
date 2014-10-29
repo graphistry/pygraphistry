@@ -22,7 +22,7 @@ var renderer = StreamGL.renderer;
 var renderConfig = StreamGL.render_config.graph;
 var MongoClient = mongo.MongoClient;
 var currentlyServing = false;
-
+var db;
 
 debug("Config set to %j", config);
 
@@ -86,26 +86,18 @@ resetState();
 setInterval(function(){
     request('http://169.254.169.254/latest/meta-data/public-ipv4', function (error, response, body) {
     if (!error && response.statusCode == 200) {
-        MongoClient.connect(config.MONGO_SERVER, function(err, client) {
-            if (err) {
-                debug(err);
-                return;
-            }
-
-            var client = client.db('graphistry');
-            var query = {
-                            'port': config.LISTEN_PORT,
-                            'ip': body,
-                            'pid': process.pid
-                        }
-            client.collection('node_monitor').update( query,
-                                                    { '$set':
-                                                            {'active': currentlyServing,
-                                                            'updated': new Date() }
-                                                    }, {'upsert': true}, function(){
-                query['currentlyServing'] = currentlyServing;
-                debug(query);
-            });
+        var query = {
+                        'port': config.LISTEN_PORT,
+                        'ip': body,
+                        'pid': process.pid
+                    }
+        db.collection('node_monitor').update( query,
+                                                { '$set':
+                                                        {'active': currentlyServing,
+                                                        'updated': new Date() }
+                                                }, {'upsert': true}, function(){
+            query['currentlyServing'] = currentlyServing;
+            debug(query);
         });
     }
     })
@@ -383,6 +375,14 @@ io.on('connection', function(socket) {
 
 app.use(express.static(StreamGL.STATIC_HTTP_PATH));
 
-http.listen(config.LISTEN_PORT, config.LISTEN_ADDRESS, function() {
-    console.log('\nServer listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT);
+mongodb.MongoClient.connect(config.MONGO_SERVER, {auto_reconnect: true}, function(err, database) {
+  if(err) debug(err);
+
+  db = database.db('graphistry');
+
+  http.listen(config.LISTEN_PORT, config.LISTEN_ADDRESS, function() {
+      console.log('\nServer listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT);
+  });
 });
+
+
