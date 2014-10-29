@@ -91,7 +91,6 @@ def reap(db):
             os.kill(pid, signal.SIGKILL)
         except:
             pass
-        logger.info(query)
 
 if __name__=="__main__":
     # Connect to central db
