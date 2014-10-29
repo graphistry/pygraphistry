@@ -76,7 +76,7 @@ def monitor(db):
 def reap(db):
     """
     This reaps all dead processes by checking the node_monitor table for outdated rows,
-    The rows should be updated every ten seconds by each node process itself.
+    The rows should be updated every three seconds by each node process itself.
     """
     # Select all checkins older than 30 seconds
     collection = db['node_monitor']
@@ -85,9 +85,12 @@ def reap(db):
         pid = doc['pid']
         ip = doc['ip']
         port = doc['port']
-        os.kill(pid, signal.SIGKILL)
-        logger.info("killing {0}".format(pid))
         collection.remove({"_id": doc['_id']})
+        logger.info("killing {0}".format(pid))
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except:
+            pass
         logger.info(query)
 
 if __name__=="__main__":
