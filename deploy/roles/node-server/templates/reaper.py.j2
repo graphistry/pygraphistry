@@ -1,4 +1,4 @@
-from pymongo import MongoClient, ASCENDING
+from pymongo import MongoClient, ASCENDING, errors
 from datetime import datetime, timedelta
 import subprocess
 import socket
@@ -90,13 +90,17 @@ def reap(db):
         collection.remove({"_id": doc['_id']})
         logger.info(query)
 
-while 1:
+if __name__=="__main__":
     # Connect to central db
     conn = MongoClient('mongodb://graphistry:graphtheplanet@ds047030.mongolab.com:47030/graphistry')
     db = conn.graphistry
-    db.node_monitor.ensure_index( [("port", ASCENDING), ("ip", ASCENDING), ("pid", ASCENDING)], unique=True )
-    monitor(db)
-    reap(db)
-    conn.close()
+    while 1:
+        try:
+            db.node_monitor.ensure_index( [("port", ASCENDING), ("ip", ASCENDING), ("pid", ASCENDING)], unique=True )
+            monitor(db)
+            reap(db)
+        except errors.ConnectionFailure:
+          conn = MongoClient('mongodb://graphistry:graphtheplanet@ds047030.mongolab.com:47030/graphistry')
+          db = conn.graphistry
 
-    time.sleep(10)
+        time.sleep(10)
