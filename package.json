@@ -6,7 +6,7 @@
   "main": "index.js",
   "author": "",
   "scripts": {
-    "preinstall": "npm link node-pigz && npm link StreamGL"
+    "preinstall": "npm link StreamGL"
   },
   "license": "ISC",
   "dependencies": {
@@ -14,13 +14,13 @@
     "express": "^4.6.1",
     "gl-matrix": "^2.1.0",
     "jquery": "^2.1.1",
-    "node-webcl": "git://github.com/lmeyerov/node-webcl#master",
+    "node-webcl": "git+ssh://git@github.com:lmeyerov/node-webcl.git#master",
     "node-webgl": "^0.4.3",
     "q": "^1.0.1",
     "rx": "^2.2.27",
     "socket.io": "^1.0.6",
     "underscore": "^1.7.0",
-    "node-pigz": "*",
+    "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
     "mongodb": "*",
     "request": "*",
     "StreamGL": "*"
