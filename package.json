@@ -19,7 +19,7 @@
     "q": "^1.0.1",
     "rx": "^2.2.27",
     "socket.io": "^1.0.6",
-    "underscore": "^1.6.0",
+    "underscore": "^1.7.0",
     "node-pigz": "*",
     "mongodb": "*",
     "request": "*",
