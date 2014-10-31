@@ -1,0 +1,28 @@
+{
+	"camelcase": true,
+	"curly": true,
+	"eqeqeq": true,
+	"freeze": true,
+	"immed": true,
+	"indent": 4,
+	"latedef": "nofunc",
+	"newcap": true,
+	"noarg": true,
+	"nonbsp": true,
+	"quotmark": "single",
+	"undef": true,
+	"unused": true,
+	"strict": true,
+	"trailing": true,
+	"maxparams": 6,
+	"maxdepth": 2,
+	"maxcomplexity": 10,
+
+	"debug": true,
+	"devel": true,
+
+	"browser": true,
+	"node": true,
+
+	"predef": [ "io", "FPSMeter" ]
+}
