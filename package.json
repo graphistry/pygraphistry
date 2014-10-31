@@ -8,7 +8,8 @@
     "jquery": "^2.1.1",
     "rx": "^2.2.27",
     "rx-jquery": "^1.1.6",
-    "underscore": "^1.6.0"
+    "underscore": "^1.6.0",
+    "gl-matrix": "^2.1.0"
   },
   "devDependencies": {
     "brfs": "<=1.1.1",
