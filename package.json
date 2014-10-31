@@ -23,8 +23,5 @@
     "grunt-jsdoc": "^0.5.6"
   },
   "main": "./index.js",
-  "browser": "./src/main.js",
-  "scripts": {
-    "install" : "npm_config_loglevel=error npm list --global StreamGL 2>&1 >/dev/null || npm link"
-  }
+  "browser": "./src/main.js"
 }
