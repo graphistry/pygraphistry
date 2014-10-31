@@ -18,11 +18,12 @@
     "node-webgl": "^0.4.3",
     "q": "^1.0.1",
     "rx": "^2.2.27",
-    "socket.io": "^1.0.6",
     "underscore": "^1.7.0",
     "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
     "mongodb": "*",
     "request": "*",
+    "socket.io": "^1.2.0",
+    "socket.io-client": "^1.2.0",
     "StreamGL": "*"
   },
   "devDependencies": {
