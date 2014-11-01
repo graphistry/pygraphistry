@@ -6,7 +6,7 @@
   "main": "index.js",
   "author": "",
   "scripts": {
-    "preinstall": "npm link StreamGL"
+    "preinstall": "npm link nodecl"
   },
   "license": "ISC",
   "dependencies": {
@@ -24,7 +24,8 @@
     "request": "*",
     "socket.io": "^1.2.0",
     "socket.io-client": "^1.2.0",
-    "StreamGL": "*"
+    "StreamGL": "git+ssh://git@github.com:graphistry/StreamGL.git#master",
+    "nodecl": "*"
   },
   "devDependencies": {
     "browserify": "^4.2.0",

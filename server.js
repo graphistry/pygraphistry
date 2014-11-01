@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-var debug       = require('debug')('StreamGL:master_server');
-var config      = require('./config')();
-var StreamGL    = require('StreamGL');  // For STATIC_HTTP_PATH
+var debug            = require('debug')('StreamGL:master_server');
+var config           = require('./config')();
+var STATIC_FILE_PATH = require('nodecl').staticFilePath();
 
 debug("Config set to %j", config);
 
@@ -28,7 +28,7 @@ app.get('/vizaddr/graph', function(req, res) {
 app.get('*/socket.io.js', function(req, res) {
     res.sendFile(require.resolve('socket.io-client/socket.io.js'));
 });
-app.use(express.static(StreamGL.STATIC_HTTP_PATH));
+app.use(express.static(STATIC_FILE_PATH));
 
 // Default '/' path redirects to graph demo
 app.get('/', function(req, res) {
