@@ -16,6 +16,7 @@ var Rx          = require('rx'),
 
 var driver      = require('./js/node-driver.js'),
     compress    = require('node-pigz'),
+    STATIC_FILE_PATH = require('nodecl').staticFilePath(),
     StreamGL    = require('StreamGL');
 
 var renderer = StreamGL.renderer;
@@ -373,7 +374,7 @@ io.on('connection', function(socket) {
 });
 
 
-app.use(express.static(StreamGL.STATIC_HTTP_PATH));
+app.use(express.static(STATIC_FILE_PATH));
 
 MongoClient.connect(config.MONGO_SERVER, {auto_reconnect: true}, function(err, database) {
   if(err) debug(err);

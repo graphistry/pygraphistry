@@ -6,7 +6,7 @@
   "main": "index.js",
   "author": "",
   "scripts": {
-    "preinstall": "npm link StreamGL"
+    "preinstall": "npm link nodecl"
   },
   "license": "ISC",
   "dependencies": {
@@ -23,7 +23,8 @@
     "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
     "mongodb": "*",
     "request": "*",
-    "StreamGL": "*"
+    "StreamGL": "git+ssh://git@github.com:graphistry/StreamGL.git#master",
+    "nodecl": "*"
   },
   "devDependencies": {
     "browserify": "^4.2.0",
