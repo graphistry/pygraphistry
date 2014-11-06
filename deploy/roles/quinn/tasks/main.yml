@@ -1,0 +1,21 @@
+---
+# this is an encrypted password. to generate one, do this: python -c 'import crypt; print crypt.crypt("This is my Password", "$1$SomeSalt$")'
+- user: name={{ user }} group=admin password=$$PU/czmxbIgo shell=/bin/bash
+  sudo: yes
+
+- command: mkdir /home/{{ user }}/.ssh creates=/home/{{ user }}/.ssh
+  sudo: yes
+
+- command: touch /home/{{ user }}/.ssh/authorized_keys owner={{ user }}
+  sudo: yes
+
+- name: authorized key for {{ user }}
+  lineinfile: dest=/home/{{ user }}/.ssh/authorized_keys line="ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIB0/vXuf1SIeBW/gu4x7SIr/YzpM9FzVRrL2tUKgHZeMCjp1X0ElaA8bypYNBHwSw7TQ9t8+eZw0mRhXXSWFm1qWZEaxUe+Oic5wtbjGWj2UQrr8+tzZaiBp5u/hkvVVEEFXRje23YWgZb/gPzk8AI5dkYfNBvPbeumB3H1DFvinQ== rsa-key-20141105"
+  sudo: yes
+
+- synchronize: src=bash_profile dest=/home/{{ user }}/.bash_profile
+  sudo: yes
+  
+- name: perms
+  command: chown -R {{ user }} /home/{{ user }}
+  sudo: yes

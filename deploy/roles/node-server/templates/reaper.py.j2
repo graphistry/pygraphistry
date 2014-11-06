@@ -22,6 +22,7 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 auth = HTTPBasicAuth('abe@graphistry.com', 'api.fc39b94e8f-3713')
+ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
 
 def convert(gpu_memory_used):
     if 'GiB' in gpu_memory_used:
@@ -40,8 +41,7 @@ def monitor(db):
     This monitors GPU usage using nvidia-smi and updates it in the gpu_monitor
     table (for overall usage) and the node_monitor table (for individual usage)
     """
-    # Get host IP
-    ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
+    global ip
 
     # Get GPU free memory from nvidia-smi
     p = subprocess.Popen(["nvidia-smi", 
@@ -57,6 +57,7 @@ def monitor(db):
     data = '{"source": "%s", "metric": "GPU_FREE", "measure": %s, "timestamp": %s}' % (ip, gpu_memory_free, int(time.time()))
     headers = {'content-type': 'application/json'}
     r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
+    logger.info(data)
     logger.info("boundary status: " + str(r.json()))
 
     # Get per-process data from nvidia-smi
@@ -85,9 +86,13 @@ def monitor(db):
 
 def reap(db):
     """
-    This reaps all dead processes by checking the node_monitor table for outdated rows,
-    The rows should be updated every three seconds by each node process itself.
+    This reaps all dead processes by checking the node_monitor table for 
+    outdated rows. The rows should be updated every three seconds by each node
+    process itself. This also finds all active processes with users and
+    updates Boundary.
     """
+    global ip
+
     # Select all checkins older than 30 seconds
     collection = db['node_monitor']
     old = collection.find({"updated": {"$lt": datetime.now() - timedelta(seconds=30)}})
@@ -101,6 +106,28 @@ def reap(db):
             os.kill(pid, signal.SIGKILL)
         except:
             pass
+
+    # Update Boundary
+    active = collection.find({"active": True})
+    active_users = 0
+    for doc in active:
+      active_users += 1
+    data = '{"source": "%s", "metric": "ACTIVE_USERS", "measure": %s, "timestamp": %s}' % (ip, active_users, int(time.time()))
+    headers = {'content-type': 'application/json'}
+    r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
+    logger.info(data)
+    logger.info("boundary status: " + str(r.json()))
+
+    # Update Boundary
+    inactive = collection.find({"active": False})
+    inactive_workers = 0
+    for doc in inactive:
+      inactive_workers += 1
+    data = '{"source": "%s", "metric": "INACTIVE_WORKERS", "measure": %s, "timestamp": %s}' % (ip, inactive_workers, int(time.time()))
+    headers = {'content-type': 'application/json'}
+    r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
+    logger.info(data)
+    logger.info("boundary status: " + str(r.json()))
 
 if __name__=="__main__":
     # Connect to central db

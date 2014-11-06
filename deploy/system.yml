@@ -1,18 +1,29 @@
 ---
-- hosts: dev-streaming
+- hosts: workers
   roles:
    - { role: astanway, user: astanway }
    - { role: www, user: www }
    - { role: ubuntu, user: ubuntu }
    - common
-   - node-server
-  tags: dev-streaming
+   - { role: node-server, production: true }
+  tags: workers
 
-- hosts: dev-central
+- hosts: central
   roles:
    - { role: astanway, user: astanway }
    - { role: www, user: www }
    - { role: ubuntu, user: ubuntu }
    - common
    - central
-  tags: dev-central
+  tags: central
+
+- hosts: quinn-dev
+  roles:
+   # - { role: astanway, user: astanway }
+   # - { role: quinn, user: quinn }
+   # - { role: www, user: www }
+   # - { role: ubuntu, user: ubuntu }
+   # - common
+   - { role: node-server, production: false }
+   # - central
+  tags: quinn-dev
