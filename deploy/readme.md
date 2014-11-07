@@ -15,7 +15,7 @@ Uncomment ansible port:
 `ansible-playbook -i hosts system.yml -vvvv --tags node-server-reboot`
 
 It'll reboot. Then run (now and forever after):
-`ansible-playbook -i hosts system.yml -vvvv --tags dev-streaming --skip-tags node-server-reboot`
+`ansible-playbook -i hosts system.yml -vvvv --skip-tags node-server-reboot`
 
 To start the server:
 `sudo supervisorctl start node-server`

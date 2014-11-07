@@ -27,3 +27,10 @@
    - { role: node-server, production: false }
    - central
   tags: quinn-dev
+  
+- hosts: splunk
+  roles:
+   - { role: astanway, user: astanway }
+   - { role: ubuntu, user: ubuntu }
+   - common
+  tags: splunk

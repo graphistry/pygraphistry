@@ -1,6 +1,5 @@
 ---
-# this is an encrypted password. to generate one, do this: python -c 'import crypt; print crypt.crypt("This is my Password", "$1$SomeSalt$")'
-- user: name={{ user }} group=admin password=$$PU/czmxbIgo shell=/bin/bash
+- user: name={{ user }} group=admin shell=/bin/bash
   sudo: yes
 
 - command: mkdir /home/{{ user }}/.ssh creates=/home/{{ user }}/.ssh
