@@ -101,12 +101,16 @@
 
 - name: update graphistry repo
   git: repo=git@github.com:lmeyerov/graphistry.git dest=/opt/graphistry version=master update=yes accept_hostkey=yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - name: update Superconductor repo
   git: repo=git@github.com:lmeyerov/Superconductor2.git dest=/opt/Superconductor2 version=master update=yes accept_hostkey=yes
-  tags: node-server
-  
+  tags: 
+    - node-server
+    - node-server-fast
+
 - command: chown -R www:www /opt/Superconductor2
   sudo: yes
   tags: node-server
@@ -136,65 +140,95 @@
 # TODO: Fix this. Not sure what's up with Ansible's users.
 - shell: sudo su www -l -c "cd /home/www && npm install node-webcl"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /home/www && npm install node-webgl"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/compress && npm install"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/scproxy && npm install"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl && npm link ./compress"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl && npm install"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
   
 - shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap-slider && npm install"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap-slider && grunt"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/GPUStreaming/StreamGL && npm install"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/Superconductor2/superconductorjs && npm install"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/GPUStreaming/demos/uber/js/ && npm install"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/GPUStreaming/StreamGL && grunt"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/graphistry/experiments/nbody/naive && npm install"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/graphistry/experiments/nbody/loader && npm install"
   sudo: yes
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - name: graphistry config
   template: src=config.j2 dest=/opt/graphistry/experiments/nbody/naive/config.js group=www owner=www
   sudo: yes
   when: production == true
-  tags: node-server
+  tags: 
+    - node-server
+    - node-server-fast
 
 - command: mkdir /var/log/node-server
   ignore_errors: true
@@ -244,3 +278,4 @@
   tags:
     - node-server
     - reaper
+    - node-server-fast
