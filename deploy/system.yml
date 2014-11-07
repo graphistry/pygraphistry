@@ -19,11 +19,11 @@
 
 - hosts: quinn-dev
   roles:
-   # - { role: astanway, user: astanway }
-   # - { role: quinn, user: quinn }
-   # - { role: www, user: www }
-   # - { role: ubuntu, user: ubuntu }
-   # - common
+   - { role: astanway, user: astanway }
+   - { role: quinn, user: quinn }
+   - { role: www, user: www }
+   - { role: ubuntu, user: ubuntu }
+   - common
    - { role: node-server, production: false }
-   # - central
+   - central
   tags: quinn-dev
