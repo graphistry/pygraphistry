@@ -142,13 +142,11 @@
   sudo: yes
   tags: 
     - node-server
-    - node-server-fast
 
 - shell: sudo su www -l -c "cd /home/www && npm install node-webgl"
   sudo: yes
   tags: 
     - node-server
-    - node-server-fast
 
 - shell: sudo su www -l -c "cd /opt/Superconductor2/nodecl/compress && npm install"
   sudo: yes

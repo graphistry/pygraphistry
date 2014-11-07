@@ -2,6 +2,9 @@
 - name: update graphistry repo
   git: repo=git@github.com:lmeyerov/graphistry.git dest=/opt/graphistry version=master update=yes accept_hostkey=yes
 
+- shell: sudo su www -l -c "cd /opt/graphistry/central-app && npm install"
+  sudo: yes
+
 - command: mkdir /var/log/central-app
   sudo: yes
   ignore_errors: true
@@ -44,42 +47,42 @@
   sudo: yes
 
 # CSS  
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap/css/bootstrap.min.css /opt/static/css"
-  sudo: yes
-
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap/css/bootstrap-slider.min.css /opt/static/css"
-  sudo: yes
-
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/sb-admin-2/css/sb-admin-2.css /opt/static/css"
-  sudo: yes
-
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/font-awesome-4.2.0/css/font-awesome.min.css /opt/static/css"
-  sudo: yes
-
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/css/gpustreaming.css /opt/static/css"
-  sudo: yes
-
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/css/graph.css /opt/static/css"
-  sudo: yes
-
-# JS
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/jquery/jquery-2.1.1.js /opt/static/js"
-  sudo: yes
-
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap.min.js /opt/static/js"
-  sudo: yes
-
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap-slider.js /opt/static/js"
-  sudo: yes
-
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/fpsmeter.js /opt/static/js"
-  sudo: yes
-
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap-slider.js /opt/static/js"
-  sudo: yes
-
-- shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap-slider.js /opt/static/js"
-  sudo: yes
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap/css/bootstrap.min.css /opt/static/css"
+#   sudo: yes
+# 
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap/css/bootstrap-slider.min.css /opt/static/css"
+#   sudo: yes
+# 
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/sb-admin-2/css/sb-admin-2.css /opt/static/css"
+#   sudo: yes
+# 
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/font-awesome-4.2.0/css/font-awesome.min.css /opt/static/css"
+#   sudo: yes
+# 
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/css/gpustreaming.css /opt/static/css"
+#   sudo: yes
+# 
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/css/graph.css /opt/static/css"
+#   sudo: yes
+# 
+# # JS
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/jquery/jquery-2.1.1.js /opt/static/js"
+#   sudo: yes
+# 
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap.min.js /opt/static/js"
+#   sudo: yes
+# 
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap-slider.js /opt/static/js"
+#   sudo: yes
+# 
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/fpsmeter.js /opt/static/js"
+#   sudo: yes
+# 
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap-slider.js /opt/static/js"
+#   sudo: yes
+# 
+# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap-slider.js /opt/static/js"
+#   sudo: yes
 
 - apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes
