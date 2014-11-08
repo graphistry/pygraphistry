@@ -21,7 +21,6 @@ module.exports = function(grunt) {
                     transform: ['brfs'],
                     watch: true,
                     keepAlive: false,
-                    external: ['render-config'],
                     postBundleCB: function(err, src, next) {
                         global['browserifyDidRun'] = true;
                         next(err, src);
