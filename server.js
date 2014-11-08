@@ -43,6 +43,12 @@ app.get('/', function(req, res) {
     res.redirect('/graph.html' + (req.query.debug !== undefined ? '?debug' : ''));
 });
 
-http.listen(config.LISTEN_PORT, config.LISTEN_ADDRESS, function() {
-    console.log('\nServer listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT);
-});
+
+try {
+    http.listen(config.LISTEN_PORT, config.LISTEN_ADDRESS, function() {
+        console.log('\n[server.js] Server listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT);
+    });
+} catch(e) {
+    console.error("[server.js] Fatal error: could not start server on address %s, port %s. Exiting...", config.LISTEN_ADDRESS, config.LISTEN_PORT);
+    process.exit(1);
+}
