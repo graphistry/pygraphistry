@@ -121,7 +121,7 @@ app.get('/vbo', function(req, res) {
 
         res.send(lastCompressedVbos[id][bufferName]);
     } catch (e) {
-        console.error('bad request', e, e.stack);
+        console.error('[viz-server.js] bad request', e, e.stack);
     }
 
     finishBufferTransfers[id](bufferName);
@@ -173,7 +173,7 @@ app.get('/vbo', function(req, res) {
         res.send(lastCompressedVbos[id][bufferName]);
 
     } catch (e) {
-        console.error('bad request', e, e.stack);
+        console.error('[viz-server.js] bad request', e, e.stack);
     }
 
     finishBufferTransfers[id](bufferName);
@@ -194,10 +194,9 @@ app.get('/texture', function (req, res) {
             debug.bind('ERROR colorTexture pluck'));
 
     } catch (e) {
-        console.error('bad request', e, e.stack);
+        console.error('[viz-server.js] bad request', e, e.stack);
     }
 });
-
 
 
 io.on('connection', function(socket) {
@@ -353,5 +352,5 @@ io.on('connection', function(socket) {
 
 
 http.listen(config.LISTEN_PORT + 1, config.LISTEN_ADDRESS, function() {
-    console.log('\nServer listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT + 1);
+    console.log('\n[viz-server.js] Server listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT + 1);
 });
