@@ -31,6 +31,7 @@
 - hosts: splunk
   roles:
    - { role: astanway, user: astanway }
+   - { role: www, user: www }
    - { role: ubuntu, user: ubuntu }
    - common
   tags: splunk

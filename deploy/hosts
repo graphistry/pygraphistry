@@ -6,7 +6,7 @@
 54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_port=61630 ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central
 
 [quinn-dev]
-54.183.9.137 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=quinn-dev ansible_ssh_port=61630
+54.67.0.172 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=quinn-dev ansible_ssh_port=61630
 
 [splunk]
 54.67.1.77 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=splunk ansible_ssh_port=61630
