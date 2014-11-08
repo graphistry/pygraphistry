@@ -2,7 +2,6 @@
 // SEE ansible/roles/node-server/templates/config.j2
 
 var _ = require('underscore');
-var path = require('path');
 
 module.exports = function() {
     var defaultOptions = {
