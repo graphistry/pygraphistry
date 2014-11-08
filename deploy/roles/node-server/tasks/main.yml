@@ -220,6 +220,12 @@
     - node-server
     - node-server-fast
 
+- shell: sudo su www -l -c "cd /opt/graphistry/experiments/nbody/socioplt && npm install"
+  sudo: yes
+  tags:
+    - node-server
+    - node-server-fast
+
 - name: graphistry config
   template: src=config.j2 dest=/opt/graphistry/experiments/nbody/naive/config.js group=www owner=www
   sudo: yes
