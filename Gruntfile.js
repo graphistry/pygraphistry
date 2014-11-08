@@ -57,13 +57,6 @@ module.exports = function(grunt) {
                 }
             },
 
-            // livereload: {
-            //     files: ['dist/*.js', 'index.html', './*.css'],
-            //     options: {
-            //         livereload: 35729
-            //     }
-            // },
-
             configFiles: {
                 files: [ 'Gruntfile.js' ],
                 options: {
