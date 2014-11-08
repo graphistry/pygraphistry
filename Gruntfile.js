@@ -17,7 +17,7 @@ module.exports = function(grunt) {
                 src: ['src/main.js'],
                 dest: 'dist/StreamGL.js',
                 options: {
-                    bundleOptions: { debug: true },
+                    browserifyOptions: { debug: true },
                     transform: ['brfs'],
                     watch: true,
                     keepAlive: false,
