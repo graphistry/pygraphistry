@@ -37,40 +37,6 @@ module.exports = function(grunt) {
                     },
                     force: true
                 }
-            },
-
-            SCRenderer: {
-                src: ['src/renderer.config.sc.js'],
-                dest: 'dist/render-config.sc.js',
-                options: {
-                    transform: ['brfs'],
-                    watch: true,
-                    keepAlive: false,
-                    alias: ['src/renderer.config.sc.js:render-config'],
-                    postBundleCB: function(err, src, next) {
-                        next(err, src);
-                    },
-                    bundleOptions: {
-                        debug: true,
-                    },
-                }
-            },
-
-            GraphRenderer: {
-                src: ['src/renderer.config.graph.js'],
-                dest: 'dist/render-config.graph.js',
-                options: {
-                    transform: ['brfs'],
-                    watch: true,
-                    keepAlive: false,
-                    alias: ['src/renderer.config.graph.js:render-config'],
-                    postBundleCB: function(err, src, next) {
-                        next(err, src);
-                    },
-                    bundleOptions: {
-                        debug: true,
-                    },
-                }
             }
         },
 
