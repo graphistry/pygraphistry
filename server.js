@@ -28,6 +28,14 @@ app.get('/vizaddr/graph', function(req, res) {
 app.get('*/socket.io.js', function(req, res) {
     res.sendFile(require.resolve('socket.io-client/socket.io.js'));
 });
+
+app.get('*/StreamGL.js', function(req, res) {
+    res.sendFile(require.resolve('StreamGL/dist/StreamGL.js'));
+});
+app.get('*/StreamGL.map', function(req, res) {
+    res.sendFile(require.resolve('StreamGL/dist/StreamGL.map'));
+});
+
 app.use(express.static(STATIC_FILE_PATH));
 
 // Default '/' path redirects to graph demo
