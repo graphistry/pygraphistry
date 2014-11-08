@@ -10,22 +10,22 @@
   },
   "license": "ISC",
   "dependencies": {
+    "StreamGL": "git+ssh://git@github.com:graphistry/StreamGL.git#master",
     "chalk": "^0.5.1",
     "express": "^4.6.1",
     "gl-matrix": "^2.1.0",
     "jquery": "^2.1.1",
+    "mongodb": "*",
+    "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
     "node-webcl": "git+ssh://git@github.com:lmeyerov/node-webcl.git#master",
     "node-webgl": "^0.4.3",
+    "nodecl": "*",
     "q": "^1.0.1",
-    "rx": "^2.2.27",
-    "underscore": "^1.7.0",
-    "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
-    "mongodb": "*",
     "request": "*",
+    "rx": "^2.2.27",
     "socket.io": "^1.2.0",
     "socket.io-client": "^1.2.0",
-    "StreamGL": "git+ssh://git@github.com:graphistry/StreamGL.git#master",
-    "nodecl": "*"
+    "underscore": "^1.7.0"
   },
   "devDependencies": {
     "browserify": "^4.2.0",
