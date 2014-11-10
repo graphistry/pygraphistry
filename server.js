@@ -23,6 +23,11 @@ app.get('/vizaddr/graph', function(req, res) {
     res.json({'hostname': VIZ_SERVER_HOST, 'port': VIZ_SERVER_PORT});
 });
 
+app.get('/vizaddr/horizon', function(req, res) {
+    debug("Assigning client '%s' to viz server on %s, port %d", req.ip, VIZ_SERVER_HOST, VIZ_SERVER_PORT);
+    res.json({'hostname': VIZ_SERVER_HOST, 'port': VIZ_SERVER_PORT});
+});
+
 
 // Serve the socket.io client library
 app.get('*/socket.io.js', function(req, res) {
@@ -38,10 +43,25 @@ app.get('*/StreamGL.map', function(req, res) {
 
 app.use(express.static(STATIC_FILE_PATH));
 
+
 // Default '/' path redirects to graph demo
 app.get('/', function(req, res) {
+    debug('redirecting')
     res.redirect('/graph.html' + (req.query.debug !== undefined ? '?debug' : ''));
 });
+
+
+app.get('/graph.html', function(req, res) {
+    debug('redirecting')
+    res.redirect('/graph.html' + (req.query.debug !== undefined ? '?debug' : ''));
+});
+
+
+//horizon
+console.warn('FIXME redirect static horizon resources');
+app.use('/horizon', express.static('/Users/lmeyerov/Desktop/Superconductor2'));
+//sc.html, demos/*
+app.use('/', express.static('/Users/lmeyerov/Desktop/Superconductor2/nodecl/GPUStreaming'));
 
 
 try {
