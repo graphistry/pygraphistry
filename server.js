@@ -51,10 +51,6 @@ app.get('/', function(req, res) {
 });
 
 
-app.get('/graph.html', function(req, res) {
-    debug('redirecting')
-    res.redirect('/graph.html' + (req.query.debug !== undefined ? '?debug' : ''));
-});
 
 
 //horizon
