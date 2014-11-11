@@ -4,6 +4,7 @@
 var debug            = require('debug')('StreamGL:master_server');
 var config           = require('./config')();
 var STATIC_FILE_PATH = require('nodecl').staticFilePath();
+var HORIZON_PATH     = require('horizon-viz').staticFilePath();
 
 debug("Config set to %j", config);
 
@@ -42,13 +43,10 @@ app.get('*/StreamGL.map', function(req, res) {
     res.sendFile(require.resolve('StreamGL/dist/StreamGL.map'));
 });
 
-// Server horizon demo static assets
-console.warn('FIXME redirect static horizon resources');
-var path = require('path');
-var horizon_static_path = path.resolve(STATIC_FILE_PATH, '..');
-app.use('/horizon', express.static(horizon_static_path));
+// Serve the horizon demo (/horizon/index.html)
+app.use('/horizon', express.static(HORIZON_PATH));
 
-// Server general static assets
+// Serve general static assets (and /sc.html)
 app.use(express.static(STATIC_FILE_PATH));
 
 
