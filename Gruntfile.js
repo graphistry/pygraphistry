@@ -18,7 +18,6 @@ module.exports = function(grunt) {
                 dest: 'dist/StreamGL.js',
                 options: {
                     browserifyOptions: { debug: true },
-                    transform: ['brfs'],
                     watch: true,
                     keepAlive: false,
                     postBundleCB: function(err, src, next) {
