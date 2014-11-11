@@ -34,6 +34,7 @@ app.get('*/socket.io.js', function(req, res) {
     res.sendFile(require.resolve('socket.io-client/socket.io.js'));
 });
 
+// Serve the StreamGL client library
 app.get('*/StreamGL.js', function(req, res) {
     res.sendFile(require.resolve('StreamGL/dist/StreamGL.js'));
 });
@@ -41,6 +42,13 @@ app.get('*/StreamGL.map', function(req, res) {
     res.sendFile(require.resolve('StreamGL/dist/StreamGL.map'));
 });
 
+// Server horizon demo static assets
+console.warn('FIXME redirect static horizon resources');
+var path = require('path');
+var horizon_static_path = path.resolve(STATIC_FILE_PATH, '..');
+app.use('/horizon', express.static(horizon_static_path));
+
+// Server general static assets
 app.use(express.static(STATIC_FILE_PATH));
 
 
@@ -51,15 +59,7 @@ app.get('/', function(req, res) {
 });
 
 
-
-
-//horizon
-console.warn('FIXME redirect static horizon resources');
-app.use('/horizon', express.static('/Users/lmeyerov/Desktop/Superconductor2'));
-//sc.html, demos/*
-app.use('/', express.static('/Users/lmeyerov/Desktop/Superconductor2/nodecl/GPUStreaming'));
-
-
+// Start listening for HTTP connections
 try {
     http.listen(config.LISTEN_PORT, config.LISTEN_ADDRESS, function() {
         console.log('\n[server.js] Server listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT);
