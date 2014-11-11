@@ -76,6 +76,8 @@ module.exports = function(grunt) {
     grunt.loadNpmTasks('grunt-exorcise');
 
     grunt.registerTask('default', ['jshint', 'browserify', 'exorcise']);
+    // This target is used to just build the static StreamGL.js, when StreamGL is used a dependency
+    grunt.registerTask('depbuild', ['browserify', 'exorcise']);
     grunt.registerTask('live', ['default', 'watch']);
 
     grunt.registerTask('maybeExorcise', 'Run Exorcise as long as browserify has run first', function() {
