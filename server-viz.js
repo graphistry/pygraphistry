@@ -4,28 +4,18 @@
 //Set jshint to ignore `predef:'io'` in .jshintrc so we can manually define io here
 /* global -io */
 
-var config      = require('./config')();
+var Rx          = require('rx');
+var _           = require('underscore');
+var debug       = require('debug')('StreamGL:viz_server');
+var fs          = require('fs');
+var path        = require('path');
 
-var Rx          = require('rx'),
-    _           = require('underscore'),
-    debug       = require('debug')('StreamGL:viz_server'),
-    fs          = require('fs');
-
-var driver      = require('./js/node-driver.js'),
-    compress    = require('node-pigz'),
-    StreamGL    = require('StreamGL');
+var driver      = require('./js/node-driver.js');
+var compress    = require('node-pigz');
+var StreamGL    = require('StreamGL');
 
 var renderer = StreamGL.renderer;
 var renderConfig = require('./js/renderer.config.graph.js');
-
-
-debug("Config set to %j", config);
-
-
-var express = require('express'),
-    app = express(),
-    http = require('http').Server(app),
-    io = require('socket.io')(http, {transports: ['websocket']});
 
 
 /**** GLOBALS ****************************************************/
@@ -74,28 +64,10 @@ function resetState () {
 }
 
 
-resetState();
-
-
 /**** END GLOBALS ****************************************************/
 
 
-// Express middleware function for sending "don't cache" headers to the browser
-function nocache(req, res, next) {
-    res.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
-    res.header('Expires', '-1');
-    res.header('Pragma', 'no-cache');
-    next();
-}
-app.use(nocache);
 
-function allowCrossOrigin(req, res, next) {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'X-Requested-With,Content-Type,Authorization');
-    res.header('Access-Control-Allow-Methods', 'GET,PUT,PATCH,POST,DELETE');
-    next();
-}
-app.use(allowCrossOrigin);
 
 
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
@@ -108,98 +80,100 @@ function vboSizeMB(vbos) {
 }
 
 
-app.get('/vbo', function(req, res) {
-    debug('VBOs: HTTP GET %s', req.originalUrl, req.query);
+function init(config, app, socket) {
+    debug('Client connected', socket.id);
 
-    try {
-        // TODO: check that query parameters are present, and that given id, buffer exist
-        var bufferName = req.query.buffer;
-        var id = req.query.id;
+    resetState();
 
-        res.set('Content-Encoding', 'gzip');
+    app.get('/vbo', function(req, res) {
+        debug('VBOs: HTTP GET %s', req.originalUrl, req.query);
 
-        res.send(lastCompressedVbos[id][bufferName]);
-    } catch (e) {
-        console.error('[viz-server.js] bad request', e, e.stack);
-    }
+        try {
+            // TODO: check that query parameters are present, and that given id, buffer exist
+            var bufferName = req.query.buffer;
+            var id = req.query.id;
 
-    finishBufferTransfers[id](bufferName);
-});
+            res.set('Content-Encoding', 'gzip');
 
-var colorTexture = new Rx.ReplaySubject(1);
-var img =
-    Rx.Observable.fromNodeCallback(fs.readFile)('test-colormap2.rgba')
-    .flatMap(function (buffer) {
-        debug('Loaded raw colorTexture', buffer.length);
-        return Rx.Observable.fromNodeCallback(compress.deflate)(
-                buffer,//binary,
-                {output: new Buffer(
-                    Math.max(1024, Math.round(buffer.length * 1.5)))})
-            .map(function (compressed) {
-                return {
-                    raw: buffer,
-                    compressed: compressed
-                };
-            });
-    })
-    .do(function () { debug('Compressed color texture'); })
-    .map(function (pair) {
-        debug('colorMap bytes', pair.raw.length);
-        return {
-            buffer: pair.compressed[0],
-            bytes: pair.raw.length,
-            width: 512,
-            height: 512
-        };
+            res.send(lastCompressedVbos[id][bufferName]);
+        } catch (e) {
+            console.error('[viz-server.js] bad request', e, e.stack);
+        }
+
+        finishBufferTransfers[id](bufferName);
     });
 
-img.take(1).subscribe(colorTexture, debug.bind('ERROR IMG'));
-colorTexture.subscribe(
-    function() { debug('HAS COLOR TEXTURE'); },
-    debug.bind('ERROR colorTexture'));
+    var colorTexture = new Rx.ReplaySubject(1);
+    var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
+    var img =
+        Rx.Observable.fromNodeCallback(fs.readFile)(imgPath)
+        .flatMap(function (buffer) {
+            debug('Loaded raw colorTexture', buffer.length);
+            return Rx.Observable.fromNodeCallback(compress.deflate)(
+                    buffer,//binary,
+                    {output: new Buffer(
+                        Math.max(1024, Math.round(buffer.length * 1.5)))})
+                .map(function (compressed) {
+                    return {
+                        raw: buffer,
+                        compressed: compressed
+                    };
+                });
+        })
+        .do(function () { debug('Compressed color texture'); })
+        .map(function (pair) {
+            debug('colorMap bytes', pair.raw.length);
+            return {
+                buffer: pair.compressed[0],
+                bytes: pair.raw.length,
+                width: 512,
+                height: 512
+            };
+        });
+
+    img.take(1).subscribe(colorTexture, debug.bind('ERROR IMG'));
+    colorTexture.subscribe(
+        function() { debug('HAS COLOR TEXTURE'); },
+        debug.bind('ERROR colorTexture'));
 
 
 
-app.get('/vbo', function(req, res) {
-    debug('VBOs: HTTP GET %s', req.originalUrl);
+    app.get('/vbo', function(req, res) {
+        debug('VBOs: HTTP GET %s', req.originalUrl);
 
-    try {
-        // TODO: check that query parameters are present, and that given id, buffer exist
-        var bufferName = req.query.buffer;
-        var id = req.query.id;
+        try {
+            // TODO: check that query parameters are present, and that given id, buffer exist
+            var bufferName = req.query.buffer;
+            var id = req.query.id;
 
-        res.set('Content-Encoding', 'gzip');
-        res.send(lastCompressedVbos[id][bufferName]);
+            res.set('Content-Encoding', 'gzip');
+            res.send(lastCompressedVbos[id][bufferName]);
 
-    } catch (e) {
-        console.error('[viz-server.js] bad request', e, e.stack);
-    }
+        } catch (e) {
+            console.error('[viz-server.js] bad request', e, e.stack);
+        }
 
-    finishBufferTransfers[id](bufferName);
-});
+        finishBufferTransfers[id](bufferName);
+    });
 
-app.get('/texture', function (req, res) {
-    debug('got texture req', req.originalUrl, req.query);
-    try {
+    app.get('/texture', function (req, res) {
+        debug('got texture req', req.originalUrl, req.query);
+        try {
 
-        var textureName = req.query.texture;
-        var id = req.query.id;
+            var textureName = req.query.texture;
+            var id = req.query.id;
 
-        colorTexture.pluck('buffer').subscribe(
-            function (data) {
-                res.set('Content-Encoding', 'gzip');
-                res.send(data);
-            },
-            debug.bind('ERROR colorTexture pluck'));
+            colorTexture.pluck('buffer').subscribe(
+                function (data) {
+                    res.set('Content-Encoding', 'gzip');
+                    res.send(data);
+                },
+                debug.bind('ERROR colorTexture pluck'));
 
-    } catch (e) {
-        console.error('[viz-server.js] bad request', e, e.stack);
-    }
-});
-
-
-io.on('connection', function(socket) {
-    debug('Client connected', socket.id);
+        } catch (e) {
+            console.error('[viz-server.js] bad request', e, e.stack);
+        }
+    });
 
     socket.on('get_render_config', function() {
         debug('Sending render-config to client');
@@ -353,9 +327,7 @@ io.on('connection', function(socket) {
         })
         .subscribe(function () { debug('LOOP ITERATED', socket.id); }, debug.bind('ERROR LOOP'));
     });
-});
+}
 
 
-http.listen(config.LISTEN_PORT + 1, config.LISTEN_ADDRESS, function() {
-    console.log('\n[viz-server.js] Server listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT + 1);
-});
+module.exports = init;
