@@ -331,3 +331,44 @@ function init(config, app, socket) {
 
 
 module.exports = init;
+
+if (require.main === module) {
+
+    var express = require('express'),
+        app     = express(),
+        http    = require('http').Server(app),
+        io      = require('socket.io')(http, {transports: ['websocket']});
+
+    var config  = require('./config.js')();
+
+    debug('FIXME config code clone');
+    debug("Config set to %j", config);
+
+    var nocache = function (req, res, next) {
+        res.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+        res.header('Expires', '-1');
+        res.header('Pragma', 'no-cache');
+        next();
+    };
+    app.use(nocache);
+
+    var allowCrossOrigin = function  (req, res, next) {
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Access-Control-Allow-Headers', 'X-Requested-With,Content-Type,Authorization');
+        res.header('Access-Control-Allow-Methods', 'GET,PUT,PATCH,POST,DELETE');
+        next();
+    };
+    app.use(allowCrossOrigin);
+
+    io.on('connection', function (socket) {
+        init(config, app, socket);
+    });
+
+    var listen = Rx.Observable.fromNodeCallback(
+            http.listen.bind(http, config.LISTEN_PORT + 1, config.LISTEN_ADDRESS))();
+
+    listen.subscribe(
+            function () { console.log('\nViz worker listening'); },
+            function (err) { console.error('\nError starting viz worker', err); });
+
+}
