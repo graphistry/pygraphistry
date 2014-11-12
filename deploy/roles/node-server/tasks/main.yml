@@ -59,18 +59,18 @@
     - pigz
   tags: node-server
 
-- git: repo=git@github.com:glfw/glfw.git dest=/opt/glfw version=master update=yes accept_hostkey=yes
+- git: repo=git@github.com:glfw/glfw.git dest=/tmp/glfw version=master update=yes accept_hostkey=yes
   tags: node-server
 
-- command: chdir=/opt/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
+- command: chdir=/tmp/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
   sudo: yes
   tags: node-server
 
-- command: chdir=/opt/glfw make
+- command: chdir=/tmp/glfw make
   sudo: yes
   tags: node-server
 
-- command: chdir=/opt/glfw make install
+- command: chdir=/tmp/glfw make install
   sudo: yes
   tags: node-server
 
