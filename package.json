@@ -20,7 +20,7 @@
     "node-webcl": "git+ssh://git@github.com:graphistry/node-webcl.git#master",
     "node-webgl": "^0.4.3",
     "nodecl": "*",
-    "horizon-viz": "*",
+    "horizon-viz": "git+ssh://git@github.com:graphistry/horizon-viz.git#master",
     "q": "^1.0.1",
     "request": "*",
     "rx": "^2.2.27",
