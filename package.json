@@ -1,5 +1,5 @@
 {
-  "name": "naive-graph",
+  "name": "graph-viz",
   "private": true,
   "version": "0.0.1",
   "description": "",
@@ -32,5 +32,6 @@
     "browserify": "^4.2.0",
     "debug": "^2.1.0",
     "uglifyjs": "^2.3.6"
-  }
+  },
+  "main": "server-viz.js"
 }
