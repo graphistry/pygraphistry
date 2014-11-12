@@ -7,3 +7,13 @@
   
 - synchronize: src=bashrc dest=/home/{{ user }}/.bashrc
   sudo: yes
+
+- command: mkdir /home/{{ user }}/.npm_global
+  ignore_errors: true
+  sudo: yes
+
+- command: chown -R {{ user }}:{{ user }} /home/{{ user }}
+  sudo: yes
+
+- command: chmod g+w -R /home/{{ user }}
+  sudo: yes

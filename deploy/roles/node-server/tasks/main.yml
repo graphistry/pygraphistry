@@ -176,7 +176,7 @@
     - node-server-fast
 
 - name: graphistry config
-  template: src=config.j2 dest=/opt/graph-viz/config.js group=www owner=www
+  template: src=config.j2 dest=/opt/viz-server/config.js group=www owner=www
   sudo: yes
   when: production == true
   tags: 

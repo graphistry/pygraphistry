@@ -1,9 +1,18 @@
 ---
-- name: update graphistry repo
-  git: repo=git@github.com:lmeyerov/graphistry.git dest=/opt/graphistry version=master update=yes accept_hostkey=yes
+- shell: npm config set prefix '/home/ubuntu/.npm_global'
 
-- shell: sudo su www -l -c "cd /opt/graphistry/central-app && npm install"
+- command: mkdir /tmp/web
+  ignore_errors: true
+
+- command: chown -R ubuntu:ubuntu /tmp/web
   sudo: yes
+
+- name: update central repo
+  git: repo=git@github.com:graphistry/central.git dest=/tmp/web/central version=master update=yes accept_hostkey=yes
+
+- shell: npm config set prefix '/home/ubuntu/.npm_global'
+
+- shell: chdir=/tmp/web/central npm install
 
 - command: mkdir /var/log/central-app
   sudo: yes
@@ -25,26 +34,17 @@
   sudo: yes
   ignore_errors: true
 
-- command: chown -R www:www /opt/static
+- command: cp -r /tmp/web/central /opt
   sudo: yes
 
-- command: chmod g+w -R /opt/static
+- command: chown -R www:www /opt/
   sudo: yes
 
-- command: chown -R www:www /opt/graphistry
-  sudo: yes
-
-- command: chmod g+w -R /opt/graphistry
+- command: chmod g+w -R /opt/
   sudo: yes
 
 - name: update Superconductor repo
   git: repo=git@github.com:graphistry/streamgl.git dest=/opt/Superconductor2 version=master update=yes accept_hostkey=yes
-
-- command: chown -R www:www /opt/Superconductor2
-  sudo: yes
-
-- command: chmod g+w -R /opt/Superconductor2
-  sudo: yes
 
 # CSS  
 # - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap/css/bootstrap.min.css /opt/static/css"

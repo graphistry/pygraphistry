@@ -2,7 +2,7 @@
 - group: name={{ user }} state=present
   sudo: yes
 
-- user: name={{ user }} groups="www" state=present
+- user: name={{ user }} groups="{{ user }}" state=present
   sudo: yes
 
 - synchronize: src=bash_profile dest=/home/{{ user }}/.bash_profile
@@ -11,18 +11,12 @@
 - synchronize: src=bashrc dest=/home/{{ user }}/.bashrc
   sudo: yes
 
-- command: chown -R www:www /home/{{ user }}/.bash_profile
-  sudo: yes
-
-- command: chmod g+w -R /home/{{ user }}/.bash_profile
-  sudo: yes
-  
-- command: mkdir /home/www/.npm_global
+- command: mkdir /home/{{ user }}/.npm_global
   ignore_errors: true
   sudo: yes
 
-- command: chown -R www:www /home/www/.npm_global
+- command: chown -R {{ user }}:{{ user }} /home/{{ user }}
   sudo: yes
 
-- command: chmod g+w -R /home/www/.npm_global
+- command: chmod g+w -R /home/{{ user }}
   sudo: yes
