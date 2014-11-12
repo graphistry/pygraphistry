@@ -4,7 +4,7 @@
 var debug            = require('debug')('StreamGL:master_server');
 var config           = require('./config')();
 var STATIC_FILE_PATH = require('nodecl').staticFilePath();
-var HORIZON_PATH     = require('horizon-viz').staticFilePath();
+var HORIZON_PATH     = require('horizon-viz').staticFilePath() + '/assets/';
 
 debug("Config set to %j", config);
 
