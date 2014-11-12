@@ -159,20 +159,6 @@
   when: wanted_version_installed.rc == 1
   sudo: yes
   tags: common
-   
-- name: opt dir to www group
-  command: chown www:www /opt
-  sudo: yes
-  tags: common
-
-- name: write perms
-  command: chmod g+w -R /opt
-  sudo: yes
-  tags: common
-
-- shell: sudo su www -l -c "npm config set prefix '/home/www/.npm_global'"
-  sudo: yes
-  tags: common
 
 - name: sshd config
   template: src=sshd_config dest=/etc/ssh/sshd_config
