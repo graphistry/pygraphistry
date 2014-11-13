@@ -22,7 +22,8 @@
     "jquery": "^2.1.1",
     "rx": "^2.2.27",
     "rx-jquery": "^1.1.6",
-    "underscore": "^1.6.0"
+    "underscore": "^1.6.0",
+    "socket.io-client": "^1.2.0"
   },
   "devDependencies": { },
   "main": "./index.js",
