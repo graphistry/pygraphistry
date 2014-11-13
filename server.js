@@ -146,18 +146,24 @@ app.get('/', function(req, res) {
 });
 
 
-// Start listening for HTTP connections
-MongoClient.connect(config.MONGO_SERVER, {auto_reconnect: true}, function(err, database) {
-  if(err) debug(err);
-
-  db = database.db('graphistry-prod');
-
-  try {
-      http.listen(3000, 'localhost', function() {
-          console.log('\n[server.js] Server listening on %s:%d', 'localhost', 3000);
-      });
-  } catch(e) {
-      console.error("[server.js] Fatal error: could not start server on address %s, port %s. Exiting...", 'localhost', 3000);
-      process.exit(1);
-  }
-});
+Rx.Observable.return()
+    .flatMap(function () {
+        if (!config.PRODUCTION) { return Rx.Observable.return(); }
+        else {
+            Rx.Observable.fromNodeCallback(
+                MongoClient.connect.bind(MongoClient, config.MONGO_SERVER))({auto_reconnect: true})
+                .do(function (database) {
+                    db = database.db('graphistry-prod');
+                });
+        }
+    })
+    .flatMap(function () {
+        return Rx.Observable.fromNodeCallback(http.listen.bind(http, 3000))('localhost');
+    })
+    .subscribe(
+        function () { debug('\n[server.js] Server listening on %s:%d', 'localhost', 3000); },
+        function (err) {
+            console.error("[server.js] Fatal error: could not start server on address %s, port %s. Exiting...",
+                'localhost', 3000);
+            process.exit(1);
+        });
