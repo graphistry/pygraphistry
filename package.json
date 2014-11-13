@@ -26,7 +26,6 @@
     "request": "*",
     "rx": "^2.2.27",
     "socket.io": "^1.2.0",
-    "socket.io-client": "^1.2.0",
     "underscore": "^1.7.0",
     "debug": "^2.1.0"
   },

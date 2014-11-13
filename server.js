@@ -30,11 +30,6 @@ app.get('/vizaddr/horizon', function(req, res) {
 });
 
 
-// Serve the socket.io client library
-app.get('*/socket.io.js', function(req, res) {
-    res.sendFile(require.resolve('socket.io-client/socket.io.js'));
-});
-
 // Serve the StreamGL client library
 app.get('*/StreamGL.js', function(req, res) {
     res.sendFile(require.resolve('StreamGL/dist/StreamGL.js'));
