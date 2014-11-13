@@ -1,6 +1,6 @@
 [program:central-app]
-command=sudo -u www node app.js
-directory=/opt/central
+command=sudo -u www node server.js
+directory=/opt/central/node_modules/graph-viz
 process_name=%(program_name)s
 numprocs=1
 autostart=true

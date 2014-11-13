@@ -1,21 +1,21 @@
-# ---
-# - shell: npm config set prefix '/home/ubuntu/.npm_global'
-# 
-# - command: mkdir /tmp/web
-#   ignore_errors: true
-# 
-# - command: chown -R ubuntu:ubuntu /tmp/web
-#   sudo: yes
-# 
-# - name: update central repo
-#   git: repo=git@github.com:graphistry/central.git dest=/tmp/web/central version=master update=yes accept_hostkey=yes
-# 
-# - shell: npm config set prefix '/home/ubuntu/.npm_global'
-# 
-# - shell: chdir=/tmp/web/central npm install
-# 
-# - command: cp -r /tmp/web/central /opt
-#   sudo: yes
+---
+- shell: npm config set prefix '/home/ubuntu/.npm_global'
+
+- command: mkdir /tmp/web
+  ignore_errors: true
+
+- command: chown -R ubuntu:ubuntu /tmp/web
+  sudo: yes
+
+- name: update central repo
+  git: repo=git@github.com:graphistry/central.git dest=/tmp/web/central version=master update=yes accept_hostkey=yes
+
+- shell: npm config set prefix '/home/ubuntu/.npm_global'
+
+- shell: chdir=/tmp/web/central npm install
+
+- command: cp -r /tmp/web/central /opt
+  sudo: yes
   
 - command: mkdir /opt/static
   sudo: yes
@@ -34,6 +34,10 @@
   ignore_errors: true
 
 - command: mkdir /opt/static/fonts
+  sudo: yes
+  ignore_errors: true
+
+- command: mkdir /opt/static/libs
   sudo: yes
   ignore_errors: true
 
@@ -59,7 +63,7 @@
   ignore_errors: true
   sudo: yes
 
-- shell: cp -r /opt/central/node_modules/graph-viz/assets/libs/* /opt/static/js
+- shell: cp -r /opt/central/node_modules/graph-viz/assets/libs/* /opt/static/libs
   ignore_errors: true
   sudo: yes
 

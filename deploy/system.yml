@@ -10,10 +10,10 @@
 
 - hosts: central
   roles:
-   # - { role: astanway, user: astanway }
-   # - { role: www, user: www }
-   # - { role: ubuntu, user: ubuntu }
-   # - common
+   - { role: astanway, user: astanway }
+   - { role: www, user: www }
+   - { role: ubuntu, user: ubuntu }
+   - common
    - central
   tags: central
 
