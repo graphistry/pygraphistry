@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 
-var path   = require('path');
-var debug  = require('debug')('StreamGL:master_server');
+var path        = require('path'),
+    debug       = require('debug')('StreamGL:master_server'),
+    mongo       = require('mongodb'),
+    MongoClient = mongo.MongoClient,
+    assert      = require('assert'),
+    Rx          = require('rx');
+
 var config = require('./config')();
-var mongo  = require('mongodb');
-var MongoClient = mongo.MongoClient
-  , assert = require('assert');
 
 var GRAPH_STATIC_PATH   = path.resolve(__dirname, 'assets');
 var HORIZON_STATIC_PATH = path.resolve(require('horizon-viz').staticFilePath(), 'assets');
