@@ -4,6 +4,7 @@
 var path   = require('path');
 var debug  = require('debug')('StreamGL:master_server');
 var config = require('./config')();
+var mongo  = require('mongodb');
 var MongoClient = mongo.MongoClient
   , assert = require('assert');
 
