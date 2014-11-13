@@ -151,11 +151,11 @@ MongoClient.connect(config.MONGO_SERVER, {auto_reconnect: true}, function(err, d
   db = database.db('graphistry-prod');
 
   try {
-      http.listen(config.LISTEN_PORT, config.LISTEN_ADDRESS, function() {
-          console.log('\n[server.js] Server listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT);
+      http.listen(3000, 'localhost', function() {
+          console.log('\n[server.js] Server listening on %s:%d', 'localhost', 3000);
       });
   } catch(e) {
-      console.error("[server.js] Fatal error: could not start server on address %s, port %s. Exiting...", config.LISTEN_ADDRESS, config.LISTEN_PORT);
+      console.error("[server.js] Fatal error: could not start server on address %s, port %s. Exiting...", 'localhost', 3000);
       process.exit(1);
   }
 });
