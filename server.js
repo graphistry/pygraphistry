@@ -9,7 +9,7 @@ var MongoClient = mongo.MongoClient
   , assert = require('assert');
 
 var GRAPH_STATIC_PATH   = path.resolve(__dirname, 'assets');
-var HORIZON_STATIC_PATH = require('horizon-viz').staticFilePath() + '/assets/';
+var HORIZON_STATIC_PATH = path.resolve(require('horizon-viz').staticFilePath(), 'assets');
 
 debug("Config set to %j", config);
 
