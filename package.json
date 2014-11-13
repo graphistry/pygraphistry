@@ -4,7 +4,7 @@
   "description": "Stream WebGL buffers into the browser from a remote server",
   "private": true,
   "scripts": {
-    "install": "grunt clean; grunt depbuild"
+    "install": "grunt depbuild"
   },
   "dependencies": {
     "brfs": "^1.2.0",
