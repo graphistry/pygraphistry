@@ -1,27 +1,26 @@
----
-- shell: npm config set prefix '/home/ubuntu/.npm_global'
-
-- command: mkdir /tmp/web
-  ignore_errors: true
-
-- command: chown -R ubuntu:ubuntu /tmp/web
-  sudo: yes
-
-- name: update central repo
-  git: repo=git@github.com:graphistry/central.git dest=/tmp/web/central version=master update=yes accept_hostkey=yes
-
-- shell: npm config set prefix '/home/ubuntu/.npm_global'
-
-- shell: chdir=/tmp/web/central npm install
-
-- command: mkdir /var/log/central-app
-  sudo: yes
-  ignore_errors: true
-
+# ---
+# - shell: npm config set prefix '/home/ubuntu/.npm_global'
+# 
+# - command: mkdir /tmp/web
+#   ignore_errors: true
+# 
+# - command: chown -R ubuntu:ubuntu /tmp/web
+#   sudo: yes
+# 
+# - name: update central repo
+#   git: repo=git@github.com:graphistry/central.git dest=/tmp/web/central version=master update=yes accept_hostkey=yes
+# 
+# - shell: npm config set prefix '/home/ubuntu/.npm_global'
+# 
+# - shell: chdir=/tmp/web/central npm install
+# 
+# - command: cp -r /tmp/web/central /opt
+#   sudo: yes
+  
 - command: mkdir /opt/static
   sudo: yes
   ignore_errors: true
-  
+
 - command: mkdir /opt/static/css
   sudo: yes
   ignore_errors: true
@@ -34,7 +33,34 @@
   sudo: yes
   ignore_errors: true
 
-- command: cp -r /tmp/web/central /opt
+- command: mkdir /opt/static/fonts
+  sudo: yes
+  ignore_errors: true
+
+# horizon-viz
+- shell: cp -r /opt/central/node_modules/horizon-viz/assets/css/* /opt/static/css
+  ignore_errors: true
+  sudo: yes
+
+- shell: cp -r /opt/central/node_modules/horizon-viz/assets/js/* /opt/static/js
+  ignore_errors: true
+  sudo: yes
+
+- shell: cp -r /opt/central/node_modules/horizon-viz/assets/libs/* /opt/static/js
+  ignore_errors: true
+  sudo: yes
+
+- shell: cp -r /opt/central/node_modules/horizon-viz/assets/fonts/* /opt/static/fonts
+  ignore_errors: true
+  sudo: yes
+
+# graph
+- shell: cp -r /opt/central/node_modules/graph-viz/assets/css/* /opt/static/css
+  ignore_errors: true
+  sudo: yes
+
+- shell: cp -r /opt/central/node_modules/graph-viz/assets/libs/* /opt/static/js
+  ignore_errors: true
   sudo: yes
 
 - command: chown -R www:www /opt/
@@ -43,46 +69,9 @@
 - command: chmod g+w -R /opt/
   sudo: yes
 
-- name: update Superconductor repo
-  git: repo=git@github.com:graphistry/streamgl.git dest=/opt/Superconductor2 version=master update=yes accept_hostkey=yes
-
-# CSS  
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap/css/bootstrap.min.css /opt/static/css"
-#   sudo: yes
-# 
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/bootstrap/css/bootstrap-slider.min.css /opt/static/css"
-#   sudo: yes
-# 
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/sb-admin-2/css/sb-admin-2.css /opt/static/css"
-#   sudo: yes
-# 
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/font-awesome-4.2.0/css/font-awesome.min.css /opt/static/css"
-#   sudo: yes
-# 
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/css/gpustreaming.css /opt/static/css"
-#   sudo: yes
-# 
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/css/graph.css /opt/static/css"
-#   sudo: yes
-# 
-# # JS
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/jquery/jquery-2.1.1.js /opt/static/js"
-#   sudo: yes
-# 
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap.min.js /opt/static/js"
-#   sudo: yes
-# 
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap-slider.js /opt/static/js"
-#   sudo: yes
-# 
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/fpsmeter.js /opt/static/js"
-#   sudo: yes
-# 
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap-slider.js /opt/static/js"
-#   sudo: yes
-# 
-# - shell: sudo su www -l -c "mv /opt/Superconductor2/nodecl/GPUStreaming/demos/libraries/js/bootstrap-slider.js /opt/static/js"
-#   sudo: yes
+- command: mkdir /var/log/central-app
+  sudo: yes
+  ignore_errors: true
 
 - apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes

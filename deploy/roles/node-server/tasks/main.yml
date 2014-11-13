@@ -183,16 +183,24 @@
     - node-server
     - node-server-fast
 
+- name: graphistry config
+  template: src=config.j2 dest=/opt/viz-server/config.js group=www owner=www
+  sudo: yes
+  when: production == true
+  tags: 
+    - node-server
+    - node-server-fast
+
 - command: mkdir /var/log/node-server
   ignore_errors: true
   sudo: yes
   tags: node-server
 
-- name: remove all old supervisor configs to prevent drift
-  shell: rm /etc/supervisor/conf.d/*
-  sudo: yes
-  ignore_errors: true
-  tags: node-server
+# - name: remove all old supervisor configs to prevent drift
+#   shell: rm /etc/supervisor/conf.d/*
+#   sudo: yes
+#   ignore_errors: true
+#   tags: node-server
 
 - name: node supervisor
   template: src=node-server.supervisor.j2 dest=/etc/supervisor/conf.d/node-server-{{ item.listen_port }}.conf
