@@ -10,23 +10,29 @@ var Rx          = require('rx');
 var os          = require('os');
 var _           = require('underscore');
 
+
+var express = require('express'),
+    app = express(),
+    http = require('http').Server(app);
+
+
+var db;
+
 var config = require('./config')();
+debug("Config set to %j", config);
 
 var GRAPH_STATIC_PATH   = path.resolve(__dirname, 'assets');
 var HORIZON_STATIC_PATH = path.resolve(require('horizon-viz').staticFilePath(), 'assets');
 
-debug("Config set to %j", config);
+var HTTP_SERVER_LISTEN_ADDRESS = '0.0.0.0';
+var HTTP_SERVER_LISTEN_PORT = 3000;
 
 // FIXME: Get real viz server IP:port from DB
 var VIZ_SERVER_HOST = get_likely_local_ip();
 var VIZ_SERVER_PORT = config.LISTEN_PORT;
 debug("Will route clients to viz server at %s:%d", VIZ_SERVER_HOST, VIZ_SERVER_PORT);
 
-var express = require('express'),
-    app = express(),
-    http = require('http').Server(app);
 
-var db;
 /**
  * Uses a naive heuristic to find this machines IP address
  * @return {string} the IP address as a string
@@ -176,14 +182,14 @@ Rx.Observable.return()
         }
     })
     .flatMap(function () {
-        return Rx.Observable.fromNodeCallback(http.listen.bind(http, 3000))('0.0.0.0');
+        return Rx.Observable.fromNodeCallback(http.listen.bind(http, HTTP_SERVER_LISTEN_PORT))(HTTP_SERVER_LISTEN_ADDRESS);
     })
     .subscribe(
         function () {
-            debug('\n[server.js] Server listening on %s:%d', 'localhost', 3000);
+            debug('\n[server.js] Server listening on %s:%d', HTTP_SERVER_LISTEN_ADDRESS, HTTP_SERVER_LISTEN_PORT);
         },
         function (err) {
             console.error("[server.js] Fatal error: could not start server on address %s, port %s. Exiting...",
-                '0.0.0.0', 3000);
+                HTTP_SERVER_LISTEN_ADDRESS, HTTP_SERVER_LISTEN_PORT);
             process.exit(1);
         });
