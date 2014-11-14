@@ -69,7 +69,7 @@ app.get('/vizaddr/graph', function(req, res) {
                     d.setSeconds(d.getSeconds() - 30);
 
                     // Find all idle node processes
-                    db.collection('node_monitor').find({'active': false, 
+                    db.collection('node_monitor').find({'active': false,
                                                         'updated': {'$gt': d}})
                                                      .toArray(function(err, results) {
 
@@ -115,7 +115,7 @@ app.get('/vizaddr/graph', function(req, res) {
         });
     } else {
         debug("Assigning client '%s' to viz server on %s, port %d", req.ip, VIZ_SERVER_HOST, VIZ_SERVER_PORT);
-        res.json({'hostname': VIZ_SERVER_HOST, 'port': VIZ_SERVER_PORT});        
+        res.json({'hostname': VIZ_SERVER_HOST, 'port': VIZ_SERVER_PORT});
     }
 });
 
@@ -150,7 +150,7 @@ Rx.Observable.return()
     .flatMap(function () {
         if (!config.PRODUCTION) { return Rx.Observable.return(); }
         else {
-            Rx.Observable.fromNodeCallback(
+            return Rx.Observable.fromNodeCallback(
                 MongoClient.connect.bind(MongoClient, config.MONGO_SERVER))({auto_reconnect: true})
                 .do(function (database) {
                     db = database.db('graphistry-prod');
