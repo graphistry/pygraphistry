@@ -16,7 +16,7 @@ var HORIZON_STATIC_PATH = path.resolve(require('horizon-viz').staticFilePath(), 
 debug("Config set to %j", config);
 
 // FIXME: Get real viz server public IP/DNS name from DB
-var VIZ_SERVER_HOST = 'localhost';
+var VIZ_SERVER_HOST = config.LISTEN_ADDRESS;
 // FIXME: Get real viz server port from DB
 var VIZ_SERVER_PORT = config.LISTEN_PORT + 1;
 
@@ -158,12 +158,12 @@ Rx.Observable.return()
         }
     })
     .flatMap(function () {
-        return Rx.Observable.fromNodeCallback(http.listen.bind(http, 3000))('localhost');
+        return Rx.Observable.fromNodeCallback(http.listen.bind(http, config.LISTEN_PORT))(config.LISTEN_ADDRESS);
     })
     .subscribe(
-        function () { debug('\n[server.js] Server listening on %s:%d', 'localhost', 3000); },
+        function () { debug('\n[server.js] Server listening on %s:%d', config.LISTEN_ADDRESS, config.LISTEN_PORT); },
         function (err) {
             console.error("[server.js] Fatal error: could not start server on address %s, port %s. Exiting...",
-                'localhost', 3000);
+                config.LISTEN_ADDRESS, config.LISTEN_PORT);
             process.exit(1);
         });
