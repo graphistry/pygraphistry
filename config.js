@@ -7,7 +7,7 @@ var _ = require('underscore');
 
 module.exports = function() {
     var defaultOptions = {
-        LISTEN_ADDRESS: '0.0.0.0',
+        LISTEN_ADDRESS: 'localhost',
         LISTEN_PORT: 10000,
         MONGO_SERVER: 'localhost',
         DATABASE: 'graphistry-dev',

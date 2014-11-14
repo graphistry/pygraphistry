@@ -15,10 +15,10 @@ var HORIZON_STATIC_PATH = path.resolve(require('horizon-viz').staticFilePath(), 
 
 debug("Config set to %j", config);
 
-// FIXME: Get real viz server public IP/DNS name from DB
-var VIZ_SERVER_HOST = 'localhost';
-// FIXME: Get real viz server port from DB
-var VIZ_SERVER_PORT = config.LISTEN_PORT + 1;
+// Because the workers and central app now share a config, this is a thing we have to do.
+// Let's fix it and make it less confusing soon though. This is a way to hardcode the routing.
+var VIZ_SERVER_HOST = config.LISTEN_ADDRESS
+var VIZ_SERVER_PORT = config.LISTEN_PORT;
 
 var express = require('express'),
     app = express(),
