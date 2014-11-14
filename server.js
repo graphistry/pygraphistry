@@ -7,6 +7,8 @@ var mongo       = require('mongodb');
 var MongoClient = mongo.MongoClient;
 var assert      = require('assert');
 var Rx          = require('rx');
+var os          = require('os');
+var _           = require('underscore');
 
 var config = require('./config')();
 
@@ -15,16 +17,32 @@ var HORIZON_STATIC_PATH = path.resolve(require('horizon-viz').staticFilePath(), 
 
 debug("Config set to %j", config);
 
-// FIXME: Get real viz server public IP/DNS name from DB
-var VIZ_SERVER_HOST = 'localhost';
-// FIXME: Get real viz server port from DB
+// FIXME: Get real viz server IP:port from DB
+var VIZ_SERVER_HOST = get_likely_local_ip();
 var VIZ_SERVER_PORT = config.LISTEN_PORT;
+debug("Will route clients to viz server at %s:%d", VIZ_SERVER_HOST, VIZ_SERVER_PORT);
 
 var express = require('express'),
     app = express(),
     http = require('http').Server(app);
 
 var db;
+/**
+ * Uses a naive heuristic to find this machines IP address
+ * @return {string} the IP address as a string
+ */
+function get_likely_local_ip() {
+    var public_iface = _.map(os.networkInterfaces(), function(ifaces) {
+        return _.filter(ifaces, function(iface) {
+            return (!iface.internal) && (iface.family === 'IPv4');
+        });
+    });
+
+    public_iface = _.flatten(public_iface, true);
+
+    return (public_iface.length > 0) ? public_iface[0].address : 'localhost';
+}
+
 
 app.get('/vizaddr/graph', function(req, res) {
     if (config.PRODUCTION) {
