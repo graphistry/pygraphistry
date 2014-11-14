@@ -18,7 +18,7 @@ debug("Config set to %j", config);
 // FIXME: Get real viz server public IP/DNS name from DB
 var VIZ_SERVER_HOST = 'localhost';
 // FIXME: Get real viz server port from DB
-var VIZ_SERVER_PORT = config.LISTEN_PORT + 1;
+var VIZ_SERVER_PORT = config.LISTEN_PORT;
 
 var express = require('express'),
     app = express(),
