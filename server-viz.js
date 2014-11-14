@@ -237,12 +237,13 @@ function init(config, app, socket) {
 
         debug('SETTING UP CLIENT EVENT LOOP');
         var step = 0;
+        var lastVersions = null;
         graph.expand(function (graph) {
             step++;
 
             debug('1. Prefetch VBOs', socket.id, activeBuffers);
 
-            return driver.fetchData(graph, compress, activeBuffers, activePrograms)
+            return driver.fetchData(graph, compress, activeBuffers, lastVersions, activePrograms)
                 .do(function (vbos) {
                     debug('prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB');
                     //tell XHR2 sender about it
@@ -301,6 +302,7 @@ function init(config, app, socket) {
                                             colorMap: 1
                                         }
                                     }});
+                            lastVersions = vbos.versions;
 
                             debug('notifying client of buffer metadata', metadata);
                             return emitFnWrapper('vbo_update', metadata);
