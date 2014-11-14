@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 
-var path        = require('path'),
-    debug       = require('debug')('StreamGL:master_server'),
-    mongo       = require('mongodb'),
-    MongoClient = mongo.MongoClient,
-    assert      = require('assert'),
-    Rx          = require('rx');
+var path        = require('path');
+var debug       = require('debug')('StreamGL:master_server');
+var mongo       = require('mongodb');
+var MongoClient = mongo.MongoClient;
+var assert      = require('assert');
+var Rx          = require('rx');
 
 var config = require('./config')();
 
@@ -158,12 +158,14 @@ Rx.Observable.return()
         }
     })
     .flatMap(function () {
-        return Rx.Observable.fromNodeCallback(http.listen.bind(http, 3000))('localhost');
+        return Rx.Observable.fromNodeCallback(http.listen.bind(http, 3000))('0.0.0.0');
     })
     .subscribe(
-        function () { debug('\n[server.js] Server listening on %s:%d', 'localhost', 3000); },
+        function () {
+            debug('\n[server.js] Server listening on %s:%d', 'localhost', 3000);
+        },
         function (err) {
             console.error("[server.js] Fatal error: could not start server on address %s, port %s. Exiting...",
-                'localhost', 3000);
+                '0.0.0.0', 3000);
             process.exit(1);
         });
