@@ -22,7 +22,5 @@
 	"devel": true,
 
 	"browser": true,
-	"node": true,
-
-	"predef": [ "io", "FPSMeter" ]
+	"node": true
 }
