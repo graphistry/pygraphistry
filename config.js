@@ -1,3 +1,5 @@
+console.error("WARNING change graph-viz server.js to get config from ansible");
+
 // WARNING: THIS FILE GETS OVER WRITTEN IN PRODUCTION.
 // SEE ansible/roles/node-server/templates/config.j2
 
@@ -5,9 +7,12 @@ var _ = require('underscore');
 
 module.exports = function() {
     var defaultOptions = {
-        LISTEN_ADDRESS: '0.0.0.0',
-        LISTEN_PORT: 10000,
-        MONGO_SERVER: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod',
+        VIZ_LISTEN_ADDRESS: '0.0.0.0',
+        VIZ_LISTEN_PORT: 10000,
+        HTTP_LISTEN_ADDRESS: 'localhost',
+        HTTP_LISTEN_PORT: 3000,
+        MONGO_SERVER: 'localhost',
+        DATABASE: 'graphistry-dev',
         HOSTNAME: 'localhost'
     };
 

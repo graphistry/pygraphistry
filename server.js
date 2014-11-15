@@ -1,30 +1,54 @@
 #!/usr/bin/env node
 'use strict';
 
-var path        = require('path'),
-    debug       = require('debug')('StreamGL:master_server'),
-    mongo       = require('mongodb'),
-    MongoClient = mongo.MongoClient,
-    assert      = require('assert'),
-    Rx          = require('rx');
+var path        = require('path');
+var debug       = require('debug')('StreamGL:master_server');
+var mongo       = require('mongodb');
+var MongoClient = mongo.MongoClient;
+var assert      = require('assert');
+var Rx          = require('rx');
+var os          = require('os');
+var _           = require('underscore');
 
-var config = require('./config')();
-
-var GRAPH_STATIC_PATH   = path.resolve(__dirname, 'assets');
-var HORIZON_STATIC_PATH = path.resolve(require('horizon-viz').staticFilePath(), 'assets');
-
-debug("Config set to %j", config);
-
-// FIXME: Get real viz server public IP/DNS name from DB
-var VIZ_SERVER_HOST = 'localhost';
-// FIXME: Get real viz server port from DB
-var VIZ_SERVER_PORT = config.LISTEN_PORT + 1;
 
 var express = require('express'),
     app = express(),
     http = require('http').Server(app);
 
+
 var db;
+
+var config = require('./config')();
+debug("Config set to %j", config);
+
+var GRAPH_STATIC_PATH   = path.resolve(__dirname, 'assets');
+var HORIZON_STATIC_PATH = path.resolve(require('horizon-viz').staticFilePath(), 'assets');
+
+var HTTP_SERVER_LISTEN_ADDRESS = config.HTTP_LISTEN_ADDRESS;
+var HTTP_SERVER_LISTEN_PORT = config.HTTP_LISTEN_PORT;
+
+// FIXME: Get real viz server IP:port from DB
+var VIZ_SERVER_HOST = get_likely_local_ip();
+var VIZ_SERVER_PORT = config.VIZ_LISTEN_PORT;
+debug("Will route clients to viz server at %s:%d", VIZ_SERVER_HOST, VIZ_SERVER_PORT);
+
+
+/**
+ * Uses a naive heuristic to find this machines IP address
+ * @return {string} the IP address as a string
+ */
+function get_likely_local_ip() {
+    var public_iface = _.map(os.networkInterfaces(), function(ifaces) {
+        return _.filter(ifaces, function(iface) {
+            return (!iface.internal) && (iface.family === 'IPv4');
+        });
+    });
+
+    public_iface = _.flatten(public_iface, true);
+
+    return (public_iface.length > 0) ? public_iface[0].address : 'localhost';
+}
+
 
 app.get('/vizaddr/graph', function(req, res) {
     if (config.PRODUCTION) {
@@ -158,12 +182,14 @@ Rx.Observable.return()
         }
     })
     .flatMap(function () {
-        return Rx.Observable.fromNodeCallback(http.listen.bind(http, 3000))('localhost');
+        return Rx.Observable.fromNodeCallback(http.listen.bind(http, HTTP_SERVER_LISTEN_PORT))(HTTP_SERVER_LISTEN_ADDRESS);
     })
     .subscribe(
-        function () { debug('\n[server.js] Server listening on %s:%d', 'localhost', 3000); },
+        function () {
+            debug('\n[server.js] Server listening on %s:%d', HTTP_SERVER_LISTEN_ADDRESS, HTTP_SERVER_LISTEN_PORT);
+        },
         function (err) {
             console.error("[server.js] Fatal error: could not start server on address %s, port %s. Exiting...",
-                'localhost', 3000);
+                HTTP_SERVER_LISTEN_ADDRESS, HTTP_SERVER_LISTEN_PORT);
             process.exit(1);
         });
