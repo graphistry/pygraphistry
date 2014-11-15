@@ -19,7 +19,6 @@
     "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
     "node-webcl": "git+ssh://git@github.com:graphistry/node-webcl.git#master",
     "node-webgl": "^0.4.3",
-    "horizon-viz": "git+ssh://git@github.com:graphistry/horizon-viz.git#master",
     "q": "^1.0.1",
     "request": "*",
     "rx": "^2.2.27",
