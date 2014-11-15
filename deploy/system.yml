@@ -17,7 +17,6 @@
    - { role: central, production: true }
   tags: central
 
-# if you run this, be sure to hard code the address of the machine in config.js LISTEN_ADDRESS. todo: fix that.
 # - hosts: quinn-dev
 #   roles:
 #    - { role: astanway, user: astanway }

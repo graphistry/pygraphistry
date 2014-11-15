@@ -1,14 +1,11 @@
 ---
 - shell: npm config set prefix '/home/ubuntu/.npm_global'
-  tags: central-fast
 
 - command: mkdir /tmp/web
   ignore_errors: true
-  tags: central-fast
 
 - command: chown -R ubuntu:ubuntu /tmp/web
   sudo: yes
-  tags: central-fast
 
 - name: update central repo
   git: repo=git@github.com:graphistry/central.git dest=/tmp/web/central version=master update=yes accept_hostkey=yes
@@ -29,32 +26,26 @@
 - command: mkdir /opt/static
   sudo: yes
   ignore_errors: true
-  tags: central-fast
 
 - command: mkdir /opt/static/css
   sudo: yes
   ignore_errors: true
-  tags: central-fast
 
 - command: mkdir /opt/static/js
   sudo: yes
   ignore_errors: true
-  tags: central-fast
 
 - command: mkdir /opt/static/img
   sudo: yes
   ignore_errors: true
-  tags: central-fast
 
 - command: mkdir /opt/static/fonts
   sudo: yes
   ignore_errors: true
-  tags: central-fast
 
 - command: mkdir /opt/static/libs
   sudo: yes
   ignore_errors: true
-  tags: central-fast
 
 # horizon-viz
 - shell: cp -r /opt/central/node_modules/horizon-viz/assets/css/* /opt/static/css

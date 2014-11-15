@@ -1,17 +1,21 @@
 ---
-- get_url: dest=/tmp/cuda-repo-ubuntu1404_6.5-14_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_6.5-14_amd64.deb
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+  get_url: dest=/tmp/cuda-repo-ubuntu1404_6.5-14_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_6.5-14_amd64.deb
   sudo: yes
   tags: node-server-reboot 
 
-- command: chdir=/tmp dpkg -i cuda-repo-ubuntu1404_6.5-14_amd64.deb
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+  command: chdir=/tmp dpkg -i cuda-repo-ubuntu1404_6.5-14_amd64.deb
   sudo: yes
   tags: node-server-reboot
 
-- command: apt-get update
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+  command: apt-get update
   sudo: yes
   tags: node-server-reboot
 
-- apt: pkg={{ item }} state=installed update_cache=yes
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+  apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes
   with_items:
     - nvidia-340-dev
@@ -27,23 +31,28 @@
     - pkg-config
   tags: node-server-reboot
 
-- command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+  command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
   sudo: yes
   tags: node-server-reboot
 
-- template: src=xorg.conf.j2 dest=/etc/X11/xorg.conf
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+  template: src=xorg.conf.j2 dest=/etc/X11/xorg.conf
   sudo: yes
   tags: node-server-reboot
 
-- template: src=grub.j2 dest=/etc/default/grub
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+  template: src=grub.j2 dest=/etc/default/grub
   sudo: yes
   tags: node-server-reboot
-  
-- command: update-grub
+ 
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot 
+  command: update-grub
   sudo: yes
   tags: node-server-reboot
-  
-- command: reboot
+ 
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot 
+  command: reboot
   sudo: yes
   tags: node-server-reboot
   
