@@ -14,19 +14,20 @@
    - { role: www, user: www }
    - { role: ubuntu, user: ubuntu }
    - common
-   - central
+   - { role: central, production: true }
   tags: central
 
-- hosts: quinn-dev
-  roles:
-   - { role: astanway, user: astanway }
-   - { role: quinn, user: quinn }
-   - { role: www, user: www }
-   - { role: ubuntu, user: ubuntu }
-   - common
-   - { role: node-server, production: false }
-   - central
-  tags: quinn-dev
+# if you run this, be sure to hard code the address of the machine in config.js LISTEN_ADDRESS. todo: fix that.
+# - hosts: quinn-dev
+#   roles:
+#    - { role: astanway, user: astanway }
+#    - { role: quinn, user: quinn }
+#    - { role: www, user: www }
+#    - { role: ubuntu, user: ubuntu }
+#    - common
+#    - { role: node-server, production: false }
+#    - { role: central, production: false }
+#   tags: quinn-dev
   
 - hosts: splunk
   roles:

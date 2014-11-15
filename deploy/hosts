@@ -1,10 +1,9 @@
 [workers]
-54.183.155.35 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker01 ansible_ssh_port=61630
+54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker01 ansible_ssh_port=61630
 54.183.193.90 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker02 ansible_ssh_port=61630
 
 [central]
-54.183.155.35 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker02 ansible_ssh_port=61630
-# 54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_port=61630 ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central
+54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_port=61630 ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central
 
 [quinn-dev]
 54.67.1.131 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=quinn-dev ansible_ssh_port=61630

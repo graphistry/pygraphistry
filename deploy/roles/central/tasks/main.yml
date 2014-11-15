@@ -1,94 +1,122 @@
 ---
 - shell: npm config set prefix '/home/ubuntu/.npm_global'
+  tags: central-fast
 
 - command: mkdir /tmp/web
   ignore_errors: true
+  tags: central-fast
 
 - command: chown -R ubuntu:ubuntu /tmp/web
   sudo: yes
+  tags: central-fast
 
 - name: update central repo
   git: repo=git@github.com:graphistry/central.git dest=/tmp/web/central version=master update=yes accept_hostkey=yes
-
-- shell: npm config set prefix '/home/ubuntu/.npm_global'
+  tags: central-fast
 
 - shell: chdir=/tmp/web/central npm install
+  tags: central-fast
 
 - command: cp -r /tmp/web/central /opt
   sudo: yes
+  tags: central-fast
+
+- template: src=config.j2 dest=/opt/central/node_modules/graph-viz/config.js group=www owner=www
+  sudo: yes
+  when: production == true
+  tags: central-fast 
   
 - command: mkdir /opt/static
   sudo: yes
   ignore_errors: true
+  tags: central-fast
 
 - command: mkdir /opt/static/css
   sudo: yes
   ignore_errors: true
+  tags: central-fast
 
 - command: mkdir /opt/static/js
   sudo: yes
   ignore_errors: true
+  tags: central-fast
 
 - command: mkdir /opt/static/img
   sudo: yes
   ignore_errors: true
+  tags: central-fast
 
 - command: mkdir /opt/static/fonts
   sudo: yes
   ignore_errors: true
+  tags: central-fast
 
 - command: mkdir /opt/static/libs
   sudo: yes
   ignore_errors: true
+  tags: central-fast
 
 # horizon-viz
 - shell: cp -r /opt/central/node_modules/horizon-viz/assets/css/* /opt/static/css
   ignore_errors: true
   sudo: yes
+  tags: central-fast
 
 - shell: cp -r /opt/central/node_modules/horizon-viz/assets/js/* /opt/static/js
   ignore_errors: true
   sudo: yes
+  tags: central-fast
 
 - shell: cp -r /opt/central/node_modules/horizon-viz/assets/libs/* /opt/static/js
   ignore_errors: true
   sudo: yes
+  tags: central-fast
 
 - shell: cp -r /opt/central/node_modules/horizon-viz/assets/fonts/* /opt/static/fonts
   ignore_errors: true
   sudo: yes
+  tags: central-fast
 
 # graph
 - shell: cp -r /opt/central/node_modules/graph-viz/assets/css/* /opt/static/css
   ignore_errors: true
   sudo: yes
+  tags: central-fast
 
 - shell: cp -r /opt/central/node_modules/graph-viz/assets/libs/* /opt/static/libs
   ignore_errors: true
   sudo: yes
+  tags: central-fast
 
 - command: chown -R www:www /opt/
   sudo: yes
+  tags: central-fast
 
 - command: chmod g+w -R /opt/
   sudo: yes
+  tags: central-fast
 
 - command: mkdir /var/log/central-app
   sudo: yes
   ignore_errors: true
+  tags: central-fast
 
 - apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes
   with_items:
     - nginx
+  tags: central-fast
 
 - template: src=nginx.j2 dest=/etc/nginx/sites-enabled/default
   sudo: yes
   notify: restart nginx
+  tags: central-fast
 
 - template: src=central-app.supervisor.j2 dest=/etc/supervisor/conf.d/central-app.conf
   sudo: yes
   notify: update supervisor
+  tags: central-fast
 
 - command: supervisorctl reload
   sudo: yes
+  tags: central-fast
