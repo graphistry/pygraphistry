@@ -24,12 +24,12 @@ debug("Config set to %j", config);
 var GRAPH_STATIC_PATH   = path.resolve(__dirname, 'assets');
 var HORIZON_STATIC_PATH = path.resolve(require('horizon-viz').staticFilePath(), 'assets');
 
-var HTTP_SERVER_LISTEN_ADDRESS = '0.0.0.0';
-var HTTP_SERVER_LISTEN_PORT = 3000;
+var HTTP_SERVER_LISTEN_ADDRESS = config.HTTP_LISTEN_ADDRESS;
+var HTTP_SERVER_LISTEN_PORT = config.HTTP_LISTEN_PORT;
 
 // FIXME: Get real viz server IP:port from DB
 var VIZ_SERVER_HOST = get_likely_local_ip();
-var VIZ_SERVER_PORT = config.LISTEN_PORT;
+var VIZ_SERVER_PORT = config.VIZ_LISTEN_PORT;
 debug("Will route clients to viz server at %s:%d", VIZ_SERVER_HOST, VIZ_SERVER_PORT);
 
 

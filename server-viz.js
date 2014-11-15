@@ -365,7 +365,7 @@ if (require.main === module) {
     });
 
     var listen = Rx.Observable.fromNodeCallback(
-            http.listen.bind(http, config.LISTEN_PORT + 1, config.LISTEN_ADDRESS))();
+            http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
 
     listen.subscribe(
             function () { console.log('\nViz worker listening'); },
