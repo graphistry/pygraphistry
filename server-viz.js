@@ -362,7 +362,24 @@ if (require.main === module) {
     };
     app.use(allowCrossOrigin);
 
+    //Static assets
+    app.get('*/StreamGL.js', function(req, res) {
+        res.sendFile(require.resolve('StreamGL/dist/StreamGL.js'));
+    });
+    app.get('*/StreamGL.map', function(req, res) {
+        res.sendFile(require.resolve('StreamGL/dist/StreamGL.map'));
+    });
+    app.use('/graph', express.static(path.resolve(__dirname, 'assets')));
+
+    //Dyn routing
+    app.get('/vizaddr/graph', function(req, res) {
+        res.json({'hostname': config.HTTP_LISTEN_ADDRESS, 'port': config.HTTP_LISTEN_PORT});
+    });
+
+
+
     io.on('connection', function (socket) {
+        socket.on('viz', function (msg, cb) { cb(); });
         init(config, app, socket);
     });
 
