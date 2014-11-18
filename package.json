@@ -7,7 +7,7 @@
     "install": "grunt depbuild"
   },
   "dependencies": {
-    "bootstrap-slider": "git+ssh://git@github.com:graphistry/bootstrap-slider.git#master",
+    "bootstrap-slider": "git+ssh://git@github.com:seiyria/bootstrap-slider.git#master",
     "brfs": "^1.2.0",
     "browserify": "^6.2.0",
     "debug": "^2.1.0",
