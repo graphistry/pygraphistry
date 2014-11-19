@@ -112,18 +112,15 @@
   ignore_errors: true
   tags:
   - node-server
-  - node-server-fast
 
 - command: chown -R ubuntu:ubuntu /tmp/web
   sudo: yes
   tags:
   - node-server
-  - node-server-fast
 
 - shell: npm config set prefix '/home/ubuntu/.npm_global'
   tags: 
     - node-server
-    - node-server-fast    
 
 - git: repo=git@github.com:graphistry/viz-server.git dest=/tmp/web/viz-server version=master update=yes accept_hostkey=yes
   tags: 
@@ -133,12 +130,10 @@
 - command: npm install --global grunt-cli
   tags: 
     - node-server
-    - node-server-fast
 
 - command: npm install --global node-gyp
   tags: 
     - node-server
-    - node-server-fast
 
 # TODO: Fix this. Not sure what's up with Ansible's users.
 - shell: sudo su www -l -c "cd /home/www && npm install node-webcl"
@@ -154,12 +149,10 @@
 - shell: chdir=/home/ubuntu/ npm install node-webcl
   tags: 
     - node-server
-    - node-server-fast
 
 - shell: chdir=/home/ubuntu/ npm install node-webgl
   tags: 
     - node-server
-    - node-server-fast
 
 - shell: chdir=/tmp/web/viz-server npm install
   tags: 
@@ -184,16 +177,22 @@
     - node-server
     - node-server-fast
 
-- name: graphistry config
-  template: src=config.j2 dest=/opt/viz-server/config.js group=www owner=www
+# Todo: Ugh.
+- template: src=config.j2 dest=/opt/viz-server/config.js group=www owner=www
   sudo: yes
   when: production == true
   tags: 
     - node-server
     - node-server-fast
 
-- name: graphistry config
-  template: src=config.j2 dest=/opt/viz-server/config.js group=www owner=www
+- template: src=config.j2 dest=/opt/viz-server/node_modules/graph-viz/config.js group=www owner=www
+  sudo: yes
+  when: production == true
+  tags: 
+    - node-server
+    - node-server-fast
+
+- template: src=config.j2 dest=/opt/viz-server/node_modules/horizon-viz/src/server/config.js group=www owner=www
   sudo: yes
   when: production == true
   tags: 
@@ -224,7 +223,9 @@
     - { listen_port: 10007 }
   sudo: yes
   notify: update supervisor
-  tags: node-server
+  tags: 
+    - node-server
+    - supervisor
 
 - name: add monitoring agent
   template: src=reaper.py.j2 dest=/opt/reaper.py
@@ -242,6 +243,15 @@
   tags:
     - node-server
     - reaper
+    - supervisor
+
+- command: supervisorctl update
+  sudo: yes
+  tags:
+    - node-server
+    - reaper
+    - node-server-fast
+    - supervisor
 
 - command: supervisorctl reload
   sudo: yes
@@ -249,3 +259,4 @@
     - node-server
     - reaper
     - node-server-fast
+    - supervisor
