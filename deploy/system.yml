@@ -2,6 +2,7 @@
 - hosts: workers
   roles:
    - { role: astanway, user: astanway }
+   - { role: leo, user: leo }
    - { role: www, user: www }
    - { role: ubuntu, user: ubuntu }
    - common
@@ -11,6 +12,7 @@
 - hosts: central
   roles:
    - { role: astanway, user: astanway }
+   - { role: leo, user: leo }
    - { role: www, user: www }
    - { role: ubuntu, user: ubuntu }
    - common

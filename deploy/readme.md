@@ -22,9 +22,9 @@ It'll reboot. Then run (now and forever after):
 `ansible-playbook -i hosts system.yml -vvvv --skip-tags node-server-reboot`
 
 To start the server:
-`sudo supervisorctl start node-server`
-`sudo supervisorctl stop node-server`
-`sudo supervisorctl restart node-server`
+`sudo supervisorctl start all`
+`sudo supervisorctl stop all`
+`sudo supervisorctl restart all`
 
 Logs:
 `tail -f /var/log/node-server/server.log`

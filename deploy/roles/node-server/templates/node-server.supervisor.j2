@@ -1,5 +1,5 @@
 [program:node-server-{{ item.listen_port }}]
-command=sudo -u www DEBUG='*' /usr/bin/nodejs ./server.js "{\"VIZ_LISTEN_PORT\": {{ item.listen_port }}, \"horizon\": true }"
+command=sudo -u www DEBUG='*' /usr/bin/nodejs ./server.js "{\"VIZ_LISTEN_PORT\": {{ item.listen_port }} }"
 directory=/opt/viz-server
 process_name=%(program_name)s
 numprocs=1
