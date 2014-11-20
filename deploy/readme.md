@@ -1,4 +1,8 @@
-For fresh dev servers:
+## Login ##
+
+`ssh -A leo@54.183.193.90 -p 61630`
+
+## Fresh dev servers: ##
 
 Create new machine, provision with ansible_id_rsa key.
 
