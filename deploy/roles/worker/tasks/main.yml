@@ -1,20 +1,20 @@
 ---
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   get_url: dest=/tmp/cuda-repo-ubuntu1404_6.5-14_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_6.5-14_amd64.deb
   sudo: yes
-  tags: node-server-reboot 
+  tags: worker-reboot 
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   command: chdir=/tmp dpkg -i cuda-repo-ubuntu1404_6.5-14_amd64.deb
   sudo: yes
-  tags: node-server-reboot
+  tags: worker-reboot
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   command: apt-get update
   sudo: yes
-  tags: node-server-reboot
+  tags: worker-reboot
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes
   with_items:
@@ -29,32 +29,32 @@
     - libglu1-mesa-dev
     - libfreeimage-dev
     - pkg-config
-  tags: node-server-reboot
+  tags: worker-reboot
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
   sudo: yes
-  tags: node-server-reboot
+  tags: worker-reboot
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   template: src=xorg.conf.j2 dest=/etc/X11/xorg.conf
   sudo: yes
-  tags: node-server-reboot
+  tags: worker-reboot
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   template: src=grub.j2 dest=/etc/default/grub
   sudo: yes
-  tags: node-server-reboot
+  tags: worker-reboot
  
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot 
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot 
   command: update-grub
   sudo: yes
-  tags: node-server-reboot
+  tags: worker-reboot
  
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags node-server-reboot 
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot 
   command: reboot
   sudo: yes
-  tags: node-server-reboot
+  tags: worker-reboot
   
 - apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes
@@ -66,152 +66,152 @@
     - cmake
     - unzip
     - pigz
-  tags: node-server
+  tags: worker
 
 - git: repo=git@github.com:glfw/glfw.git dest=/tmp/glfw version=master update=yes accept_hostkey=yes
-  tags: node-server
+  tags: worker
 
 - command: chdir=/tmp/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
   sudo: yes
-  tags: node-server
+  tags: worker
 
 - command: chdir=/tmp/glfw make
   sudo: yes
-  tags: node-server
+  tags: worker
 
 - command: chdir=/tmp/glfw make install
   sudo: yes
-  tags: node-server
+  tags: worker
 
 - get_url: dest=/tmp/AntTweakBar_116.zip url=http://sourceforge.net/projects/anttweakbar/files/latest/download
   sudo: yes
   register: anttweak_downloaded
-  tags: node-server
+  tags: worker
 
 - shell: cd /tmp && unzip AntTweakBar_116.zip
   sudo: yes
   when: anttweak_downloaded.changed
-  tags: node-server
+  tags: worker
 
 - command: chdir=/tmp/AntTweakBar/src make
   sudo: yes
   when: anttweak_downloaded.changed
-  tags: node-server
+  tags: worker
 
 - command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so /usr/lib/
   when: anttweak_downloaded.changed
   sudo: yes
-  tags: node-server
+  tags: worker
 
 - command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so.1 /usr/lib/
   when: anttweak_downloaded.changed
   sudo: yes
-  tags: node-server
+  tags: worker
   
 - command: mkdir /tmp/web
   ignore_errors: true
   tags:
-  - node-server
+  - worker
 
 - command: chown -R ubuntu:ubuntu /tmp/web
   sudo: yes
   tags:
-  - node-server
+  - worker
 
 - shell: npm config set prefix '/home/ubuntu/.npm_global'
   tags: 
-    - node-server
+    - worker
 
 - git: repo=git@github.com:graphistry/viz-server.git dest=/tmp/web/viz-server version=master update=yes accept_hostkey=yes
   tags: 
-    - node-server
-    - node-server-fast
+    - worker
+    - worker-fast
 
 - command: npm install --global grunt-cli
   tags: 
-    - node-server
+    - worker
 
 - command: npm install --global node-gyp
   tags: 
-    - node-server
+    - worker
 
 # TODO: Fix this. Not sure what's up with Ansible's users.
 - shell: sudo su www -l -c "cd /home/www && npm install node-webcl"
   sudo: yes
   tags: 
-    - node-server
+    - worker
 
 - shell: sudo su www -l -c "cd /home/www && npm install node-webgl"
   sudo: yes
   tags: 
-    - node-server
+    - worker
 
 - shell: chdir=/home/ubuntu/ npm install node-webcl
   tags: 
-    - node-server
+    - worker
 
 - shell: chdir=/home/ubuntu/ npm install node-webgl
   tags: 
-    - node-server
+    - worker
 
 - shell: chdir=/tmp/web/viz-server npm install
   tags: 
-    - node-server
-    - node-server-fast
+    - worker
+    - worker-fast
 
 - command: cp -r /tmp/web/viz-server /opt
   sudo: yes
   tags: 
-    - node-server
-    - node-server-fast
+    - worker
+    - worker-fast
 
 - command: chown -R www:www /opt/
   sudo: yes
   tags: 
-    - node-server
-    - node-server-fast
+    - worker
+    - worker-fast
 
 - command: chmod g+w -R /opt/
   sudo: yes
   tags: 
-    - node-server
-    - node-server-fast
+    - worker
+    - worker-fast
 
 # Todo: Ugh.
 - template: src=config.j2 dest=/opt/viz-server/config.js group=www owner=www
   sudo: yes
   when: production == true
   tags: 
-    - node-server
-    - node-server-fast
+    - worker
+    - worker-fast
 
 - template: src=config.j2 dest=/opt/viz-server/node_modules/graph-viz/config.js group=www owner=www
   sudo: yes
   when: production == true
   tags: 
-    - node-server
-    - node-server-fast
+    - worker
+    - worker-fast
 
 - template: src=config.j2 dest=/opt/viz-server/node_modules/horizon-viz/src/server/config.js group=www owner=www
   sudo: yes
   when: production == true
   tags: 
-    - node-server
-    - node-server-fast
+    - worker
+    - worker-fast
 
-- command: mkdir /var/log/node-server
+- command: mkdir /var/log/worker
   ignore_errors: true
   sudo: yes
-  tags: node-server
+  tags: worker
 
 # - name: remove all old supervisor configs to prevent drift
 #   shell: rm /etc/supervisor/conf.d/*
 #   sudo: yes
 #   ignore_errors: true
-#   tags: node-server
+#   tags: worker
 
 - name: node supervisor
-  template: src=node-server.supervisor.j2 dest=/etc/supervisor/conf.d/node-server-{{ item.listen_port }}.conf
+  template: src=worker.supervisor.j2 dest=/etc/supervisor/conf.d/worker-{{ item.listen_port }}.conf
   with_items:
     - { listen_port: 10000 }
     - { listen_port: 10001 }
@@ -224,7 +224,7 @@
   sudo: yes
   notify: update supervisor
   tags: 
-    - node-server
+    - worker
     - supervisor
 
 - name: add monitoring agent
@@ -232,7 +232,7 @@
   sudo: yes
   when: production == true
   tags:
-    - node-server
+    - worker
     - reaper
 
 - name: monitoring supervisor
@@ -241,22 +241,22 @@
   when: production == true
   notify: update supervisor
   tags:
-    - node-server
+    - worker
     - reaper
     - supervisor
 
 - command: supervisorctl update
   sudo: yes
   tags:
-    - node-server
+    - worker
     - reaper
-    - node-server-fast
+    - worker-fast
     - supervisor
 
 - command: supervisorctl reload
   sudo: yes
   tags:
-    - node-server
+    - worker
     - reaper
-    - node-server-fast
+    - worker-fast
     - supervisor

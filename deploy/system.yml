@@ -7,7 +7,7 @@
    - { role: ubuntu, user: ubuntu }
    - { role: thibaud, user: thibaud }
    - common
-   - { role: node-server, production: true }
+   - { role: worker, production: true }
   tags: workers
 
 - hosts: central
@@ -33,7 +33,7 @@
 #    - { role: www, user: www }
 #    - { role: ubuntu, user: ubuntu }
 #    - common
-#    - { role: node-server, production: false }
+#    - { role: worker, production: false }
 #    - { role: central, production: false }
 #   tags: dev
   
