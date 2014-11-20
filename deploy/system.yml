@@ -5,6 +5,7 @@
    - { role: leo, user: leo }
    - { role: www, user: www }
    - { role: ubuntu, user: ubuntu }
+   - { role: thibaud, user: thibaud }
    - common
    - { role: node-server, production: true }
   tags: workers
@@ -15,11 +16,17 @@
    - { role: leo, user: leo }
    - { role: www, user: www }
    - { role: ubuntu, user: ubuntu }
+   - { role: thibaud, user: thibaud }
    - common
    - { role: central, production: true }
   tags: central
 
-# - hosts: quinn-dev
+- hosts: localdev
+  roles:
+   - { role: localdev, production: false }
+  tags: localdev
+
+# - hosts: prod-dev
 #   roles:
 #    - { role: astanway, user: astanway }
 #    - { role: quinn, user: quinn }
@@ -28,7 +35,7 @@
 #    - common
 #    - { role: node-server, production: false }
 #    - { role: central, production: false }
-#   tags: quinn-dev
+#   tags: dev
   
 - hosts: splunk
   roles:

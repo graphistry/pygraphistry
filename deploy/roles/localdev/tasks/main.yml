@@ -1,0 +1,10 @@
+# mac localdev stuff here
+# brew install node
+# install mongo
+# install cuda
+# whatever
+# run with `sudo ansible-playbook -i hosts system.yml -vvvv --tags localdev`
+
+- name: example
+  command: touch poop
+  sudo: yes

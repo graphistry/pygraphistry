@@ -1,0 +1,13 @@
+server {
+    listen 80;
+
+    location /static {
+        root /opt;
+        expires max;
+        access_log on;
+    }
+
+    location / {
+        proxy_pass http://localhost:3000;
+    }
+}
