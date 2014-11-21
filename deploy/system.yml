@@ -23,7 +23,11 @@
 
 - hosts: localdev
   roles:
-   - { role: localdev, production: false }
+    # - { role: www, user: www }
+    # - { role: vagrant, user: vagrant }
+    # - common
+    # - { role: worker, production: false }
+    # - { role: central, production: false }
   tags: localdev
 
 # - hosts: prod-dev

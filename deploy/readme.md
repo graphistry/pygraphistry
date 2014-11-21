@@ -1,4 +1,4 @@
-## Login ##
+``## Login ##
 
 `ssh -A leo@54.183.193.90 -p 61630`
 
@@ -19,10 +19,10 @@ Uncomment ansible port:
 `ansible-playbook -i hosts system.yml -vvvv --tags node-server-reboot`
 
 It'll reboot. Then run (now and forever after):
-`ansible-playbook -i hosts system.yml -vvvv --tags worker,central --skip-tags workers-reboot`
+`ansible-playbook -i hosts system.yml -vvvv --tags worker,central --skip-tags worker-reboot`
 
 For the fast version, use:
-`ansible-playbook -i hosts system.yml -vvvv --tags worker-fast,central-fast --skip-tags workers-reboot`
+`ansible-playbook -i hosts system.yml -vvvv --tags worker-fast,central-fast --skip-tags worker-reboot,localdev`
 
 To start the server:
 `sudo supervisorctl start all`
@@ -31,3 +31,14 @@ To start the server:
 
 Logs:
 `tail -f /var/log/node-server/server.log`
+
+
+Localdev:
+
+`vagrant up dev`
+`vagrant ssh`
+`sudo apt-get install linux-headers-generic`
+`ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh`
+*reboot*
+`ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh,worker-reboot`
+`vagrant ssh`

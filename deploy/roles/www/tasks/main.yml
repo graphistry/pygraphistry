@@ -5,10 +5,10 @@
 - user: name={{ user }} groups="{{ user }}" state=present
   sudo: yes
 
-- synchronize: src=bash_profile dest=/home/{{ user }}/.bash_profile
+- synchronize: rsync_path="sudo rsync" src=bash_profile dest=/home/{{ user }}/.bash_profile
   sudo: yes
 
-- synchronize: src=bashrc dest=/home/{{ user }}/.bashrc
+- synchronize: rsync_path="sudo rsync" src=bashrc dest=/home/{{ user }}/.bashrc
   sudo: yes
 
 - command: mkdir /home/{{ user }}/.npm_global

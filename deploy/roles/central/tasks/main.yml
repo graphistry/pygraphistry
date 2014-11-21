@@ -1,10 +1,10 @@
 ---
-- shell: npm config set prefix '/home/ubuntu/.npm_global'
+- shell: npm config set prefix '/home/{{ ansible_ssh_user }}/.npm_global'
 
 - command: mkdir /tmp/web
   ignore_errors: true
 
-- command: chown -R ubuntu:ubuntu /tmp/web
+- command: chown -R {{ ansible_ssh_user }}:{{ ansible_ssh_user }} /tmp/web
   sudo: yes
 
 - name: update central repo

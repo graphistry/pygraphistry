@@ -1,27 +1,26 @@
 ---
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   get_url: dest=/tmp/cuda-repo-ubuntu1404_6.5-14_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_6.5-14_amd64.deb
   sudo: yes
   tags: worker-reboot 
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   command: chdir=/tmp dpkg -i cuda-repo-ubuntu1404_6.5-14_amd64.deb
   sudo: yes
   tags: worker-reboot
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   command: apt-get update
   sudo: yes
   tags: worker-reboot
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes
   with_items:
     - nvidia-340-dev
     - linux-image-extra-virtual
     - mesa-utils
-    - supervisor
     - npm
     - libxrandr-dev
     - libxcursor-dev
@@ -31,31 +30,31 @@
     - pkg-config
   tags: worker-reboot
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
   sudo: yes
   tags: worker-reboot
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   template: src=xorg.conf.j2 dest=/etc/X11/xorg.conf
   sudo: yes
   tags: worker-reboot
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot
   template: src=grub.j2 dest=/etc/default/grub
   sudo: yes
   tags: worker-reboot
  
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot 
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot 
   command: update-grub
   sudo: yes
   tags: worker-reboot
  
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot 
+- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags worker-reboot 
   command: reboot
   sudo: yes
   tags: worker-reboot
-  
+
 - apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes
   with_items:
@@ -113,12 +112,12 @@
   tags:
   - worker
 
-- command: chown -R ubuntu:ubuntu /tmp/web
+- command: chown -R {{ ansible_ssh_user }}:{{ ansible_ssh_user }} /tmp/web
   sudo: yes
   tags:
   - worker
 
-- shell: npm config set prefix '/home/ubuntu/.npm_global'
+- shell: npm config set prefix '/home/{{ ansible_ssh_user }}/.npm_global'
   tags: 
     - worker
 
@@ -146,11 +145,11 @@
   tags: 
     - worker
 
-- shell: chdir=/home/ubuntu/ npm install node-webcl
+- shell: chdir=/home/{{ ansible_ssh_user }}/ npm install node-webcl
   tags: 
     - worker
 
-- shell: chdir=/home/ubuntu/ npm install node-webgl
+- shell: chdir=/home/{{ ansible_ssh_user }}/ npm install node-webgl
   tags: 
     - worker
 
