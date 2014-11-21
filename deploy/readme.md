@@ -19,7 +19,7 @@ Uncomment ansible port:
 `ansible-playbook -i hosts system.yml -vvvv --tags node-server-reboot`
 
 It'll reboot. Then run (now and forever after):
-`ansible-playbook -i hosts system.yml -vvvv --tags worker,central --skip-tags worker-reboot`
+`ansible-playbook -i hosts system.yml -vvvv --tags worker,central --skip-tags worker-reboot,localdev`
 
 For the fast version, use:
 `ansible-playbook -i hosts system.yml -vvvv --tags worker-fast,central-fast --skip-tags worker-reboot,localdev`
