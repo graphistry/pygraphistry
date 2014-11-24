@@ -16,7 +16,14 @@ module.exports = function() {
         HOSTNAME: 'localhost'
     };
 
-    var commandLineOptions = process.argv.length > 2 ? JSON.parse(process.argv[2]) : {};
+    if (process.argv.length > 2) {
+        var commandLineOptions = {};
+        try {
+            commandLineOptions = JSON.parse(process.argv[2])
+        } catch (err) {
+            console.warn("WARNING Cannot parse command line arguments, ignoring...");
+        }
+    }
 
     var options = _.extend(defaultOptions, commandLineOptions);
 
