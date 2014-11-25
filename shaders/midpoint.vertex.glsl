@@ -1,5 +1,9 @@
 precision mediump float;
-uniform mat3 mvp;
+
+#define W_VAL 1.0
+#define Z_VAL 0.0
+
+uniform mat4 mvp;
 attribute vec2 curPos;
 
 void main(void) {
@@ -7,6 +11,6 @@ void main(void) {
 
     gl_PointSize = 3.0;
 
-    vec3 pos = mvp * vec3(curPos[0], curPos[1], w);
-    gl_Position = vec4(pos[0], pos[1], 0, pos[2]);
+    vec4 pos = vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);
+    gl_Position = mvp * pos;
 }

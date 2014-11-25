@@ -1,8 +1,9 @@
-#define W_VALUE 1.0
+precision highp float;
 
-precision mediump float;
+#define W_VAL 1.0
+#define Z_VAL 0.0
 
-uniform mat3 mvp;
+uniform mat4 mvp;
 // uniform vec2 uResolution;
 
 attribute vec2 curPos;
@@ -11,11 +12,8 @@ attribute vec2 aColorCoord;
 varying vec2 vColorCoord;
 
 void main(void) {
-	vec3 colorLoc = (mvp * vec3(aColorCoord.x, aColorCoord.y, W_VALUE));
-	colorLoc.x = colorLoc.x / colorLoc.z;
-	colorLoc.y = colorLoc.y / colorLoc.z;
+	vec4 colorLoc = vec4(aColorCoord.x, aColorCoord.y, Z_VAL, W_VAL);
 	vColorCoord = colorLoc.xy;
 
-    vec3 pos = mvp * vec3(curPos[0], curPos[1], W_VALUE);
-    gl_Position = vec4(pos[0], pos[1], 0.0, pos[2]);
+    gl_Position = mvp * vec4(curPos.x, curPos.y, Z_VAL, W_VAL);
 }
