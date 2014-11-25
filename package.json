@@ -10,7 +10,6 @@
   "license": "ISC",
   "dependencies": {
     "StreamGL": "git+ssh://git@github.com:graphistry/StreamGL.git#master",
-    "bunyan": "^1.2.1",
     "chalk": "^0.5.1",
     "express": "^4.6.1",
     "gl-matrix": "^2.1.0",
