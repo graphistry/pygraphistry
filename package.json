@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "description": "",
-  "main": "main.js",
+  "main": "index.js",
   "author": "",
   "scripts": {
   },
