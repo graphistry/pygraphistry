@@ -95,10 +95,9 @@ def reap(db):
 
     # Select all checkins older than 30 seconds
     collection = db['node_monitor']
-    old = collection.find({"updated": {"$lt": datetime.now() - timedelta(seconds=30)}})
+    old = collection.find({"ip": ip, "updated": {"$lt": datetime.now() - timedelta(seconds=30)}})
     for doc in old:
         pid = doc['pid']
-        ip = doc['ip']
         port = doc['port']
         collection.remove({"_id": doc['_id']})
         logger.info("killing {0}".format(pid))
@@ -108,7 +107,7 @@ def reap(db):
             pass
 
     # Update Boundary
-    active = collection.find({"active": True})
+    active = collection.find({"ip": ip, "active": True})
     active_users = 0
     for doc in active:
       active_users += 1
@@ -119,7 +118,7 @@ def reap(db):
     logger.info("boundary status: " + str(r.json()))
 
     # Update Boundary
-    inactive = collection.find({"active": False})
+    inactive = collection.find({"ip": ip, "active": False})
     inactive_workers = 0
     for doc in inactive:
       inactive_workers += 1

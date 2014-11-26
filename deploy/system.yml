@@ -7,7 +7,7 @@
    - { role: ubuntu, user: ubuntu, tags: provision }
    - { role: thibaud, user: thibaud, tags: provision }
    - { role: common, tags: provision }
-   - { role: central,
+   - { role: worker,
        production: true,
        mongo_server: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod',
        mongo_db: 'graphistry-prod'
@@ -38,7 +38,7 @@
    - { role: www, user: www, tags: provision }
    - { role: ubuntu, user: ubuntu, tags: provision }
    - { role: common, tags: provision }
-   - { role: worker, 
+   - { role: worker,
        production: true,
        mongo_server: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-staging',
        mongo_db: 'graphistry-staging'
