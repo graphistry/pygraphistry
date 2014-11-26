@@ -41,9 +41,11 @@ Logs:
 
 ## To Deploy:
 
-Staging:
+### Staging:
 
 `ansible-playbook -i hosts system.yml -vvvv --tags staging --skip-tags provision`
+
+### Prod:
 
 Fast version:
 
