@@ -32,13 +32,22 @@ To start the server:
 Logs:
 `tail -f /var/log/node-server/server.log`
 
+## To Deploy:
+Fast version:
+`ansible-playbook -i hosts system.yml -vvvv --tags worker-fast,central-fast --skip-tags worker-reboot,localdev`
 
-Localdev:
+Slow version, if you have config changes:
+`ansible-playbook -i hosts system.yml -vvvv --tags worker,central --skip-tags worker-reboot,localdev`
 
-`vagrant up dev`
-`vagrant ssh`
-`sudo apt-get install linux-headers-generic`
-`ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh`
-*reboot*
-`ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh,worker-reboot`
-`vagrant ssh`
+
+##Localdev:
+
+```
+vagrant up dev
+vagrant ssh
+sudo apt-get install linux-headers-generic
+ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh
+reboot
+ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh,worker-reboot
+vagrant ssh
+```
