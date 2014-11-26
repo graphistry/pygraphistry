@@ -16,8 +16,8 @@ module.exports = function() {
         HOSTNAME: 'localhost'
     };
 
+    var commandLineOptions = {};
     if (process.argv.length > 2) {
-        var commandLineOptions = {};
         try {
             commandLineOptions = JSON.parse(process.argv[2])
         } catch (err) {
