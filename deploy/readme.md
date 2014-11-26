@@ -9,6 +9,7 @@
 2. Log onto the box by hand:
 
 `ssh -A -i ansible_id_rsa.pem ubuntu@XXXXXXX`
+
 `sudo apt-get update && sudo apt-get install linux-headers-generic`
 
 3. Exit box, go to deploy repo
@@ -19,11 +20,11 @@
 
 6. Uncomment ansible port.
 
-7. `ansible-playbook -i hosts system.yml -vvvv --tags node-server-reboot`
+7. `ansible-playbook -i hosts system.yml -vvvv --tags YOUR_BOX'S_TAG`
 
 8. It'll reboot. Then deploy:
 
-`ansible-playbook -i hosts system.yml -vvvv --tags worker,central --skip-tags worker-reboot,localdev`
+`ansible-playbook -i hosts system.yml -vvvv --tags YOUR_BOX'S_TAG --skip-tags provision`
 
 9. You're done.
 
@@ -40,13 +41,17 @@ Logs:
 
 ## To Deploy:
 
+Staging:
+
+`ansible-playbook -i hosts system.yml -vvvv --tags staging --skip-tags provision`
+
 Fast version:
 
-`ansible-playbook -i hosts system.yml -vvvv --tags worker-fast,central-fast --skip-tags worker-reboot,localdev`
+`ansible-playbook -i hosts system.yml -vvvv --tags worker-fast,central-fast --skip-tags provision`
 
 Slow version, if you have config changes:
 
-`ansible-playbook -i hosts system.yml -vvvv --tags worker,central --skip-tags worker-reboot,localdev`
+`ansible-playbook -i hosts system.yml -vvvv --tags worker,central --skip-tags provision`
 
 
 ##Localdev:
@@ -55,8 +60,8 @@ Slow version, if you have config changes:
 vagrant up dev
 vagrant ssh
 sudo apt-get install linux-headers-generic
-ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh
+sudo ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh
 reboot
-ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh,worker-reboot
+sudo ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh,worker-reboot
 vagrant ssh
 ```

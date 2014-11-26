@@ -7,11 +7,11 @@ module.exports = function() {
     var defaultOptions = {
         VIZ_LISTEN_ADDRESS: '0.0.0.0',
         VIZ_LISTEN_PORT: 10000,
-        MONGO_SERVER: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod',
+        MONGO_SERVER: '{{ mongo_server }}',
         PRODUCTION: true,
         HTTP_LISTEN_ADDRESS: 'localhost',
         HTTP_LISTEN_PORT: 3000,
-        DATABASE: 'graphistry-prod',
+        DATABASE: '{{ mongo_db }}',
         HOSTNAME: '{{ hostname }}'
     };
 

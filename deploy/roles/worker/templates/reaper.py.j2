@@ -131,9 +131,9 @@ def reap(db):
 
 if __name__=="__main__":
     # Connect to central db
-    url = 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod'
+    url = '{{ mongo_server }}'
     conn = MongoClient(url)
-    db = conn['graphistry-prod']
+    db = conn['{{ mongo_db }}']
     while 1:
         try:
             db.node_monitor.ensure_index( [("port", ASCENDING), ("ip", ASCENDING), ("pid", ASCENDING)], unique=True )
@@ -141,6 +141,6 @@ if __name__=="__main__":
             reap(db)
         except errors.ConnectionFailure:
           conn = MongoClient(url)
-          db = conn['graphistry-prod']
+          db = conn['{{ mongo_db }}']
 
         time.sleep(10)

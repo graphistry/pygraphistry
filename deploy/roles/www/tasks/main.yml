@@ -1,3 +1,4 @@
+
 ---
 - group: name={{ user }} state=present
   sudo: yes
