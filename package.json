@@ -6,6 +6,7 @@
   "main": "index.js",
   "author": "",
   "scripts": {
+    "test": "jasmine-node spec/"
   },
   "license": "ISC",
   "dependencies": {
