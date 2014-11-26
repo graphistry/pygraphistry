@@ -40,12 +40,12 @@
    - { role: common, tags: provision }
    - { role: worker, 
        production: true,
-       mongo_server: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod',
+       mongo_server: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-staging',
        mongo_db: 'graphistry-staging'
     }
    - { role: central, 
        production: true,
-       mongo_server: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod',
+       mongo_server: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-staging',
        mongo_db: 'graphistry-staging'
      }
   tags: staging

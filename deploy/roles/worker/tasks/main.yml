@@ -68,18 +68,22 @@
   tags: worker
 
 - git: repo=git@github.com:glfw/glfw.git dest=/tmp/glfw version=master update=yes accept_hostkey=yes
+  register: glfw
   tags: worker
 
 - command: chdir=/tmp/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
   sudo: yes
+  when: glfw.changed
   tags: worker
 
 - command: chdir=/tmp/glfw make
   sudo: yes
+  when: glfw.changed
   tags: worker
 
 - command: chdir=/tmp/glfw make install
   sudo: yes
+  when: glfw.changed
   tags: worker
 
 - get_url: dest=/tmp/AntTweakBar_116.zip url=http://sourceforge.net/projects/anttweakbar/files/latest/download
@@ -196,7 +200,7 @@
   when: production == true
   tags: 
     - worker
-    - worker-fast
+    - worker-fast      
 
 - command: mkdir /var/log/worker
   ignore_errors: true

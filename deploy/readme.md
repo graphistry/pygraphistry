@@ -49,11 +49,7 @@ Logs:
 
 Fast version:
 
-`ansible-playbook -i hosts system.yml -vvvv --tags worker-fast,central-fast --skip-tags provision`
-
-Slow version, if you have config changes:
-
-`ansible-playbook -i hosts system.yml -vvvv --tags worker,central --skip-tags provision`
+`ansible-playbook -i hosts system.yml -vvvv --tags central,workers --skip-tags provision`
 
 
 ##Localdev:
