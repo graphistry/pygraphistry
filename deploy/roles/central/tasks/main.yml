@@ -126,13 +126,28 @@
 
 - template: src=central-app.supervisor.j2 dest=/etc/supervisor/conf.d/central-app.conf
   sudo: yes
-  notify: update supervisor
   tags: 
     - fast
     - supervisor
 
+# Ensure supervisord itself is running
+- command: service supervisor start
+  sudo: yes
+  tags:
+    - fast
+    - supervisor
+  ignore_errors: true
+
+# Read in config changes
+- command: supervisorctl reread
+  sudo: yes
+  tags:
+    - fast
+    - supervisor
+
+# Reload supervisor processes
 - command: supervisorctl reload
   sudo: yes
-  tags: 
+  tags:
     - fast
     - supervisor
