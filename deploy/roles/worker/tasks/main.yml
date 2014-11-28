@@ -263,8 +263,17 @@
     - supervisor
   ignore_errors: true
 
-# Read in config changes and reload processes
-- command: supervisorctl reread && supervisorctl reload
+# Read in config changes
+- command: supervisorctl reread
+  sudo: yes
+  tags:
+    - worker
+    - reaper
+    - fast
+    - supervisor
+
+# Reload supervisor processes
+- command: supervisorctl reload
   sudo: yes
   tags:
     - worker

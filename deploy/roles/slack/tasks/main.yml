@@ -1,0 +1,7 @@
+---
+- name: "ping slack"
+  local_action: shell echo "'payload={\"channel\":\"#general\",\"username\":\"ansible\",\"text\":\"$USER deploying {{ ansible_hostname }}\"}' https://hooks.slack.com/services/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" | xargs curl -X POST --data-urlencode
+  tags:
+    - fast
+    - staging-full
+    - prod-full
