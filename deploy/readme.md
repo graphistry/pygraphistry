@@ -43,17 +43,17 @@ Logs:
 
 ### Staging:
 
-`ansible-playbook -i hosts system.yml -vvvv --tags staging --skip-tags provision`
+`ansible-playbook -i hosts -l staging system.yml -vv --tags fast --skip-tags provision`
 
 ### Prod:
 
 Fast version:
 
-`ansible-playbook -i hosts system.yml -vvvv --tags prod-fast --skip-tags provision`
+`ansible-playbook -i hosts -l prod system.yml -vv --tags fast --skip-tags provision`
 
 Full version:
 
-`ansible-playbook -i hosts system.yml -vvvv --tags prod-full --skip-tags provision`
+`ansible-playbook -i hosts -l prod system.yml -vv --skip-tags provision`
 
 ##Localdev:
 

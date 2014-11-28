@@ -128,8 +128,7 @@
 - git: repo=git@github.com:graphistry/viz-server.git dest=/tmp/web/viz-server version=master update=yes accept_hostkey=yes
   tags: 
     - worker
-    - prod-fast
-    - staging-fast
+    - fast
 
 - command: npm install --global grunt-cli
   tags: 
@@ -161,29 +160,25 @@
 - shell: chdir=/tmp/web/viz-server npm install
   tags: 
     - worker
-    - prod-fast
-    - staging-fast
+    - fast
 
 - command: cp -r /tmp/web/viz-server /opt
   sudo: yes
   tags: 
     - worker
-    - prod-fast
-    - staging-fast
+    - fast
 
 - command: chown -R www:www /opt/
   sudo: yes
   tags: 
     - worker
-    - prod-fast
-    - staging-fast
+    - fast
 
 - command: chmod g+w -R /opt/
   sudo: yes
   tags: 
     - worker
-    - prod-fast
-    - staging-fast
+    - fast
 
 # Todo: Ugh.
 - template: src=config.j2 dest=/opt/viz-server/config.js group=www owner=www
@@ -191,23 +186,21 @@
   when: production == true
   tags: 
     - worker
-    - prod-fast
-    - staging-fast
+    - fast
 
 - template: src=config.j2 dest=/opt/viz-server/node_modules/graph-viz/config.js group=www owner=www
   sudo: yes
   when: production == true
   tags: 
     - worker
-    - prod-fast
-    - staging-fast
+    - fast
 
 - template: src=config.j2 dest=/opt/viz-server/node_modules/horizon-viz/src/server/config.js group=www owner=www
   sudo: yes
   when: production == true
   tags: 
     - worker
-    - prod-fast
+    - fast
     - staging-fast      
 
 - command: mkdir /var/log/worker
@@ -215,11 +208,14 @@
   sudo: yes
   tags: worker
 
-# - name: remove all old supervisor configs to prevent drift
-#   shell: rm /etc/supervisor/conf.d/*
-#   sudo: yes
-#   ignore_errors: true
-#   tags: worker
+- name: remove all old supervisor configs to prevent drift
+  shell: rm /etc/supervisor/conf.d/*
+  sudo: yes
+  ignore_errors: true
+  tags:
+    - worker
+    - fast
+    - supervisor
 
 - name: node supervisor
   template: src=worker.supervisor.j2 dest=/etc/supervisor/conf.d/worker-{{ item.listen_port }}.conf
@@ -233,11 +229,9 @@
     - { listen_port: 10006 }
     - { listen_port: 10007 }
   sudo: yes
-  notify: update supervisor
-  tags: 
+  tags:
     - worker
-    - prod-fast
-    - staging-fast
+    - fast
     - supervisor
 
 - name: add monitoring agent
@@ -246,36 +240,34 @@
   when: production == true
   tags:
     - worker
-    - prod-fast
-    - staging-fast
+    - fast
     - reaper
 
 - name: monitoring supervisor
   template: src=reaper.supervisor.j2 dest=/etc/supervisor/conf.d/reaper.conf
   sudo: yes
   when: production == true
-  notify: update supervisor
   tags:
     - worker
     - reaper
-    - prod-fast
-    - staging-fast
+    - fast
     - supervisor
 
-- command: supervisorctl update
+# Ensure supervisord itself is running
+- command: service supervisor start
   sudo: yes
   tags:
     - worker
     - reaper
-    - prod-fast
-    - staging-fast
+    - fast
     - supervisor
+  ignore_errors: true
 
-- command: supervisorctl reload
+# Read in config changes and reload processes
+- command: supervisorctl reread && supervisorctl reload
   sudo: yes
   tags:
     - worker
     - reaper
-    - prod-fast
-    - staging-fast
+    - fast
     - supervisor

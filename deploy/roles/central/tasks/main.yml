@@ -10,40 +10,34 @@
 - name: update central repo
   git: repo=git@github.com:graphistry/central.git dest=/tmp/web/central version=master update=yes accept_hostkey=yes
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - shell: chdir=/tmp/web/central npm install
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - template: src=config.j2 dest=/tmp/web/central/node_modules/graph-viz/config.js
   sudo: yes
   when: production == true
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
   
 - template: src=config.j2 dest=/tmp/web/central/node_modules/horizon-viz/src/server/config.js
   sudo: yes
   when: production == true
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - template: src=config.j2 dest=/tmp/web/central/config.js
   sudo: yes
   when: production == true
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - command: cp -r /tmp/web/central /opt
   sudo: yes
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - command: mkdir /opt/static
   sudo: yes
@@ -74,56 +68,48 @@
   ignore_errors: true
   sudo: yes
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - shell: cp -r /opt/central/node_modules/horizon-viz/assets/js/* /opt/static/js
   ignore_errors: true
   sudo: yes
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - shell: cp -r /opt/central/node_modules/horizon-viz/assets/libs/* /opt/static/js
   ignore_errors: true
   sudo: yes
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - shell: cp -r /opt/central/node_modules/horizon-viz/assets/fonts/* /opt/static/fonts
   ignore_errors: true
   sudo: yes
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 # graph
 - shell: cp -r /opt/central/node_modules/graph-viz/assets/css/* /opt/static/css
   ignore_errors: true
   sudo: yes
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - shell: cp -r /opt/central/node_modules/graph-viz/assets/libs/* /opt/static/libs
   ignore_errors: true
   sudo: yes
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - command: chown -R www:www /opt/
   sudo: yes
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - command: chmod g+w -R /opt/
   sudo: yes
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
 
 - command: mkdir /var/log/central-app
   sudo: yes
@@ -142,14 +128,11 @@
   sudo: yes
   notify: update supervisor
   tags: 
-    - prod-fast
-    - staging-fast
+    - fast
     - supervisor
 
 - command: supervisorctl reload
   sudo: yes
   tags: 
-    - prod-fast
-    - staging-fast
-    - staging-fast
+    - fast
     - supervisor

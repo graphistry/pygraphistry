@@ -1,5 +1,5 @@
 ---
-- hosts: workers
+- hosts: prod:workers
   roles:
    - { role: astanway, user: astanway, tags: provision }
    - { role: leo, user: leo, tags: provision }
@@ -15,7 +15,7 @@
     }
   tags: workers
 
-- hosts: central
+- hosts: prod:central
   roles:
    - { role: astanway, user: astanway, tags: provision }
    - { role: leo, user: leo, tags: provision }
