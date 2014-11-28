@@ -1,10 +1,7 @@
 ---
-- hosts: all
-  roles:
-    - { role: slack }
-
 - hosts: prod:workers
   roles:
+   - { role: slack, msg: "starting worker deploy" }
    - { role: astanway, user: astanway, tags: provision }
    - { role: leo, user: leo, tags: provision }
    - { role: www, user: www, tags: provision }
@@ -17,10 +14,12 @@
        mongo_db: 'graphistry-prod',
        tags: prod-full
     }
+   - { role: slack, msg: "finished worker deploy" }
   tags: workers
 
 - hosts: prod:central
   roles:
+   - { role: slack, msg: "starting central deploy" }
    - { role: astanway, user: astanway, tags: provision }
    - { role: leo, user: leo, tags: provision }
    - { role: www, user: www, tags: provision }
@@ -33,10 +32,12 @@
        mongo_db: 'graphistry-prod',
        tags: prod-full
     }
+   - { role: slack, msg: "finished central deploy" }
   tags: central
 
 - hosts: staging
   roles:
+   - { role: slack, msg: "starting staging deploy" }
    - { role: astanway, user: astanway, tags: provision }
    - { role: quinn, user: quinn, tags: provision }
    - { role: leo, user: leo, tags: provision }
@@ -56,6 +57,7 @@
        mongo_db: 'graphistry-staging',
        tags: staging-full
      }
+   - { role: slack, msg: "finished staging deploy" }
   tags: staging
   
 - hosts: splunk
