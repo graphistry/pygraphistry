@@ -37,7 +37,7 @@
 
 - hosts: staging
   roles:
-   - { role: slack, msg: "starting staging prod and worker deploy" }
+   - { role: slack, msg: "starting staging central and worker deploy" }
    - { role: astanway, user: astanway, tags: provision }
    - { role: quinn, user: quinn, tags: provision }
    - { role: leo, user: leo, tags: provision }
@@ -57,7 +57,7 @@
        mongo_db: 'graphistry-staging',
        tags: staging-full
      }
-   - { role: slack, msg: "finished staging deploy" }
+   - { role: slack, msg: "finished staging central and worker deploy" }
   tags: staging
   
 - hosts: splunk
