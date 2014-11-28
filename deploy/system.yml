@@ -10,7 +10,8 @@
    - { role: worker,
        production: true,
        mongo_server: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod',
-       mongo_db: 'graphistry-prod'
+       mongo_db: 'graphistry-prod',
+       tags: prod-full
     }
   tags: workers
 
@@ -25,7 +26,8 @@
    - { role: central,
        production: true,
        mongo_server: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod',
-       mongo_db: 'graphistry-prod'
+       mongo_db: 'graphistry-prod',
+       tags: prod-full
     }
   tags: central
 
@@ -41,12 +43,14 @@
    - { role: worker,
        production: true,
        mongo_server: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-staging',
-       mongo_db: 'graphistry-staging'
+       mongo_db: 'graphistry-staging',
+       tags: staging-full
     }
    - { role: central, 
        production: true,
        mongo_server: 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-staging',
-       mongo_db: 'graphistry-staging'
+       mongo_db: 'graphistry-staging',
+       tags: staging-full
      }
   tags: staging
   

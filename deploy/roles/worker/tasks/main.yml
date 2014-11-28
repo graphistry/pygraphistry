@@ -128,7 +128,8 @@
 - git: repo=git@github.com:graphistry/viz-server.git dest=/tmp/web/viz-server version=master update=yes accept_hostkey=yes
   tags: 
     - worker
-    - worker-fast
+    - prod-fast
+    - staging-fast
 
 - command: npm install --global grunt-cli
   tags: 
@@ -160,25 +161,29 @@
 - shell: chdir=/tmp/web/viz-server npm install
   tags: 
     - worker
-    - worker-fast
+    - prod-fast
+    - staging-fast
 
 - command: cp -r /tmp/web/viz-server /opt
   sudo: yes
   tags: 
     - worker
-    - worker-fast
+    - prod-fast
+    - staging-fast
 
 - command: chown -R www:www /opt/
   sudo: yes
   tags: 
     - worker
-    - worker-fast
+    - prod-fast
+    - staging-fast
 
 - command: chmod g+w -R /opt/
   sudo: yes
   tags: 
     - worker
-    - worker-fast
+    - prod-fast
+    - staging-fast
 
 # Todo: Ugh.
 - template: src=config.j2 dest=/opt/viz-server/config.js group=www owner=www
@@ -186,21 +191,24 @@
   when: production == true
   tags: 
     - worker
-    - worker-fast
+    - prod-fast
+    - staging-fast
 
 - template: src=config.j2 dest=/opt/viz-server/node_modules/graph-viz/config.js group=www owner=www
   sudo: yes
   when: production == true
   tags: 
     - worker
-    - worker-fast
+    - prod-fast
+    - staging-fast
 
 - template: src=config.j2 dest=/opt/viz-server/node_modules/horizon-viz/src/server/config.js group=www owner=www
   sudo: yes
   when: production == true
   tags: 
     - worker
-    - worker-fast      
+    - prod-fast
+    - staging-fast      
 
 - command: mkdir /var/log/worker
   ignore_errors: true
@@ -228,6 +236,8 @@
   notify: update supervisor
   tags: 
     - worker
+    - prod-fast
+    - staging-fast
     - supervisor
 
 - name: add monitoring agent
@@ -236,6 +246,8 @@
   when: production == true
   tags:
     - worker
+    - prod-fast
+    - staging-fast
     - reaper
 
 - name: monitoring supervisor
@@ -246,6 +258,8 @@
   tags:
     - worker
     - reaper
+    - prod-fast
+    - staging-fast
     - supervisor
 
 - command: supervisorctl update
@@ -253,7 +267,8 @@
   tags:
     - worker
     - reaper
-    - worker-fast
+    - prod-fast
+    - staging-fast
     - supervisor
 
 - command: supervisorctl reload
@@ -261,5 +276,6 @@
   tags:
     - worker
     - reaper
-    - worker-fast
+    - prod-fast
+    - staging-fast
     - supervisor
