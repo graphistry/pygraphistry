@@ -5,7 +5,7 @@ Cloud-based graph visualization
 
 ========
 
-== Install
+## Install
 
 Clone and ```npm install```
 
@@ -13,17 +13,18 @@ This will create and install dependencies on StreamGL, node-pigz, etc.
 
 Unknown: may need to first install libz/pigz . 
 
-== Run
+## Run
 
-=== Standalone
+#### Standalone
+
 
 ```node server-viz.js```
 
-```http://localhost:3000/graph/```
+```http://localhost:3000/graph/ ```
 
-=== Combined with central or viz-server repos
+#### Combined with central or viz-server repos
 
-See their readmes
+See their READMEs
 
 
 
