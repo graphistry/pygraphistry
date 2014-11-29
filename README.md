@@ -3,8 +3,6 @@ graph-viz
 
 Cloud-based graph visualization
 
-========
-
 ## Install
 
 Clone and ```npm install```
