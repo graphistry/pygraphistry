@@ -18,9 +18,13 @@ Unknown: may need to first install libz/pigz .
 #### Standalone
 
 
-```node server-viz.js```
+```node server-viz.js``` (for debug: ```DEBUG="*" node server-viz.js```)
+
+
 
 ```http://localhost:3000/graph/ ```
+
+
 
 #### Combined with central or viz-server repos
 
