@@ -1,4 +1,8 @@
-``## Login ##
+For the most up-to-date deploy flow, please check out the wiki:
+
+https://github.com/graphistry/deploy/wiki/Deployment-at-Graphistry
+
+## Login ##
 
 `ssh -A leo@54.183.193.90 -p 61630`
 
@@ -55,7 +59,7 @@ Full version:
 
 `ansible-playbook system.yml -vv --skip-tags provision -i hosts -l prod`
 
-##Localdev:
+##Localdev (defunct for now):
 
 ```
 vagrant up dev
