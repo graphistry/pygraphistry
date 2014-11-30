@@ -752,7 +752,6 @@ __kernel void bound_box(
       *bottomd = k;
       // TODO bottomd;
 
-      printf("k: %d \k", k);
       mass[k] = -1.0f;
       start[k] = 0;
 
@@ -761,7 +760,6 @@ __kernel void bound_box(
       x_cords[num_nodes] = (minx + maxx) * 0.5f;
       y_cords[num_nodes] = (miny + maxy) * 0.5f;
       k *= 4;
-      printf(" here k: %d  \n", k);
       for (int i = 0; i < 4; i++) children[k + i] = -1;
       (*stepd)++;
     }
@@ -1266,7 +1264,6 @@ __kernel void from_barnes_layout(
   for (int i = gid; i < numPoints; i += global_size) {
     outputPositions[i][0] = x_cords[i];
     outputPositions[i][1] = y_cords[i];
-    printf("x_cords[i] = %f \n", x_cords[i]);
   }
 }
 
