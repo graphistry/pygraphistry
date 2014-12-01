@@ -5,9 +5,13 @@
 [central]
 54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central01 ansible_ssh_port=61630
 
+[localhost]
+localhost ansible_connection=local
+
 [prod:children]
 workers
 central
+localhost
 
 [staging]
 54.183.155.35 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=staging01 ansible_ssh_port=61630

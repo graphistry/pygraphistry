@@ -1,7 +1,11 @@
 ---
+# ==== BEGIN PROD DEPLOY ====
+- hosts: localhost
+  roles:
+    - { role: slack, msg: "starting prod deploy" }
+
 - hosts: workers
   roles:
-   - { role: slack, msg: "starting prod deploy" }
    - { role: astanway, user: astanway, tags: provision }
    - { role: leo, user: leo, tags: provision }
    - { role: www, user: www, tags: provision }
@@ -30,9 +34,15 @@
        mongo_db: 'graphistry-prod',
        tags: prod-full
     }
-   - { role: slack, msg: "finished prod deploy: view at http://dev.graphistry.com" }
   tags: central
+  
+- hosts: localhost
+  roles:
+   - { role: slack, msg: "finished prod deploy: view at http://dev.graphistry.com/" }
 
+# ==== END PROD DEPLOY ====
+
+# ==== BEGIN STAGING DEPLOY ====
 - hosts: staging
   roles:
    - { role: slack, msg: "starting staging deploy" }
@@ -57,7 +67,9 @@
      }
    - { role: slack, msg: "finished staging deploy: view at http://54.183.155.35/" }
   tags: staging
-  
+
+# ==== END STAGING DEPLOY ====
+
 - hosts: splunk
   roles:
    - { role: astanway, user: astanway, tags: provision }
