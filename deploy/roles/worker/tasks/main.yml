@@ -208,14 +208,14 @@
   sudo: yes
   tags: worker
 
-- name: remove all old supervisor configs to prevent drift
-  shell: rm /etc/supervisor/conf.d/*
-  sudo: yes
-  ignore_errors: true
-  tags:
-    - worker
-    - fast
-    - supervisor
+# - name: remove all old supervisor configs to prevent drift
+#   shell: rm /etc/supervisor/conf.d/*
+#   sudo: yes
+#   ignore_errors: true
+#   tags:
+#     - worker
+#     - fast
+#     - supervisor
 
 - name: node supervisor
   template: src=worker.supervisor.j2 dest=/etc/supervisor/conf.d/worker-{{ item.listen_port }}.conf
