@@ -544,8 +544,7 @@ __kernel void forceAtlasPoints (
 
     const float2 dimensions = (float2) (width, height);
     const float2 centerDist = (dimensions/2.0f) - n1Pos;
-    printf("Width: %f \n", width);
-    printf("Height: %f \n", height);
+    /*printf("gravity: %f\n", gravity);*/
 
     float gravityForce =
         1.0f //mass
@@ -902,8 +901,8 @@ __kernel void build_tree(
           /*printf("py : %f \n", py);*/
           child[cell*4+j] = ch;
           if (x_cords[ch] == px && y_cords[ch] == py) {
-            x_cords[ch] += 0.000000001;
-            y_cords[ch] += 0.000000001;
+            x_cords[ch] += 0.0000001;
+            y_cords[ch] += 0.0000001;
           }
 
           n = cell;
@@ -1196,14 +1195,14 @@ __kernel void calculate_forces(
           /*dy = y_cords[child] - py;*/
           dx = px - x_cords[child];
           dy = py - y_cords[child];
-          temp = dx*dx + (dy*dy + 0.00000001);
-          if ((child < num_bodies)  /*||  thread_vote(allBlocks, warp_id, temp >= dq[depth])*/ )  {
+          temp = dx*dx + (dy*dy + 0.00000000001);
+          if ((child < num_bodies)  ||  thread_vote(allBlocks, warp_id, temp >= dq[depth]) )  {
             /*temp = 1 / sqrt(temp);*/
             //temp = native_rsqrt(temp);
-            //temp = mass[child] * temp * temp * temp;
-            /*temp = scalingRatio * temp * temp * temp;*/
             float force;
-            force = scalingRatio / temp;
+            /*temp = mass[child] * temp * temp * temp;*/
+            /*temp = scalingRatio * temp * temp * temp;*/
+            force = mass[child] / temp;
             ax += dx * force;
             ay += dy * force;
           } else {
@@ -1256,13 +1255,14 @@ __kernel void move_bodies(
     /*const float dthf = dtime * 0.5f;*/
     float velx, vely;
 
+    /*printf("Gravity: %f\n", gravity);*/
     int inc = get_global_size(0);
     for (int i = get_global_id(0); i < num_bodies; i+= inc) {
       /*velx = accx[i] * dthf;*/
       /*vely = accy[i] * dthf;*/
       float center_distance_x = width/2 - x_cords[i];
       float center_distance_y = height/2 - y_cords[i];
-      float gravity_force = sqrt(center_distance_x*center_distance_x + center_distance_y * center_distance_y);
+      float gravity_force = gravity / sqrt(center_distance_x*center_distance_x + center_distance_y * center_distance_y);
       velx = (accx[i] * 0.00001f) + (0.01f * gravity_force * center_distance_x);
       vely = (accy[i] * 0.00001f) + (0.01f * gravity_force * center_distance_y);
 
