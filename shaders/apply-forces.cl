@@ -1182,10 +1182,10 @@ __kernel void calculate_forces(
         if (child >= 0) {
           dx = x_cords[child] - px;
           dy = y_cords[child] - py;
-          temp = dx*dx + (dy*dy + 0.0001f);
+          temp = dx*dx + (dy*dy + 0.00000000000001f);
           if ((child < num_bodies)  ||  thread_vote(allBlocks, warp_id, temp >= dq[depth]) )  {
             temp = native_rsqrt(temp);
-            temp = mass[child] * temp * temp *temp;
+            temp = mass[child] * temp * temp * temp;
             ax += dx * temp;
             ay += dy * temp;
           } else {
@@ -1232,17 +1232,19 @@ __kernel void move_bodies(
     __global volatile float* radiusd,
     const int num_bodies,
     const int num_nodes) {
-    const float dtime = 0.025f;
-    const float dthf = dtime * 0.5f;
+    /*const float dtime = 0.025f;*/
+    /*const float dthf = dtime * 0.5f;*/
     float velx, vely;
 
     int inc = get_global_size(0);
     for (int i = get_global_id(0); i < num_bodies; i+= inc) {
-      velx = accx[i] * dthf;
-      vely = accy[i] * dthf;
+      /*velx = accx[i] * dthf;*/
+      /*vely = accy[i] * dthf;*/
+      velx = accx[i] * 0.000005f;
+      vely = accy[i] * 0.000005f;
 
-      x_cords[i] += velx * dtime;
-      y_cords[i] += vely * dtime;
+      x_cords[i] += velx;
+      y_cords[i] += vely;
     }
 }
 
