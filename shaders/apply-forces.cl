@@ -896,8 +896,8 @@ __kernel void build_tree(
           /*printf("py : %f \n", py);*/
           child[cell*4+j] = ch;
           if (x_cords[ch] == px && y_cords[ch] == py) {
-            x_cords[ch] += 0.00001;
-            y_cords[ch] += 0.00001;
+            x_cords[ch] += 0.000000001;
+            y_cords[ch] += 0.000000001;
           }
 
           n = cell;
@@ -1180,14 +1180,25 @@ __kernel void calculate_forces(
         }
         mem_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
         if (child >= 0) {
-          dx = x_cords[child] - px;
-          dy = y_cords[child] - py;
-          temp = dx*dx + (dy*dy + 0.00000000000001f);
-          if ((child < num_bodies)  ||  thread_vote(allBlocks, warp_id, temp >= dq[depth]) )  {
-            temp = native_rsqrt(temp);
-            temp = mass[child] * temp * temp * temp;
-            ax += dx * temp;
-            ay += dy * temp;
+          /*dx = x_cords[child] - px;*/
+          /*dy = y_cords[child] - py;*/
+          dx = px - x_cords[child];
+          dy = py - y_cords[child];
+          temp = dx*dx + (dy*dy);
+          if ((child < num_bodies)  /*||  thread_vote(allBlocks, warp_id, temp >= dq[depth])*/ )  {
+            /*temp = 1 / sqrt(temp);*/
+            //temp = native_rsqrt(temp);
+            //temp = mass[child] * temp * temp * temp;
+            /*temp = scalingRatio * temp * temp * temp;*/
+            float force;
+            
+            if (temp != 0) {
+            force = scalingRatio / temp;
+            } else {
+              force = 100;
+            }
+            ax += dx * force;
+            ay += dy * force;
           } else {
             depth++;
             if (starting_warp_thread_id == get_local_id(0)) {
@@ -1240,8 +1251,9 @@ __kernel void move_bodies(
     for (int i = get_global_id(0); i < num_bodies; i+= inc) {
       /*velx = accx[i] * dthf;*/
       /*vely = accy[i] * dthf;*/
-      velx = accx[i] * 0.000005f;
-      vely = accy[i] * 0.000005f;
+      float gravity_force = sqrt(x_cords[i]*x_cords[i] + y_cords[i]*y_cords[i]);
+      velx = (accx[i] * 0.00001f) + (0.01f * gravity_force * (-x_cords[i]));
+      vely = (accy[i] * 0.00001f) + (0.01f * gravity_force * (-y_cords[i]));
 
       x_cords[i] += velx;
       y_cords[i] += vely;
