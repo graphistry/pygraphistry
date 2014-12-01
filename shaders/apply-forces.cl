@@ -544,6 +544,8 @@ __kernel void forceAtlasPoints (
 
     const float2 dimensions = (float2) (width, height);
     const float2 centerDist = (dimensions/2.0f) - n1Pos;
+    printf("Width: %f \n", width);
+    printf("Height: %f \n", height);
 
     float gravityForce =
         1.0f //mass
@@ -685,6 +687,8 @@ __kernel void bound_box(
     __global volatile int* bottomd,
     __global volatile int* maxdepthd,
     __global volatile float* radiusd,
+    float width,
+    float height,
     const int num_bodies,
     const int num_nodes)
 {
@@ -787,6 +791,8 @@ __kernel void build_tree(
     __global volatile int* bottom,
     __global volatile int* maxdepth,
     __global volatile float* radiusd,
+    float width,
+    float height,
     const int num_bodies,
     const int num_nodes) {
 
@@ -942,6 +948,8 @@ __kernel void compute_sums(
     __global volatile int* bottom,
     __global volatile int* maxdepth,
     __global volatile float* radiusd,
+    float width,
+    float height,
     const int num_bodies,
     const int num_nodes) {
   int i, j, k, inc, num_children_missing, cnt, bottom_value, child;
@@ -1048,6 +1056,8 @@ __kernel void sort(
     __global volatile int* bottom,
     __global volatile int* maxdepth,
     __global volatile float* radiusd,
+    float width,
+    float height,
     const int num_bodies,
     const int num_nodes) {
       int i, k, child, decrement, start_index, bottom_node;
@@ -1112,6 +1122,8 @@ __kernel void calculate_forces(
     __global volatile int* bottom,
     __global volatile int* maxdepth,
     __global volatile float* radiusd,
+    float width,
+    float height,
     const int num_bodies,
     const int num_nodes) {
   int idx = get_global_id(0);
@@ -1184,19 +1196,14 @@ __kernel void calculate_forces(
           /*dy = y_cords[child] - py;*/
           dx = px - x_cords[child];
           dy = py - y_cords[child];
-          temp = dx*dx + (dy*dy);
+          temp = dx*dx + (dy*dy + 0.00000001);
           if ((child < num_bodies)  /*||  thread_vote(allBlocks, warp_id, temp >= dq[depth])*/ )  {
             /*temp = 1 / sqrt(temp);*/
             //temp = native_rsqrt(temp);
             //temp = mass[child] * temp * temp * temp;
             /*temp = scalingRatio * temp * temp * temp;*/
             float force;
-            
-            if (temp != 0) {
             force = scalingRatio / temp;
-            } else {
-              force = 100;
-            }
             ax += dx * force;
             ay += dy * force;
           } else {
@@ -1241,6 +1248,8 @@ __kernel void move_bodies(
     __global volatile int* bottom,
     __global volatile int* maxdepth,
     __global volatile float* radiusd,
+    float width,
+    float height,
     const int num_bodies,
     const int num_nodes) {
     /*const float dtime = 0.025f;*/
@@ -1251,9 +1260,11 @@ __kernel void move_bodies(
     for (int i = get_global_id(0); i < num_bodies; i+= inc) {
       /*velx = accx[i] * dthf;*/
       /*vely = accy[i] * dthf;*/
-      float gravity_force = sqrt(x_cords[i]*x_cords[i] + y_cords[i]*y_cords[i]);
-      velx = (accx[i] * 0.00001f) + (0.01f * gravity_force * (-x_cords[i]));
-      vely = (accy[i] * 0.00001f) + (0.01f * gravity_force * (-y_cords[i]));
+      float center_distance_x = width/2 - x_cords[i];
+      float center_distance_y = height/2 - y_cords[i];
+      float gravity_force = sqrt(center_distance_x*center_distance_x + center_distance_y * center_distance_y);
+      velx = (accx[i] * 0.00001f) + (0.01f * gravity_force * center_distance_x);
+      vely = (accy[i] * 0.00001f) + (0.01f * gravity_force * center_distance_y);
 
       x_cords[i] += velx;
       y_cords[i] += vely;
