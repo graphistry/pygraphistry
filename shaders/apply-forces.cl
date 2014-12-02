@@ -475,9 +475,9 @@ __kernel void forceAtlasPoints (
     float n1Size = DEFAULT_NODE_SIZE;
 
     for(unsigned int tile = 0; tile < numTiles; tile++) {
-        /*if (tile % modulus != stepNumber % modulus) {*/
-            /*continue;*/
-        /*}*/
+        if (tile % modulus != stepNumber % modulus) {
+            continue;
+        }
 
 
 		const unsigned int tileStart = (tile * tileSize);
