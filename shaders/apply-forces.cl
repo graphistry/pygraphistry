@@ -1093,10 +1093,10 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
     (void) atomic_add(&allBlock[warpId], cond);
 
     int ret = (allBlock[warpId] == WARPSIZE);
+    /*printf("Return : %d , num: %d \n", ret, allBlock[warpId]);*/
     /*printf("allBlock[warp]: %d warp %d \n", allBlock[warpId], warpId);*/
     allBlock[warpId] = old;
 
-    //printf("Return : %d \n", );
     return ret;
 }
 
@@ -1127,6 +1127,7 @@ __kernel void calculate_forces(
     const int num_nodes) {
   int idx = get_global_id(0);
   int k, index, i;
+  float force;
   int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
   __local volatile int child_index[MAXDEPTH * THREADS1/WARPSIZE], parent_index[MAXDEPTH * THREADS1/WARPSIZE];
    __local volatile int allBlock[THREADS1 / WARPSIZE];
@@ -1135,10 +1136,6 @@ __kernel void calculate_forces(
   __local volatile int allBlocks[THREADS1/WARPSIZE];
   float px, py, ax, ay, dx, dy, temp;
   int global_size = get_global_size(0);
-  //printf("Radius %f \n", *radiusd);
-   /*printf("num nodes: %d", num_nodes);*/
-   /*printf("num bodies; %d", num_bodies);*/
-
   if (get_local_id(0) == 0) {
     int itolsqd = 1.0f / (0.5f*0.5f);
     shared_step = *step;
@@ -1196,12 +1193,8 @@ __kernel void calculate_forces(
           dx = px - x_cords[child];
           dy = py - y_cords[child];
           temp = dx*dx + (dy*dy + 0.00000000001);
+          /*printf("temp %f, dq[depth] %f\n", temp, dq[depth]);*/
           if ((child < num_bodies)  ||  thread_vote(allBlocks, warp_id, temp >= dq[depth]) )  {
-            /*temp = 1 / sqrt(temp);*/
-            //temp = native_rsqrt(temp);
-            float force;
-            /*temp = mass[child] * temp * temp * temp;*/
-            /*temp = scalingRatio * temp * temp * temp;*/
             force = mass[child] / temp;
             ax += dx * force;
             ay += dy * force;
