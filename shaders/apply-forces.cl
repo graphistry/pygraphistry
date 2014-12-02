@@ -460,9 +460,9 @@ __kernel void forceAtlasPoints (
     const unsigned int numTiles = (unsigned int) get_num_groups(0);
     unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
 
-	TILEPOINTS_INLINE_DECL;
-	TILEPOINTS2_INLINE_DECL;
-	TILEPOINTS3_INLINE_DECL;
+    TILEPOINTS_INLINE_DECL;
+    TILEPOINTS2_INLINE_DECL;
+    TILEPOINTS3_INLINE_DECL;
 
 
     float2 n1Pos = inputPositions[n1Idx];
@@ -475,9 +475,9 @@ __kernel void forceAtlasPoints (
     float n1Size = DEFAULT_NODE_SIZE;
 
     for(unsigned int tile = 0; tile < numTiles; tile++) {
-        if (tile % modulus != stepNumber % modulus) {
-            continue;
-        }
+        /*if (tile % modulus != stepNumber % modulus) {*/
+            /*continue;*/
+        /*}*/
 
 
 		const unsigned int tileStart = (tile * tileSize);
