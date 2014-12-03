@@ -41,23 +41,23 @@ sudo supervisorctl restart all
 
 Logs:
 
-`tail -f /var/log/node-server/server.log`
+`tail -f /var/log/worker/worker-10000.log`
 
 ## To Deploy:
 
 ### Staging:
 
-`ansible-playbook system.yml -vv --tags fast --skip-tags provision -i hosts -l staging`
+`./stage-deploy.sh`
 
 ### Prod:
 
 Fast version:
 
-`ansible-playbook system.yml -vv --tags fast --skip-tags provision -i hosts -l prod `
+`./prod-deploy.sh`
 
 Full version:
 
-`ansible-playbook system.yml -vv --skip-tags provision -i hosts -l prod`
+`ansible-playbook system.yml -vv --skip-tags provision,staging-slack -i hosts -l prod`
 
 ##Localdev (defunct for now):
 
