@@ -647,7 +647,8 @@ __kernel void to_barnes_layout(
   __global float *y_cords,
   __global float* mass,
   __global volatile int* blocked,
-  __global volatile int* maxdepthd
+  __global volatile int* maxdepthd,
+  unsigned int step_number
   ) {
   x_cords[0] = 1 /0;
   size_t gid = get_global_id(0);
@@ -686,6 +687,7 @@ __kernel void bound_box(
     __global volatile int* bottomd,
     __global volatile int* maxdepthd,
     __global volatile float* radiusd,
+    unsigned int step_number,
     float width,
     float height,
     const int num_bodies,
@@ -790,6 +792,7 @@ __kernel void build_tree(
     __global volatile int* bottom,
     __global volatile int* maxdepth,
     __global volatile float* radiusd,
+    unsigned int step_number,
     float width,
     float height,
     const int num_bodies,
@@ -947,6 +950,7 @@ __kernel void compute_sums(
     __global volatile int* bottom,
     __global volatile int* maxdepth,
     __global volatile float* radiusd,
+    unsigned int step_number,
     float width,
     float height,
     const int num_bodies,
@@ -1055,6 +1059,7 @@ __kernel void sort(
     __global volatile int* bottom,
     __global volatile int* maxdepth,
     __global volatile float* radiusd,
+    unsigned int step_number,
     float width,
     float height,
     const int num_bodies,
@@ -1121,6 +1126,7 @@ __kernel void calculate_forces(
     __global volatile int* bottom,
     __global volatile int* maxdepth,
     __global volatile float* radiusd,
+    unsigned int step_number,
     float width,
     float height,
     const int num_bodies,
@@ -1240,6 +1246,7 @@ __kernel void move_bodies(
     __global volatile int* bottom,
     __global volatile int* maxdepth,
     __global volatile float* radiusd,
+    unsigned int step_number,
     float width,
     float height,
     const int num_bodies,
@@ -1275,7 +1282,8 @@ __kernel void from_barnes_layout(
   __global float *y_cords,
   __global float* mass,
   __global volatile int* blocked,
-  __global volatile int* maxdepthd
+  __global volatile int* maxdepthd,
+  unsigned int step_number
   ) {
   size_t gid = get_global_id(0);
   size_t global_size = get_global_size(0);
