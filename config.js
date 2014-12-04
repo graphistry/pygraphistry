@@ -13,7 +13,8 @@ module.exports = function() {
         HTTP_LISTEN_PORT: 3000,
         MONGO_SERVER: 'localhost',
         DATABASE: 'graphistry-dev',
-        HOSTNAME: 'localhost'
+        HOSTNAME: 'localhost',
+        DATALISTURI: '../data/all.json'
     };
 
     var commandLineOptions = {};
