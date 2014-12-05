@@ -194,10 +194,20 @@
 #     - fast
 #     - supervisor
 
-- name: node supervisor
+- name: first supervisor config, will add the others if this one changes
   template: src=worker.supervisor.j2 dest=/etc/supervisor/conf.d/worker-{{ item.listen_port }}.conf
   with_items:
     - { listen_port: 10000 }
+  sudo: yes
+  register: workerconfig
+  tags:
+    - worker
+    - fast
+    - supervisor
+
+- name: there was a change, adding all supervisor configs
+  template: src=worker.supervisor.j2 dest=/etc/supervisor/conf.d/worker-{{ item.listen_port }}.conf
+  with_items:
     - { listen_port: 10001 }
     - { listen_port: 10002 }
     - { listen_port: 10003 }
@@ -205,6 +215,7 @@
     - { listen_port: 10005 }
     - { listen_port: 10006 }
     - { listen_port: 10007 }
+  when: workerconfig.changed
   sudo: yes
   tags:
     - worker
