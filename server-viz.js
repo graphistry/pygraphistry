@@ -341,9 +341,7 @@ if (require.main === module) {
         http    = require('http').Server(app),
         io      = require('socket.io')(http, {transports: ['websocket']});
 
-    var config  = require('./config.js')();
-
-    debug('FIXME config code clone');
+    var config  = require('config').init();
     debug("Config set to %j", config);
 
     var nocache = function (req, res, next) {
