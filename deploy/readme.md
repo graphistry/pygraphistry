@@ -1,7 +1,3 @@
-For the most up-to-date deploy flow, please check out the wiki:
-
-https://github.com/graphistry/deploy/wiki/Deployment-at-Graphistry
-
 ## Login ##
 
 `ssh -A leo@54.183.193.90 -p 61630`
