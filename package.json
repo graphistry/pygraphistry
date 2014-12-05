@@ -23,6 +23,7 @@
     "rx": "^2.2.27",
     "socket.io": "^1.2.0",
     "underscore": "^1.7.0",
-    "debug": "^2.1.0"
+    "debug": "^2.1.0",
+    "datasets": "git+ssh://git@github.com:graphistry/datasets.git#master"
   }
 }

@@ -14,7 +14,7 @@ module.exports = function() {
         MONGO_SERVER: 'localhost',
         DATABASE: 'graphistry-dev',
         HOSTNAME: 'localhost',
-        DATALISTURI: '../data/all.json'
+        DATALISTURI: 'node_modules/datasets/all.json'
     };
 
     var commandLineOptions = {};
