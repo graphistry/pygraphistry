@@ -47,7 +47,13 @@ Logs:
 
 ### Staging:
 
-`./stage-deploy.sh`
+1. Commit your changes locally to the master branch of each repository, **test**, and push.
+
+2. Pull latest `deploy` repo
+
+3. run `stage-deploy.sh` to deploy to the staging server
+
+4. Verify your changes at the url pointed to in the slack #ansible channel
 
 ### Prod:
 
@@ -58,6 +64,8 @@ Fast version:
 Full version:
 
 `ansible-playbook system.yml -vv --skip-tags provision,staging-slack -i hosts -l prod`
+
+Verify your changes at the url pointed to in the slack #ansible channel
 
 ##Localdev (defunct for now):
 
@@ -70,3 +78,13 @@ reboot
 sudo ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh,worker-reboot
 vagrant ssh
 ```
+
+
+## To keep in mind:
+- if something isn't right on staging, and you cannot replicate the error locally, it's okay to try and fix it on the live EC2 staging server. However, please don't get in the habit of developing exclusively on the staging server.
+- join and inspect the #ansible slack channel, where all deployment notifications are automatically posted. Ansible posts in slack every time a staging / prod deploy kicks off, so we all know who is deploying where at any given time.
+- if someone is currently in the process of deploying, do not deploy until they have finished. You can monitor the process of deploys in #ansible on Slack - Ansible posts to Slack every time a deploy begins and finishes, so there should be good situational awareness here.
+- if you've got a commit on master, please make sure it's deployed and verified to work on prod as opposed to leaving it there to be deployed later
+- CI and testing is on the way!
+
+Happy deploying!
