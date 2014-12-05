@@ -12,10 +12,18 @@ module.exports = function() {
         HTTP_LISTEN_ADDRESS: 'localhost',
         HTTP_LISTEN_PORT: 3000,
         DATABASE: '{{ mongo_db }}',
-        HOSTNAME: '{{ hostname }}'
+        HOSTNAME: '{{ hostname }}',
+        DATALISTURI: 'node_modules/datasets/all.json'
     };
 
-    var commandLineOptions = process.argv.length > 2 ? JSON.parse(process.argv[2]) : {};
+    var commandLineOptions = {};
+    if (process.argv.length > 2) {
+        try {
+            commandLineOptions = JSON.parse(process.argv[2])
+        } catch (err) {
+            console.warn("WARNING Cannot parse command line arguments, ignoring...");
+        }
+    }
 
     var options = _.extend(defaultOptions, commandLineOptions);
 
