@@ -5,3 +5,4 @@
     - fast
     - staging-full
     - prod-full
+  ignore_errors: true

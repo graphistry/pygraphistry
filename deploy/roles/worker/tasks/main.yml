@@ -201,7 +201,6 @@
   tags: 
     - worker
     - fast
-    - staging-fast      
 
 - command: mkdir /var/log/worker
   ignore_errors: true
