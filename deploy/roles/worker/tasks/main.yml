@@ -200,8 +200,7 @@
   when: production == true
   tags: 
     - worker
-    - fast
-    - staging-fast      
+    - fast  
 
 - command: mkdir /var/log/worker
   ignore_errors: true
