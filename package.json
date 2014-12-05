@@ -7,11 +7,11 @@
     "install": "grunt depbuild"
   },
   "dependencies": {
-    "bootstrap-slider": "git+ssh://git@github.com:seiyria/bootstrap-slider.git#master",
+    "bootstrap-slider": "^4.3.0",
     "brfs": "^1.2.0",
     "debug": "^2.1.0",
     "esprima-fb": "^7001.1.0-dev-harmony-fb",
-    "gl-matrix": "^2.1.0",
+    "gl-matrix": "^2.2.1",
     "grunt": "^0.4.5",
     "grunt-browserify": "^3.2.0",
     "grunt-cli": "^0.1.13",
@@ -21,8 +21,7 @@
     "grunt-exorcise": "^0.2.0",
     "immutable": "^2.0.11",
     "jquery": "^2.1.1",
-    "labeled-stream-splicer": "1.0.0",
-    "rx": "^2.2.27",
+    "rx": "^2.3.20",
     "rx-jquery": "^1.1.6",
     "socket.io-client": "^1.2.0",
     "underscore": "^1.6.0"
