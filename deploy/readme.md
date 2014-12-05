@@ -53,11 +53,11 @@ Logs:
 
 ### Prod:
 
-Regular version:
+Fast version:
 
 `./prod-deploy.sh`
 
-Extended version (if you know what you're doing):
+Full version:
 
 `ansible-playbook system.yml -vv --skip-tags provision,staging-slack -i hosts -l prod`
 
