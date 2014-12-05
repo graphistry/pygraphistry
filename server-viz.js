@@ -43,7 +43,7 @@ var graph;
 
 //Do more innocuous initialization inline (famous last words..)
 
-function resetState () {
+function resetState (dataListURI) {
     debug('RESETTING APP STATE');
 
     //FIXME explicitly destroy last graph if it exists?
@@ -52,7 +52,7 @@ function resetState () {
     finishBufferTransfers = {};
 
 
-    animStep = driver.create();
+    animStep = driver.create(dataListURI);
     ticksMulti = animStep.ticks.publish();
     ticksMulti.connect();
 
@@ -83,7 +83,7 @@ function vboSizeMB(vbos) {
 function init(config, app, socket) {
     debug('Client connected', socket.id);
 
-    resetState();
+    resetState(config.DATALISTURI);
 
     app.get('/vbo', function(req, res) {
         debug('VBOs: HTTP GET %s', req.originalUrl, req.query);
@@ -217,7 +217,7 @@ function init(config, app, socket) {
 
         socket.on('reset_graph', function (_, cb) {
             debug('reset_graph command');
-            resetState();
+            resetState(config.DATALISTURI);
             cb();
         });
 
