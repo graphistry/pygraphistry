@@ -48,7 +48,7 @@
 // The fraction of tiles to process each execution of this kernel. For example, a value of '10' will
 // cause an execution of this kernel to only process every 10th tile.
 // The particular subset of tiles is chosen based off of stepNumber.
-#define TILES_PER_ITERATION 7
+#define TILES_PER_ITERATION 2 
 
 // The length of the 'randValues' array
 #define RAND_LENGTH 73 //146
@@ -458,6 +458,8 @@ __kernel void forceAtlasPoints (
     const unsigned int n1Idx = (unsigned int) get_global_id(0);
     const unsigned int tileSize = (unsigned int) get_local_size(0);
     const unsigned int numTiles = (unsigned int) get_num_groups(0);
+    printf("GID = %d \n", get_global_size(0));
+    printf("LI = %d \n", get_local_size(0));
     unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
 
     TILEPOINTS_INLINE_DECL;
@@ -665,7 +667,7 @@ __kernel void to_barnes_layout(
 }
 
 
-//__attribute__ ((reqd_work_group_size(THREADS1, 1, 1)))
+/*__attribute__ ((reqd_work_group_size(THREADS1, 1, 1)))*/
 __kernel void bound_box(
     //graph params
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -1064,6 +1066,11 @@ __kernel void sort(
     float height,
     const int num_bodies,
     const int num_nodes) {
+      const unsigned int tileSize = (unsigned int) get_local_size(0);
+      const unsigned int numTiles = (unsigned int) get_num_groups(0);
+      unsigned int modulus = numTiles / TILES_PER_ITERATION;
+      unsigned int startTile = (step_number % modulus) * tileSize;
+      unsigned int endTile = startTile + (tileSize * TILES_PER_ITERATION);
       int i, k, child, decrement, start_index, bottom_node;
       bottom_node = *bottom;
       decrement = get_global_size(0);
@@ -1077,8 +1084,10 @@ __kernel void sort(
               start[child] = start_index;
               start_index += count[child];
             } else if (child >= 0) {
-              sort[start_index] = child;
-              start_index++;
+              if (child >= startTile && child < endTile) {
+                sort[start_index] = child;
+                start_index++;
+              }
             }
           }
           k -= decrement;
@@ -1140,9 +1149,22 @@ __kernel void calculate_forces(
   __local volatile float dq[MAXDEPTH * THREADS1/WARPSIZE];
   __local volatile int shared_step, shared_maxdepth;
   __local volatile int allBlocks[THREADS1/WARPSIZE];
+  const unsigned int tileSize = (unsigned int) get_local_size(0);
+  const unsigned int numTiles = (unsigned int) get_num_groups(0);
+  unsigned int modulus = numTiles / TILES_PER_ITERATION;
+  unsigned int startTile = (step_number % modulus) * (tileSize * TILES_PER_ITERATION);
+  unsigned int endTile = (startTile + (tileSize * TILES_PER_ITERATION)) > num_bodies ? num_bodies : startTile + (tileSize * TILES_PER_ITERATION);
+  unsigned int number_elements = (endTile > num_nodes) ? endTile - num_nodes : tileSize;
   float px, py, ax, ay, dx, dy, temp;
   int global_size = get_global_size(0);
   if (get_local_id(0) == 0) {
+    printf("Number of groups %u\n", numTiles);
+    printf("startTile %u \n", startTile);
+    printf("modulus %u \n", modulus);
+    printf("endTile %u \n", endTile);
+    printf("number_of %u \n", number_elements);
+    printf("number of tiles %u \n", numTiles);
+    printf("step number %d \n", step_number);
     int itolsqd = 1.0f / (0.5f*0.5f);
     shared_step = *step;
     shared_maxdepth = *maxdepth;
@@ -1172,7 +1194,8 @@ __kernel void calculate_forces(
       dq[difference + shared_mem_offset] = dq[difference];
     }
   barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
-  for (k = idx; k < num_bodies; k+=global_size) {
+  /*bodies_in_tile = (stepNumber % modulus */
+  for (k = idx; k < number_elements; k+=global_size) {
     //atomic_add(&allBlock[warp_id], 1);
     index = sort[k];
     px = x_cords[index];
