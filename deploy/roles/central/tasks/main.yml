@@ -16,24 +16,6 @@
   tags: 
     - fast
 
-- template: src=config.j2 dest=/tmp/web/central/node_modules/graph-viz/config.js
-  sudo: yes
-  when: production == true
-  tags: 
-    - fast
-  
-- template: src=config.j2 dest=/tmp/web/central/node_modules/horizon-viz/src/server/config.js
-  sudo: yes
-  when: production == true
-  tags: 
-    - fast
-
-- template: src=config.j2 dest=/tmp/web/central/config.js
-  sudo: yes
-  when: production == true
-  tags: 
-    - fast
-
 - command: cp -r /tmp/web/central /opt
   sudo: yes
   tags: 

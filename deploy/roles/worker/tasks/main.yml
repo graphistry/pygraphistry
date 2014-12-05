@@ -180,28 +180,6 @@
     - worker
     - fast
 
-# Todo: Ugh.
-- template: src=config.j2 dest=/opt/viz-server/config.js group=www owner=www
-  sudo: yes
-  when: production == true
-  tags: 
-    - worker
-    - fast
-
-- template: src=config.j2 dest=/opt/viz-server/node_modules/graph-viz/config.js group=www owner=www
-  sudo: yes
-  when: production == true
-  tags: 
-    - worker
-    - fast
-
-- template: src=config.j2 dest=/opt/viz-server/node_modules/horizon-viz/src/server/config.js group=www owner=www
-  sudo: yes
-  when: production == true
-  tags: 
-    - worker
-    - fast  
-
 - command: mkdir /var/log/worker
   ignore_errors: true
   sudo: yes

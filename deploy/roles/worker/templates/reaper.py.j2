@@ -129,10 +129,22 @@ def reap(db):
     logger.info("boundary status: " + str(r.json()))
 
 if __name__=="__main__":
+
+{% if deployment == 'STAGING' %}
+    DATABASE = 'graphistry-staging'
+    MONGO_SERVER = 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-staging';
+{% elif deployment == 'PRODUCTION' %}
+    DATABASE = 'graphistry-prod'
+    MONGO_SERVER = 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod';
+{% else %}
+    DATABASE = 'graphistry-local'
+    MONGO_SERVER = 'localhost'
+{% endif %}
+
     # Connect to central db
-    url = '{{ mongo_server }}'
+    url = MONGO_SERVER
     conn = MongoClient(url)
-    db = conn['{{ mongo_db }}']
+    db = conn[DATABASE]
     while 1:
         try:
             db.node_monitor.ensure_index( [("port", ASCENDING), ("ip", ASCENDING), ("pid", ASCENDING)], unique=True )
@@ -140,6 +152,6 @@ if __name__=="__main__":
             reap(db)
         except errors.ConnectionFailure:
           conn = MongoClient(url)
-          db = conn['{{ mongo_db }}']
+          db = conn[DATABASE]
 
         time.sleep(10)
