@@ -6,7 +6,7 @@
 
 var Rx          = require('rx');
 var _           = require('underscore');
-var debug       = require('debug')('StreamGL:viz_server');
+var debug       = require('debug')('graphistry:graph-viz:viz-server');
 var fs          = require('fs');
 var path        = require('path');
 
@@ -43,7 +43,7 @@ var graph;
 
 //Do more innocuous initialization inline (famous last words..)
 
-function resetState (dataListURI) {
+function resetState(config) {
     debug('RESETTING APP STATE');
 
     //FIXME explicitly destroy last graph if it exists?
@@ -52,7 +52,7 @@ function resetState (dataListURI) {
     finishBufferTransfers = {};
 
 
-    animStep = driver.create(dataListURI);
+    animStep = driver.create(config);
     ticksMulti = animStep.ticks.publish();
     ticksMulti.connect();
 
@@ -83,7 +83,7 @@ function vboSizeMB(vbos) {
 function init(config, app, socket) {
     debug('Client connected', socket.id);
 
-    resetState(config.DATALISTURI);
+    resetState(config);
 
     app.get('/vbo', function(req, res) {
         debug('VBOs: HTTP GET %s', req.originalUrl, req.query);
@@ -217,7 +217,7 @@ function init(config, app, socket) {
 
         socket.on('reset_graph', function (_, cb) {
             debug('reset_graph command');
-            resetState(config.DATALISTURI);
+            resetState(config);
             cb();
         });
 
@@ -367,7 +367,13 @@ if (require.main === module) {
     app.get('*/StreamGL.map', function(req, res) {
         res.sendFile(require.resolve('StreamGL/dist/StreamGL.map'));
     });
-    app.use('/graph', express.static(path.resolve(__dirname, 'assets')));
+    app.use('/graph', function (req, res, next) {
+        if (req.path == '/index.html'|| req.path == '/') {
+            config.DATASETNAME = req.param('datasetname');
+            config.DATASETIDX = req.param('datasetidx');
+        }
+        return express.static(path.resolve(__dirname, 'assets'))(req, res, next);
+    });
 
     //Dyn routing
     app.get('/vizaddr/graph', function(req, res) {
