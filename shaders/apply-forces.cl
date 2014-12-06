@@ -48,7 +48,7 @@
 // The fraction of tiles to process each execution of this kernel. For example, a value of '10' will
 // cause an execution of this kernel to only process every 10th tile.
 // The particular subset of tiles is chosen based off of stepNumber.
-#define TILES_PER_ITERATION 100
+#define TILES_PER_ITERATION 1000000000
 
 // The length of the 'randValues' array
 #define RAND_LENGTH 73 //146
@@ -269,7 +269,7 @@ __kernel void gaussSeidelPoints(
 
 	float2 posDelta = (float2) (0.0f, 0.0f);
 
-    unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
+  unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
 
 
 	for(unsigned int tile = 0; tile < numTiles; tile++) {
@@ -459,7 +459,6 @@ __kernel void forceAtlasPoints (
     const unsigned int tileSize = (unsigned int) get_local_size(0);
     const unsigned int numTiles = (unsigned int) get_num_groups(0);
     unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
-    modulus = 1;
 
     TILEPOINTS_INLINE_DECL;
     TILEPOINTS2_INLINE_DECL;
