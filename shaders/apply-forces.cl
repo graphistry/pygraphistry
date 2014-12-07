@@ -635,7 +635,9 @@ __kernel void forceAtlasEdges(
 
 }
 
+//============================= BARNES HUT
 
+#ifdef BARNESHUT
 __kernel void to_barnes_layout(
     //GRAPH_PARAMS
   float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -663,8 +665,11 @@ __kernel void to_barnes_layout(
     *blocked = 0;
   }
 }
+#else
+#endif
 
 
+#ifdef BARNESHUT
 /*__attribute__ ((reqd_work_group_size(THREADS1, 1, 1)))*/
 __kernel void bound_box(
     //graph params
@@ -770,7 +775,10 @@ __kernel void bound_box(
     }
   }
 }
+#else
+#endif
 
+#ifdef BARNESHUT
 __kernel void build_tree(
     //graph params
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -858,7 +866,7 @@ __kernel void build_tree(
           //printf("Child: %d \n", ch);
         do {
           depth++;
-          /*printf("*bottom : %d\n", *bottom);*/
+          /* printf("*bottom : %d\n", *bottom); */
           cell = atomic_dec(bottom) - 1;
           //printf("Cell: %d \n", cell);
 
@@ -928,7 +936,10 @@ __kernel void build_tree(
   }
   atomic_max(maxdepth, localmaxdepth);
 }
+#else
+#endif
 
+#ifdef BARNESHUT
 __kernel void compute_sums(
     //graph params
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -1037,7 +1048,10 @@ __kernel void compute_sums(
     }
   }
 }
+#else
+#endif
 
+#ifdef BARNESHUT
 __kernel void sort(
     //graph params
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -1093,7 +1107,11 @@ __kernel void sort(
         mem_fence(CLK_GLOBAL_MEM_FENCE);
         //barrier(CLK_GLOBAL_MEM_FENCE); //TODO how to add throttle?
       }
-    }
+}
+#else
+#endif
+
+#ifdef BARNESHUT
 inline int thread_vote(__local int* allBlock, int warpId, int cond)
 {
      /*printf("in thread vote\n");*/
@@ -1111,7 +1129,10 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
 
     return ret;
 }
+#else
+#endif
 
+#ifdef BARNESHUT
 __kernel void calculate_forces(
     //graph params
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -1245,8 +1266,11 @@ __kernel void calculate_forces(
     }
   }
 }
+#else
+#endif
 
 
+#ifdef BARNESHUT
 __kernel void move_bodies(
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
     __global volatile float *x_cords,
@@ -1291,7 +1315,10 @@ __kernel void move_bodies(
       y_cords[i] += vely;
     }
 }
+#else
+#endif
 
+#ifdef BARNESHUT
 __kernel void from_barnes_layout(
     //GRAPH_PARAMS
   float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -1313,6 +1340,8 @@ __kernel void from_barnes_layout(
     outputPositions[i][1] = y_cords[i];
   }
 }
+#else
+#endif
 
 
 
