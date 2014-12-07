@@ -26,7 +26,9 @@ function check() {
 
 for REPO in $REPOS ; do
   pushd $ROOT > /dev/null
-  cd $REPO
-  check $REPO
+  if [ -d $REPO ] ; then
+    cd $REPO
+    check $REPO
+  fi
   popd > /dev/null
 done
