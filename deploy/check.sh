@@ -14,7 +14,7 @@ function check() {
   BASE=$(git merge-base ${BRANCH} ${BRANCH}@{u})
 
   if [ $LOCAL = $REMOTE ]; then
-      echo "$1: Up-to-date"
+      echo "$1: Up-to-date: $LOCAL"
   elif [ $LOCAL = $BASE ]; then
       echo "$1: Need to pull"
   elif [ $REMOTE = $BASE ]; then
@@ -28,7 +28,9 @@ for REPO in $REPOS ; do
   pushd $ROOT > /dev/null
   if [ -d $REPO ] ; then
     cd $REPO
-    check $REPO
+    check $REPO &
   fi
   popd > /dev/null
 done
+
+wait
