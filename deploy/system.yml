@@ -12,7 +12,7 @@
    - { role: ubuntu, user: ubuntu, tags: provision }
    - { role: thibaud, user: thibaud, tags: provision }
    - { role: common, tags: provision }
-   - { role: worker, production: true, deployment: "PRODUCTION", tags: prod-full }
+   - { role: worker, production: true, deployment: "production", tags: prod-full }
   tags: workers
 
 - hosts: central
@@ -23,9 +23,9 @@
    - { role: ubuntu, user: ubuntu, tags: provision }
    - { role: thibaud, user: thibaud, tags: provision }
    - { role: common, tags: provision }
-   - { role: central, production: true, deployment: "PRODUCTION", tags: prod-full }
+   - { role: central, production: true, deployment: "production", tags: prod-full }
   tags: central
-  
+
 - hosts: localhost
   roles:
    - { role: slack, msg: "finished prod deploy: view at http://dev.graphistry.com/", tags: prod-slack }
@@ -48,12 +48,12 @@
    - { role: common, tags: provision }
    - { role: worker,
        production: true,
-       deployment: "STAGING",
+       deployment: "staging",
        tags: staging-full
     }
-   - { role: central, 
+   - { role: central,
        production: true,
-       deployment: "STAGING",
+       deployment: "staging",
        tags: staging-full
      }
   tags: staging
@@ -72,7 +72,7 @@
    - { role: ubuntu, user: ubuntu, tags: provision }
    - { role: common, tags: provision }
   tags: splunk
-  
+
 # - hosts: localdev
 #   roles:
 #     - { role: www, user: www }

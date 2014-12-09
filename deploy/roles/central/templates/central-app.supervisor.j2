@@ -1,5 +1,5 @@
 [program:central-app]
-command=sudo -u www DEBUG='*' node server.js "{\"{{ deployment }}\": true, \"HOSTNAME\": \"{{ hostname }}\" }"
+command=sudo -u www DEBUG='*' node server.js "{\"ENVIRONMENT\": \"{{ deployment }}\", \"HOSTNAME\": \"{{ hostname }}\" }"
 directory=/opt/central
 process_name=%(program_name)s
 numprocs=1

@@ -44,7 +44,7 @@ def monitor(db):
     global ip
 
     # Get GPU free memory from nvidia-smi
-    p = subprocess.Popen(["nvidia-smi", 
+    p = subprocess.Popen(["nvidia-smi",
                         "--query-gpu=memory.free",
                         "--format=csv,noheader"], stdout=subprocess.PIPE)
     gpu_data = p.communicate()[0]
@@ -61,7 +61,7 @@ def monitor(db):
     logger.info("boundary status: " + str(r.json()))
 
     # Get per-process data from nvidia-smi
-    p = subprocess.Popen(["nvidia-smi", 
+    p = subprocess.Popen(["nvidia-smi",
                         "--query-compute-apps=used_gpu_memory,pid",
                         "--format=csv,noheader"], stdout=subprocess.PIPE)
     process_data = p.communicate()[0].split('\n')
@@ -86,7 +86,7 @@ def monitor(db):
 
 def reap(db):
     """
-    This reaps all dead processes by checking the node_monitor table for 
+    This reaps all dead processes by checking the node_monitor table for
     outdated rows. The rows should be updated every three seconds by each node
     process itself. This also finds all active processes with users and
     updates Boundary.
@@ -130,10 +130,10 @@ def reap(db):
 
 if __name__=="__main__":
 
-{% if deployment == 'STAGING' %}
+{% if deployment == 'staging' %}
     DATABASE = 'graphistry-staging'
     MONGO_SERVER = 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-staging';
-{% elif deployment == 'PRODUCTION' %}
+{% elif deployment == 'production' %}
     DATABASE = 'graphistry-prod'
     MONGO_SERVER = 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod';
 {% else %}
