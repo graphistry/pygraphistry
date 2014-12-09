@@ -16,7 +16,7 @@ attribute float isHighlighted;
 uniform float fog;
 
 void main(void) {
-    gl_PointSize = isHighlighted > 0.0 ? isHighlighted : clamp(pointSize, 0.125, 10.0);
+    gl_PointSize = isHighlighted > 0.0 ? isHighlighted : clamp(pointSize, 0.125, 50.0);
 
     vec4 pos = mvp * vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);
     gl_Position = pos;
