@@ -1,6 +1,6 @@
 chmod 600 ansible_id_rsa.pem
 echo "checking that all local repos are up to date..."
-OUTPUT=`sh check.sh`
+OUTPUT=`./check.sh`
 COUNT=`echo $OUTPUT | grep "Need to pull" | wc -l`
 if [ $COUNT = "0" ]
 then
