@@ -3,7 +3,7 @@
 ## Run from deploy folder to see git pull/push status of graphistry repos
 ## (Assumes each repo is in parent folder)
 
-REPOS="central config datasets deploy graph-viz horizon-viz StreamGL uber-viz viz-server"
+REPOS="central config datasets deploy graph-viz horizon-viz node-pigz node-webcl StreamGL superconductor-proxy uber-viz viz-server"
 BRANCH="master"
 ROOT=`pwd`/../
 
@@ -29,6 +29,8 @@ for REPO in $REPOS ; do
   if [ -d $REPO ] ; then
     cd $REPO
     check $REPO &
+  else
+      echo "($REPO skipped as no local copy)"
   fi
   popd > /dev/null
 done
