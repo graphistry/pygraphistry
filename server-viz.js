@@ -66,7 +66,7 @@ function resetState(config) {
 
 function getState() {
     return animStep.graph.then(function (graph) {
-        return graph.simulator.buffers;
+        return graph;
     })
 }
 
@@ -375,10 +375,6 @@ if (require.main === module) {
         res.sendFile(require.resolve('StreamGL/dist/StreamGL.map'));
     });
     app.use('/graph', function (req, res, next) {
-        if (req.path == '/index.html'|| req.path == '/') {
-            config.DATASETNAME = req.param('datasetname');
-            config.DATASETIDX = req.param('datasetidx');
-        }
         return express.static(path.resolve(__dirname, 'assets'))(req, res, next);
     });
 
