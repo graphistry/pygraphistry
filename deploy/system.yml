@@ -28,7 +28,7 @@
 
 - hosts: localhost
   roles:
-   - { role: slack, msg: "finished prod deploy: view at http://dev.graphistry.com/", tags: prod-slack }
+   - { role: slack, msg: "finished prod deploy: view at http://labs.graphistry.com/", tags: prod-slack }
 
 # ==== END PROD DEPLOY ====
 
@@ -61,7 +61,7 @@
 
 - hosts: localhost
   roles:
-    - { role: slack, msg: "finished staging deploy: view at http://54.183.155.35/", tags: staging-slack }
+    - { role: slack, msg: "finished staging deploy: view at http://staging.graphistry.com/", tags: staging-slack }
 
 
 # ==== END STAGING DEPLOY ====
