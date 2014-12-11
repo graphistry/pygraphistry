@@ -91,7 +91,6 @@ function init(config, app, socket) {
 
     // Get the datasetname from the socket query param, sent by Central
     config.DATASETNAME = socket.handshake.query.datasetname;
-    console.log(config.DATASETNAME)
     resetState(config);
 
     app.get('/vbo', function(req, res) {
