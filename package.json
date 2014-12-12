@@ -21,6 +21,7 @@
     "grunt-exorcise": "^0.2.0",
     "immutable": "^2.0.11",
     "jquery": "^2.1.1",
+    "jquery-mousewheel": "3.1.x",
     "rx": "^2.3.20",
     "rx-jquery": "^1.1.6",
     "socket.io-client": "^1.2.0",
