@@ -145,10 +145,12 @@ function init(config, app, socket) {
             };
         });
 
-    img.take(1).subscribe(colorTexture, debug.bind('ERROR IMG'));
-    colorTexture.subscribe(
-        function() { debug('HAS COLOR TEXTURE'); },
-        debug.bind('ERROR colorTexture'));
+    img.take(1)
+        .do(colorTexture)
+        .subscribe(_.identity, makeErrorHandler('ERROR IMG'));
+    colorTexture
+        .do(function() { debug('HAS COLOR TEXTURE'); })
+        .subscribe(_.identity, makeErrorHandler('ERROR colorTexture'));
 
 
 
@@ -177,12 +179,13 @@ function init(config, app, socket) {
             var textureName = req.query.texture;
             var id = req.query.id;
 
-            colorTexture.pluck('buffer').subscribe(
+            colorTexture.pluck('buffer').do(
                 function (data) {
                     res.set('Content-Encoding', 'gzip');
                     res.send(data);
-                },
-                debug.bind('ERROR colorTexture pluck'));
+                })
+                .subscribe(_.identity,
+                    makeErrorHandler('ERROR colorTexture pluck'));
 
         } catch (e) {
             console.error('[viz-server.js] bad request', e, e.stack);
@@ -331,13 +334,13 @@ function init(config, app, socket) {
                             debug('notifying client of buffer metadata', metadata);
                             return emitFnWrapper('vbo_update', metadata);
 
-                        }).subscribe(
+                        }).do(
                             function (clientElapsedMsg) {
                                 debug('3d ?. client all received', socket.id);
                                 clientElapsed = clientElapsedMsg;
                                 clientAckStartTime = Date.now();
-                            },
-                            debug.bind('ERROR SENDING METADATA'));
+                            })
+                        .subscribe(_.identity, makeErrorHandler('ERROR SENDING METADATA'));
 
                     return sendingAllBuffers
                         .take(1)
@@ -351,7 +354,7 @@ function init(config, app, socket) {
                 })
                 .map(_.constant(graph));
         })
-        .subscribe(function () { debug('LOOP ITERATED', socket.id); }, debug.bind('ERROR LOOP'));
+        .subscribe(function () { debug('LOOP ITERATED', socket.id); }, makeErrorHandler('ERROR LOOP'));
     });
     return module.exports;
 }
