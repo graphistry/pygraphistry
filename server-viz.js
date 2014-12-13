@@ -75,6 +75,12 @@ function getState() {
 
 
 
+function makeErrorHandler(name) {
+    return function (err) {
+        console.error(name, err, (err||{}).stack);
+    };
+}
+
 
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
 function vboSizeMB(vbos) {
@@ -228,6 +234,16 @@ function init(config, app, socket) {
             resetState(config);
             cb();
         });
+
+        socket.on('get_labels', function (labels, cb) {
+            graph.take(1)
+                .do(function (graph) {
+                    var hits = labels.map(function (idx) { return graph.simulator.labels[idx]; });
+                    cb(null, hits);
+                })
+                .subscribe(_.identity, makeErrorHandler('get_labels'));
+        });
+
 
 
 
