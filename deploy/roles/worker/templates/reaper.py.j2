@@ -153,5 +153,7 @@ if __name__=="__main__":
         except errors.ConnectionFailure:
           conn = MongoClient(url)
           db = conn[DATABASE]
+        except Exception as e:
+            print e
 
         time.sleep(10)
