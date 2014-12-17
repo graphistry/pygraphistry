@@ -8,19 +8,19 @@ BRANCH="master"
 ROOT=`pwd`/../
 
 function check() {
-  git fetch origin > /dev/null
+  git fetch origin &> /dev/null
   LOCAL=$(git rev-parse ${BRANCH})
   REMOTE=$(git rev-parse ${BRANCH}@{u})
   BASE=$(git merge-base ${BRANCH} ${BRANCH}@{u})
 
   if [ $LOCAL = $REMOTE ]; then
-      echo "$1: Up-to-date: $LOCAL"
+      printf "%20s: %s\n" "$1" "Up-to-date ($LOCAL)"
   elif [ $LOCAL = $BASE ]; then
-      echo "$1: Need to pull"
+      printf "%20s: %s\n" "$1" "Need to pull"
   elif [ $REMOTE = $BASE ]; then
-      echo "$1: Need to push"
+      printf "%20s: %s\n" "$1" "Need to push"
   else
-      echo "$1: Diverged"
+      printf "%20s: %s\n" "$1" "Diverged"
   fi
 }
 
@@ -30,7 +30,7 @@ for REPO in $REPOS ; do
     cd $REPO
     check $REPO &
   else
-      echo "($REPO skipped as no local copy)"
+      printf "%20s: %s\n" $REPO "No local copy"
   fi
   popd > /dev/null
 done
