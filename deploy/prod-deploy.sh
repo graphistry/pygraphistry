@@ -12,5 +12,5 @@ if [ $COUNT = "0" ] ; then
     echo "All repos up-to-date, deploying production..."
     ansible-playbook system.yml -vv --tags fast --skip-tags provision,staging-slack -i hosts -l prod
 else
-    echo $OUTPUT
+    echo "$OUTPUT"
 fi
