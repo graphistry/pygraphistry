@@ -6,7 +6,7 @@
 
 var Rx          = require('rx');
 var _           = require('underscore');
-var debug       = require('debug')('graphistry:graph-viz:viz-server');
+var debug       = require('debug')('graphistry:graph-viz:driver:viz-server');
 var fs          = require('fs');
 var path        = require('path');
 
