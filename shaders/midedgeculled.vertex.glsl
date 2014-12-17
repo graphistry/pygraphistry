@@ -8,19 +8,15 @@ uniform mat4 mvp;
 attribute vec2 curPos;
 varying float alpha;
 
-//attribute vec4 edgeColor;
-//varying vec4 eColor;
+attribute vec4 edgeColor;
+varying vec4 eColor;
 
 void main(void) {
     vec4 pos = mvp * vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);
-    gl_Position = pos;
-
     float furthestComponent = max(abs(pos.x), abs(pos.y));
     float remapped = (-furthestComponent + SENSITIVITY) / SENSITIVITY;
-    alpha = remapped < 0.0 ? -20.0 : clamp(remapped, 0.0, 1.0);
 
+    alpha = clamp(remapped, 0.0, 1.0);
+    eColor = edgeColor;
     gl_Position = pos;
-
-//    eColor = edgeColor;
-
 }
