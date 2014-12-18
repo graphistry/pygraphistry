@@ -43,7 +43,7 @@ var graph;
 
 //Do more innocuous initialization inline (famous last words..)
 
-function resetState(config) {
+function resetState(datasetname) {
     debug('RESETTING APP STATE');
 
     //FIXME explicitly destroy last graph if it exists?
@@ -52,7 +52,7 @@ function resetState(config) {
     finishBufferTransfers = {};
 
 
-    animStep = driver.create(config);
+    animStep = driver.create(datasetname);
     ticksMulti = animStep.ticks.publish();
     ticksMulti.connect();
 
@@ -66,7 +66,7 @@ function resetState(config) {
 
 function getState() {
     return animStep.graph.then(function (graph) {
-        return graph.simulator.buffers;
+        return graph;
     })
 }
 
@@ -86,12 +86,13 @@ function vboSizeMB(vbos) {
 }
 
 
-function init(config, app, socket) {
+function init(app, socket) {
     debug('Client connected', socket.id);
 
     // Get the datasetname from the socket query param, sent by Central
-    config.DATASETNAME = socket.handshake.query.datasetname;
-    resetState(config);
+    var datasetname = socket.handshake.query.datasetname;
+
+    resetState(datasetname);
 
     app.get('/vbo', function(req, res) {
         debug('VBOs: HTTP GET %s', req.originalUrl, req.query);
@@ -225,7 +226,7 @@ function init(config, app, socket) {
 
         socket.on('reset_graph', function (_, cb) {
             debug('reset_graph command');
-            resetState(config);
+            resetState(datasetname);
             cb();
         });
 
@@ -375,10 +376,6 @@ if (require.main === module) {
         res.sendFile(require.resolve('StreamGL/dist/StreamGL.map'));
     });
     app.use('/graph', function (req, res, next) {
-        if (req.path == '/index.html'|| req.path == '/') {
-            config.DATASETNAME = req.param('datasetname');
-            config.DATASETIDX = req.param('datasetidx');
-        }
         return express.static(path.resolve(__dirname, 'assets'))(req, res, next);
     });
 
@@ -388,10 +385,9 @@ if (require.main === module) {
     });
 
 
-
     io.on('connection', function (socket) {
         socket.on('viz', function (msg, cb) { cb(); });
-        init(config, app, socket);
+        init(app, socket);
     });
 
     var listen = Rx.Observable.fromNodeCallback(
