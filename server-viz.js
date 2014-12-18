@@ -15,7 +15,7 @@ var compress    = require('node-pigz');
 var StreamGL    = require('StreamGL');
 
 var renderer = StreamGL.renderer;
-var renderConfig = require('./js/renderer.config.graph.js');
+var renderConfig = driver.renderConfig;
 
 
 /**** GLOBALS ****************************************************/
@@ -212,7 +212,7 @@ function init(config, app, socket) {
         //Starts as all active, and as client caches, whittles down
         var activeBuffers = renderer.getServerBufferNames(renderConfig),
             activeTextures = renderer.getServerTextureNames(renderConfig),
-            activePrograms = renderConfig.scene.render;
+            activePrograms = renderConfig.render;
 
         var requestedBuffers = activeBuffers,
             requestedTextures = activeTextures;
