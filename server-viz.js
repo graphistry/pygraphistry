@@ -6,7 +6,7 @@
 
 var Rx          = require('rx');
 var _           = require('underscore');
-var debug       = require('debug')('graphistry:graph-viz:viz-server');
+var debug       = require('debug')('graphistry:graph-viz:driver:viz-server');
 var fs          = require('fs');
 var path        = require('path');
 
@@ -15,7 +15,7 @@ var compress    = require('node-pigz');
 var StreamGL    = require('StreamGL');
 
 var renderer = StreamGL.renderer;
-var renderConfig = require('./js/renderer.config.graph.js');
+var renderConfig = driver.renderConfig;
 
 
 /**** GLOBALS ****************************************************/
@@ -74,6 +74,12 @@ function getState() {
 
 
 
+
+function makeErrorHandler(name) {
+    return function (err) {
+        console.error(name, err, (err||{}).stack);
+    };
+}
 
 
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
@@ -140,10 +146,12 @@ function init(app, socket) {
             };
         });
 
-    img.take(1).subscribe(colorTexture, debug.bind('ERROR IMG'));
-    colorTexture.subscribe(
-        function() { debug('HAS COLOR TEXTURE'); },
-        debug.bind('ERROR colorTexture'));
+    img.take(1)
+        .do(colorTexture)
+        .subscribe(_.identity, makeErrorHandler('ERROR IMG'));
+    colorTexture
+        .do(function() { debug('HAS COLOR TEXTURE'); })
+        .subscribe(_.identity, makeErrorHandler('ERROR colorTexture'));
 
 
 
@@ -172,12 +180,13 @@ function init(app, socket) {
             var textureName = req.query.texture;
             var id = req.query.id;
 
-            colorTexture.pluck('buffer').subscribe(
+            colorTexture.pluck('buffer').do(
                 function (data) {
                     res.set('Content-Encoding', 'gzip');
                     res.send(data);
-                },
-                debug.bind('ERROR colorTexture pluck'));
+                })
+                .subscribe(_.identity,
+                    makeErrorHandler('ERROR colorTexture pluck'));
 
         } catch (e) {
             console.error('[viz-server.js] bad request', e, e.stack);
@@ -204,7 +213,7 @@ function init(app, socket) {
         //Starts as all active, and as client caches, whittles down
         var activeBuffers = renderer.getServerBufferNames(renderConfig),
             activeTextures = renderer.getServerTextureNames(renderConfig),
-            activePrograms = renderConfig.scene.render;
+            activePrograms = renderConfig.render;
 
         var requestedBuffers = activeBuffers,
             requestedTextures = activeTextures;
@@ -229,6 +238,16 @@ function init(app, socket) {
             resetState(datasetname);
             cb();
         });
+
+        socket.on('get_labels', function (labels, cb) {
+            graph.take(1)
+                .do(function (graph) {
+                    var hits = labels.map(function (idx) { return graph.simulator.labels[idx]; });
+                    cb(null, hits);
+                })
+                .subscribe(_.identity, makeErrorHandler('get_labels'));
+        });
+
 
 
 
@@ -316,13 +335,13 @@ function init(app, socket) {
                             debug('notifying client of buffer metadata', metadata);
                             return emitFnWrapper('vbo_update', metadata);
 
-                        }).subscribe(
+                        }).do(
                             function (clientElapsedMsg) {
                                 debug('3d ?. client all received', socket.id);
                                 clientElapsed = clientElapsedMsg;
                                 clientAckStartTime = Date.now();
-                            },
-                            debug.bind('ERROR SENDING METADATA'));
+                            })
+                        .subscribe(_.identity, makeErrorHandler('ERROR SENDING METADATA'));
 
                     return sendingAllBuffers
                         .take(1)
@@ -336,7 +355,7 @@ function init(app, socket) {
                 })
                 .map(_.constant(graph));
         })
-        .subscribe(function () { debug('LOOP ITERATED', socket.id); }, debug.bind('ERROR LOOP'));
+        .subscribe(function () { debug('LOOP ITERATED', socket.id); }, makeErrorHandler('ERROR LOOP'));
     });
     return module.exports;
 }

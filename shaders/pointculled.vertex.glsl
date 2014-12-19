@@ -25,7 +25,7 @@ void main(void) {
         float furthestComponent = max(abs(pos.x), abs(pos.y));
         float remapped = (-furthestComponent + SENSITIVITY) / SENSITIVITY;
         float alpha = remapped < 0.0 ? -20.0 : clamp(remapped, 0.0, 1.0);
-        vColor = vec4(pointColor.y, pointColor.z, pointColor.w, alpha);
+        vColor = vec4(pointColor.x, pointColor.y, pointColor.z, alpha);
     } else {
         vColor = vec4(pointColor.xyz, 1.0);
     }
