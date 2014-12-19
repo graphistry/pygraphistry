@@ -98,7 +98,7 @@ function init(app, socket) {
     // Get the datasetname from the socket query param, sent by Central
     var datasetName = socket.handshake.query.datasetname || config.DATASETNAME || 'Uber';
 
-    var theDataset = loader.getDataset(datasetName);
+    var theDataset = loader.downloadDataset(datasetName);
     var theRenderConfig = theDataset.then(function (dataset) {
         var scene = dataset.Metadata.config.scene;
         debug('Scene %s', scene)
