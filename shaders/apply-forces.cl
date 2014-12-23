@@ -636,6 +636,7 @@ __kernel void forceAtlasEdges(
 }
 
 //============================= BARNES HUT
+#define BARNESHUT
 
 #ifdef BARNESHUT
 __kernel void to_barnes_layout(
@@ -652,12 +653,11 @@ __kernel void to_barnes_layout(
   __global volatile int* maxdepthd,
   unsigned int step_number
   ) {
-  x_cords[0] = 1 /0;
   size_t gid = get_global_id(0);
   size_t global_size = get_global_size(0);
   for (int i = gid; i < numPoints; i += global_size) {
-    x_cords[i] = inputPositions[i][0];
-    y_cords[i] = inputPositions[i][1];
+    x_cords[i] = inputPositions[i].x;
+    y_cords[i] = inputPositions[i].y;
     mass[i] = 1.0f; //1.0f;
   }
   if (gid == 0) {
@@ -851,8 +851,6 @@ __kernel void build_tree(
 
     if (ch != -2 ) {
     locked = n*4+j;
-    //int test = child[locked];
-    //mem_fence(CLK_GLOBAL_MEM_FENCE);
     // return;
     if (ch == atomic_cmpxchg(&child[locked], ch, -2)) {
       //mem_fence(CLK_GLOBAL_MEM_FENCE);
@@ -863,29 +861,14 @@ __kernel void build_tree(
         patch = -1;
         // create new cell(s) and insert the old and new body
         int test = 1000000;
-          //printf("Child: %d \n", ch);
         do {
           depth++;
-          /* printf("*bottom : %d\n", *bottom); */
           cell = atomic_dec(bottom) - 1;
-          //printf("Cell: %d \n", cell);
 
           if (cell <= num_bodies) {
-            printf("\nI:  %d\n", i);
-            printf("Error\n");
-            printf("x_cords[ch]: %f \n", x_cords[ch]);
-            printf("y_cords[ch]: %f \n", y_cords[ch]);
-            printf("x : %f \n", px);
-            printf("y : %f \n", py);
-            printf("r: %f \n", r);
-            return;
-            break;
+            // TODO (paden) add error message
             *bottom = num_nodes;
-            // TODO (paden) This will break if it goes over!
-            break;
             return;
-            /*return;*/
-             /*return;*/
           }
           patch = max(patch, cell);
 
@@ -906,10 +889,6 @@ __kernel void build_tree(
           j = 0;
           if (x < x_cords[ch]) j = 1;
           if (y < y_cords[ch]) j += 2;
-          /*printf("x_cords[ch]: %f \n", x_cords[ch]);*/
-          /*printf("y_cords[ch]: %f \n", y_cords[ch]);*/
-          /*printf("px : %f \n", px);*/
-          /*printf("py : %f \n", py);*/
           child[cell*4+j] = ch;
           if (x_cords[ch] == px && y_cords[ch] == py) {
             x_cords[ch] += 0.0000001;
@@ -1336,8 +1315,8 @@ __kernel void from_barnes_layout(
   size_t gid = get_global_id(0);
   size_t global_size = get_global_size(0);
   for (int i = gid; i < numPoints; i += global_size) {
-    outputPositions[i][0] = x_cords[i];
-    outputPositions[i][1] = y_cords[i];
+    outputPositions[i].x = x_cords[i];
+    outputPositions[i].y = y_cords[i];
   }
 }
 #else
