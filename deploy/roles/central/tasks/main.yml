@@ -20,7 +20,7 @@
   tags:
     - fast
 
-- command: cp -r /tmp/web/central /opt
+- command: cp -ru /tmp/web/central /opt
   sudo: yes
   tags: 
     - fast

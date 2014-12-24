@@ -167,7 +167,7 @@
     - worker
     - fast
 
-- command: cp -r /tmp/web/viz-server /opt
+- command: cp -ru /tmp/web/viz-server /opt
   sudo: yes
   tags: 
     - worker
