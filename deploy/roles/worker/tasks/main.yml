@@ -162,6 +162,11 @@
     - worker
     - fast
 
+- shell: chdir=/tmp rm -rf npm*
+  tags:
+    - worker
+    - fast
+
 - command: cp -r /tmp/web/viz-server /opt
   sudo: yes
   tags: 
