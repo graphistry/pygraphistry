@@ -6,7 +6,7 @@ OUTPUT=`./check.sh`
 PULLCOUNT=`echo $OUTPUT | grep "Need to pull" | wc -l`
 PUSHCOUNT=`echo $OUTPUT | grep "Need to push" | wc -l`
 DIVCOUNT=`echo $OUTPUT | grep "Diverged" | wc -l`
-COMMITCOUNT=`echo $OUTPUT | grep "Need to commit changes" | wc -l`
+COMMITCOUNT=`echo $OUTPUT | grep "local changes" | wc -l`
 COUNT=$(($PULLCOUNT + $PUSHCOUNT + $DIVCOUNT + $COMMITCOUNT))
 
 if [ $COUNT = "0" ] ; then

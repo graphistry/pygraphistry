@@ -12,13 +12,15 @@ function check() {
   LOCAL=$(git rev-parse ${BRANCH})
   REMOTE=$(git rev-parse ${BRANCH}@{u})
   BASE=$(git merge-base ${BRANCH} ${BRANCH}@{u})
+  git diff --quiet
+  UNSTAGED=$?
+  git diff --quiet --cached
+  STAGED=$?
 
-  STATUS=$(git status)
-
-  if [[ $STATUS = *"Changes not staged for commit"* ]]; then
-      printf "%20s: %s\n" "$1" "Need to commit changes"
-  elif [[ $STATUS = *"Untracked files:"* ]]; then
-      printf "%20s: %s\n" "$1" "Need to commit changes"
+  if [ $STAGED = 1 ]; then
+      printf "%20s: %s\n" "$1" "Staged local changes"
+  elif [ $UNSTAGED = 1 ]; then
+      printf "%20s: %s\n" "$1" "Unstaged local changes"
   elif [ $LOCAL = $REMOTE ]; then
       printf "%20s: %s\n" "$1" "Up-to-date ($LOCAL)"
   elif [ $LOCAL = $BASE ]; then
