@@ -526,24 +526,16 @@ __kernel void forceAtlasPoints (
 
 	}
 
-	//FIXME use mass
-	//FIXME gravity relative to width/height center?
-
     const float2 dimensions = (float2) (width, height);
-    const float2 centerDist = (dimensions/2.0f) - n1Pos;
-    /*printf("gravity: %f\n", gravity);*/
+    const float2 centerDist = (dimensions / 2.0f) - n1Pos;
 
-    float gravityForce =
-        1.0f //mass
-        * gravity
-        * (n1Degree + 1.0f)
-        / (IS_STRONG_GRAVITY(flags) ? 1.0f : sqrt(centerDist.x * centerDist.x + centerDist.y * centerDist.y));
-
+    float gravityForce = gravity * (n1Degree + 1.0f) *
+                        (IS_STRONG_GRAVITY(flags) ? sqrt(centerDist.x * centerDist.x + centerDist.y * centerDist.y) : 1.0f);
 
     outputPositions[n1Idx] =
-    	n1Pos
-    	+ 0.01f * centerDist * gravityForce
-    	+ 0.00001f * n1D;
+        n1Pos
+        + 0.0001f * centerDist * gravityForce
+        + 0.00001f * n1D;
 
 	return;
 }
