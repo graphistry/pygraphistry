@@ -470,10 +470,6 @@ __kernel void forceAtlasPoints (
 
     uint n1Degree = inDegrees[n1Idx] + outDegrees[n1Idx];
 
-
-    //FIXME IS_PREVENT_OVERLAP(flags) ? sizes[n1Idx] : 0.0f;
-    float n1Size = DEFAULT_NODE_SIZE;
-
     for(unsigned int tile = 0; tile < numTiles; tile++) {
         if (tile % modulus != stepNumber % modulus) {
             continue;
@@ -487,12 +483,10 @@ __kernel void forceAtlasPoints (
 		//block on fetching current tile
 
 		event_t waitEvents[3];
-		waitEvents[0] = async_work_group_copy(TILEPOINTS, inputPositions + tileStart, thisTileSize, 0);
-		if (IS_PREVENT_OVERLAP(flags)) {
-			waitEvents[1] = async_work_group_copy(TILEPOINTS2, inDegrees + tileStart, thisTileSize, 0);
-			waitEvents[2] = async_work_group_copy(TILEPOINTS3, outDegrees + tileStart, thisTileSize, 0);
-		}
-		wait_group_events(IS_PREVENT_OVERLAP(flags) ? 3 : 1, waitEvents);
+        waitEvents[0] = async_work_group_copy(TILEPOINTS, inputPositions + tileStart, thisTileSize, 0);
+        waitEvents[1] = async_work_group_copy(TILEPOINTS2, inDegrees + tileStart, thisTileSize, 0);
+        waitEvents[2] = async_work_group_copy(TILEPOINTS3, outDegrees + tileStart, thisTileSize, 0);
+		wait_group_events(3, waitEvents);
 
 
 		//hint fetch of next tile
@@ -507,30 +501,23 @@ __kernel void forceAtlasPoints (
 			}
 
 			float2 n2Pos = TILEPOINTS[cachedPoint];
+			uint n2Degree = TILEPOINTS2[cachedPoint] + TILEPOINTS3[cachedPoint];
 			float2 dist = n1Pos - n2Pos;
-			float distanceSqr = dist.x * dist.x + dist.y * dist.y;
-
-			//FIXME include in prefetch etc.
-	        float n2Size = DEFAULT_NODE_SIZE; //graphSettings->isPreventOverlap ? sizes[n2Idx] : 0.0f;
-	        uint n2Idx = tileStart + cachedPoint;
-	        uint n2Degree = IS_PREVENT_OVERLAP(flags) ? TILEPOINTS2[cachedPoint] + TILEPOINTS3[cachedPoint] : 0;
+			float distance = sqrt(dist.x * dist.x + dist.y * dist.y);
+	        int degrees = (n1Degree + 1) * (n2Degree + 1);
 
 	        float force;
 	        if (IS_PREVENT_OVERLAP(flags)) {
+	            //FIXME Use real sizes: IS_PREVENT_OVERLAP(flags) ? sizes[n1Idx] : 0.0f;
+                float n1Size = DEFAULT_NODE_SIZE;
+                float n2Size = DEFAULT_NODE_SIZE;
+                float distanceB2B = distance - n1Size - n2Size; //border-to-border
 
-	            //FIXME only apply after convergence <-- use stepNumber?
-
-	            //border-to-border approximation
-	            float distance = sqrt(distanceSqr) - n1Size - n2Size;
-	            int degrees = (n1Degree + 1) * (n2Degree + 1);
-
-	            force =
-	                  distance > EPSILON    ? (scalingRatio * degrees / distance)
-	                : distance < -EPSILON   ? (REPULSION_OVERLAP * degrees)
-	                : 0.0f;
-
+	            force = distanceB2B > EPSILON  ? (scalingRatio * degrees / distance) :
+	                    distanceB2B < -EPSILON ? (REPULSION_OVERLAP * degrees) :
+	                    0.0f;
 	        } else {
-	            force = scalingRatio / distanceSqr;
+	            force = scalingRatio * degrees / distance;
 	        }
 
         	n1D += dist * force;
