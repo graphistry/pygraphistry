@@ -112,21 +112,21 @@ __kernel void forceAtlasPoints (
 
 float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
                           float scalingRatio, bool preventOverlap) {
-    float distance = sqrt(distVec.x * distVec.x + distVec.y * distVec.y);
-    int degrees = (n1Degree + 1) * (n2Degree + 1);
+    float dist = length(distVec);
+    int degreeProd = (n1Degree + 1) * (n2Degree + 1);
     float force;
 
     if (preventOverlap) {
         //FIXME include in prefetch etc, use actual sizes
         float n1Size = DEFAULT_NODE_SIZE;
         float n2Size = DEFAULT_NODE_SIZE;
-        float distanceB2B = distance - n1Size - n2Size; //border-to-border
+        float distB2B = dist - n1Size - n2Size; //border-to-border
 
-        force = distanceB2B > EPSILON  ? (scalingRatio * degrees / distance)
-              : distanceB2B < -EPSILON ? (REPULSION_OVERLAP * degrees)
+        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / dist)
+              : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
               : 0.0f;
     } else {
-        force = scalingRatio * degrees / distance;
+        force = scalingRatio * degreeProd / dist;
     }
 
     return force;
@@ -136,7 +136,7 @@ float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
 float gravityForce(float gravity, uint n1Degree, float2 centerDist, bool strong) {
     return gravity *
            (n1Degree + 1.0f) *
-           (strong ? sqrt(centerDist.x * centerDist.x + centerDist.y * centerDist.y) : 1.0f);
+           (strong ? length(centerDist) : 1.0f);
 }
 
 
@@ -191,15 +191,15 @@ float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree,
                                                 : pown(weight, edgeInfluence);
 
     float dOffset = preventOverlap ? n1Size + n2Size : 0.0f;
-    float distance = sqrt(distVec.x * distVec.x + distVec.y * distVec.y) - dOffset;
+    float dist = length(distVec) - dOffset;
 
     float aForce;
-    if (preventOverlap && distance < EPSILON) {
+    if (preventOverlap && dist < EPSILON) {
         aForce = 0.0f;
     } else {
-        float dist = (linLog ? log(1.0f + 100.0f * distance) : distance);
+        float distFactor = (linLog ? log(1.0f + 100.0f * dist) : dist);
         float n1Deg = (dissuadeHubs ? n1Degree + 1.0f : 1.0f);
-        aForce = weightMultiplier * dist / n1Deg;
+        aForce = weightMultiplier * distFactor / n1Deg;
     }
 
     return aForce;
