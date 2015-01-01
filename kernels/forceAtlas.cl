@@ -1,87 +1,15 @@
-//NODECL defined by including file
-// (nodecl sets "#define NODECL" for bug https://github.com/Motorola-Mobility/node-webcl/issues/41 )
+#include "common.h"
 
-#ifdef NODECL
-	#define TILEPOINTS tilePointsInline
-	#define TILEPOINTS2 tilePoints2Inline
-	#define TILEPOINTS3 tilePoints3Inline
-	#define TILEPOINTS_INLINE_DECL __local float2 tilePointsInline[1000];
-	#define TILEPOINTS2_INLINE_DECL __local uint tilePoints2Inline[1000];
-	#define TILEPOINTS3_INLINE_DECL __local uint tilePoints3Inline[1000];
-#else
-	#define TILEPOINTS tilePointsParam
-	#define TILEPOINTS2 tilePoints2Param
-	#define TILEPOINTS3 tilePoints3Param
-	#define TILEPOINTS_INLINE_DECL
-	#define TILEPOINTS2_INLINE_DECL
-	#define TILEPOINTS3_INLINE_DECL
-#endif
-
-
-
-//====== FORCE ATLAS 2
 
 #define REPULSION_OVERLAP 0.00000001f
+#define DEFAULT_NODE_SIZE 0.000001f
+#define EPSILON 1.0f // bound whether d(a,b) == 0
 
-// bound whether d(a,b) == 0
-#define EPSILON 1.0f
-
-//set by kernel
-//compress booleans into flags
-//#define GRAPH_PARAMS_RAW() float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags
-//#define GRAPH_PARAMS GRAPH_PARAMS_RAW()
-//#define GRAPH_ARGS_RAW scalingRatio, gravity, edgeWeightInfluence, flags
-//#define GRAPH_ARGS GRAPH_ARGS_RAW()
 #define IS_PREVENT_OVERLAP(flags) (flags & 1)
 #define IS_STRONG_GRAVITY(flags) (flags & 2)
 #define IS_DISSUADE_HUBS(flags) (flags & 4)
 #define IS_LIN_LOG(flags) (flags & 8)
 
-#define DEFAULT_NODE_SIZE 0.000001f
-
-
-//====================
-
-
-
-
-// The fraction of tiles to process each execution of this kernel. For example, a value of '10' will
-// cause an execution of this kernel to only process every 10th tile.
-// The particular subset of tiles is chosen based off of stepNumber.
-#define TILES_PER_ITERATION 17
-
-// The length of the 'randValues' array
-#define RAND_LENGTH 73 //146
-
-// #define EDGE_REPULSION 0.5f
-
-// #define SPRING_LENGTH 0.1f
-// #define SPRING_FORCE 0.1f
-
-// BARNES HUT defintions.
-// TODO We don't need all these
-#define THREADS1 256  /* must be a power of 2 */
-#define THREADS2 1024
-#define THREADS3 1024
-#define THREADS4 256
-#define THREADS5 256
-#define THREADS6 512
-
-// block count = factor * #SMs
-#define FACTOR1 3
-#define FACTOR2 1
-#define FACTOR3 1  /* must all be resident at the same time */
-#define FACTOR4 1  /* must all be resident at the same time */
-#define FACTOR5 5
-#define FACTOR6 3
-
-#define WARPSIZE 16
-#define MAXDEPTH 32
-
-
-
-
-//========== FORCE ATLAS 2
 
 //repulse points and apply gravity
 __kernel void forceAtlasPoints (
