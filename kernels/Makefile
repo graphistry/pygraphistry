@@ -8,7 +8,4 @@ SRC=$(wildcard *.cl)
 all: $(SRC:.cl=.o)
 
 %.o : %.cl
-	clcc $(CLCCOPT) $(CLOPTIONS) $< -o $@
-
-clean:
-	rm -f *.o
+	clcc $(CLCCOPT) $(CLOPTIONS) $< -o /dev/null
