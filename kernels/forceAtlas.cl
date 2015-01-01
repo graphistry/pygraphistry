@@ -15,7 +15,7 @@
 float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
                           float scalingRatio, bool preventOverlap);
 
-float gravityForce(float gravity, uint n1Degree, float2 centerDist, bool strong);
+float gravityForce(float gravity, uint n1Degree, float2 centerVec, bool strong);
 
 float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight, 
                       bool preventOverlap, bool edgeInfluence, bool linLog, bool dissuadeHubs);
@@ -92,18 +92,18 @@ __kernel void forceAtlasPoints (
 	        float rForce = repulsionForce(distVec, n1Degree, n2Degree, scalingRatio, 
 	                                          IS_PREVENT_OVERLAP(flags));
 
-            n1D += distVec * rForce;
+            n1D += normalize(distVec) * rForce;
 		}
 		barrier(CLK_LOCAL_MEM_FENCE);
 	}
 
     const float2 dimensions = (float2) (width, height);
-    const float2 centerDist = (dimensions / 2.0f) - n1Pos;
-    float gForce = gravityForce(gravity, n1Degree, centerDist, IS_STRONG_GRAVITY(flags));
+    const float2 centerVec = (dimensions / 2.0f) - n1Pos;
+    float gForce = gravityForce(gravity, n1Degree, centerVec, IS_STRONG_GRAVITY(flags));
 
     outputPositions[n1Idx] =
         n1Pos
-        + SPEED * centerDist * gForce
+        + SPEED * normalize(centerVec) * gForce
         + SPEED / 10.0f * n1D;
 
 	return;
@@ -133,10 +133,10 @@ float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
 }
 
 
-float gravityForce(float gravity, uint n1Degree, float2 centerDist, bool strong) {
+float gravityForce(float gravity, uint n1Degree, float2 centerVec, bool strong) {
     return gravity *
            (n1Degree + 1.0f) *
-           (strong ? length(centerDist) : 1.0f);
+           (strong ? length(centerVec) : 1.0f);
 }
 
 
@@ -176,7 +176,7 @@ __kernel void forceAtlasEdges(
         float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f, 
                                        IS_PREVENT_OVERLAP(flags), edgeWeightInfluence, 
                                        IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
-        n1D += distVec * aForce;
+        n1D += normalize(distVec) * aForce;
     }
 
     outputPoints[sourceIdx] = n1Pos + SPEED * n1D;
