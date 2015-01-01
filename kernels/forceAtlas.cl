@@ -4,11 +4,21 @@
 #define REPULSION_OVERLAP 0.00000001f
 #define DEFAULT_NODE_SIZE 0.000001f
 #define EPSILON 1.0f // bound whether d(a,b) == 0
+#define SPEED 0.00001f
 
 #define IS_PREVENT_OVERLAP(flags) (flags & 1)
-#define IS_STRONG_GRAVITY(flags) (flags & 2)
-#define IS_DISSUADE_HUBS(flags) (flags & 4)
-#define IS_LIN_LOG(flags) (flags & 8)
+#define IS_STRONG_GRAVITY(flags)  (flags & 2)
+#define IS_DISSUADE_HUBS(flags)   (flags & 4)
+#define IS_LIN_LOG(flags)         (flags & 8)
+
+
+float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
+                          float scalingRatio, bool preventOverlap);
+
+float gravityForce(float gravity, uint n1Degree, float2 centerDist, bool strong);
+
+float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight, 
+                      bool preventOverlap, bool edgeInfluence, bool linLog, bool dissuadeHubs);
 
 
 //repulse points and apply gravity
@@ -59,13 +69,11 @@ __kernel void forceAtlasPoints (
 										tileSize : numPoints - tileStart;
 
 		//block on fetching current tile
-
 		event_t waitEvents[3];
         waitEvents[0] = async_work_group_copy(TILEPOINTS, inputPositions + tileStart, thisTileSize, 0);
         waitEvents[1] = async_work_group_copy(TILEPOINTS2, inDegrees + tileStart, thisTileSize, 0);
         waitEvents[2] = async_work_group_copy(TILEPOINTS3, outDegrees + tileStart, thisTileSize, 0);
 		wait_group_events(3, waitEvents);
-
 
 		//hint fetch of next tile
 		prefetch(inputPositions + ((tile + 1) * tileSize), thisTileSize);
@@ -80,42 +88,55 @@ __kernel void forceAtlasPoints (
 
 			float2 n2Pos = TILEPOINTS[cachedPoint];
 			uint n2Degree = TILEPOINTS2[cachedPoint] + TILEPOINTS3[cachedPoint];
-			float2 dist = n1Pos - n2Pos;
-			float distance = sqrt(dist.x * dist.x + dist.y * dist.y);
-	        int degrees = (n1Degree + 1) * (n2Degree + 1);
+			float2 distVec = n1Pos - n2Pos;
+	        float rForce = repulsionForce(distVec, n1Degree, n2Degree, scalingRatio, 
+	                                          IS_PREVENT_OVERLAP(flags));
 
-	        float force;
-	        if (IS_PREVENT_OVERLAP(flags)) {
-	            //FIXME Use real sizes: IS_PREVENT_OVERLAP(flags) ? sizes[n1Idx] : 0.0f;
-                float n1Size = DEFAULT_NODE_SIZE;
-                float n2Size = DEFAULT_NODE_SIZE;
-                float distanceB2B = distance - n1Size - n2Size; //border-to-border
-
-	            force = distanceB2B > EPSILON  ? (scalingRatio * degrees / distance) :
-	                    distanceB2B < -EPSILON ? (REPULSION_OVERLAP * degrees) :
-	                    0.0f;
-	        } else {
-	            force = scalingRatio * degrees / distance;
-	        }
-
-        	n1D += dist * force;
+            n1D += distVec * rForce;
 		}
 		barrier(CLK_LOCAL_MEM_FENCE);
-
 	}
 
     const float2 dimensions = (float2) (width, height);
     const float2 centerDist = (dimensions / 2.0f) - n1Pos;
-
-    float gravityForce = gravity * (n1Degree + 1.0f) *
-                        (IS_STRONG_GRAVITY(flags) ? sqrt(centerDist.x * centerDist.x + centerDist.y * centerDist.y) : 1.0f);
+    float gForce = gravityForce(gravity, n1Degree, centerDist, IS_STRONG_GRAVITY(flags));
 
     outputPositions[n1Idx] =
         n1Pos
-        + 0.0001f * centerDist * gravityForce
-        + 0.00001f * n1D;
+        + SPEED * centerDist * gForce
+        + SPEED / 10.0f * n1D;
 
 	return;
+}
+
+
+float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
+                          float scalingRatio, bool preventOverlap) {
+    float distance = sqrt(distVec.x * distVec.x + distVec.y * distVec.y);
+    int degrees = (n1Degree + 1) * (n2Degree + 1);
+    float force;
+
+    if (preventOverlap) {
+        //FIXME include in prefetch etc, use actual sizes
+        float n1Size = DEFAULT_NODE_SIZE;
+        float n2Size = DEFAULT_NODE_SIZE;
+        float distanceB2B = distance - n1Size - n2Size; //border-to-border
+
+        force = distanceB2B > EPSILON  ? (scalingRatio * degrees / distance)
+              : distanceB2B < -EPSILON ? (REPULSION_OVERLAP * degrees)
+              : 0.0f;
+    } else {
+        force = scalingRatio * degrees / distance;
+    }
+
+    return force;
+}
+
+
+float gravityForce(float gravity, uint n1Degree, float2 centerDist, bool strong) {
+    return gravity *
+           (n1Degree + 1.0f) *
+           (strong ? sqrt(centerDist.x * centerDist.x + centerDist.y * centerDist.y) : 1.0f);
 }
 
 
@@ -140,54 +161,46 @@ __kernel void forceAtlasEdges(
     const uint springsCount = workList[workItem].y;
     const uint sourceIdx = springs[springsStart].x;
 
-    //====== attact edges
-
     float2 n1Pos = inputPoints[sourceIdx];
-
-    //FIXME IS_PREVENT_OVERLAP(flags) ? sizes[n1Idx] : 0.0f;
-    float n1Size = DEFAULT_NODE_SIZE;
+    float n1Size = DEFAULT_NODE_SIZE; //FIXME include in prefetch etc, use actual sizes
 
     //FIXME start with previous deriv?
     float2 n1D = (float2) (0.0f, 0.0f);
 
 	for(uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
-
         const uint2 curSpring = springs[curSpringIdx];
-
         float2 n2Pos = inputPoints[curSpring.y];
+        float n2Size = DEFAULT_NODE_SIZE;
+        float2 distVec = n2Pos - n1Pos;
 
-        //FIXME from param
-        float n2Size = DEFAULT_NODE_SIZE; //graphSettings->isPreventOverlap ? sizes[curSpring[1]] : 0.0f;
-        uint wMode = edgeWeightInfluence;
-        float weight = 1.0f; //wMode ? edgeWeight[curSpringIdx] : 0.0f;
-
-        float weightMultiplier =
-            wMode == 0      ? 1.0f
-            : wMode == 1    ? weight
-            : pown(weight, wMode);
-
-        float2 dist = n2Pos - n1Pos;
-
-        float distance =
-            sqrt(dist.x * dist.x + dist.y * dist.y)
-            - (IS_PREVENT_OVERLAP(flags) ? n1Size + n2Size : 0.0f);
-
-        float force =
-            (IS_PREVENT_OVERLAP(flags) && distance < EPSILON)
-                ? 0.0f
-                : (weightMultiplier
-                    * (IS_LIN_LOG(flags) ? log(1.0f + 100.0f * distance) : distance)
-                    / (IS_DISSUADE_HUBS(flags) ? springsCount + 1.0f : 1.0f));
-
-        n1D += dist * force;
+        float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f, 
+                                       IS_PREVENT_OVERLAP(flags), edgeWeightInfluence, 
+                                       IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
+        n1D += distVec * aForce;
     }
 
-    //====== apply
-
-    float2 source = n1Pos+ n1D * 0.0001f;
-
-    outputPoints[sourceIdx] = source;
-
+    outputPoints[sourceIdx] = n1Pos + SPEED * n1D;
     return;
+}
 
+float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight, 
+                      bool preventOverlap, bool edgeInfluence, bool linLog, bool dissuadeHubs) {
+
+    float weightMultiplier = edgeInfluence == 0 ? 1.0f
+                           : edgeInfluence == 1 ? weight
+                                                : pown(weight, edgeInfluence);
+
+    float dOffset = preventOverlap ? n1Size + n2Size : 0.0f;
+    float distance = sqrt(distVec.x * distVec.x + distVec.y * distVec.y) - dOffset;
+
+    float aForce;
+    if (preventOverlap && distance < EPSILON) {
+        aForce = 0.0f;
+    } else {
+        float dist = (linLog ? log(1.0f + 100.0f * distance) : distance);
+        float n1Deg = (dissuadeHubs ? n1Degree + 1.0f : 1.0f);
+        aForce = weightMultiplier * dist / n1Deg;
+    }
+
+    return aForce;
 }
