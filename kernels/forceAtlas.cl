@@ -1,10 +1,11 @@
+//#define DEBUG
 #include "common.h"
 
 
 #define REPULSION_OVERLAP 0.00000001f
 #define DEFAULT_NODE_SIZE 0.000001f
 #define EPSILON 1.0f // bound whether d(a,b) == 0
-#define SPEED 0.00001f
+#define SPEED 0.0001f
 
 #define IS_PREVENT_OVERLAP(flags) (flags & 1)
 #define IS_STRONG_GRAVITY(flags)  (flags & 2)
@@ -18,7 +19,7 @@ float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
 float gravityForce(float gravity, uint n1Degree, float2 centerVec, bool strong);
 
 float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight, 
-                      bool preventOverlap, bool edgeInfluence, bool linLog, bool dissuadeHubs);
+                      bool preventOverlap, uint edgeInfluence, bool linLog, bool dissuadeHubs);
 
 
 //repulse points and apply gravity
@@ -42,7 +43,6 @@ __kernel void forceAtlasPoints (
 	//output
 	__global float2* outputPositions
 ) {
-
     const unsigned int n1Idx = (unsigned int) get_global_id(0);
     const unsigned int tileSize = (unsigned int) get_local_size(0);
     const unsigned int numTiles = (unsigned int) get_num_groups(0);
@@ -55,14 +55,12 @@ __kernel void forceAtlasPoints (
 
     float2 n1Pos = inputPositions[n1Idx];
     float2 n1D = (float2) (0.0f, 0.0f);
-
     uint n1Degree = inDegrees[n1Idx] + outDegrees[n1Idx];
 
     for(unsigned int tile = 0; tile < numTiles; tile++) {
         if (tile % modulus != stepNumber % modulus) {
             continue;
         }
-
 
 		const unsigned int tileStart = (tile * tileSize);
 		unsigned int thisTileSize =  tileStart + tileSize < numPoints ?
@@ -90,8 +88,9 @@ __kernel void forceAtlasPoints (
 			uint n2Degree = TILEPOINTS2[cachedPoint] + TILEPOINTS3[cachedPoint];
 			float2 distVec = n1Pos - n2Pos;
 	        float rForce = repulsionForce(distVec, n1Degree, n2Degree, scalingRatio, 
-	                                          IS_PREVENT_OVERLAP(flags));
+                                          IS_PREVENT_OVERLAP(flags));
 
+            debug2("rForce %f\n", rForce);
             n1D += normalize(distVec) * rForce;
 		}
 		barrier(CLK_LOCAL_MEM_FENCE);
@@ -100,6 +99,7 @@ __kernel void forceAtlasPoints (
     const float2 dimensions = (float2) (width, height);
     const float2 centerVec = (dimensions / 2.0f) - n1Pos;
     float gForce = gravityForce(gravity, n1Degree, centerVec, IS_STRONG_GRAVITY(flags));
+    debug2("gForce %f\n", gForce);
 
     outputPositions[n1Idx] =
         n1Pos
@@ -129,7 +129,7 @@ float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
         force = scalingRatio * degreeProd / dist;
     }
 
-    return force;
+    return clamp(force, 0.0f, 1.0f / SPEED);
 }
 
 
@@ -176,15 +176,16 @@ __kernel void forceAtlasEdges(
         float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f, 
                                        IS_PREVENT_OVERLAP(flags), edgeWeightInfluence, 
                                        IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
+        debug2("aForce: %f\n", aForce);
         n1D += normalize(distVec) * aForce;
     }
 
-    outputPoints[sourceIdx] = n1Pos + SPEED * n1D;
+    outputPoints[sourceIdx] = n1Pos + SPEED * 10.0f * n1D;
     return;
 }
 
 float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight, 
-                      bool preventOverlap, bool edgeInfluence, bool linLog, bool dissuadeHubs) {
+                      bool preventOverlap, uint edgeInfluence, bool linLog, bool dissuadeHubs) {
 
     float weightMultiplier = edgeInfluence == 0 ? 1.0f
                            : edgeInfluence == 1 ? weight
