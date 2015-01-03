@@ -79,6 +79,12 @@
 #define MAXDEPTH 32
 
 
+/**************************************************************
+ *                       OBSOLETE!                            *
+ *          Code is now in kernels/gaussSeidel.cl             *
+ *          and kernels/forceAtlas.cl                         *
+ **************************************************************/
+
 // Calculate the force of point b on point a, returning a vector indicating the movement to point a
 float2 pointForce(float2 a, float2 b, float force);
 
