@@ -282,10 +282,13 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 __kernel void gaussSeidelSprings(
 	const __global uint2* springs,	       // Array of springs, of the form [source node, target node] (read-only)
 	const __global uint2* workList, 	       // Array of spring [source index, sinks length] pairs to compute (read-only)
+	const __global uint* edgeTags,			// Array of worklist item -> 0/1
 	const __global float2* inputPoints,      // Current point positions (read-only)
 	__global float2* outputPoints,     // Point positions after spring forces have been applied (write-only)
-	float springStrength,              // The rigidity of the springs
-	float springDistance,              // The 'at rest' length of a spring
+	float springStrength0,              // The rigidity of the springs
+	float springDistance0,              // The 'at rest' length of a spring
+	float springStrength1,              // The rigidity of the springs
+	float springDistance1,              // The 'at rest' length of a spring
 	unsigned int stepNumber
 	)
 {
@@ -318,7 +321,7 @@ __kernel void gaussSeidelSprings(
 		float2 target = inputPoints[curSpring.y];
 		float dist = distance(target, source); //sqrt((delta.x * delta.x) + (delta.y * delta.y));
 		if(dist > FLT_EPSILON) {
-			float force = alpha * springStrength * (dist - springDistance) / dist;
+			float force = alpha * springStrength0 * (dist - springDistance0) / dist;
 			source += (target - source) * force;
 		}
 	}
