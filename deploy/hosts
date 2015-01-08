@@ -1,9 +1,12 @@
 [workers]
-54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker01 ansible_ssh_port=61630
-54.183.193.90 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker02 ansible_ssh_port=61630
+#54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker01 ansible_ssh_port=61630
+#54.183.193.90 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker02 ansible_ssh_port=61630
+54.173.54.110 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker01 ansible_ssh_port=61630
+54.173.242.106 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker02 ansible_ssh_port=61630
 
 [central]
-54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central01 ansible_ssh_port=61630
+#54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central01 ansible_ssh_port=61630
+54.173.54.110 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central01 ansible_ssh_port=61630
 
 [localhost]
 localhost ansible_connection=local
