@@ -321,7 +321,10 @@ __kernel void gaussSeidelSprings(
 		float2 target = inputPoints[curSpring.y];
 		float dist = distance(target, source); //sqrt((delta.x * delta.x) + (delta.y * delta.y));
 		if(dist > FLT_EPSILON) {
-			float force = alpha * springStrength0 * (dist - springDistance0) / dist;
+			uint edgeTag = edgeTags[curSpringIdx];
+			float force = alpha
+				* (edgeTag ? springStrength1 : springStrength0)
+				* (dist - (edgeTag ? springDistance1 : springDistance0)) / dist;
 			source += (target - source) * force;
 		}
 	}
