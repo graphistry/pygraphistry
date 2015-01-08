@@ -224,6 +224,6 @@ float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree,
         aForce = weightMultiplier * distFactor / n1Deg;
     }
 
-    return aForce;
+    return aForce * 10.0;
 }
 #endif
