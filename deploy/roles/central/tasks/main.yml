@@ -16,7 +16,11 @@
   tags: 
     - fast
 
-- command: cp -r /tmp/web/central /opt
+- shell: chdir=/tmp rm -rf npm*
+  tags:
+    - fast
+
+- command: cp -ru /tmp/web/central /opt
   sudo: yes
   tags: 
     - fast
