@@ -19,13 +19,15 @@
 
 #ifdef DEBUG
     // Variadic macros are not supported in OpenCL
-    #define debug1(X)     printf(X)
-    #define debug2(X,Y)   printf(X,Y)
-    #define debug3(X,Y,Z) printf(X,Y,Z)
+    #define debug1(X)       printf(X)
+    #define debug2(X,Y)     printf(X,Y)
+    #define debug3(X,Y,Z)   printf(X,Y,Z)
+    #define debug4(X,Y,Z,W) printf(X,Y,Z,W)
 #else
     #define debug1(X)
     #define debug2(X,Y)
     #define debug3(X,Y,Z)
+    #define debug4(X,Y,Z,W)
 #endif
 
 // The fraction of tiles to process each execution of this kernel. For example, a value of '10' will
