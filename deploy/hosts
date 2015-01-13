@@ -1,10 +1,12 @@
 # Current AWS region for production cluster: us-west-1
 # If you want to move the production cluster from running in one region to another:
 #   1) Comment out one block and uncomment the other block.
-#   2) Stop all 'production' ec2 instances in the old region, and start the appropriate ec2
-       instances in the new region.
-    3) Run Ansible to provision and/or deploy to the new instances
-    4) [Optional] change the DNS records on NameCheap to point labs.graphistry.com to the new IP
+#   2) Stop all 'production' ec2 instances in the old region
+#   3) Run the following command locally (install MongoDB first) to clear the node_monitor table:
+#	       mongo c48.lighthouse.3.mongolayer.com:10048/graphistry-prod -u graphistry -p graphtheplanet --eval 'db.node_monitor.remove({})'
+#   4) Start the appropriate ec2 instances in the new region.
+    5) Run Ansible to provision and/or deploy to the new instances
+    6) [Optional] change the DNS records on NameCheap to point labs.graphistry.com to the new IP
 # Do NOT allow clusters to run in both regions simultaneously, or run Ansible with both AWS regions
 # uncommented below.
 
