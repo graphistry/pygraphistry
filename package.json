@@ -25,7 +25,6 @@
     "rx": "^2.3.19",
     "socket.io": "^1.2.0",
     "underscore": "^1.7.0",
-    "datasets": "git+ssh://git@github.com:graphistry/datasets.git#master",
     "protobufjs": "3.8.x"
   }
 }
