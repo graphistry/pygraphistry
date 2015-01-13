@@ -6,14 +6,16 @@ var driver       = require('../../js/node-driver.js');
 var StreamGL     = require('StreamGL');
 var compress     = require('node-pigz');
 var renderer     = StreamGL.renderer;
-var renderConfig = require('../../js/renderer.config.graph.js');
+var renderConfig = require('../../js/renderer.config.js').scenes.default;
+var loader       = require('../../js/data-loader.js');
 
 describe("Smoke test for server loop", function() {
+    var theDataset = loader.downloadDataset('Uber');
     var activeBuffers = renderer.getServerBufferNames(renderConfig),
-        activePrograms = renderConfig.scene.render;
-    var anim = driver.create();
+        activePrograms = renderConfig.render;
+    var anim = driver.create(theDataset);
 
-    it("Initialize animation loop", function (done) {
+    it("Setup", function (done) {
         var fail = this.fail;
 
         var tick = anim.ticks.take(1);
@@ -33,7 +35,7 @@ describe("Smoke test for server loop", function() {
         var fail = this.fail;
 
         graph.flatMap(function (graph) {
-            return driver.fetchData(graph, compress, activeBuffers, undefined, activePrograms); 
+            return driver.fetchData(graph, renderConfig, compress, activeBuffers, undefined, activePrograms); 
         }).take(1).subscribe(function (vbo) {
             expect(vbo).not.toBeNull();
             expect(vbo).toBeDefined();
