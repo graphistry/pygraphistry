@@ -1,12 +1,32 @@
+# Current AWS region for production cluster: us-west-1
+# If you want to move the production cluster from running in one region to another:
+#   1) Comment out one block and uncomment the other block.
+#   2) Stop all 'production' ec2 instances in the old region, and start the appropriate ec2
+       instances in the new region.
+    3) Run Ansible to provision and/or deploy to the new instances
+    4) [Optional] change the DNS records on NameCheap to point labs.graphistry.com to the new IP
+# Do NOT allow clusters to run in both regions simultaneously, or run Ansible with both AWS regions
+# uncommented below.
+
+#### AWS region: us-west-1 (N. California)
 [workers]
-#54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker01 ansible_ssh_port=61630
-#54.183.193.90 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker02 ansible_ssh_port=61630
-54.173.54.110 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker01 ansible_ssh_port=61630
-54.173.242.106 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker02 ansible_ssh_port=61630
+54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker01 ansible_ssh_port=61630
+54.183.193.90 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker02 ansible_ssh_port=61630
 
 [central]
-#54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central01 ansible_ssh_port=61630
-54.173.54.110 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central01 ansible_ssh_port=61630
+54.183.185.65 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central01 ansible_ssh_port=61630
+#### /us-west-1
+
+
+#### AWS region: us-east-1 (N. Virginia)
+# [central]
+# 54.173.54.110 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=central01 ansible_ssh_port=61630
+
+# [workers]
+# 54.173.54.110 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker01 ansible_ssh_port=61630
+# 54.173.242.106 ansible_ssh_user=ubuntu ansible_ssh_private_key_file=ansible_id_rsa.pem hostname=worker02 ansible_ssh_port=61630
+#### /us-east-1
+
 
 [localhost]
 localhost ansible_connection=local
