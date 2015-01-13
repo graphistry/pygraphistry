@@ -114,24 +114,6 @@ function init(app, socket) {
 
     resetState(theDataset);
 
-    app.get('/vbo', function(req, res) {
-        debug('VBOs: HTTP GET %s', req.originalUrl, req.query);
-
-        try {
-            // TODO: check that query parameters are present, and that given id, buffer exist
-            var bufferName = req.query.buffer;
-            var id = req.query.id;
-
-            res.set('Content-Encoding', 'gzip');
-
-            res.send(lastCompressedVbos[id][bufferName]);
-        } catch (e) {
-            console.error('[viz-server.js] bad request', e, e.stack);
-        }
-
-        finishBufferTransfers[id](bufferName);
-    });
-
     var colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
     var img =
