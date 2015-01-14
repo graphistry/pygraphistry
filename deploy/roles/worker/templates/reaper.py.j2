@@ -13,7 +13,7 @@ import logging
 import sys
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.WARNING)
 
 ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.INFO)
@@ -60,8 +60,8 @@ def monitor(db):
     data = '{"source": "%s", "metric": "GPU_FREE", "measure": %s, "timestamp": %s}' % (ip, gpu_memory_free, int(time.time()))
     headers = {'content-type': 'application/json'}
     r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
-    logger.info(data)
-    logger.info("boundary status: " + str(r.json()))
+    # logger.info(data)
+    # logger.info("boundary status: %s" % str(r.json()))
 
     # Get per-process data from nvidia-smi
     p = subprocess.Popen(["nvidia-smi",
@@ -73,7 +73,7 @@ def monitor(db):
     # Todo: set this up with Graphite
     collection = db['node_monitor']
     for process in process_data:
-        logger.info(process)
+        logger.info("Process GPU date: %s" % str(process))
         process = process.replace(' ', '').split(',')
         if process == ['']:
             continue
@@ -117,8 +117,8 @@ def reap(db):
     data = '{"source": "%s", "metric": "ACTIVE_USERS", "measure": %s, "timestamp": %s}' % (ip, active_users, int(time.time()))
     headers = {'content-type': 'application/json'}
     r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
-    logger.info(data)
-    logger.info("boundary status: " + str(r.json()))
+    # logger.info(data)
+    # logger.info("boundary status: %s" % str(r.json()))
 
     # Update Boundary
     inactive = collection.find({"ip": ip, "active": False})
@@ -128,8 +128,8 @@ def reap(db):
     data = '{"source": "%s", "metric": "INACTIVE_WORKERS", "measure": %s, "timestamp": %s}' % (ip, inactive_workers, int(time.time()))
     headers = {'content-type': 'application/json'}
     r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
-    logger.info(data)
-    logger.info("boundary status: " + str(r.json()))
+    # logger.info(data)
+    # logger.info("boundary status: %s " % str(r.json()))
 
 if __name__=="__main__":
 
