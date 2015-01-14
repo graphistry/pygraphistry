@@ -11,11 +11,15 @@
   sudo: yes
   tags: common
 
+- template: src=timezone.j2 dest=/etc/timezone owner=root group=root mode=0644
+  sudo: yes
+  tags: common
+
 - command: rm /var/lib/apt/lists/lock
   sudo: yes
   ignore_errors: true
   tags: common
-  
+
 - command: rm /var/cache/apt/archives/lock
   sudo: yes
   ignore_errors: true
@@ -47,6 +51,7 @@
     - unattended-upgrades
     - python-psutil
     - supervisor
+    - ntp
   tags: common
 
 - name: create apt auto-upgrades job configuration
@@ -123,7 +128,7 @@
   tags:
     - common
     - splunk
-    
+
 - name: restart splunk
   command: service splunk restart
   sudo: yes
@@ -166,7 +171,7 @@
 - name: sshd config
   template: src=sshd_config dest=/etc/ssh/sshd_config
   sudo: yes
-  tags: 
+  tags:
     - ssh
     - common
 
