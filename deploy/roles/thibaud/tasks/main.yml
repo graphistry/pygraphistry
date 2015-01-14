@@ -14,7 +14,10 @@
 
 - synchronize: rsync_path="sudo rsync" src=bash_profile dest=/home/{{ user }}/.bash_profile
   sudo: yes
-  
+
 - name: perms
   command: chown -R {{ user }} /home/{{ user }}
+  sudo: yes
+
+- template: src=user-sudoers.j2 dest=/etc/sudoers.d/55-graphistry-thibaud owner=root group=root mode=0440
   sudo: yes
