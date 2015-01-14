@@ -49,8 +49,11 @@ def monitor(db):
                         "--format=csv,noheader"], stdout=subprocess.PIPE)
     gpu_data = p.communicate()[0]
     gpu_memory_free = convert(gpu_data)
-    collection = db['gpu_monitor']
-    collection.update({'ip': ip}, {'$set': {'gpu_memory_free' : gpu_memory_free, 'updated': datetime.now() } }, True)
+    db['gpu_monitor'].update({'ip': ip}, {'$set':
+        {
+            'gpu_memory_free': gpu_memory_free,
+            'updated': datetime.utcnow()
+        }}, True)
     logger.info('gpu_memory_free %s' % gpu_memory_free)
 
     # Post GPU data to Boundary
