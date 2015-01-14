@@ -43,7 +43,7 @@ var graph;
 
 //Do more innocuous initialization inline (famous last words..)
 
-function resetState(theDataset) {
+function resetState(dataset) {
     debug('RESETTING APP STATE');
 
     //FIXME explicitly destroy last graph if it exists?
@@ -52,7 +52,7 @@ function resetState(theDataset) {
     finishBufferTransfers = {};
 
 
-    animStep = driver.create(theDataset);
+    animStep = driver.create(dataset);
     ticksMulti = animStep.ticks.publish();
     ticksMulti.connect();
 
@@ -94,25 +94,6 @@ function vboSizeMB(vbos) {
 
 function init(app, socket) {
     debug('Client connected', socket.id);
-
-    // Get the datasetname from the socket query param, sent by Central
-    var datasetName = socket.handshake.query.datasetname || config.DATASETNAME || 'Uber';
-
-    var theDataset = loader.downloadDataset(datasetName);
-    var theRenderConfig = theDataset.then(function (dataset) {
-        var scene = dataset.Metadata.config.scene;
-        debug('Scene %s', scene)
-        if (!(scene in rConf.scenes)) {
-            console.warn('WARNING Unknown scene "%s", using default', scene)
-            scene = 'default';
-        } else
-            console.info('Loading scene %s', scene);
-        return rConf.scenes[scene];
-    }).fail(function (err) {
-        console.error("ERROR Getting renderConfig ", (err||{}).stack);
-    });
-
-    resetState(theDataset);
 
     var colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
@@ -189,6 +170,25 @@ function init(app, socket) {
         }
     });
 
+    // Get the datasetname from the socket query param, sent by Central
+    var datasetName = socket.handshake.query.datasetname || config.DATASETNAME || 'Uber';
+
+    var theDataset = loader.downloadDataset(datasetName);
+
+    var theRenderConfig = theDataset.then(function (dataset) {
+        resetState(dataset);
+        var scene = dataset.Metadata.config.scene;
+        debug('Scene %s', scene)
+        if (!(scene in rConf.scenes)) {
+            console.warn('WARNING Unknown scene "%s", using default', scene)
+            scene = 'default';
+        } else
+            console.info('Loading scene %s', scene);
+        return rConf.scenes[scene];
+    }).fail(function (err) {
+        console.error("ERROR in initialization: ", (err||{}).stack);
+    });
+
     socket.on('get_render_config', function() {
         debug('Sending render-config to client');
         theRenderConfig.then(function (renderConfig) {
@@ -203,6 +203,16 @@ function init(app, socket) {
             stream(socket, renderConfig, colorTexture);
         }).fail(function (err) {
             console.error("ERROR streaming ", (err||{}).stack);
+        });
+    });
+
+    socket.on('reset_graph', function (_, cb) {
+        debug('reset_graph command');
+        theDataset.then(function (dataset) {
+            resetState(dataset);
+            cb();
+        }).fail(function (err) {
+            console.error("ERROR resetting graph ", (err||{}).stack);
         });
     });
 
@@ -248,12 +258,6 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('graph_settings', function (payload) {
         debug('new settings', payload, socket.id);
         animStep.proxy(_.extend({play: true, layout: false}, payload || {}));
-    });
-
-    socket.on('reset_graph', function (_, cb) {
-        debug('reset_graph command');
-        resetState(config);
-        cb();
     });
 
     socket.on('get_labels', function (labels, cb) {
