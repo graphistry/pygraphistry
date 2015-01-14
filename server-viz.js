@@ -14,6 +14,7 @@ var loader      = require("./js/data-loader.js");
 var driver      = require('./js/node-driver.js');
 var compress    = require('node-pigz');
 var StreamGL    = require('StreamGL');
+var config      = require('config')();
 
 var renderer = StreamGL.renderer;
 
@@ -292,7 +293,7 @@ function stream(socket, renderConfig, colorTexture) {
 
         debug('1. Prefetch VBOs', socket.id, activeBuffers);
 
-        return driver.fetchData(graph, renderConfig, compress, 
+        return driver.fetchData(graph, renderConfig, compress,
                                 activeBuffers, lastVersions, activePrograms)
             .do(function (vbos) {
                 debug('prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB');
@@ -388,7 +389,6 @@ if (require.main === module) {
         http    = require('http').Server(app),
         io      = require('socket.io')(http, {transports: ['websocket']});
 
-    var config  = require('config')();
     debug("Config set to %j", config);
 
     var nocache = function (req, res, next) {

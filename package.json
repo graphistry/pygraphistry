@@ -6,7 +6,7 @@
   "main": "index.js",
   "author": "",
   "scripts": {
-    "test": "jasmine-node spec/"
+    "test": "jasmine-node spec/ --forceexit"
   },
   "license": "ISC",
   "dependencies": {
@@ -24,7 +24,9 @@
     "request": "^2.49.0",
     "rx": "^2.3.19",
     "socket.io": "^1.2.0",
+    "socket.io-client": "*",
     "underscore": "^1.7.0",
-    "protobufjs": "3.8.x"
+    "protobufjs": "3.8.x",
+    "supertest": "*"
   }
 }
