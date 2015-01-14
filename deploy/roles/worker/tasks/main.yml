@@ -1,20 +1,20 @@
 ---
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags provision
+- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
   get_url: dest=/tmp/cuda-repo-ubuntu1404_6.5-14_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_6.5-14_amd64.deb
   sudo: yes
-  tags: provision 
+  tags: provision
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags provision
+- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
   command: chdir=/tmp dpkg -i cuda-repo-ubuntu1404_6.5-14_amd64.deb
   sudo: yes
   tags: provision
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags provision
+- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
   command: apt-get update
   sudo: yes
   tags: provision
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags provision
+- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
   apt: pkg={{ item }} state=installed update_cache=yes
   sudo: yes
   with_items:
@@ -30,27 +30,27 @@
     - pkg-config
   tags: provision
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags provision
+- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
   command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
   sudo: yes
   tags: provision
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags provision
+- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
   template: src=xorg.conf.j2 dest=/etc/X11/xorg.conf
   sudo: yes
   tags: provision
 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags provision
+- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
   template: src=grub.j2 dest=/etc/default/grub
   sudo: yes
   tags: provision
- 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags provision 
+
+- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
   command: update-grub
   sudo: yes
   tags: provision
- 
-- name: WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN\'T BE DOING THIS. TRY PASSING --skip-tags provision 
+
+- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
   command: reboot
   sudo: yes
   tags: provision
@@ -110,7 +110,7 @@
   when: anttweak_downloaded.changed
   sudo: yes
   tags: worker
-  
+
 - command: mkdir /tmp/web
   ignore_errors: true
   tags:
@@ -121,44 +121,44 @@
   tags:
   - worker
 
-- shell: npm config set prefix '/home/{{ ansible_ssh_user }}/.npm_global'
-  tags: 
+- shell: "npm config set prefix '/home/{{ ansible_ssh_user }}/.npm_global'"
+  tags:
     - worker
 
 - git: repo=git@github.com:graphistry/viz-server.git dest=/tmp/web/viz-server version=master update=yes accept_hostkey=yes
-  tags: 
+  tags:
     - worker
     - fast
 
 - command: npm install --global grunt-cli
-  tags: 
+  tags:
     - worker
 
 - command: npm install --global node-gyp
-  tags: 
+  tags:
     - worker
 
 # TODO: Fix this. Not sure what's up with Ansible's users.
 - shell: sudo su www -l -c "cd /home/www && npm install node-webcl"
   sudo: yes
-  tags: 
+  tags:
     - worker
 
 - shell: sudo su www -l -c "cd /home/www && npm install node-webgl"
   sudo: yes
-  tags: 
+  tags:
     - worker
 
 - shell: chdir=/home/{{ ansible_ssh_user }}/ npm install node-webcl
-  tags: 
+  tags:
     - worker
 
 - shell: chdir=/home/{{ ansible_ssh_user }}/ npm install node-webgl
-  tags: 
+  tags:
     - worker
 
 - shell: chdir=/tmp/web/viz-server npm install
-  tags: 
+  tags:
     - worker
     - fast
 
@@ -169,19 +169,19 @@
 
 - command: cp -ru /tmp/web/viz-server /opt
   sudo: yes
-  tags: 
+  tags:
     - worker
     - fast
 
 - command: chown -R www:www /opt/
   sudo: yes
-  tags: 
+  tags:
     - worker
     - fast
 
 - command: chmod g+w -R /opt/
   sudo: yes
-  tags: 
+  tags:
     - worker
     - fast
 
