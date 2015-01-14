@@ -19,28 +19,35 @@ var express      = require('express');
 
 // Because node swallows a lot of exceptions, uncomment this if tests are
 // crashing without any details.
-/*
-process.on('uncaughtException', function(err) {
-  console.log(err.stack);
-  throw err;
-});
-*/
 
-describe ("Smoke test using LayoutDebugLines", function () {
+// process.on('uncaughtException', function(err) {
+//   console.log(err.stack);
+//   throw err;
+// });
+
+function deepcopy (obj) {
+    return JSON.parse(JSON.stringify(obj));
+}
+
+describe ("[SMOKE] Server-viz", function () {
 
     // Variables available to all tests
     var app;
+    var buffernames;
     var client;
     var id;
     var options = {
         transports: ['websocket'],
-        'force new connection': true
+        'force new connection': true,
+        query: {datasetname: 'LayoutDebugLines'}
     };
     var socketURL = 'http://0.0.0.0:5432';
     var theRenderConfig;
+    var vboBuffer = {};
+    var lastVbos = {};
 
     // Setup
-    it ("Should setup app and connect", function (done) {
+    it ("should setup app and connect", function (done) {
         app = express();
         io.on('connection', function (socket) {
             socket.on('viz', function (msg, cb) { cb(); });
@@ -54,7 +61,7 @@ describe ("Smoke test using LayoutDebugLines", function () {
     });
 
     // Tests
-    it ("Should get a render config", function (done) {
+    it ("should get a render config", function (done) {
         client.on('render_config', function (render_config) {
             theRenderConfig = render_config;
             expect(render_config).toBeDefined();
@@ -63,12 +70,10 @@ describe ("Smoke test using LayoutDebugLines", function () {
         client.emit('get_render_config');
     });
 
-    it ("Should start streaming and get 3 animation ticks", function (done) {
-        var count = 1;
+    it ("should start streaming and get an animation tick", function (done) {
+        buffernames = renderer.getServerBufferNames(theRenderConfig);
         client.on('vbo_update', function (data) {
-            var buffernames = renderer.getServerBufferNames(theRenderConfig);
-            var times = buffernames.length;
-            for (var i = 0; i < times; i++) {
+            for (var i = 0; i < buffernames.length; i++) {
                 (function() {
                     var num = i;
                     supertest(app)
@@ -77,16 +82,15 @@ describe ("Smoke test using LayoutDebugLines", function () {
                         .query({buffer: buffernames[num]})
                         .end(function (res) {
                             expect(res).toBeDefined();
-                            if (num + 1 === times) {
-                                client.emit('animate');
+                            vboBuffer[buffernames[num]] = res;
+                            if (Object.keys(vboBuffer).length === buffernames.length) {
+                                lastVbos = deepcopy(vboBuffer);
+                                vboBuffer = {};
+                                client.emit('received_buffers', 'faketime');
+                                done();
                             }
                         });
                 })();
-            }
-            client.emit('received_buffers', 'faketime');
-            client.emit('animate');
-            if (++count > 3) {
-                done();
             }
         });
         client.emit('begin_streaming');
@@ -95,7 +99,7 @@ describe ("Smoke test using LayoutDebugLines", function () {
 
 
     // No support for afterAll, so using a test case to tear down
-    it ("Should tear down", function () {
+    it ("should tear down", function () {
         client.close();
         // TODO: Figure out how to actually tear down gracefully.
         // Since we can't easily end the loop right now, we just let jasmine
