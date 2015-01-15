@@ -24,10 +24,13 @@
     "request": "^2.49.0",
     "rx": "^2.3.19",
     "socket.io": "^1.2.0",
-    "socket.io-client": "*",
+    "socket.io-client": "^1.2.1",
     "underscore": "^1.7.0",
     "protobufjs": "3.8.x",
-    "supertest": "*",
-    "xhr2": "*"
+    "supertest": "^0.15.0",
+    "xhr2": "^0.1.1"
+  },
+  "devDependencies": {
+    "jasmine-node": "^1.14.5"
   }
 }
