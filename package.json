@@ -27,6 +27,7 @@
     "socket.io-client": "*",
     "underscore": "^1.7.0",
     "protobufjs": "3.8.x",
-    "supertest": "*"
+    "supertest": "*",
+    "xhr2": "*"
   }
 }

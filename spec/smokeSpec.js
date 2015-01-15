@@ -12,44 +12,50 @@ var rConf        = require('../js/renderer.config.js');
 var loader       = require('../js/data-loader.js');
 var server       = require('../server-viz.js');
 var config       = require('config')();
-var io           = require('socket.io').listen(5432);
 var ioClient     = require('socket.io-client');
 var supertest    = require('supertest');
 var express      = require('express');
+var app          = express();
+var http         = require('http').Server(app);
+var XMLHttpRequest = require('xhr2');
+var io           = require('socket.io')(http, {transports: ['websocket']});
+var zlib         = require('zlib');
 
 // Because node swallows a lot of exceptions, uncomment this if tests are
 // crashing without any details.
 
-// process.on('uncaughtException', function(err) {
-//   console.log(err.stack);
-//   throw err;
-// });
-
-function deepcopy (obj) {
-    return JSON.parse(JSON.stringify(obj));
-}
+process.on('uncaughtException', function(err) {
+  console.log(err.stack);
+  throw err;
+});
 
 describe ("[SMOKE] Server-viz", function () {
-
-    // Variables available to all tests
-    var app;
     var buffernames;
     var client;
     var id;
     var options = {
         transports: ['websocket'],
-        'force new connection': true,
         query: {datasetname: 'LayoutDebugLines'}
     };
-    var socketURL = 'http://0.0.0.0:5432';
+    var socketURL = 'http://localhost:3000';
+    var appURL = 'http://localhost:3000';
     var theRenderConfig;
     var vboBuffer = {};
     var lastVbos = {};
 
     // Setup
+    // TODO: Consider having this callable in the server-viz itself
+    it ("should setup http", function (done) {
+        var listen = Rx.Observable.fromNodeCallback(
+                http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
+        listen.subscribe(
+                function () { console.log('\nViz worker listening'); done();},
+                function (err) { console.error('\nError starting viz worker', err); });
+    });
+
     it ("should setup app and connect", function (done) {
-        app = express();
         io.on('connection', function (socket) {
+            console.log("Connected");
             socket.on('viz', function (msg, cb) { cb(); });
             server.init(app, socket);
         });
@@ -60,38 +66,48 @@ describe ("[SMOKE] Server-viz", function () {
         });
     });
 
+
     // Tests
-    it ("should get a render config", function (done) {
+    it ("should get correct render config", function (done) {
         client.on('render_config', function (render_config) {
             theRenderConfig = render_config;
             expect(render_config).toBeDefined();
+            var render_list = ['pointpicking', 'pointsampling',
+                'edgeculled', 'pointculled'];
+            expect(render_config.render).toEqual(render_list);
+            var program_list = ['pointculled', 'edgeculled'];
+            expect(_.keys(render_config.programs)).toEqual(program_list);
             done();
         });
         client.emit('get_render_config');
     });
 
     it ("should start streaming and get an animation tick", function (done) {
-        buffernames = renderer.getServerBufferNames(theRenderConfig);
-        client.on('vbo_update', function (data) {
-            for (var i = 0; i < buffernames.length; i++) {
-                (function() {
-                    var num = i;
-                    supertest(app)
-                        .get('/vbo')
-                        .query({id: id})
-                        .query({buffer: buffernames[num]})
-                        .end(function (res) {
-                            expect(res).toBeDefined();
-                            vboBuffer[buffernames[num]] = res;
-                            if (Object.keys(vboBuffer).length === buffernames.length) {
-                                lastVbos = deepcopy(vboBuffer);
-                                vboBuffer = {};
-                                client.emit('received_buffers', 'faketime');
-                                done();
-                            }
-                        });
-                })();
-            }
+        client.on('vbo_update', function (data, handshake) {
+            buffernames = renderer.getServerBufferNames(theRenderConfig);
+            var lengths = data.bufferByteLengths;
+            _.each(_.range(buffernames.length), function (i) {
+                var name = buffernames[i];
+                var oReq = new XMLHttpRequest();
+                var getUrl = appURL + '/' + 'vbo?buffer' + '=' + name + '&id=' + id;
+                oReq.open('GET', getUrl, true);
+                oReq.responseType = 'arraybuffer';
+                oReq.onload = function () {
+                    // We do a conversion here because zlib.gunzip expects a nodejs Buffer.
+                    var bufferResponse = new Buffer( new Uint8Array( oReq.response));
+                    zlib.gunzip(bufferResponse, function(err, result) {
+                        var trimmedArray = new Uint8Array(result, 0, lengths[name]);
+                        vboBuffer[name] = trimmedArray;
+                        if (_.keys(vboBuffer).length === buffernames.length) {
+                            lastVbos = _.extend({}, vboBuffer);
+                            vboBuffer = {};
+                            client.emit('received_buffers', 'faketime');
+                            done();
+                        }
+                    });
+                };
+                oReq.send();
+            });
         });
         client.emit('begin_streaming');
         client.emit('animate');
