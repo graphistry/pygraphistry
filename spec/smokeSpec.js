@@ -29,6 +29,10 @@ process.on('uncaughtException', function(err) {
   throw err;
 });
 
+function distance(x, y) {
+    return Math.sqrt(Math.pow(x[0] - y[0], 2) + Math.pow(x[1] - y[1], 2))
+}
+
 describe ("[SMOKE] Server-viz", function () {
     var buffernames;
     var client;
@@ -114,31 +118,57 @@ describe ("[SMOKE] Server-viz", function () {
             processVbos(data, handshake, buffernames, done);
         });
         client.emit('begin_streaming');
-        client.emit('animate');
+        setTimeout(function () {
+            client.emit('animate');
+        }, 100);
+        //client.emit('animate');
     });
 
     it ("should have returned initial vbos of correct size for 8 points", function () {
-        // Float, count=2, stride=8
+        // Float, count=2, stride=8, DEVICE
         var curPoints = new Float32Array(lastVbos.curPoints.buffer);
         expect(curPoints.length).toBe(16);
 
-        // Uint8, count=1, stride=0
+        // Uint8, count=1, stride=0, HOST
         var pointSizes = lastVbos.pointSizes;
         expect(pointSizes.length).toBe(8);
 
-        // Float, count=2, stride=8
+        // Float, count=2, stride=8, DEVICE
         var springsPos = new Float32Array(lastVbos.springsPos.buffer);
         expect(springsPos.length).toBe(16);
 
-        // Uint8, count=4, stride=0
+        // Uint8, count=4, stride=0, HOST
         var edgeColors = lastVbos.edgeColors;
         expect(edgeColors.length).toBe(32);
 
-        // Uint8, count=4, stride=0
+        // Uint8, count=4, stride=0, HOST
         var pointColors = lastVbos.pointColors;
         expect(pointColors.length).toBe(32);
     });
 
+    it ("should converge positions after 20 iterations", function (done) {
+        jasmine.getEnv().defaultTimeoutInterval = 10000;
+        var iterations = 0;
+        var cb = function() {
+            if (iterations++ > 20) {
+                var curPoints = new Float32Array(lastVbos.curPoints.buffer);
+                _.each(_.range(4), function (i) {
+                    var points = curPoints.slice(4*i, 4*(i+1));
+                    var p1 = points.slice(0,2);
+                    var p2 = points.slice(2,4);
+                    var dist = distance(p1, p2);
+                    expect(dist).toBeLessThan(0.01);
+                });
+                done();
+            }
+            client.emit('animate');
+        }
+        client.on('vbo_update', function (data, handshake) {
+            processVbos(data, handshake, buffernames, cb);
+        });
+        client.emit('animate');
+
+    });
 
     // No support for afterAll, so using a test case to tear down
     it ("should tear down", function () {
