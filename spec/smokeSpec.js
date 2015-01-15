@@ -82,35 +82,61 @@ describe ("[SMOKE] Server-viz", function () {
         client.emit('get_render_config');
     });
 
+    var processVbos = function (data, handshake, names, cb) {
+        var lengths = data.bufferByteLengths;
+        _.each(_.range(names.length), function (i) {
+            var name = names[i];
+            var oReq = new XMLHttpRequest();
+            var getUrl = appURL + '/' + 'vbo?buffer' + '=' + name + '&id=' + id;
+            oReq.open('GET', getUrl, true);
+            oReq.responseType = 'arraybuffer';
+            oReq.onload = function () {
+                // We do a conversion here because zlib.gunzip expects a nodejs Buffer.
+                var bufferResponse = new Buffer( new Uint8Array( oReq.response));
+                zlib.gunzip(bufferResponse, function(err, result) {
+                    var trimmedArray = new Uint8Array(result, 0, lengths[name]);
+                    vboBuffer[name] = trimmedArray;
+                    if (_.keys(vboBuffer).length === names.length) {
+                        lastVbos = _.extend({}, vboBuffer);
+                        vboBuffer = {};
+                        client.emit('received_buffers', 'faketime');
+                        cb();
+                    }
+                });
+            };
+            oReq.send();
+        });
+    }
+
     it ("should start streaming and get an animation tick", function (done) {
         client.on('vbo_update', function (data, handshake) {
             buffernames = renderer.getServerBufferNames(theRenderConfig);
-            var lengths = data.bufferByteLengths;
-            _.each(_.range(buffernames.length), function (i) {
-                var name = buffernames[i];
-                var oReq = new XMLHttpRequest();
-                var getUrl = appURL + '/' + 'vbo?buffer' + '=' + name + '&id=' + id;
-                oReq.open('GET', getUrl, true);
-                oReq.responseType = 'arraybuffer';
-                oReq.onload = function () {
-                    // We do a conversion here because zlib.gunzip expects a nodejs Buffer.
-                    var bufferResponse = new Buffer( new Uint8Array( oReq.response));
-                    zlib.gunzip(bufferResponse, function(err, result) {
-                        var trimmedArray = new Uint8Array(result, 0, lengths[name]);
-                        vboBuffer[name] = trimmedArray;
-                        if (_.keys(vboBuffer).length === buffernames.length) {
-                            lastVbos = _.extend({}, vboBuffer);
-                            vboBuffer = {};
-                            client.emit('received_buffers', 'faketime');
-                            done();
-                        }
-                    });
-                };
-                oReq.send();
-            });
+            processVbos(data, handshake, buffernames, done);
         });
         client.emit('begin_streaming');
         client.emit('animate');
+    });
+
+    it ("should have returned initial vbos of correct size for 8 points", function () {
+        // Float, count=2, stride=8
+        var curPoints = new Float32Array(lastVbos.curPoints.buffer);
+        expect(curPoints.length).toBe(16);
+
+        // Uint8, count=1, stride=0
+        var pointSizes = lastVbos.pointSizes;
+        expect(pointSizes.length).toBe(8);
+
+        // Float, count=2, stride=8
+        var springsPos = new Float32Array(lastVbos.springsPos.buffer);
+        expect(springsPos.length).toBe(16);
+
+        // Uint8, count=4, stride=0
+        var edgeColors = lastVbos.edgeColors;
+        expect(edgeColors.length).toBe(32);
+
+        // Uint8, count=4, stride=0
+        var pointColors = lastVbos.pointColors;
+        expect(pointColors.length).toBe(32);
     });
 
 
