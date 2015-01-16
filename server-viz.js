@@ -251,14 +251,10 @@ function stream(socket, renderConfig, colorTexture) {
     debug('active buffers/textures/programs', activeBuffers, activeTextures, activePrograms);
 
 
-    socket.on('animate', function(_, cb) {
-        debug('animate');
-        animStep.proxy({play: true, layout: true});
-    });
-
-    socket.on('graph_settings', function (payload) {
-        debug('new settings', payload, socket.id);
-        animStep.proxy(_.extend({play: true, layout: false}, payload || {}));
+    socket.on('interaction', function (payload) {
+        debug('Got interaction:', payload);
+        var defaults = {play: false, layout: false}
+        animStep.interact(_.extend(defaults, payload || {}));
     });
 
     socket.on('get_labels', function (labels, cb) {
