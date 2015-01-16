@@ -24,13 +24,13 @@
 
         Get result of query "source=stream:http site != splunk.graphistry.com:3000"
 
-            search('source=stream:http site != splunk.graphistry.com:3000')
+            search('source=stream:*  | stats count(bytes_in), count(bytes_out), min(timestamp), max(timestamp) by dest_ip, dest_port, src_ip')
                 .takeLast(1)
                 .subscribe(function () { console.log('SUCCEED'); }, console.error.bind(console, 'FAILED'));
 
         Include intermediate results:
 
-            search('source=stream:http site != splunk.graphistry.com:3000')
+            search('source=stream:*  | stats count(bytes_in), count(bytes_out), min(timestamp), max(timestamp) by dest_ip, dest_port, src_ip')
                 .subscribe(function () { console.log('SUCCEED'); }, console.error.bind(console, 'FAILED'));
 
 
@@ -154,7 +154,7 @@ module.exports = {
 };
 
 /*
-search('source=stream:http site != splunk.graphistry.com:3000')
+search('source=stream:*  | stats count(bytes_in), count(bytes_out), min(timestamp), max(timestamp) by dest_ip, dest_port, src_ip')
     .takeLast(3)
     .subscribe(console.log.bind('', 'SUCCEED'), console.error.bind(console, 'FAILED'));
 */
