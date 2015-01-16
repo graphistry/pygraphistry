@@ -17,17 +17,17 @@
     "gl-matrix": "^2.1.0",
     "jquery": "^2.1.1",
     "mongodb": "*",
-    "needle": "^0.7.10",
+    "needle": "git+ssh://git@github.com:graphistry/needle.git#master",
     "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
     "node-webcl": "git+ssh://git@github.com:graphistry/node-webcl.git#master",
     "node-webgl": "^0.4.3",
+    "protobufjs": "3.8.x",
     "q": "^1.0.1",
     "request": "^2.49.0",
-    "rx": "^2.3.19",
+    "rx": "^2.3.24",
     "socket.io": "^1.2.0",
     "socket.io-client": "*",
-    "underscore": "^1.7.0",
-    "protobufjs": "3.8.x",
-    "supertest": "*"
+    "supertest": "*",
+    "underscore": "^1.7.0"
   }
 }
