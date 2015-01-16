@@ -24,13 +24,13 @@
 
         Get result of query "source=stream:http site != splunk.graphistry.com:3000"
 
-            search('source=stream:*  | stats count(bytes_in), count(bytes_out), min(timestamp), max(timestamp) by dest_ip, dest_port, src_ip')
+            search('source=stream:*  | stats sum(bytes_in), sum(bytes_out), min(timestamp), max(timestamp) by dest_ip, dest_port, src_ip')
                 .takeLast(1)
                 .subscribe(function () { console.log('SUCCEED'); }, console.error.bind(console, 'FAILED'));
 
         Include intermediate results:
 
-            search('source=stream:*  | stats count(bytes_in), count(bytes_out), min(timestamp), max(timestamp) by dest_ip, dest_port, src_ip')
+            search('source=stream:*  | stats sum(bytes_in), sum(bytes_out), min(timestamp), max(timestamp) by dest_ip, dest_port, src_ip')
                 .subscribe(function () { console.log('SUCCEED'); }, console.error.bind(console, 'FAILED'));
 
 
@@ -97,7 +97,7 @@ function makeSearchJob (cfg, sessionKey, str) {
     debug('Request create job:', url, str);
     return needleRx.post(
             url,
-            {search: 'search ' + str, output_mode: 'json'},
+            {search: 'search ' + str, status_buckets: 300, output_mode: 'json'},
             _.extend({}, BASE_SPLUNK_OPTIONS, {headers: {Authorization: 'Splunk ' + sessionKey}}))
         .pluck('0').pluck('body').pluck('sid')
         .do(function (result) { debug('  -> received new job: ', result); })
@@ -110,6 +110,7 @@ function pollSearch(cfg, sessionKey, sid) {
     var url = cfgToUrl(cfg) + 'search/search/jobs/' + sid + '/events?output_mode=json';
     debug('pollSearch', url);
 
+    //stops on first non-preview result
     var done = false;
 
     return Rx.Observable.return()
@@ -153,8 +154,17 @@ module.exports = {
     search: search
 };
 
-/*
-search('source=stream:*  | stats count(bytes_in), count(bytes_out), min(timestamp), max(timestamp) by dest_ip, dest_port, src_ip')
+
+search('source=stream:*  | stats sum(bytes_in) as edgeWeight, sum(bytes_out) as edgeColor, min(timestamp) as timeAppear, max(timestamp) as timeDisappear by dest_ip, dest_port, src_ip')
     .takeLast(3)
-    .subscribe(console.log.bind('', 'SUCCEED'), console.error.bind(console, 'FAILED'));
-*/
+    .filter(function (o) { return o.results.length; })
+    .subscribe(function (out) {
+        console.log(
+            'STREAMING RESULT\n',
+            '\tFIRST 2:\n',
+            out.results.map(function (o) { return o._raw; })
+                    .slice(0,2)
+                    .map(function (o) { return '\t' + o; })
+                    .join('\n'),
+            '\t + ' + (out.results.length - 2) + ' more\n');
+    }, console.error.bind(console, 'FAILED'));
