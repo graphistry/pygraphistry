@@ -34,6 +34,7 @@ function distance(x, y) {
 }
 
 describe ("[SMOKE] Server-viz", function () {
+    var animatePayload = {play: true, layout: true};
     var buffernames;
     var client;
     var id;
@@ -119,9 +120,9 @@ describe ("[SMOKE] Server-viz", function () {
         });
         client.emit('begin_streaming');
         setTimeout(function () {
-            client.emit('animate');
+            client.emit('interaction', animatePayload);
         }, 100);
-        //client.emit('animate');
+        //client.emit('interaction', animatePayload);
     });
 
     it ("should have returned initial vbos of correct size for 8 points", function () {
@@ -161,12 +162,12 @@ describe ("[SMOKE] Server-viz", function () {
                 });
                 done();
             }
-            client.emit('animate');
+            client.emit('interaction', animatePayload);
         }
         client.on('vbo_update', function (data, handshake) {
             processVbos(data, handshake, buffernames, cb);
         });
-        client.emit('animate');
+        client.emit('interaction', animatePayload);
 
     });
 
