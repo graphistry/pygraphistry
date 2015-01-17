@@ -37,12 +37,15 @@
 
 */
 
-var config      = require('config')();
+'use strict';
 
+var config      = require('config')();
 var debug       = require('debug')('graphistry:graph-viz:splunk:wrapper');
 var needle      = require('needle');
 var _           = require('underscore');
 var Rx          = require('rx');
+var vgraph      = require('./vgraph.js')
+var vgwriter    = require('../js/libs/VGraphWriter.js');
 
 
 var needleRx = {};
@@ -89,16 +92,17 @@ function getSessionKey(cfg) {
 
 }
 
-
+function hoptions(sessionKey) {
+    return _.extend({}, BASE_SPLUNK_OPTIONS,
+                    {headers: {Authorization: 'Splunk ' + sessionKey}});
+}
 
 //{scheme,host,port} * String * String -> Observable string
 function makeSearchJob (cfg, sessionKey, str) {
     var url = cfgToUrl(cfg) + 'search/search/jobs';
     debug('Request create job:', url, str);
-    return needleRx.post(
-            url,
-            {search: 'search ' + str, status_buckets: 300, output_mode: 'json'},
-            _.extend({}, BASE_SPLUNK_OPTIONS, {headers: {Authorization: 'Splunk ' + sessionKey}}))
+    var params = {search: 'search ' + str, status_buckets: 300, output_mode: 'json'}
+    return needleRx.post(url, params, hoptions(sessionKey))
         .pluck('0').pluck('body').pluck('sid')
         .do(function (result) { debug('  -> received new job: ', result); })
 }
@@ -107,23 +111,67 @@ function makeSearchJob (cfg, sessionKey, str) {
 //Poll until done
 function pollSearch(cfg, sessionKey, sid) {
 
-    var url = cfgToUrl(cfg) + 'search/search/jobs/' + sid + '/events?output_mode=json';
+    var url = cfgToUrl(cfg) + 'search/search/jobs/' + sid + '/events?output_mode=json&count=0';
     debug('pollSearch', url);
 
-    //stops on first non-preview result
-    var done = false;
-
-    return Rx.Observable.return()
+    var replies = Rx.Observable.return()
     .expand(function () {
-        return needleRx.get(
-            url,
-            _.extend({}, BASE_SPLUNK_OPTIONS, {headers: {Authorization: 'Splunk ' + sessionKey}}))
+        return needleRx.get(url, hoptions(sessionKey))
     })
-    .filter(_.identity).pluck('0').pluck('body')
-    .takeWhile(function (o) { return !done; })
-    .do(function (result) {
-        done = !result.preview;
+    .filter(_.identity).pluck('0').pluck('body');
+
+    var isDone = function(r) { return !r.preview; };
+
+    return Rx.Observable.merge(
+        replies.takeUntil(replies.filter(isDone)),
+        replies.filter(isDone).take(1)
+    ).do(function (result) {
         debug('   -> streaming results', _.extend({}, result, {results: _.range(0, result.results.length)}));
+    });
+}
+
+// Poll job status until done.
+function pollStatus(cfg, sessionKey, sid) {
+    var url = cfgToUrl(cfg) + 'search/search/jobs?output_mode=json&count=1&sid=' + sid;
+    debug('pollStatus', url);
+
+    return Rx.Observable.interval(50)
+    .flatMap(function () {
+        return needleRx.get(url, hoptions(sessionKey));
+    })
+    .pluck('0').pluck('body').pluck('entry').pluck('0').pluck('content')
+    .filter(function (status) {
+        console.log('Search status:%s\tprogress:%d%%',
+                    status.dispatchState, (status.doneProgress * 100).toFixed(0));
+        return status.isDone
+    }).take(1).do(function(status) {
+        console.log('Search done. Number of results', status.resultCount);
+    }).map(function () {
+        return sid;
+    });
+}
+
+// Fetch job results
+function getResults(cfg, sessionKey, sid) {
+    var url = cfgToUrl(cfg) + 'search/search/jobs/' + sid + '/results?output_mode=json&count=100';
+    debug('getResults', url);
+
+    var options = _.extend(BASE_SPLUNK_OPTIONS, {headers: {Authorization: 'Splunk ' + sessionKey}});
+    return needleRx.get(url, options)
+    .pluck('0').pluck('body').do(function (r) {
+        debug('getResults reply', r);
+    });
+}
+
+// Delete job (necessary to avoid splunk license limits)
+function deleteJob(cfg, sessionKey, sid) {
+    var url = cfgToUrl(cfg) + 'search/search/jobs/' + sid + '/control?action=cancel&output_mode=json';
+    debug('deleteJob', url);
+
+    var params = {action: 'cancel', output_mode: 'json'}
+    needleRx.post(url, params, hoptions(sessionKey))
+    .pluck('0').pluck('body').do(function (r) {
+        debug('deleteJob reply', r);
     });
 }
 
@@ -139,32 +187,56 @@ function pollSearch(cfg, sessionKey, sid) {
             results: [ {key->val} ]
         }
 */
-function search (query) {
-
+function search(query) {
     return getSessionKey(config.splunk)
     .flatMap(function (key) {
         return makeSearchJob(config.splunk, key, query)
-        .flatMap(pollSearch.bind('', config.splunk, key))
+        .flatMap(function (sid) {
+            return pollStatus(config.splunk, key, sid)
+            .flatMap(getResults.bind('', config.splunk, key))
+            .do(function () {
+                deleteJob(config.splunk, key, sid)
+            });
+        });
     })
-
 }
+
+// Apply fn onto the results of a seach query
+function process(reply, fn) {
+    reply.subscribe(function (res) {
+        if (res.preview) {
+            console.log('Warning: results are incomplete');
+        }
+        fn(res.results);
+    }, function (err) {
+        console.error('Error', err, (err || {}).stack);
+    });
+}
+
+var query = 'source=stream:*  | stats sum(bytes_in) as edgeWeight, sum(bytes_out) as edgeColor, min(timestamp) as timeAppear, max(timestamp) as timeDisappear by dest_ip, dest_port, src_ip';
+
+var metadata = {
+    name: 'SplunkTest',
+    type: 'vgraph',
+    config: {
+        simControls: 'netflow',
+        scene: 'netflow',
+        mapper: 'debugMapper'
+    }
+}
+
+
+process(search(query), function (results) {
+    var vg = vgraph.fromEdgeList(results, metadata.name);
+
+    vgwriter.uploadVGraph(vg, metadata).then(function () {
+        console.log('VGraph uploaded as', metadata.name);
+    }).fail(function (err) {
+        console.error('Error uploading vgraph', err, (err || {}).stack);
+    });
+});
 
 
 module.exports = {
     search: search
 };
-
-
-search('source=stream:*  | stats sum(bytes_in) as edgeWeight, sum(bytes_out) as edgeColor, min(timestamp) as timeAppear, max(timestamp) as timeDisappear by dest_ip, dest_port, src_ip')
-    .takeLast(3)
-    .filter(function (o) { return o.results.length; })
-    .subscribe(function (out) {
-        console.log(
-            'STREAMING RESULT\n',
-            '\tFIRST 2:\n',
-            out.results.map(function (o) { return o._raw; })
-                    .slice(0,2)
-                    .map(function (o) { return '\t' + o; })
-                    .join('\n'),
-            '\t + ' + (out.results.length - 2) + ' more\n');
-    }, console.error.bind(console, 'FAILED'));
