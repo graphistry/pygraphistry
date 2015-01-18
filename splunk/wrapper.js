@@ -116,7 +116,7 @@ function pollSearch(cfg, sessionKey, sid) {
 
     var replies = Rx.Observable.return()
     .expand(function () {
-        return needleRx.get(url, hoptions(sessionKey))
+        return needleRx.get(url, hoptions(sessionKey));
     })
     .filter(_.identity).pluck('0').pluck('body');
 
@@ -168,7 +168,7 @@ function deleteJob(cfg, sessionKey, sid) {
     var url = cfgToUrl(cfg) + 'search/search/jobs/' + sid + '/control?action=cancel&output_mode=json';
     debug('deleteJob', url);
 
-    var params = {action: 'cancel', output_mode: 'json'}
+    var params = {action: 'cancel', output_mode: 'json'};
     needleRx.post(url, params, hoptions(sessionKey))
     .pluck('0').pluck('body').do(function (r) {
         debug('deleteJob reply', r);
@@ -223,7 +223,7 @@ var metadata = {
         scene: 'netflow',
         mapper: 'debugMapper'
     }
-}
+};
 
 
 process(search(query), function (results) {
