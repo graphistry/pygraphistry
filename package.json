@@ -20,7 +20,6 @@
     "grunt-contrib-watch": "^0.6.1",
     "grunt-exorcise": "^0.2.0",
     "immutable": "^2.0.11",
-    "jquery": "^2.1.1",
     "rx": "^2.3.20",
     "socket.io-client": "^1.2.0",
     "underscore": "^1.6.0"
