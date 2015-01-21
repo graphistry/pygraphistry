@@ -36,11 +36,18 @@ function distance(x, y) {
 describe ("[SMOKE] Server-viz", function () {
     var animatePayload = {play: true, layout: true};
     var buffernames;
-    var client;
-    var id;
-    var options = {
+    var clients = {};
+    var uberClient;
+    var ids = {};
+    var layoutOptions = {
         transports: ['websocket'],
+        'force new connection': true,
         query: {datasetname: 'LayoutDebugLines'}
+    };
+    var uberOptions = {
+        transports: ['websocket'],
+        'force new connection': true,
+        query: {datasetname: 'Uber'}
     };
     var socketURL = 'http://localhost:3000';
     var appURL = 'http://localhost:3000';
@@ -48,46 +55,7 @@ describe ("[SMOKE] Server-viz", function () {
     var vboBuffer = {};
     var lastVbos = {};
 
-    // Setup
-    // TODO: Consider having this callable in the server-viz itself
-    it ("should setup http", function (done) {
-        var listen = Rx.Observable.fromNodeCallback(
-                http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
-        listen.subscribe(
-                function () { console.log('\nViz worker listening'); done();},
-                function (err) { console.error('\nError starting viz worker', err); });
-    });
-
-    it ("should setup app and connect", function (done) {
-        io.on('connection', function (socket) {
-            console.log("Connected");
-            socket.on('viz', function (msg, cb) { cb(); });
-            server.init(app, socket);
-        });
-        client = ioClient.connect(socketURL, options);
-        client.on('connect', function (data) {
-            id = client.io.engine.id;
-            done();
-        });
-    });
-
-
-    // Tests
-    it ("should get correct render config", function (done) {
-        client.on('render_config', function (render_config) {
-            theRenderConfig = render_config;
-            expect(render_config).toBeDefined();
-            var render_list = ['pointpicking', 'pointsampling',
-                'edgeculled', 'pointculled'];
-            expect(render_config.render).toEqual(render_list);
-            var program_list = ['pointculled', 'edgeculled'];
-            expect(_.keys(render_config.programs)).toEqual(program_list);
-            done();
-        });
-        client.emit('get_render_config');
-    });
-
-    var processVbos = function (data, handshake, names, cb) {
+    var processVbos = function (data, handshake, names, cb, client, id) {
         var lengths = data.bufferByteLengths;
         _.each(_.range(names.length), function (i) {
             var name = names[i];
@@ -113,16 +81,53 @@ describe ("[SMOKE] Server-viz", function () {
         });
     }
 
-    it ("should start streaming and get an animation tick", function (done) {
-        client.on('vbo_update', function (data, handshake) {
-            buffernames = renderer.getServerBufferNames(theRenderConfig);
-            processVbos(data, handshake, buffernames, done);
+    // Setup
+    // TODO: Consider having this callable in the server-viz itself
+    it ("should setup http and socket listener", function (done) {
+        var listen = Rx.Observable.fromNodeCallback(
+                http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
+        listen.subscribe(
+                function () { console.log('\nViz worker listening'); done();},
+                function (err) { console.error('\nError starting viz worker', err); });
+        io.on('connection', function (socket) {
+            console.log("Connected");
+            socket.on('viz', function (msg, cb) { cb(); });
+            server.init(app, socket);
         });
-        client.emit('begin_streaming');
+    });
+
+    it ("should setup app and connect to LayoutDebugLines", function (done) {
+        clients.layout = ioClient.connect(socketURL, layoutOptions);
+        clients.layout.on('connect', function (data) {
+            ids.layout = clients.layout.io.engine.id;
+            done();
+        });
+    });
+
+    // Tests
+    it ("should get correct render config for LayoutDebugLines", function (done) {
+        clients.layout.on('render_config', function (render_config) {
+            theRenderConfig = render_config;
+            expect(render_config).toBeDefined();
+            var render_list = ['pointpicking', 'pointsampling',
+                'edgeculled', 'pointculled'];
+            expect(render_config.render).toEqual(render_list);
+            var program_list = ['pointculled', 'edgeculled'];
+            expect(_.keys(render_config.programs)).toEqual(program_list);
+            done();
+        });
+        clients.layout.emit('get_render_config');
+    });
+
+    it ("should start streaming LayoutDebugLines and get an animation tick", function (done) {
+        clients.layout.on('vbo_update', function (data, handshake) {
+            buffernames = renderer.getServerBufferNames(theRenderConfig);
+            processVbos(data, handshake, buffernames, done, clients.layout, ids.layout);
+        });
+        clients.layout.emit('begin_streaming');
         setTimeout(function () {
-            client.emit('interaction', animatePayload);
+            clients.layout.emit('interaction', animatePayload);
         }, 100);
-        //client.emit('interaction', animatePayload);
     });
 
     it ("should have returned initial vbos of correct size for 8 points", function () {
@@ -161,19 +166,55 @@ describe ("[SMOKE] Server-viz", function () {
                     expect(dist).toBeLessThan(0.01);
                 });
                 done();
+            } else {
+                clients.layout.emit('interaction', animatePayload);
             }
-            client.emit('interaction', animatePayload);
         }
-        client.on('vbo_update', function (data, handshake) {
-            processVbos(data, handshake, buffernames, cb);
+        clients.layout.on('vbo_update', function (data, handshake) {
+            processVbos(data, handshake, buffernames, cb, clients.layout, ids.layout);
         });
-        client.emit('interaction', animatePayload);
+        clients.layout.emit('interaction', animatePayload);
 
+    });
+
+    it ("should connect to Uber dataset", function (done) {
+        clients.uber = ioClient.connect(socketURL, uberOptions);
+        clients.uber.on('connect', function (data) {
+            ids.uber = clients.uber.io.engine.id;
+            done();
+        });
+    });
+
+    it ("should get correct render config for Uber", function (done) {
+        clients.uber.on('render_config', function (render_config) {
+            theRenderConfig = render_config;
+            expect(render_config).toBeDefined();
+            var render_list = ['pointpicking', 'pointsampling',
+                'midedgetextured', 'pointculled'];
+            expect(render_config.render).toEqual(render_list);
+            var program_list = ['pointculled', 'midedgetextured'];
+            expect(_.keys(render_config.programs)).toEqual(program_list);
+            done();
+        });
+        clients.uber.emit('get_render_config');
+    });
+
+    it ("should start streaming Uber and get an animation tick", function (done) {
+        clients.uber.on('vbo_update', function (data, handshake) {
+            buffernames = renderer.getServerBufferNames(theRenderConfig);
+            processVbos(data, handshake, buffernames, done, clients.uber, ids.uber);
+        });
+        clients.uber.emit('begin_streaming');
+        setTimeout(function () {
+            clients.uber.emit('interaction', animatePayload);
+        }, 100);
     });
 
     // No support for afterAll, so using a test case to tear down
     it ("should tear down", function () {
-        client.close();
+        _.each(clients, function (client) {
+            client.close();
+        });
         // TODO: Figure out how to actually tear down gracefully.
         // Since we can't easily end the loop right now, we just let jasmine
         // kill the process
