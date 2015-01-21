@@ -142,7 +142,11 @@ function init(app, socket) {
             var id = req.query.id;
 
             res.set('Content-Encoding', 'gzip');
-            res.send(lastCompressedVbos[id][bufferName]);
+            var vbos = lastCompressedVbos[id];
+            if (vbos) {
+                res.send(lastCompressedVbos[id][bufferName]);
+            }
+            res.send();
 
         } catch (e) {
             console.error('[viz-server.js] bad request', e, e.stack);
