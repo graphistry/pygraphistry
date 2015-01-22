@@ -6,9 +6,29 @@
 REPOS="central config datasets deploy graph-viz horizon-viz node-pigz node-webcl splunkistry splunk-viz StreamGL superconductor-proxy uber-viz viz-server"
 BRANCH="master"
 ROOT=`pwd`/../
+RUNTESTS=1
+
+HELPTEXT="This is a short script that checks the status of graphistry repositories and runs tests on each repo. The -n option will prevent tests from running."
+
 if [ -e "tests.log" ]; then
   rm tests.log
 fi
+
+while getopts ":nh" opt; do
+  case $opt in
+    h)
+      echo "$HELPTEXT"
+      exit 
+      ;;
+    n)
+      RUNTESTS=0
+      ;;
+    \?)
+    echo "Invalid option: -$OPTARG" >&2
+    exit 1
+    ;;
+  esac
+done
 
 function check() {
   git fetch origin &> /dev/null
@@ -35,7 +55,7 @@ function check() {
       MESSAGE=$(printf "%20s: %s\n" "$1" "Diverged")
   fi
 
-  if [ -e "package.json" ]; then
+  if [ -e "package.json" ] && [ $2 -gt 0 ]; then
     TEST_RESULTS=$(npm test 2>&1)
     TEST_STATUS=$?
     if [ $TEST_STATUS -ne 0 ]; then
@@ -52,7 +72,7 @@ for REPO in $REPOS ; do
   pushd $ROOT > /dev/null
   if [ -d $REPO ] ; then
     cd $REPO
-    check $REPO &
+    check $REPO $RUNTESTS &
   else
       printf "%20s: %s\n" $REPO "No local copy"
   fi
