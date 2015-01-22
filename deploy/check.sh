@@ -6,6 +6,9 @@
 REPOS="central config datasets deploy graph-viz horizon-viz node-pigz node-webcl splunkistry splunk-viz StreamGL superconductor-proxy uber-viz viz-server"
 BRANCH="master"
 ROOT=`pwd`/../
+if [ -e "tests.log" ]; then
+  rm tests.log
+fi
 
 function check() {
   git fetch origin &> /dev/null
@@ -16,20 +19,33 @@ function check() {
   UNSTAGED=$?
   git diff --quiet --cached
   STAGED=$?
+  MESSAGE=""
 
   if [ $STAGED = 1 ]; then
-      printf "%20s: %s\n" "$1" "Staged local changes"
+      MESSAGE=$(printf "%20s: %s\n" "$1" "Staged local changes")
   elif [ $UNSTAGED = 1 ]; then
-      printf "%20s: %s\n" "$1" "Unstaged local changes"
+      MESSAGE=$(printf "%20s: %s\n" "$1" "Unstaged local changes")
   elif [ $LOCAL = $REMOTE ]; then
-      printf "%20s: %s\n" "$1" "Up-to-date ($LOCAL)"
+      MESSAGE=$(printf "%20s: %s\n" "$1" "Up-to-date ($LOCAL)")
   elif [ $LOCAL = $BASE ]; then
-      printf "%20s: %s\n" "$1" "Need to pull"
+      MESSAGE=$(printf "%20s: %s\n" "$1" "Need to pull")
   elif [ $REMOTE = $BASE ]; then
-      printf "%20s: %s\n" "$1" "Need to push"
+      MESSAGE=$(printf "%20s: %s\n" "$1" "Need to push")
   else
-      printf "%20s: %s\n" "$1" "Diverged"
+      MESSAGE=$(printf "%20s: %s\n" "$1" "Diverged")
   fi
+
+  if [ -e "package.json" ]; then
+    TEST_RESULTS=$(npm test 2>&1)
+    TEST_STATUS=$?
+    if [ $TEST_STATUS -ne 0 ]; then
+      echo "$TEST_RESULTS" >> tests.log
+      MESSAGE+=$(printf "\n%22s%s\n" "" "Tests FAILED.")
+    else
+      MESSAGE+=$(printf "\n%22s%s\n" "" "Tests passed.")
+    fi
+  fi
+  echo "$MESSAGE"
 }
 
 for REPO in $REPOS ; do
@@ -44,3 +60,4 @@ for REPO in $REPOS ; do
 done
 
 wait
+
