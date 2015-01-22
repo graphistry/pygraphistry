@@ -4,7 +4,8 @@
   "description": "Stream WebGL buffers into the browser from a remote server",
   "private": true,
   "scripts": {
-    "install": "grunt depbuild"
+    "install": "grunt depbuild",
+    "test": "echo \"No tests available.\""
   },
   "dependencies": {
     "bootstrap-slider": "^4.3.0",
