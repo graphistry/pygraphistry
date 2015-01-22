@@ -152,18 +152,18 @@ describe ("[SMOKE] Server-viz", function () {
         expect(pointColors.length).toBe(32);
     });
 
-    it ("should converge positions after 20 iterations", function (done) {
+    it ("should converge positions after 50 iterations", function (done) {
         jasmine.getEnv().defaultTimeoutInterval = 10000;
         var iterations = 0;
         var cb = function() {
-            if (iterations++ > 20) {
+            if (iterations++ > 50) {
                 var curPoints = new Float32Array(lastVbos.curPoints.buffer);
                 _.each(_.range(4), function (i) {
                     var points = curPoints.slice(4*i, 4*(i+1));
                     var p1 = points.slice(0,2);
                     var p2 = points.slice(2,4);
                     var dist = distance(p1, p2);
-                    expect(dist).toBeLessThan(0.01);
+                    expect(dist).toBeLessThan(0.02);
                 });
                 done();
             } else {
