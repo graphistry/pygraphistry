@@ -10,6 +10,13 @@ RUNTESTS=1
 
 HELPTEXT="This is a short script that checks the status of graphistry repositories and runs tests on each repo. The -n option will prevent tests from running."
 
+#Colors for output
+RED=`tput setaf 1`
+GREEN=`tput setaf 2`
+YELLOW=`tput setaf 3`
+BLUE=`tput setaf 5`
+RESET=`tput sgr0`
+
 if [ -e "tests.log" ]; then
   rm tests.log
 fi
@@ -33,6 +40,7 @@ done
 function check() {
   git fetch origin &> /dev/null
   LOCAL=$(git rev-parse ${BRANCH})
+  LOCALSHORT=$(git rev-parse --short ${BRANCH})
   REMOTE=$(git rev-parse ${BRANCH}@{u})
   BASE=$(git merge-base ${BRANCH} ${BRANCH}@{u})
   git diff --quiet
@@ -42,17 +50,17 @@ function check() {
   MESSAGE=""
 
   if [ $STAGED = 1 ]; then
-      MESSAGE=$(printf "%20s: %s\n" "$1" "Staged local changes")
+      MESSAGE=$(printf "%20s: ${YELLOW}%s${RESET}\n" "$1" "Staged local changes")
   elif [ $UNSTAGED = 1 ]; then
-      MESSAGE=$(printf "%20s: %s\n" "$1" "Unstaged local changes")
+      MESSAGE=$(printf "%20s: ${YELLOW}%s${RESET}\n" "$1" "Unstaged local changes")
   elif [ $LOCAL = $REMOTE ]; then
-      MESSAGE=$(printf "%20s: %s\n" "$1" "Up-to-date ($LOCAL)")
+      MESSAGE=$(printf "%20s: ${GREEN}Up-to-date${RESET} (%s)\n" "$1" "$LOCALSHORT")
   elif [ $LOCAL = $BASE ]; then
-      MESSAGE=$(printf "%20s: %s\n" "$1" "Need to pull")
+      MESSAGE=$(printf "%20s: ${BLUE}%s${RESET}\n" "$1" "Need to pull")
   elif [ $REMOTE = $BASE ]; then
-      MESSAGE=$(printf "%20s: %s\n" "$1" "Need to push")
+      MESSAGE=$(printf "%20s: ${BLUE}%s${RESET}\n" "$1" "Need to push")
   else
-      MESSAGE=$(printf "%20s: %s\n" "$1" "Diverged")
+      MESSAGE=$(printf "%20s: ${RED}%s${RESET}\n" "$1" "Diverged")
   fi
 
   if [ -e "package.json" ] && [ $2 -gt 0 ]; then
@@ -60,9 +68,9 @@ function check() {
     TEST_STATUS=$?
     if [ $TEST_STATUS -ne 0 ]; then
       echo "$TEST_RESULTS" >> tests.log
-      MESSAGE+=$(printf "\n%22s%s\n" "" "Tests FAILED.")
+      MESSAGE+=$(printf "\tTests: %s\n" "${RED}Failed${RESET}")
     else
-      MESSAGE+=$(printf "\n%22s%s\n" "" "Tests passed.")
+      MESSAGE+=$(printf "\tTests: %s\n" "${GREEN}Passed${RESET}")
     fi
   fi
   echo "$MESSAGE"
