@@ -1,13 +1,26 @@
 ---
 - { include: CUDA.yml, tags: [ 'cuda' ] }
 
+- name: Install Python packages
+  pip: name={{ item }}
   with_items:
+    - setuptools
+    - distribute
+    - pymongo
   sudo: yes
   tags: provision
 
+- name: Create worker log folder
   sudo: yes
+  file: path=/var/log/worker
+        state=directory
+        owner=www
+        group=root
+        mode=0777
   tags: worker
 
+- name: Install pigz
+  apt: pkg=pigz state=installed update_cache=yes cache_valid_time=300
   sudo: yes
   tags: worker
 
