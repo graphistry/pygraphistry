@@ -1,84 +1,42 @@
 ---
-# ==== BEGIN PROD DEPLOY ====
+
+# FIXME: Only refresh the apt-cache when installing nodejs if we installed new repos
+# FIXME: Only restart splunk service if we've changed its config
+
+
 - hosts: localhost
   roles:
-    - { role: slack, msg: "starting prod deploy", tags: prod-slack }
+    - { role: slack, message: "{{ deployment }} deploy started..." }
+  tags:
+    - provision
+    - deploy
+    - local
+
+- hosts: workers:central
+  roles:
+   - { role: common, sudo: yes }
+   - { role: users }
+   - { role: splunkfwd, sudo: yes }
+   - { role: nodejs }
+  tags:
+    - common
+    - provision
 
 - hosts: workers
   roles:
-   - { role: astanway, user: astanway, tags: provision }
-   - { role: leo, user: leo, tags: provision }
-   - { role: www, user: www, tags: provision }
-   - { role: ubuntu, user: ubuntu, tags: provision }
-   - { role: thibaud, user: thibaud, tags: provision }
-   - { role: common, tags: provision }
-   - { role: worker, production: true, deployment: "production", tags: prod-full }
+   - { role: worker, tags: prod-full }
+   - { role: viz-app, sudo: yes, sudo_user: www, tags: [ 'deploy', 'new_deploy' ] }
   tags: workers
 
 - hosts: central
   roles:
-   - { role: astanway, user: astanway, tags: provision }
-   - { role: leo, user: leo, tags: provision }
-   - { role: www, user: www, tags: provision }
-   - { role: ubuntu, user: ubuntu, tags: provision }
-   - { role: thibaud, user: thibaud, tags: provision }
-   - { role: common, tags: provision }
-   - { role: central, production: true, deployment: "production", tags: prod-full }
+   - { role: central, tags: prod-full }
   tags: central
 
 - hosts: localhost
   roles:
-   - { role: slack, msg: "finished prod deploy: view at http://labs.graphistry.com/", tags: prod-slack }
-
-# ==== END PROD DEPLOY ====
-
-# ==== BEGIN STAGING DEPLOY ====
-- hosts: localhost
-  roles:
-    - { role: slack, msg: "starting staging deploy", tags: staging-slack }
-
-- hosts: staging
-  roles:
-   - { role: astanway, user: astanway, tags: provision }
-   - { role: quinn, user: quinn, tags: provision }
-   - { role: leo, user: leo, tags: provision }
-   - { role: thibaud, user: thibaud, tags: provision }
-   - { role: www, user: www, tags: provision }
-   - { role: paden, user: paden, tags: provision }
-   - { role: ubuntu, user: ubuntu, tags: provision }
-   - { role: common, tags: provision }
-   - { role: worker,
-       production: true,
-       deployment: "staging",
-       tags: staging-full
-    }
-   - { role: central,
-       production: true,
-       deployment: "staging",
-       tags: staging-full
-     }
-  tags: staging
-
-- hosts: localhost
-  roles:
-    - { role: slack, msg: "finished staging deploy: view at http://staging.graphistry.com/", tags: staging-slack }
-
-
-# ==== END STAGING DEPLOY ====
-
-- hosts: splunk
-  roles:
-   - { role: astanway, user: astanway, tags: provision }
-   - { role: www, user: www, tags: provision }
-   - { role: ubuntu, user: ubuntu, tags: provision }
-   - { role: common, tags: provision }
-  tags: splunk
-
-# - hosts: localdev
-#   roles:
-#     - { role: www, user: www }
-#     - { role: vagrant, user: vagrant }
-#     - common
-#     - { role: worker, production: false }
-#     - { role: central, production: false }
-#   tags: localdev
+    - { role: slack, message: "...{{ deployment }} deploy done! Access at {{ www_url }}." }
+  tags:
+    - provision
+    - deploy
+    - local
