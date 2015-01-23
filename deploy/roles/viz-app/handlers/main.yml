@@ -1,0 +1,8 @@
+---
+- name: restart supervisor apps
+  command: supervisorctl restart
+  sudo: yes
+
+- name: reread supervisor config
+  command: supervisorctl reload
+  sudo: yes

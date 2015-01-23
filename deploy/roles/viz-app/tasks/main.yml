@@ -1,0 +1,66 @@
+---
+- name: Ensure viz-server install path is owned by user 'www'
+  sudo: yes
+  sudo_user: root
+  file: path={{ graphistry_install_path }}
+        state=directory
+        recurse=no
+        owner=www
+        group=www
+        mode=0775
+
+- name: Ensure everything in install path can be read/written to by group 'www'
+  sudo: yes
+  sudo_user: root
+  file: path={{ graphistry_install_path }}
+        state=directory
+        recurse=yes
+        group=www
+        mode='g+rw'
+
+- name: Install node-gyp
+  npm: name=node-gyp global=yes
+
+- name: Clone viz-server repo
+  git: repo=git@github.com:graphistry/viz-server.git
+       dest={{ graphistry_install_path }}/viz-server
+       version="{{ viz_module_checkout }}"
+       update=yes
+       key_file=/home/{{ sudo_user }}/.ssh/deploy_id_rsa
+       accept_hostkey=yes
+  register: viz_server_clone
+
+- name: Install viz-server module
+  npm: path={{ graphistry_install_path }}/viz-server
+       state=latest
+  environment: cuda_env
+
+- name: Generate list of Supervisor config files for workers
+  set_fact: worker_filenames="[ '/etc/supervisor/conf.d/worker-{{ workers|map(attribute='listen_port')|join(".conf' , '/etc/supervisor/conf.d/worker-") }}.conf' ]"
+
+- name: Configure supervisord to launch/monitor viz-server workers
+  template: src=worker.supervisor.j2 dest={{ item.1 }}
+  with_together:
+    - workers
+    - worker_filenames
+  notify:
+    - reread supervisor config
+  sudo: yes
+  sudo_user: root
+  tags:
+    - worker
+    - fast
+    - supervisor
+
+- name: Find existing Supervisor config files for workers
+  shell: "command ls -1 /etc/supervisor/conf.d/worker-*.conf"
+  register: supervisor_worker_configs
+
+- name: Delete outdated Supervisor config files for workers
+  file: name={{ item }} state=absent
+  with_items: supervisor_worker_configs.stdout_lines
+  when: item not in worker_filenames
+  notify:
+    - reread supervisor config
+  sudo: yes
+  sudo_user: root

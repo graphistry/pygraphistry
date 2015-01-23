@@ -1,0 +1,24 @@
+---
+# The git label to use when checking out the viz-server module
+viz_module_checkout: "master"
+
+# The Bash environmental variables needed to enable CUDA support. Set when executing
+# `npm install viz-server`
+cuda_env:
+    DISPLAY: ":0"
+    PATH: "/home/www/.npm_global/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games"
+    LD_LIBRARY_PATH: "/usr/local/cuda/lib64"
+    LIBRARY_PATH: "/usr/local/cuda/lib64"
+    C_INCLUDE_PATH: "/usr/local/cuda/include"
+    CPLUS_INCLUDE_PATH: "/usr/local/cuda/include"
+    _GRAPHISTRY_CUDA_INIT: 1
+
+workers:
+    - { listen_port: 10000 }
+    - { listen_port: 10001 }
+    - { listen_port: 10002 }
+    - { listen_port: 10003 }
+    - { listen_port: 10004 }
+    - { listen_port: 10005 }
+    - { listen_port: 10006 }
+    - { listen_port: 10007 }

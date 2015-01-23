@@ -1,0 +1,12 @@
+[program:worker-{{ item.0.listen_port }}]
+command=sudo -u www DEBUG='*' /usr/bin/nodejs ./server.js "{\"VIZ_LISTEN_PORT\": {{ item.0.listen_port }}, \"ENVIRONMENT\": \"{{ deployment }}\", \"HOSTNAME\": \"{{ hostname }}\" }"
+directory={{ graphistry_install_path }}/viz-server
+process_name=%(program_name)s
+numprocs=1
+autostart=true
+autorestart=true
+stopsignal=TERM
+stopwaitsecs=10
+environment=DEBUG="StreamGL:*",npm_config_prefix=/home/www/.npm_global,DISPLAY=:0,PATH="/usr/local/cuda/bin:$PATH",LD_LIBRARY_PATH="${LD_LIBRARY_PATH+:}/usr/local/cuda/lib64",LIBRARY_PATH="${LIBRARY_PATH+:}/usr/local/cuda/lib64",C_INCLUDE_PATH="${C_INCLUDE_PATH+:}/usr/local/cuda/include",CPLUS_INCLUDE_PATH="${CPLUS_INCLUDE_PATH+:}/usr/local/cuda/include",CPLUS_INCLUDE_PATH="/usr/local/cuda/include",PATH="/home/www/.npm_global/bin:$PATH"
+stdout_logfile=/var/log/worker/worker-{{ item.0.listen_port }}.log
+redirect_stderr=true
