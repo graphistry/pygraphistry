@@ -1,113 +1,13 @@
 ---
-- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
-  get_url: dest=/tmp/cuda-repo-ubuntu1404_6.5-14_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_6.5-14_amd64.deb
-  sudo: yes
-  tags: provision
+- { include: CUDA.yml, tags: [ 'cuda' ] }
 
-- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
-  command: chdir=/tmp dpkg -i cuda-repo-ubuntu1404_6.5-14_amd64.deb
-  sudo: yes
-  tags: provision
-
-- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
-  command: apt-get update
-  sudo: yes
-  tags: provision
-
-- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
-  apt: pkg={{ item }} state=installed update_cache=yes
-  sudo: yes
   with_items:
-    - nvidia-340-dev
-    - linux-image-extra-virtual
-    - mesa-utils
-    - npm
-    - libxrandr-dev
-    - libxcursor-dev
-    - libglew-dev
-    - libglu1-mesa-dev
-    - libfreeimage-dev
-    - pkg-config
-  tags: provision
-
-- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
-  command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
   sudo: yes
   tags: provision
 
-- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
-  template: src=xorg.conf.j2 dest=/etc/X11/xorg.conf
-  sudo: yes
-  tags: provision
-
-- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
-  template: src=grub.j2 dest=/etc/default/grub
-  sudo: yes
-  tags: provision
-
-- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
-  command: update-grub
-  sudo: yes
-  tags: provision
-
-- name: "WARNING - INSTALLING CUDA FROM SCRATCH AND REBOOTING. UNLESS THIS IS YOUR FIRST TIME PROVISIONING THIS MACHINE, YOU PROBABLY SHOULDN'T BE DOING THIS. TRY PASSING --skip-tags provision"
-  command: reboot
-  sudo: yes
-  tags: provision
-
-- apt: pkg={{ item }} state=installed update_cache=yes
-  sudo: yes
-  with_items:
-    - cuda
-    - libxinerama-dev
-    - xinput
-    - libxi-dev
-    - cmake
-    - unzip
-    - pigz
-  tags: worker
-
-- git: repo=git@github.com:glfw/glfw.git dest=/tmp/glfw version=master update=yes accept_hostkey=yes
-  register: glfw
-  tags: worker
-
-- command: chdir=/tmp/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
-  sudo: yes
-  when: glfw.changed
-  tags: worker
-
-- command: chdir=/tmp/glfw make
-  sudo: yes
-  when: glfw.changed
-  tags: worker
-
-- command: chdir=/tmp/glfw make install
-  sudo: yes
-  when: glfw.changed
-  tags: worker
-
-- get_url: dest=/tmp/AntTweakBar_116.zip url=http://sourceforge.net/projects/anttweakbar/files/latest/download
-  sudo: yes
-  register: anttweak_downloaded
-  tags: worker
-
-- shell: cd /tmp && unzip AntTweakBar_116.zip
-  sudo: yes
-  when: anttweak_downloaded.changed
-  tags: worker
-
-- command: chdir=/tmp/AntTweakBar/src make
-  sudo: yes
-  when: anttweak_downloaded.changed
-  tags: worker
-
-- command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so /usr/lib/
-  when: anttweak_downloaded.changed
   sudo: yes
   tags: worker
 
-- command: chdir=/tmp/AntTweakBar/src mv ../lib/libAntTweakBar.so.1 /usr/lib/
-  when: anttweak_downloaded.changed
   sudo: yes
   tags: worker
 

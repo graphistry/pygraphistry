@@ -1,0 +1,157 @@
+---
+- name: "Download CUDA repo .deb package"
+  get_url: "dest={{ ansible_files }}/cuda-repo-ubuntu1404_6.5-14_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_6.5-14_amd64.deb"
+  sudo: yes
+  tags: provision
+
+- name: Install CUDA repo .deb package
+  apt: "deb={{ ansible_files }}/cuda-repo-ubuntu1404_6.5-14_amd64.deb state=present"
+  register: cuda_repo_installed
+
+- name: Update APT cache
+  apt: update_cache=yes
+  when: cuda_repo_installed.changed
+  sudo: yes
+  tags: provision
+
+- name: Install nvidia kernel drivers
+  apt: pkg={{ item }} state=present
+  sudo: yes
+  register: cuda_installed
+  with_items:
+    - nvidia-340-dev
+    - linux-image-extra-virtual
+    - mesa-utils
+    - libxrandr-dev
+    - libxcursor-dev
+    - libglew-dev
+    - libglu1-mesa-dev
+    - libfreeimage-dev
+  tags: provision
+
+# - name: Setup X.Org using nvidia-xconfig
+#   command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
+#   sudo: yes
+#   tags: provision
+
+- name: Set X.Org conf file
+  copy: src=xorg.conf
+        dest=/etc/X11/xorg.conf
+        force=yes
+        owner=root
+        group=root
+        mode=0644
+  sudo: yes
+  tags: provision
+
+- name: Configure GRUB for nvidia kernel drivers
+  copy: src=grub
+        dest=/etc/default/grub
+        force=yes
+        owner=root
+        group=root
+        mode=0644
+  register: grub_config
+  sudo: yes
+  tags: provision
+
+- name: Update GRUB
+  command: update-grub
+  when: grub_config.changed
+  sudo: yes
+  tags: provision
+
+- name: Reboot server
+  command: shutdown -r now "Ansible updates triggered"
+  sudo: yes
+  async: 0
+  poll: 0
+  ignore_errors: true
+  when: cuda_installed.changed
+  tags: provision
+
+- name: Wait for server to restart
+  local_action: wait_for host={{ inventory_hostname }} state=started
+  when: cuda_installed.changed
+  sudo: false
+
+- name: Install CUDA packages
+  apt: pkg={{ item }} state=present update_cache=yes cache_valid_time=300
+  sudo: yes
+  with_items:
+    - cuda
+    - libxinerama-dev
+    - xinput
+    - libxi-dev
+    - cmake
+    - unzip
+    - pigz
+  tags: worker
+
+- name: Configure Bash environment to support CUDA
+  copy: src=50graphistry-cuda.sh
+        dest=/etc/profile.d/50graphistry-cuda.sh
+        force=yes
+        owner=root
+        group=root
+        mode=0755
+  sudo: true
+  tags: worker
+
+- name: Clone GLFW
+  git: repo=https://github.com/glfw/glfw.git
+       dest={{ ansible_files }}/glfw
+       key_file={{ ansible_env.HOME }}/.ssh/deploy_id_rsa
+       version=master
+       update=yes
+       accept_hostkey=yes
+  register: glfw
+  tags: worker
+
+- name: Generate GLFW makefiles
+  command: chdir={{ ansible_files }}/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
+  when: glfw.changed
+  tags: worker
+
+- name: Make GLFW
+  command: chdir={{ ansible_files }}/glfw make
+  when: glfw.changed
+  tags: worker
+
+- name: Install GLFW
+  command: chdir={{ ansible_files }}/glfw make install
+  sudo: yes
+  when: glfw.changed
+  tags: worker
+
+- name: Download AntTweakBar
+  get_url: dest={{ ansible_files }}/AntTweakBar_116.zip
+           url=http://sourceforge.net/projects/anttweakbar/files/latest/download
+  tags: worker
+
+- name: Unzip AntTweakBar
+  unarchive: src={{ ansible_files }}/AntTweakBar_116.zip
+             dest={{ ansible_files }}
+             copy=no
+             creates={{ ansible_files }}/AntTweakBar
+             owner={{ ansible_env.USER }}
+             group={{ ansible_env.USER }}
+  register: anttweak_downloaded
+
+- name: Make AntTweakBar
+  command: chdir={{ ansible_files }}/AntTweakBar/src make
+  sudo: yes
+  when: anttweak_downloaded.changed
+  tags: worker
+
+- name: Move AntTweakBar shared lib (1 of 2)
+  command: chdir={{ ansible_files }}/AntTweakBar/src mv ../lib/libAntTweakBar.so /usr/lib/
+  when: anttweak_downloaded.changed
+  sudo: yes
+  tags: worker
+
+- name: Move AntTweakBar shared lib (2 of 2)
+  command: chdir={{ ansible_files }}/AntTweakBar/src mv ../lib/libAntTweakBar.so.1 /usr/lib/
+  when: anttweak_downloaded.changed
+  sudo: yes
+  tags: worker
