@@ -1,0 +1,36 @@
+# -*- mode: INI -*-
+[all:vars]
+# The name of this deploy type (used for Slack notifications)
+deployment="production"
+# The name of the MongoDB database on compose.io to write pings to
+mongodb_dbname="graphistry-prod"
+# The URL the app deployed to these machines can be viewed at (used for Slack notifications)
+www_url="http://labs.graphistry.com/"
+
+
+# When switching regions, run the following command locally to clear the existing pings (install
+# mongodb/mongo client locally first):
+#   mongo c48.lighthouse.3.mongolayer.com:10048/graphistry-prod -u graphistry -p graphtheplanet --eval 'db.node_monitor.remove({})'
+
+#### AWS region: us-west-1 (N. California)
+[workers]
+54.183.185.65 hostname=worker01
+54.183.193.90 hostname=worker02
+
+[central]
+54.183.185.65 hostname=central01
+#### /us-west-1
+
+
+#### AWS region: us-east-1 (N. Virginia)
+# [central]
+# 54.173.54.110 hostname=central01
+
+# [workers]
+# 54.173.54.110 hostname=worker01
+# 54.173.242.106 hostname=worker02
+#### /us-east-1
+
+
+[localhost]
+127.0.0.1 ansible_connection=local ansible_ssh_user={{ lookup('env','USER') }}

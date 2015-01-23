@@ -1,0 +1,20 @@
+# -*- mode: INI -*-
+[all:vars]
+# The name of this deploy type (used for Slack notifications)
+deployment="staging"
+# The name of the MongoDB database on compose.io to write pings to
+mongodb_dbname="graphistry-staging"
+# The URL the app deployed to these machines can be viewed at (used for Slack notifications)
+www_url="http://staging.graphistry.com/"
+
+[staging]
+54.183.155.35 hostname=staging
+
+[workers:children]
+staging
+
+[central:children]
+staging
+
+[localhost]
+127.0.0.1 ansible_connection=local
