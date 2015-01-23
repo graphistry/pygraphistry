@@ -1,0 +1,5 @@
+---
+# -*- mode: Ansible -*-
+graphistry_install_path: "/var/graphistry"
+ansible_ssh_user: ubuntu
+ansible_ssh_port: 61630
