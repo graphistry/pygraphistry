@@ -2,6 +2,16 @@
 - command: hostname {{ hostname }}
   sudo: yes
   tags: common
+- name: Set permissions on Ansible SSH key
+  local_action:
+    module: file
+    path: "{{ playbook_dir }}/ansible_id_rsa.pem"
+    owner: "{{ lookup('env','USER') }}"
+    mode: 0600
+  sudo: no
+  tags:
+    - provision
+    - local
 
 - template: src=hostname.j2 dest=/etc/hostname
   sudo: yes
