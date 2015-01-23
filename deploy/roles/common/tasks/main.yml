@@ -1,7 +1,4 @@
 ---
-- command: hostname {{ hostname }}
-  sudo: yes
-  tags: common
 - name: Set permissions on Ansible SSH key
   local_action:
     module: file
@@ -13,45 +10,73 @@
     - provision
     - local
 
-- template: src=hostname.j2 dest=/etc/hostname
-  sudo: yes
-  tags: common
 - { include: sshd_port.yml, tags: [ 'sshd' ] }
 
-- template: src=hosts.j2 dest=/etc/hosts
-  sudo: yes
-  tags: common
 - name: Gather facts
   setup: filter='*'
   sudo: no
 
-- template: src=timezone.j2 dest=/etc/timezone owner=root group=root mode=0644
+- name: Create Ansible file folder
+  sudo: no
+  file: path="{{ ansible_env.HOME }}/ansible"
+        state=directory
+
+- name: Set hostname
+  command: hostname {{ hostname }}
+
+- name: Configure hosts file to point system hostname to 127.0.0.1
+  template: src=hosts.j2 dest=/etc/hosts
   sudo: yes
   tags: common
 
-- command: rm /var/lib/apt/lists/lock
-  sudo: yes
-  ignore_errors: true
-  tags: common
+- name: Configure Ubuntu cloud-init to use our hostname and not overwrite it
+  template: src=50graphistry-hostname.cfg.j2
+            dest=/etc/cloud/cloud.cfg.d/50graphistry-hostname.cfg
+            owner=root
+            group=root
+            mode=0644
 
-- command: rm /var/cache/apt/archives/lock
-  sudo: yes
-  ignore_errors: true
-  tags: common
+- name: Set hosts file so hostname points to localhost
+  tags: new-common
+  lineinfile: dest=/etc/hosts
+              regexp='^\s*127\.0\.0\.1\s+'
+              line="127.0.0.1 localhost {{ hostname }}"
+              state=present
+              create=yes
 
-- command: dpkg --configure -a
-  sudo: yes
-  ignore_errors: true
-  tags: common
+- name: Configure timezone
+  tags: new-common
+  copy: src=timezone dest=/etc/timezone owner=root group=root mode=0644
 
-- name: update apt
-  apt: update_cache=yes
-  sudo: yes
-  tags: common
+# - command: rm /var/lib/apt/lists/lock
+#   sudo: yes
+#   ignore_errors: true
+#   tags: common
 
-- name: install common tools
-  apt: pkg={{ item }} state=installed
-  sudo: yes
+# - command: rm /var/cache/apt/archives/lock
+#   sudo: yes
+#   ignore_errors: true
+#   tags: common
+
+# - command: dpkg --configure -a
+#   sudo: yes
+#   ignore_errors: true
+#   tags: common
+
+- name: Upgrade packages
+  apt: upgrade=dist
+       state=latest
+       update_cache=yes
+       cache_valid_time=300
+  tags:
+    - system-upgrade
+    - slow
+
+- name: Install common tools
+  apt: pkg={{ item }}
+       state=latest
+       update_cache=yes
+       cache_valid_time=300
   with_items:
     - build-essential
     - htop
@@ -61,45 +86,18 @@
     - vim
     - ack-grep
     - python-pip
-    - npm
     - unattended-upgrades
     - python-psutil
     - supervisor
     - ntp
+    - pkg-config
   tags: common
 
-- name: create apt auto-upgrades job configuration
-  template: >
-    src=auto-upgrades.j2 dest=/etc/apt/apt.conf.d/20auto-upgrades
-    owner=root group=root mode=0644
-  sudo: yes
+- name: Create apt auto-upgrades job configuration
   tags: common
-
-- name: create unattended-upgrades configuration
-  template: >
-    src=unattended-upgrades.j2 dest=/etc/apt/apt.conf.d/50unattended-upgrades
-    owner=root group=root mode=0644
-  sudo: yes
-  tags: common
-
-- name: install pip stuff
-  pip: name={{ item }}
-  sudo: yes
-  with_items:
-    - setuptools
-    - distribute
-    - pymongo
-  tags: common
-
-- name: sshd config
-  template: src=sshd_config dest=/etc/ssh/sshd_config
-  sudo: yes
-  tags:
-    - ssh
-    - common
-
-- command: service ssh restart
-  sudo: yes
-  tags:
-    - ssh
-    - common
+  copy: src=auto-upgrades
+        dest=/etc/apt/apt.conf.d/10periodic
+        owner=root
+        group=root
+        mode=0644
+        force=yes
