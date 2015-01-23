@@ -67,7 +67,7 @@ function check() {
     TEST_RESULTS=$(npm test 2>&1)
     TEST_STATUS=$?
     if [ $TEST_STATUS -ne 0 ]; then
-      echo "$TEST_RESULTS" >> tests.log
+      echo "$TEST_RESULTS" > tests.log
       MESSAGE+=$(printf "\tTests: %s\n" "${RED}Failed${RESET}")
     else
       MESSAGE+=$(printf "\tTests: %s\n" "${GREEN}Passed${RESET}")
@@ -75,6 +75,16 @@ function check() {
   fi
   echo "$MESSAGE"
 }
+
+# Clear out tmp
+TMP_FILES=$(find /tmp/ -type f -name '*.metadata' | rev | cut -d/ -f1 | rev | sed 's/\.metadata//g')
+if [ $RUNTESTS -gt 0 ]; then
+  echo "Deleting cached datasets in /tmp"
+  for TMP_FILE in $TMP_FILES; do
+    rm "/tmp/$TMP_FILE"
+    rm "/tmp/$TMP_FILE.metadata"
+  done
+fi
 
 for REPO in $REPOS ; do
   pushd $ROOT > /dev/null
