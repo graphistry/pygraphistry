@@ -1,0 +1,16 @@
+---
+- name: Install Node Source APT repo key
+  sudo: yes
+  apt_key: url=https://deb.nodesource.com/gpgkey/nodesource.gpg.key state=present
+
+- name: Add Node Source APT repo
+  sudo: yes
+  apt_repository: "repo='deb https://deb.nodesource.com/node {{ ansible_lsb.codename }} main' state=present"
+
+- name: Add Node Source APT source repo
+  sudo: yes
+  apt_repository: "repo='deb-src https://deb.nodesource.com/node {{ ansible_lsb.codename }} main' state=present"
+
+- name: Install Node.js
+  sudo: yes
+  apt: name=nodejs state=latest update_cache=yes
