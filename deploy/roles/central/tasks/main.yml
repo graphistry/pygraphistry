@@ -9,30 +9,39 @@
 
 - name: update central repo
   git: repo=git@github.com:graphistry/central.git dest=/tmp/web/central version=master update=yes accept_hostkey=yes
-  tags: 
+  tags:
     - fast
 
 - shell: chdir=/tmp/web/central npm install
-  tags: 
+  tags:
     - fast
 
-- shell: chdir=/tmp rm -rf npm*
+- name: Find temporary npm directories to delete
+  command: find /tmp -maxdepth 1 -iname 'npm*'
+  register: npm_to_delete
+  tags:
+    - fast
+
+- name: Deleting temporary npm directories
+  file: path={{ item }} state=absent
+  with_items: npm_to_delete.stdout_lines
+  sudo: yes
   tags:
     - fast
 
 - command: cp -ru /tmp/web/central /opt
   sudo: yes
-  tags: 
+  tags:
     - fast
 
 - command: chown -R www:www /opt/
   sudo: yes
-  tags: 
+  tags:
     - fast
 
 - command: chmod g+w -R /opt/
   sudo: yes
-  tags: 
+  tags:
     - fast
 
 - command: mkdir /var/log/central-app
@@ -50,7 +59,7 @@
 
 - template: src=central-app.supervisor.j2 dest=/etc/supervisor/conf.d/central-app.conf
   sudo: yes
-  tags: 
+  tags:
     - fast
     - supervisor
 

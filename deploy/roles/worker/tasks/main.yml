@@ -162,7 +162,17 @@
     - worker
     - fast
 
-- shell: chdir=/tmp rm -rf npm*
+- name: Find temporary npm directories to delete
+  command: find /tmp -maxdepth 1 -iname 'npm*'
+  register: npm_to_delete
+  tags:
+    - worker
+    - fast
+
+- name: Deleting temporary npm directories
+  file: path={{ item }} state=absent
+  with_items: npm_to_delete.stdout_lines
+  sudo: yes
   tags:
     - worker
     - fast
