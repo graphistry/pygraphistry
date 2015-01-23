@@ -1,5 +1,5 @@
 [program:reaper]
-command=sudo python /opt/reaper.py
+command=sudo python {{ graphistry_install_path }}/reaper.py
 process_name=%(program_name)s
 numprocs=1
 autostart=true

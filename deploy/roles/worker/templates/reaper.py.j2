@@ -132,17 +132,8 @@ def reap(db):
     # logger.info("boundary status: %s " % str(r.json()))
 
 if __name__=="__main__":
-
-{% if deployment == 'staging' %}
-    DATABASE = 'graphistry-staging'
-    MONGO_SERVER = 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-staging';
-{% elif deployment == 'production' %}
-    DATABASE = 'graphistry-prod'
-    MONGO_SERVER = 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/graphistry-prod';
-{% else %}
-    DATABASE = 'graphistry-local'
-    MONGO_SERVER = 'localhost'
-{% endif %}
+    DATABASE = '{{ mongodb_dbname }}'
+    MONGO_SERVER = 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/{{ mongodb_dbname }}';
 
     # Connect to central db
     url = MONGO_SERVER
