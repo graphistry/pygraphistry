@@ -1,7 +1,9 @@
 ---
-- name: "ping slack"
-  local_action: shell echo "'payload={\"channel\":\"#ansible\",\"username\":\"ansible\",\"text\":\"$USER {{ msg }}\"}' https://hooks.slack.com/services/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" | xargs curl -X POST --data-urlencode
-  tags:
-    - fast
-    - staging-full
-    - prod-full
+- name: Send message to Slack
+  tags: slack
+  local_action:
+    module: slack
+    domain: graphistry.slack.com
+    token: "{{ slack_token }}"
+    msg: "{{ message }}"
+    username: "{{ lookup('env','USER') }}"
