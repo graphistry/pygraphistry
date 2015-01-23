@@ -16,10 +16,14 @@
 - template: src=hostname.j2 dest=/etc/hostname
   sudo: yes
   tags: common
+- { include: sshd_port.yml, tags: [ 'sshd' ] }
 
 - template: src=hosts.j2 dest=/etc/hosts
   sudo: yes
   tags: common
+- name: Gather facts
+  setup: filter='*'
+  sudo: no
 
 - template: src=timezone.j2 dest=/etc/timezone owner=root group=root mode=0644
   sudo: yes
