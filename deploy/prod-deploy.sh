@@ -14,7 +14,7 @@ PULLCOUNT=`echo $OUTPUT | grep "Need to pull" | wc -l`
 PUSHCOUNT=`echo $OUTPUT | grep "Need to push" | wc -l`
 DIVCOUNT=`echo $OUTPUT | grep "Diverged" | wc -l`
 COMMITCOUNT=`echo $OUTPUT | grep "local changes" | wc -l`
-FAILURECOUNT=`echo $OUTPUT | grep "Tests FAILED" | wc -l`
+FAILURECOUNT=`echo $OUTPUT | grep "Failed" | wc -l`
 COUNT=$(($PULLCOUNT + $PUSHCOUNT + $DIVCOUNT + $COMMITCOUNT + $FAILURECOUNT))
 
 if [ $COUNT = "0" ] ; then
