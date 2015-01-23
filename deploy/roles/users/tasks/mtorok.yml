@@ -1,0 +1,235 @@
+---
+###############################################################################
+# User creation
+###############################################################################
+
+- name: "Create default group for user mtorok"
+  sudo: true
+  sudo_user: root
+  group: name='mtorok'
+
+- name: "Create user 'mtorok'"
+  sudo: true
+  sudo_user: root
+  user: name='mtorok' groups='admin,graphistry-dev,www,mtorok' group='mtorok' shell=/bin/bash
+
+- name: "Set mtorok's SSH key"
+  sudo: true
+  sudo_user: "mtorok"
+  authorized_key: user='mtorok' key='{{ lookup('file', 'ssh_keys/mtorok.pub') }}'
+
+- name: Upload deploy SSH key
+  copy: src=ssh_keys/deploy.pem
+        dest="/home/mtorok/.ssh/deploy_id_rsa"
+        owner="mtorok"
+        group="mtorok"
+        mode=0600
+  sudo: yes
+  sudo_user: "mtorok"
+
+- name: Register SSH deploy key
+  shell: 'eval "$(ssh-agent -s)" && ssh-add /home/mtorok/.ssh/deploy_id_rsa'
+  sudo: yes
+  sudo_user: "mtorok"
+
+- name: Set SSH config to use deploy key on GitHub
+  copy: src=ssh.config
+        dest="/home/mtorok/.ssh/config"
+        owner="mtorok"
+        group="mtorok"
+        mode=0600
+  sudo: yes
+  sudo_user: "mtorok"
+
+- name: "Upload Graphistry-specific bash configuration script"
+  copy: "src=bash_profile.sh
+         dest=/home/mtorok/.graphistry_bash_profile
+         force=yes
+         owner=mtorok
+         group=mtorok
+         mode=0444"
+  sudo: true
+  sudo_user: "mtorok"
+
+- name: Create user-specific npm global module directory
+  file: "path=/home/mtorok/.npm_global
+        state=directory
+        owner=mtorok
+        group=mtorok
+        mode=0775"
+  sudo: true
+  sudo_user: "mtorok"
+
+- name: Set npm global module path
+  lineinfile: "dest=/home/mtorok/.npmrc
+              line='prefix=/home/mtorok/.npm_global'
+              state=present
+              create=yes
+              owner=mtorok
+              group=mtorok
+              mode=0600"
+  sudo: true
+  sudo_user: "mtorok"
+
+- name: "[mtorok] Create documents directory"
+  file: path=/home/mtorok/Documents
+        state=directory
+        owner=mtorok
+        group=mtorok
+        mode=0770
+  sudo: yes
+  sudo_user: mtorok
+
+
+###############################################################################
+# Tmux config (including setting up apt pinning to utopic)
+###############################################################################
+
+- name: "[mtorok] Setting default release for apt packages to 'Trusty'"
+  copy: src=mtorok/apt/00default-release-trusty
+        dest=/etc/apt/apt.conf.d/00default-release-trusty
+        owner=root
+        group=root
+        mode=0644
+  sudo: yes
+  sudo_user: root
+  tags: tmux
+
+- name: "[mtorok] Pin all apt packages to Trusty"
+  copy: src=mtorok/apt/99trusty-high-priority
+        dest=/etc/apt/preferences.d/99trusty-high-priority
+        owner=root
+        group=root
+        mode=0644
+  sudo: yes
+  sudo_user: root
+  tags: tmux
+
+- name: "[mtorok] Pin tmux apt package to Utopic"
+  copy: src=mtorok/apt/50pin-tmux-utopic
+        dest=/etc/apt/preferences.d/50pin-tmux-utopic
+        owner=root
+        group=root
+        mode=0644
+  sudo: yes
+  sudo_user: root
+  tags: tmux
+
+- name: "[mtorok] Add Ubuntu 'Utopic' apt repo"
+  apt_repository: repo='deb http://us.archive.ubuntu.com/ubuntu/ utopic main'
+                  state=present
+                  update_cache=no
+  sudo: yes
+  sudo_user: root
+  tags: tmux
+
+- name: "[mtorok] Add Ubuntu 'Utopic' apt source repo"
+  apt_repository: repo='deb-src http://us.archive.ubuntu.com/ubuntu/ utopic main'
+                  state=present
+                  update_cache=yes
+  sudo: yes
+  sudo_user: root
+  tags: tmux
+
+
+###############################################################################
+# Dotfile install
+###############################################################################
+
+- name: "[mtorok] Install extra packages"
+  apt: pkg={{ item }} state=latest
+  with_items:
+    - ruby
+    - tmux
+    - vim
+    - rake
+    - gawk
+    - exuberant-ctags
+    - python-dev
+    - libtool
+    - automake
+    - socat
+  sudo: yes
+  sudo_user: root
+
+- name: "[mtorok] Install Homesick"
+  gem: name=homesick state=latest user_install=no
+  sudo: yes
+  sudo_user: root
+
+- name: "[mtorok] Install pyuv (for Powerline)"
+  pip: name=pyuv
+       state=present
+  sudo: yes
+  sudo_user: root
+
+- name: "[mtorok] Install Powerline"
+  pip: name=powerline-status
+       state=latest
+       extra_args='--user'
+  sudo: yes
+  sudo_user: mtorok
+
+- name: "[mtorok] Create directory for dotfiles"
+  file: path=/home/mtorok/.homesick/repos
+        state=directory
+        owner=mtorok
+        group=mtorok
+        mode=0775
+  sudo: yes
+  sudo_user: mtorok
+
+- name: "[mtorok] Clone dotfiles repo"
+  git: repo=git@github.com:int3h/dotfiles.git
+       dest=/home/mtorok/.homesick/repos/dotfiles
+       key_file=/home/mtorok/.ssh/deploy_id_rsa
+       update=yes
+       accept_hostkey=yes
+  sudo: yes
+  sudo_user: mtorok
+
+- name: "[mtorok] Symlink dotfiles"
+  command: 'homesick link --force'
+  sudo: yes
+  sudo_user: mtorok
+
+- name: "[mtorok] Running dotfile rc"
+  command: homesick rc --force
+           chdir=/home/mtorok
+  sudo: yes
+  sudo_user: mtorok
+
+- name: "[mtorok] Download Janus install script"
+  get_url: url='https://bit.ly/janus-bootstrap'
+           dest=/home/mtorok/Documents/janus_install.sh
+           owner=mtorok
+           group=mtorok
+           mode=0770
+  sudo: yes
+  sudo_user: mtorok
+
+- name: "[mtorok] Install Janus"
+  command: /home/mtorok/Documents/janus_install.sh
+           creates=/home/mtorok/.vim/janus
+  sudo: yes
+  sudo_user: mtorok
+
+- name: "[mtorok] Update Janus"
+  command: rake
+           chdir=/home/mtorok/.vim/
+           removes=/home/mtorok/.vim/janus
+  sudo: yes
+  sudo_user: mtorok
+
+# - name: "[mtorok] Clone/update Vim plugins"
+#   command: /home/mtorok/.homesick/repos/dotfiles/home/.janus/update.sh
+#            chdir=/home/mtorok/.homesick/repos/dotfiles/home/.janus/
+#   sudo: yes
+#   sudo_user: mtorok
+
+- name: "[mtorok] Compiling Vim plugin 'YouCompleteMe'"
+  command: /home/mtorok/.janus/YouCompleteMe/install.sh --clang-completer
+           chdir=/home/mtorok/.janus/YouCompleteMe/
+           creates=/home/mtorok/.janus/YouCompleteMe/third_party/ycmd/ycm_core.so
+  sudo: yes
+  sudo_user: mtorok

@@ -1,0 +1,26 @@
+---
+- name: "Create default group for user {{ user }}"
+  sudo: true
+  group: name='{{ user }}'
+
+- name: "Create user '{{ user }}'"
+  sudo: true
+  user: name='{{ user }}' groups='admin,graphistry-dev,www,{{ user }}' group='{{ user }}' shell=/bin/bash
+
+- name: "Set {{ user }}'s SSH key"
+  sudo: true
+  sudo_user: "{{ user }}"
+  authorized_key: user='{{ user }}' key='{{ lookup('file', 'ssh_keys/' +  user + '.pub') }}'
+
+# - name: "Allowing {{ user }} to sudo without entering a password"
+#   sudo: true
+#   lineinfile: "dest=/etc/sudoers.d/50-graphistry-users
+#               line='{{ user }} ALL=(ALL) NOPASSWD:ALL'
+#               state=present
+#               create=yes
+#               owner=root
+#               group=root
+#               mode=0440
+#               validate='visudo -cf %s'"
+
+- { include: configure_user.yml, sudo: yes, sudo_user: "{{ user }}", homedir: "/home/{{ user }}" }

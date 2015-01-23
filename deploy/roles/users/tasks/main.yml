@@ -1,0 +1,24 @@
+---
+- name: Create graphistry-dev group
+  sudo: yes
+  group: name=graphistry-dev
+  tags: common
+
+- name: Configure sudo for graphistry-dev group
+  copy: src=40-graphistry-dev.sudoers
+        dest=/etc/sudoers.d/40-graphistry-dev
+        owner=root
+        group=root
+        mode=0440
+        validate='visudo -cf %s'
+  sudo: yes
+
+
+- { include: configure_user.yml, sudo: yes, sudo_user: root, user: root, homedir: "/root" }
+
+- { include: www.yml }
+- { include: mtorok.yml, tags: [ 'mtorok' ] }
+- { include: create_user.yml, user: leo }
+- { include: create_user.yml, user: thibaud }
+- { include: create_user.yml, user: paden }
+- { include: create_user.yml, user: ubuntu }

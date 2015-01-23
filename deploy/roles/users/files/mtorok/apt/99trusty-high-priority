@@ -1,0 +1,9 @@
+Explanation: Prioritize Trusty packages over other releases
+Package: *
+Pin: release n=trusty
+Pin-Priority: 900
+
+Explanation: Prohibitively deprioritize packages from all other Ubuntu release
+Package: *
+Pin: release o=Ubuntu
+Pin-Priority: -10

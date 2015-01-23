@@ -1,7 +1,0 @@
-export DISPLAY=:0
-export PATH="/usr/local/cuda/bin:$PATH"
-export LD_LIBRARY_PATH="${LD_LIBRARY_PATH+:}/usr/local/cuda/lib64"
-export LIBRARY_PATH="${LIBRARY_PATH+:}/usr/local/cuda/lib64"
-export C_INCLUDE_PATH="${C_INCLUDE_PATH+:}/usr/local/cuda/include"
-export CPLUS_INCLUDE_PATH="${CPLUS_INCLUDE_PATH+:}/usr/local/cuda/include"
-export PATH="/home/{{ user }}/.npm_global/bin:$PATH"
