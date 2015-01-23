@@ -50,17 +50,17 @@ function check() {
   MESSAGE=""
 
   if [ $STAGED = 1 ]; then
-      MESSAGE=$(printf "%20s: ${YELLOW}%s${RESET}\n" "$1" "Staged local changes")
+      MESSAGE=$(printf "%20s: ${YELLOW}%s${RESET}" "$1" "Staged local changes")
   elif [ $UNSTAGED = 1 ]; then
-      MESSAGE=$(printf "%20s: ${YELLOW}%s${RESET}\n" "$1" "Unstaged local changes")
+      MESSAGE=$(printf "%20s: ${YELLOW}%s${RESET}" "$1" "Unstaged local changes")
   elif [ $LOCAL = $REMOTE ]; then
-      MESSAGE=$(printf "%20s: ${GREEN}Up-to-date${RESET} (%s)\n" "$1" "$LOCALSHORT")
+      MESSAGE=$(printf "%20s: ${GREEN}Up-to-date${RESET} (%s)" "$1" "$LOCALSHORT")
   elif [ $LOCAL = $BASE ]; then
-      MESSAGE=$(printf "%20s: ${BLUE}%s${RESET}\n" "$1" "Need to pull")
+      MESSAGE=$(printf "%20s: ${BLUE}%s${RESET}\t" "$1" "Need to pull")
   elif [ $REMOTE = $BASE ]; then
-      MESSAGE=$(printf "%20s: ${BLUE}%s${RESET}\n" "$1" "Need to push")
+      MESSAGE=$(printf "%20s: ${BLUE}%s${RESET}\t" "$1" "Need to push")
   else
-      MESSAGE=$(printf "%20s: ${RED}%s${RESET}\n" "$1" "Diverged")
+      MESSAGE=$(printf "%20s: ${RED}%s${RESET}" "$1" "Diverged")
   fi
 
   if [ -e "package.json" ] && [ $2 -gt 0 ]; then
