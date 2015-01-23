@@ -1,0 +1,4 @@
+---
+splunk_forwarder_password: "graphtheplanet"
+splunk_server_address: "splunk.graphistry.com:9997"
+splunk_server_credentials: "admin:graphtheplanet"
