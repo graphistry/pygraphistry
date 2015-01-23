@@ -14,7 +14,7 @@ HELPTEXT="This is a short script that checks the status of graphistry repositori
 RED=`tput setaf 1`
 GREEN=`tput setaf 2`
 YELLOW=`tput setaf 3`
-BLUE=`tput setaf 5`
+BLUE=`tput setaf 4`
 RESET=`tput sgr0`
 
 if [ -e "tests.log" ]; then
