@@ -60,7 +60,7 @@ function check() {
   elif [ $REMOTE = $BASE ]; then
       MESSAGE=$(printf "%20s: ${BLUE}%s${RESET}\t" "$1" "Need to push")
   else
-      MESSAGE=$(printf "%20s: ${RED}%s${RESET}" "$1" "Diverged")
+      MESSAGE=$(printf "%20s: ${RED}%s${RESET}\t\t" "$1" "Diverged")
   fi
 
   if [ -e "package.json" ] && [ $2 -gt 0 ]; then
