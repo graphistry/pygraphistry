@@ -152,7 +152,7 @@ describe ("[SMOKE] Server-viz", function () {
         expect(pointColors.length).toBe(32);
     });
 
-    it ("should converge positions after 50 iterations", function (done) {
+    xit ("should converge positions after 50 iterations", function (done) {
         jasmine.getEnv().defaultTimeoutInterval = 10000;
         var iterations = 0;
         var cb = function() {
