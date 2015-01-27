@@ -156,7 +156,7 @@ describe ("[SMOKE] Server-viz", function () {
         jasmine.getEnv().defaultTimeoutInterval = 10000;
         var iterations = 0;
         var cb = function() {
-            if (iterations++ > 50) {
+            if (++iterations >= 50) {
                 var curPoints = new Float32Array(lastVbos.curPoints.buffer);
                 _.each(_.range(4), function (i) {
                     var points = curPoints.slice(4*i, 4*(i+1));
@@ -165,11 +165,13 @@ describe ("[SMOKE] Server-viz", function () {
                     var dist = distance(p1, p2);
                     expect(dist).toBeLessThan(0.02);
                 });
+                clients.layout.removeAllListeners('vbo_update');
                 done();
             } else {
                 clients.layout.emit('interaction', animatePayload);
             }
         }
+        clients.layout.removeAllListeners('vbo_update');
         clients.layout.on('vbo_update', function (data, handshake) {
             processVbos(data, handshake, buffernames, cb, clients.layout, ids.layout);
         });
