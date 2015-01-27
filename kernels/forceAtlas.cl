@@ -5,7 +5,7 @@
 #define REPULSION_OVERLAP 0.00000001f
 #define DEFAULT_NODE_SIZE 0.000001f
 #define EPSILON 1.0f // bound whether d(a,b) == 0
-#define SPEED 0.00001f
+#define SPEED 0.001f
 
 #define IS_PREVENT_OVERLAP(flags) (flags & 1)
 #define IS_STRONG_GRAVITY(flags)  (flags & 2)
