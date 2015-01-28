@@ -176,20 +176,29 @@ function init(app, socket) {
     });
 
     // Get the datasetname from the socket query param, sent by Central
-    var datasetName = socket.handshake.query.datasetname || config.DATASETNAME || 'Uber';
-
+    var datasetName = socket.handshake.query.dataset || config.DATASETNAME || 'Uber';
     var theDataset = loader.downloadDataset(datasetName);
 
     var theRenderConfig = theDataset.then(function (dataset) {
-        resetState(dataset);
         var config = dataset.Metadata.config;
+        var query = socket.handshake.query;
 
-        console.info('Loading scene:%s    controls:%s    mapper:%s',
-                     config.scene, config.controls, config.mapper);
+        // URL parameters override config provided by the dataset
+        function hasParam(param) { return param !== undefined && param !== 'undefined' }
+        config.scene    = hasParam(query.scene)    ? query.scene    : config.scene;
+        config.controls = hasParam(query.controls) ? query.controls : config.controls;
+        config.mapper   = hasParam(query.mapper)   ? query.mapper   : config.mapper;
+        config.device   = hasParam(query.device)   ? query.device   : config.device;
+
+        console.info('scene:%s  controls:%s  mapper:%s  device:%s',
+                     config.scene, config.controls, config.mapper, config.device);
+
         if (!(config.scene in rConf.scenes)) {
             console.warn('WARNING Unknown scene "%s", using default', config.scene)
             config.scene = 'default';
         }
+
+        resetState(dataset);
         return rConf.scenes[config.scene];
     }).fail(function (err) {
         console.error("ERROR in initialization: ", (err||{}).stack);
