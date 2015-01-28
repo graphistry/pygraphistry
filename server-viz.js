@@ -184,8 +184,8 @@ function init(app, socket) {
         resetState(dataset);
         var config = dataset.Metadata.config;
 
-        console.info('Loading scene:%s\tsimControls:%s\tmapper:%s',
-                     config.scene, config.simControls, config.mapper);
+        console.info('Loading scene:%s    controls:%s    mapper:%s',
+                     config.scene, config.controls, config.mapper);
         if (!(config.scene in rConf.scenes)) {
             console.warn('WARNING Unknown scene "%s", using default', config.scene)
             config.scene = 'default';
