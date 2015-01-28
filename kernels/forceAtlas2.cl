@@ -4,8 +4,7 @@
 
 #define REPULSION_OVERLAP 0.00000001f
 #define DEFAULT_NODE_SIZE 0.000001f
-#define EPSILON 1.0f // bound whether d(a,b) == 0
-#define SPEED 0.001f
+#define EPSILON 0.00001f // bound whether d(a,b) == 0
 
 #define IS_PREVENT_OVERLAP(flags) (flags & 1)
 #define IS_STRONG_GRAVITY(flags)  (flags & 2)
@@ -17,7 +16,7 @@
 //#define NOATTRACTION
 
 float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
-                          float scalingRatio, bool preventOverlap);
+                     float scalingRatio, bool preventOverlap);
 
 float gravityForce(float gravity, uint n1Degree, float2 centerVec, bool strong);
 
@@ -26,7 +25,7 @@ float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree,
 
 
 //repulse points and apply gravity
-__kernel void forceAtlasPoints (
+__kernel void faPointForces (
     //input
 
     //GRAPH_PARAMS
@@ -44,7 +43,7 @@ __kernel void forceAtlasPoints (
     const __global uint* outDegrees,
 
     //output
-    __global float2* outputPositions
+    __global float2* pointForces
 ) {
     const unsigned int n1Idx = (unsigned int) get_global_id(0);
     const unsigned int tileSize = (unsigned int) get_local_size(0);
@@ -105,10 +104,7 @@ __kernel void forceAtlasPoints (
     float gForce = gravityForce(gravity, n1Degree, centerVec, IS_STRONG_GRAVITY(flags));
     debug3("gForce (%d) %f\n", n1Idx, gForce);
 
-    outputPositions[n1Idx] =
-        n1Pos
-        + SPEED * normalize(centerVec) * gForce
-        + SPEED * n1D;
+    pointForces[n1Idx] = normalize(centerVec) * gForce + n1D;
 
     return;
 }
@@ -138,7 +134,7 @@ float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
         force = scalingRatio * degreeProd / dist;
     }
 
-    return clamp(force, 0.0f, 10.0f / SPEED);
+    return clamp(force, 0.0f, 1000000.0f);
 }
 #endif
 
@@ -154,34 +150,40 @@ float gravityForce(float gravity, uint n1Degree, float2 centerVec, bool strong) 
 }
 #endif
 
+
+
 //attract edges and apply forces
-__kernel void forceAtlasEdges(
+__kernel void faEdgeForces(
     //input
 
     //GRAPH_PARAMS
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
 
-    const __global uint2* springs,          // Array of springs, of the form [source node, target node] (read-only)
-    const __global uint4* workList,             // Array of spring [source index, sinks length] pairs to compute (read-only)
+    const __global uint2* edges,          // Array of springs, of the form [source node, target node] (read-only)
+    const __global uint4* workList,             // Array of spring [edge index, sinks length, source index] triples to compute (read-only)
     const __global float2* inputPoints,         // Current point positions (read-only)
+    const __global float2* partialForces,         // Current point positions (read-only)
     unsigned int stepNumber,
 
     //output
-    __global float2* outputPoints
+    __global float2* outputForces
 ) {
 
     const size_t workItem = (unsigned int) get_global_id(0);
+
     const uint springsStart = workList[workItem].x;
     const uint springsCount = workList[workItem].y;
-    const uint nodeId = workList[workItem].z;
+    const uint nodeId       = workList[workItem].z;
+    debug5("workList(%lu) = (%u, %u, %u)\n", workItem, springsStart, springsCount, nodeId);
 
     if (springsCount == 0) {
-        outputPoints[nodeId] = inputPoints[nodeId];
+        debug2("No edge for sourceIdx: %u\n", nodeId);
+        outputForces[nodeId] = partialForces[nodeId];
         return;
     }
 
-    const uint sourceIdx = springs[springsStart].x;
-    debug2("ForceAtlasEdge (sourceIdx: %d)\n", sourceIdx);
+    const uint sourceIdx = edges[springsStart].x;
+    debug2("ForceAtlasEdge (sourceIdx: %u)\n", sourceIdx);
 
     float2 n1Pos = inputPoints[sourceIdx];
     float n1Size = DEFAULT_NODE_SIZE; //FIXME include in prefetch etc, use actual sizes
@@ -190,7 +192,7 @@ __kernel void forceAtlasEdges(
     float2 n1D = (float2) (0.0f, 0.0f);
 
     for(uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
-        const uint2 curSpring = springs[curSpringIdx];
+        const uint2 curSpring = edges[curSpringIdx];
         float2 n2Pos = inputPoints[curSpring.y];
         float n2Size = DEFAULT_NODE_SIZE;
         float2 distVec = n2Pos - n1Pos;
@@ -198,11 +200,12 @@ __kernel void forceAtlasEdges(
         float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
                                        IS_PREVENT_OVERLAP(flags), edgeWeightInfluence,
                                        IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
-        debug4("\taForce (%d<->%d): %f\n", sourceIdx, curSpring.y, aForce);
+        debug4("\taForce (%d->%d): %f\n", sourceIdx, curSpring.y, aForce);
         n1D += normalize(distVec) * aForce;
     }
 
-    outputPoints[sourceIdx] = n1Pos + SPEED * n1D;
+    debug4("PartialForce (%d) %f\t%f\n", sourceIdx, partialForces[sourceIdx].x, partialForces[sourceIdx].y);
+    outputForces[sourceIdx] = partialForces[sourceIdx] + n1D;
     return;
 }
 
@@ -231,6 +234,92 @@ float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree,
         aForce = weightMultiplier * distFactor / n1Deg;
     }
 
-    return aForce * 10.0;
+    return aForce;// * 0.1f;
 }
 #endif
+
+
+// Compute global speed
+__kernel void faSwingsTractions (
+    //input
+    const __global float2* prevForces,
+    const __global float2* curForces,
+    //output
+    __global float* swings,
+    __global float* tractions
+) {
+    const unsigned int n1Idx = (unsigned int) get_global_id(0);
+    float2 prevForce = prevForces[n1Idx];
+    float2 curForce = curForces[n1Idx];
+
+    debug4("Prev Forces (%d) %f\t%f\n", n1Idx, prevForce.x, prevForce.y);
+    debug4("Cur Forces  (%d) %f\t%f\n", n1Idx, curForce.x, curForce.y);
+
+    float swing = length(curForce - prevForce);
+    float traction = length(curForce + prevForce) / 2.0f;
+
+    debug4("Swing/Traction (%d) %f\t%f\n", n1Idx, swing, traction);
+
+    swings[n1Idx] = swing;
+    tractions[n1Idx] = traction;
+
+    return;
+}
+
+// Compute global speed
+__kernel void faGlobalSpeed (
+    //input
+    float tau,
+    unsigned int numPoints,
+    const __global uint* inDegrees,
+    const __global uint* outDegrees,
+    const __global float* swings,
+    const __global float* tractions,
+    //output
+    global float* gSpeeds
+) {
+    const unsigned int n1Idx = (unsigned int) get_global_id(0);
+    if (n1Idx != 0)
+        return;
+
+    float gSwing = 0.0;
+    float gTraction = 0.0;
+
+    for (int i = 0; i < numPoints; i++) {
+        uint degree = inDegrees[i] + outDegrees[i];
+        gSwing += (degree + 1) * swings[i];
+        gTraction += (degree + 1) * tractions[i];
+    }
+
+    gSpeeds[n1Idx] = tau * gTraction / gSwing;
+
+    return;
+}
+
+
+#define KS    0.1f
+#define KSMAX 10.0f
+
+// Apply forces
+__kernel void faIntegrate (
+    //input
+    float gSpeed,
+    const __global float2* inputPositions,
+    const __global float2* curForces,
+    const __global float* swings,
+    //output
+    __global float2* outputPositions
+) {
+
+    const unsigned int n1Idx = (unsigned int) get_global_id(0);
+
+    float speed = KS * gSpeed / (1.0f + gSpeed * sqrt(swings[n1Idx]));
+    float maxSpeed = KSMAX / length(curForces[n1Idx]);
+    float2 delta = min(speed, maxSpeed) * curForces[n1Idx];
+
+    debug3("Speed (%d) %f\n", n1Idx, min(speed, maxSpeed));
+    debug4("Delta (%d) %f\t%f\n", n1Idx, delta.x, delta.y);
+
+    outputPositions[n1Idx] = inputPositions[n1Idx] + delta;
+    return;
+}
