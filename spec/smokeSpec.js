@@ -42,12 +42,12 @@ describe ("[SMOKE] Server-viz", function () {
     var layoutOptions = {
         transports: ['websocket'],
         'force new connection': true,
-        query: {datasetname: 'LayoutDebugLines'}
+        query: {dataset: 'LayoutDebugLines'}
     };
     var uberOptions = {
         transports: ['websocket'],
         'force new connection': true,
-        query: {datasetname: 'Uber'}
+        query: {dataset: 'Uber'}
     };
     var socketURL = 'http://localhost:3000';
     var appURL = 'http://localhost:3000';
