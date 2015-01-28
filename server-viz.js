@@ -182,14 +182,15 @@ function init(app, socket) {
 
     var theRenderConfig = theDataset.then(function (dataset) {
         resetState(dataset);
-        var scene = dataset.Metadata.config.scene;
-        debug('Scene %s', scene)
-        if (!(scene in rConf.scenes)) {
-            console.warn('WARNING Unknown scene "%s", using default', scene)
-            scene = 'default';
-        } else
-            console.info('Loading scene %s', scene);
-        return rConf.scenes[scene];
+        var config = dataset.Metadata.config;
+
+        console.info('Loading scene:%s\tsimControls:%s\tmapper:%s',
+                     config.scene, config.simControls, config.mapper);
+        if (!(config.scene in rConf.scenes)) {
+            console.warn('WARNING Unknown scene "%s", using default', config.scene)
+            config.scene = 'default';
+        }
+        return rConf.scenes[config.scene];
     }).fail(function (err) {
         console.error("ERROR in initialization: ", (err||{}).stack);
     });
