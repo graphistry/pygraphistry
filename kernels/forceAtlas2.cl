@@ -1,4 +1,4 @@
-#define DEBUG
+//#define DEBUG
 #include "common.h"
 
 
@@ -13,7 +13,7 @@
 
 //#define NOGRAVITY
 //#define NOREPULSION
-#define NOATTRACTION
+//#define NOATTRACTION
 
 float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
                      float scalingRatio, bool preventOverlap);
@@ -160,7 +160,7 @@ __kernel void faEdgeForces(
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
 
     const __global uint2* edges,          // Array of springs, of the form [source node, target node] (read-only)
-    const __global uint2* workList,             // Array of spring [source index, sinks length] pairs to compute (read-only)
+    const __global uint4* workList,             // Array of spring [edge index, sinks length, source index] triples to compute (read-only)
     const __global float2* inputPoints,         // Current point positions (read-only)
     const __global float2* partialForces,         // Current point positions (read-only)
     unsigned int stepNumber,
@@ -170,10 +170,20 @@ __kernel void faEdgeForces(
 ) {
 
     const size_t workItem = (unsigned int) get_global_id(0);
+
     const uint springsStart = workList[workItem].x;
     const uint springsCount = workList[workItem].y;
+    const uint nodeId       = workList[workItem].z;
+    debug5("workList(%lu) = (%u, %u, %u)\n", workItem, springsStart, springsCount, nodeId);
+
+    if (springsCount == 0) {
+        debug2("No edge for sourceIdx: %u\n", nodeId);
+        outputForces[nodeId] = partialForces[nodeId];
+        return;
+    }
+
     const uint sourceIdx = edges[springsStart].x;
-    debug2("ForceAtlasEdge (sourceIdx: %d)\n", sourceIdx);
+    debug2("ForceAtlasEdge (sourceIdx: %u)\n", sourceIdx);
 
     float2 n1Pos = inputPoints[sourceIdx];
     float n1Size = DEFAULT_NODE_SIZE; //FIXME include in prefetch etc, use actual sizes
@@ -224,7 +234,7 @@ float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree,
         aForce = weightMultiplier * distFactor / n1Deg;
     }
 
-    return aForce * 0.1f;
+    return aForce;// * 0.1f;
 }
 #endif
 
