@@ -21,7 +21,7 @@ float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
 
 float gravityForce(float gravity, uint n1Degree, float2 centerVec, bool strong);
 
-float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight, 
+float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight,
                       bool preventOverlap, uint edgeInfluence, bool linLog, bool dissuadeHubs);
 
 
@@ -91,7 +91,7 @@ __kernel void forceAtlasPoints (
             float2 n2Pos = TILEPOINTS[cachedPoint];
             uint n2Degree = TILEPOINTS2[cachedPoint] + TILEPOINTS3[cachedPoint];
             float2 distVec = n1Pos - n2Pos;
-            float rForce = repulsionForce(distVec, n1Degree, n2Degree, scalingRatio, 
+            float rForce = repulsionForce(distVec, n1Degree, n2Degree, scalingRatio,
                                           IS_PREVENT_OVERLAP(flags));
 
             debug4("\trForce (%d<->%d) %f\n", n1Idx, tileStart + cachedPoint, rForce);
@@ -162,7 +162,7 @@ __kernel void forceAtlasEdges(
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
 
     const __global uint2* springs,          // Array of springs, of the form [source node, target node] (read-only)
-    const __global uint2* workList,             // Array of spring [source index, sinks length] pairs to compute (read-only)
+    const __global uint4* workList,             // Array of spring [source index, sinks length] pairs to compute (read-only)
     const __global float2* inputPoints,         // Current point positions (read-only)
     unsigned int stepNumber,
 
@@ -173,6 +173,13 @@ __kernel void forceAtlasEdges(
     const size_t workItem = (unsigned int) get_global_id(0);
     const uint springsStart = workList[workItem].x;
     const uint springsCount = workList[workItem].y;
+    const uint nodeId = workList[workItem].z;
+
+    if (springsCount == 0) {
+        outputPoints[nodeId] = inputPoints[nodeId];
+        return;
+    }
+
     const uint sourceIdx = springs[springsStart].x;
     debug2("ForceAtlasEdge (sourceIdx: %d)\n", sourceIdx);
 
@@ -188,8 +195,8 @@ __kernel void forceAtlasEdges(
         float n2Size = DEFAULT_NODE_SIZE;
         float2 distVec = n2Pos - n1Pos;
 
-        float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f, 
-                                       IS_PREVENT_OVERLAP(flags), edgeWeightInfluence, 
+        float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
+                                       IS_PREVENT_OVERLAP(flags), edgeWeightInfluence,
                                        IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
         debug4("\taForce (%d<->%d): %f\n", sourceIdx, curSpring.y, aForce);
         n1D += normalize(distVec) * aForce;
@@ -200,12 +207,12 @@ __kernel void forceAtlasEdges(
 }
 
 #ifdef NOATTRACTION
-float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight, 
+float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight,
                       bool preventOverlap, uint edgeInfluence, bool linLog, bool dissuadeHubs) {
     return 0.0f;
 }
 #else
-float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight, 
+float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight,
                       bool preventOverlap, uint edgeInfluence, bool linLog, bool dissuadeHubs) {
 
     float weightMultiplier = edgeInfluence == 0 ? 1.0f
