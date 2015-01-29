@@ -32,7 +32,6 @@
     #define debug5(X,Y,Z,W,V)
 #endif
 
-// The fraction of tiles to process each execution of this kernel. For example, a value of '10' will
-// cause an execution of this kernel to only process every 10th tile.
+// The number of tiles to process each execution of this kernel.
 // The particular subset of tiles is chosen based off of stepNumber.
 #define TILES_PER_ITERATION 1

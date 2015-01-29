@@ -1,6 +1,9 @@
 //#define DEBUG
 #include "common.h"
 
+// Speed tuning parameters
+#define KS    0.1f
+#define KSMAX 10.0f
 
 #define REPULSION_OVERLAP 0.00000001f
 #define DEFAULT_NODE_SIZE 0.000001f
@@ -15,13 +18,15 @@
 //#define NOREPULSION
 //#define NOATTRACTION
 
-float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
-                     float scalingRatio, bool preventOverlap);
+float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
+                     const float scalingRatio, const bool preventOverlap);
 
-float gravityForce(float gravity, uint n1Degree, float2 centerVec, bool strong);
+float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
+                   const bool strong);
 
-float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight,
-                      bool preventOverlap, uint edgeInfluence, bool linLog, bool dissuadeHubs);
+float attractionForce(const float2 distVec, const float n1Size, const float n2Size,
+                      const uint n1Degree, const float weight, const bool preventOverlap,
+                      const uint edgeInfluence, const bool linLog, const bool dissuadeHubs);
 
 
 //repulse points and apply gravity
@@ -29,57 +34,53 @@ __kernel void faPointForces (
     //input
 
     //GRAPH_PARAMS
-    float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
+    const float scalingRatio, const float gravity,
+    const uint edgeInfluence, const uint flags,
 
     __local float2* tilePointsParam, //FIXME make nodecl accept local params
     __local uint* tilePoints2Param, //FIXME make nodecl accept local params
-    __local uint* tilePoints3Param, //FIXME make nodecl accept local params
-    unsigned int numPoints,
+    const uint numPoints,
     const __global float2* inputPositions,
-    float width,
-    float height,
-    unsigned int stepNumber,
-    const __global uint* inDegrees,
-    const __global uint* outDegrees,
+    const float width,
+    const float height,
+    const uint stepNumber,
+    const __global uint* pointDegrees,
 
     //output
     __global float2* pointForces
 ) {
-    const unsigned int n1Idx = (unsigned int) get_global_id(0);
-    const unsigned int tileSize = (unsigned int) get_local_size(0);
-    const unsigned int numTiles = (unsigned int) get_num_groups(0);
-    unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
+    const uint n1Idx = (unsigned int) get_global_id(0);
+    const uint tileSize = (unsigned int) get_local_size(0);
+    const uint numTiles = (unsigned int) get_num_groups(0);
+    const uint modulus = numTiles / TILES_PER_ITERATION;
 
     TILEPOINTS_INLINE_DECL;
     TILEPOINTS2_INLINE_DECL;
-    TILEPOINTS3_INLINE_DECL;
 
+    const float2 n1Pos = inputPositions[n1Idx];
+    const uint n1Degree = pointDegrees[n1Idx];
+    debug3("ForceAtlasPoint (sourceIdx:%d, Degree:%d)\n", n1Idx, n1Degree);
 
-    float2 n1Pos = inputPositions[n1Idx];
     float2 n1D = (float2) (0.0f, 0.0f);
-    uint n1Degree = inDegrees[n1Idx] + outDegrees[n1Idx];
-    debug2("ForceAtlasPoint (sourceIdx:%d)\n", n1Idx);
 
     for(unsigned int tile = 0; tile < numTiles; tile++) {
         if (tile % modulus != stepNumber % modulus) {
-            continue;
+            //continue; // Trade Speed for correctness
         }
 
-        const unsigned int tileStart = (tile * tileSize);
-        unsigned int thisTileSize =  tileStart + tileSize < numPoints ?
-                                        tileSize : numPoints - tileStart;
+        const uint tileStart = (tile * tileSize);
+        const int thisTileSize =  tileStart + tileSize < numPoints ?
+                                  tileSize : numPoints - tileStart;
 
         //block on fetching current tile
-        event_t waitEvents[3];
+        event_t waitEvents[2];
         waitEvents[0] = async_work_group_copy(TILEPOINTS, inputPositions + tileStart, thisTileSize, 0);
-        waitEvents[1] = async_work_group_copy(TILEPOINTS2, inDegrees + tileStart, thisTileSize, 0);
-        waitEvents[2] = async_work_group_copy(TILEPOINTS3, outDegrees + tileStart, thisTileSize, 0);
-        wait_group_events(3, waitEvents);
+        waitEvents[1] = async_work_group_copy(TILEPOINTS2, pointDegrees + tileStart, thisTileSize, 0);
+        wait_group_events(2, waitEvents);
 
         //hint fetch of next tile
         prefetch(inputPositions + ((tile + 1) * tileSize), thisTileSize);
-        prefetch(inDegrees + ((tile + 1) * tileSize), thisTileSize);
-        prefetch(outDegrees + ((tile + 1) * tileSize), thisTileSize);
+        prefetch(pointDegrees + ((tile + 1) * tileSize), thisTileSize);
 
         for(unsigned int cachedPoint = 0; cachedPoint < thisTileSize; cachedPoint++) {
             // Don't calculate the forces of a point on itself
@@ -87,11 +88,11 @@ __kernel void faPointForces (
                 continue;
             }
 
-            float2 n2Pos = TILEPOINTS[cachedPoint];
-            uint n2Degree = TILEPOINTS2[cachedPoint] + TILEPOINTS3[cachedPoint];
-            float2 distVec = n1Pos - n2Pos;
-            float rForce = repulsionForce(distVec, n1Degree, n2Degree, scalingRatio,
-                                          IS_PREVENT_OVERLAP(flags));
+            const float2 n2Pos = TILEPOINTS[cachedPoint];
+            const uint n2Degree = TILEPOINTS2[cachedPoint];
+            const float2 distVec = n1Pos - n2Pos;
+            const float rForce = repulsionForce(distVec, n1Degree, n2Degree, scalingRatio,
+                                                IS_PREVENT_OVERLAP(flags));
 
             debug4("\trForce (%d<->%d) %f\n", n1Idx, tileStart + cachedPoint, rForce);
             n1D += normalize(distVec) * rForce;
@@ -101,7 +102,7 @@ __kernel void faPointForces (
 
     const float2 dimensions = (float2) (width, height);
     const float2 centerVec = (dimensions / 2.0f) - n1Pos;
-    float gForce = gravityForce(gravity, n1Degree, centerVec, IS_STRONG_GRAVITY(flags));
+    const float gForce = gravityForce(gravity, n1Degree, centerVec, IS_STRONG_GRAVITY(flags));
     debug3("gForce (%d) %f\n", n1Idx, gForce);
 
     pointForces[n1Idx] = normalize(centerVec) * gForce + n1D;
@@ -109,16 +110,11 @@ __kernel void faPointForces (
     return;
 }
 
-#ifdef NOREPULSION
-float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
-                          float scalingRatio, bool preventOverlap) {
-    return 0.0f;
-}
-#else
-float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
-                          float scalingRatio, bool preventOverlap) {
-    float dist = length(distVec);
-    int degreeProd = (n1Degree + 1) * (n2Degree + 1);
+
+float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
+                     const float scalingRatio, const bool preventOverlap) {
+    const float dist = length(distVec);
+    const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
     float force;
 
     if (preventOverlap) {
@@ -134,21 +130,26 @@ float repulsionForce(float2 distVec, uint n1Degree, uint n2Degree,
         force = scalingRatio * degreeProd / dist;
     }
 
+#ifndef NOREPULSION
     return clamp(force, 0.0f, 1000000.0f);
-}
-#endif
-
-#ifdef NOGRAVITY
-float gravityForce(float gravity, uint n1Degree, float2 centerVec, bool strong) {
-    return 0.0f;
-}
 #else
-float gravityForce(float gravity, uint n1Degree, float2 centerVec, bool strong) {
-    return gravity *
-           (n1Degree + 1.0f) *
-           (strong ? length(centerVec) : 1.0f);
-}
+    return 0.0f;
 #endif
+}
+
+
+float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
+                   const bool strong) {
+
+    const float gForce = gravity *
+                        (n1Degree + 1.0f) *
+                        (strong ? length(centerVec) : 1.0f);
+#ifndef NOGRAVITY
+    return gForce;
+#else
+    return 0.0f;
+#endif
+}
 
 
 
@@ -157,13 +158,14 @@ __kernel void faEdgeForces(
     //input
 
     //GRAPH_PARAMS
-    float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
+    const float scalingRatio, const float gravity,
+    const uint edgeInfluence, const uint flags,
 
     const __global uint2* edges,          // Array of springs, of the form [source node, target node] (read-only)
     const __global uint4* workList,             // Array of spring [edge index, sinks length, source index] triples to compute (read-only)
     const __global float2* inputPoints,         // Current point positions (read-only)
     const __global float2* partialForces,         // Current point positions (read-only)
-    unsigned int stepNumber,
+    const uint stepNumber,
 
     //output
     __global float2* outputForces
@@ -185,21 +187,20 @@ __kernel void faEdgeForces(
     const uint sourceIdx = edges[springsStart].x;
     debug2("ForceAtlasEdge (sourceIdx: %u)\n", sourceIdx);
 
-    float2 n1Pos = inputPoints[sourceIdx];
-    float n1Size = DEFAULT_NODE_SIZE; //FIXME include in prefetch etc, use actual sizes
+    const float2 n1Pos = inputPoints[sourceIdx];
+    const float n1Size = DEFAULT_NODE_SIZE; //FIXME include in prefetch etc, use actual sizes
 
-    //FIXME start with previous deriv?
     float2 n1D = (float2) (0.0f, 0.0f);
 
     for(uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
         const uint2 curSpring = edges[curSpringIdx];
-        float2 n2Pos = inputPoints[curSpring.y];
-        float n2Size = DEFAULT_NODE_SIZE;
-        float2 distVec = n2Pos - n1Pos;
+        const float2 n2Pos = inputPoints[curSpring.y];
+        const float n2Size = DEFAULT_NODE_SIZE;
+        const float2 distVec = n2Pos - n1Pos;
 
-        float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
-                                       IS_PREVENT_OVERLAP(flags), edgeWeightInfluence,
-                                       IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
+        const float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
+                                             IS_PREVENT_OVERLAP(flags), edgeInfluence,
+                                             IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
         debug4("\taForce (%d->%d): %f\n", sourceIdx, curSpring.y, aForce);
         n1D += normalize(distVec) * aForce;
     }
@@ -209,34 +210,34 @@ __kernel void faEdgeForces(
     return;
 }
 
-#ifdef NOATTRACTION
-float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight,
-                      bool preventOverlap, uint edgeInfluence, bool linLog, bool dissuadeHubs) {
-    return 0.0f;
-}
-#else
-float attractionForce(float2 distVec, float n1Size, float n2Size, uint n1Degree, float weight,
-                      bool preventOverlap, uint edgeInfluence, bool linLog, bool dissuadeHubs) {
 
-    float weightMultiplier = edgeInfluence == 0 ? 1.0f
-                           : edgeInfluence == 1 ? weight
-                                                : pown(weight, edgeInfluence);
+float attractionForce(const float2 distVec, const float n1Size, const float n2Size,
+                      const uint n1Degree, const float weight, const bool preventOverlap,
+                      const uint edgeInfluence, const bool linLog, const bool dissuadeHubs) {
 
-    float dOffset = preventOverlap ? n1Size + n2Size : 0.0f;
-    float dist = length(distVec) - dOffset;
+    const float weightMultiplier = edgeInfluence == 0 ? 1.0f
+                                 : edgeInfluence == 1 ? weight
+                                                      : pown(weight, edgeInfluence);
+
+    const float dOffset = preventOverlap ? n1Size + n2Size : 0.0f;
+    const float dist = length(distVec) - dOffset;
 
     float aForce;
     if (preventOverlap && dist < EPSILON) {
         aForce = 0.0f;
     } else {
-        float distFactor = (linLog ? log(1.0f + dist) : dist);
-        float n1Deg = (dissuadeHubs ? n1Degree + 1.0f : 1.0f);
+        const float distFactor = (linLog ? log(1.0f + dist) : dist);
+        const float n1Deg = (dissuadeHubs ? n1Degree + 1.0f : 1.0f);
         aForce = weightMultiplier * distFactor / n1Deg;
     }
 
-    return aForce;// * 0.1f;
-}
+#ifndef NOATTRACTION
+    return aForce;
+#else
+    return 0.0f;
 #endif
+}
+
 
 
 // Compute global speed
@@ -271,8 +272,7 @@ __kernel void faGlobalSpeed (
     //input
     float tau,
     unsigned int numPoints,
-    const __global uint* inDegrees,
-    const __global uint* outDegrees,
+    const __global uint* pointDegrees,
     const __global float* swings,
     const __global float* tractions,
     //output
@@ -286,7 +286,7 @@ __kernel void faGlobalSpeed (
     float gTraction = 0.0;
 
     for (int i = 0; i < numPoints; i++) {
-        uint degree = inDegrees[i] + outDegrees[i];
+        uint degree = pointDegrees[i];
         gSwing += (degree + 1) * swings[i];
         gTraction += (degree + 1) * tractions[i];
     }
@@ -295,10 +295,6 @@ __kernel void faGlobalSpeed (
 
     return;
 }
-
-
-#define KS    0.1f
-#define KSMAX 10.0f
 
 // Apply forces
 __kernel void faIntegrate (
@@ -317,7 +313,51 @@ __kernel void faIntegrate (
     float maxSpeed = KSMAX / length(curForces[n1Idx]);
     float2 delta = min(speed, maxSpeed) * curForces[n1Idx];
 
-    debug3("Speed (%d) %f\n", n1Idx, min(speed, maxSpeed));
+    debug4("Speed (%d) %f max: %f\n", n1Idx, speed, maxSpeed);
+    debug4("Delta (%d) %f\t%f\n", n1Idx, delta.x, delta.y);
+
+    outputPositions[n1Idx] = inputPositions[n1Idx] + delta;
+    return;
+}
+
+
+// Apply forces and estimate global Speed
+__kernel void faIntegrate2 (
+    //input
+    unsigned int numPoints,
+    float tau,
+    const __global float2* inputPositions,
+    const __global uint* pointDegrees,
+    const __global float2* curForces,
+    const __global float* swings,
+    const __global float* tractions,
+    //output
+    __global float2* outputPositions
+) {
+    const unsigned int n1Idx = (unsigned int) get_global_id(0);
+    const unsigned int tileSize = (unsigned int) get_local_size(0);
+    const unsigned int tile = (unsigned int) get_local_id(0);
+
+    const uint tileStart = (tile * tileSize);
+    const uint thisTileSize = tileStart + tileSize < numPoints ? tileSize : numPoints - tileStart;
+
+    float gTraction = 0.0f;
+    float gSwing = 0.0f;
+
+    for(uint n2Idx = tileStart; n2Idx < tileStart + thisTileSize; n2Idx++) {
+        const uint n2Degree = pointDegrees[n2Idx];
+        gSwing += (n2Degree + 1) * swings[n2Idx];
+        gTraction += (n2Degree + 1) * tractions[n2Idx];
+    }
+
+    float gSpeed = tau * gTraction / gSwing;
+    debug3("Global Speed (tile: %d) %f\n", tile, gSpeed);
+
+    float speed = KS * gSpeed / (1.0f + gSpeed * sqrt(swings[n1Idx]));
+    float maxSpeed = KSMAX / length(curForces[n1Idx]);
+    float2 delta = min(speed, maxSpeed) * curForces[n1Idx];
+
+    debug4("Speed (%d) %f max: %f\n", n1Idx, speed, maxSpeed);
     debug4("Delta (%d) %f\t%f\n", n1Idx, delta.x, delta.y);
 
     outputPositions[n1Idx] = inputPositions[n1Idx] + delta;
