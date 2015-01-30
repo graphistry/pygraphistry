@@ -15,7 +15,7 @@ __kernel void gaussSeidelMidpoints(
     unsigned int numSplits,
 	const __global float2* inputMidPositions,
 	__global float2* outputMidPositions,
-	__local float2* tilePointsParam,
+	//__local float2* tilePointsParam,
 	float width,
 	float height,
 	float charge,
