@@ -65,7 +65,7 @@ __kernel void faPointForces (
 
     for(unsigned int tile = 0; tile < numTiles; tile++) {
         if (tile % modulus != stepNumber % modulus) {
-            //continue; // Trade Speed for correctness
+            continue; // Trade Speed for correctness
         }
 
         const uint tileStart = (tile * tileSize);
