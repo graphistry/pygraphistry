@@ -32,9 +32,9 @@ __kernel void forceAtlasPoints (
     //GRAPH_PARAMS
     float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
 
-    //__local float2* tilePointsParam, //FIXME make nodecl accept local params
-    //__local uint* tilePoints2Param, //FIXME make nodecl accept local params
-    //__local uint* tilePoints3Param, //FIXME make nodecl accept local params
+    __local float2* tilePointsParam, //FIXME make nodecl accept local params
+    __local uint* tilePoints2Param, //FIXME make nodecl accept local params
+    __local uint* tilePoints3Param, //FIXME make nodecl accept local params
     unsigned int numPoints,
     const __global float2* inputPositions,
     float width,

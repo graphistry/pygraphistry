@@ -37,8 +37,8 @@ __kernel void faPointForces (
     const float scalingRatio, const float gravity,
     const uint edgeInfluence, const uint flags,
 
-    //__local float2* tilePointsParam, //FIXME make nodecl accept local params
-    //__local uint* tilePoints2Param, //FIXME make nodecl accept local params
+    __local float2* tilePointsParam, //FIXME make nodecl accept local params
+    __local uint* tilePoints2Param, //FIXME make nodecl accept local params
     const uint numPoints,
     const __global float2* inputPositions,
     const float width,
@@ -267,6 +267,34 @@ __kernel void faSwingsTractions (
     return;
 }
 
+// Compute global speed
+__kernel void faGlobalSpeed (
+    //input
+    float tau,
+    unsigned int numPoints,
+    const __global uint* pointDegrees,
+    const __global float* swings,
+    const __global float* tractions,
+    //output
+    global float* gSpeeds
+) {
+    const unsigned int n1Idx = (unsigned int) get_global_id(0);
+    if (n1Idx != 0)
+        return;
+
+    float gSwing = 0.0;
+    float gTraction = 0.0;
+
+    for (int i = 0; i < numPoints; i++) {
+        uint degree = pointDegrees[i];
+        gSwing += (degree + 1) * swings[i];
+        gTraction += (degree + 1) * tractions[i];
+    }
+
+    gSpeeds[n1Idx] = tau * gTraction / gSwing;
+
+    return;
+}
 
 // Apply forces
 __kernel void faIntegrate (

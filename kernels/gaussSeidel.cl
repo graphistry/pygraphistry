@@ -15,7 +15,7 @@ __kernel void gaussSeidelPoints(
     unsigned int numPoints,
     const __global float2* inputPositions,
     __global float2* outputPositions,
-    //__local float2* tilePointsParam, //FIXME make nodecl accept local params
+    __local float2* tilePointsParam, //FIXME make nodecl accept local params
     float width,
     float height,
     float charge,
@@ -44,7 +44,7 @@ __kernel void gaussSeidelPoints(
 
     float2 posDelta = (float2) (0.0f, 0.0f);
 
-    unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
+  unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
 
 
     for(unsigned int tile = 0; tile < numTiles; tile++) {
