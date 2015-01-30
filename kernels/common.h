@@ -34,4 +34,4 @@
 
 // The number of tiles to process each execution of this kernel.
 // The particular subset of tiles is chosen based off of stepNumber.
-#define TILES_PER_ITERATION 1
+#define TILES_PER_ITERATION 15
