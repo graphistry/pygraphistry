@@ -13,6 +13,7 @@ float2 randomPoint(__local float2* points, unsigned int numPoints, __constant fl
 
 __kernel void gaussSeidelPoints(
     unsigned int numPoints,
+    unsigned int tilesPerIteration,
     const __global float2* inputPositions,
     __global float2* outputPositions,
     __local float2* tilePointsParam, //FIXME make nodecl accept local params
@@ -31,7 +32,7 @@ __kernel void gaussSeidelPoints(
 
     const float2 dimensions = (float2) (width, height);
 
-    const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);  //1.0f / (clamp(((float) stepNumber), 1.0f, 50.0f) + 10.0f);
+    const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) tilesPerIteration)), 0.005f);  //1.0f / (clamp(((float) stepNumber), 1.0f, 50.0f) + 10.0f);
 
     const unsigned int pointId = (unsigned int) get_global_id(0);
 
@@ -44,7 +45,7 @@ __kernel void gaussSeidelPoints(
 
     float2 posDelta = (float2) (0.0f, 0.0f);
 
-  unsigned int modulus = numTiles / TILES_PER_ITERATION; // tiles per iteration:
+  unsigned int modulus = numTiles / tilesPerIteration; // tiles per iteration:
 
 
     for(unsigned int tile = 0; tile < numTiles; tile++) {
@@ -99,8 +100,8 @@ __kernel void gaussSeidelPoints(
 
     // Force of gravity pulling the points toward the center
     float2 center = dimensions / 2.0f;
-    // TODO: Should we be dividing the stength of gravity by TILES_PER_ITERATION? We only consider
-    // 1 / TILES_PER_ITERATION of the total points in any execution, but here we apply full gravity.
+    // TODO: Should we be dividing the stength of gravity by tilesPerIteration? We only consider
+    // 1 / tilesPerIteration of the total points in any execution, but here we apply full gravity.
     posDelta += ((float2) ((center.x - myPos.x), (center.y - myPos.y)) * (gravity * alpha));
 
 
@@ -116,6 +117,7 @@ __kernel void gaussSeidelPoints(
 
 //for each edge source, find corresponding point and tension from destination points
 __kernel void gaussSeidelSprings(
+    unsigned int tilesPerIteration,
     const __global uint2* springs,         // Array of springs, of the form [source node, target node] (read-only)
     const __global uint4* workList,            // Array of spring [source index, sinks length] pairs to compute (read-only)
     const __global uint* edgeTags,          // Array of worklist item -> 0/1
@@ -128,7 +130,7 @@ __kernel void gaussSeidelSprings(
     unsigned int stepNumber
     )
 {
-    const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);
+    const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) tilesPerIteration)), 0.005f);
     // const float alpha = max(0.1f * pown(0.99f, stepNumber), FLT_EPSILON * 2.0f);
 
     // From Hooke's Law, we generally have that the force exerted by a spring is given by

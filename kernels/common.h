@@ -34,4 +34,5 @@
 
 // The number of tiles to process each execution of this kernel.
 // The particular subset of tiles is chosen based off of stepNumber.
-#define TILES_PER_ITERATION 15
+// Set by SimCl based on number of nodes
+#define TILES_PER_ITERATION 64

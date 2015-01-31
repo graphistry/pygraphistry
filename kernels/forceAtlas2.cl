@@ -40,6 +40,7 @@ __kernel void faPointForces (
     __local float2* tilePointsParam, //FIXME make nodecl accept local params
     __local uint* tilePoints2Param, //FIXME make nodecl accept local params
     const uint numPoints,
+    const uint tilesPerIteration,
     const __global float2* inputPositions,
     const float width,
     const float height,
@@ -52,7 +53,7 @@ __kernel void faPointForces (
     const uint n1Idx = (unsigned int) get_global_id(0);
     const uint tileSize = (unsigned int) get_local_size(0);
     const uint numTiles = (unsigned int) get_num_groups(0);
-    const uint modulus = numTiles / TILES_PER_ITERATION;
+    const uint modulus = numTiles / tilesPerIteration;
 
     TILEPOINTS_INLINE_DECL;
     TILEPOINTS2_INLINE_DECL;
