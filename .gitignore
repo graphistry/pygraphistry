@@ -1,3 +1,4 @@
 node_modules
 config.json
 .tern-project
+tests.log
