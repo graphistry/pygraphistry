@@ -29,11 +29,6 @@
     - libfreeimage-dev
   tags: provision
 
-# - name: Setup X.Org using nvidia-xconfig
-#   command: nvidia-xconfig -a --use-display-device=None --virtual=1680x1050
-#   sudo: yes
-#   tags: provision
-
 - name: Set X.Org conf file
   copy: src=xorg.conf
         dest=/etc/X11/xorg.conf
