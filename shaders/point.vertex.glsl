@@ -11,8 +11,10 @@ attribute float pointSize;
 attribute vec4 pointColor;
 varying vec4 vColor;
 
+attribute float isHighlighted;
+
 void main(void) {
-    gl_PointSize = clamp(pointSize, 0.125, 10.0);
+    gl_PointSize = isHighlighted > 0.0 ? isHighlighted : clamp(pointSize, 0.125, 50.0);
 
     vec4 pos = vec4(curPos.x, curPos.y, Z_VAL, W_VAL);
     gl_Position = mvp * pos;
