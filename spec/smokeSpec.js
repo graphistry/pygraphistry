@@ -110,9 +110,9 @@ describe ("[SMOKE] Server-viz", function () {
             theRenderConfig = render_config;
             expect(render_config).toBeDefined();
             var render_list = ['pointpicking', 'pointsampling',
-                'edgeculled', 'pointculled'];
+                'edgeculled', 'points'];
             expect(render_config.render).toEqual(render_list);
-            var program_list = ['pointculled', 'edgeculled'];
+            var program_list = ['pointculled', 'edgeculled', 'points'];
             expect(_.keys(render_config.programs)).toEqual(program_list);
             done();
         });
