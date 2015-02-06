@@ -18,9 +18,6 @@
         group=www
         mode='g+rw'
 
-- name: Install node-gyp
-  npm: name=node-gyp global=yes
-
 - name: Clone viz-server repo
   git: repo=git@github.com:graphistry/viz-server.git
        dest={{ graphistry_install_path }}/viz-server

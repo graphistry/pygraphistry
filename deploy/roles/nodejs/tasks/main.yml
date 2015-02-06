@@ -14,3 +14,6 @@
 - name: Install Node.js
   sudo: yes
   apt: name=nodejs state=latest update_cache=yes
+- name: Install node-gyp
+  npm: name=node-gyp global=yes
+  sudo: yes
