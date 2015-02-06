@@ -15,7 +15,7 @@
 - hosts: workers:central
   roles:
    - { role: common, sudo: yes }
-   - { role: users }
+   - { role: users, tags: [ 'users' ] }
    - { role: splunkfwd, sudo: yes }
    - { role: nodejs }
   tags:
@@ -24,13 +24,13 @@
 
 - hosts: workers
   roles:
-   - { role: worker, tags: prod-full }
-   - { role: viz-app, sudo: yes, sudo_user: www, tags: [ 'deploy', 'new_deploy' ] }
+   - { role: worker, tags: [ 'provision' ] }
+   - { role: viz-app, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
   tags: workers
 
 - hosts: central
   roles:
-   - { role: central, tags: prod-full }
+   - { role: central, tags: [ 'provision', 'deploy' ] }
   tags: central
 
 - hosts: localhost
