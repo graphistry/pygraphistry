@@ -1,0 +1,7 @@
+---
+node_global_path: "/opt/npm_global"
+node_global_subdirs:
+    - "{{ node_global_path }}"
+    - "{{ node_global_path }}/bin"
+    - "{{ node_global_path }}/share"
+    - "{{ node_global_path }}/lib"

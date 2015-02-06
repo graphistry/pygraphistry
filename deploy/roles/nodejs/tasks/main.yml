@@ -1,4 +1,8 @@
 ---
+- name: Gather facts
+  setup: filter='*'
+  sudo: no
+
 - name: Install Node Source APT repo key
   sudo: yes
   apt_key: url=https://deb.nodesource.com/gpgkey/nodesource.gpg.key state=present
@@ -6,14 +10,103 @@
 - name: Add Node Source APT repo
   sudo: yes
   apt_repository: "repo='deb https://deb.nodesource.com/node {{ ansible_lsb.codename }} main' state=present"
+  register: added_node_repo
 
 - name: Add Node Source APT source repo
   sudo: yes
   apt_repository: "repo='deb-src https://deb.nodesource.com/node {{ ansible_lsb.codename }} main' state=present"
 
+- name: Update apt cache
+  apt: update_cache=yes
+  when: added_node_repo.changed
+  sudo: yes
+
 - name: Install Node.js
   sudo: yes
-  apt: name=nodejs state=latest update_cache=yes
+  apt: name=nodejs state=latest update_cache=yes cache_valid_time=600
+
+- name: Enable ACLs on root filesystem
+  mount: name=/
+         src='LABEL=cloudimg-rootfs'
+         fstype=ext4
+         opts='defaults,acl,discard'
+         state=mounted
+  sudo: yes
+  register: fstabacls
+
+- name: Re-mount /
+  command: mount -oremount /
+  when: fstabacls.changed
+  sudo: yes
+
+- name: Create global nodejs directory
+  file: path={{ node_global_path }}
+        state=directory
+        owner=root
+        group=graphistry-dev
+        mode='u=rwx,g=rwxs,o=rx'
+  sudo: yes
+
+- name: Set default ACLs on global nodejs directory to allow graphistry-dev group access
+  acl: name={{ node_global_path }}
+       state=present
+       etype=group
+       entity=graphistry-dev
+       permissions=rwx
+       default=yes
+  sudo: yes
+
+- name: Set ACLs on global nodejs directory to allow graphistry-dev group access
+  acl: name={{ node_global_path }}
+       state=present
+       etype=group
+       entity=graphistry-dev
+       permissions=rwx
+       default=no
+  sudo: yes
+
+- name: Set default ACLs on global nodejs directory to allow www group access
+  acl: name={{ node_global_path }}
+       state=present
+       etype=group
+       entity=www
+       permissions=rx
+       default=yes
+  sudo: yes
+
+- name: Set ACLs on global nodejs directory to allow www group access
+  acl: name={{ node_global_path }}
+       state=present
+       etype=group
+       entity=www
+       permissions=rx
+       default=no
+  sudo: yes
+
+- name: Set default ACLs on global nodejs directory to allow user access
+  acl: name={{ node_global_path }}
+       state=present
+       etype=user
+       permissions=rwx
+       default=yes
+  sudo: yes
+
+- name: Set default ACLs on global nodejs directory to allow group access
+  acl: name={{ node_global_path }}
+       state=present
+       etype=group
+       permissions=rwx
+       default=yes
+  sudo: yes
+
+- name: Set default ACLs on global nodejs directory to allow group access
+  acl: name={{ node_global_path }}
+       state=present
+       etype=group
+       permissions=rx
+       default=yes
+  sudo: yes
+
 - name: Install node-gyp
   npm: name=node-gyp global=yes
   sudo: yes
