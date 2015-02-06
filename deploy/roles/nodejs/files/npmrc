@@ -1,0 +1,4 @@
+prefix = /opt/npm_global
+umask = 3
+globalconfig = /opt/npm_global/npmrc
+group = graphistry-dev

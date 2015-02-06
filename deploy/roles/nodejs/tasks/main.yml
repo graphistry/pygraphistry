@@ -107,6 +107,36 @@
        default=yes
   sudo: yes
 
+- name: Upload npm global config
+  copy: src=npmrc
+        dest=/opt/npm_global/npmrc
+        owner=root
+        group=graphistry-dev
+        mode=0644
+  sudo: yes
+
+- name: Create directory to hold npm global config shim
+  file: path=/usr/etc
+        state=directory
+        owner=root
+        group=root
+        mode=0755
+  sudo: yes
+
+- name: Symlink default npmrc to our global npmrc
+  file: path=/usr/etc/npmrc
+        state=link
+        src=/opt/npm_global/npmrc
+  sudo: yes
+
+- name: Configure global Bash profile for npm options
+  copy: src=Z90-graphistry-nodeglobal.sh
+        dest=/etc/profile.d/Z90-graphistry-nodeglobal.sh
+        owner=root
+        group=root
+        mode=0755
+  sudo: yes
+
 - name: Install node-gyp
   npm: name=node-gyp global=yes
   sudo: yes
