@@ -1,48 +1,4 @@
 ---
-# - name: "Move ~/.bash_profile to ~/.bash_profile_user"
-#   command: mv '{{ homedir }}/.bash_profile' '{{ homedir }}/.bash_profile_user'
-#            creates='{{ homedir }}/.bash_profile_user'
-#            removes='{{ homedir }}/.bash_profile'
-
-# - name: "Touch ~/.bash_profile_user"
-#   file: path={{ homedir }}/.bash_profile_user
-#     state=touch
-#     owner='{{ user }}'
-#     group='{{ user }}'
-#     mode='u+rw'
-
-# - name: "Upload Graphistry-specific bash configuration script"
-#   copy: "src=bash_profile.sh
-#          dest={{ homedir }}/.bash_profile
-#          force=yes
-#          owner={{ user }}
-#          group={{ user }}
-#          mode=0444"
-
-- name: Create user-specific npm global module directory
-  file: path={{ homedir }}/.npm_global
-        state=directory
-        owner={{ user }}
-        group=www
-        mode=0775
-
-- name: Set permissions on user-specific npm global module directory
-  file: path={{ homedir }}/.npm_global
-        state=directory
-        recurse=yes
-        owner={{ user }}
-        group=www
-        mode='u+rw,g+rw,o+r'
-
-- name: Set npm global module path
-  lineinfile: "dest={{ homedir }}/.npmrc
-              line='prefix={{ homedir }}/.npm_global'
-              state=present
-              create=yes
-              owner={{ user }}
-              group={{ user }}
-              mode=0664"
-
 - name: Create ~/.ssh directory
   file: path="{{ homedir }}/.ssh"
         state=directory
@@ -72,5 +28,6 @@
         owner="{{ user }}"
         group="{{ user }}"
         mode=0600
+        force=no
   sudo: yes
   sudo_user: "{{ user }}"
