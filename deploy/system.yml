@@ -17,7 +17,7 @@
    - { role: common, sudo: yes }
    - { role: users, tags: [ 'users' ] }
    - { role: splunkfwd, sudo: yes }
-   - { role: nodejs }
+   - { role: nodejs, tags: [ 'nodejs' ] }
   tags:
     - common
     - provision
