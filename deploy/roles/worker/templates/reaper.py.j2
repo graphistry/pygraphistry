@@ -23,7 +23,7 @@ formatter = logging.Formatter('%(asctime)s :: %(message)s')
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
-auth = HTTPBasicAuth('abe@graphistry.com', 'api.fc39b94e8f-3713')
+auth = HTTPBasicAuth('{{ boundary_username }}', '{{ boundary_password }}')
 ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
 
 def convert(gpu_memory_used):
@@ -135,7 +135,7 @@ def reap(db):
 
 if __name__=="__main__":
     DATABASE = '{{ mongodb_dbname }}'
-    MONGO_SERVER = 'mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048/{{ mongodb_dbname }}';
+    MONGO_SERVER = '{{ mongodb_url }}/{{ mongodb_dbname }}';
 
     # Connect to central db
     url = MONGO_SERVER
