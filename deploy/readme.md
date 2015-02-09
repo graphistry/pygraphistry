@@ -1,5 +1,18 @@
 ## Setting up Local Development
 
+### Preliminaries
+
+Install the following (apt-get/brew) packages:
+ - `git`
+ - `node` (0.10.x) and `node-legacy` (if on Ubuntu)
+ - `glfw` (3.x), `anttweakbar`, and `freeimage` (on Mac)
+Then install the following NPM packages globally (npm install -g XXX):
+ - `grunt` and 'grunt-cli'
+ - `browserify`
+ - `less`
+
+### The Graphistry Stack
+
 1. Create a new empty directory (WD/ in this example).
 
 2. Clone this repository inside WD: `git clone git@github.com:graphistry/deploy.git`. You know have WD/deploy.
