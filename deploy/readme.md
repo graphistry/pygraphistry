@@ -7,7 +7,7 @@ Install the following (apt-get/brew) packages:
  - `node` (0.10.x) and `node-legacy` (if on Ubuntu)
  - `glfw` (3.x), `anttweakbar`, and `freeimage` (on Mac)
 
-Then install the following NPM packages globally (npm install -g XXX):
+Then install the following NPM packages globally (`npm install -g XXX`):
  - `grunt` and `grunt-cli`
  - `browserify`
  - `less`
@@ -22,7 +22,7 @@ Then install the following NPM packages globally (npm install -g XXX):
 
 4. Run  setup.js to clone and link all remaining repositories: `./setup.js --clone --link`. You can add the `--shared` flag to install all external (non-graphistry) dependencies globally, thus avoiding having multiple copies of the same libraries, one in each repository.
 
-5. Run check.sh (still in deploy) to run all tests.
+5. Run `./check.sh` (still in deploy) to run all tests.
 
 ## Login ##
 
