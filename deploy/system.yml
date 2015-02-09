@@ -25,12 +25,12 @@
 - hosts: workers
   roles:
    - { role: worker, tags: [ 'provision' ] }
-   - { role: viz-app, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
+   - { role: viz-app, sudo: yes, sudo_user: www, tags: [ 'deploy', 'worker-deploy' ] }
   tags: workers
 
 - hosts: central
   roles:
-   - { role: central, tags: [ 'provision', 'deploy' ] }
+   - { role: central, sudo: yes, sudo_user: www, tags: [ 'deploy', 'central-deploy' ] }
   tags: central
 
 - hosts: localhost
