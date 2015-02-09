@@ -1,0 +1,23 @@
+; {{ ansible_managed }}
+
+[program:central]
+
+command=/usr/bin/nodejs {{ graphistry_install_path }}/central/server.js "{\"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ hostname }}\" }"
+directory={{ graphistry_install_path }}/central
+environment=DEBUG="*"
+
+process_name=%(program_name)s
+numprocs=1
+numprocs_start=0
+
+user=www
+umask=002
+
+stdout_logfile=/var/log/central-app/central.log
+redirect_stderr=true
+; stderr_logfile=/var/log/central-app/central.err.log
+
+autostart=true
+autorestart=true
+
+stopasgroup=true
