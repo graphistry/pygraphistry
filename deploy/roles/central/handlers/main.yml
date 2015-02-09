@@ -1,12 +1,17 @@
 ---
-- name: update supervisor
-  command: supervisorctl update
+- name: Restart nginx
+  service: name=nginx state=restarted
   sudo: yes
-  
-- name: reload supervisord
-  command: supervisorctl reload
-  sudo: yes
+  sudo_user: root
 
-- name: restart nginx
-  command: service nginx restart
+- name: Add central to Supervisor
+  supervisorctl: name="central"
+                 state=present
   sudo: yes
+  sudo_user: root
+
+- name: Restart central
+  supervisorctl: name="central"
+                 state=restarted
+  sudo: yes
+  sudo_user: root
