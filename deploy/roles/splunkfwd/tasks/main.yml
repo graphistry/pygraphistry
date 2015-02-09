@@ -46,6 +46,7 @@
 - name: Connect splunk forwarder to Splunk server
   command: ./splunk add forward-server {{ splunk_server_address }} -auth {{ splunk_server_credentials }}
            chdir=/opt/splunkforwarder/bin
+  when: splunk_installed.changed
   ignore_errors: true
   tags:
     - common
@@ -56,9 +57,11 @@
   tags:
     - common
     - splunk
+  register: splunk_inputs
 
 - name: (Re)start splunk
   tags:
     - common
     - splunk
   service: name=splunk state=restarted
+  when: splunk_installed.changed and splunk_inputs.changed
