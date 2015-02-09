@@ -1,0 +1,14 @@
+---
+central_module_checkout: "master"
+
+# The Bash environmental variables needed to enable CUDA support. Set when executing `npm install`
+cuda_env:
+    DISPLAY: ":0"
+    PATH: "/opt/npm_global/bin/:/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
+    LD_LIBRARY_PATH: "/usr/local/cuda/lib64"
+    LIBRARY_PATH: "/usr/local/cuda/lib64"
+    C_INCLUDE_PATH: "/usr/local/cuda/include"
+    CPLUS_INCLUDE_PATH: "/usr/local/cuda/include"
+    npm_config_prefix: "/opt/npm_global"
+    NODE_PATH: "/opt/npm_global/lib/node_modules"
+    _GRAPHISTRY_CUDA_INIT: 1

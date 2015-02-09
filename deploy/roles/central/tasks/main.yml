@@ -1,86 +1,116 @@
 ---
-- shell: npm config set prefix '/home/{{ ansible_ssh_user }}/.npm_global'
+- name: Gather facts for central
+  setup:
+  sudo: no
 
-- command: mkdir /tmp/web
-  ignore_errors: true
-
-- command: chown -R {{ ansible_ssh_user }}:{{ ansible_ssh_user }} /tmp/web
+- name: Start supervisor
+  service: name=supervisor state=started enabled=yes
   sudo: yes
+  sudo_user: root
 
-- name: update central repo
-  git: repo=git@github.com:graphistry/central.git dest=/tmp/web/central version=master update=yes accept_hostkey=yes
-  tags:
-    - fast
-
-- shell: chdir=/tmp/web/central npm install
-  tags:
-    - fast
-
-- name: Find temporary npm directories to delete
-  command: find /tmp -maxdepth 1 -iname 'npm*'
-  register: npm_to_delete
-  tags:
-    - fast
-
-- name: Deleting temporary npm directories
-  file: path={{ item }} state=absent
-  with_items: npm_to_delete.stdout_lines
+- name: Ensure central app install path is owned by user 'www'
   sudo: yes
-  tags:
-    - fast
+  sudo_user: root
+  file: path={{ graphistry_install_path }}
+        state=directory
+        recurse=no
+        owner=www
+        group=www
+        mode=0775
 
-- command: cp -ru /tmp/web/central /opt
+- name: Ensure everything in install path can be read/written to by group 'www'
   sudo: yes
-  tags:
-    - fast
+  sudo_user: root
+  file: path={{ graphistry_install_path }}
+        state=directory
+        recurse=yes
+        group=www
+        mode='g+rw'
 
-- command: chown -R www:www /opt/
+- name: Create log directory for central app
+  file: path=/var/log/central-app
+        state=directory
+        owner=root
+        group=www
+        mode=0775
   sudo: yes
-  tags:
-    - fast
+  sudo_user: root
 
-- command: chmod g+w -R /opt/
+- name: Run central app under Supervisor
+  template: src=central.conf.j2
+            dest=/etc/supervisor/conf.d/central.conf
+            owner=root
+            group=graphistry-dev
+            mode=0664
   sudo: yes
-  tags:
-    - fast
+  sudo_user: root
+  notify: Add central to Supervisor
 
-- command: mkdir /var/log/central-app
-  sudo: yes
-  ignore_errors: true
+- name: Clone central repo
+  git: repo=git@github.com:graphistry/central.git
+       dest={{ graphistry_install_path }}/central
+       version="{{ central_module_checkout }}"
+       update=yes
+       key_file=/home/{{ sudo_user }}/.ssh/deploy_id_rsa
+       accept_hostkey=yes
+  register: central_updated
+  notify: Restart central
 
-- apt: pkg={{ item }} state=installed update_cache=yes
-  sudo: yes
-  with_items:
-    - nginx
+- name: Prune unused npm modules from central
+  command: npm prune
+           chdir="{{ graphistry_install_path }}/central"
+  notify: Restart central
 
-- template: src=nginx.j2 dest=/etc/nginx/sites-enabled/default
-  sudo: yes
-  notify: restart nginx
+- name: Install central module
+  npm: path={{ graphistry_install_path }}/central
+       state=latest
+  environment: cuda_env
+  notify: Restart central
 
-- template: src=central-app.supervisor.j2 dest=/etc/supervisor/conf.d/central-app.conf
+- name: Install nginx
+  apt: pkg=nginx
+       state=latest
+       update_cache=yes
+       cache_valid_time=600
   sudo: yes
-  tags:
-    - fast
-    - supervisor
+  sudo_user: root
+  notify: Restart nginx
 
-# Ensure supervisord itself is running
-- command: service supervisor start
+- name: Configure nginx (main config file)
+  copy: src=uploads.conf
+        dest=/etc/nginx/nginx.conf
+        owner=root
+        group=graphistry-dev
+        mode=0664
   sudo: yes
-  tags:
-    - fast
-    - supervisor
-  ignore_errors: true
+  sudo_user: root
+  notify: Restart nginx
 
-# Read in config changes
-- command: supervisorctl reread
+- name: Configure nginx (individual config file)
+  copy: src={{ item }}
+        dest=/etc/nginx/{{ item | basename }}
+        owner=root
+        group=graphistry-dev
+        mode=0664
   sudo: yes
-  tags:
-    - fast
-    - supervisor
+  sudo_user: root
+  notify: Restart nginx
+  with_fileglob:
+    - nginx.conf.d/*
 
-# Reload supervisor processes
-- command: supervisorctl reload
+- name: Disable nginx default site
+  file: path=/etc/nginx/sites-enabled/default
+        state=absent
   sudo: yes
-  tags:
-    - fast
-    - supervisor
+  sudo_user: root
+  notify: Restart nginx
+
+- name: Configure nginx to proxy to nodejs
+  template: src=central.site.j2
+            dest=/etc/nginx/sites-enabled/central
+            owner=root
+            group=www
+            mode=0664
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
