@@ -20,5 +20,6 @@
 - { include: mtorok.yml, tags: [ 'mtorok' ] }
 - { include: create_user.yml, user: leo }
 - { include: create_user.yml, user: thibaud }
+- { include: create_user.yml, user: quinn }
 - { include: create_user.yml, user: paden }
 - { include: create_user.yml, user: ubuntu }
