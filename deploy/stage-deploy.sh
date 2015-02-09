@@ -12,7 +12,7 @@ COUNT=$(($PULLCOUNT + $PUSHCOUNT + $DIVCOUNT + $COMMITCOUNT + $FAILURECOUNT))
 
 if [ $COUNT = "0" ] ; then
     echo "All repos up-to-date, all tests passed. Deploying staging..."
-    ansible-playbook system.yml -vv --tags fast --skip-tags provision,prod-slack -i hosts -l staging
+    ansible-playbook site.yml -i staging -vv --tags deploy
 else
     echo "$OUTPUT"
 fi
