@@ -1,5 +1,40 @@
 ---
 # -*- mode: Ansible -*-
-graphistry_install_path: "/var/graphistry"
+
+# Default values that can be overridden by setting them in any other place (except role defaults)
+
+################################################################################
+# These **must** be overridden per-cluster for our apps to work right
+################################################################################
+
+# The MongoDB connection string/URL. Used only by reaper.py; node apps use the `config` node module
+# to find their MongoDB URL. The mongodb_dbname is appended to this when connecting.
+mongodb_url: "mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048"
+# The name of the MongoDB database on compose.io to write pings to
+mongodb_dbname: "graphistry-staging"
+# The name of this deploy type (used for Slack notifications)
+cluster: "staging"
+# The URL the app deployed to these machines can be viewed at (used for Slack notifications)
+www_url: "http://54.215.192.84/"
+
+
+################################################################################
+# These values can usually be left as-is unless you have reason to override them
+################################################################################
+
+# The username Ansible will use when SSH'ing into the remote instance
 ansible_ssh_user: ubuntu
+# The port Ansible will use when SSH'ing into the remote instance. If the remote sshd isn't yet
+# configured to use this port, the 'common' role will try to login on port 22 and change it to this.
 ansible_ssh_port: 61630
+
+# The main domain that remote machines will be subdomains of. The fully-qualified domain name of a
+# machine will be its hostname + '.' + graphistry_domain, e.g. "staging.graphistry.com".
+domain: "graphistry.com"
+
+# Path on the remote instance where Graphistry nodejs apps will be installed to
+graphistry_install_path: "/var/graphistry"
+
+# Boundary login info
+boundary_username: "abe@graphistry.com"
+boundary_password: "api.fc39b94e8f-3713"
