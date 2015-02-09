@@ -27,4 +27,4 @@
 - name: Set Ansible back to using our custom SSH port
   sudo: no
   set_fact: ansible_ssh_port={{ graphistry_ssh_port }}
-  when: sshd_config|changed
+  when: nc_ssh_port|failed
