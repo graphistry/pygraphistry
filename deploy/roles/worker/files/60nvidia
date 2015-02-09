@@ -1,0 +1,4 @@
+Explanation: Prioritize nvidia packages over other sources
+Package: *
+Pin: release o=NVIDIA
+Pin-Priority: 999
