@@ -77,7 +77,7 @@
   notify: Restart nginx
 
 - name: Configure nginx (main config file)
-  copy: src=uploads.conf
+  copy: src=nginx.conf
         dest=/etc/nginx/nginx.conf
         owner=root
         group=graphistry-dev
