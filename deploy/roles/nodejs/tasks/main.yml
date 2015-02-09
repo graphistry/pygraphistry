@@ -1,6 +1,6 @@
 ---
-- name: Gather facts
-  setup: filter='*'
+- name: Gather facts for nodejs
+  setup:
   sudo: no
 
 - name: Install Node Source APT repo key
@@ -39,73 +39,75 @@
   when: fstabacls.changed
   sudo: yes
 
-- name: Create global nodejs directory
-  file: path={{ node_global_path }}
+- name: Create graphistry app install directory
+  sudo: yes
+  sudo_user: root
+  file: path={{ graphistry_install_path }}
+        state=directory
+        recurse=no
+        owner=www
+        group=www
+        mode=0775
+
+- name: Set ownership of everything in graphistry app install directory and subdirectories
+  sudo: yes
+  sudo_user: root
+  file: path={{ graphistry_install_path }}
+        state=directory
+        recurse=yes
+        group=www
+        mode='g+rw'
+
+- name: Create global nodejs directories
+  file: path={{ item }}
         state=directory
         owner=root
         group=graphistry-dev
         mode='u=rwx,g=rwxs,o=rx'
   sudo: yes
+  with_items: npm_subdirs | difference(["{{ graphistry_install_path }}"])
 
-- name: Set default ACLs on global nodejs directory to allow graphistry-dev group access
-  acl: name={{ node_global_path }}
+- name: Set ACL defaults on npm global paths for groups
+  acl: name={{ item[0] }}
        state=present
        etype=group
-       entity=graphistry-dev
-       permissions=rwx
+       entity={{ item[1].group }}
+       permissions={{ item[1].permissions }}
        default=yes
   sudo: yes
+  with_nested:
+    - npm_subdirs
+    - npm_group_permissions
 
-- name: Set ACLs on global nodejs directory to allow graphistry-dev group access
-  acl: name={{ node_global_path }}
+- name: Set ACL defaults on npm global paths for groups
+  acl: name={{ item[0] }}
        state=present
        etype=group
-       entity=graphistry-dev
-       permissions=rwx
-       default=no
-  sudo: yes
-
-- name: Set default ACLs on global nodejs directory to allow www group access
-  acl: name={{ node_global_path }}
-       state=present
-       etype=group
-       entity=www
-       permissions=rx
+       entity={{ item[1].group }}
+       permissions={{ item[1].permissions }}
        default=yes
   sudo: yes
-
-- name: Set ACLs on global nodejs directory to allow www group access
-  acl: name={{ node_global_path }}
-       state=present
-       etype=group
-       entity=www
-       permissions=rx
-       default=no
-  sudo: yes
+  with_nested:
+    - npm_subdirs
+    - npm_group_permissions
 
 - name: Set default ACLs on global nodejs directory to allow user access
-  acl: name={{ node_global_path }}
+  acl: name={{ item }}
        state=present
        etype=user
        permissions=rwx
        default=yes
   sudo: yes
+  with_items: npm_subdirs
 
 - name: Set default ACLs on global nodejs directory to allow group access
-  acl: name={{ node_global_path }}
+  acl: name={{ item }}
        state=present
        etype=group
        permissions=rwx
        default=yes
   sudo: yes
-
-- name: Set default ACLs on global nodejs directory to allow group access
-  acl: name={{ node_global_path }}
-       state=present
-       etype=group
-       permissions=rx
-       default=yes
-  sudo: yes
+  with_items: npm_subdirs
 
 - name: Upload npm global config
   template: src=npmrc.j2

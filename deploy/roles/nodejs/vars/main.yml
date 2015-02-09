@@ -1,7 +1,14 @@
 ---
-node_global_path: "/opt/npm_global"
-node_global_subdirs:
-    - "{{ node_global_path }}"
-    - "{{ node_global_path }}/bin"
-    - "{{ node_global_path }}/share"
-    - "{{ node_global_path }}/lib"
+npm_global_path: "/opt/npm_global"
+
+npm_subdirs:
+    - "{{ npm_global_path }}"
+    - "{{ npm_global_path }}/etc"
+    - "{{ npm_global_path }}/bin"
+    - "{{ npm_global_path }}/share"
+    - "{{ npm_global_path }}/lib"
+    - "{{ graphistry_install_path }}"
+
+npm_group_permissions:
+    - { group: "graphistry-dev", permissions: "rwx" }
+    - { group: "www", permissions: "rx" }
