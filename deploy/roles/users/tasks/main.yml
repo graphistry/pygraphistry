@@ -1,4 +1,8 @@
 ---
+- name: Gather facts for users
+  setup:
+  sudo: no
+
 - name: Create graphistry-dev group
   sudo: yes
   group: name=graphistry-dev

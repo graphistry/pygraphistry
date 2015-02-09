@@ -207,12 +207,16 @@
            mode=0770
   sudo: yes
   sudo_user: mtorok
+  tags:
+    - slow
 
 - name: "[mtorok] Install Janus"
   command: /home/mtorok/Documents/janus_install.sh
            creates=/home/mtorok/.vim/janus
   sudo: yes
   sudo_user: mtorok
+  tags:
+    - slow
 
 - name: "[mtorok] Update Janus"
   command: rake
@@ -220,6 +224,8 @@
            removes=/home/mtorok/.vim/janus
   sudo: yes
   sudo_user: mtorok
+  tags:
+    - slow
 
 # - name: "[mtorok] Clone/update Vim plugins"
 #   command: /home/mtorok/.homesick/repos/dotfiles/home/.janus/update.sh
@@ -233,3 +239,5 @@
            creates=/home/mtorok/.janus/YouCompleteMe/third_party/ycmd/ycm_core.so
   sudo: yes
   sudo_user: mtorok
+  tags:
+    - slow
