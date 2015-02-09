@@ -8,6 +8,8 @@
 
 4. Run  setup.js to clone and link all remaining repositories: `./setup.js --clone --link`. You can add the `--shared` flag to install all external (non-graphistry) dependencies globally, thus avoiding having multiple copies of the same libraries, one in each repository.
 
+5. Run check.sh (still in deploy) to run all tests.
+
 ## Login ##
 
 `ssh -A leo@54.183.193.90 -p 61630`
