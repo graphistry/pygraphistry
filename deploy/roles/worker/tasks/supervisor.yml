@@ -6,14 +6,22 @@
            enabled=yes
   sudo: yes
 
-- name: add monitoring agent
-  template: src=reaper.py.j2 dest={{ graphistry_install_path }}/reaper.py
-  notify:
-    - supervisor reload
+- name: Set Supervisor config for reaper.py
+  template: src=reaper.conf.j2
+            dest=/etc/supervisor/conf.d/reaper.conf
+            owner=root
+            group=graphistry-dev
+            mode=0664
   sudo: yes
+  sudo_user: root
+  notify: Add reaper.py to Supervisor
 
-- name: monitoring supervisor
-  template: src=reaper.supervisor.j2 dest=/etc/supervisor/conf.d/reaper.conf
-  notify:
-    - update supervisor
+- name: Upload reaper.py
+  template: src=reaper.py.j2
+            dest={{ graphistry_install_path }}/reaper.py
+            owner=www
+            group=graphistry-dev
+            mode=0775
   sudo: yes
+  sudo_user: root
+  notify: Restart reaper.py

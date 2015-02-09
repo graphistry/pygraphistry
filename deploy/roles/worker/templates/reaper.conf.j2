@@ -1,0 +1,23 @@
+; {{ ansible_managed }}
+
+[program:reaper]
+
+command=python {{ graphistry_install_path }}/reaper.py
+directory={{ graphistry_install_path }}
+environment=DEBUG="*"
+
+process_name=%(program_name)s
+numprocs=1
+numprocs_start=0
+
+user=www
+umask=002
+
+stdout_logfile=/var/log/reaper.log
+redirect_stderr=true
+; stderr_logfile=/var/log/reaper.err.log
+
+autostart=true
+autorestart=true
+
+stopasgroup=true

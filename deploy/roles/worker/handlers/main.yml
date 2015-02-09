@@ -1,8 +1,12 @@
 ---
-- name: restart supervisor apps
-  command: supervisorctl restart
+- name: Add reaper.py to Supervisor
+  supervisorctl: name="reaper.py"
+                 state=present
   sudo: yes
+  sudo_user: root
 
-- name: reread supervisor config
-  command: supervisorctl reload
+- name: Restart reaper.py
+  supervisorctl: name="reaper.py"
+                 state=restarted
   sudo: yes
+  sudo_user: root
