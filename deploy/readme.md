@@ -2,7 +2,7 @@
 
 1. Create a new empty directory (WD/ in this example).
 
-2. Clone this repository inside WD. You know have WD/deploy.
+2. Clone this repository inside WD: `git clone git@github.com:graphistry/deploy.git`. You know have WD/deploy.
 
 3. Run NPM install on deploy: `cd WD/deploy && npm install`.
 
