@@ -1,8 +1,12 @@
 ---
-- name: restart supervisor apps
-  command: supervisorctl restart
+- name: Add workers to Supervisor
+  supervisorctl: name="viz-worker:"
+                 state=present
   sudo: yes
+  sudo_user: root
 
-- name: reread supervisor config
-  command: supervisorctl reload
+- name: Restart workers
+  supervisorctl: name="viz-worker:"
+                 state=restarted
   sudo: yes
+  sudo_user: root

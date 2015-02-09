@@ -1,0 +1,23 @@
+; {{ ansible_managed }}
+
+[program:viz-worker]
+
+command=/usr/bin/nodejs {{ graphistry_install_path }}/viz-server/server.js "{\"VIZ_LISTEN_PORT\": %(process_num)d, \"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ hostname }}\" }"
+directory={{ graphistry_install_path }}/viz-server
+environment=DEBUG="*"
+
+process_name=%(program_name)s-%(process_num)d
+numprocs={{ workers_count }}
+numprocs_start={{ workers_port_start }}
+
+user=www
+umask=002
+
+stdout_logfile=/var/log/worker/%(program_name)s-%(process_num)d.log
+redirect_stderr=true
+; stderr_logfile=/var/log/worker/%(program_name)s-%(process_num)d.errors.log
+
+autostart=true
+autorestart=true
+
+stopasgroup=true
