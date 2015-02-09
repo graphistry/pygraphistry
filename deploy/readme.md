@@ -101,6 +101,10 @@ sudo ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splu
 vagrant ssh
 ```
 
+### Live Editing
+
+On the servers with the new deploy workflow, we now clone the graphistry apps into `/var/graphistry/`. Feel free to do a `git pull` on any of these, and/or edit the files by hand and push them back to GitHub. Be sure to do a `sudo supervisorctl restart viz-worker:*` (for the workers, or `sudo supervisorctl restart central` for central.)
+
 
 ## To keep in mind:
 - if something isn't right on staging, and you cannot replicate the error locally, it's okay to try and fix it on the live EC2 staging server. However, please don't get in the habit of developing exclusively on the staging server.
