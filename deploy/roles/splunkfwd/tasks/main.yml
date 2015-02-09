@@ -2,66 +2,46 @@
 # FIXME: In the case of an upgrade install, this will hang when `splunk start` asks if we want to
 # migrate our settings over to a new version.
 
+- name: Gather facts for Splunk
+  setup:
+  sudo: no
+
 - name: Download splunk forwarder
   sudo: no
   get_url: url=http://www.splunk.com/page/download_track?file=6.2.1/universalforwarder/linux/splunkforwarder-6.2.1-245427-Linux-x86_64.tgz&ac=&wget=true&name=wget&platform=Linux&architecture=x86_64&version=6.2.1&product=splunk&typed=release
            dest="{{ ansible_env.HOME }}/ansible/splunkforwarder-6.2.1.tgz"
            sha256sum=cd5dd105244a06a3d76a9695e25f263fbcf2e4ec8d1b456af5fa71112fcd4318
   register: splunk_downloaded
-  tags:
-    - common
-    - splunk
 
 - name: Install splunk forwarder
   unarchive: src="{{ ansible_env.HOME }}/ansible/splunkforwarder-6.2.1.tgz" dest=/opt copy=no
   register: splunk_installed
   when: splunk_downloaded.changed
-  tags:
-    - common
-    - splunk
 
 - name: Start splunk forwarder
   command: yes | ./splunk start --accept-license chdir=/opt/splunkforwarder/bin
   when: splunk_installed.changed
-  tags:
-    - common
-    - splunk
 
 - name: Enable splunk forwarder to start at boot
   command: ./splunk enable boot-start  chdir=/opt/splunkforwarder/bin
   when: splunk_installed.changed
-  tags:
-    - common
-    - splunk
 
 - name: Set credentials on splunk forwarder
   command: ./splunk edit user admin -password {{ splunk_forwarder_password }} -auth admin:changeme
            chdir=/opt/splunkforwarder/bin
   ignore_errors: true
   when: splunk_installed.changed
-  tags:
-    - common
-    - splunk
 
 - name: Connect splunk forwarder to Splunk server
   command: ./splunk add forward-server {{ splunk_server_address }} -auth {{ splunk_server_credentials }}
            chdir=/opt/splunkforwarder/bin
   when: splunk_installed.changed
   ignore_errors: true
-  tags:
-    - common
-    - splunk
 
 - name: Configure splunk forwarder inputs
   copy: src=inputs.conf dest=/opt/splunkforwarder/etc/apps/SplunkUniversalForwarder/default
-  tags:
-    - common
-    - splunk
   register: splunk_inputs
 
 - name: (Re)start splunk
-  tags:
-    - common
-    - splunk
   service: name=splunk state=restarted
   when: splunk_installed.changed and splunk_inputs.changed
