@@ -1,0 +1,15 @@
+{
+  "name": "deploy",
+  "description": "deploy",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "test": "echo \"No tests available.\""
+  },
+  "dependencies": {
+    "debug": "~2.1.0",
+    "underscore": "~1.7.0",
+    "q": "~1.0.0",
+    "yargs": "~2.3.0"
+  }
+}

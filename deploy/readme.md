@@ -1,3 +1,29 @@
+## Setting up Local Development
+
+### Preliminaries
+
+Install the following (apt-get/brew) packages:
+ - `git`
+ - `node` (0.10.x) and `node-legacy` (if on Ubuntu)
+ - `glfw` (3.x), `anttweakbar`, and `freeimage` (on Mac)
+
+Then install the following NPM packages globally (`npm install -g XXX`):
+ - `grunt` and `grunt-cli`
+ - `browserify`
+ - `less`
+
+### The Graphistry Stack
+
+1. Create a new empty directory (WD/ in this example).
+
+2. Clone this repository inside WD: `git clone git@github.com:graphistry/deploy.git`. You know have WD/deploy.
+
+3. Run NPM install on deploy: `cd WD/deploy && npm install`.
+
+4. Run  setup.js to clone and link all remaining repositories: `./setup.js --clone --link`. You can add the `--shared` flag to install all external (non-graphistry) dependencies globally, thus avoiding having multiple copies of the same libraries, one in each repository.
+
+5. Run `./check.sh` (still in deploy) to run all tests.
+
 ## Login ##
 
 `ssh -A leo@54.183.193.90 -p 61630`
@@ -63,6 +89,13 @@ Extended version (if you know what you're doing):
 
 Verify your changes at the url pointed to in the slack #ansible channel
 
+
+### Live Editing
+
+On the servers with the new deploy workflow, we now clone the graphistry apps into `/var/graphistry/`. Feel free to do a `git pull` on any of these, and/or edit the files by hand and push them back to GitHub. Be sure to do a `sudo supervisorctl restart viz-worker:*` (for the workers, or `sudo supervisorctl restart central` for central.)
+
+
+
 ##Localdev (defunct for now):
 
 ```
@@ -74,7 +107,6 @@ reboot
 sudo ansible-playbook -i hosts system.yml -vvvv --tags localdev --skip-tags splunk,ssh,worker-reboot
 vagrant ssh
 ```
-
 
 ## To keep in mind:
 - if something isn't right on staging, and you cannot replicate the error locally, it's okay to try and fix it on the live EC2 staging server. However, please don't get in the habit of developing exclusively on the staging server.
