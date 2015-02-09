@@ -6,11 +6,13 @@ viz_module_checkout: "master"
 # `npm install viz-server`
 cuda_env:
     DISPLAY: ":0"
-    PATH: "/home/www/.npm_global/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games"
+    PATH: "/opt/npm_global/bin/:/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
     LD_LIBRARY_PATH: "/usr/local/cuda/lib64"
     LIBRARY_PATH: "/usr/local/cuda/lib64"
     C_INCLUDE_PATH: "/usr/local/cuda/include"
     CPLUS_INCLUDE_PATH: "/usr/local/cuda/include"
+    npm_config_prefix: "/opt/npm_global"
+    NODE_PATH: "/opt/npm_global/lib/node_modules"
     _GRAPHISTRY_CUDA_INIT: 1
 
 # The number of viz server worker processes to keep running
