@@ -19,21 +19,21 @@
   when: splunk_downloaded.changed
 
 - name: Start splunk forwarder
-  command: yes | ./splunk start --accept-license chdir=/opt/splunkforwarder/bin
+  command: ./splunk start --accept-license --answer-yes chdir=/opt/splunkforwarder/bin
   when: splunk_installed.changed
 
 - name: Enable splunk forwarder to start at boot
-  command: ./splunk enable boot-start  chdir=/opt/splunkforwarder/bin
+  command: ./splunk enable boot-start --answer-yes chdir=/opt/splunkforwarder/bin
   when: splunk_installed.changed
 
 - name: Set credentials on splunk forwarder
-  command: ./splunk edit user admin -password {{ splunk_forwarder_password }} -auth admin:changeme
+  command: ./splunk edit user admin -password {{ splunk_forwarder_password }} -auth admin:changeme --answer-yes
            chdir=/opt/splunkforwarder/bin
   ignore_errors: true
   when: splunk_installed.changed
 
 - name: Connect splunk forwarder to Splunk server
-  command: ./splunk add forward-server {{ splunk_server_address }} -auth {{ splunk_server_credentials }}
+  command: ./splunk add forward-server {{ splunk_server_address }} -auth {{ splunk_server_credentials }} --answer-yes
            chdir=/opt/splunkforwarder/bin
   when: splunk_installed.changed
   ignore_errors: true
