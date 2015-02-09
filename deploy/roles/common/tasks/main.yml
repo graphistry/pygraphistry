@@ -65,6 +65,7 @@
     - supervisor
     - ntp
     - pkg-config
+    - acl
   tags: common
 
 - name: Create apt auto-upgrades job configuration
