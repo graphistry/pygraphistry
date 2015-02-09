@@ -14,11 +14,13 @@
         owner="{{ user }}"
         group="{{ user }}"
         mode=0600
+  register: deploy_key
   sudo: yes
   sudo_user: "{{ user }}"
 
 - name: Register SSH deploy key
   shell: 'eval "$(ssh-agent -s)" && ssh-add {{ homedir }}/.ssh/deploy_id_rsa'
+  when: deploy_key|changed
   sudo: yes
   sudo_user: "{{ user }}"
 
