@@ -1,4 +1,8 @@
 ---
+- name: Gather facts for worker
+  setup:
+  sudo: no
+
 - { include: CUDA.yml, tags: [ 'cuda' ] }
 
 - name: Install Python packages
@@ -8,7 +12,6 @@
     - distribute
     - pymongo
   sudo: yes
-  tags: provision
 
 - name: Create worker log folder
   sudo: yes
@@ -17,12 +20,10 @@
         owner=www
         group=root
         mode=0777
-  tags: worker
 
 - name: Install pigz
   apt: pkg=pigz state=installed update_cache=yes cache_valid_time=300
   sudo: yes
-  tags: worker
 
 
 # - include: supervisor.yml tags=deploy,supervisor,app

@@ -5,29 +5,15 @@
            state=started
            enabled=yes
   sudo: yes
-  tags:
-    - worker
-    - reaper
-    - fast
-    - supervisor
 
 - name: add monitoring agent
   template: src=reaper.py.j2 dest={{ graphistry_install_path }}/reaper.py
   notify:
     - supervisor reload
   sudo: yes
-  tags:
-    - worker
-    - fast
-    - reaper
 
 - name: monitoring supervisor
   template: src=reaper.supervisor.j2 dest=/etc/supervisor/conf.d/reaper.conf
   notify:
     - update supervisor
   sudo: yes
-  tags:
-    - worker
-    - reaper
-    - fast
-    - supervisor
