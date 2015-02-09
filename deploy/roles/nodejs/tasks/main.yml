@@ -108,11 +108,11 @@
   sudo: yes
 
 - name: Upload npm global config
-  copy: src=npmrc
-        dest=/opt/npm_global/npmrc
-        owner=root
-        group=graphistry-dev
-        mode=0644
+  template: src=npmrc.j2
+            dest={{ npm_global_path }}/etc/npmrc
+            owner=root
+            group=graphistry-dev
+            mode=0644
   sudo: yes
 
 - name: Create directory to hold npm global config shim
@@ -126,8 +126,14 @@
 - name: Symlink default npmrc to our global npmrc
   file: path=/usr/etc/npmrc
         state=link
-        src=/opt/npm_global/npmrc
+        src={{ npm_global_path }}/etc/npmrc
   sudo: yes
+
+- name: Disable default nodejs bash config
+  file: path=/etc/profile.d/nodejs.sh
+        state=absent
+  sudo: yes
+  sudo_user: root
 
 - name: Configure global Bash profile for npm options
   template: src=Z90-graphistry-nodeglobal.sh.j2

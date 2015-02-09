@@ -1,0 +1,12 @@
+; {{ ansible_managed }}
+
+prefix={{ npm_global_path }}
+globalconfig={{ npm_global_path }}/etc/npmrc
+
+; Equivalent to umask of 0002.
+; Directories/binaries have permissions 0777^0002=0775, and regular files are 0666^0002=0664
+umask=2
+
+loglevel=warn
+; Don't delete a package if we encounter errors during install
+rollback=false
