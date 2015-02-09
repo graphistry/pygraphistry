@@ -41,36 +41,6 @@
   sudo: yes
   sudo_user: "mtorok"
 
-- name: "Upload Graphistry-specific bash configuration script"
-  copy: "src=bash_profile.sh
-         dest=/home/mtorok/.graphistry_bash_profile
-         force=yes
-         owner=mtorok
-         group=mtorok
-         mode=0444"
-  sudo: true
-  sudo_user: "mtorok"
-
-- name: Create user-specific npm global module directory
-  file: "path=/home/mtorok/.npm_global
-        state=directory
-        owner=mtorok
-        group=mtorok
-        mode=0775"
-  sudo: true
-  sudo_user: "mtorok"
-
-- name: Set npm global module path
-  lineinfile: "dest=/home/mtorok/.npmrc
-              line='prefix=/home/mtorok/.npm_global'
-              state=present
-              create=yes
-              owner=mtorok
-              group=mtorok
-              mode=0600"
-  sudo: true
-  sudo_user: "mtorok"
-
 - name: "[mtorok] Create documents directory"
   file: path=/home/mtorok/Documents
         state=directory
@@ -149,6 +119,7 @@
     - libtool
     - automake
     - socat
+    - cmake
   sudo: yes
   sudo_user: root
 
