@@ -12,8 +12,8 @@
 
 - { include: sshd_port.yml, tags: [ 'sshd' ] }
 
-- name: Gather facts
-  setup: filter='*'
+- name: Gather facts for Common
+  setup:
   sudo: no
 
 - name: Create Ansible file folder
@@ -21,13 +21,11 @@
   file: path="{{ ansible_env.HOME }}/ansible"
         state=directory
 
-- name: Set hostname
-  command: hostname {{ hostname }}
-
-- name: Configure hosts file to point system hostname to 127.0.0.1
+- name: Set fully-qualified domain name
   template: src=hosts.j2 dest=/etc/hosts
-  sudo: yes
-  tags: common
+
+- name: Set hostname
+  hostname: name="{{ hostname }}"
 
 - name: Configure Ubuntu cloud-init to use our hostname and not overwrite it
   template: src=50graphistry-hostname.cfg.j2
@@ -36,32 +34,8 @@
             group=root
             mode=0644
 
-- name: Set hosts file so hostname points to localhost
-  tags: new-common
-  lineinfile: dest=/etc/hosts
-              regexp='^\s*127\.0\.0\.1\s+'
-              line="127.0.0.1 localhost {{ hostname }}"
-              state=present
-              create=yes
-
 - name: Configure timezone
-  tags: new-common
   copy: src=timezone dest=/etc/timezone owner=root group=root mode=0644
-
-# - command: rm /var/lib/apt/lists/lock
-#   sudo: yes
-#   ignore_errors: true
-#   tags: common
-
-# - command: rm /var/cache/apt/archives/lock
-#   sudo: yes
-#   ignore_errors: true
-#   tags: common
-
-# - command: dpkg --configure -a
-#   sudo: yes
-#   ignore_errors: true
-#   tags: common
 
 - name: Upgrade packages
   apt: upgrade=dist
