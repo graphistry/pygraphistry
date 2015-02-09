@@ -17,7 +17,6 @@
     "gl-matrix": "^2.1.0",
     "jquery": "^2.1.1",
     "mongodb": "*",
-    "needle": "git+ssh://git@github.com:graphistry/needle.git#master",
     "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
     "node-webcl": "git+ssh://git@github.com:graphistry/node-webcl-old.git#master",
     "node-webgl": "^0.4.3",
