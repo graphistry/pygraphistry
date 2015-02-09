@@ -1,3 +1,15 @@
+## Setting up Local Development
+
+1. Create a new empty directory (WD/ in this example).
+
+2. Clone this repository inside WD. You know have WD/deploy.
+
+3. Run NPM install on deploy: `cd WD/deploy && npm install`.
+
+4. Run  setup.js to clone and link all remaining repositories:
+   `./setup.js --clone --link`
+   You can add the `--shared` flag to install all external (non-graphistry) dependencies globally, thus avoiding having multiple copies of the same libraries, one in each repository.
+
 ## Login ##
 
 `ssh -A leo@54.183.193.90 -p 61630`
