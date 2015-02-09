@@ -21,8 +21,13 @@
         group=root
         mode=0777
 
+- name: Install Kerberos dev libs (needed for MongoDB node module)
+  apt: pkg=libkrb5-dev state=installed update_cache=yes cache_valid_time=600
+  sudo: yes
+  sudo_user: root
+
 - name: Install pigz
-  apt: pkg=pigz state=installed update_cache=yes cache_valid_time=300
+  apt: pkg=pigz state=installed update_cache=yes cache_valid_time=600
   sudo: yes
 
 
