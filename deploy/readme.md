@@ -6,6 +6,7 @@ Install the following (apt-get/brew) packages:
  - `git`
  - `node` (0.10.x) and `node-legacy` (if on Ubuntu)
  - `glfw` (3.x), `anttweakbar`, and `freeimage` (on Mac)
+
 Then install the following NPM packages globally (npm install -g XXX):
  - `grunt` and 'grunt-cli'
  - `browserify`
