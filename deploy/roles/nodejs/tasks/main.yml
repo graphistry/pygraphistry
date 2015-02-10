@@ -25,20 +25,6 @@
   sudo: yes
   apt: name=nodejs state=latest update_cache=yes cache_valid_time=600
 
-- name: Enable ACLs on root filesystem
-  mount: name=/
-         src='LABEL=cloudimg-rootfs'
-         fstype=ext4
-         opts='defaults,acl,discard'
-         state=mounted
-  sudo: yes
-  register: fstabacls
-
-- name: Re-mount /
-  command: mount -oremount /
-  when: fstabacls.changed
-  sudo: yes
-
 - name: Create graphistry app install directory
   sudo: yes
   sudo_user: root
