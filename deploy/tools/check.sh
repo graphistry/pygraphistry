@@ -25,7 +25,7 @@ while getopts ":nh" opt; do
   case $opt in
     h)
       echo "$HELPTEXT"
-      exit 
+      exit
       ;;
     n)
       RUNTESTS=0
@@ -77,7 +77,7 @@ function check() {
 }
 
 # Clear out tmp
-TMP_FILES=$(find /tmp/ -type f -name '*.metadata' | rev | cut -d/ -f1 | rev | sed 's/\.metadata//g')
+TMP_FILES=$(find /tmp/ -type f -name '*.metadata' 2>/dev/null | rev | cut -d/ -f1 | rev | sed 's/\.metadata//g')
 if [ $RUNTESTS -gt 0 ]; then
   echo "Deleting cached datasets in /tmp"
   for TMP_FILE in $TMP_FILES; do
