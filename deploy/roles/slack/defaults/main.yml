@@ -1,0 +1,2 @@
+---
+slack_screen_name: "{{ lookup('env','USER') }}"
