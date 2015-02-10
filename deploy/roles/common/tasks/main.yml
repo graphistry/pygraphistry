@@ -7,7 +7,6 @@
     mode: 0600
   sudo: no
   tags:
-    - provision
     - local
 
 - { include: sshd_port.yml, tags: [ 'sshd' ] }
@@ -69,10 +68,17 @@
   tags: common
 
 - name: Create apt auto-upgrades job configuration
-  tags: common
   copy: src=auto-upgrades
         dest=/etc/apt/apt.conf.d/10periodic
         owner=root
         group=root
         mode=0644
         force=yes
+
+- name: Enable ACLs on root filesystem
+  mount: name=/
+         src='LABEL=cloudimg-rootfs'
+         fstype=ext4
+         opts='defaults,acl,discard'
+         state=mounted
+  sudo: yes
