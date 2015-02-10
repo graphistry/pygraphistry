@@ -645,8 +645,6 @@ __kernel void to_barnes_layout(
     x_cords[i] = inputPositions[i].x;
     y_cords[i] = inputPositions[i].y;
     mass[i] = (float) pointDegrees[i];
-    printf("Mass: %f\n", mass[i]);
-    printf("Degree: %d\n", pointDegrees[i]);
   }
   if (gid == 0) {
     *maxdepthd = -1;
@@ -684,7 +682,8 @@ __kernel void bound_box(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes)
+    const int num_nodes,
+    __global float2* pointForces)
 {
 
   size_t tid = get_local_id(0);
@@ -792,7 +791,8 @@ __kernel void build_tree(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes) {
+    const int num_nodes,
+    __global float2* pointForces) {
 
   float radius = *radiusd;
   //printf("Readius : %f", radius);
@@ -932,7 +932,8 @@ __kernel void compute_sums(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes) {
+    const int num_nodes,
+    __global float2* pointForces) {
   int i, j, k, inc, num_children_missing, cnt, bottom_value, child;
   float m, cm, px, py;
   // TODO change this to THREAD3 Why?
@@ -1044,7 +1045,8 @@ __kernel void sort(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes) {
+    const int num_nodes,
+    __global float2* pointForces) {
       const unsigned int tileSize = (unsigned int) get_local_size(0);
       const unsigned int numTiles = (unsigned int) get_num_groups(0);
       unsigned int modulus = numTiles / TILES_PER_ITERATION;
@@ -1125,7 +1127,8 @@ __kernel void calculate_forces(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes) {
+    const int num_nodes,
+    __global float2* pointForces) {
   int idx = get_global_id(0);
   int k, index, i;
   float force;
@@ -1230,6 +1233,12 @@ __kernel void calculate_forces(
     accx[index] = ax;
     accy[index] = ay;
 
+    // Not actual force, but this is where it should be assigned
+    pointForces[index].x = ax * mass[index];
+    pointForces[index].y = ay * mass[index];
+    // pointForces[index].x = ax;
+    // pointForces[index].y = ay;
+
     }
   }
 }
@@ -1262,7 +1271,8 @@ __kernel void move_bodies(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes) {
+    const int num_nodes,
+    __global float2* pointForces) {
     /*const float dtime = 0.025f;*/
     /*const float dthf = dtime * 0.5f;*/
     float velx, vely;
