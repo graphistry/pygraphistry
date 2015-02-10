@@ -1,14 +1,4 @@
 ---
-- name: Set permissions on Ansible SSH key
-  local_action:
-    module: file
-    path: "{{ playbook_dir }}/tools/ansible_id_rsa.pem"
-    owner: "{{ lookup('env','USER') }}"
-    mode: 0600
-  sudo: no
-  tags:
-    - local
-
 - { include: sshd_port.yml, tags: [ 'sshd' ] }
 
 - name: Gather facts for Common

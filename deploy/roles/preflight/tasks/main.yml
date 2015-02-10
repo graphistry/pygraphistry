@@ -3,9 +3,21 @@
   fail: msg="Your version of ansible is too old. You need at least version {{ ansible_minimum_version }} to run this playbook, but you are running version {{ ansible_version.full }}."
   when: not (ansible_version | version_compare(ansible_minimum_version, '>='))
   run_once: true
+  sudo: no
   tags:
     - version_check
     - deploy
     - provision
     - worker
     - central
+
+- name: Set permissions on Ansible SSH key
+  local_action:
+    module: file
+    path: "{{ playbook_dir }}/tools/ansible_id_rsa.pem"
+    owner: "{{ lookup('env','USER') }}"
+    mode: 0600
+  run_once: true
+  sudo: no
+  tags:
+    - local
