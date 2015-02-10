@@ -6,8 +6,7 @@
   sudo: no
   tags:
     - version_check
+    - preflight
     - deploy
-    - provision
-    - worker
+    - workers
     - central
-
