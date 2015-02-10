@@ -6,4 +6,4 @@
     domain: graphistry.slack.com
     token: "{{ slack_token }}"
     msg: "{{ message }}"
-    username: "{{ lookup('env','USER') }}"
+    username: "{{ slack_screen_name }}"
