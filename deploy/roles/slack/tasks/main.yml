@@ -7,3 +7,4 @@
     token: "{{ slack_token }}"
     msg: "{{ message }}"
     username: "{{ slack_screen_name }}"
+  sudo: no
