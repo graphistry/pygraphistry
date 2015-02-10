@@ -6,7 +6,7 @@
 
 - hosts: localhost
   roles:
-    - { role: slack, message: "{{ cluster }} deploy started..." }
+    - { role: slack, message: "{{ cluster | capitalize }} deploy started..." }
   tags:
     - provision
     - deploy
@@ -35,7 +35,7 @@
 
 - hosts: localhost
   roles:
-    - { role: slack, message: "...{{ cluster }} deploy done! Access at {{ www_url }}." }
+    - { role: slack, message: "   ...{{ cluster }} deploy done! Access at {{ www_url }}." }
   tags:
     - provision
     - deploy
