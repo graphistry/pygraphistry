@@ -1,8 +1,4 @@
 ---
-- name: Gather facts for worker
-  setup:
-  sudo: no
-
 - { include: CUDA.yml, tags: [ 'cuda' ] }
 
 - name: Install Python packages

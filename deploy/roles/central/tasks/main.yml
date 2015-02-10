@@ -1,8 +1,4 @@
 ---
-- name: Gather facts for central
-  setup:
-  sudo: no
-
 - name: Start supervisor
   service: name=supervisor state=started enabled=yes
   sudo: yes

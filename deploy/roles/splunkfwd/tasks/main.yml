@@ -2,10 +2,6 @@
 # FIXME: In the case of an upgrade install, this will hang when `splunk start` asks if we want to
 # migrate our settings over to a new version.
 
-- name: Gather facts for Splunk
-  setup:
-  sudo: no
-
 - name: Download splunk forwarder
   sudo: no
   get_url: url=http://www.splunk.com/page/download_track?file=6.2.1/universalforwarder/linux/splunkforwarder-6.2.1-245427-Linux-x86_64.tgz&ac=&wget=true&name=wget&platform=Linux&architecture=x86_64&version=6.2.1&product=splunk&typed=release
