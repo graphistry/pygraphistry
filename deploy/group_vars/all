@@ -9,13 +9,13 @@
 
 # The MongoDB connection string/URL. Used only by reaper.py; node apps use the `config` node module
 # to find their MongoDB URL. The mongodb_dbname is appended to this when connecting.
-mongodb_url: "mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048"
+# mongodb_url: "mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048"
 # The name of the MongoDB database on compose.io to write pings to
-mongodb_dbname: "graphistry-staging"
+# mongodb_dbname: "graphistry-staging"
 # The name of this deploy type (used for Slack notifications)
-cluster: "staging"
+# cluster: "staging"
 # The URL the app deployed to these machines can be viewed at (used for Slack notifications)
-www_url: "http://54.215.192.84/"
+# www_url: "http://54.215.192.84/"
 
 
 ################################################################################
