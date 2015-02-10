@@ -1,4 +1,8 @@
 ---
+- name: Gather facts for viz-app
+  setup:
+  sudo: no
+
 - name: Ensure viz-server install path is owned by user 'www'
   sudo: yes
   sudo_user: root
