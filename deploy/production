@@ -14,12 +14,18 @@ www_url="http://labs.graphistry.com/"
 #   mongo c48.lighthouse.3.mongolayer.com:10048/graphistry-prod -u graphistry -p graphtheplanet --eval 'db.node_monitor.remove({})'
 
 #### AWS region: us-west-1 (N. California)
-[workers]
-54.183.185.65 hostname=worker01
-54.183.193.90 hostname=worker02
+[prod_central_worker1]
+54.67.52.19 hostname=labs
 
-[central]
-54.183.185.65 hostname=central01
+[prod_worker2]
+54.67.9.121 hostname=worker02
+
+[workers:children]
+prod_central_worker1
+prod_worker2
+
+[central:children]
+prod_central_worker1
 #### /us-west-1
 
 
@@ -34,4 +40,4 @@ www_url="http://labs.graphistry.com/"
 
 
 [localhost]
-127.0.0.1 ansible_connection=local ansible_ssh_user={{ lookup('env','USER') }}
+127.0.0.1 ansible_connection=local
