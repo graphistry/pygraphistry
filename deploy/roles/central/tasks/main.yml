@@ -46,6 +46,12 @@
   sudo_user: root
   notify: Add central to Supervisor
 
+- name: Delete central's old node_modules directory
+  file: path={{ graphistry_install_path }}/central/node_modules
+        state=absent
+  sudo: yes
+  sudo_user: root
+
 - name: Clone central repo
   git: repo=git@github.com:graphistry/central.git
        dest={{ graphistry_install_path }}/central

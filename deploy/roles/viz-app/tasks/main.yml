@@ -29,6 +29,12 @@
   sudo: yes
   sudo_user: root
 
+- name: Delete worker's old node_modules directory
+  file: path={{ graphistry_install_path }}/viz-server/node_modules
+        state=absent
+  sudo: yes
+  sudo_user: root
+
 - name: Clone viz-server repo
   git: repo=git@github.com:graphistry/viz-server.git
        dest={{ graphistry_install_path }}/viz-server
