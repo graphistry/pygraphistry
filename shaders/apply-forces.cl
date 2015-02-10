@@ -636,14 +636,17 @@ __kernel void to_barnes_layout(
   __global float* mass,
   __global volatile int* blocked,
   __global volatile int* maxdepthd,
-  unsigned int step_number
+  const __global uint* pointDegrees,
+  const uint step_number
   ) {
   size_t gid = get_global_id(0);
   size_t global_size = get_global_size(0);
   for (int i = gid; i < numPoints; i += global_size) {
     x_cords[i] = inputPositions[i].x;
     y_cords[i] = inputPositions[i].y;
-    mass[i] = 1.0f; //1.0f;
+    mass[i] = (float) pointDegrees[i];
+    printf("Mass: %f\n", mass[i]);
+    printf("Degree: %d\n", pointDegrees[i]);
   }
   if (gid == 0) {
     *maxdepthd = -1;
