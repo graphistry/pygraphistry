@@ -10,3 +10,14 @@
     - deploy
     - workers
     - central
+
+- name: Gather facts
+  setup:
+  when: do_gather_facts
+  sudo: no
+  tags:
+    - gather_facts
+    - preflight
+    - deploy
+    - workers
+    - central
