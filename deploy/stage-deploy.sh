@@ -2,7 +2,7 @@
 
 chmod 600 ansible_id_rsa.pem
 echo "Checking that all local repos are up-to-date and passing tests..."
-OUTPUT=`./check.sh`
+OUTPUT=`./tools/check.sh`
 PULLCOUNT=`echo $OUTPUT | grep "Need to pull" | wc -l`
 PUSHCOUNT=`echo $OUTPUT | grep "Need to push" | wc -l`
 DIVCOUNT=`echo $OUTPUT | grep "Diverged" | wc -l`
