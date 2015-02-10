@@ -11,13 +11,3 @@
     - worker
     - central
 
-- name: Set permissions on Ansible SSH key
-  local_action:
-    module: file
-    path: "{{ playbook_dir }}/tools/ansible_id_rsa.pem"
-    owner: "{{ lookup('env','USER') }}"
-    mode: 0600
-  run_once: true
-  sudo: no
-  tags:
-    - local
