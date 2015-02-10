@@ -16,12 +16,11 @@
 - hosts: workers:central
   roles:
    - { role: preflight, sudo: no }
-   - { role: common, sudo: yes }
+   - { role: common, sudo: yes, tags: [ 'common' ] }
    - { role: users, tags: [ 'users' ] }
    - { role: splunkfwd, sudo: yes }
    - { role: nodejs, tags: [ 'nodejs' ] }
   tags:
-    - common
     - provision
 
 - hosts: workers
