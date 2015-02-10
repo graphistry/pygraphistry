@@ -1,6 +1,5 @@
 #!/bin/bash
 
-chmod 600 ansible_id_rsa.pem
 echo "Checking that all local repos are up-to-date and passing tests..."
 OUTPUT=`./tools/check.sh`
 PULLCOUNT=`echo $OUTPUT | grep "Need to pull" | wc -l`
