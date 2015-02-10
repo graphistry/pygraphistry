@@ -6,6 +6,7 @@
 
 - hosts: localhost
   roles:
+    - { role: version_check, sudo: no }
     - { role: slack, message: "{{ cluster | capitalize }} deploy started..." }
   tags:
     - provision
@@ -14,6 +15,7 @@
 
 - hosts: workers:central
   roles:
+   - { role: version_check, sudo: no }
    - { role: common, sudo: yes }
    - { role: users, tags: [ 'users' ] }
    - { role: splunkfwd, sudo: yes }
@@ -24,17 +26,20 @@
 
 - hosts: workers
   roles:
+   - { role: version_check, sudo: no, tags: [ 'worker-deploy' ] }
    - { role: worker, tags: [ 'provision' ] }
    - { role: viz-app, sudo: yes, sudo_user: www, tags: [ 'deploy', 'worker-deploy' ] }
   tags: workers
 
 - hosts: central
   roles:
+   - { role: version_check, sudo: no, tags: [ 'central-deploy' ] }
    - { role: central, sudo: yes, sudo_user: www, tags: [ 'deploy', 'central-deploy' ] }
   tags: central
 
 - hosts: localhost
   roles:
+    - { role: version_check, sudo: no }
     - { role: slack, message: "   ...{{ cluster }} deploy done! Access at {{ www_url }}." }
   tags:
     - provision
