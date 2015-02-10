@@ -31,4 +31,4 @@
   sudo: yes
 
 
-- include: supervisor.yml tags=deploy,supervisor
+- include: supervisor.yml tags=supervisor
