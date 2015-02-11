@@ -636,14 +636,15 @@ __kernel void to_barnes_layout(
   __global float* mass,
   __global volatile int* blocked,
   __global volatile int* maxdepthd,
-  unsigned int step_number
+  const __global uint* pointDegrees,
+  const uint step_number
   ) {
   size_t gid = get_global_id(0);
   size_t global_size = get_global_size(0);
   for (int i = gid; i < numPoints; i += global_size) {
     x_cords[i] = inputPositions[i].x;
     y_cords[i] = inputPositions[i].y;
-    mass[i] = 1.0f; //1.0f;
+    mass[i] = (float) pointDegrees[i];
   }
   if (gid == 0) {
     *maxdepthd = -1;
@@ -681,7 +682,8 @@ __kernel void bound_box(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes)
+    const int num_nodes,
+    __global float2* pointForces)
 {
 
   size_t tid = get_local_id(0);
@@ -789,7 +791,8 @@ __kernel void build_tree(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes) {
+    const int num_nodes,
+    __global float2* pointForces) {
 
   float radius = *radiusd;
   //printf("Readius : %f", radius);
@@ -929,7 +932,8 @@ __kernel void compute_sums(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes) {
+    const int num_nodes,
+    __global float2* pointForces) {
   int i, j, k, inc, num_children_missing, cnt, bottom_value, child;
   float m, cm, px, py;
   // TODO change this to THREAD3 Why?
@@ -1041,7 +1045,8 @@ __kernel void sort(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes) {
+    const int num_nodes,
+    __global float2* pointForces) {
       const unsigned int tileSize = (unsigned int) get_local_size(0);
       const unsigned int numTiles = (unsigned int) get_num_groups(0);
       unsigned int modulus = numTiles / TILES_PER_ITERATION;
@@ -1093,6 +1098,48 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
 
     return ret;
 }
+
+inline float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
+                     const float scalingRatio, const bool preventOverlap) {
+    const float dist = length(distVec);
+    const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
+    float force;
+
+    if (preventOverlap) {
+        //FIXME include in prefetch etc, use actual sizes
+        float n1Size = DEFAULT_NODE_SIZE;
+        float n2Size = DEFAULT_NODE_SIZE;
+        float distB2B = dist - n1Size - n2Size; //border-to-border
+
+        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / dist)
+              : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
+              : 0.0f;
+    } else {
+        force = scalingRatio * degreeProd / dist;
+    }
+
+#ifndef NOREPULSION
+    return clamp(force, 0.0f, 1000000.0f);
+#else
+    return 0.0f;
+#endif
+}
+
+
+inline float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
+                   const bool strong) {
+
+    const float gForce = gravity *
+                        (n1Degree + 1.0f) *
+                        (strong ? length(centerVec) : 1.0f);
+#ifndef NOGRAVITY
+    return gForce;
+#else
+    return 0.0f;
+#endif
+}
+
+
 #else
 #endif
 
@@ -1122,10 +1169,13 @@ __kernel void calculate_forces(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes) {
+    const int num_nodes,
+    __global float2* pointForces) {
+
   int idx = get_global_id(0);
   int k, index, i;
   float force;
+  float2 forceVector;
   int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
   __local volatile int child_index[MAXDEPTH * THREADS1/WARPSIZE], parent_index[MAXDEPTH * THREADS1/WARPSIZE];
    __local volatile int allBlock[THREADS1 / WARPSIZE];
@@ -1140,6 +1190,7 @@ __kernel void calculate_forces(
   unsigned int number_elements = (endTile > num_nodes) ? endTile - num_nodes : tileSize;
   float px, py, ax, ay, dx, dy, temp;
   int global_size = get_global_size(0);
+  float2 distVector;
   if (get_local_id(0) == 0) {
     /*printf("Number of groups %u\n", numTiles);*/
     /*printf("startTile %u \n", startTile);*/
@@ -1185,6 +1236,7 @@ __kernel void calculate_forces(
     py = y_cords[index];
     ax = 0.0f;
     ay = 0.0f;
+    forceVector = (float2) (0.0f, 0.0f);
     depth = shared_mem_offset;
     if (starting_warp_thread_id == get_local_id(0)) {
       parent_index[shared_mem_offset] = num_nodes;
@@ -1202,14 +1254,22 @@ __kernel void calculate_forces(
         if (child >= 0) {
           /*dx = x_cords[child] - px;*/
           /*dy = y_cords[child] - py;*/
+
           dx = px - x_cords[child];
           dy = py - y_cords[child];
+          distVector = (float2) (dx, dy);
           temp = dx*dx + (dy*dy + 0.00000000001);
           /*printf("temp %f, dq[depth] %f\n", temp, dq[depth]);*/
           if ((child < num_bodies)  ||  thread_vote(allBlocks, warp_id, temp >= dq[depth]) )  {
             force = mass[child] / temp;
             ax += dx * force;
             ay += dy * force;
+
+            // Adding all forces
+            forceVector += normalize(distVector) * repulsionForce(distVector, mass[index],
+             		mass[child], scalingRatio, IS_PREVENT_OVERLAP(flags));
+
+
           } else {
             depth++;
             if (starting_warp_thread_id == get_local_id(0)) {
@@ -1226,6 +1286,13 @@ __kernel void calculate_forces(
     }
     accx[index] = ax;
     accy[index] = ay;
+
+    // Assigning force for force atlas.
+    float2 n1Pos = (float2) (px, py);
+	const float2 dimensions = (float2) (width, height);
+    const float2 centerVec = (dimensions / 2.0f) - n1Pos;
+    const float gForce = gravityForce(gravity, mass[index], centerVec, IS_STRONG_GRAVITY(flags));
+    pointForces[index] = normalize(centerVec) * gForce + forceVector;
 
     }
   }
@@ -1259,7 +1326,8 @@ __kernel void move_bodies(
     float width,
     float height,
     const int num_bodies,
-    const int num_nodes) {
+    const int num_nodes,
+    __global float2* pointForces) {
     /*const float dtime = 0.025f;*/
     /*const float dthf = dtime * 0.5f;*/
     float velx, vely;
