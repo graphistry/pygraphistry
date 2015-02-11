@@ -11,10 +11,10 @@ mongodb_dbname="graphistry-staging"
 www_url="http://staging.graphistry.com/"
 
 [workers]
-staging.graphistry.com ansible_ssh_host=54.183.155.35
+staging.graphistry.com
 
 [central]
-staging.graphistry.com ansible_ssh_host=54.183.155.35
+staging.graphistry.com
 
 [localhost]
 127.0.0.1 ansible_connection=local

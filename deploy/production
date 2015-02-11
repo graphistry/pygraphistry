@@ -15,11 +15,11 @@ www_url="http://labs.graphistry.com/"
 
 #### AWS region: us-west-1 (N. California)
 [central]
-labs.graphistry.com ansible_ssh_host=54.67.52.19
+labs.graphistry.com
 
 [workers]
-labs.graphistry.com ansible_ssh_host=54.67.52.19
-worker02.graphistry.com ansible_ssh_host=54.67.9.121
+labs.graphistry.com
+worker02.graphistry.com
 #### /us-west-1
 
 
