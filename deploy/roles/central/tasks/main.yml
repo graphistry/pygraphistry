@@ -32,6 +32,15 @@
   sudo: yes
   sudo_user: root
 
+- name: Create directory for client logs
+  file: path=/var/log/clients
+        state=directory
+        owner=root
+        group=www
+        mode=0775
+  sudo: yes
+  sudo_user: root
+
 - name: Run central app under Supervisor
   template: src=central.conf.j2
             dest=/etc/supervisor/conf.d/central.conf
