@@ -435,7 +435,7 @@ if (require.main === module) {
 
 
     io.on('connection', function (socket) {
-        socket.on('viz', function (msg, cb) { cb(); });
+        socket.on('viz', function (msg, cb) { cb({succeed: true}); });
         init(app, socket);
     });
 
