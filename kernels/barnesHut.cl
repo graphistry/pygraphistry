@@ -10,7 +10,7 @@
 #define DEFAULT_NODE_SIZE 0.000001f
 
 // The length of the 'randValues' array
-#define RAND_LENGTH 73 //146
+#define RAND_LENGTH 73
 
 // BARNES HUT defintions.
 // TODO We don't need all these
@@ -35,6 +35,7 @@
 
 //============================= BARNES HUT
 
+// Computes BarnesHut specific data.
 __kernel void to_barnes_layout(
         //GRAPH_PARAMS
         float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -52,6 +53,7 @@ __kernel void to_barnes_layout(
 
     size_t gid = get_global_id(0);
     size_t global_size = get_global_size(0);
+
     for (int i = gid; i < numPoints; i += global_size) {
         x_cords[i] = inputPositions[i].x;
         y_cords[i] = inputPositions[i].y;
@@ -101,11 +103,16 @@ __kernel void bound_box(
     size_t idx = get_global_id(0);
 
     float minx, maxx, miny, maxy;
+    float val;
+    int inc = global_dim_size;
+
+    // TODO: Make these kernel parameters, don't rely on macro
     __local float sminx[THREADS1], smaxx[THREADS1], sminy[THREADS1], smaxy[THREADS1];
     minx = maxx = x_cords[0];
     miny = maxy = y_cords[0];
-    float val;
-    int inc = global_dim_size;
+
+    // For every body s.t. body_id % global_size == idx,
+    // compute the min and max.
     for (int j = idx; j < num_bodies; j += inc) {
         val = x_cords[j];
         minx = min(val, minx);
@@ -114,6 +121,9 @@ __kernel void bound_box(
         miny = min(val, miny);
         maxy = max(val, maxy);
     }
+
+    // Standard reduction in shared memory to compute max/min for our
+    // work group.
     sminx[tid] = minx;
     smaxx[tid] = maxx;
     sminy[tid] = miny;
@@ -122,26 +132,27 @@ __kernel void bound_box(
 
     for(int step = (dim / 2); step > 0; step = step / 2) {
         if (tid < step) {
-        //printf("smin: %f\n", sminx);
-        sminx[tid] = minx = min(sminx[tid] , sminx[tid + step]);
-        smaxx[tid] = maxx = max(smaxx[tid], smaxx[tid + step]);
-        sminy[tid] = miny = min(sminy[tid] , sminy[tid + step]);
-        smaxy[tid] = maxy = max(smaxy[tid], smaxy[tid + step]);
+            sminx[tid] = minx = min(sminx[tid] , sminx[tid + step]);
+            smaxx[tid] = maxx = max(smaxx[tid], smaxx[tid + step]);
+            sminy[tid] = miny = min(sminy[tid] , sminy[tid + step]);
+            smaxy[tid] = maxy = max(smaxy[tid], smaxy[tid + step]);
         }
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    /*printf("minx: %f \n", minx);*/
-    /*printf("maxx: %f \n", maxx);*/
 
-    // Only one thread needs to outdate the global buffer
+    // Only one thread needs to write value to the global buffer
     inc = (global_dim_size / dim) - 1;
     if (tid == 0) {
         global_x_mins[gid] = minx;
         global_x_maxs[gid] = maxx;
         global_y_mins[gid] = miny;
         global_y_maxs[gid] = maxy;
+
         inc = (global_dim_size / dim) - 1;
         if (inc == atomic_inc(blocked)) {
+
+            // If we're in this block, it means we're the last work group
+            // to execute. Find min/max among the global buffer.
             for(int j = 0; j <= inc; j++) {
                 minx = min(minx, global_x_mins[j]);
                 maxx = max(maxx, global_x_maxs[j]);
@@ -153,17 +164,18 @@ __kernel void bound_box(
             val = max(maxx - minx, maxy - miny);
             *radiusd = (float) (val* 0.5f);
 
+            // Create the root node at index num_nodes.
+            // Because memory is laid out as bodies then tree-nodes,
+            // k will be the first tree-node. We set its position to
+            // the center of the bounding box, and initialize values.
             int k = num_nodes;
             *bottomd = k;
-            // TODO bottomd;
-
             mass[k] = -1.0f;
             start[k] = 0;
-
-
-
             x_cords[num_nodes] = (minx + maxx) * 0.5f;
             y_cords[num_nodes] = (miny + maxy) * 0.5f;
+
+            // Set children to -1
             k *= 4;
             for (int i = 0; i < 4; i++) children[k + i] = -1;
             (*stepd)++;
