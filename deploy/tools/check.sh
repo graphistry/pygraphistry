@@ -5,7 +5,7 @@
 
 REPOS="central config datasets deploy graph-viz horizon-viz node-pigz node-webcl splunkistry splunk-viz StreamGL superconductor-proxy uber-viz viz-server"
 BRANCH="master"
-ROOT=`pwd`/../
+ROOT="$(cd "$(dirname $0)"; pwd)/../.."
 RUNTESTS=1
 
 HELPTEXT="This is a short script that checks the status of graphistry repositories and runs tests on each repo. The -n option will prevent tests from running."
