@@ -2,7 +2,7 @@ precision highp float;
 
 #define W_VAL 1.0
 #define Z_VAL 0.0
-#define SENSITIVITY 0.95
+#define SENSITIVITY 0.5
 
 uniform mat4 mvp;
 attribute vec2 curPos;
@@ -24,7 +24,7 @@ void main(void) {
     if (fog > 1.0) {
         float furthestComponent = max(abs(pos.x), abs(pos.y));
         float remapped = (-furthestComponent + SENSITIVITY) / SENSITIVITY;
-        float alpha = remapped < 0.0 ? -20.0 : clamp(remapped, 0.0, 1.0);
+        float alpha =  remapped < 0.0 ? 0.7 : (0.7 + clamp(remapped, 0.0, 0.2));
         vColor = vec4(pointColor.x, pointColor.y, pointColor.z, alpha);
     } else {
         vColor = vec4(pointColor.xyz, 1.0);
