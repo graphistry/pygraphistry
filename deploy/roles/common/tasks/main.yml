@@ -39,7 +39,7 @@
   apt: pkg={{ item }}
        state=latest
        update_cache=yes
-       cache_valid_time=300
+       cache_valid_time=600
   with_items:
     - build-essential
     - htop
@@ -55,7 +55,6 @@
     - ntp
     - pkg-config
     - acl
-  tags: common
 
 - name: Create apt auto-upgrades job configuration
   copy: src=auto-upgrades
@@ -72,3 +71,30 @@
          opts='defaults,acl,discard'
          state=mounted
   sudo: yes
+
+- name: Install Supervisor
+  apt: pkg=supervisor
+       state=latest
+       update_cache=yes
+       cache_valid_time=300
+  register: supervisor_install
+  sudo: yes
+  sudo_user: root
+
+- name: Configure Supervisor
+  copy: src=supervisord.conf
+        dest=/etc/supervisor/supervisord.conf
+        owner=root
+        group=root
+        mode=0660
+  sudo: yes
+  sudo_user: root
+  register: supervisor_configure
+
+- name: Restart Supervisor
+  service: name=supervisor
+           state=restarted
+           enabled=yes
+  when: supervisor_install.changed or supervisor_configure.changed
+  sudo: yes
+  sudo_user: root
