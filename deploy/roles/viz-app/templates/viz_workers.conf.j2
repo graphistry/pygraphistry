@@ -2,7 +2,7 @@
 
 [program:viz-worker]
 
-command=/usr/bin/nodejs {{ graphistry_install_path }}/viz-server/server.js "{\"VIZ_LISTEN_PORT\": %(process_num)d, \"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ hostname }}\" }"
+command=/usr/bin/nodejs {{ graphistry_install_path }}/viz-server/server.js "{\"VIZ_LISTEN_PORT\": %(process_num)d, \"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ inventory_hostname }}\" }"
 directory={{ graphistry_install_path }}/viz-server
 environment=DEBUG="*"
 

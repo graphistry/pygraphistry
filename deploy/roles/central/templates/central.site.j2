@@ -6,7 +6,7 @@ upstream central_nodejs_app {
 server {
     listen 80 default_server;
 
-    server_name {{ hostname }}.{{ domain }};
+    server_name {{ inventory_hostname }};
 
     location / {
         proxy_pass              http://central_nodejs_app;

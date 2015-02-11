@@ -2,7 +2,7 @@
 
 [program:central]
 
-command=/usr/bin/nodejs {{ graphistry_install_path }}/central/server.js "{\"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ hostname }}\" }"
+command=/usr/bin/nodejs {{ graphistry_install_path }}/central/server.js "{\"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ inventory_hostname }}\" }"
 directory={{ graphistry_install_path }}/central
 environment=DEBUG="*"
 

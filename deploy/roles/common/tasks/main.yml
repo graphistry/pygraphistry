@@ -14,7 +14,7 @@
   template: src=hosts.j2 dest=/etc/hosts
 
 - name: Set hostname
-  hostname: name="{{ hostname }}"
+  hostname: name="{{ inventory_hostname_short }}"
 
 - name: Configure Ubuntu cloud-init to use our hostname and not overwrite it
   template: src=50graphistry-hostname.cfg.j2

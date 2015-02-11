@@ -10,14 +10,11 @@ mongodb_dbname="graphistry-staging"
 # The URL the app deployed to these machines can be viewed at (used for Slack notifications)
 www_url="http://staging.graphistry.com/"
 
-[staging]
-54.183.155.35 hostname=staging.graphistry.com
+[workers]
+staging.graphistry.com ansible_ssh_host=54.183.155.35
 
-[workers:children]
-staging
-
-[central:children]
-staging
+[central]
+staging.graphistry.com ansible_ssh_host=54.183.155.35
 
 [localhost]
 127.0.0.1 ansible_connection=local
