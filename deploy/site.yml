@@ -25,11 +25,13 @@
   roles:
    - { role: worker, tags: [ 'provision' ] }
    - { role: viz-app, sudo: yes, sudo_user: www, tags: [ 'deploy', 'worker-deploy' ] }
+  gather_facts: yes
   tags: workers
 
 - hosts: central
   roles:
    - { role: central, sudo: yes, sudo_user: www, tags: [ 'deploy', 'central-deploy' ] }
+  gather_facts: yes
   tags: central
 
 
