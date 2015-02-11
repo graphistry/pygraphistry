@@ -1098,6 +1098,48 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
 
     return ret;
 }
+
+inline float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
+                     const float scalingRatio, const bool preventOverlap) {
+    const float dist = length(distVec);
+    const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
+    float force;
+
+    if (preventOverlap) {
+        //FIXME include in prefetch etc, use actual sizes
+        float n1Size = DEFAULT_NODE_SIZE;
+        float n2Size = DEFAULT_NODE_SIZE;
+        float distB2B = dist - n1Size - n2Size; //border-to-border
+
+        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / dist)
+              : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
+              : 0.0f;
+    } else {
+        force = scalingRatio * degreeProd / dist;
+    }
+
+#ifndef NOREPULSION
+    return clamp(force, 0.0f, 1000000.0f);
+#else
+    return 0.0f;
+#endif
+}
+
+
+inline float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
+                   const bool strong) {
+
+    const float gForce = gravity *
+                        (n1Degree + 1.0f) *
+                        (strong ? length(centerVec) : 1.0f);
+#ifndef NOGRAVITY
+    return gForce;
+#else
+    return 0.0f;
+#endif
+}
+
+
 #else
 #endif
 
@@ -1129,9 +1171,11 @@ __kernel void calculate_forces(
     const int num_bodies,
     const int num_nodes,
     __global float2* pointForces) {
+
   int idx = get_global_id(0);
   int k, index, i;
   float force;
+  float2 forceVector;
   int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
   __local volatile int child_index[MAXDEPTH * THREADS1/WARPSIZE], parent_index[MAXDEPTH * THREADS1/WARPSIZE];
    __local volatile int allBlock[THREADS1 / WARPSIZE];
@@ -1146,6 +1190,7 @@ __kernel void calculate_forces(
   unsigned int number_elements = (endTile > num_nodes) ? endTile - num_nodes : tileSize;
   float px, py, ax, ay, dx, dy, temp;
   int global_size = get_global_size(0);
+  float2 distVector;
   if (get_local_id(0) == 0) {
     /*printf("Number of groups %u\n", numTiles);*/
     /*printf("startTile %u \n", startTile);*/
@@ -1191,6 +1236,7 @@ __kernel void calculate_forces(
     py = y_cords[index];
     ax = 0.0f;
     ay = 0.0f;
+    forceVector = (float2) (0.0f, 0.0f);
     depth = shared_mem_offset;
     if (starting_warp_thread_id == get_local_id(0)) {
       parent_index[shared_mem_offset] = num_nodes;
@@ -1208,14 +1254,22 @@ __kernel void calculate_forces(
         if (child >= 0) {
           /*dx = x_cords[child] - px;*/
           /*dy = y_cords[child] - py;*/
+
           dx = px - x_cords[child];
           dy = py - y_cords[child];
+          distVector = (float2) (dx, dy);
           temp = dx*dx + (dy*dy + 0.00000000001);
           /*printf("temp %f, dq[depth] %f\n", temp, dq[depth]);*/
           if ((child < num_bodies)  ||  thread_vote(allBlocks, warp_id, temp >= dq[depth]) )  {
             force = mass[child] / temp;
             ax += dx * force;
             ay += dy * force;
+
+            // Adding all forces
+            forceVector += normalize(distVector) * repulsionForce(distVector, mass[index],
+             		mass[child], scalingRatio, IS_PREVENT_OVERLAP(flags));
+
+
           } else {
             depth++;
             if (starting_warp_thread_id == get_local_id(0)) {
@@ -1233,11 +1287,12 @@ __kernel void calculate_forces(
     accx[index] = ax;
     accy[index] = ay;
 
-    // Not actual force, but this is where it should be assigned
-    pointForces[index].x = ax * mass[index];
-    pointForces[index].y = ay * mass[index];
-    // pointForces[index].x = ax;
-    // pointForces[index].y = ay;
+    // Assigning force for force atlas.
+    float2 n1Pos = (float2) (px, py);
+	const float2 dimensions = (float2) (width, height);
+    const float2 centerVec = (dimensions / 2.0f) - n1Pos;
+    const float gForce = gravityForce(gravity, mass[index], centerVec, IS_STRONG_GRAVITY(flags));
+    pointForces[index] = normalize(centerVec) * gForce + forceVector;
 
     }
   }
