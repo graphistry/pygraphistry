@@ -86,7 +86,7 @@
         dest=/etc/supervisor/supervisord.conf
         owner=root
         group=root
-        mode=0660
+        mode=0664
   sudo: yes
   sudo_user: root
   register: supervisor_configure
