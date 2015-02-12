@@ -1,12 +1,12 @@
 ---
 - name: Restart Supervisor
-  # We need a sleep value (arbitrarily 10s here) or Ansible will sometime erroneously detect an
-  # error when trying to restart Supervisor (but not all the time; hard to pin down specific
-  # conditions for it to happen, but seems to happen if we've messed with the Supervisor state
-  # too recently.)
+  # Bug: Ansible will sometimes fail when restarting Supervisor if a sleep time isn't specified.
+  # Cause: Ansible performs a service 'restart' by stopping, then starting the service, but
+  # Supervisor's init.d script returns before the action finishes, causing the `start` to fail
+  # because the `stop` is still in progress. Supervisor's init.d script specifies a sleep of 5s
+  # between stop & start for it's native `restart` action, so we include that below.
   service: name=supervisor
            state=restarted
-           sleep=10
+           sleep=5
   sudo: yes
   sudo_user: root
-  tags: common
