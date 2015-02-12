@@ -10,7 +10,7 @@
 #define DEFAULT_NODE_SIZE 0.000001f
 
 // The length of the 'randValues' array
-#define RAND_LENGTH 73 //146
+#define RAND_LENGTH 73
 
 // BARNES HUT defintions.
 // TODO We don't need all these
@@ -32,9 +32,15 @@
 #define WARPSIZE 16
 #define MAXDEPTH 32
 
+// TODO: I've replaced comparisons >= 0 with > NULLPOINTER for readability.
+// We should benchmark to make sure that doesn't impact perf.
+#define TREELOCK -2
+#define NULLPOINTER -1
+
 
 //============================= BARNES HUT
 
+// Computes BarnesHut specific data.
 __kernel void to_barnes_layout(
         //GRAPH_PARAMS
         float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -52,6 +58,7 @@ __kernel void to_barnes_layout(
 
     size_t gid = get_global_id(0);
     size_t global_size = get_global_size(0);
+
     for (int i = gid; i < numPoints; i += global_size) {
         x_cords[i] = inputPositions[i].x;
         y_cords[i] = inputPositions[i].y;
@@ -101,11 +108,16 @@ __kernel void bound_box(
     size_t idx = get_global_id(0);
 
     float minx, maxx, miny, maxy;
+    float val;
+    int inc = global_dim_size;
+
+    // TODO: Make these kernel parameters, don't rely on macro
     __local float sminx[THREADS1], smaxx[THREADS1], sminy[THREADS1], smaxy[THREADS1];
     minx = maxx = x_cords[0];
     miny = maxy = y_cords[0];
-    float val;
-    int inc = global_dim_size;
+
+    // For every body s.t. body_id % global_size == idx,
+    // compute the min and max.
     for (int j = idx; j < num_bodies; j += inc) {
         val = x_cords[j];
         minx = min(val, minx);
@@ -114,6 +126,9 @@ __kernel void bound_box(
         miny = min(val, miny);
         maxy = max(val, maxy);
     }
+
+    // Standard reduction in shared memory to compute max/min for our
+    // work group.
     sminx[tid] = minx;
     smaxx[tid] = maxx;
     sminy[tid] = miny;
@@ -122,26 +137,27 @@ __kernel void bound_box(
 
     for(int step = (dim / 2); step > 0; step = step / 2) {
         if (tid < step) {
-        //printf("smin: %f\n", sminx);
-        sminx[tid] = minx = min(sminx[tid] , sminx[tid + step]);
-        smaxx[tid] = maxx = max(smaxx[tid], smaxx[tid + step]);
-        sminy[tid] = miny = min(sminy[tid] , sminy[tid + step]);
-        smaxy[tid] = maxy = max(smaxy[tid], smaxy[tid + step]);
+            sminx[tid] = minx = min(sminx[tid] , sminx[tid + step]);
+            smaxx[tid] = maxx = max(smaxx[tid], smaxx[tid + step]);
+            sminy[tid] = miny = min(sminy[tid] , sminy[tid + step]);
+            smaxy[tid] = maxy = max(smaxy[tid], smaxy[tid + step]);
         }
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    /*printf("minx: %f \n", minx);*/
-    /*printf("maxx: %f \n", maxx);*/
 
-    // Only one thread needs to outdate the global buffer
+    // Only one thread needs to write value to the global buffer
     inc = (global_dim_size / dim) - 1;
     if (tid == 0) {
         global_x_mins[gid] = minx;
         global_x_maxs[gid] = maxx;
         global_y_mins[gid] = miny;
         global_y_maxs[gid] = maxy;
+
         inc = (global_dim_size / dim) - 1;
         if (inc == atomic_inc(blocked)) {
+
+            // If we're in this block, it means we're the last work group
+            // to execute. Find min/max among the global buffer.
             for(int j = 0; j <= inc; j++) {
                 minx = min(minx, global_x_mins[j]);
                 maxx = max(maxx, global_x_maxs[j]);
@@ -153,19 +169,20 @@ __kernel void bound_box(
             val = max(maxx - minx, maxy - miny);
             *radiusd = (float) (val* 0.5f);
 
+            // Create the root node at index num_nodes.
+            // Because memory is laid out as bodies then tree-nodes,
+            // k will be the first tree-node. We set its position to
+            // the center of the bounding box, and initialize values.
             int k = num_nodes;
             *bottomd = k;
-            // TODO bottomd;
-
             mass[k] = -1.0f;
             start[k] = 0;
-
-
-
             x_cords[num_nodes] = (minx + maxx) * 0.5f;
             y_cords[num_nodes] = (miny + maxy) * 0.5f;
+
+            // Set children to -1 ('null pointer')
             k *= 4;
-            for (int i = 0; i < 4; i++) children[k + i] = -1;
+            for (int i = 0; i < 4; i++) children[k + i] = NULLPOINTER;
             (*stepd)++;
         }
     }
@@ -201,24 +218,27 @@ __kernel void build_tree(
         __global float2* pointForces
 ){
 
-    float radius = *radiusd;
-    //printf("Readius : %f", radius);
-    float rootx = x_cords[num_nodes];
-    float rooty = y_cords[num_nodes];
-    /*printf("rootx: %f \n", rootx);*/
-    /*printf("rooty: %f \n", rooty);*/
-    //printf("Bottom: %d, num_bodies: %d", *bottom, num_bodies);
-    float r;
-    int localmaxdepth = 1;
-    int skip = 1;
     int inc =  get_global_size(0);
     int i = get_global_id(0);
+
+    float radius = *radiusd;
+    float rootx = x_cords[num_nodes];
+    float rooty = y_cords[num_nodes];
+    int localmaxdepth = 1;
+    int skip = 1;
+
+    float r;
     float x, y;
     int j;
-    float px, py;
+    float px, py; // x and y of particle we're looking at
     int ch, n, cell, locked, patch;
     int depth;
+
+    // Iterate through all bodies that were assigned to this thread
+    // TODO: Make sure num_bodies is initialized to a proper value DYNAMICALLY
     while (i < num_bodies) {
+
+        // If it's a new body, skip will be true, so we start at the root
         if (skip != 0) {
             skip = 0;
             px = x_cords[i];
@@ -226,12 +246,19 @@ __kernel void build_tree(
             n = num_nodes;
             depth = 1;
             r = radius;
+
+            // j lets us know which of the 4 children to follow.
             j = 0;
             if (rootx < px) j = 1;
             if (rooty < py) j += 2;
         }
-        ch = child[n*4 + j];
 
+        // Walk down the path to a leaf node
+        ch = child[n*4 + j];
+        // We compare against num_bodies because it enforces two requirements.
+        // If it's a body, then we know we've gone past the legal space for
+        // cells. If it's a 'null' child, then it'll be initialized to -1, which
+        // is also < num_bodies.
         while (ch >= num_bodies) {
             n = ch;
             depth++;
@@ -241,73 +268,104 @@ __kernel void build_tree(
             if (x_cords[n] < px) j = 1;
             if (y_cords[n] < py) j += 2;
             ch = child[n*4+j];
-            //printf("ch: %d \n", ch);
         }
 
-        if (ch != -2 ) {
-        locked = n*4+j;
-        // return;
-        if (ch == atomic_cmpxchg(&child[locked], ch, -2)) {
-            //mem_fence(CLK_GLOBAL_MEM_FENCE);
+        // Skip if the child is currently locked.
+        if (ch != TREELOCK) {
+            locked = n*4+j;
 
-            if(ch == -1) {
-                child[locked] = i;
-            } else {
-                patch = -1;
-                // create new cell(s) and insert the old and new body
-                int test = 1000000;
-                do {
-                    depth++;
-                    cell = atomic_dec(bottom) - 1;
+            // Attempt to lock the child
+            if (ch == atomic_cmpxchg(&child[locked], ch, TREELOCK)) {
+                // TODO: Determine if we need this fence
+                //mem_fence(CLK_GLOBAL_MEM_FENCE);
 
-                    if (cell <= num_bodies) {
-                        // TODO (paden) add error message
-                        *bottom = num_nodes;
-                        return;
-                    }
-                    patch = max(patch, cell);
+                // If the child was null, just insert the body.
+                if (ch == NULLPOINTER) {
+                    child[locked] = i;
+                } else {
+                    patch = NULLPOINTER;
+                    // create new cell(s) and insert the old and new body
 
-                    x = (j & 1) * r;
-                    y = ((j >> 1) & 1) * r;
-                    r *= 0.5f;
+                    // TODO: Do we still need test?
+                    int test = 1000000;
+                    do {
 
-                    mass[cell] = -1.0f;
-                    start[cell] = -1;
-                    x = x_cords[cell] = x_cords[n] - r + x;
-                    y = y_cords[cell] = y_cords[n] - r + y;
-                    for (int k = 0; k < 4; k++) child[cell*4+k] = -1;
+                        // We allocate from right to left, so we use an atomic_dec
+                        depth++;
+                        cell = atomic_dec(bottom) - 1;
 
-                    if (patch != cell) {
-                        child[n*4+j] = cell;
-                    }
+                        // Error case
+                        if (cell <= num_bodies) {
+                            // TODO (paden) add error message
+                            *bottom = num_nodes;
+                            return;
+                        }
 
-                    j = 0;
-                    if (x < x_cords[ch]) j = 1;
-                    if (y < y_cords[ch]) j += 2;
-                    child[cell*4+j] = ch;
-                    if (x_cords[ch] == px && y_cords[ch] == py) {
-                        x_cords[ch] += 0.0000001;
-                        y_cords[ch] += 0.0000001;
-                    }
+                        patch = max(patch, cell);
 
-                    n = cell;
-                    j = 0;
-                    if (x < px) j = 1;
-                    if (y < py) j += 2;
+                        x = (j & 1) * r;
+                        y = ((j >> 1) & 1) * r;
+                        r *= 0.5f;
 
-                    ch = child[n*4+j];
-                    test--;
-                } while (test > 0 && ch >= 0);
-                child[n*4+j] = i;
-                mem_fence(CLK_GLOBAL_MEM_FENCE);
-                child[locked] = patch;
-             }
+                        mass[cell] = -1.0f;
+                        start[cell] = NULLPOINTER;
+                        x = x_cords[cell] = x_cords[n] - r + x;
+                        y = y_cords[cell] = y_cords[n] - r + y;
+
+                        // TODO: Unroll
+                        // Initialize new children to null.
+                        for (int k = 0; k < 4; k++) child[cell*4+k] = NULLPOINTER;
+
+                        // Make it point to the cell if cell was greater than patch.
+                        // This means that this is the first time this cell is accessed,
+                        // and thus that it needs to be pointed to.
+                        if (patch != cell) {
+                            child[n*4+j] = cell;
+                        }
+
+                        // Place already existing body from before into the correct
+                        // child node.
+                        j = 0;
+                        if (x < x_cords[ch]) j = 1;
+                        if (y < y_cords[ch]) j += 2;
+                        child[cell*4+j] = ch;
+
+                        // If they have the exact same location, shift one slightly.
+                        // TODO: Do we need this? Not in original CUDA impl.
+                        if (x_cords[ch] == px && y_cords[ch] == py) {
+                            x_cords[ch] += 0.0000001;
+                            y_cords[ch] += 0.0000001;
+                        }
+
+                        n = cell;
+                        j = 0;
+                        if (x < px) j = 1;
+                        if (y < py) j += 2;
+
+                        // Updated ch to the child when our px/py body will go.
+                        // If it's -1 (null) we exit out of this loop.
+                        ch = child[n*4+j];
+
+                        // TODO: Do we still need this?
+                        test--;
+
+                    } while (test > 0 && ch > NULLPOINTER);
+
+                    // Place our body and expose to other threads.
+                    child[n*4+j] = i;
+                    mem_fence(CLK_GLOBAL_MEM_FENCE); // push out our subtree to other threads.
+                    child[locked] = patch;
+                }
+
                 localmaxdepth = max(depth, localmaxdepth);
                 i += inc;  // move on to next body
                 skip = 1;
             }
-            }
+        }
+        // TODO: Uncomment this throttle after testing:
+        // barrier(CLK_LOCAL_MEM_FENCE);
     }
+    // Record our maximum depth globally.
     atomic_max(maxdepth, localmaxdepth);
 }
 
@@ -343,14 +401,16 @@ __kernel void compute_sums(
 
     int i, j, k, inc, num_children_missing, cnt, bottom_value, child;
     float m, cm, px, py;
-    // TODO change this to THREAD3 Why?
+
+    // TODO: Should this be THREADS3 * 4 like in CUDA?
     volatile int missing_children[THREADS1 * 4];
-    // TODO chache kernel information
+    // TODO cache kernel information
 
     bottom_value = *bottom;
-    //printf("bottom value: %d \n", bottom_value);
     inc = get_global_size(0);
+
     // Align work to WARP SIZE
+    // k is our iteration variable
     k = (bottom_value & (-WARPSIZE)) + get_global_id(0);
     if (k < bottom_value) k += inc;
 
@@ -358,6 +418,7 @@ __kernel void compute_sums(
 
     while (k <= num_nodes) {
         if (num_children_missing == 0) { // Must be new cell
+            // Initialize
             cm = 0.0f;
             px = 0.0f;
             py = 0.0f;
@@ -365,13 +426,14 @@ __kernel void compute_sums(
             j = 0;
             for (i = 0; i < 4; i++) {
                 child = children[k*4+i];
-                if (child >= 0) {
+                if (child > NULLPOINTER) {
                     if (i != j) {
                         // Moving children to front. Apparently needed later
                         // TODO figure out why this is
                         children[k*4+i] = -1;
                         children[k*4+j] = child;
                     }
+                    // TODO: Make sure threads value is correct.
                     missing_children[num_children_missing*THREADS1+get_local_id(0)] = child;
                     m = mass[child];
                     num_children_missing++;
@@ -379,9 +441,11 @@ __kernel void compute_sums(
                         // Child has already been touched
                         num_children_missing--;
                         if (child >= num_bodies) { // Count the bodies. TODO Why?
+                            // TODO: Where is this initialized. Is it initialized to anything before?
                             cnt += count[child] - 1;
                         }
-                        // Sum mass and positions
+
+                        // Sum mass and position contributions
                         cm += m;
                         px += x_cords[child] * m;
                         py += y_cords[child] * m;
@@ -394,6 +458,7 @@ __kernel void compute_sums(
 
         if (num_children_missing != 0) {
             do {
+                // poll for missing child
                 child = missing_children[(num_children_missing - 1)*THREADS1+get_local_id(0)];
                 m = mass[child];
                 if (m >= 0.0f) {
@@ -425,6 +490,7 @@ __kernel void compute_sums(
 }
 
 
+// Sort bodies in in-order traversal order
 __kernel void sort(
         //graph params
         float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -454,31 +520,28 @@ __kernel void sort(
         __global float2* pointForces
 ){
 
-    const unsigned int tileSize = (unsigned int) get_local_size(0);
-    const unsigned int numTiles = (unsigned int) get_num_groups(0);
-    unsigned int modulus = numTiles / TILES_PER_ITERATION;
-    unsigned int startTile = (step_number % modulus) * tileSize;
-    unsigned int endTile = startTile + (tileSize * TILES_PER_ITERATION);
     int i, k, child, decrement, start_index, bottom_node;
+
     bottom_node = *bottom;
     decrement = get_global_size(0);
     k = num_nodes + 1 - decrement + get_global_id(0);
+
     while (k >= bottom_node) {
         start_index = start[k];
         if (start_index >= 0) {
             for (i = 0; i < 4; i++) {
                 child = children[k*4+i];
                 if (child >= num_bodies) {
-                    start[child] = start_index;
-                    start_index += count[child];
+                    // Child must be a cell
+                    start[child] = start_index; // Set start ID of child
+                    start_index += count[child]; // Add number of bodies in subtree
                 } else if (child >= 0) {
-                    /*if (child >= startTile && child < endTile) {*/
-                        sort[start_index] = child;
-                        start_index++;
-                    /*}*/
+                    // Child must be a body
+                    sort[start_index] = child; // Record the body in 'sorted' array
+                    start_index++;
                 }
             }
-            k -= decrement;
+            k -= decrement; // Go to next cell
         }
         mem_fence(CLK_GLOBAL_MEM_FENCE);
         //barrier(CLK_GLOBAL_MEM_FENCE); //TODO how to add throttle?
