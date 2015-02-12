@@ -490,6 +490,7 @@ __kernel void compute_sums(
 }
 
 
+// Sort bodies in in-order traversal order
 __kernel void sort(
         //graph params
         float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -519,31 +520,28 @@ __kernel void sort(
         __global float2* pointForces
 ){
 
-    const unsigned int tileSize = (unsigned int) get_local_size(0);
-    const unsigned int numTiles = (unsigned int) get_num_groups(0);
-    unsigned int modulus = numTiles / TILES_PER_ITERATION;
-    unsigned int startTile = (step_number % modulus) * tileSize;
-    unsigned int endTile = startTile + (tileSize * TILES_PER_ITERATION);
     int i, k, child, decrement, start_index, bottom_node;
+
     bottom_node = *bottom;
     decrement = get_global_size(0);
     k = num_nodes + 1 - decrement + get_global_id(0);
+
     while (k >= bottom_node) {
         start_index = start[k];
         if (start_index >= 0) {
             for (i = 0; i < 4; i++) {
                 child = children[k*4+i];
                 if (child >= num_bodies) {
-                    start[child] = start_index;
-                    start_index += count[child];
+                    // Child must be a cell
+                    start[child] = start_index; // Set start ID of child
+                    start_index += count[child]; // Add number of bodies in subtree
                 } else if (child >= 0) {
-                    /*if (child >= startTile && child < endTile) {*/
-                        sort[start_index] = child;
-                        start_index++;
-                    /*}*/
+                    // Child must be a body
+                    sort[start_index] = child; // Record the body in 'sorted' array
+                    start_index++;
                 }
             }
-            k -= decrement;
+            k -= decrement; // Go to next cell
         }
         mem_fence(CLK_GLOBAL_MEM_FENCE);
         //barrier(CLK_GLOBAL_MEM_FENCE); //TODO how to add throttle?
