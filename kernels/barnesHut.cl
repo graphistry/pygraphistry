@@ -32,6 +32,8 @@
 #define WARPSIZE 16
 #define MAXDEPTH 32
 
+// TODO: I've replaced comparisons >= 0 with > NULLPOINTER for readability.
+// We should benchmark to make sure that doesn't impact perf.
 #define TREELOCK -2
 #define NULLPOINTER -1
 
@@ -399,14 +401,16 @@ __kernel void compute_sums(
 
     int i, j, k, inc, num_children_missing, cnt, bottom_value, child;
     float m, cm, px, py;
-    // TODO change this to THREAD3 Why?
+
+    // TODO: Should this be THREADS3 * 4 like in CUDA?
     volatile int missing_children[THREADS1 * 4];
-    // TODO chache kernel information
+    // TODO cache kernel information
 
     bottom_value = *bottom;
-    //printf("bottom value: %d \n", bottom_value);
     inc = get_global_size(0);
+
     // Align work to WARP SIZE
+    // k is our iteration variable
     k = (bottom_value & (-WARPSIZE)) + get_global_id(0);
     if (k < bottom_value) k += inc;
 
@@ -414,6 +418,7 @@ __kernel void compute_sums(
 
     while (k <= num_nodes) {
         if (num_children_missing == 0) { // Must be new cell
+            // Initialize
             cm = 0.0f;
             px = 0.0f;
             py = 0.0f;
@@ -421,13 +426,14 @@ __kernel void compute_sums(
             j = 0;
             for (i = 0; i < 4; i++) {
                 child = children[k*4+i];
-                if (child >= 0) {
+                if (child > NULLPOINTER) {
                     if (i != j) {
                         // Moving children to front. Apparently needed later
                         // TODO figure out why this is
                         children[k*4+i] = -1;
                         children[k*4+j] = child;
                     }
+                    // TODO: Make sure threads value is correct.
                     missing_children[num_children_missing*THREADS1+get_local_id(0)] = child;
                     m = mass[child];
                     num_children_missing++;
@@ -435,9 +441,11 @@ __kernel void compute_sums(
                         // Child has already been touched
                         num_children_missing--;
                         if (child >= num_bodies) { // Count the bodies. TODO Why?
+                            // TODO: Where is this initialized. Is it initialized to anything before?
                             cnt += count[child] - 1;
                         }
-                        // Sum mass and positions
+
+                        // Sum mass and position contributions
                         cm += m;
                         px += x_cords[child] * m;
                         py += y_cords[child] * m;
@@ -450,6 +458,7 @@ __kernel void compute_sums(
 
         if (num_children_missing != 0) {
             do {
+                // poll for missing child
                 child = missing_children[(num_children_missing - 1)*THREADS1+get_local_id(0)];
                 m = mass[child];
                 if (m >= 0.0f) {
