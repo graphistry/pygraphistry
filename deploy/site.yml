@@ -41,7 +41,7 @@
 
 - hosts: localhost
   roles:
-    - { role: slack, message: "   ...{{ cluster }} deploy done! Access at {{ www_url }}." }
+    - { role: slack, message: "   ...{{ cluster }} deploy done! Access at http://{{ groups['central'][0] }}." }
   tags:
     - provision
     - deploy

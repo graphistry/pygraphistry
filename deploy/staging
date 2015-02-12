@@ -7,8 +7,6 @@ cluster="staging"
 mongodb_url="mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048"
 # The name of the MongoDB database on compose.io to write pings to
 mongodb_dbname="graphistry-staging"
-# The URL the app deployed to these machines can be viewed at (used for Slack notifications)
-www_url="http://staging.graphistry.com/"
 
 [workers]
 staging.graphistry.com

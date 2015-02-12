@@ -2,11 +2,10 @@
 [all:vars]
 # The name of this deploy type (used for Slack notifications)
 cluster="production"
+
 mongodb_url="mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:10048,lighthouse.3.mongolayer.com:10048"
 # The name of the MongoDB database on compose.io to write pings to
 mongodb_dbname="graphistry-prod"
-# The URL the app deployed to these machines can be viewed at (used for Slack notifications)
-www_url="http://labs.graphistry.com/"
 
 
 # When switching regions, run the following command locally to clear the existing pings (install

@@ -14,8 +14,6 @@
 # mongodb_dbname: "graphistry-staging"
 # The name of this deploy type (used for Slack notifications)
 # cluster: "staging"
-# The URL the app deployed to these machines can be viewed at (used for Slack notifications)
-# www_url: "http://54.215.192.84/"
 
 
 ################################################################################
