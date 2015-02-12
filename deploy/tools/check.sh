@@ -3,7 +3,7 @@
 ## Run from deploy folder to see git pull/push status of graphistry repos
 ## (Assumes each repo is in parent folder)
 
-REPOS="central config datasets deploy graph-viz horizon-viz node-pigz node-webcl splunkistry splunk-viz StreamGL superconductor-proxy uber-viz viz-server"
+REPOS="central config config-public datasets deploy graph-viz horizon-viz node-pigz node-webcl splunkistry splunk-viz StreamGL superconductor-proxy uber-viz viz-server"
 BRANCH="master"
 ROOT=`pwd`/../
 RUNTESTS=1
