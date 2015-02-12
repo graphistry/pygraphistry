@@ -16,11 +16,9 @@ Unknown: may need to first install libz/pigz .
 #### Standalone
 
 
-```node server-viz.js``` (for debug: ```DEBUG="*" node server-viz.js```)
+1. Run server: `node server-viz.js`  (for debug: `DEBUG="*" node server-viz.js`)
 
-
-
-```http://localhost:3000/graph/netflow.html?datasetname=NetflowDemo```
+2. Load demo: `http://localhost:3000/graph/netflow.html?datasetname=NetflowDemo`
 
 
 
