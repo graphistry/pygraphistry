@@ -19,6 +19,7 @@ labs.graphistry.com
 [workers]
 labs.graphistry.com
 worker02.graphistry.com
+
 #### /us-west-1
 
 
@@ -30,7 +31,3 @@ worker02.graphistry.com
 # 54.173.54.110 hostname=worker01
 # 54.173.242.106 hostname=worker02
 #### /us-east-1
-
-
-[localhost]
-127.0.0.1 ansible_connection=local
