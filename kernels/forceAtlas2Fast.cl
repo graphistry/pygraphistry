@@ -33,11 +33,11 @@ __kernel void faPointForces (
     __local uint* tilePoints2Param, //FIXME make nodecl accept local params
     const uint numPoints,
     const uint tilesPerIteration,
-    const __global float2* inputPositions,
+    const __global float2* restrict inputPositions,
     const float width,
     const float height,
     const uint stepNumber,
-    const __global uint* pointDegrees,
+    const __global uint* restrict pointDegrees,
 
     //output
     __global float2* pointForces
@@ -84,7 +84,7 @@ __kernel void faPointForces (
             const float2 n2Pos = TILEPOINTS[cachedPoint];
             const uint n2Degree = TILEPOINTS2[cachedPoint];
             const float2 distVec = n1Pos - n2Pos;
-            const float dist = length(distVec);
+            const float dist = fast_length(distVec);
             const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
 
             float rForce;
@@ -105,7 +105,7 @@ __kernel void faPointForces (
             #endif
 
             debug4("\trForce (%d<->%d) %f\n", n1Idx, tileStart + cachedPoint, rForce);
-            n1D += normalize(distVec) * clamp(rForce, 0.0f, 1000000.0f);
+            n1D += fast_normalize(distVec) * clamp(rForce, 0.0f, 1000000.0f);
         }
         barrier(CLK_LOCAL_MEM_FENCE);
     }
@@ -115,7 +115,7 @@ __kernel void faPointForces (
     float gForce;
     #ifdef strongGravity
     {
-        gForce = gravity * (n1Degree + 1.0f) * length(centerVec)
+        gForce = gravity * (n1Degree + 1.0f) * fast_length(centerVec)
     }
     #else
     {
@@ -124,7 +124,7 @@ __kernel void faPointForces (
     #endif
     debug3("gForce (%d) %f\n", n1Idx, gForce);
 
-    pointForces[n1Idx] = normalize(centerVec) * gForce + n1D;
+    pointForces[n1Idx] = fast_normalize(centerVec) * gForce + n1D;
 
     return;
 }
