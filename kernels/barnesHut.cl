@@ -14,7 +14,7 @@
 
 // BARNES HUT defintions.
 // TODO We don't need all these
-#define THREADS1 256    /* must be a power of 2 */
+#define THREADS1 256    /* must be a power of 2 */ // Used for setting local buffer sizes.
 #define THREADS2 1024
 #define THREADS3 1024
 #define THREADS4 256
@@ -399,7 +399,7 @@ __kernel void compute_sums(
         __global float2* pointForces
 ){
 
-    int i, j, k, inc, num_children_missing, cnt, bottom_value, child;
+    int i, j, k, inc, num_children_missing, cnt, bottom_value, child, local_size;
     float m, cm, px, py;
 
     // TODO: Should this be THREADS3 * 4 like in CUDA?
@@ -408,6 +408,7 @@ __kernel void compute_sums(
 
     bottom_value = *bottom;
     inc = get_global_size(0);
+    local_size = get_local_size(0);
 
     // Align work to WARP SIZE
     // k is our iteration variable
@@ -434,7 +435,7 @@ __kernel void compute_sums(
                         children[k*4+j] = child;
                     }
                     // TODO: Make sure threads value is correct.
-                    missing_children[num_children_missing*THREADS1+get_local_id(0)] = child;
+                    missing_children[num_children_missing*local_size+get_local_id(0)] = child;
                     m = mass[child];
                     num_children_missing++;
                     if (m >= 0.0f) {
@@ -459,7 +460,7 @@ __kernel void compute_sums(
         if (num_children_missing != 0) {
             do {
                 // poll for missing child
-                child = missing_children[(num_children_missing - 1)*THREADS1+get_local_id(0)];
+                child = missing_children[(num_children_missing - 1)*local_size+get_local_id(0)];
                 m = mass[child];
                 if (m >= 0.0f) {
                     // Child has been touched
