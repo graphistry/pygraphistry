@@ -1,7 +1,11 @@
 ---
 
-# FIXME: Only refresh the apt-cache when installing nodejs if we installed new repos
-# FIXME: Only restart splunk service if we've changed its config
+# TODO: Ensure that the process that the nodejs apps (central, workers) run under (currently 'www')
+# has limited access. The user should not be a login user. Central should only have write access to
+# /var/log/clients/, and the workers should have no write access (Supervisor takes care of writing
+# their stdout/stderr to /var/log/...). They should have read-only access to their app folder and
+# the global npm directory (including the global npm config file.) They may also need access for
+# CUDA/OpenCL stuff.
 
 
 - hosts: localhost
