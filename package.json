@@ -27,9 +27,9 @@
     "socket.io": "^1.2.0",
     "socket.io-client": "^1.2.1",
     "underscore": "^1.7.0",
-    "protobufjs": "3.8.x",
     "supertest": "^0.15.0",
-    "xhr2": "^0.1.1"
+    "xhr2": "^0.1.1",
+    "sprintf-js": "~1.0.2"
   },
   "devDependencies": {
     "jasmine-node": "^1.14.5"

@@ -10,19 +10,12 @@
 #define EPSILON 0.00001f // bound whether d(a,b) == 0
 
 #define IS_PREVENT_OVERLAP(flags) (flags & 1)
-#define IS_STRONG_GRAVITY(flags)  (flags & 2)
 #define IS_DISSUADE_HUBS(flags)   (flags & 4)
 #define IS_LIN_LOG(flags)         (flags & 8)
 
 //#define NOGRAVITY
 //#define NOREPULSION
 //#define NOATTRACTION
-
-float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
-                     const float scalingRatio, const bool preventOverlap);
-
-float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
-                   const bool strong);
 
 float attractionForce(const float2 distVec, const float n1Size, const float n2Size,
                       const uint n1Degree, const float weight, const bool preventOverlap,
@@ -31,21 +24,20 @@ float attractionForce(const float2 distVec, const float n1Size, const float n2Si
 
 //repulse points and apply gravity
 __kernel void faPointForces (
-    //input
-
+    // #Define: preventOverlap, strongGravity
     //GRAPH_PARAMS
     const float scalingRatio, const float gravity,
-    const uint edgeInfluence, const uint flags,
+    const uint edgeInfluence,
 
     __local float2* tilePointsParam, //FIXME make nodecl accept local params
     __local uint* tilePoints2Param, //FIXME make nodecl accept local params
     const uint numPoints,
     const uint tilesPerIteration,
-    const __global float2* inputPositions,
+    const __global float2* restrict inputPositions,
     const float width,
     const float height,
     const uint stepNumber,
-    const __global uint* pointDegrees,
+    const __global uint* restrict pointDegrees,
 
     //output
     __global float2* pointForces
@@ -92,64 +84,49 @@ __kernel void faPointForces (
             const float2 n2Pos = TILEPOINTS[cachedPoint];
             const uint n2Degree = TILEPOINTS2[cachedPoint];
             const float2 distVec = n1Pos - n2Pos;
-            const float rForce = repulsionForce(distVec, n1Degree, n2Degree, scalingRatio,
-                                                IS_PREVENT_OVERLAP(flags));
+            const float dist = fast_length(distVec);
+            const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
+
+            float rForce;
+            #ifdef preventOverlap
+            {
+                float n1Size = DEFAULT_NODE_SIZE;
+                float n2Size = DEFAULT_NODE_SIZE;
+                float distB2B = dist - n1Size - n2Size; //border-to-border
+
+                rForce = distB2B > EPSILON  ? (scalingRatio * degreeProd / dist)
+                                            : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
+                                            : 0.0f;
+            }
+            #else
+            {
+                rForce = scalingRatio * degreeProd / dist;
+            }
+            #endif
 
             debug4("\trForce (%d<->%d) %f\n", n1Idx, tileStart + cachedPoint, rForce);
-            n1D += normalize(distVec) * rForce;
+            n1D += fast_normalize(distVec) * clamp(rForce, 0.0f, 1000000.0f);
         }
         barrier(CLK_LOCAL_MEM_FENCE);
     }
 
     const float2 dimensions = (float2) (width, height);
     const float2 centerVec = (dimensions / 2.0f) - n1Pos;
-    const float gForce = gravityForce(gravity, n1Degree, centerVec, IS_STRONG_GRAVITY(flags));
+    float gForce;
+    #ifdef strongGravity
+    {
+        gForce = gravity * (n1Degree + 1.0f) * fast_length(centerVec)
+    }
+    #else
+    {
+        gForce = gravity * (n1Degree + 1.0f);
+    }
+    #endif
     debug3("gForce (%d) %f\n", n1Idx, gForce);
 
-    pointForces[n1Idx] = normalize(centerVec) * gForce + n1D;
+    pointForces[n1Idx] = fast_normalize(centerVec) * gForce + n1D;
 
     return;
-}
-
-
-float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
-                     const float scalingRatio, const bool preventOverlap) {
-    const float dist = length(distVec);
-    const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
-    float force;
-
-    if (preventOverlap) {
-        //FIXME include in prefetch etc, use actual sizes
-        float n1Size = DEFAULT_NODE_SIZE;
-        float n2Size = DEFAULT_NODE_SIZE;
-        float distB2B = dist - n1Size - n2Size; //border-to-border
-
-        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / dist)
-              : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
-              : 0.0f;
-    } else {
-        force = scalingRatio * degreeProd / dist;
-    }
-
-#ifndef NOREPULSION
-    return clamp(force, 0.0f, 1000000.0f);
-#else
-    return 0.0f;
-#endif
-}
-
-
-float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
-                   const bool strong) {
-
-    const float gForce = gravity *
-                        (n1Degree + 1.0f) *
-                        (strong ? length(centerVec) : 1.0f);
-#ifndef NOGRAVITY
-    return gForce;
-#else
-    return 0.0f;
-#endif
 }
 
 
