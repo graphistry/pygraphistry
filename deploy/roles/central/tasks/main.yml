@@ -1,9 +1,4 @@
 ---
-- name: Start supervisor
-  service: name=supervisor state=started enabled=yes
-  sudo: yes
-  sudo_user: root
-
 - name: Ensure central app install path is owned by user 'www'
   sudo: yes
   sudo_user: root

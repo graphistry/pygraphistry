@@ -81,6 +81,13 @@
   sudo: yes
   sudo_user: root
 
+- name: Start Supervisor
+  service: name=supervisor
+           state=started
+           enabled=yes
+  sudo: yes
+  sudo_user: root
+
 - name: Configure Supervisor
   copy: src=supervisord.conf
         dest=/etc/supervisor/supervisord.conf
