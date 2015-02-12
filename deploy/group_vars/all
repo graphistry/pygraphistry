@@ -28,10 +28,6 @@ ansible_ssh_user: ubuntu
 # configured to use this port, the 'common' role will try to login on port 22 and change it to this.
 ansible_ssh_port: 61630
 
-# The main domain that remote machines will be subdomains of. The fully-qualified domain name of a
-# machine will be its hostname + '.' + graphistry_domain, e.g. "staging.graphistry.com".
-domain: "graphistry.com"
-
 # Path on the remote instance where Graphistry nodejs apps will be installed to
 graphistry_install_path: "/var/graphistry"
 
