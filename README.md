@@ -20,7 +20,7 @@ Unknown: may need to first install libz/pigz .
 
 
 
-```http://localhost:3000/graph/ ```
+```http://localhost:3000/graph/netflow.html?datasetname=NetflowDemo```
 
 
 
