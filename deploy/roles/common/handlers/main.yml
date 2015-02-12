@@ -1,0 +1,12 @@
+---
+- name: Restart Supervisor
+  # We need a sleep value (arbitrarily 10s here) or Ansible will sometime erroneously detect an
+  # error when trying to restart Supervisor (but not all the time; hard to pin down specific
+  # conditions for it to happen, but seems to happen if we've messed with the Supervisor state
+  # too recently.)
+  service: name=supervisor
+           state=restarted
+           sleep=10
+  sudo: yes
+  sudo_user: root
+  tags: common

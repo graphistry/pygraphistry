@@ -96,12 +96,4 @@
         mode=0664
   sudo: yes
   sudo_user: root
-  register: supervisor_configure
-
-- name: Restart Supervisor
-  service: name=supervisor
-           state=restarted
-           enabled=yes
-  when: supervisor_install.changed or supervisor_configure.changed
-  sudo: yes
-  sudo_user: root
+  notify: Restart Supervisor
