@@ -167,10 +167,16 @@ __kernel void faEdgeForces(
     const __global float2* inputPoints,         // Current point positions (read-only)
     const __global float2* partialForces,         // Current point positions (read-only)
     const uint stepNumber,
+    const uint numWorkItems,
 
     //output
     __global float2* outputForces
 ) {
+
+    int gid = get_global_id(0);
+    int global_size = get_global_size(0);
+    //for (int i = gid; i < numPoints; i += global_size) {
+
 
     const size_t workItem = (unsigned int) get_global_id(0);
 
@@ -209,6 +215,9 @@ __kernel void faEdgeForces(
     debug4("PartialForce (%d) %f\t%f\n", sourceIdx, partialForces[sourceIdx].x, partialForces[sourceIdx].y);
     outputForces[sourceIdx] = partialForces[sourceIdx] + n1D;
     return;
+
+
+
 }
 
 
