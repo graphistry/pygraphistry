@@ -6,7 +6,7 @@ var child_process = require('child_process');
 var _ = require('underscore');
 var Q = require('q');
 
-var wd = path.resolve(__dirname, '..');
+var wd = path.resolve(__dirname, '..', '..', '..');
 var DEBUG = false;
 
 var errorHandler = function (err) {

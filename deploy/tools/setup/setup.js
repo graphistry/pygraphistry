@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-var path = require('path');
 var _ = require('underscore');
 var Q = require('q');
 var tooling = require('./tooling.js');
@@ -16,11 +15,14 @@ var argv = require('yargs')
   .default('l', false)
   .alias('l', 'link')
   .describe('l', 'Link/install local checkout of Graphistry\'s repo')
+  .default('d', false)
+  .alias('d', 'dry-run')
+  .describe('d', 'Do not execute link/install commands, print installation dependencies instead.')
   .default('s', false)
   .alias('s', 'shared')
   .describe('s', 'install external dependencies globally, enambing cross repos sharing')
   .default('v', false)
-  .alias('v', 'version')
+  .alias('v', 'versions')
   .describe('v', 'Report libraries imported using different/mismatched versions')
   .boolean(['c', 'l', 's', 'v'])
   .help('help')
@@ -63,6 +65,10 @@ function linkAll(repos, installExternalGlobally) {
 
     var sort = tooling.topoSort(depTree);
     debug('Sort', sort);
+    if (argv.d) {
+        console.log(JSON.stringify(sort, null, 2));
+        return;
+    }
 
     var distinctExternals = tooling.distinctExternals(allExternals, false);
 
@@ -95,6 +101,3 @@ Q().then(function () {
         return linkAll(roots, argv.s)
     }
 }).fail(errorHandler);
-
-
-

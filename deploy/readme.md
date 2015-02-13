@@ -18,11 +18,11 @@ Then install the following NPM packages globally (`npm install -g XXX`):
 
 2. Clone this repository inside WD: `git clone git@github.com:graphistry/deploy.git`. You know have WD/deploy.
 
-3. Run NPM install on deploy: `cd WD/deploy && npm install`.
+3. Run NPM install the setup script: `cd deploy/tools/setup && npm install`.
 
-4. Run  setup.js to clone and link all remaining repositories: `./setup.js --clone --link`. You can add the `--shared` flag to install all external (non-graphistry) dependencies globally, thus avoiding having multiple copies of the same libraries, one in each repository.
+4. Run setup.js from `WD/deploy` to clone and link all remaining repositories: `cd deploy && ./tools/setup/setup.js --clone --link`. You can add the `--shared` flag to install all external (non-graphistry) dependencies globally, thus avoiding having multiple copies of the same libraries, one in each repository.
 
-5. Run `./check.sh` (still in deploy) to run all tests.
+5. Run `./tools/check.sh` (still in deploy) to run all tests.
 
 ## Login ##
 
