@@ -144,7 +144,3 @@
             group=root
             mode=0755
   sudo: yes
-
-- name: Install node-gyp
-  npm: name=node-gyp global=yes
-  sudo: yes
