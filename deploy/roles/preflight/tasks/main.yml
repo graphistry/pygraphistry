@@ -15,7 +15,7 @@
 
 - name: Gather facts
   setup:
-  when: do_gather_facts
+  when: do_gather_facts and (not did_gather_facts)
   sudo: no
   tags:
     - gather_facts
@@ -25,4 +25,15 @@
     - central
     - splunk
     - nodejs
+
+- name: Register that we've gathered facts
+  set_fact: did_gather_facts=yes
+  when: do_gather_facts
+  tags:
+    - gather_facts
+    - preflight
+    - deploy
+    - workers
+    - central
+    - splunk
     - nodejs

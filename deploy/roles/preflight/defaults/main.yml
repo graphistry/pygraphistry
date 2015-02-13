@@ -1,3 +1,4 @@
 ---
 ansible_minimum_version: "1.8.0"
 do_gather_facts: true
+did_gather_facts: false
