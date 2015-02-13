@@ -11,6 +11,7 @@
     - workers
     - central
     - splunk
+    - nodejs
 
 - name: Gather facts
   setup:
@@ -23,3 +24,5 @@
     - workers
     - central
     - splunk
+    - nodejs
+    - nodejs
