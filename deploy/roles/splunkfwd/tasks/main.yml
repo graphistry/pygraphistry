@@ -1,43 +1,50 @@
 ---
-# FIXME: In the case of an upgrade install, this will hang when `splunk start` asks if we want to
-# migrate our settings over to a new version.
-
-- name: Download splunk forwarder
+- name: Downlad Splunk Universal Forwarder
   sudo: no
-  get_url: url=http://www.splunk.com/page/download_track?file=6.2.1/universalforwarder/linux/splunkforwarder-6.2.1-245427-Linux-x86_64.tgz&ac=&wget=true&name=wget&platform=Linux&architecture=x86_64&version=6.2.1&product=splunk&typed=release
-           dest="{{ ansible_env.HOME }}/ansible/splunkforwarder-6.2.1.tgz"
-           sha256sum=cd5dd105244a06a3d76a9695e25f263fbcf2e4ec8d1b456af5fa71112fcd4318
-  register: splunk_downloaded
+  get_url: url="http://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=Linux&version=6.2.1&product=universalforwarder&filename=splunkforwarder-6.2.1-245427-linux-2.6-amd64.deb&wget=true"
+           dest="{{ ansible_env.HOME }}/ansible/splunkforwarder-6.2.1-245427-linux-2.6-amd64.deb"
+           sha256sum=4f37add3f0ef900a80891b234d892f05ca59868f9e507ae8de720261dd9876a2
 
-- name: Install splunk forwarder
-  unarchive: src="{{ ansible_env.HOME }}/ansible/splunkforwarder-6.2.1.tgz" dest=/opt copy=no
-  register: splunk_installed
-  when: splunk_downloaded.changed
+- name: Install Splunk Universal Forwarder
+  apt: deb="{{ ansible_env.HOME }}/ansible/splunkforwarder-6.2.1-245427-linux-2.6-amd64.deb"
+       state=present
 
-- name: Start splunk forwarder
-  command: ./splunk start --accept-license --answer-yes chdir=/opt/splunkforwarder/bin
-  when: splunk_installed.changed
+- name: Start Splunk Forwarder
+  command: /opt/splunkforwarder/bin/splunk start --accept-license --answer-yes
+  register: start_splunk
+  changed_when: "'already running' not in start_splunk.stdout"
 
-- name: Enable splunk forwarder to start at boot
-  command: ./splunk enable boot-start --answer-yes chdir=/opt/splunkforwarder/bin
-  when: splunk_installed.changed
+- name: Enable Splunk Forwarder to start at boot
+  command: /opt/splunkforwarder/bin/splunk enable boot-start --answer-yes chdir=/opt/splunkforwarder/bin
+  register: splunk_boot_start
+  changed_when: "'Adding' in splunk_boot_start.stdout"
 
-- name: Set credentials on splunk forwarder
-  command: ./splunk edit user admin -password {{ splunk_forwarder_password }} -auth admin:changeme --answer-yes
-           chdir=/opt/splunkforwarder/bin
-  ignore_errors: true
-  when: splunk_installed.changed
-
-- name: Connect splunk forwarder to Splunk server
-  command: ./splunk add forward-server {{ splunk_server_address }} -auth {{ splunk_server_credentials }} --answer-yes
-           chdir=/opt/splunkforwarder/bin
-  when: splunk_installed.changed
+- name: Change default credentials on Splunk Forwarder (it's OK if this fails; it likely means the password was changed previously)
+  command: /opt/splunkforwarder/bin/splunk edit user admin -password {{ splunk_forwarder_password }} -auth admin:changeme --answer-yes
   ignore_errors: true
 
-- name: Configure splunk forwarder inputs
-  copy: src=inputs.conf dest=/opt/splunkforwarder/etc/apps/SplunkUniversalForwarder/default
-  register: splunk_inputs
+- name: Configure Splunk Forwarder host name
+  template: src=inputs.conf.j2
+            dest=/opt/splunkforwarder/etc/system/local/inputs.conf
+            owner=root
+            group=root
+            mode=0664
+  notify: Restart Splunk
 
-- name: (Re)start splunk
-  service: name=splunk state=restarted
-  when: splunk_installed.changed and splunk_inputs.changed
+- name: Configure Splunk Forwarder server name
+  ini_file: dest=/opt/splunkforwarder/etc/system/local/server.conf
+            section=general
+            option=serverName
+            value="{{ inventory_hostname }}"
+            owner=root
+            group=root
+            mode=0600
+  notify: Restart Splunk
+
+- name: Configure deployment server to Splunk Forwarder
+  template: src=deploymentclient.conf.j2
+            dest=/opt/splunkforwarder/etc/system/local/deploymentclient.conf
+            owner=root
+            group=graphistry-dev
+            mode=0664
+  notify: Restart Splunk

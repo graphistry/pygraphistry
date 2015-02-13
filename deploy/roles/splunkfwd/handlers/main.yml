@@ -1,0 +1,7 @@
+---
+- name: Restart Splunk
+  service: name=splunk
+           state=restarted
+           enabled=yes
+  sudo: yes
+  sudo_user: root

@@ -20,7 +20,7 @@
   roles:
    - { role: common, sudo: yes, tags: [ 'common' ] }
    - { role: users, tags: [ 'users' ] }
-   - { role: splunkfwd, sudo: yes }
+   - { role: splunkfwd, sudo: yes, tags: [ 'splunk' ] }
    - { role: nodejs, tags: [ 'nodejs' ] }
   tags:
     - provision

@@ -32,3 +32,5 @@ graphistry_install_path: "/var/graphistry"
 # Boundary login info
 boundary_username: "abe@graphistry.com"
 boundary_password: "api.fc39b94e8f-3713"
+
+splunk_deploy_server_uri: "splunk.graphistry.com:8089"
