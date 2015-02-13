@@ -749,7 +749,8 @@ __kernel void calculate_forces(
             }
 
             // Make sure it's visible
-            mem_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+            // mem_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+            mem_fence(CLK_LOCAL_MEM_FENCE);
 
             while (depth >= shared_mem_offset) {
                 // Because we haven't exited out of the depth=0 (shared_mem_offset), we still need to
