@@ -32,13 +32,13 @@
         mode=0775
 
 - name: Set ownership of everything in graphistry app install directory and subdirectories
-  sudo: yes
-  sudo_user: root
   file: path={{ graphistry_install_path }}
         state=directory
         recurse=yes
         group=www
         mode='g+rw'
+  sudo: yes
+  sudo_user: root
 
 - name: Create global nodejs directories
   file: path={{ item }}
@@ -49,7 +49,7 @@
   sudo: yes
   with_items: npm_subdirs | difference(["{{ graphistry_install_path }}"])
 
-- name: Set ACL defaults on npm global paths for groups
+- name: Set ACL defaults on npm global paths for specific groups
   acl: name={{ item[0] }}
        state=present
        etype=group
@@ -61,7 +61,7 @@
     - npm_subdirs
     - npm_group_permissions
 
-- name: Set ACL defaults on npm global paths for groups
+- name: Set ACL defaults on npm global paths for specific groups
   acl: name={{ item[0] }}
        state=present
        etype=group
@@ -73,7 +73,7 @@
     - npm_subdirs
     - npm_group_permissions
 
-- name: Set default ACLs on global nodejs directory to allow user access
+- name: Set default user ACLs on global nodejs directory
   acl: name={{ item }}
        state=present
        etype=user
@@ -82,12 +82,30 @@
   sudo: yes
   with_items: npm_subdirs
 
-- name: Set default ACLs on global nodejs directory to allow group access
+- name: Set default group ACLs on global nodejs directory to allow group access
   acl: name={{ item }}
        state=present
        etype=group
        permissions=rwx
        default=yes
+  sudo: yes
+  with_items: npm_subdirs
+
+- name: Set default mask ACLs on global nodejs directory
+  acl: name={{ item }}
+       state=present
+       etype=mask
+       permissions=rwx
+       default=yes
+  sudo: yes
+  with_items: npm_subdirs
+
+- name: Set mask ACLs on global nodejs directory
+  acl: name={{ item }}
+       state=present
+       etype=mask
+       permissions=rwx
+       default=no
   sudo: yes
   with_items: npm_subdirs
 
