@@ -7,6 +7,7 @@ npm_subdirs:
     - "{{ npm_global_path }}/bin"
     - "{{ npm_global_path }}/share"
     - "{{ npm_global_path }}/lib"
+    - "{{ npm_global_path }}/lib/node_modules"
     - "{{ graphistry_install_path }}"
 
 npm_group_permissions:
