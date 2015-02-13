@@ -561,6 +561,7 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
      /*Relies on underlying wavefronts (not whole workgroup)*/
          /*executing in lockstep to not require barrier */
     int old = allBlock[warpId];
+    //printf("Cond: %d\n", cond);
 
     // Increment if true, or leave unchanged
     (void) atomic_add(&allBlock[warpId], cond);
@@ -572,6 +573,23 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
 
     return ret;
 }
+
+inline int reduction_thread_vote(__local int* buffer, int cond, int offset, int diff) {
+    // Relies on the fact that the wavefront/warp (not whole workgroup)
+    // is executing in lockstep to avoid a barrier
+    // Also, in C (and openCL) a conditional is an int value of 0 or 1
+    int myoffset = offset + diff;
+    buffer[myoffset] = cond;
+
+    // Runs in log_2(WARPSIZE) steps.
+    for (int step = WARPSIZE / 2; step > 0; step = step / 2) {
+        if (diff < step) {
+            buffer[myoffset] = buffer[myoffset] + buffer[myoffset + step];
+        }
+    }
+    return (buffer[offset] == WARPSIZE);
+}
+
 
 
 inline float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
@@ -664,7 +682,7 @@ __kernel void calculate_forces(
     __local volatile float dq[MAXDEPTH * THREADS1/WARPSIZE];
 
     __local volatile int shared_step, shared_maxdepth;
-    __local volatile int allBlocks[THREADS1/WARPSIZE]; // TODO: Do we need this?
+    __local int votingBuffer[THREADS1];
 
     if (local_id == 0) {
         int itolsqd = 1.0f / (0.5f*0.5f);
@@ -687,9 +705,9 @@ __kernel void calculate_forces(
             return;
         }
         //TODO: Do we haaave to do this?
-        for (i = 0; i < THREADS1/WARPSIZE; i++) {
-            allBlocks[i] = 0;
-        }
+        // for (i = 0; i < THREADS1/WARPSIZE; i++) {
+        //     allBlocks[i] = 0;
+        // }
     }
 
     //barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
@@ -754,7 +772,7 @@ __kernel void calculate_forces(
                         distVector = (float2) (dx, dy);
                         temp = dx*dx + (dy*dy + 0.00000000001);
 
-                        if ((child < num_bodies) || thread_vote(allBlocks, warp_id, temp >= dq[depth]) )    {
+                        if ((child < num_bodies) || reduction_thread_vote(votingBuffer, temp >= dq[depth], starting_warp_thread_id, difference)) {
                             // check if ALL threads agree that cell is far enough away (or is a body)
 
                             // TODO: Determine how often we diverge when a few threads see a body, and the
