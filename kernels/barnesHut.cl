@@ -29,6 +29,10 @@
 #define FACTOR5 5
 #define FACTOR6 3
 
+// In theory this should be set dynamically, or the code should be rewritten to be
+// warp agnostic (as is proper in OpenCL)
+// Should be gotten by CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE parameter in the clGetKernelWorkGroupInfo().
+// Pretty sure most modern NVidia have warp of 32, and AMD 'wavefront' of 64
 #define WARPSIZE 16
 #define MAXDEPTH 32
 
@@ -55,9 +59,10 @@ __kernel void to_barnes_layout(
         const __global uint* pointDegrees,
         const uint step_number
 ){
-
+    //printf("Entering barnes layout\n");
     size_t gid = get_global_id(0);
     size_t global_size = get_global_size(0);
+
 
     for (int i = gid; i < numPoints; i += global_size) {
         x_cords[i] = inputPositions[i].x;
@@ -552,7 +557,6 @@ __kernel void sort(
 
 inline int thread_vote(__local int* allBlock, int warpId, int cond)
 {
-     /*printf("in thread vote\n");*/
      /*Relies on underlying wavefronts (not whole workgroup)*/
          /*executing in lockstep to not require barrier */
     int old = allBlock[warpId];
@@ -639,127 +643,129 @@ __kernel void calculate_forces(
         __global float2* pointForces
 ){
 
-    int idx = get_global_id(0);
+    const int idx = get_global_id(0);
+    const int local_size = get_local_size(0);
+    const int global_size = get_global_size(0);
+    const int local_id = get_local_id(0);
     int k, index, i;
     float force;
     float2 forceVector;
-    int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
-    __local volatile int child_index[MAXDEPTH * THREADS1/WARPSIZE], parent_index[MAXDEPTH * THREADS1/WARPSIZE];
-     __local volatile int allBlock[THREADS1 / WARPSIZE];
-    __local volatile float dq[MAXDEPTH * THREADS1/WARPSIZE];
-    __local volatile int shared_step, shared_maxdepth;
-    __local volatile int allBlocks[THREADS1/WARPSIZE];
-    const unsigned int tileSize = (unsigned int) get_local_size(0);
-    const unsigned int numTiles = (unsigned int) get_num_groups(0);
-    unsigned int modulus = numTiles / TILES_PER_ITERATION;
-    unsigned int startTile = (step_number % modulus) * (tileSize * TILES_PER_ITERATION);
-    unsigned int endTile = (startTile + (tileSize * TILES_PER_ITERATION)) > num_bodies ? num_bodies : startTile + (tileSize * TILES_PER_ITERATION);
-    unsigned int number_elements = (endTile > num_nodes) ? endTile - num_nodes : tileSize;
-    float px, py, ax, ay, dx, dy, temp;
-    int global_size = get_global_size(0);
     float2 distVector;
-    if (get_local_id(0) == 0) {
-        /*printf("Number of groups %u\n", numTiles);*/
-        /*printf("startTile %u \n", startTile);*/
-        /*printf("modulus %u \n", modulus);*/
-        /*printf("endTile %u \n", endTile);*/
-        /*printf("number_of %u \n", number_elements);*/
-        /*printf("number of tiles %u \n", numTiles);*/
-        /*printf("step number %d \n", step_number);*/
+    float px, py, ax, ay, dx, dy, temp;
+    int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
+
+    __local volatile int child_index[MAXDEPTH * THREADS1/WARPSIZE], parent_index[MAXDEPTH * THREADS1/WARPSIZE];
+    __local volatile float dq[MAXDEPTH * THREADS1/WARPSIZE];
+
+    __local volatile int shared_step, shared_maxdepth;
+    __local volatile int allBlocks[THREADS1/WARPSIZE]; // TODO: Do we need this?
+
+    if (local_id == 0) {
         int itolsqd = 1.0f / (0.5f*0.5f);
-        shared_step = *step;
-        shared_maxdepth = *maxdepth;
-        temp = *radiusd;
+        shared_step = *step; // local
+        shared_maxdepth = *maxdepth; // local
+        temp = *radiusd; // local
         dq[0] = temp * temp * itolsqd;
         for (i = 1; i < shared_maxdepth; i++) {
             dq[i] = dq[i - 1] * 0.25f;
         }
-
         if (shared_maxdepth > MAXDEPTH) {
+            // TODO: Actual error handling here
             return;
-            //temp =    1/0;
         }
+        //TODO: Do we haaave to do this?
         for (i = 0; i < THREADS1/WARPSIZE; i++) {
             allBlocks[i] = 0;
         }
     }
-    barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+
+    //barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+    barrier(CLK_LOCAL_MEM_FENCE); // Should only need local mem fence
 
     if (shared_maxdepth <= MAXDEPTH) {
         // Warp and memory ids
-        warp_id = get_local_id(0) / WARPSIZE;
+        warp_id = local_id / WARPSIZE;
         starting_warp_thread_id = warp_id * WARPSIZE;
         shared_mem_offset = warp_id * MAXDEPTH;
-        difference = get_local_id(0) - starting_warp_thread_id;
+        difference = local_id - starting_warp_thread_id;
+
+        // TODO: Why?
         if (difference < MAXDEPTH) {
             dq[difference + shared_mem_offset] = dq[difference];
         }
-    barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
-    /*bodies_in_tile = (stepNumber % modulus */
-    for (k = idx; k < /*number_elements*/num_bodies; k+=global_size) {
-        //atomic_add(&allBlock[warp_id], 1);
-        index = sort[k];
-        px = x_cords[index];
-        py = y_cords[index];
-        ax = 0.0f;
-        ay = 0.0f;
-        forceVector = (float2) (0.0f, 0.0f);
-        depth = shared_mem_offset;
-        if (starting_warp_thread_id == get_local_id(0)) {
-            parent_index[shared_mem_offset] = num_nodes;
-            child_index[shared_mem_offset] = 0;
-        }
-        mem_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
-        while (depth >= shared_mem_offset) {
-            // Stack has elements
-            while(child_index[depth] < 4) {
-                child = children[parent_index[depth]*4+child_index[depth]];
-                if (get_local_id(0) == starting_warp_thread_id) {
-                    child_index[depth]++;
-                }
-                mem_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
-                if (child >= 0) {
-                    /*dx = x_cords[child] - px;*/
-                    /*dy = y_cords[child] - py;*/
 
-                    dx = px - x_cords[child];
-                    dy = py - y_cords[child];
-                    distVector = (float2) (dx, dy);
-                    temp = dx*dx + (dy*dy + 0.00000000001);
-                    /*printf("temp %f, dq[depth] %f\n", temp, dq[depth]);*/
-                    if ((child < num_bodies)    ||  thread_vote(allBlocks, warp_id, temp >= dq[depth]) )    {
-                        force = mass[child] / temp;
-                        ax += dx * force;
-                        ay += dy * force;
+        //barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+        barrier(CLK_LOCAL_MEM_FENCE); // Should only need local mem fence
 
-                        // Adding all forces
-                        forceVector += normalize(distVector) * repulsionForce(distVector, mass[index],
-                                        mass[child], scalingRatio, IS_PREVENT_OVERLAP(flags));
+        // Iterate through bodies this thread is responsible for.
+        for (k = idx; k < num_bodies; k+=global_size) {
+            //atomic_add(&allBlock[warp_id], 1);
+            index = sort[k];
+            px = x_cords[index];
+            py = y_cords[index];
+            forceVector = (float2) (0.0f, 0.0f);
+            depth = shared_mem_offset;
 
+            // initialize iteration stack, i.e., push root node onto stack
+            if (starting_warp_thread_id == local_id) {
+                parent_index[shared_mem_offset] = num_nodes;
+                child_index[shared_mem_offset] = 0;
+            }
+
+            // Make sure it's visible
+            mem_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+
+            while (depth >= shared_mem_offset) {
+                // Stack has elements
+                while(child_index[depth] < 4) {
+                    // Node on top of stack still has children
+                    child = children[parent_index[depth]*4+child_index[depth]]; // load the child pointer
+                    if (local_id == starting_warp_thread_id) {
+                        // Only the first thread per warp does this.
+                        child_index[depth]++;
+                    }
+
+                    //mem_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+                    mem_fence(CLK_LOCAL_MEM_FENCE);
+                    if (child > NULLPOINTER) {
+
+                        // Compute distances
+                        dx = px - x_cords[child];
+                        dy = py - y_cords[child];
+                        distVector = (float2) (dx, dy);
+                        temp = dx*dx + (dy*dy + 0.00000000001);
+
+                        if ((child < num_bodies)    ||  thread_vote(allBlocks, warp_id, temp >= dq[depth]) )    {
+                            // check if all threads agree that cell is far enough away (or is a body)
+
+                            // Adding all forces
+                            forceVector += normalize(distVector) * repulsionForce(distVector, 1.0,
+                                            mass[child], scalingRatio, IS_PREVENT_OVERLAP(flags));
+
+                        } else {
+                            // Push this cell onto the stack.
+                            depth++;
+                            if (starting_warp_thread_id == local_id) {
+                                parent_index[depth] = child;
+                                child_index[depth] = 0;
+                            }
+                            //mem_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+                            mem_fence(CLK_LOCAL_MEM_FENCE); // Make sure it's visible to other threads
+                        }
 
                     } else {
-                        depth++;
-                        if (starting_warp_thread_id == get_local_id(0)) {
-                            parent_index[depth] = child;
-                            child_index[depth] = 0;
-                        }
-                        mem_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+                        depth = max(shared_mem_offset, depth - 1); // Exit early because all other children would be 0
                     }
-                } else {
-                    depth = max(shared_mem_offset, depth - 1);
                 }
+                depth--; // Finished this level
             }
-            depth--;
-        }
-        accx[index] = ax;
-        accy[index] = ay;
 
-        // Assigning force for force atlas.
-        float2 n1Pos = (float2) (px, py);
-        const float2 dimensions = (float2) (width, height);
-        const float2 centerVec = (dimensions / 2.0f) - n1Pos;
-        const float gForce = gravityForce(gravity, mass[index], centerVec, IS_STRONG_GRAVITY(flags));
-        pointForces[index] = normalize(centerVec) * gForce + forceVector;
+            // Assigning force for force atlas.
+            float2 n1Pos = (float2) (px, py);
+            const float2 dimensions = (float2) (width, height);
+            const float2 centerVec = (dimensions / 2.0f) - n1Pos;
+            const float gForce = gravityForce(gravity, mass[index], centerVec, IS_STRONG_GRAVITY(flags));
+            pointForces[index] = normalize(centerVec) * gForce + forceVector * mass[index];
 
         }
     }
