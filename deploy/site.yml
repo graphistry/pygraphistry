@@ -7,6 +7,8 @@
 # the global npm directory (including the global npm config file.) They may also need access for
 # CUDA/OpenCL stuff.
 
+# TODO: Automatically clear the MongoDB when deploying
+
 
 - hosts: localhost
   roles:
