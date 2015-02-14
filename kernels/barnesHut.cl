@@ -93,6 +93,8 @@ __kernel void bound_box(
         __global float* global_x_maxs,
         __global float* global_y_mins,
         __global float* global_y_maxs,
+        __global float* swings,
+        __global float* tractions,
         __global int* count,
         __global volatile int* blocked,
         __global volatile int* stepd,
@@ -106,7 +108,8 @@ __kernel void bound_box(
         const int num_bodies,
         const int num_nodes,
         __global float2* pointForces,
-        __global float2* prevForces
+        __global float2* prevForces,
+        float tau
 ){
 
     size_t tid = get_local_id(0);
@@ -212,6 +215,8 @@ __kernel void build_tree(
         __global float* global_x_maxs,
         __global float* global_y_mins,
         __global float* global_y_maxs,
+        __global float* swings,
+        __global float* tractions,
         __global int* count,
         __global volatile int* blocked,
         __global volatile int* step,
@@ -225,7 +230,8 @@ __kernel void build_tree(
         const int num_bodies,
         const int num_nodes,
         __global float2* pointForces,
-        __global float2* prevForces
+        __global float2* prevForces,
+        float tau
 ){
 
     int inc =  get_global_size(0);
@@ -395,6 +401,8 @@ __kernel void compute_sums(
         __global float* global_x_maxs,
         __global float* global_y_mins,
         __global float* global_y_maxs,
+        __global float* swings,
+        __global float* tractions,
         __global int* count,
         __global volatile int* blocked,
         __global volatile int* step,
@@ -408,7 +416,8 @@ __kernel void compute_sums(
         const int num_bodies,
         const int num_nodes,
         __global float2* pointForces,
-        __global float2* prevForces
+        __global float2* prevForces,
+        float tau
 ){
 
     int i, j, k, inc, num_children_missing, cnt, bottom_value, child, local_size;
@@ -519,6 +528,8 @@ __kernel void sort(
         __global float* global_x_maxs,
         __global float* global_y_mins,
         __global float* global_y_maxs,
+        __global float* swings,
+        __global float* tractions,
         __global int* count,
         __global volatile int* blocked,
         __global volatile int* step,
@@ -532,7 +543,8 @@ __kernel void sort(
         const int num_bodies,
         const int num_nodes,
         __global float2* pointForces,
-        __global float2* prevForces
+        __global float2* prevForces,
+        float tau
 ){
 
     int i, k, child, decrement, start_index, bottom_node;
@@ -656,6 +668,8 @@ __kernel void calculate_forces(
         __global float* global_x_maxs,
         __global float* global_y_mins,
         __global float* global_y_maxs,
+        __global float* swings,
+        __global float* tractions,
         __global int* count,
         __global int* blocked,
         __global int* step,
@@ -669,7 +683,8 @@ __kernel void calculate_forces(
         const int num_bodies,
         const int num_nodes,
         __global float2* pointForces,
-        __global float2* prevForces
+        __global float2* prevForces,
+        float tau
 ){
 
     const int idx = get_global_id(0);
@@ -838,6 +853,8 @@ __kernel void move_bodies(
         __global float* global_x_maxs,
         __global float* global_y_mins,
         __global float* global_y_maxs,
+        __global float* swings,
+        __global float* tractions,
         __global int* count,
         __global volatile int* blocked,
         __global volatile int* step,
@@ -851,7 +868,8 @@ __kernel void move_bodies(
         const int num_bodies,
         const int num_nodes,
         __global float2* pointForces,
-        __global float2* prevForces
+        __global float2* prevForces,
+        float tau
 ){
 
     /*const float dtime = 0.025f;*/
