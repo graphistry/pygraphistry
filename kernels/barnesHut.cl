@@ -117,14 +117,19 @@ __kernel void bound_box(
     size_t global_dim_size = get_global_size(0);
     size_t idx = get_global_id(0);
 
-    float minx, maxx, miny, maxy, swing, traction;
+    // TODO: Make sure we don't hit overflow issues with swing/traction summation ratio.
+    float minx, maxx, miny, maxy;
+    float swing, traction;
     float val;
     int inc = global_dim_size;
 
     // TODO: Make these kernel parameters, don't rely on macro
     __local float sminx[THREADS1], smaxx[THREADS1], sminy[THREADS1], smaxy[THREADS1];
+    __local float local_swings[THREADS1], local_tractions[THREADS1];
     minx = maxx = x_cords[0];
     miny = maxy = y_cords[0];
+    swing = 0.0f;
+    traction = 0.0f;
 
     // For every body s.t. body_id % global_size == idx,
     // compute the min and max.
@@ -135,6 +140,8 @@ __kernel void bound_box(
         val = y_cords[j];
         miny = min(val, miny);
         maxy = max(val, maxy);
+        swing += swings[j];
+        traction += tractions[j];
     }
 
     // Standard reduction in shared memory to compute max/min for our
@@ -143,6 +150,8 @@ __kernel void bound_box(
     smaxx[tid] = maxx;
     sminy[tid] = miny;
     smaxy[tid] = maxy;
+    local_swings[tid] = swing;
+    local_tractions[tid] = traction;
     barrier(CLK_LOCAL_MEM_FENCE);
 
     for(int step = (dim / 2); step > 0; step = step / 2) {
@@ -151,6 +160,8 @@ __kernel void bound_box(
             smaxx[tid] = maxx = max(smaxx[tid], smaxx[tid + step]);
             sminy[tid] = miny = min(sminy[tid] , sminy[tid + step]);
             smaxy[tid] = maxy = max(smaxy[tid], smaxy[tid + step]);
+            local_swings[tid] = swing = local_swings[tid] + local_swings[tid + step];
+            local_tractions[tid] = traction = local_tractions[tid] + local_tractions[tid + step];
         }
         barrier(CLK_LOCAL_MEM_FENCE);
     }
@@ -163,6 +174,11 @@ __kernel void bound_box(
         global_y_mins[gid] = miny;
         global_y_maxs[gid] = maxy;
 
+        // We use swings/tractions as buffer here, even though it's waaay larger than
+        // necessary for this purpose.
+        swings[gid] = swing;
+        tractions[gid] = traction;
+
         inc = (global_dim_size / dim) - 1;
         if (inc == atomic_inc(blocked)) {
 
@@ -173,7 +189,18 @@ __kernel void bound_box(
                 maxx = max(maxx, global_x_maxs[j]);
                 miny = min(miny, global_y_mins[j]);
                 maxy = max(maxy, global_y_maxs[j]);
+                swing = swing + swings[j];
+                traction = traction + tractions[j];
             }
+
+            // Compute global speed
+            if (step_number > 1) {
+                *globalSpeed = min(tau * (traction / swing), *globalSpeed * 2);
+            } else {
+                *globalSpeed = 1.0f;
+            }
+
+            printf("Global Speed: %f\n", *globalSpeed);
 
             // Compute the radius
             val = max(maxx - minx, maxy - miny);
