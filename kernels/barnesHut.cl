@@ -200,8 +200,6 @@ __kernel void bound_box(
                 *globalSpeed = 1.0f;
             }
 
-            printf("Global Speed: %f\n", *globalSpeed);
-
             // Compute the radius
             val = max(maxx - minx, maxy - miny);
             *radiusd = (float) (val* 0.5f);
