@@ -105,7 +105,8 @@ __kernel void bound_box(
         float height,
         const int num_bodies,
         const int num_nodes,
-        __global float2* pointForces
+        __global float2* pointForces,
+        __global float2* prevForces
 ){
 
     size_t tid = get_local_id(0);
@@ -223,7 +224,8 @@ __kernel void build_tree(
         float height,
         const int num_bodies,
         const int num_nodes,
-        __global float2* pointForces
+        __global float2* pointForces,
+        __global float2* prevForces
 ){
 
     int inc =  get_global_size(0);
@@ -405,7 +407,8 @@ __kernel void compute_sums(
         float height,
         const int num_bodies,
         const int num_nodes,
-        __global float2* pointForces
+        __global float2* pointForces,
+        __global float2* prevForces
 ){
 
     int i, j, k, inc, num_children_missing, cnt, bottom_value, child, local_size;
@@ -528,7 +531,8 @@ __kernel void sort(
         float height,
         const int num_bodies,
         const int num_nodes,
-        __global float2* pointForces
+        __global float2* pointForces,
+        __global float2* prevForces
 ){
 
     int i, k, child, decrement, start_index, bottom_node;
@@ -664,7 +668,8 @@ __kernel void calculate_forces(
         float height,
         const int num_bodies,
         const int num_nodes,
-        __global float2* pointForces
+        __global float2* pointForces,
+        __global float2* prevForces
 ){
 
     const int idx = get_global_id(0);
@@ -845,7 +850,8 @@ __kernel void move_bodies(
         float height,
         const int num_bodies,
         const int num_nodes,
-        __global float2* pointForces
+        __global float2* pointForces,
+        __global float2* prevForces
 ){
 
     /*const float dtime = 0.025f;*/
