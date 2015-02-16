@@ -7,6 +7,7 @@
 var Rx          = require('rx');
 var _           = require('underscore');
 var debug       = require('debug')('graphistry:graph-viz:driver:viz-server');
+var perf        = require('debug')('perf');
 var fs          = require('fs');
 var path        = require('path');
 var rConf       = require('./js/renderer.config.js');
@@ -38,6 +39,7 @@ var ticksMulti;
 
 //most recent tick
 var graph;
+
 
 
 // ----- INITIALIZATION ------------------------------------
@@ -135,6 +137,7 @@ function init(app, socket) {
 
     app.get('/vbo', function(req, res) {
         debug('VBOs: HTTP GET %s', req.originalUrl);
+        perf('VBO request');
 
         try {
             // TODO: check that query parameters are present, and that given id, buffer exist
@@ -235,6 +238,13 @@ function init(app, socket) {
 }
 
 function stream(socket, renderConfig, colorTexture) {
+
+    // This is a hacky way to prevent flooding the main JS thread with
+    // synchronous GPU work when waiting for the client to signal receiving
+    // VBOs.
+    // TODO: Remove when we get async GPU bindings.
+    var safeToInteract = true;
+
     // ========== BASIC COMMANDS
 
     lastCompressedVbos[socket.id] = {};
@@ -266,9 +276,12 @@ function stream(socket, renderConfig, colorTexture) {
 
 
     socket.on('interaction', function (payload) {
+        perf('Got Interaction');
         debug('Got interaction:', payload);
-        var defaults = {play: false, layout: false}
-        animStep.interact(_.extend(defaults, payload || {}));
+        if (safeToInteract) {
+            var defaults = {play: false, layout: false}
+            animStep.interact(_.extend(defaults, payload || {}));
+        }
     });
 
     socket.on('get_labels', function (labels, cb) {
@@ -289,7 +302,9 @@ function stream(socket, renderConfig, colorTexture) {
     var clientReady = new Rx.ReplaySubject(1);
     clientReady.onNext(true);
     socket.on('received_buffers', function (time) {
+        perf('Received buffers');
         debug('Client end-to-end time', time);
+        safeToInteract = true;
         clientReady.onNext(true);
     });
 
@@ -366,6 +381,8 @@ function stream(socket, renderConfig, colorTexture) {
                         lastVersions = vbos.versions;
 
                         debug('notifying client of buffer metadata', metadata);
+                        perf('===Sending VBO Update===');
+                        safeToInteract = false;
                         return emitFnWrapper('vbo_update', metadata);
 
                     }).do(
