@@ -1,4 +1,10 @@
 ---
+- name: Install sysstat for use by Splunk Add-on for Unix
+  apt: pkg=sysstat
+       state=latest
+       update_cache=yes
+       cache_valid_time=600
+
 - name: Downlad Splunk Universal Forwarder
   sudo: no
   get_url: url="http://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=Linux&version=6.2.1&product=universalforwarder&filename=splunkforwarder-6.2.1-245427-linux-2.6-amd64.deb&wget=true"
