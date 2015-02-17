@@ -37,6 +37,7 @@
   notify: Add reaper.py to Supervisor
   tags:
     - supervisor
+    - reaper
 
 - name: Upload reaper.py
   template: src=reaper.py.j2
@@ -49,3 +50,4 @@
   notify: Restart reaper.py
   tags:
     - supervisor
+    - reaper
