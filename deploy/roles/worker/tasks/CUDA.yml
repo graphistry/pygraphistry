@@ -89,7 +89,6 @@
     - cmake
     - unzip
     - pigz
-  tags: worker
 
 - name: Configure Bash environment to support CUDA
   copy: src=50graphistry-cuda.sh
@@ -99,7 +98,6 @@
         group=root
         mode=0755
   sudo: true
-  tags: worker
 
 - name: Clone GLFW
   git: repo=https://github.com/glfw/glfw.git
@@ -109,28 +107,23 @@
        update=yes
        accept_hostkey=yes
   register: glfw
-  tags: worker
 
 - name: Generate GLFW makefiles
   command: chdir={{ ansible_files }}/glfw cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=TRUE
   when: glfw.changed
-  tags: worker
 
 - name: Make GLFW
   command: chdir={{ ansible_files }}/glfw make
   when: glfw.changed
-  tags: worker
 
 - name: Install GLFW
   command: chdir={{ ansible_files }}/glfw make install
   sudo: yes
   when: glfw.changed
-  tags: worker
 
 - name: Download AntTweakBar
   get_url: dest={{ ansible_files }}/AntTweakBar_116.zip
            url=http://sourceforge.net/projects/anttweakbar/files/latest/download
-  tags: worker
 
 - name: Unzip AntTweakBar
   unarchive: src={{ ansible_files }}/AntTweakBar_116.zip
@@ -145,16 +138,13 @@
   command: chdir={{ ansible_files }}/AntTweakBar/src make
   sudo: yes
   when: anttweak_downloaded.changed
-  tags: worker
 
 - name: Move AntTweakBar shared lib (1 of 2)
   command: chdir={{ ansible_files }}/AntTweakBar/src mv ../lib/libAntTweakBar.so /usr/lib/
   when: anttweak_downloaded.changed
   sudo: yes
-  tags: worker
 
 - name: Move AntTweakBar shared lib (2 of 2)
   command: chdir={{ ansible_files }}/AntTweakBar/src mv ../lib/libAntTweakBar.so.1 /usr/lib/
   when: anttweak_downloaded.changed
   sudo: yes
-  tags: worker
