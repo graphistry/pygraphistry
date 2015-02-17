@@ -79,7 +79,7 @@
   sudo: false
 
 - name: Install CUDA packages
-  apt: pkg={{ item }} state=present update_cache=yes cache_valid_time=300
+  apt: pkg={{ item }} state=present update_cache=yes cache_valid_time=600
   sudo: yes
   with_items:
     - cuda
@@ -88,7 +88,6 @@
     - libxi-dev
     - cmake
     - unzip
-    - pigz
 
 - name: Configure Bash environment to support CUDA
   copy: src=50graphistry-cuda.sh

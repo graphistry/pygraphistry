@@ -1,6 +1,15 @@
 ---
 - { include: CUDA.yml, tags: [ 'cuda' ] }
 
+- name: Install pigz
+  apt: pkg=pigz state=present update_cache=yes cache_valid_time=600
+  sudo: yes
+
+- name: Install Kerberos dev libs (needed for MongoDB node module)
+  apt: pkg=libkrb5-dev state=installed update_cache=yes cache_valid_time=600
+  sudo: yes
+  sudo_user: root
+
 - name: Install Python packages
   pip: name={{ item }}
   with_items:
@@ -16,15 +25,6 @@
         owner=www
         group=root
         mode=0777
-
-- name: Install Kerberos dev libs (needed for MongoDB node module)
-  apt: pkg=libkrb5-dev state=installed update_cache=yes cache_valid_time=600
-  sudo: yes
-  sudo_user: root
-
-- name: Install pigz
-  apt: pkg=pigz state=installed update_cache=yes cache_valid_time=600
-  sudo: yes
 
 - name: Set Supervisor config for reaper.py
   template: src=reaper.conf.j2
