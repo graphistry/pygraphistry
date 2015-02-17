@@ -101,10 +101,8 @@
 - name: Clone GLFW
   git: repo=https://github.com/glfw/glfw.git
        dest={{ ansible_files }}/glfw
-       key_file={{ ansible_env.HOME }}/.ssh/deploy_id_rsa
        version=master
-       update=yes
-       accept_hostkey=yes
+       update=no
   register: glfw
 
 - name: Generate GLFW makefiles
