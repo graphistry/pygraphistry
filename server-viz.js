@@ -239,12 +239,6 @@ function init(app, socket) {
 
 function stream(socket, renderConfig, colorTexture) {
 
-    // This is a hacky way to prevent flooding the main JS thread with
-    // synchronous GPU work when waiting for the client to signal receiving
-    // VBOs.
-    // TODO: Remove when we get async GPU bindings.
-    var safeToInteract = true;
-
     // ========== BASIC COMMANDS
 
     lastCompressedVbos[socket.id] = {};
@@ -278,10 +272,9 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('interaction', function (payload) {
         profiling('Got Interaction');
         debug('Got interaction:', payload);
-        if (safeToInteract) {
-            var defaults = {play: false, layout: false}
-            animStep.interact(_.extend(defaults, payload || {}));
-        }
+        // TODO: Find a way to avoid flooding main thread waiting for GPU ticks.
+        var defaults = {play: false, layout: false}
+        animStep.interact(_.extend(defaults, payload || {}));
     });
 
     socket.on('get_labels', function (labels, cb) {
@@ -304,7 +297,6 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('received_buffers', function (time) {
         profiling('Received buffers');
         debug('Client end-to-end time', time);
-        safeToInteract = true;
         clientReady.onNext(true);
     });
 
@@ -382,7 +374,6 @@ function stream(socket, renderConfig, colorTexture) {
 
                         debug('notifying client of buffer metadata', metadata);
                         profiling('===Sending VBO Update===');
-                        safeToInteract = false;
                         return emitFnWrapper('vbo_update', metadata);
 
                     }).do(
