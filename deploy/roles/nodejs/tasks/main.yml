@@ -109,6 +109,12 @@
   sudo: yes
   with_items: npm_subdirs
 
+- name: Find graphistry-dev GID
+  group: name=graphistry-dev state=present
+  sudo: yes
+  sudo_user: root
+  register: graphistry_dev_group
+
 - name: Upload npm global config
   template: src=npmrc.j2
             dest={{ npm_global_path }}/etc/npmrc

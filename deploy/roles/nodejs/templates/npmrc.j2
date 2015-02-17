@@ -3,6 +3,8 @@
 prefix={{ npm_global_path }}
 globalconfig={{ npm_global_path }}/etc/npmrc
 
+; If we ever run npm scripts as root, run them under the graphistry-dev group
+group={{ graphistry_dev_group.gid }}
 ; Equivalent to umask of 0002.
 ; Directories/binaries have permissions 0777^0002=0775, and regular files are 0666^0002=0664
 umask=2
