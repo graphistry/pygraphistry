@@ -7,7 +7,7 @@
 var Rx          = require('rx');
 var _           = require('underscore');
 var debug       = require('debug')('graphistry:graph-viz:driver:viz-server');
-var perf        = require('debug')('perf');
+var profiling   = require('debug')('profiling');
 var fs          = require('fs');
 var path        = require('path');
 var rConf       = require('./js/renderer.config.js');
@@ -137,7 +137,7 @@ function init(app, socket) {
 
     app.get('/vbo', function(req, res) {
         debug('VBOs: HTTP GET %s', req.originalUrl);
-        perf('VBO request');
+        profiling('VBO request');
 
         try {
             // TODO: check that query parameters are present, and that given id, buffer exist
@@ -276,7 +276,7 @@ function stream(socket, renderConfig, colorTexture) {
 
 
     socket.on('interaction', function (payload) {
-        perf('Got Interaction');
+        profiling('Got Interaction');
         debug('Got interaction:', payload);
         if (safeToInteract) {
             var defaults = {play: false, layout: false}
@@ -302,7 +302,7 @@ function stream(socket, renderConfig, colorTexture) {
     var clientReady = new Rx.ReplaySubject(1);
     clientReady.onNext(true);
     socket.on('received_buffers', function (time) {
-        perf('Received buffers');
+        profiling('Received buffers');
         debug('Client end-to-end time', time);
         safeToInteract = true;
         clientReady.onNext(true);
@@ -381,7 +381,7 @@ function stream(socket, renderConfig, colorTexture) {
                         lastVersions = vbos.versions;
 
                         debug('notifying client of buffer metadata', metadata);
-                        perf('===Sending VBO Update===');
+                        profiling('===Sending VBO Update===');
                         safeToInteract = false;
                         return emitFnWrapper('vbo_update', metadata);
 
