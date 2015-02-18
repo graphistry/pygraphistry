@@ -16,7 +16,6 @@
     "dns": "^0.2.2",
     "express": "^4.10.4",
     "gl-matrix": "^2.1.0",
-    "jquery": "^2.1.1",
     "mongodb": "*",
     "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
     "node-webcl": "git+ssh://git@github.com:graphistry/node-webcl-old.git#master",
