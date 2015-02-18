@@ -280,7 +280,8 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('get_labels', function (labels, cb) {
         graph.take(1)
             .do(function (graph) {
-                var hits = labels.map(function (idx) { return graph.simulator.labels[idx]; });
+                var offset = graph.simulator.timeSubset.pointsRange.startIdx;
+                var hits = labels.map(function (idx) { return graph.simulator.labels[offset + idx]; });
                 cb(null, hits);
             })
             .subscribe(_.identity, makeErrorHandler('get_labels'));
