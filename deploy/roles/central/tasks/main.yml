@@ -70,7 +70,7 @@
 - name: Install central module
   npm: path={{ graphistry_install_path }}/central
        state=latest
-  environment: cuda_env
+  environment: nodecl_env
   notify: Restart central
 
 - name: Install nginx

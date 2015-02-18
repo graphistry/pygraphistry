@@ -47,5 +47,5 @@
 - name: Install viz-server module
   npm: path={{ graphistry_install_path }}/viz-server
        state=latest
-  environment: cuda_env
+  environment: nodecl_env
   notify: Restart workers

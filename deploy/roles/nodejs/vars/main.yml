@@ -1,6 +1,4 @@
 ---
-npm_global_path: "/opt/npm_global"
-
 npm_subdirs:
     - "{{ npm_global_path }}"
     - "{{ npm_global_path }}/etc"
