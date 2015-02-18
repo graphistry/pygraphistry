@@ -23,5 +23,4 @@ __kernel void moveNodes (
     } else {
         outputPositions[i] = node;
     }
-
 }

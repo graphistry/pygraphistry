@@ -11,7 +11,7 @@ var profiling   = require('debug')('profiling');
 var fs          = require('fs');
 var path        = require('path');
 var rConf       = require('./js/renderer.config.js');
-var loader      = require("./js/data-loader.js");
+var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var compress    = require('node-pigz');
 var StreamGL    = require('StreamGL');
@@ -161,10 +161,6 @@ function init(app, socket) {
     app.get('/texture', function (req, res) {
         debug('got texture req', req.originalUrl, req.query);
         try {
-
-            var textureName = req.query.texture;
-            var id = req.query.id;
-
             colorTexture.pluck('buffer').do(
                 function (data) {
                     res.set('Content-Encoding', 'gzip');
@@ -204,7 +200,7 @@ function init(app, socket) {
         resetState(dataset);
         return rConf.scenes[config.scene];
     }).fail(function (err) {
-        console.error("ERROR in initialization: ", (err||{}).stack);
+        console.error('ERROR in initialization: ', (err||{}).stack);
     });
 
     socket.on('get_render_config', function() {
@@ -212,7 +208,7 @@ function init(app, socket) {
         theRenderConfig.then(function (renderConfig) {
             socket.emit('render_config', renderConfig);
         }).fail(function (err) {
-            console.error("ERROR sending rendererConfig ", (err||{}).stack);
+            console.error('ERROR sending rendererConfig ', (err||{}).stack);
         });
     });
 
@@ -220,7 +216,7 @@ function init(app, socket) {
         theRenderConfig.then(function (renderConfig) {
             stream(socket, renderConfig, colorTexture);
         }).fail(function (err) {
-            console.error("ERROR streaming ", (err||{}).stack);
+            console.error('ERROR streaming ', (err||{}).stack);
         });
     });
 
@@ -230,7 +226,7 @@ function init(app, socket) {
             resetState(dataset);
             cb();
         }).fail(function (err) {
-            console.error("ERROR resetting graph ", (err||{}).stack);
+            console.error('ERROR resetting graph ', (err||{}).stack);
         });
     });
 
@@ -408,7 +404,7 @@ if (require.main === module) {
         http    = require('http').Server(app),
         io      = require('socket.io')(http, {transports: ['websocket']});
 
-    debug("Config set to %j", config);
+    debug('Config set to %j', config);
 
     var nocache = function (req, res, next) {
         res.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
