@@ -118,6 +118,7 @@
        key_file=/home/mtorok/.ssh/deploy_id_rsa
        update=yes
        accept_hostkey=yes
+  register: mtorok_dotfile_repo
   sudo: yes
   sudo_user: mtorok
 
@@ -169,7 +170,7 @@
 - name: "[mtorok] Compiling Vim plugin 'YouCompleteMe'"
   command: /home/mtorok/.janus/YouCompleteMe/install.sh --clang-completer
            chdir=/home/mtorok/.janus/YouCompleteMe/
-           creates=/home/mtorok/.janus/YouCompleteMe/third_party/ycmd/ycm_core.so
+  when: mtorok_dotfile_repo.changed
   sudo: yes
   sudo_user: mtorok
   tags:
