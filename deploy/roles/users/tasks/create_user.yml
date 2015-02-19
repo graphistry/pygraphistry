@@ -4,8 +4,12 @@
   group: name='{{ user }}'
 
 - name: "Create user '{{ user }}'"
+  user: name='{{ user }}'
+        groups='{{ group_membership | union([user]) | join(",") }}'
+        group='{{ user }}'
+        shell=/bin/bash
+        append=yes
   sudo: true
-  user: name='{{ user }}' groups='admin,graphistry-dev,www,{{ user }}' group='{{ user }}' shell=/bin/bash
 
 - name: "Set {{ user }}'s SSH key"
   sudo: true
