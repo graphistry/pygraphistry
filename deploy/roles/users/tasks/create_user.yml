@@ -24,15 +24,5 @@
   sudo_user: "{{ user }}"
   when: pubkey_file.stat.exists
 
-# - name: "Allowing {{ user }} to sudo without entering a password"
-#   sudo: true
-#   lineinfile: "dest=/etc/sudoers.d/50-graphistry-users
-#               line='{{ user }} ALL=(ALL) NOPASSWD:ALL'
-#               state=present
-#               create=yes
-#               owner=root
-#               group=root
-#               mode=0440
-#               validate='visudo -cf %s'"
 
 - { include: configure_user.yml, sudo: yes, sudo_user: "{{ user }}", homedir: "/home/{{ user }}" }
