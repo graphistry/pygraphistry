@@ -174,32 +174,3 @@ __kernel void gaussSeidelSprings(
     }
     outputPoints[sourceIdx] = source;
 }
-
-
-__kernel void gaussSeidelSpringsGather(
-    const __global uint2* springs,         // Array of springs, of the form [source node, target node] (read-only)
-    const __global uint4* workList,            // Array of spring [source index, sinks length] pairs to compute (read-only)
-    const __global float2* inputPoints,      // Current point positions (read-only)
-    __global float4* springPositions   // Positions of the springs after forces are applied. Length
-                                       // len(springs) * 2: one float2 for start, one float2 for
-                                       // end. (write-only)
-    )
-{
-
-    const size_t workItem = (unsigned int) get_global_id(0);
-    const uint springsStart = workList[workItem].x;
-    const uint springsCount = workList[workItem].y;
-    if (springsCount == 0)
-        return;
-
-    const uint sourceIdx = springs[springsStart].x;
-    const float2 source = inputPoints[sourceIdx];
-
-    for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
-        const uint2 curSpring = springs[curSpringIdx];
-        const float2 target = inputPoints[curSpring.y];
-        debug5("Spring pos %f %f  ->  %f %f\n", source.x, source.y, target.x, target.y);
-        springPositions[curSpringIdx] = (float4) (source.x, source.y, target.x, target.y);
-    }
-
-}

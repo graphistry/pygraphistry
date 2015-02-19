@@ -3,3 +3,4 @@ config.json
 .tern-project
 tests.log
 kernels/debug.*
+.jshintrc

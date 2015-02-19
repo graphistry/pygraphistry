@@ -7,10 +7,11 @@
 var Rx          = require('rx');
 var _           = require('underscore');
 var debug       = require('debug')('graphistry:graph-viz:driver:viz-server');
+var profiling   = require('debug')('profiling');
 var fs          = require('fs');
 var path        = require('path');
 var rConf       = require('./js/renderer.config.js');
-var loader      = require("./js/data-loader.js");
+var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var compress    = require('node-pigz');
 var StreamGL    = require('StreamGL');
@@ -38,6 +39,7 @@ var ticksMulti;
 
 //most recent tick
 var graph;
+
 
 
 // ----- INITIALIZATION ------------------------------------
@@ -135,6 +137,7 @@ function init(app, socket) {
 
     app.get('/vbo', function(req, res) {
         debug('VBOs: HTTP GET %s', req.originalUrl);
+        profiling('VBO request');
 
         try {
             // TODO: check that query parameters are present, and that given id, buffer exist
@@ -158,10 +161,6 @@ function init(app, socket) {
     app.get('/texture', function (req, res) {
         debug('got texture req', req.originalUrl, req.query);
         try {
-
-            var textureName = req.query.texture;
-            var id = req.query.id;
-
             colorTexture.pluck('buffer').do(
                 function (data) {
                     res.set('Content-Encoding', 'gzip');
@@ -201,7 +200,7 @@ function init(app, socket) {
         resetState(dataset);
         return rConf.scenes[config.scene];
     }).fail(function (err) {
-        console.error("ERROR in initialization: ", (err||{}).stack);
+        console.error('ERROR in initialization: ', (err||{}).stack);
     });
 
     socket.on('get_render_config', function() {
@@ -209,7 +208,7 @@ function init(app, socket) {
         theRenderConfig.then(function (renderConfig) {
             socket.emit('render_config', renderConfig);
         }).fail(function (err) {
-            console.error("ERROR sending rendererConfig ", (err||{}).stack);
+            console.error('ERROR sending rendererConfig ', (err||{}).stack);
         });
     });
 
@@ -217,7 +216,7 @@ function init(app, socket) {
         theRenderConfig.then(function (renderConfig) {
             stream(socket, renderConfig, colorTexture);
         }).fail(function (err) {
-            console.error("ERROR streaming ", (err||{}).stack);
+            console.error('ERROR streaming ', (err||{}).stack);
         });
     });
 
@@ -227,7 +226,7 @@ function init(app, socket) {
             resetState(dataset);
             cb();
         }).fail(function (err) {
-            console.error("ERROR resetting graph ", (err||{}).stack);
+            console.error('ERROR resetting graph ', (err||{}).stack);
         });
     });
 
@@ -235,6 +234,7 @@ function init(app, socket) {
 }
 
 function stream(socket, renderConfig, colorTexture) {
+
     // ========== BASIC COMMANDS
 
     lastCompressedVbos[socket.id] = {};
@@ -266,15 +266,18 @@ function stream(socket, renderConfig, colorTexture) {
 
 
     socket.on('interaction', function (payload) {
+        profiling('Got Interaction');
         debug('Got interaction:', payload);
-        var defaults = {play: false, layout: false}
+        // TODO: Find a way to avoid flooding main thread waiting for GPU ticks.
+        var defaults = {play: false, layout: false};
         animStep.interact(_.extend(defaults, payload || {}));
     });
 
     socket.on('get_labels', function (labels, cb) {
         graph.take(1)
             .do(function (graph) {
-                var hits = labels.map(function (idx) { return graph.simulator.labels[idx]; });
+                var offset = graph.simulator.timeSubset.pointsRange.startIdx;
+                var hits = labels.map(function (idx) { return graph.simulator.labels[offset + idx]; });
                 cb(null, hits);
             })
             .subscribe(_.identity, makeErrorHandler('get_labels'));
@@ -289,6 +292,7 @@ function stream(socket, renderConfig, colorTexture) {
     var clientReady = new Rx.ReplaySubject(1);
     clientReady.onNext(true);
     socket.on('received_buffers', function (time) {
+        profiling('Received buffers');
         debug('Client end-to-end time', time);
         clientReady.onNext(true);
     });
@@ -366,6 +370,7 @@ function stream(socket, renderConfig, colorTexture) {
                         lastVersions = vbos.versions;
 
                         debug('notifying client of buffer metadata', metadata);
+                        profiling('===Sending VBO Update===');
                         return emitFnWrapper('vbo_update', metadata);
 
                     }).do(
@@ -399,7 +404,7 @@ if (require.main === module) {
         http    = require('http').Server(app),
         io      = require('socket.io')(http, {transports: ['websocket']});
 
-    debug("Config set to %j", config);
+    debug('Config set to %j', config);
 
     var nocache = function (req, res, next) {
         res.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
