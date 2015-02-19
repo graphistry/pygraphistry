@@ -1,13 +1,18 @@
 ---
 
 # TODO: Ensure that the process that the nodejs apps (central, workers) run under (currently 'www')
-# has limited access. The user should not be a login user. Central should only have write access to
-# /var/log/clients/, and the workers should have no write access (Supervisor takes care of writing
-# their stdout/stderr to /var/log/...). They should have read-only access to their app folder and
-# the global npm directory (including the global npm config file.) They may also need access for
-# CUDA/OpenCL stuff.
+# has limited access. No home folder, only has read-only access to npm modules used, no access to
+# .git directories, ideally no access to any SSH keys, can only write to /var/log/clients.log.
 
 # TODO: Automatically clear the MongoDB when deploying
+
+# TODO: Secure sensitive data:
+# * Username/password variable files should be encrypted and/or distributed out-of-band.
+# * No SSH deploy key in repo (refactor GitHub tasks to use SSH agent forwarding).
+# * No Ansible SSH private key in repo (users use their own SSH keys to log in either as `ubuntu`,
+#   like present, or even as their own user account.)
+# * Review account creation and permissions on 'production' machines.
+# * Consider requiring passwords for `sudo` (refactor Ansible to prompt users for sudo password.)
 
 
 - hosts: localhost
