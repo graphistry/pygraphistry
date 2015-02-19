@@ -331,7 +331,6 @@ function stream(socket, renderConfig, colorTexture) {
                 debug('3. tell client about availablity', socket.id, ticker);
 
                 //for each buffer transfer
-                var sendingAllBuffers = new Rx.Subject();
                 var clientAckStartTime;
                 var clientElapsed;
                 var transferredBuffers = [];
@@ -343,7 +342,6 @@ function stream(socket, renderConfig, colorTexture) {
                         debug('Socket', '...client ping ' + clientElapsed + 'ms');
                         debug('Socket', '...client asked for all buffers',
                             Date.now() - clientAckStartTime, 'ms');
-                        sendingAllBuffers.onNext();
                     }
                 };
 
@@ -351,7 +349,7 @@ function stream(socket, renderConfig, colorTexture) {
 
                 //notify of buffer/texture metadata
                 //FIXME make more generic and account in buffer notification status
-                colorTexture.flatMap(function (colorTexture) {
+                var receivedAll = colorTexture.flatMap(function (colorTexture) {
                         debug('4a. unwrapped texture meta', ticker);
 
                         var textures = {
@@ -380,12 +378,9 @@ function stream(socket, renderConfig, colorTexture) {
                             debug('6. client all received', socket.id, ticker);
                             clientElapsed = clientElapsedMsg;
                             clientAckStartTime = Date.now();
-                        })
-                    .subscribe(_.identity, makeErrorHandler('ERROR SENDING METADATA'));
+                        });
 
-                return sendingAllBuffers
-                    .take(1)
-                    .do(debug.bind('7. All in transit', socket.id, ticker));
+                return receivedAll;
             })
             .flatMap(function () {
                 debug('7. Wait for next anim step', socket.id, ticker);
