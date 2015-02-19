@@ -13,6 +13,3 @@ staging.graphistry.com
 
 [central]
 staging.graphistry.com
-
-[app_servers:children]
-workers
