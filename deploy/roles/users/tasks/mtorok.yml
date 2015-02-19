@@ -3,44 +3,6 @@
 # User creation
 ###############################################################################
 
-- name: "Create default group for user mtorok"
-  sudo: true
-  sudo_user: root
-  group: name='mtorok'
-
-- name: "Create user 'mtorok'"
-  sudo: true
-  sudo_user: root
-  user: name='mtorok' groups='admin,graphistry-dev,www,mtorok' group='mtorok' shell=/bin/bash
-
-- name: "Set mtorok's SSH key"
-  sudo: true
-  sudo_user: "mtorok"
-  authorized_key: user='mtorok' key='{{ lookup('file', 'ssh_keys/mtorok.pub') }}'
-
-- name: Upload deploy SSH key
-  copy: src=ssh_keys/deploy.pem
-        dest="/home/mtorok/.ssh/deploy_id_rsa"
-        owner="mtorok"
-        group="mtorok"
-        mode=0600
-  sudo: yes
-  sudo_user: "mtorok"
-
-- name: Register SSH deploy key
-  shell: 'eval "$(ssh-agent -s)" && ssh-add /home/mtorok/.ssh/deploy_id_rsa'
-  sudo: yes
-  sudo_user: "mtorok"
-
-- name: Set SSH config to use deploy key on GitHub
-  copy: src=ssh.config
-        dest="/home/mtorok/.ssh/config"
-        owner="mtorok"
-        group="mtorok"
-        mode=0600
-  sudo: yes
-  sudo_user: "mtorok"
-
 - name: "[mtorok] Create documents directory"
   file: path=/home/mtorok/Documents
         state=directory
