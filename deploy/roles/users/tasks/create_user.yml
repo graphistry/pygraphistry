@@ -24,5 +24,37 @@
   sudo_user: "{{ user }}"
   when: pubkey_file.stat.exists
 
+- name: Create ~/.ssh directory
+  file: path="/home/{{ user }}/.ssh"
+        state=directory
+        owner="{{ user }}"
+        group="{{ user }}"
+        mode=0700
+  sudo: yes
+  sudo_user: "{{ user }}"
 
-- { include: configure_user.yml, sudo: yes, sudo_user: "{{ user }}", homedir: "/home/{{ user }}" }
+- name: Upload deploy SSH key
+  copy: src=ssh_keys/deploy.pem
+        dest="/home/{{ user }}/.ssh/deploy_id_rsa"
+        owner="{{ user }}"
+        group="{{ user }}"
+        mode=0600
+  register: deploy_key
+  sudo: yes
+  sudo_user: "{{ user }}"
+
+- name: Register SSH deploy key
+  shell: 'eval "$(ssh-agent -s)" && ssh-add /home/{{ user }}/.ssh/deploy_id_rsa'
+  when: deploy_key|changed
+  sudo: yes
+  sudo_user: "{{ user }}"
+
+- name: Set SSH config to use deploy key on GitHub
+  copy: src=ssh.config
+        dest="/home/{{ user }}/.ssh/config"
+        owner="{{ user }}"
+        group="{{ user }}"
+        mode=0600
+        force=no
+  sudo: yes
+  sudo_user: "{{ user }}"
