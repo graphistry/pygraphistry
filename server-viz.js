@@ -377,7 +377,7 @@ function stream(socket, renderConfig, colorTexture) {
 
                     }).do(
                         function (clientElapsedMsg) {
-                            debug('6 ?. client all received', socket.id, ticker);
+                            debug('6. client all received', socket.id, ticker);
                             clientElapsed = clientElapsedMsg;
                             clientAckStartTime = Date.now();
                         })
@@ -388,14 +388,14 @@ function stream(socket, renderConfig, colorTexture) {
                     .do(debug.bind('7. All in transit', socket.id, ticker));
             })
             .flatMap(function () {
-                debug('8. Wait for next anim step', socket.id, ticker);
+                debug('7. Wait for next anim step', socket.id, ticker);
                 return ticksMulti
                     .take(1)
-                    .do(function () { debug('9. next ready!', socket.id, ticker); });
+                    .do(function () { debug('8. next ready!', socket.id, ticker); });
             })
             .map(_.constant(graph));
     })
-    .subscribe(function () { debug('10. LOOP ITERATED', socket.id); }, makeErrorHandler('ERROR LOOP'));
+    .subscribe(function () { debug('9. LOOP ITERATED', socket.id); }, makeErrorHandler('ERROR LOOP'));
 }
 
 
