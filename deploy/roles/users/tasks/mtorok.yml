@@ -121,6 +121,8 @@
   register: mtorok_dotfile_repo
   sudo: yes
   sudo_user: mtorok
+  tags:
+    - slow
 
 - name: "[mtorok] Symlink dotfiles"
   command: 'homesick link --force'
@@ -132,6 +134,8 @@
            chdir=/home/mtorok
   sudo: yes
   sudo_user: mtorok
+  tags:
+    - slow
 
 - name: "[mtorok] Download Janus install script"
   get_url: url='https://bit.ly/janus-bootstrap'
