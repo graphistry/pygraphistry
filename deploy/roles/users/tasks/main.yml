@@ -14,8 +14,6 @@
   sudo: yes
 
 
-- { include: configure_user.yml, sudo: yes, sudo_user: root, user: root, homedir: "/root" }
-
 - { include: www.yml }
 - { include: mtorok.yml, tags: [ 'mtorok' ] }
 - { include: create_user.yml, user: leo }
