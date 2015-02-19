@@ -269,7 +269,7 @@ function stream(socket, renderConfig, colorTexture) {
         profiling('Got Interaction');
         debug('Got interaction:', payload);
         // TODO: Find a way to avoid flooding main thread waiting for GPU ticks.
-        var defaults = {play: false, layout: false}
+        var defaults = {play: false, layout: false};
         animStep.interact(_.extend(defaults, payload || {}));
     });
 
