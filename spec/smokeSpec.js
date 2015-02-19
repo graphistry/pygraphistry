@@ -1,5 +1,7 @@
 'use strict';
 
+console.log(process.argv);
+
 var Rx           = require('rx');
 var _            = require('underscore');
 var fs           = require('fs');
@@ -12,6 +14,7 @@ var rConf        = require('../js/renderer.config.js');
 var loader       = require('../js/data-loader.js');
 var server       = require('../server-viz.js');
 var config       = require('config')();
+console.log(config);
 var ioClient     = require('socket.io-client');
 var supertest    = require('supertest');
 var express      = require('express');
@@ -42,15 +45,15 @@ describe ("[SMOKE] Server-viz", function () {
     var layoutOptions = {
         transports: ['websocket'],
         'force new connection': true,
-        query: {dataset: 'LayoutDebugLines'}
+        query: {dataset: 'NetflowSmall', controls:"barnes"}
     };
     var uberOptions = {
         transports: ['websocket'],
         'force new connection': true,
         query: {dataset: 'Uber'}
     };
-    var socketURL = 'http://localhost:3000';
-    var appURL = 'http://localhost:3000';
+    var socketURL = 'http://localhost:3001';
+    var appURL = 'http://localhost:3001';
     var theRenderConfig;
     var vboBuffer = {};
     var lastVbos = {};
@@ -83,6 +86,7 @@ describe ("[SMOKE] Server-viz", function () {
 
     // Setup
     // TODO: Consider having this callable in the server-viz itself
+    console.log(config.HTTP_LISTEN_PORT);
     it ("should setup http and socket listener", function (done) {
         var listen = Rx.Observable.fromNodeCallback(
                 http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();

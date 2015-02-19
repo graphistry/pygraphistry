@@ -1,3 +1,4 @@
+process.argv = {"HTTP_LISTEN_PORT":10100, "VIZ_LISTEN_PORT":3001};
 var Rx           = require('rx');
 var _            = require('underscore');
 var fs           = require('fs');
