@@ -11,10 +11,18 @@
         append=yes
   sudo: true
 
+- name: "Check if we have a SSH pubkey for {{ user }}"
+  local_action:
+    module: stat
+    path: "{{ playbook_dir }}/roles/users/files/ssh_keys/{{ user }}.pub"
+  sudo: no
+  register: pubkey_file
+
 - name: "Set {{ user }}'s SSH key"
+  authorized_key: user='{{ user }}' key='{{ lookup('file', 'ssh_keys/' +  user + '.pub') }}'
   sudo: true
   sudo_user: "{{ user }}"
-  authorized_key: user='{{ user }}' key='{{ lookup('file', 'ssh_keys/' +  user + '.pub') }}'
+  when: pubkey_file.stat.exists
 
 # - name: "Allowing {{ user }} to sudo without entering a password"
 #   sudo: true
