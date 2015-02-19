@@ -14,8 +14,8 @@
   sudo: yes
 
 
-- { include: www.yml }
 - { include: mtorok.yml, tags: [ 'mtorok' ] }
+- { include: create_user.yml, user: www, group_membership: [] }
 - { include: create_user.yml, user: leo }
 - { include: create_user.yml, user: thibaud }
 - { include: create_user.yml, user: quinn }
