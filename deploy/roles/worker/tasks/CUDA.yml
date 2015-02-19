@@ -1,12 +1,18 @@
 ---
-- name: "Tell apt to prioritize nvidia packages over all else"
-  copy: src=60nvidia
-        dest=/etc/apt/preferences.d/60nvidia
-        owner=root
-        group=root
-        mode=0644
+# - name: "Tell apt to prioritize nvidia packages over all else"
+#   copy: src=60nvidia
+#         dest=/etc/apt/preferences.d/60nvidia
+#         owner=root
+#         group=root
+#         mode=0644
+#   sudo: yes
+#   sudo_user: root
+#   tags: tmux
+
+- name: Remove nVidia apt package preferences
+  file: path=/etc/apt/preferences.d/60nvidia
+        state=absent
   sudo: yes
-  sudo_user: root
   tags: tmux
 
 - name: "Download CUDA repo .deb package"
