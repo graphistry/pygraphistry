@@ -1,4 +1,8 @@
 ---
+# Deploys the viz-worker app. The server should already be provisioned with the worker role, however
+# this role does not have an explicit Ansible dependency on the worker role because we often want
+# to run just this role (to do a deploy) and not the provisioning tasks in the worker role.
+
 - name: Ensure viz-server install path is owned by user 'www'
   sudo: yes
   sudo_user: root
