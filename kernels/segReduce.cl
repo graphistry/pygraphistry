@@ -142,9 +142,8 @@ __kernel void segReduce(
 
     float2 carryOut;
     float2 carryIn;
-    // TODO: Make this 2 instead of 4
     // TODO: Make sure this is initialized to 0s
-    __local float2 segScanBuffer[4*THREADS + 1]; // + 1 to be safe
+    __local float2 segScanBuffer[3*THREADS + 1]; // + 1 to be safe
 
     // Run an inclusive scan
     int first = 0;
