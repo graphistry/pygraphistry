@@ -14,9 +14,10 @@ varying vec4 vColor;
 
 attribute float isHighlighted;
 uniform float fog;
+uniform float stroke;
 
 void main(void) {
-    gl_PointSize = isHighlighted > 0.0 ? isHighlighted : clamp(pointSize, 0.125, 50.0);
+    gl_PointSize = stroke + (isHighlighted > 0.0 ? isHighlighted : clamp(pointSize, 0.125, 50.0));
 
     vec4 pos = mvp * vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);
     gl_Position = pos;
@@ -24,7 +25,7 @@ void main(void) {
     if (fog > 1.0) {
         float furthestComponent = max(abs(pos.x), abs(pos.y));
         float remapped = (-furthestComponent + SENSITIVITY) / SENSITIVITY;
-        float alpha =  remapped < 0.0 ? 0.7 : (0.7 + clamp(remapped, 0.0, 0.2));
+        float alpha =  remapped < 0.0 ? 0.6 : (0.6 + clamp(remapped, 0.0, 0.2));
         vColor = vec4(pointColor.x, pointColor.y, pointColor.z, alpha);
     } else {
         vColor = vec4(pointColor.xyz, 1.0);
