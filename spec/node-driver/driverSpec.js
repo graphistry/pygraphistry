@@ -6,7 +6,7 @@ var driver       = require('../../js/node-driver.js');
 var StreamGL     = require('StreamGL');
 var compress     = require('node-pigz');
 var renderer     = StreamGL.renderer;
-var renderConfig = require('../../js/renderer.config.js').scenes.default;
+var renderConfig = require('../../js/renderer.config.js').scenes.uber;
 var loader       = require('../../js/data-loader.js');
 
 describe("Smoke test for server loop", function() {
