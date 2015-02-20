@@ -42,8 +42,6 @@
        cache_valid_time=600
   with_items:
     - build-essential
-    - htop
-    - tcpflow
     - curl
     - git
     - vim
