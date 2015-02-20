@@ -14,6 +14,12 @@
 # * Review account creation and permissions on 'production' machines.
 # * Consider requiring passwords for `sudo` (refactor Ansible to prompt users for sudo password.)
 
+# TODO: write out lock/status file at beginning of deploys, with the user who ran ansible, time and
+# inventory filename. At the end of deploys, delete this file and add a similar file reporting
+# success (this file should be deleted at the beginning of deploys.) We can further add a check at
+# the beginning of deploys for this lock file (or maybe just lock files from other users?) and not
+# continue if one is found.
+
 
 - hosts: localhost
   roles:
