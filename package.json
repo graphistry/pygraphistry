@@ -26,7 +26,7 @@
     "rx": "^2.3.24",
     "socket.io": "^1.2.0",
     "socket.io-client": "^1.2.1",
-    "underscore": "^1.7.0",
+    "underscore": "~1.8.1",
     "supertest": "^0.15.0",
     "xhr2": "^0.1.1",
     "sprintf-js": "~1.0.2"
