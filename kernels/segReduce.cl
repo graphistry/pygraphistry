@@ -4,6 +4,7 @@
 #define VT 16
 #define WARPSIZE 32
 #define THREADS 64
+#define CARRYOUT_GLOBAL_MAX_SIZE 512
 
 
 // Segmented Reduction kernel, written for float2 types and addition operator
@@ -101,9 +102,10 @@ __kernel void segReduce(
     //////////////////////////////////////////////////////////////////////////
 
     for (int i = 0; (i < VT) && (i + initialOffset < numInput); i++) {
-        accumulator = i ? accumulator + input[initialOffset + i] : input[initialOffset + i]; // don't add if first
-        localScan[i] = accumulator;
-        if ((segStart[initialOffset + i]) != segStart[initialOffset + i + 1]) accumulator = ZERO; // 0 for sum, 1 for mult
+            accumulator = i ? accumulator + input[initialOffset + i] : input[initialOffset + i]; // don't add if first
+            localScan[i] = accumulator;
+            if ((initialOffset + i + 1 == numInput) || (segStart[initialOffset + i]) != segStart[initialOffset + i + 1])
+                accumulator = ZERO; // 0 for sum, 1 for mult
     }
 
     barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
@@ -120,7 +122,7 @@ __kernel void segReduce(
     int done = 0;
     int prevIdx = (gid - 1) * VT;
     int myIdx = gid * VT;
-    while (!done && prevIdx >= 0) {
+    while (!done && prevIdx >= 0 && myIdx + VT - 1 < numInput) {
         if (segStart[prevIdx + VT - 1] == segStart[myIdx + VT - 1]) {
             tidDelta += 1;
         } else {
@@ -140,6 +142,8 @@ __kernel void segReduce(
 
     float2 carryOut;
     float2 carryIn;
+    // TODO: Make this 2 instead of 4
+    // TODO: Make sure this is initialized to 0s
     __local float2 segScanBuffer[4*THREADS + 1]; // + 1 to be safe
 
     // Run an inclusive scan
@@ -171,7 +175,9 @@ __kernel void segReduce(
     // Store the carry-out for the entire workgroup to global memory.
     //////////////////////////////////////////////////////////////////////////
 
-    if (!tid) carryOut_global[group_id] = carryOut;
+    // If first thread in work group, and group_id < size of array
+    if (!tid && group_id < CARRYOUT_GLOBAL_MAX_SIZE)
+        carryOut_global[group_id] = carryOut;
 
     barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
     //////////////////////////////////////////////////////////////////////////
@@ -180,20 +186,21 @@ __kernel void segReduce(
     //////////////////////////////////////////////////////////////////////////
 
     // Pull in carryOut from previous workgroup if you're the first thread
-    if (!tid && group_id > 0) {
+    if (!tid && group_id > 0 && group_id < CARRYOUT_GLOBAL_MAX_SIZE) {
         carryIn += carryOut_global[group_id - 1];
     }
 
-    for (int i = 0; i < VT; i++) {
+    for (int i = 0; (i < VT) && (i + initialOffset < numInput); i++) {
         // Add the carry-in to the local scan.
         float2 accumulator2 = carryIn + localScan[i];
 
         // Store on the end flag and clear the carry-in.
-        if (segStart[initialOffset + i] != segStart[initialOffset + i + 1]) {
+        if ((initialOffset + i + 1 == numInput) || (segStart[initialOffset + i] != segStart[initialOffset + i + 1])) {
             carryIn = ZERO;
             output[segStart[initialOffset + i]] = accumulator2;
         }
     }
+
 
     barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
 
