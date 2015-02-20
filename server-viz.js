@@ -265,7 +265,16 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('get_labels', function (labels, cb) {
         graph.take(1)
             .do(function (graph) {
+
                 var offset = graph.simulator.timeSubset.pointsRange.startIdx;
+
+                if (!graph.simulator.labels.length) {
+                    return cb(null,
+                        labels.map(function (idx) {
+                            return 'node ' + (offset + idx);
+                        }));
+                }
+
                 var hits = labels.map(function (idx) { return graph.simulator.labels[offset + idx]; });
                 cb(null, hits);
             })
@@ -288,49 +297,49 @@ function stream(socket, renderConfig, colorTexture) {
 
     clientReady.subscribe(debug.bind('CLIENT STATUS'), debug.bind('ERROR clientReady'));
 
-    debug('SETTING UP CLIENT EVENT LOOP');
+    debug('SETTING UP CLIENT EVENT LOOP ===================================================================');
     var step = 0;
     var lastVersions = null;
     graph.expand(function (graph) {
         step++;
 
-        debug('1. Prefetch VBOs', socket.id, activeBuffers);
+        var ticker = {step: step};
+
+        debug('0. Prefetch VBOs', socket.id, activeBuffers, ticker);
 
         return driver.fetchData(graph, renderConfig, compress,
                                 activeBuffers, lastVersions, activePrograms)
             .do(function (vbos) {
-                debug('prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB');
+                debug('1. prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB', ticker);
                 //tell XHR2 sender about it
                 lastCompressedVbos[socket.id] = vbos.compressed;
             })
             .flatMap(function (vbos) {
-                debug('2. Waiting for client to finish previous', socket.id);
+                debug('2. Waiting for client to finish previous', socket.id, ticker);
                 return clientReady
                     .filter(_.identity)
                     .take(1)
                     .do(function () {
-                        debug('2b. Client ready, proceed and mark as processing.', socket.id);
+                        debug('2b. Client ready, proceed and mark as processing.', socket.id, ticker);
                         clientReady.onNext(false);
                     })
                     .map(_.constant(vbos));
             })
             .flatMap(function (vbos) {
-                debug('3. tell client about availablity', socket.id);
+                debug('3. tell client about availablity', socket.id, ticker);
 
                 //for each buffer transfer
-                var sendingAllBuffers = new Rx.Subject();
                 var clientAckStartTime;
                 var clientElapsed;
                 var transferredBuffers = [];
                 finishBufferTransfers[socket.id] = function (bufferName) {
-                    debug('3a ?. sending a buffer', bufferName, socket.id);
+                    debug('5a ?. sending a buffer', bufferName, socket.id, ticker);
                     transferredBuffers.push(bufferName);
                     if (transferredBuffers.length === requestedBuffers.length) {
-                        debug('3b. started sending all', socket.id);
+                        debug('5b. started sending all', socket.id, ticker);
                         debug('Socket', '...client ping ' + clientElapsed + 'ms');
                         debug('Socket', '...client asked for all buffers',
                             Date.now() - clientAckStartTime, 'ms');
-                        sendingAllBuffers.onNext();
                     }
                 };
 
@@ -338,8 +347,8 @@ function stream(socket, renderConfig, colorTexture) {
 
                 //notify of buffer/texture metadata
                 //FIXME make more generic and account in buffer notification status
-                colorTexture.flatMap(function (colorTexture) {
-                        debug('unwrapped texture meta');
+                var receivedAll = colorTexture.flatMap(function (colorTexture) {
+                        debug('4a. unwrapped texture meta', ticker);
 
                         var textures = {
                             colorMap: _.pick(colorTexture, ['width', 'height', 'bytes'])
@@ -349,40 +358,37 @@ function stream(socket, renderConfig, colorTexture) {
                         var metadata =
                             _.extend(
                                 _.pick(vbos, ['bufferByteLengths', 'elements']),
-                                {textures: textures,
+                                {
+                                    textures: textures,
                                     versions: {
-                                    buffers: vbos.versions,
-                                    textures: {
-                                        colorMap: 1
-                                    }
-                                }});
+                                        buffers: vbos.versions,
+                                        textures: {colorMap: 1}},
+                                    step: step
+                                });
                         lastVersions = vbos.versions;
 
-                        debug('notifying client of buffer metadata', metadata);
+                        debug('4b. notifying client of buffer metadata', metadata, ticker);
                         profiling('===Sending VBO Update===');
                         return emitFnWrapper('vbo_update', metadata);
 
                     }).do(
                         function (clientElapsedMsg) {
-                            debug('3d ?. client all received', socket.id);
+                            debug('6. client all received', socket.id, ticker);
                             clientElapsed = clientElapsedMsg;
                             clientAckStartTime = Date.now();
-                        })
-                    .subscribe(_.identity, makeErrorHandler('ERROR SENDING METADATA'));
+                        });
 
-                return sendingAllBuffers
-                    .take(1)
-                    .do(debug.bind('3c. All in transit', socket.id));
+                return receivedAll;
             })
             .flatMap(function () {
-                debug('4. Wait for next anim step', socket.id);
+                debug('7. Wait for next anim step', socket.id, ticker);
                 return ticksMulti
                     .take(1)
-                    .do(function () { debug('4b. next ready!', socket.id); });
+                    .do(function () { debug('8. next ready!', socket.id, ticker); });
             })
             .map(_.constant(graph));
     })
-    .subscribe(function () { debug('LOOP ITERATED', socket.id); }, makeErrorHandler('ERROR LOOP'));
+    .subscribe(function () { debug('9. LOOP ITERATED', socket.id); }, makeErrorHandler('ERROR LOOP'));
 }
 
 
