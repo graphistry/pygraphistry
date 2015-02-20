@@ -1,4 +1,7 @@
 # {{ ansible_managed }}
+
+# Don't change the hostname if the user has configured it themselves
 preserve_hostname: true
+
 hostname: "{{ inventory_hostname_short }}"
-fqdn: "inventory_hostname"
+fqdn: "{{ inventory_hostname }}"
