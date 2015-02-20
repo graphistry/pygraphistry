@@ -31,22 +31,28 @@
 
 - hosts: workers:central
   roles:
-   - { role: app_server, tags: [ 'app_server' ] }
+   - app_server
   tags:
+    - app_servers
     - provision
+    - workers
+    - central
 
 - hosts: workers
   roles:
    - { role: worker, tags: [ 'provision' ] }
-   - { role: viz-app, sudo: yes, sudo_user: www, tags: [ 'deploy', 'worker-deploy' ] }
+   - { role: viz-app, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
   gather_facts: yes
-  tags: workers
+  tags:
+    - workers
 
 - hosts: central
   roles:
-   - { role: central, sudo: yes, sudo_user: www, tags: [ 'deploy', 'central-deploy' ] }
+   - { role: central, sudo: yes, sudo_user: www }
   gather_facts: yes
-  tags: central
+  tags:
+    - central
+    - deploy
 
 
 - hosts: localhost
