@@ -276,7 +276,16 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('get_labels', function (labels, cb) {
         graph.take(1)
             .do(function (graph) {
+
                 var offset = graph.simulator.timeSubset.pointsRange.startIdx;
+
+                if (!graph.simulator.labels.length) {
+                    return cb(null,
+                        labels.map(function (idx) {
+                            return 'node ' + (offset + idx);
+                        }));
+                }
+
                 var hits = labels.map(function (idx) { return graph.simulator.labels[offset + idx]; });
                 cb(null, hits);
             })
