@@ -4,7 +4,7 @@
 #define VT 16
 #define WARPSIZE 32
 #define THREADS 64
-#define CARRYOUT_GLOBAL_MAX_SIZE 512
+#define CARRYOUT_GLOBAL_MAX_SIZE 4096
 
 
 // Segmented Reduction kernel, written for float2 types and addition operator
@@ -14,7 +14,10 @@
 // numInput = 11
 // numOutput = 4
 // input = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-// offsets = [0, 3, 7, 9]
+
+//      indices: 0  1  2  3
+// offsets =    [0, 3, 7, 9]
+// segStart = [0,0,0,1,1,1,2,2,2,2,...]
 //
 // output = [6, 24, 17, 21]
 
@@ -24,7 +27,7 @@ __kernel void segReduce(
         __global uint* segStart,            // length = numInput
         __global uint* offsets,             // length = numOutput
         uint numOutput,
-        __global float2* carryOut_global,    // length = ceil(numInput / local_size)
+        __global float2* carryOut_global,    // length = ceil(numInput / local_size) capped at CARRYOUT_GLOBAL_MAX_SIZE
         __global float2* output             // length = numOutput
 ) {
 
