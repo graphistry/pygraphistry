@@ -16,7 +16,8 @@ describe("Smoke test for server loop", function() {
     var ticks;
 
     beforeEach(function() {
-        theDataset = loader.downloadDataset({dataset: 'Uber'});
+        theDataset = loader.downloadDataset({dataset: 'Uber', controls: 'uber',
+                                             scene: 'uber', type: 'OBSOLETE_geo'});
         activeBuffers = renderer.getServerBufferNames(renderConfig)
         activePrograms = renderConfig.render;
         ticks = theDataset.then(function(dataset){

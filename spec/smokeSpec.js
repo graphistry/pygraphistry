@@ -42,12 +42,12 @@ describe ("[SMOKE] Server-viz", function () {
     var layoutOptions = {
         transports: ['websocket'],
         'force new connection': true,
-        query: {dataset: 'LayoutDebugLines'}
+        query: {dataset: 'LayoutDebugLines', scene: 'netflow', type: 'vgraph'}
     };
     var uberOptions = {
         transports: ['websocket'],
         'force new connection': true,
-        query: {dataset: 'Uber'}
+        query: {dataset: 'Uber', controls: 'uber', scene: 'uber', type: 'OBSOLETE_geo'}
     };
     var socketURL = 'http://localhost:3000';
     var appURL = 'http://localhost:3000';
@@ -110,7 +110,7 @@ describe ("[SMOKE] Server-viz", function () {
             theRenderConfig = render_config;
             expect(render_config).toBeDefined();
             var render_list = ['pointpicking', 'pointsampling',
-                'edgeculled', 'pointculled'];
+                'edgeculled', 'pointoutline', 'pointculled'];
             expect(render_config.render).toEqual(render_list);
             var program_list = ['pointculled', 'edgeculled'];
             expect(_.keys(render_config.programs)).toEqual(program_list);
