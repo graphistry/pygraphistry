@@ -1,0 +1,30 @@
+---
+# Provisions app servers (that is, the servers running the viz workers and/or cental.)
+# This task list contains a few basic tasks common to app servers, but most of the work is done via
+# dependencies of this task.
+
+- name: Install Supervisor
+  apt: pkg=supervisor
+       state=latest
+       update_cache=yes
+       cache_valid_time=300
+  register: supervisor_install
+  sudo: yes
+  sudo_user: root
+
+- name: Start Supervisor
+  service: name=supervisor
+           state=started
+           enabled=yes
+  sudo: yes
+  sudo_user: root
+
+- name: Configure Supervisor
+  copy: src=supervisord.conf
+        dest=/etc/supervisor/supervisord.conf
+        owner=root
+        group=root
+        mode=0664
+  sudo: yes
+  sudo_user: root
+  notify: Restart Supervisor

@@ -51,7 +51,6 @@
     - python-pip
     - unattended-upgrades
     - python-psutil
-    - supervisor
     - ntp
     - pkg-config
     - acl
@@ -72,28 +71,3 @@
          state=mounted
   sudo: yes
 
-- name: Install Supervisor
-  apt: pkg=supervisor
-       state=latest
-       update_cache=yes
-       cache_valid_time=300
-  register: supervisor_install
-  sudo: yes
-  sudo_user: root
-
-- name: Start Supervisor
-  service: name=supervisor
-           state=started
-           enabled=yes
-  sudo: yes
-  sudo_user: root
-
-- name: Configure Supervisor
-  copy: src=supervisord.conf
-        dest=/etc/supervisor/supervisord.conf
-        owner=root
-        group=root
-        mode=0664
-  sudo: yes
-  sudo_user: root
-  notify: Restart Supervisor
