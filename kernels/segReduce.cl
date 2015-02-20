@@ -88,7 +88,7 @@ __kernel void segReduce(
     for (int i = gid; i < numOutput; i += global_size) {
         int start = offsets[i];
         int stop = (i == numOutput - 1) ? numInput : offsets[i + 1]; // Exclusive stop -- should not be included in sum
-        for (int idx = start; i < stop; i++) {
+        for (int idx = start; idx < stop; idx++) {
             segStart[idx] = start;
         }
     }
@@ -98,89 +98,89 @@ __kernel void segReduce(
     // Run the segmented scan inside the thread
     //////////////////////////////////////////////////////////////////////////
 
-    for (int i = 0; (i < VT) && (i + initialOffset < numInput); i++) {
-        accumulator = i ? accumulator + input[initialOffset + i] : input[initialOffset + i]; // don't add if first
-        localScan[initialOffset + i] = accumulator;
-        if ((segStart[initialOffset + i]) != segStart[initialOffset + i + 1]) accumulator = ZERO; // 0 for sum, 1 for mult
-    }
+    // for (int i = 0; (i < VT) && (i + initialOffset < numInput); i++) {
+    //     accumulator = i ? accumulator + input[initialOffset + i] : input[initialOffset + i]; // don't add if first
+    //     localScan[initialOffset + i] = accumulator;
+    //     if ((segStart[initialOffset + i]) != segStart[initialOffset + i + 1]) accumulator = ZERO; // 0 for sum, 1 for mult
+    // }
 
-    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
-    //////////////////////////////////////////////////////////////////////////
-    // Figure out tidDelta
-    //
-    // tidDelta is the difference between a thread's index and the index
-    // of the left-most thread ending in the same segment.
-    // TODO: Optimize with spine scan and whatnot.
-    //////////////////////////////////////////////////////////////////////////
+    // barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+    // //////////////////////////////////////////////////////////////////////////
+    // // Figure out tidDelta
+    // //
+    // // tidDelta is the difference between a thread's index and the index
+    // // of the left-most thread ending in the same segment.
+    // // TODO: Optimize with spine scan and whatnot.
+    // //////////////////////////////////////////////////////////////////////////
 
-    int done = 0;
-    int prevIdx = (gid - 1) * VT;
-    int myIdx = gid * VT;
-    while (!done && prevIdx >= 0) {
-        if (segStart[prevIdx + VT - 1] == segStart[myIdx]) {
-            tidDelta += 1;
-        } else {
-            done = 1;
-        }
-        prevIdx -= VT;
-    }
+    // int done = 0;
+    // int prevIdx = (gid - 1) * VT;
+    // int myIdx = gid * VT;
+    // while (!done && prevIdx >= 0) {
+    //     if (segStart[prevIdx + VT - 1] == segStart[myIdx]) {
+    //         tidDelta += 1;
+    //     } else {
+    //         done = 1;
+    //     }
+    //     prevIdx -= VT;
+    // }
 
-    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
-    //////////////////////////////////////////////////////////////////////////
-    // Run a parallel segmented scan over the carry-out values to compute
-    // carry-in.
-    //
-    // This is a scan inside the work group, not between.
-    //
-    //////////////////////////////////////////////////////////////////////////
+    // barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+    // //////////////////////////////////////////////////////////////////////////
+    // // Run a parallel segmented scan over the carry-out values to compute
+    // // carry-in.
+    // //
+    // // This is a scan inside the work group, not between.
+    // //
+    // //////////////////////////////////////////////////////////////////////////
 
-    float2 carryOut;
-    float2 carryIn;
-    __local float2 segScanBuffer[THREADS + 1]; // + 1 to be safe
+    // float2 carryOut;
+    // float2 carryIn;
+    // __local float2 segScanBuffer[THREADS + 1]; // + 1 to be safe
 
-    // Run an inclusive scan
-    int first = 0;
+    // // Run an inclusive scan
+    // int first = 0;
 
-    // This is the reduction of the last segment that each thread
-    // is responsible for -- computed from earlier.
-    segScanBuffer[tid] = accumulator;
-    barrier(CLK_LOCAL_MEM_FENCE);
+    // // This is the reduction of the last segment that each thread
+    // // is responsible for -- computed from earlier.
+    // segScanBuffer[tid] = accumulator;
+    // barrier(CLK_LOCAL_MEM_FENCE);
 
-    for (int offset = 1; offset < THREADS; offset += offset) {
-        if (tidDelta >= offset)
-            accumulator = segScanBuffer[first + tid - offset] + accumulator;
-        first = THREADS - first; // alternates between 0 and THREADS. TODO: Why?
-        segScanBuffer[first + tid] = accumulator;
-        barrier(CLK_LOCAL_MEM_FENCE);
-    }
+    // for (int offset = 1; offset < THREADS; offset += offset) {
+    //     if (tidDelta >= offset)
+    //         accumulator = segScanBuffer[first + tid - offset] + accumulator;
+    //     first = THREADS - first; // alternates between 0 and THREADS. TODO: Why?
+    //     segScanBuffer[first + tid] = accumulator;
+    //     barrier(CLK_LOCAL_MEM_FENCE);
+    // }
 
-    // Get the exclusive scan.
-    accumulator = tid ? segScanBuffer[first + tid - 1] : ZERO; // only first thread in workgroup has carryIn.
-    carryOut = segScanBuffer[first + THREADS - 1];
-    carryIn = accumulator;
+    // // Get the exclusive scan.
+    // accumulator = tid ? segScanBuffer[first + tid - 1] : ZERO; // only first thread in workgroup has carryIn.
+    // carryOut = segScanBuffer[first + THREADS - 1];
+    // carryIn = accumulator;
 
-    //////////////////////////////////////////////////////////////////////////
-    // Store the carry-out for the entire workgroup to global memory.
-    //////////////////////////////////////////////////////////////////////////
+    // //////////////////////////////////////////////////////////////////////////
+    // // Store the carry-out for the entire workgroup to global memory.
+    // //////////////////////////////////////////////////////////////////////////
 
-    if (!tid) carryOut_global[group_id] = carryOut;
+    // if (!tid) carryOut_global[group_id] = carryOut;
 
-    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
-    //////////////////////////////////////////////////////////////////////////
-    // Add carry-in to each thread-local scan value. Store directly
-    // to global.
-    //////////////////////////////////////////////////////////////////////////
+    // barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+    // //////////////////////////////////////////////////////////////////////////
+    // // Add carry-in to each thread-local scan value. Store directly
+    // // to global.
+    // //////////////////////////////////////////////////////////////////////////
 
-    for (int i = 0; i < VT; i++) {
-        // Add the carry-in to the local scan.
-        float2 accumulator2 = carryIn + localScan[i];
+    // for (int i = 0; i < VT; i++) {
+    //     // Add the carry-in to the local scan.
+    //     float2 accumulator2 = carryIn + localScan[i];
 
-        // Store on the end flag and clear the carry-in.
-        if (segStart[initialOffset + i] != segStart[initialOffset + i + 1]) {
-            carryIn = ZERO;
-            output[segStart[initialOffset + i]] = accumulator2;
-        }
-    }
+    //     // Store on the end flag and clear the carry-in.
+    //     if (segStart[initialOffset + i] != segStart[initialOffset + i + 1]) {
+    //         carryIn = ZERO;
+    //         output[segStart[initialOffset + i]] = accumulator2;
+    //     }
+    // }
 
 
 
@@ -192,6 +192,7 @@ __kernel void segReduce(
         printf("input[3] = %f, %f\n", input[3].x, input[3].y);
         printf("output[3] = %f, %f\n", output[3].x, output[3].y);
         printf("output[7] = %f, %f\n", output[7].x, output[7].y);
+        printf("segStart[14] = %d\n", segStart[14]);
 
         // for (int i = 0; i < numOutput; i++) {
         //     if (!(output[i].x < 10.5f) || !(output[i].y > 9.5f)) {
