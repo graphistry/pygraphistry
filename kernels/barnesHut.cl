@@ -34,7 +34,7 @@
 // Should be gotten by CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE parameter in the clGetKernelWorkGroupInfo().
 // Pretty sure most modern NVidia have warp of 32, and AMD 'wavefront' of 64
 // Correctness is guaranteed if WARPSIZE is less than or equal to actual warp size.
-#define WARPSIZE 32
+#define WARPSIZE 16
 #define MAXDEPTH 32
 
 // TODO: I've replaced comparisons >= 0 with > NULLPOINTER for readability.
@@ -747,7 +747,7 @@ __kernel void calculate_forces(
         }
         if (shared_maxdepth > MAXDEPTH) {
             // TODO: Actual error handling here
-            return;
+            /*return;*/
         }
         //TODO: Do we haaave to do this?
         // for (i = 0; i < THREADS1/WARPSIZE; i++) {

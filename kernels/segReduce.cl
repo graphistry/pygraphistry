@@ -65,19 +65,19 @@ __kernel void segReduce(
      /*Naive implementation*/
      /*Limitted by one thread that must handle the longest segment*/
      /*Tested*/
-     /*for (int i = gid; i < numOutput; i += global_size) {*/
-         /*int start = edgeStartEndIdxs[i].x;*/
-         /*int stop = edgeStartEndIdxs[i].y; //(i == numOutput - 1) ? numInput : workList[i + 1].x; // Exclusive stop -- should not be included in sum*/
-         /*float2 accumulator = ZERO;*/
+     for (int i = gid; i < numOutput; i += global_size) {
+         int start = edgeStartEndIdxs[i].x;
+         int stop = edgeStartEndIdxs[i].y; //(i == numOutput - 1) ? numInput : workList[i + 1].x; // Exclusive stop -- should not be included in sum
+         float2 accumulator = ZERO;
 
-         /*for (int idx = start; idx < stop; idx++) {*/
-             /*accumulator = accumulator + input[idx];*/
-         /*}*/
+         for (int idx = start; idx < stop; idx++) {
+             accumulator = accumulator + input[idx];
+         }
 
-         /*output[i] = accumulator + partialForces[i];*/
+         output[i] = accumulator + partialForces[i];
          /*return;*/
-         /*[>output[i] = accumulator;<]*/
-     /*}*/
+     }
+     return;
 
 
 
