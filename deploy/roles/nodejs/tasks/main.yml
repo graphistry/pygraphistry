@@ -160,3 +160,11 @@
   file: path=/home/www/.node-gyp
         state=absent
   sudo: yes
+
+- name: Install node-gyp globally
+  npm: name=node-gyp
+       global=yes
+       state=latest
+  environment: nodecl_env
+  sudo: yes
+  sudo_user: www
