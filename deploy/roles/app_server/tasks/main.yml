@@ -8,16 +8,13 @@
        state=latest
        update_cache=yes
        cache_valid_time=300
-  register: supervisor_install
   sudo: yes
-  sudo_user: root
 
 - name: Start Supervisor
   service: name=supervisor
            state=started
            enabled=yes
   sudo: yes
-  sudo_user: root
 
 - name: Configure Supervisor
   copy: src=supervisord.conf
@@ -26,5 +23,4 @@
         group=root
         mode=0664
   sudo: yes
-  sudo_user: root
   notify: Restart Supervisor
