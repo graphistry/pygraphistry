@@ -47,10 +47,10 @@
             mode=0600
   notify: Restart Splunk
 
-- name: Configure deployment server to Splunk Forwarder
+- name: Configure Splunk deployment server to Splunk Forwarder
   template: src=deploymentclient.conf.j2
             dest=/opt/splunkforwarder/etc/system/local/deploymentclient.conf
             owner=root
-            group=graphistry-dev
+            group=root
             mode=0664
   notify: Restart Splunk
