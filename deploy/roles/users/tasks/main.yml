@@ -1,8 +1,7 @@
 ---
 - name: Create graphistry-dev group
-  sudo: yes
   group: name=graphistry-dev
-  tags: common
+  sudo: yes
 
 - name: Configure sudo for graphistry-dev group
   copy: src=40-graphistry-dev.sudoers
