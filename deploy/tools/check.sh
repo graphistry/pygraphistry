@@ -76,6 +76,17 @@ function check() {
   echo "$MESSAGE"
 }
 
+function checkDeps() {
+    MISMATCH=$(tools/setup/setup.js --versions 2>&1)
+    if [[ -n $MISMATCH ]]; then
+        echo "${RED}There are version mismatch in dependencies${RESET}"
+        echo "$MISMATCH"
+        exit -1
+    fi
+}
+
+checkDeps
+
 # Clear out tmp
 TMP_FILES=$(find /tmp/ -type f -name '*.metadata' 2>/dev/null | rev | cut -d/ -f1 | rev | sed 's/\.metadata//g')
 if [ $RUNTESTS -gt 0 ]; then
