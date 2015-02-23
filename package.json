@@ -14,7 +14,7 @@
     "config": "git+ssh://git@github.com:graphistry/config.git#master",
     "debug": "^2.1.0",
     "dns": "^0.2.2",
-    "express": "^4.10.4",
+    "express": "~4.10.0",
     "gl-matrix": "^2.1.0",
     "mongodb": "*",
     "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
