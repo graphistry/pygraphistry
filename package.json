@@ -10,7 +10,7 @@
   "dependencies": {
     "bootstrap-slider": "^4.3.0",
     "brfs": "^1.2.0",
-    "debug": "^2.1.0",
+    "debug": "~2.1.0",
     "esprima-fb": "^7001.1.0-dev-harmony-fb",
     "gl-matrix": "~2.2.0",
     "grunt": "^0.4.5",
