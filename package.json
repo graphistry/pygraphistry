@@ -12,7 +12,7 @@
     "brfs": "^1.2.0",
     "debug": "^2.1.0",
     "esprima-fb": "^7001.1.0-dev-harmony-fb",
-    "gl-matrix": "^2.2.1",
+    "gl-matrix": "~2.2.0",
     "grunt": "^0.4.5",
     "grunt-browserify": "^3.2.0",
     "grunt-cli": "^0.1.13",
