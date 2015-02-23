@@ -23,7 +23,7 @@
     "immutable": "^2.0.11",
     "rx": "^2.3.20",
     "socket.io-client": "^1.2.0",
-    "underscore": "^1.6.0"
+    "underscore": "~1.8.0"
   },
   "devDependencies": {},
   "main": "./index.js",
