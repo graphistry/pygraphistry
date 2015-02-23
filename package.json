@@ -21,7 +21,7 @@
     "node-webcl": "git+ssh://git@github.com:graphistry/node-webcl-old.git#master",
     "node-webgl": "^0.4.3",
     "protobufjs": "3.8.x",
-    "q": "^1.0.1",
+    "q": "~1.1.0",
     "request": "^2.49.0",
     "rx": "^2.3.24",
     "socket.io": "^1.2.0",
