@@ -22,7 +22,7 @@
     "node-webgl": "^0.4.3",
     "protobufjs": "3.8.x",
     "q": "~1.1.0",
-    "request": "^2.49.0",
+    "request": "~2.53.0",
     "rx": "~2.3.0",
     "socket.io": "^1.2.0",
     "socket.io-client": "^1.2.1",
