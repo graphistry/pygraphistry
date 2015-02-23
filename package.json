@@ -12,7 +12,7 @@
   "dependencies": {
     "StreamGL": "git+ssh://git@github.com:graphistry/StreamGL.git#master",
     "config": "git+ssh://git@github.com:graphistry/config.git#master",
-    "debug": "^2.1.0",
+    "debug": "~2.1.0",
     "dns": "^0.2.2",
     "express": "~4.10.0",
     "gl-matrix": "~2.2.0",
