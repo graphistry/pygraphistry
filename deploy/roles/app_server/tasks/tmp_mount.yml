@@ -1,0 +1,66 @@
+---
+# Mount the instance store as /tmp. The instance store is a SSD physically attached to the ec2
+# server running our instance. It is fast, and free for many instance types, but it is deleted every
+# time we shut down our instance.
+
+- name: Gather facts for app servers
+  setup:
+  sudo: no
+
+- name: Proceeding with /tmp re-mount
+  set_fact: remount_tmp=True
+  when: '"/mnt" in ansible_mounts|map(attribute="mount")'
+
+- name: Change permissions of /mnt so that /tmp has right permissions on mount
+  file: path=/mnt
+        state=directory
+        owner=root
+        group=root
+        mode=1777
+  sudo: yes
+  when: remount_tmp
+
+- name: Unmount the instance store at /mnt
+  mount: name=/mnt
+         src=/dev/xvdb
+         fstype=ext3
+         state=unmounted
+  sudo: yes
+  when: remount_tmp
+
+- name: Move /tmp to /tmp_old
+  shell: mv -v /tmp /tmp_old
+         executable=/bin/bash
+  sudo: yes
+  when: remount_tmp
+
+- name: Create /tmp mount point
+  file: path=/tmp
+        state=directory
+        owner=root
+        group=root
+        mode=1777
+  sudo: yes
+
+- name: Add fstab entry to mount instance store at /tmp
+  mount: name=/tmp
+         src=/dev/xvdb
+         fstype=ext3
+         opts="defaults,nobootwait,acl"
+         dump=0
+         passno=2
+         state=mounted
+  sudo: yes
+  when: remount_tmp
+
+- name: Move contents of /tmp_old back to /tmp (it's OK if this fails)
+  shell: mv -v /tmp_old/* /tmp/
+         executable=/bin/bash
+  ignore_errors: true
+  sudo: yes
+  when: remount_tmp
+
+- name: Remove /tmp_old
+  file: path=/tmp_old
+        state=absent
+  sudo: yes
