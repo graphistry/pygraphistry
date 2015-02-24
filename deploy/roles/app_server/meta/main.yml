@@ -7,14 +7,18 @@ dependencies:
   sudo: yes
   tags:
     - common
+
 - role: preflight
   tags: tags | to_nice_yaml
+
 - role: users
   tags:
     - users
+
 - role: nodejs
   tags:
     - nodejs
+
 - role: splunkfwd
   sudo: yes
   tags:

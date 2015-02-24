@@ -5,6 +5,15 @@
 
 - { include: tmp_mount.yml, tags: [ 'tmp_mount' ] }
 
+- name: Create temp folder for Graphistry data
+  file: path="{{ graphistry_temp_path }}"
+        state=directory
+        recurse=yes
+        owner=www
+        group=graphistry-dev
+        mode=0770
+  sudo: yes
+
 - name: Install Supervisor
   apt: pkg=supervisor
        state=latest
