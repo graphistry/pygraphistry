@@ -20,6 +20,10 @@ labs.graphistry.com
 labs.graphistry.com
 worker02.graphistry.com
 
+[app_servers:children]
+workers
+central
+
 #### /us-west-1
 
 

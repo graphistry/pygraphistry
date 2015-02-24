@@ -26,26 +26,8 @@ ansible_ssh_user: ubuntu
 # configured to use this port, the 'common' role will try to login on port 22 and change it to this.
 ansible_ssh_port: 61630
 
-# Path on the remote instance where Graphistry nodejs apps will be installed to
-graphistry_install_path: "/var/graphistry"
-
 # Boundary login info
 boundary_username: "boundary@graphistry.com"
 boundary_password: "api.62fb69d814-3713"
 
 splunk_deploy_server_uri: "splunk.graphistry.com:8089"
-
-# The path on the remote system where we should install global npm modules
-npm_global_path: "/opt/npm_global"
-
-# The Bash environmental variables needed to install node-webcl modules (CUDA + npm config)
-nodecl_env:
-    DISPLAY: ":0"
-    PATH: "{{ npm_global_path }}/bin/:/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
-    LD_LIBRARY_PATH: "/usr/local/cuda/lib64"
-    LIBRARY_PATH: "/usr/local/cuda/lib64"
-    C_INCLUDE_PATH: "/usr/local/cuda/include"
-    CPLUS_INCLUDE_PATH: "/usr/local/cuda/include"
-    npm_config_prefix: "{{ npm_global_path }}"
-    NODE_PATH: "{{ npm_global_path }}/lib/node_modules"
-    _GRAPHISTRY_CUDA_INIT: 1
