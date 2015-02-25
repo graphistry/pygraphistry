@@ -29,6 +29,13 @@
     - deploy
     - local
 
+- hosts: deploy_server
+  roles:
+    - deploy_server
+  tags:
+    - provision
+    - deploy_server
+
 - hosts: workers:central
   roles:
    - app_server

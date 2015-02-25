@@ -14,6 +14,9 @@ staging.graphistry.com
 [central]
 staging.graphistry.com
 
+[deploy_server]
+deploy.graphistry.com
+
 [app_servers:children]
 workers
 central

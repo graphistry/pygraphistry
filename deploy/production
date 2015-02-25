@@ -20,6 +20,9 @@ labs.graphistry.com
 labs.graphistry.com
 worker02.graphistry.com
 
+[deploy_server]
+deploy.graphistry.com
+
 [app_servers:children]
 workers
 central

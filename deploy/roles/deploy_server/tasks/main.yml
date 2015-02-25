@@ -1,0 +1,18 @@
+---
+# This role provisions the deploy server itself
+
+# We add Ansible's official PPA to our apt repos because the Ansible version in the official Ubuntu
+# repos is way old. This repo has the latest stable release.
+- name: Add Ansible apt PPA repo (to get the most up-to-date Ansible)
+  apt_repository: repo='ppa:ansible/ansible'
+  sudo: yes
+  register: add_ansible_repo
+
+- name: Update apt cache for Ansible PPA
+  apt: update_cache=yes
+  sudo: yes
+  when: add_ansible_repo.changed
+
+- name: Install Ansible
+  apt: name=ansible state=latest update_cache=yes cache_valid_time=600
+  sudo: yes
