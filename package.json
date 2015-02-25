@@ -29,7 +29,8 @@
     "underscore": "~1.8.0",
     "supertest": "~0.15.0",
     "xhr2": "~0.1.0",
-    "sprintf-js": "~1.0.2"
+    "sprintf-js": "~1.0.0",
+    "fs-tools": "~0.2.0"
   },
   "devDependencies": {
     "jasmine-node": "^1.14.5"
