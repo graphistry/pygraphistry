@@ -1,0 +1,53 @@
+---
+- name: Find npm cache items to delete
+  command: ls -1 "{{ npm_temp_path }}/"
+  sudo: yes
+  sudo_user: root
+  changed_when: False
+  register: npm_cache_ls
+  tags:
+    - nodejs
+    - npm
+    - npm_cache_clear
+
+- name: Delete npm cache items
+  file: path="{{ npm_temp_path }}/{{ item }}"
+        state=absent
+  with_items: npm_cache_ls.stdout_lines
+  sudo: yes
+  sudo_user: root
+  tags:
+    - nodejs
+    - npm
+    - npm_cache_clear
+
+- name: Find home directories
+  command: ls -1 /home
+  register: ls_home
+  changed_when: False
+  tags:
+    - nodejs
+    - npm
+    - npm_cache_clear
+
+- name: Delete user npm cache
+  file: path=/home/{{ item }}/.npm
+        state=absent
+  with_items: ls_home.stdout_lines
+  sudo: yes
+  sudo_user: root
+  tags:
+    - nodejs
+    - npm
+    - npm_cache_clear
+
+- name: Delete user node-gyp cache
+  file: path=/home/{{ item }}/.node-gyp
+        state=absent
+  with_items: ls_home.stdout_lines
+  sudo: yes
+  sudo_user: root
+  tags:
+    - nodejs
+    - npm
+    - npm_cache_clear

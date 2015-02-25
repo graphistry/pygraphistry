@@ -31,6 +31,8 @@
   apt: name=nodejs state=latest update_cache=yes cache_valid_time=600
   sudo: yes
 
+- { include: clear_caches.yml }
+
 - name: Create graphistry app install directory
   sudo: yes
   sudo_user: root
