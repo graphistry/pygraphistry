@@ -1,2 +1,1 @@
 ---
-ansible_files: "{{ ansible_env.HOME }}/ansible"
