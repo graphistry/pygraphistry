@@ -40,7 +40,7 @@
 
 - hosts: workers
   roles:
-   - { role: worker, tags: [ 'provision' ] }
+   - { role: cuda, tags: [ 'provision' , 'cuda' ] }
    - { role: viz-app, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
   gather_facts: yes
   tags:

@@ -1,5 +1,0 @@
----
-# Provisions instances that will run the viz-worker app. Includes installing the NVIDIA drivers and
-# CUDA, and uploading and running reaper.py.
-
-- { include: CUDA.yml, tags: [ 'cuda' ] }
