@@ -24,22 +24,23 @@
         group=www
         mode='g+rw'
 
-- name: Configure Supervisor to run viz-server workers
-  template: src=viz_workers.conf.j2
-            dest=/etc/supervisor/conf.d/viz_workers.conf
-            owner=root
-            group=graphistry-dev
-            mode=0664
-  register: worker_supervisor_conf
-  notify: Add workers to Supervisor
+- name: Create worker log folder
   sudo: yes
-  sudo_user: root
+  file: path=/var/log/worker
+        state=directory
+        owner=www
+        group=root
+        mode=1774
 
 - name: Delete worker's old node_modules directory
   file: path={{ graphistry_install_path }}/viz-server/node_modules
         state=absent
   sudo: yes
   sudo_user: root
+
+- name: Install pigz
+  apt: pkg=pigz state=present update_cache=yes cache_valid_time=86400
+  sudo: yes
 
 - name: Clone viz-server repo
   git: repo=git@github.com:graphistry/viz-server.git
@@ -55,3 +56,16 @@
        state=latest
   environment: nodecl_env
   notify: Restart workers
+
+- name: Configure Supervisor to run viz-server workers
+  template: src=viz_workers.conf.j2
+            dest=/etc/supervisor/conf.d/viz_workers.conf
+            owner=root
+            group=graphistry-dev
+            mode=0664
+  register: worker_supervisor_conf
+  notify: Add workers to Supervisor
+  sudo: yes
+  sudo_user: root
+  tags:
+    - supervisor

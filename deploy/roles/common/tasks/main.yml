@@ -58,6 +58,13 @@
     - pkg-config
     - acl
 
+- name: Install common Python packages
+  pip: name={{ item }}
+  with_items:
+    - setuptools
+    - distribute
+  sudo: yes
+
 - name: Create apt auto-upgrades job configuration
   copy: src=auto-upgrades
         dest=/etc/apt/apt.conf.d/10periodic

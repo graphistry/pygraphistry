@@ -27,6 +27,11 @@
   sudo: yes
   when: added_node_repo.changed
 
+- name: Install Kerberos dev libs (needed for MongoDB node module)
+  apt: pkg=libkrb5-dev state=installed update_cache=yes cache_valid_time=600
+  sudo: yes
+  sudo_user: root
+
 - name: Install Node.js
   apt: name=nodejs state=latest update_cache=yes cache_valid_time=600
   sudo: yes
