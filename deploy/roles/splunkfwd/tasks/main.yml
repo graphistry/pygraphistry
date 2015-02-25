@@ -25,7 +25,7 @@
   register: splunk_boot_start
   changed_when: "'Adding' in splunk_boot_start.stdout"
 
-- name: Change default credentials on Splunk Forwarder (it's OK if this fails; it likely means the password was changed previously)
+- name: Change default credentials on Splunk Forwarder (it's OK if this fails)
   command: /opt/splunkforwarder/bin/splunk edit user admin -password {{ splunk_forwarder_password }} -auth admin:changeme --answer-yes
   ignore_errors: true
 
@@ -44,7 +44,7 @@
             value="{{ inventory_hostname }}"
             owner=root
             group=root
-            mode=0600
+            mode=0664
   notify: Restart Splunk
 
 - name: Configure Splunk deployment server to Splunk Forwarder
