@@ -8,7 +8,7 @@
 - name: Create temp folder for Graphistry data
   file: path="{{ graphistry_temp_path }}"
         state=directory
-        recurse=yes
+        recurse=no
         owner=www
         group=graphistry-dev
         mode=0770

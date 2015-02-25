@@ -2,7 +2,7 @@
 - name: Create npm temp directory
   file: path="{{ npm_temp_path }}"
         state=directory
-        recurse=yes
+        recurse=no
         owner=www
         group=graphistry-dev
         mode=1777
