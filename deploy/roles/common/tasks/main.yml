@@ -7,8 +7,13 @@
 
 - name: Create Ansible file folder
   sudo: no
-  file: path="{{ ansible_env.HOME }}/ansible"
+  file: path="{{ ansible_files }}"
         state=directory
+        owner=root
+        mode=1777
+        recurse=no
+  sudo: yes
+  sudo_user: root
 
 - name: Set fully-qualified domain name
   template: src=hosts.j2 dest=/etc/hosts
@@ -52,6 +57,13 @@
     - ntp
     - pkg-config
     - acl
+
+- name: Install common Python packages
+  pip: name={{ item }}
+  with_items:
+    - setuptools
+    - distribute
+  sudo: yes
 
 - name: Create apt auto-upgrades job configuration
   copy: src=auto-upgrades

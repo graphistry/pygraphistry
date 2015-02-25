@@ -12,6 +12,12 @@
         validate='visudo -cf %s'
   sudo: yes
 
+- name: Set permissions on Graphistry Ansible directory
+  file: path="{{ ansible_files }}"
+        group=graphistry-dev
+        mode="g+rw"
+        recurse=yes
+  sudo: yes
 
 - { include: create_user.yml, user: www, group_membership: [] }
 - { include: create_user.yml, user: leo }

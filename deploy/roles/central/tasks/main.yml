@@ -4,7 +4,7 @@
 - name: Create data cache directory
   file: path="{{ graphistry_cache_path }}"
         state=directory
-        recurse=yes
+        recurse=no
         owner=www
         group=graphistry-dev
         mode=1777

@@ -1,2 +1,8 @@
 ---
-ansible_files: "{{ ansible_env.HOME }}/ansible"
+# The git label to use when checking out the viz-server module
+viz_module_checkout: "master"
+
+# The number of viz server worker processes to keep running
+workers_count: 8
+# The port the first worker will listen on (each subsequent one will listen on the next higher port)
+workers_port_start: 10000

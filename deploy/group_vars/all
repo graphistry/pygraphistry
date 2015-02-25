@@ -31,3 +31,5 @@ boundary_username: "boundary@graphistry.com"
 boundary_password: "api.62fb69d814-3713"
 
 splunk_deploy_server_uri: "splunk.graphistry.com:8089"
+
+ansible_files: "/var/ansible_graphistry"

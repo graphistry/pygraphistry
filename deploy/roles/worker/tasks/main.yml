@@ -1,25 +1,28 @@
 ---
-# Provisions instances that will run the viz-worker app. Includes installing the NVIDIA drivers and
-# CUDA, and uploading and running reaper.py.
+# Deploys the viz-worker app. The server should already be provisioned with the worker role, however
+# this role does not have an explicit Ansible dependency on the worker role because we often want
+# to run just this role (to do a deploy) and not the provisioning tasks in the worker role.
 
-- { include: CUDA.yml, tags: [ 'cuda' ] }
+- { include: ../../nodejs/tasks/clear_caches.yml }
 
-- name: Install pigz
-  apt: pkg=pigz state=present update_cache=yes cache_valid_time=600
-  sudo: yes
-
-- name: Install Kerberos dev libs (needed for MongoDB node module)
-  apt: pkg=libkrb5-dev state=installed update_cache=yes cache_valid_time=600
+- name: Ensure viz-server install path is owned by user 'www'
   sudo: yes
   sudo_user: root
+  file: path={{ graphistry_install_path }}
+        state=directory
+        recurse=no
+        owner=www
+        group=www
+        mode=0775
 
-- name: Install Python packages
-  pip: name={{ item }}
-  with_items:
-    - setuptools
-    - distribute
-    - pymongo
+- name: Ensure everything in install path can be read/written to by group 'www'
   sudo: yes
+  sudo_user: root
+  file: path={{ graphistry_install_path }}
+        state=directory
+        recurse=yes
+        group=www
+        mode='g+rw'
 
 - name: Create worker log folder
   sudo: yes
@@ -27,30 +30,44 @@
         state=directory
         owner=www
         group=root
-        mode=0777
+        mode=1774
 
-- name: Set Supervisor config for reaper.py
-  template: src=reaper.conf.j2
-            dest=/etc/supervisor/conf.d/reaper.conf
+- { include: reaper.yml, tags: [ 'reaper' ]}
+
+- name: Delete worker's old node_modules directory
+  file: path={{ graphistry_install_path }}/viz-server/node_modules
+        state=absent
+  sudo: yes
+  sudo_user: root
+
+- name: Install pigz
+  apt: pkg=pigz state=present update_cache=yes cache_valid_time=86400
+  sudo: yes
+
+- name: Clone viz-server repo
+  git: repo=git@github.com:graphistry/viz-server.git
+       dest={{ graphistry_install_path }}/viz-server
+       version="{{ viz_module_checkout }}"
+       update=yes
+       key_file=/home/{{ sudo_user }}/.ssh/deploy_id_rsa
+       accept_hostkey=yes
+  notify: Restart workers
+
+- name: Install viz-server module
+  npm: path={{ graphistry_install_path }}/viz-server
+       state=latest
+  environment: nodecl_env
+  notify: Restart workers
+
+- name: Configure Supervisor to run viz-server workers
+  template: src=viz_workers.conf.j2
+            dest=/etc/supervisor/conf.d/viz_workers.conf
             owner=root
             group=graphistry-dev
             mode=0664
+  register: worker_supervisor_conf
+  notify: Add workers to Supervisor
   sudo: yes
   sudo_user: root
-  notify: Add reaper.py to Supervisor
   tags:
     - supervisor
-    - reaper
-
-- name: Upload reaper.py
-  template: src=reaper.py.j2
-            dest={{ graphistry_install_path }}/reaper.py
-            owner=www
-            group=graphistry-dev
-            mode=0775
-  sudo: yes
-  sudo_user: root
-  notify: Restart reaper.py
-  tags:
-    - supervisor
-    - reaper
