@@ -13,9 +13,10 @@
 
 - name: Find cached data files to delete
   command: ls -1 "{{ graphistry_cache_path }}/"
-  register: data_cache_files
   sudo: yes
   sudo_user: root
+  register: data_cache_files
+  changed_when: False
 
 - name: Delete data cache files
   file: path="{{ graphistry_cache_path }}/{{ item }}"
