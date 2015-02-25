@@ -32,6 +32,8 @@
         group=root
         mode=1774
 
+- { include: reaper.yml, tags: [ 'reaper' ]}
+
 - name: Delete worker's old node_modules directory
   file: path={{ graphistry_install_path }}/viz-server/node_modules
         state=absent

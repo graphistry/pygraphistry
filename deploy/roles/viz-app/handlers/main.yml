@@ -4,9 +4,31 @@
                  state=present
   sudo: yes
   sudo_user: root
+  tags:
+    - supervisor
 
 - name: Restart workers
   supervisorctl: name="viz-worker:"
                  state=restarted
   sudo: yes
   sudo_user: root
+  tags:
+    - supervisor
+
+- name: Add reaper.py to Supervisor
+  supervisorctl: name="reaper.py"
+                 state=present
+  sudo: yes
+  sudo_user: root
+  tags:
+    - supervisor
+    - reaper
+
+- name: Restart reaper.py
+  supervisorctl: name="reaper.py"
+                 state=restarted
+  sudo: yes
+  sudo_user: root
+  tags:
+    - supervisor
+    - reaper
