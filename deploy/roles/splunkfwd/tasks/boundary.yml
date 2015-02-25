@@ -1,0 +1,26 @@
+---
+# Downloads and installs the Boundary Meter utility using their own install script.
+
+# The script just adds their Apt repo and installs a package from it, but exports some vars first
+# (based off your API key) that the pkg install script picks up. We can't easily recreate the
+# script in Ansible, but once installed, apt-get will keep it updated.
+
+
+# We need to send some headers when we fetch the script, so use the `uri` module to make a REST
+# request against the server and save the response.
+- name: Download Boundary Meter install script
+  uri: url=https://meter.boundary.com/setup_meter
+       method=POST
+       HEADER_Content-Type="application/json"
+       body='{"token":"{{ boundary_password }}"}'
+       dest="{{ ansible_files }}/setup_meter.sh"
+       creates="{{ ansible_files }}/setup_meter.sh"
+       group=graphistry-dev
+       mode=0775
+  register: boundary_setup_script
+  sudo: no
+
+- name: Run Boundary Meter install script
+  command: setup_meter.sh
+           chdir="{{ ansible_files }}"
+  when: boundary_setup_script.changed

@@ -1,4 +1,7 @@
 ---
+# Installs the Splunk Universal Forwarder and configures it to be a deployment client of our Splunk
+# server. Also installs Boundary Meter.
+
 - name: Install sysstat for use by Splunk Add-on for Unix
   apt: pkg=sysstat
        state=latest
@@ -54,3 +57,5 @@
             group=root
             mode=0664
   notify: Restart Splunk
+
+- { include: boundary.yml, tags: [ 'boundary' ] }
