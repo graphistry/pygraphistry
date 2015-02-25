@@ -1,2 +1,4 @@
 ---
 central_module_checkout: "master"
+
+graphistry_cache_path: "{{ graphistry_temp_path }}/data_cache"

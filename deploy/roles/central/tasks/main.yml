@@ -1,16 +1,28 @@
 ---
-- name: Delete www user's npm cache before installing central app
-  file: path=/home/www/.npm
-        state=absent
+- { include: ../../nodejs/tasks/clear_caches.yml }
+
+- name: Create data cache directory
+  file: path="{{ graphistry_cache_path }}"
+        state=directory
+        recurse=yes
+        owner=www
+        group=graphistry-dev
+        mode=1777
   sudo: yes
   sudo_user: root
 
-- name: Delete www user's node-gyp cache before installing central app
-  file: path=/home/www/.node-gyp
-        state=absent
+- name: Find cached data files to delete
+  command: ls -1 "{{ graphistry_cache_path }}/"
+  register: data_cache_files
   sudo: yes
   sudo_user: root
 
+- name: Delete data cache files
+  file: path="{{ graphistry_cache_path }}/{{ item }}"
+        state=absent
+  sudo: yes
+  sudo_user: root
+  with_items: data_cache_files.stdout_lines
 
 - name: Ensure central app install path is owned by user 'www'
   sudo: yes
