@@ -20,10 +20,10 @@
        creates="{{ ansible_files }}/setup_meter.sh"
        group=graphistry-dev
        mode=0775
-  register: boundary_setup_script
   sudo: no
 
+# The script will do it's own `sudo`ing, so no need to do `sudo: yes` here
 - name: Run Boundary Meter install script
   command: setup_meter.sh
            chdir="{{ ansible_files }}"
-  when: boundary_setup_script.changed
+           creates="/etc/apt/sources.list.d/boundary.list"
