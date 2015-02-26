@@ -211,7 +211,7 @@ function init(app, socket) {
 
     socket.on('reset_graph', function (_, cb) {
         debug('reset_graph command');
-        theDataset.then(function (dataset) {
+        qDataset.then(function (dataset) {
             resetState(dataset);
             cb();
         }).fail(function (err) {
