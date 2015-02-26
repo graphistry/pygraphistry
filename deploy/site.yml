@@ -20,6 +20,9 @@
 # the beginning of deploys for this lock file (or maybe just lock files from other users?) and not
 # continue if one is found.
 
+# TODO: Turn on gather_facts by default in ansible.cfg, but create a new play for all hosts but
+# localhost to run the common role. There are too many edge cases where we use ansible facts, but
+# we haven't run the setup module manually for one reason or another.
 
 - hosts: localhost
   roles:
