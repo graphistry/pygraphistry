@@ -17,13 +17,13 @@
         mode=0600
   sudo: yes
   sudo_user: "{{ item }}"
-  with_items: ssh_configured_users
+  with_items: ssh_configured_users_active
 
 - name: Register SSH deploy key
   shell: 'eval "$(ssh-agent -s)" && ssh-add "/home/{{ item }}/.ssh/deploy_id_rsa"'
   sudo: yes
   sudo_user: "{{ item }}"
-  with_items: ssh_configured_users
+  with_items: ssh_configured_users_active
 
 - name: Set SSH config to use deploy key on GitHub
   copy: src=ssh.config
@@ -34,4 +34,4 @@
         force=no
   sudo: yes
   sudo_user: "{{ item }}"
-  with_items: ssh_configured_users
+  with_items: ssh_configured_users_active
