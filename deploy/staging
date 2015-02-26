@@ -20,3 +20,7 @@ deploy.graphistry.com
 [app_servers:children]
 workers
 central
+
+[staging:children]
+workers
+central

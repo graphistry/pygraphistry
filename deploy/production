@@ -27,6 +27,10 @@ deploy.graphistry.com
 workers
 central
 
+[production:children]
+workers
+central
+
 #### /us-west-1
 
 
