@@ -35,30 +35,3 @@
   sudo: yes
   sudo_user: "{{ item }}"
   with_items: ssh_configured_users
-
-- name: Remove deploy SSH key from SSH agent
-  command: ssh-add -d /home/{{ item }}/.ssh/deploy_id_rsa
-  sudo: yes
-  sudo_user: "{{ item }}"
-  with_items: ssh_unconfigured_users
-  ignore_errors: true
-  tags:
-    - secure_ssh
-
-- name: Delete deploy SSH key
-  file: path="/home/{{ item }}/.ssh/deploy_id_rsa"
-        state=absent
-  sudo: yes
-  sudo_user: "{{ item }}"
-  with_items: ssh_unconfigured_users
-  tags:
-    - secure_ssh
-
-- name: Delete SSH config
-  file: path="/home/{{ item }}/.ssh/config"
-        state=absent
-  sudo: yes
-  sudo_user: "{{ item }}"
-  with_items: ssh_unconfigured_users
-  tags:
-    - secure_ssh
