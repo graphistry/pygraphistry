@@ -2,6 +2,7 @@
 - name: Create graphistry-dev group
   group: name=graphistry-dev
   sudo: yes
+  sudo_user: root
 
 - name: Configure sudo for graphistry-dev group
   copy: src=40-graphistry-dev.sudoers
@@ -19,11 +20,30 @@
         recurse=yes
   sudo: yes
 
-- { include: create_user.yml, user: www, group_membership: [] }
-- { include: create_user.yml, user: leo }
-- { include: create_user.yml, user: thibaud }
-- { include: create_user.yml, user: quinn }
-- { include: create_user.yml, user: paden }
-- { include: create_user.yml, user: ubuntu }
-- { include: create_user.yml, user: mtorok }
-- { include: mtorok.yml, tags: [ 'mtorok' ] }
+- name: Create groups
+  group: name={{ item }}
+  with_items: user_groups
+  sudo: yes
+
+- name: Create users
+  # The complicated 'groups' filter basically sets users.groups to default_groups if it's undefined;
+  # omits the "groups" argument if user.groups is empty/no value; or just uses user.groups.
+  user: name='{{ item.username }}'
+        groups='{{ item.groups|default(default_groups)|default([], true)|join(",")|default(omit, true) }}'
+        shell=/bin/bash
+  with_items: users
+  sudo: true
+
+- name: Set users' SSH key
+  authorized_key: user='{{ item.username }}' key='{{ lookup('file', item.pubkey) }}'
+  sudo: true
+  sudo_user: "{{ item.username }}"
+  when: item.pubkey|default(False)
+  with_items: users
+
+- name: Do extra user tasks for user 'mtorok'
+  include: mtorok.yml
+  when: '{{ "mtorok" in users|map(attribute="username") }}'
+  tags:
+    - mtorok
+    - users

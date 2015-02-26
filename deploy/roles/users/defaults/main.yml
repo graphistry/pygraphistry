@@ -1,5 +1,14 @@
 ---
-group_membership:
-    - admin
-    - graphistry-dev
-    - www
+# A list of users to create on the machine. Each item is a dictionary of the form
+# username: string containing the username
+# groups: (optional) list of groups to assign the user to beyond their default. If not defined, the
+#         value of default_groups is used.
+# pubkey: (optional) string containing the path to a SSH public key to authorize for the user
+users: []
+
+# A list of groups to create on the server (beyond graphistry-dev)
+user_groups: []
+
+# A list of groups each user will be assigned to (beyond their own) if the user doesn't have the
+# "groups" attribute defined.
+default_groups: []
