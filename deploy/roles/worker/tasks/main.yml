@@ -43,6 +43,7 @@
 - name: Install pigz
   apt: pkg=pigz state=present update_cache=yes cache_valid_time=86400
   sudo: yes
+  sudo_user: root
 
 - name: Clone viz-server repo
   git: repo=git@github.com:graphistry/viz-server.git
