@@ -5,6 +5,9 @@
 # (based off your API key) that the pkg install script picks up. We can't easily recreate the
 # script in Ansible, but once installed, apt-get will keep it updated.
 
+- name: Install httplib2
+  pip: name=httplib2 state=present
+  sudo: yes
 
 # We need to send some headers when we fetch the script, so use the `uri` module to make a REST
 # request against the server and save the response.
