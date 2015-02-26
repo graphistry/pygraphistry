@@ -1,0 +1,7 @@
+---
+ssh_configured_users:
+  - mtorok
+  - ubuntu
+  - www
+
+ssh_unconfigured_users: "{{ users | map(attribute='username') | difference(ssh_configured_users) }}"

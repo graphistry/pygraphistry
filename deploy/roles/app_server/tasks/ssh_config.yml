@@ -1,57 +1,64 @@
 ---
 - name: Create ~/.ssh directory
-  file: path="{{ ansible_env.HOME }}/.ssh"
+  file: path="/home/{{ item }}/.ssh"
         state=directory
-        owner="ubuntu"
-        group="ubuntu"
+        owner="{{ item }}"
+        group="{{ item }}"
         mode=0700
-  sudo: no
+  sudo: yes
+  sudo_user: "{{ item }}"
+  with_items: ssh_configured_users
 
 - name: Upload deploy SSH key
-  copy: src=ssh_keys/deploy.pem
-        dest="{{ ansible_env.HOME }}/.ssh/deploy_id_rsa"
-        owner="ubuntu"
-        group="ubuntu"
+  copy: src=deploy.pem
+        dest="/home/{{ item }}/.ssh/deploy_id_rsa"
+        owner="{{ item }}"
+        group="{{ item }}"
         mode=0600
+  sudo: yes
+  sudo_user: "{{ item }}"
+  with_items: ssh_configured_users
 
 - name: Register SSH deploy key
-  shell: 'eval "$(ssh-agent -s)" && ssh-add {{ ansible_env.HOME }}/.ssh/deploy_id_rsa'
+  shell: 'eval "$(ssh-agent -s)" && ssh-add "/home/{{ item }}/.ssh/deploy_id_rsa"'
+  sudo: yes
+  sudo_user: "{{ item }}"
+  with_items: ssh_configured_users
 
 - name: Set SSH config to use deploy key on GitHub
   copy: src=ssh.config
-        dest="{{ ansible_env.HOME }}/.ssh/config"
-        owner="ubuntu"
-        group="ubuntu"
+        dest="/home/{{ item }}/.ssh/config"
+        owner="{{ item }}"
+        group="{{ item }}"
         mode=0600
         force=no
-
+  sudo: yes
+  sudo_user: "{{ item }}"
+  with_items: ssh_configured_users
 
 - name: Remove deploy SSH key from SSH agent
-  command: ssh-add -d /home/{{ item.username }}/.ssh/deploy_id_rsa
+  command: ssh-add -d /home/{{ item }}/.ssh/deploy_id_rsa
   sudo: yes
-  sudo_user: "{{ item.username }}"
-  when: item.username != "mtorok" or item.username != "ubuntu"
-  with_items: users
+  sudo_user: "{{ item }}"
+  with_items: ssh_unconfigured_users
   ignore_errors: true
   tags:
     - secure_ssh
 
 - name: Delete deploy SSH key
-  file: path="/home/{{ item.username }}/.ssh/deploy_id_rsa"
+  file: path="/home/{{ item }}/.ssh/deploy_id_rsa"
         state=absent
   sudo: yes
-  sudo_user: "{{ item.username }}"
-  when: item.username != "mtorok" or item.username != "ubuntu"
-  with_items: users
+  sudo_user: "{{ item }}"
+  with_items: ssh_unconfigured_users
   tags:
     - secure_ssh
 
 - name: Delete SSH config
-  file: path="/home/{{ item.username }}/.ssh/config"
+  file: path="/home/{{ item }}/.ssh/config"
         state=absent
   sudo: yes
-  sudo_user: "{{ item.username }}"
-  when: item.username != "mtorok" or item.username != "ubuntu"
-  with_items: users
+  sudo_user: "{{ item }}"
+  with_items: ssh_unconfigured_users
   tags:
     - secure_ssh
