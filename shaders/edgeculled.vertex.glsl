@@ -16,7 +16,7 @@ void main(void) {
     float furthestComponent = max(abs(pos.x), abs(pos.y));
     float remapped = (-furthestComponent + SENSITIVITY) / SENSITIVITY;
 
-    alpha = clamp(remapped, 0.0, 1.0);
+    alpha = clamp(remapped, 0.0, 0.8);
     gl_Position = pos;
     eColor = edgeColor;
 }
