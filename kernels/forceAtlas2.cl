@@ -314,9 +314,20 @@ __kernel void faIntegrate3 (
 ) {
 
     const unsigned int n1Idx = (unsigned int) get_global_id(0);
+    const unsigned int numPoints = (unsigned int) get_global_size(0);
 
-    float speed = KS * (*globalSpeed) / (1.0f + (*globalSpeed) * sqrt(swings[n1Idx]));
-    float maxSpeed = KSMAX / length(curForces[n1Idx]);
+    #define SPEED_CONSTANT 1.5f
+
+    float sqrtPoints = sqrt((float)numPoints);
+    float speedFactor = max(SPEED_CONSTANT * sqrtPoints / 1000.0f, 0.1f);
+    float maxSpeedFactor = max(SPEED_CONSTANT * sqrtPoints / 10.0f, 10.0f);
+
+
+    float normalizedSwing = sqrt( (swings[n1Idx] ) / (sqrtPoints) );
+    float speed = speedFactor * (*globalSpeed) / (1.0f + (*globalSpeed) * normalizedSwing);
+    float maxSpeed = maxSpeedFactor / length(curForces[n1Idx]);
+
+
     float2 delta = min(speed, maxSpeed) * curForces[n1Idx];
 
     debug4("Speed (%d) %f max: %f\n", n1Idx, speed, maxSpeed);

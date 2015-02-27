@@ -336,6 +336,7 @@ __kernel void build_tree(
                         // Error case
                         if (cell <= num_bodies) {
                             // TODO (paden) add error message
+                            // printf("BUILD TREE PROBLEM\n");
                             *bottom = num_nodes;
                             return;
                         }
@@ -747,6 +748,7 @@ __kernel void calculate_forces(
         }
         if (shared_maxdepth > MAXDEPTH) {
             // TODO: Actual error handling here
+            // printf("MAXDEPTH PROBLEM\n");
 
             // This is temporarily commented out to run on Intel Iris.
             // return;
