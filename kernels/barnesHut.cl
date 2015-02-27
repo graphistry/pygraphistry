@@ -34,7 +34,7 @@
 // Should be gotten by CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE parameter in the clGetKernelWorkGroupInfo().
 // Pretty sure most modern NVidia have warp of 32, and AMD 'wavefront' of 64
 // Correctness is guaranteed if WARPSIZE is less than or equal to actual warp size.
-#define WARPSIZE 16
+#define WARPSIZE 32
 #define MAXDEPTH 32
 
 // TODO: I've replaced comparisons >= 0 with > NULLPOINTER for readability.
