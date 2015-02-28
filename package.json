@@ -13,8 +13,10 @@
     "StreamGL": "git+ssh://git@github.com:graphistry/StreamGL.git#master",
     "config": "git+ssh://git@github.com:graphistry/config.git#master",
     "debug": "~2.1.0",
+    "dijkstra": "git+ssh://git@github.com:graphistry/dijkstra.git#dev/unabstracted",
     "dns": "~0.2.0",
     "express": "~4.10.0",
+    "fs-tools": "~0.2.0",
     "gl-matrix": "~2.2.0",
     "mongodb": "~1.4.0",
     "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
@@ -26,11 +28,10 @@
     "rx": "~2.3.0",
     "socket.io": "~1.2.0",
     "socket.io-client": "~1.2.0",
-    "underscore": "~1.8.0",
-    "supertest": "~0.15.0",
-    "xhr2": "~0.1.0",
     "sprintf-js": "~1.0.0",
-    "fs-tools": "~0.2.0"
+    "supertest": "~0.15.0",
+    "underscore": "~1.8.0",
+    "xhr2": "~0.1.0"
   },
   "devDependencies": {
     "jasmine-node": "^1.14.5"
