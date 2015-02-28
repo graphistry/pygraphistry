@@ -281,6 +281,17 @@ function stream(socket, renderConfig, colorTexture) {
             .subscribe(_.identity, makeErrorHandler('get_labels'));
     });
 
+    socket.on('shortest_path', function (pair) {
+        console.log('shortest_path called', pair);
+        graph.take(1)
+            .do(function (graph) {
+                graph.simulator.highlightShortestPaths(pair);
+            })
+            .subscribe(_.identity, makeErrorHandler('shortest_path'));
+    });
+
+
+
 
 
 
