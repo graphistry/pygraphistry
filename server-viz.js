@@ -282,10 +282,10 @@ function stream(socket, renderConfig, colorTexture) {
     });
 
     socket.on('shortest_path', function (pair) {
-        console.log('shortest_path called', pair);
         graph.take(1)
             .do(function (graph) {
                 graph.simulator.highlightShortestPaths(pair);
+                animStep.interact({play: true, layout: true});
             })
             .subscribe(_.identity, makeErrorHandler('shortest_path'));
     });
