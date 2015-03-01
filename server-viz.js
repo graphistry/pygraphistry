@@ -290,6 +290,30 @@ function stream(socket, renderConfig, colorTexture) {
             .subscribe(_.identity, makeErrorHandler('shortest_path'));
     });
 
+    socket.on('set_colors', function (color) {
+        graph.take(1)
+            .do(function (graph) {
+                graph.simulator.setColor(color);
+                animStep.interact({play: true, layout: true});
+            })
+            .subscribe(_.identity, makeErrorHandler('color'));
+    });
+
+    socket.on('highlight_points', function (points) {
+        graph.take(1)
+            .do(function (graph) {
+
+                points.forEach(function (point) {
+                    graph.simulator.buffersLocal.pointColors[point.index] = point.color;
+                });
+                graph.simulator.tickBuffers(['pointColors']);
+
+                animStep.interact({play: true, layout: true});
+            })
+            .subscribe(_.identity, makeErrorHandler('color'));
+
+    });
+
 
 
 
