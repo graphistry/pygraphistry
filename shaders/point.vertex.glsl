@@ -11,8 +11,10 @@ attribute float pointSize;
 attribute vec4 pointColor;
 varying vec4 vColor;
 
+uniform float zoomScalingFactor;
+
 void main(void) {
-    gl_PointSize = clamp(pointSize, 5.0, 50.0);
+    gl_PointSize = clamp(zoomScalingFactor * pointSize, 5.0, 50.0);
 
     vec4 pos = vec4(curPos.x, curPos.y, Z_VAL, W_VAL);
     gl_Position = mvp * pos;
