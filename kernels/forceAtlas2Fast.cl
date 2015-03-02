@@ -17,7 +17,7 @@
 //#define NOATTRACTION
 
 float attractionForce(const float2 distVec, const float n1Size, const float n2Size,
-                      const uint n1Degree, const float weight, const bool preventOverlap,
+                      const uint n1Degree, const float weight, const bool noOverlap,
                       const uint edgeInfluence, const bool linLog, const bool dissuadeHubs);
 
 
@@ -201,18 +201,18 @@ __kernel void faEdgeForces(
 
 
 float attractionForce(const float2 distVec, const float n1Size, const float n2Size,
-                      const uint n1Degree, const float weight, const bool preventOverlap,
+                      const uint n1Degree, const float weight, const bool noOverlap,
                       const uint edgeInfluence, const bool linLog, const bool dissuadeHubs) {
 
     const float weightMultiplier = edgeInfluence == 0 ? 1.0f
                                  : edgeInfluence == 1 ? weight
                                                       : pown(weight, edgeInfluence);
 
-    const float dOffset = preventOverlap ? n1Size + n2Size : 0.0f;
+    const float dOffset = noOverlap ? n1Size + n2Size : 0.0f;
     const float dist = length(distVec) - dOffset;
 
     float aForce;
-    if (preventOverlap && dist < EPSILON) {
+    if (noOverlap && dist < EPSILON) {
         aForce = 0.0f;
     } else {
         const float distFactor = (linLog ? log(1.0f + dist) : dist);
