@@ -112,7 +112,7 @@ describe ("[SMOKE] Server-viz", function () {
             var render_list = ['pointpicking', 'pointsampling',
                 'edgeculled', 'pointoutline', 'pointculled'];
             expect(render_config.render).toEqual(render_list);
-            var program_list = ['pointculled', 'edgeculled'];
+            var program_list = ['points', 'edgeculled', 'pointculled'];
             expect(_.keys(render_config.programs)).toEqual(program_list);
             done();
         });
@@ -194,7 +194,7 @@ describe ("[SMOKE] Server-viz", function () {
             var render_list = ['pointpicking', 'pointsampling',
                 'midedgetextured', 'pointculled'];
             expect(render_config.render).toEqual(render_list);
-            var program_list = ['pointculled', 'midedgetextured'];
+            var program_list = ['points', 'midedgetextured', 'pointculled'];
             expect(_.keys(render_config.programs)).toEqual(program_list);
             done();
         });
