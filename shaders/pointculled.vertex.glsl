@@ -12,15 +12,15 @@ attribute float pointSize;
 attribute vec4 pointColor;
 varying vec4 vColor;
 
-attribute float isHighlighted;
 uniform float fog;
 uniform float stroke;
+uniform float zoomScalingFactor;
 
 void main(void) {
     if (stroke > 0.0) {
-        gl_PointSize = (isHighlighted > 0.0 ? isHighlighted : clamp(pointSize, 5.0, 50.0));
+        gl_PointSize = clamp(zoomScalingFactor * pointSize, 5.0, 50.0);
     } else {
-        gl_PointSize = (isHighlighted > 0.0 ? isHighlighted : stroke + clamp(pointSize, 5.0, 50.0));
+        gl_PointSize = stroke + clamp(zoomScalingFactor * pointSize, 5.0, 50.0);
     }
 
     vec4 pos = mvp * vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);

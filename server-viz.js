@@ -11,8 +11,10 @@ var profiling   = require('debug')('profiling');
 var fs          = require('fs');
 var path        = require('path');
 var rConf       = require('./js/renderer.config.js');
+var lConf       = require('./js/layout.config.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
+var util        = require('./js/util.js');
 var compress    = require('node-pigz');
 var StreamGL    = require('StreamGL');
 var config      = require('config')();
@@ -77,14 +79,6 @@ function getState() {
 
 
 
-
-function makeErrorHandler(name) {
-    return function (err) {
-        console.error(name, err, (err||{}).stack);
-    };
-}
-
-
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
 function vboSizeMB(vbos) {
     var vboSizeBytes =
@@ -128,10 +122,10 @@ function init(app, socket) {
 
     img.take(1)
         .do(colorTexture)
-        .subscribe(_.identity, makeErrorHandler('ERROR IMG'));
+        .subscribe(_.identity, util.makeErrorHandler('ERROR IMG'));
     colorTexture
         .do(function() { debug('HAS COLOR TEXTURE'); })
-        .subscribe(_.identity, makeErrorHandler('ERROR colorTexture'));
+        .subscribe(_.identity, util.makeErrorHandler('ERROR colorTexture'));
 
 
 
@@ -167,7 +161,7 @@ function init(app, socket) {
                     res.send(data);
                 })
                 .subscribe(_.identity,
-                    makeErrorHandler('ERROR colorTexture pluck'));
+                    util.makeErrorHandler('ERROR colorTexture pluck'));
 
         } catch (e) {
             console.error('[viz-server.js] bad request', e, e.stack);
@@ -178,7 +172,7 @@ function init(app, socket) {
     var query = socket.handshake.query;
     var qDataset = loader.downloadDataset(query);
 
-    var theRenderConfig = qDataset.then(function (dataset) {
+    var qRenderConfig = qDataset.then(function (dataset) {
         var metadata = dataset.metadata;
 
         if (!(metadata.scene in rConf.scenes)) {
@@ -194,15 +188,28 @@ function init(app, socket) {
 
     socket.on('get_render_config', function() {
         debug('Sending render-config to client');
-        theRenderConfig.then(function (renderConfig) {
+        qRenderConfig.then(function (renderConfig) {
             socket.emit('render_config', renderConfig);
         }).fail(function (err) {
             console.error('ERROR sending rendererConfig ', (err||{}).stack);
         });
     });
 
+    var qLayoutControls = qDataset.then(function (dataset) {
+        var controls = driver.getControls(dataset.metadata.controls)[0];
+        return lConf.toClient(controls.layoutAlgorithms);
+    })
+
+    socket.on('get_layout_controls', function() {
+        debug('Sending layout controls to client');
+        animStep.graph.then(function (graph) {
+            var controls = graph.simulator.controls;
+            socket.emit('layout_controls', lConf.toClient(controls.layoutAlgorithms));
+        }).fail(util.makeErrorHandler('get_layout_controls'));
+    });
+
     socket.on('begin_streaming', function() {
-        theRenderConfig.then(function (renderConfig) {
+        qRenderConfig.then(function (renderConfig) {
             stream(socket, renderConfig, colorTexture);
         }).fail(function (err) {
             console.error('ERROR streaming ', (err||{}).stack);
@@ -275,11 +282,48 @@ function stream(socket, renderConfig, colorTexture) {
                         }));
                 }
 
-                var hits = labels.map(function (idx) { return graph.simulator.labels[offset + idx]; });
+                var hits = labels.map(function (idx) {
+                    return graph.simulator.labels[offset + idx];
+                });
                 cb(null, hits);
             })
-            .subscribe(_.identity, makeErrorHandler('get_labels'));
+            .subscribe(_.identity, util.makeErrorHandler('get_labels'));
     });
+
+    socket.on('shortest_path', function (pair) {
+        graph.take(1)
+            .do(function (graph) {
+                graph.simulator.highlightShortestPaths(pair);
+                animStep.interact({play: true, layout: true});
+            })
+            .subscribe(_.identity, util.makeErrorHandler('shortest_path'));
+    });
+
+    socket.on('set_colors', function (color) {
+        graph.take(1)
+            .do(function (graph) {
+                graph.simulator.setColor(color);
+                animStep.interact({play: true, layout: true});
+            })
+            .subscribe(_.identity, util.makeErrorHandler('color'));
+    });
+
+    socket.on('highlight_points', function (points) {
+        graph.take(1)
+            .do(function (graph) {
+
+                points.forEach(function (point) {
+                    graph.simulator.buffersLocal.pointColors[point.index] = point.color;
+                });
+                graph.simulator.tickBuffers(['pointColors']);
+
+                animStep.interact({play: true, layout: true});
+            })
+            .subscribe(_.identity, util.makeErrorHandler('color'));
+
+    });
+
+
 
 
 
@@ -388,7 +432,9 @@ function stream(socket, renderConfig, colorTexture) {
             })
             .map(_.constant(graph));
     })
-    .subscribe(function () { debug('9. LOOP ITERATED', socket.id); }, makeErrorHandler('ERROR LOOP'));
+    .subscribe(function () {
+        debug('9. LOOP ITERATED', socket.id);
+    }, util.makeErrorHandler('ERROR LOOP'));
 }
 
 

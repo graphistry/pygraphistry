@@ -9,16 +9,15 @@
 #define DEFAULT_NODE_SIZE 0.000001f
 #define EPSILON 0.00001f // bound whether d(a,b) == 0
 
-#define IS_PREVENT_OVERLAP(flags) (flags & 1)
-#define IS_DISSUADE_HUBS(flags)   (flags & 4)
-#define IS_LIN_LOG(flags)         (flags & 8)
+#define IS_DISSUADE_HUBS(flags)   (flags & 1)
+#define IS_LIN_LOG(flags)         (flags & 2)
 
 //#define NOGRAVITY
 //#define NOREPULSION
 //#define NOATTRACTION
 
 float attractionForce(const float2 distVec, const float n1Size, const float n2Size,
-                      const uint n1Degree, const float weight, const bool preventOverlap,
+                      const uint n1Degree, const float weight, const bool noOverlap,
                       const uint edgeInfluence, const bool linLog, const bool dissuadeHubs);
 
 
@@ -115,7 +114,7 @@ __kernel void faPointForces (
     float gForce;
     #ifdef strongGravity
     {
-        gForce = gravity * (n1Degree + 1.0f) * fast_length(centerVec)
+        gForce = gravity * (n1Degree + 1.0f) * fast_length(centerVec);
     }
     #else
     {
@@ -176,9 +175,21 @@ __kernel void faEdgeForces(
         const float n2Size = DEFAULT_NODE_SIZE;
         const float2 distVec = n2Pos - n1Pos;
 
-        const float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
-                                             IS_PREVENT_OVERLAP(flags), edgeInfluence,
-                                             IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
+        float aForce;
+        #ifdef preventOverlap
+        {
+            aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
+                                     true, edgeInfluence,
+                                     IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
+        }
+        #else
+        {
+            aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
+                                     false, edgeInfluence,
+                                     IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
+        }
+        #endif
+
         debug4("\taForce (%d->%d): %f\n", sourceIdx, curSpring.y, aForce);
         n1D += normalize(distVec) * aForce;
     }
@@ -190,18 +201,18 @@ __kernel void faEdgeForces(
 
 
 float attractionForce(const float2 distVec, const float n1Size, const float n2Size,
-                      const uint n1Degree, const float weight, const bool preventOverlap,
+                      const uint n1Degree, const float weight, const bool noOverlap,
                       const uint edgeInfluence, const bool linLog, const bool dissuadeHubs) {
 
     const float weightMultiplier = edgeInfluence == 0 ? 1.0f
                                  : edgeInfluence == 1 ? weight
                                                       : pown(weight, edgeInfluence);
 
-    const float dOffset = preventOverlap ? n1Size + n2Size : 0.0f;
+    const float dOffset = noOverlap ? n1Size + n2Size : 0.0f;
     const float dist = length(distVec) - dOffset;
 
     float aForce;
-    if (preventOverlap && dist < EPSILON) {
+    if (noOverlap && dist < EPSILON) {
         aForce = 0.0f;
     } else {
         const float distFactor = (linLog ? log(1.0f + dist) : dist);
