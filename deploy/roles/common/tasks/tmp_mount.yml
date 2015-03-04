@@ -65,12 +65,15 @@
         state=absent
   sudo: yes
 
-- name: Warn user about SSH auth sock on /tmp
-  debug: >
-           msg="Warning: we have remounted /tmp on a new drive for server {{ inventory_hostname }}.
-           This may have the side-effect of breaking SSH Agent forwarding temporarily. If Git clones
-           fail, etc., please disconnect from the server, delete any shared connectons on your local
-           machine in /tmp/ansible-ssh-* (or wait 5 minutes for them to time-out) and retry this
-           playbook."
+# When we connect over SSH, the SSH Agent forwarding socket is created in /tmp. When we remount
+# /tmp, this socket is deleted (sockets can't be moved between drives, so the `mv` command doesn't
+# keep it).
+# Because we have SSH ControlMaster enabled in our ansible.cfg's ssh_args, Ansible doesn't reconnect
+# for each task, and so that SSH agent socket isn't recreated. The below task attempts to manually
+# send a ControlMaster `exit` command to SSH, though it may fail if the below SSH options don't
+# match Ansible's exactly. On the next task, SSH will reconnect and the socket will be recreated.
+- name: Disconnect SSH master connection (so that the SSH agent forwarding socket is recreated)
+  local_action: command ssh -o ControlMaster=auto -o ControlPath=/tmp/ansible-ssh-%u-%n-%p-%r -o IdentityFile={{ ansible_ssh_private_key_file|default('./tools/ansible_id_rsa.pem') }} -o Port={{ ansible_ssh_port }} -o User={{ ansible_ssh_user }} -O exit {{ ansible_ssh_host|default(inventory_hostname) }}
   sudo: no
+  ignore_errors: yes
   when: remount_tmp
