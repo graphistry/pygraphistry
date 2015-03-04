@@ -1,9 +1,0 @@
----
-# The list of users who should have the SSH deploy private key uploaded to their account
-ssh_configured_users:
-  - mtorok
-  - ubuntu
-  - www
-
-# Same as ssh_configured_users, but filtering only for user accounts we created on this machine
-ssh_configured_users_active:  "{{ ssh_configured_users|intersect(users|default([])) }}"
