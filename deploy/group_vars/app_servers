@@ -47,12 +47,21 @@ users:
   - username: ubuntu
     pubkey: "{{ playbook_dir }}/tools/ansible_id_rsa.pub"
     groups:
-      - admin
       - graphistry-dev
       - www
+      - sudo
+      - ubuntu
+      - adm
+      - dialout
+      - cdrom
+      - floppy
+      - audio
+      - dip
+      - video
+      - plugdev
+      - netdev
   - username: mtorok
     pubkey: "{{ pubkey_base }}/mtorok.pub"
     groups:
       - graphistry-dev
       - www
-      - admin
