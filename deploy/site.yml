@@ -25,12 +25,29 @@
 # ansible facts, but we haven't run the setup module manually for one reason or another.
 
 - hosts: localhost
+  gather_facts: no
   roles:
     - { role: slack, message: "{{ cluster | capitalize }} deploy started..." }
   tags:
     - provision
     - deploy
     - local
+
+- hosts: all:!localhost
+  gather_facts: no
+  roles:
+    - sshd_port
+  tags:
+    - sshd
+    - provision
+
+- hosts: deploy_server:workers:central
+  roles:
+    - { role: common, sudo: yes, tags: [ 'common' ] }
+    - { role: users, tags: [ 'users' ] }
+    - { role: splunkfwd, sudo: yes, tags: [ 'splunkfwd' ] }
+  tags:
+    - provision
 
 - hosts: deploy_server
   roles:
@@ -41,9 +58,9 @@
 
 - hosts: workers:central
   roles:
-   - app_server
+   - { role: nodejs, tags: [ 'nodejs' ] }
+   - { role: app_server, tags: [ 'app_servers' ] }
   tags:
-    - app_servers
     - provision
     - workers
     - central
@@ -52,20 +69,19 @@
   roles:
    - { role: cuda, tags: [ 'provision' , 'cuda' ] }
    - { role: worker, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
-  gather_facts: yes
   tags:
     - workers
 
 - hosts: central
   roles:
    - { role: central, sudo: yes, sudo_user: www }
-  gather_facts: yes
   tags:
     - central
     - deploy
 
 
 - hosts: localhost
+  gather_facts: no
   roles:
     - { role: slack, message: "   ...{{ cluster }} deploy done! Access at http://{{ groups['central'][0] }}." }
   tags:

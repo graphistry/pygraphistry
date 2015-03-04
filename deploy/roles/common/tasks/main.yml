@@ -1,10 +1,4 @@
 ---
-- { include: sshd_port.yml, tags: [ 'sshd' ] }
-
-- name: Gather facts for Common
-  setup:
-  sudo: no
-
 - name: Create Ansible file folder
   sudo: no
   file: path="{{ ansible_files }}"

@@ -1,4 +1,0 @@
----
-dependencies:
-- role: preflight
-  tags: tags | to_nice_yaml

@@ -1,5 +1,0 @@
----
-dependencies:
-- role: preflight
-  do_gather_facts: false
-  tags: tags | to_nice_yaml
