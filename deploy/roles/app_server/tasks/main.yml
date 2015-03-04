@@ -1,9 +1,5 @@
 ---
 # Provisions app servers (that is, the servers running the viz workers and/or cental.)
-# This task list contains a few basic tasks common to app servers, but most of the work is done via
-# dependencies of this task.
-
-- { include: tmp_mount.yml, tags: [ 'tmp_mount' ] }
 
 - name: Create temp folder for Graphistry data
   file: path="{{ graphistry_temp_path }}"

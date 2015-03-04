@@ -64,3 +64,13 @@
   file: path=/tmp_old
         state=absent
   sudo: yes
+
+- name: Warn user about SSH auth sock on /tmp
+  debug: >
+           msg="Warning: we have remounted /tmp on a new drive for server {{ inventory_hostname }}.
+           This may have the side-effect of breaking SSH Agent forwarding temporarily. If Git clones
+           fail, etc., please disconnect from the server, delete any shared connectons on your local
+           machine in /tmp/ansible-ssh-* (or wait 5 minutes for them to time-out) and retry this
+           playbook."
+  sudo: no
+  when: remount_tmp

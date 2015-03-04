@@ -89,3 +89,4 @@
          state=mounted
   sudo: yes
 
+- { include: tmp_mount.yml, tags: [ 'tmp_mount' ] }

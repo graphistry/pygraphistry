@@ -1,2 +1,3 @@
 ---
 ansible_minimum_version: "1.8.0"
+remount_tmp: False
