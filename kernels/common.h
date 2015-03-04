@@ -32,6 +32,13 @@
     #define debug5(X,Y,Z,W,V)
 #endif
 
+// #define DEBUGONCE
+#ifdef DEBUGONCE
+    #define debugonce(X)      if(get_global_id(0) == 0) printf(X)
+#else
+    #define debugonce(X)
+#endif
+
 // The number of tiles to process each execution of this kernel.
 // The particular subset of tiles is chosen based off of stepNumber.
 // Set by SimCl based on number of nodes

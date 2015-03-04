@@ -36,11 +36,14 @@
 // Correctness is guaranteed if WARPSIZE is less than or equal to actual warp size.
 //#define WARPSIZE 32
 #define MAXDEPTH 32
+#define COMPUTE_SUMS_ITERATION_LIMIT 5000
 
 // TODO: I've replaced comparisons >= 0 with > NULLPOINTER for readability.
 // We should benchmark to make sure that doesn't impact perf.
 #define TREELOCK -2
 #define NULLPOINTER -1
+
+
 
 
 //============================= BARNES HUT
@@ -60,7 +63,7 @@ __kernel void to_barnes_layout(
         const __global uint* pointDegrees,
         const uint step_number
 ){
-    //printf("Entering barnes layout\n");
+    debugonce("to barnes layout\n");
     size_t gid = get_global_id(0);
     size_t global_size = get_global_size(0);
 
@@ -122,6 +125,9 @@ __kernel void bound_box(
     float swing, traction;
     float val;
     int inc = global_dim_size;
+
+    debugonce("bound box\n");
+
 
     // TODO: Make these kernel parameters, don't rely on macro
     __local float sminx[THREADS1], smaxx[THREADS1], sminy[THREADS1], smaxy[THREADS1];
@@ -272,6 +278,9 @@ __kernel void build_tree(
     float px, py; // x and y of particle we're looking at
     int ch, n, cell, locked, patch;
     int depth;
+
+    debugonce("build tree\n");
+
 
     // Iterate through all bodies that were assigned to this thread
     // TODO: Make sure num_bodies is initialized to a proper value DYNAMICALLY
@@ -443,6 +452,8 @@ __kernel void compute_sums(
         float tau
 ){
 
+    debugonce("compute sums\n");
+
     int i, j, k, inc, num_children_missing, cnt, bottom_value, child, local_size;
     float m, cm, px, py;
 
@@ -461,7 +472,18 @@ __kernel void compute_sums(
 
     num_children_missing = 0;
 
+
+    int iterations = 0;
     while (k <= num_nodes) {
+
+        // TODO: Find a clean way to avoid this entirely.
+        // It's likely impossible in OpenCL 1.2 because of lack of
+        // global memory sync.
+        if (iterations++ > COMPUTE_SUMS_ITERATION_LIMIT) {
+            // printf("Compute sums iterations exceeded limit.\n");
+            break;
+        }
+
         if (num_children_missing == 0) { // Must be new cell
             // Initialize
             cm = 0.0f;
@@ -470,6 +492,7 @@ __kernel void compute_sums(
             cnt = 0;
             j = 0;
             for (i = 0; i < 4; i++) {
+
                 child = children[k*4+i];
                 if (child > NULLPOINTER) {
                     if (i != j) {
@@ -479,7 +502,9 @@ __kernel void compute_sums(
                         children[k*4+j] = child;
                     }
                     // TODO: Make sure threads value is correct.
+
                     missing_children[num_children_missing*local_size+get_local_id(0)] = child;
+
                     m = mass[child];
                     num_children_missing++;
                     if (m >= 0.0f) {
@@ -504,7 +529,9 @@ __kernel void compute_sums(
         if (num_children_missing != 0) {
             do {
                 // poll for missing child
+
                 child = missing_children[(num_children_missing - 1)*local_size+get_local_id(0)];
+
                 m = mass[child];
                 if (m >= 0.0f) {
                     // Child has been touched
@@ -523,6 +550,7 @@ __kernel void compute_sums(
 
         if (num_children_missing == 0) {
             //We're done! finish the sum
+
             count[k] = cnt;
             m = 1.0f / cm;
             x_cords[k] = px * m;
@@ -569,11 +597,15 @@ __kernel void sort(
         float tau
 ){
 
+    debugonce("sort\n");
+
     int i, k, child, decrement, start_index, bottom_node;
 
     bottom_node = *bottom;
     decrement = get_global_size(0);
     k = num_nodes + 1 - decrement + get_global_id(0);
+
+
 
     while (k >= bottom_node) {
         start_index = start[k];
@@ -708,6 +740,8 @@ __kernel void calculate_forces(
         float tau
 ){
 
+    debugonce("calculate forces\n");
+
     const int idx = get_global_id(0);
     const int local_size = get_local_size(0);
     const int global_size = get_global_size(0);
@@ -718,6 +752,7 @@ __kernel void calculate_forces(
     //float forceX, forceY;
     float2 forceVector;
     float2 distVector;
+
 
 
     float px, py, ax, ay, dx, dy, temp;
@@ -929,6 +964,8 @@ __kernel void from_barnes_layout(
         __global volatile int* maxdepthd,
         unsigned int step_number
 ){
+
+    debugonce("from barnes layout\n");
 
     size_t gid = get_global_id(0);
     size_t global_size = get_global_size(0);
