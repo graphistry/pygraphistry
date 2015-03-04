@@ -5,25 +5,27 @@
 # (based off your API key) that the pkg install script picks up. We can't easily recreate the
 # script in Ansible, but once installed, apt-get will keep it updated.
 
-- name: Install httplib2
-  pip: name=httplib2 state=present
-  sudo: yes
-
-# We need to send some headers when we fetch the script, so use the `uri` module to make a REST
-# request against the server and save the response.
+# This should use the get_url or uri module, but the former can't send headers, and the latter has
+# a bug where it strips quote escapes in the source file when it tries to save the file.
 - name: Download Boundary Meter install script
-  uri: url=https://meter.boundary.com/setup_meter
-       method=POST
-       HEADER_Content-Type="application/json"
-       body='{"token":"{{ boundary_password }}"}'
-       dest="{{ ansible_files }}/setup_meter.sh"
-       creates="{{ ansible_files }}/setup_meter.sh"
-       group=graphistry-dev
-       mode=0775
+  command: "curl -fsS -o '{{ ansible_files }}/setup_meter.sh' -d '{\"token\":\"{{ boundary_password }}\"}' -H 'Content-Type: application/json' https://meter.boundary.com/setup_meter
+           creates='{{ ansible_files }}/setup_meter.sh'
+           chdir='{{ ansible_files }}'"
   sudo: no
 
-# The script will do it's own `sudo`ing, so no need to do `sudo: yes` here
+- name: Make Boundary Meter install script executable
+  file: path="{{ ansible_files }}/setup_meter.sh"
+        mode=0777
+  sudo: no
+
 - name: Run Boundary Meter install script
-  command: setup_meter.sh
-           chdir="{{ ansible_files }}"
-           creates="/etc/apt/sources.list.d/boundary.list"
+  command: creates="/etc/apt/sources.list.d/boundary.list"
+           "{{ ansible_files }}/setup_meter.sh"
+  sudo: no
+
+- name: Fix Boundary Meter apt source file permissions
+  file: path="/etc/apt/sources.list.d/boundary.list"
+        mode=0644
+        owner=root
+        group=root
+  sudo: yes
