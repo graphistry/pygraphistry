@@ -1,37 +1,22 @@
 ---
-- name: Create ~/.ssh directory
-  file: path="/home/{{ item }}/.ssh"
-        state=directory
-        owner="{{ item }}"
-        group="{{ item }}"
-        mode=0700
+- name: Find deploy keys
+  command: find /home -name 'deploy_id_rsa'
   sudo: yes
-  sudo_user: "{{ item }}"
-  with_items: ssh_configured_users
+  register: deploy_keys
 
-- name: Upload deploy SSH key
-  copy: src=deploy.pem
-        dest="/home/{{ item }}/.ssh/deploy_id_rsa"
-        owner="{{ item }}"
-        group="{{ item }}"
-        mode=0600
+- name: Delete deploy keys
+  file: path="{{ item }}"
+        state=absent
   sudo: yes
-  sudo_user: "{{ item }}"
-  with_items: ssh_configured_users_active
+  with_items: deploy_keys.stdout_lines
 
-- name: Register SSH deploy key
-  shell: 'eval "$(ssh-agent -s)" && ssh-add "/home/{{ item }}/.ssh/deploy_id_rsa"'
+- name: Find SSH configs
+  command: find /home -path '*/.ssh/config'
   sudo: yes
-  sudo_user: "{{ item }}"
-  with_items: ssh_configured_users_active
+  register: ssh_configs
 
-- name: Set SSH config to use deploy key on GitHub
-  copy: src=ssh.config
-        dest="/home/{{ item }}/.ssh/config"
-        owner="{{ item }}"
-        group="{{ item }}"
-        mode=0600
-        force=no
+- name: Delete SSH configs
+  file: path="{{ item }}"
+        state=absent
   sudo: yes
-  sudo_user: "{{ item }}"
-  with_items: ssh_configured_users_active
+  with_items: ssh_configs.stdout_lines
