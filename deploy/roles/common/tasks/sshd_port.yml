@@ -19,10 +19,12 @@
 - name: Set sshd port
   template: src=sshd_config.j2 dest=/etc/ssh/sshd_config
   register: sshd_config
+  sudo: yes
 
 - name: Restart sshd
   service: name=ssh state=restarted
   when: sshd_config|changed
+  sudo: yes
 
 - name: Set Ansible back to using our custom SSH port
   sudo: no
