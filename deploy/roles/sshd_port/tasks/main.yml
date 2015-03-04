@@ -1,14 +1,10 @@
 ---
-- name: Save the desired SSH port
-  sudo: no
-  set_fact: graphistry_ssh_port={{ ansible_ssh_port }}
-
 - name: Test desired SSH port for connectivity
   sudo: no
   local_action: shell nc -z -w5 {{ inventory_hostname }} {{ ansible_ssh_port }}
   register: nc_ssh_port
   failed_when: nc_ssh_port.stdout.find('failed') != -1
-  changed_when: nc_ssh_port.stdout == ""
+  changed_when: False
   ignore_errors: yes
 
 - name: Set Ansible to temporarily use port 22
