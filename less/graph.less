@@ -1,0 +1,328 @@
+#marquee {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    z-index: 100100;
+    top: 0;
+    left: 0;
+
+    &.on {
+        display: block;
+    }
+
+    &.off {
+        display: none;
+    }
+}
+
+
+.noselect {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+.selection {
+    position: relative;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: rgba(255,255,255,0.3);
+    box-shadow: 0 0 10px rgba(255,255,255,0.75);
+}
+
+.selection.off {
+    display: none;
+}
+
+.selection.on {
+    display: block;
+    border: 1px dashed rgba(51,51,153, 0.75);
+}
+.selection.done {
+    border: 3px dashed rgba(51,51,153, 0.75);
+}
+
+.content {
+    position: absolute;
+    left: 0;
+    top: 0;
+}
+
+.status-bar {
+    max-height: 1.5em;
+    background-color: rgba(51,51,153, 0.3);
+}
+
+#main, .accordion {
+    background-color: rgba(204, 204, 204, 0.3);
+    color: #EEF;
+    padding: 0.5em;
+}
+
+#main, #menuState, #controlState {
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    background-color: rgba(51, 51, 102, 0.4);
+    border-radius: 7px;
+}
+
+#main:hover, #menuState:hover, #controlState a:hover, #controlState a.on {
+    text-shadow: 0 0 10px rgba(255,255,255,0.75);
+}
+
+
+#menus {
+    position: absolute;
+    width: 100%;
+    z-index: 1000000;
+}
+
+#controlState {
+    position: absolute;
+    right: 1em;
+    display: inline-block;
+    top: 1em;
+    margin: 1em;
+    padding: 0.5em;
+}
+
+
+#controlState a {
+    display: block;
+    text-align: center;
+    padding: 0.2em;
+}
+
+
+
+.selectable {
+    display: inline-block;
+    width: 1.3em;
+    height: 1.3em;
+    border: 1px dashed white;
+}
+
+#marqueerectangle.on .selectable, .selectable:hover {
+    box-shadow: 0 0 10px rgba(255,255,255,0.75);
+}
+
+.draggable {
+    cursor:pointer;
+}
+
+.dragging {
+    cursor:move !important;
+}
+
+.menu {
+    position: absolute;
+    z-index: 100001;
+    left: 0;
+}
+
+.graphistry-body {
+    background-color: #223 !important;
+    height: 100%;
+    overflow:hidden;
+}
+
+label {
+    color: rgba(255,255,255,0.9);
+}
+
+.accordion-heading a:hover .fa {
+    color: rgb(15, 165, 197);
+}
+
+.accordion-heading .fa {
+    color: rgba(255,255,255,0.9);
+}
+
+.accordion-heading .toggle-on {
+    text-shadow: 0px 0px 5px white;
+    color: rgb(15,165,197);
+}
+
+.accordion-heading #marqueerectangle .toggle-on {
+    background-color: rgba(15,165,197,0.5);
+}
+
+i.fa {
+   display: inline-block;
+}
+
+button.btn-default {
+    background-color: transparent;
+    color: white;
+}
+
+
+
+#highlighted-point-cont {
+    position: absolute;
+    top: -10px;
+    left: -10px;
+}
+
+.highlighted-point {
+    position: relative;
+    left: -9px;
+    top: -9px;
+    border: 1px solid rgba(255,255,255,0.8);
+    border-radius: 10px;
+    width: 20px;
+    height: 20px;
+    box-shadow: 0 0 10px rgba(255,255,255,0.75);
+}
+
+.highlighted-point-center {
+    position: relative;
+    left: 7px;
+    top: 7px;
+    border-radius: 4px;
+    background-color: white;
+    width: 5px;
+    height: 5px;
+    border: 1px solid rgb(51,51,102);
+}
+
+.meter {
+    position: fixed;
+    bottom: 3em;
+    opacity: 0.75;
+    color: rgb(51,51,102) !important;
+
+    .flavor, div {
+        color: rgb(51,51,102);
+        text-transform: uppercase !important;
+        font-weight: bold !important;
+        text-shadow: none;
+    }
+
+}
+.meter-fps {
+    left: 1em;
+}
+.meter-network {
+    left: 11em;
+}
+
+
+
+
+/*******/
+html {
+    overflow: hidden;
+}
+
+#simulation {
+    border: 0px;
+}
+
+#timeSlider {
+    display: none;
+}
+
+#menuState {
+    display: none
+}
+
+#marqueerectangle, #mouser, {
+    display: none !important
+}
+
+.graphistry-body {
+
+    background: linear-gradient(to bottom, #EDF8FF 0%, #F0F4F9 100%);
+
+    .heading {
+        background: none;
+    }
+
+}
+
+.graph-label {
+    background-color: rgba(255, 255, 255, 0.8);
+}
+
+.legend-container {
+
+    &.off {
+        overflow:hidden;
+        height: 2.4em;
+        width: 1em;
+        min-width: 1em;
+    }
+
+    display: none;
+    position: absolute;
+    bottom: 1em;
+    right: 1em;
+    padding: 1em;
+    max-width: 40em;
+    min-width: 20em;
+    z-index: 20000;
+
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,244,0.9);
+    background-color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 10px rgba(235,235,245,0.75);
+
+    h3 {
+        margin-top: 0;
+        margin-bottom: 5px;
+        color: rgb(51,51,102);
+        font-weight: bold;
+        font-size: 1.3em;
+    }
+
+    table {
+        border-collapse: separate;
+        border-spacing: 0 0.4em;
+    }
+
+    tr {
+        margin-top: 1em;
+
+        td:first-child {
+            vertical-align: top;
+        }
+    }
+
+    .legend-label {
+        margin-right: 0.4em;
+        color: rgb(51,51,102);
+        font-weight: bold;
+    }
+
+    .toggles {
+        text-align: right;
+    }
+    &.on .revealer,
+    &.off .hider {
+        display: none;
+    }
+}
+
+
+
+.automode {
+    animation: pulsate 1s linear infinite;
+    -webkit-animation: pulsate 1s linear infinite;
+}
+
+.graphistry-pulsate-keyframes() {
+    0%   { color: rgb(5, 168, 201); }
+    100% { color: #FFF; }
+}
+
+@keyframes "pulsate" {
+    .graphistry-pulsate-keyframes();
+}
+
+@-webkit-keyframes "pulsate" {
+    .graphistry-pulsate-keyframes()
+}

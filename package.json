@@ -6,7 +6,10 @@
   "main": "index.js",
   "author": "",
   "scripts": {
-    "test": "jasmine-node spec/ --forceexit"
+    "test": "jasmine-node spec/ --forceexit",
+    "less": "mkdir -p assets/css && (lessc less/graph.less > assets/css/graph.css)",
+    "install": "npm run less",
+    "watch": "watch-less -d less --output assets/css -e .css"
   },
   "license": "ISC",
   "dependencies": {
@@ -18,6 +21,7 @@
     "express": "~4.10.0",
     "fs-tools": "~0.2.0",
     "gl-matrix": "~2.2.0",
+    "less": "^2.4.0",
     "mongodb": "~1.4.0",
     "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
     "node-webcl": "git+ssh://git@github.com:graphistry/node-webcl-old.git#master",
@@ -31,6 +35,7 @@
     "sprintf-js": "~1.0.0",
     "supertest": "~0.15.0",
     "underscore": "~1.8.0",
+    "watch-less": "0.0.4",
     "xhr2": "~0.1.0"
   },
   "devDependencies": {
