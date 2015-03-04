@@ -36,6 +36,7 @@ users:
   - username: www
     # Only a member of the 'www' group
     groups:
+      - sshauthsock
   - username: leo
     pubkey: "{{ pubkey_base }}/leo.pub"
   - username: thibaud
@@ -60,8 +61,10 @@ users:
       - video
       - plugdev
       - netdev
+      - sshauthsock
   - username: mtorok
     pubkey: "{{ pubkey_base }}/mtorok.pub"
     groups:
       - graphistry-dev
       - www
+      - sshauthsock
