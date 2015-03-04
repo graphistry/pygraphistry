@@ -21,7 +21,7 @@
     "express": "~4.10.0",
     "fs-tools": "~0.2.0",
     "gl-matrix": "~2.2.0",
-    "less": "^2.4.0",
+    "less": "~2.2.0",
     "mongodb": "~1.4.0",
     "node-pigz": "git+ssh://git@github.com:graphistry/node-pigz.git#master",
     "node-webcl": "git+ssh://git@github.com:graphistry/node-webcl-old.git#master",
