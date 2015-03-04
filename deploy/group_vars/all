@@ -24,9 +24,10 @@
 ansible_ssh_user: ubuntu
 # The port Ansible will use when SSH'ing into the remote instance. If the remote sshd isn't yet
 # configured to use this port, the 'common' role will try to login on port 22 and change it to this.
-ansible_ssh_port: 61630
+graphistry_ssh_port: 61630
+ansible_ssh_port: "{{ graphistry_ssh_port }}"
 
-# Boundary login info
+# Boundary login info (used by reaper.py)
 boundary_username: "boundary@graphistry.com"
 boundary_password: "api.62fb69d814-3713"
 
