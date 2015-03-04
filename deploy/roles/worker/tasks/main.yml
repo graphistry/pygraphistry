@@ -50,7 +50,6 @@
        dest={{ graphistry_install_path }}/viz-server
        version="{{ viz_module_checkout }}"
        update=yes
-       key_file=/home/{{ sudo_user }}/.ssh/deploy_id_rsa
        accept_hostkey=yes
   notify: Restart workers
 

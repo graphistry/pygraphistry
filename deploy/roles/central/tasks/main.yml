@@ -83,7 +83,6 @@
        dest={{ graphistry_install_path }}/central
        version="{{ central_module_checkout }}"
        update=yes
-       key_file=/home/{{ sudo_user }}/.ssh/deploy_id_rsa
        accept_hostkey=yes
   register: central_updated
   notify: Restart central

@@ -143,7 +143,6 @@
 - name: "[mtorok] Clone dotfiles repo"
   git: repo=git@github.com:int3h/dotfiles.git
        dest=/home/mtorok/.homesick/repos/dotfiles
-       key_file=/home/mtorok/.ssh/deploy_id_rsa
        update=yes
        accept_hostkey=yes
   register: mtorok_dotfile_repo
