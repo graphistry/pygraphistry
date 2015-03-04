@@ -12,6 +12,10 @@ dependencies:
 - role: preflight
   tags: tags | to_nice_yaml
 
+- role: users
+  tags:
+    - users
+
 - role: splunkfwd
   sudo: yes
   tags:
