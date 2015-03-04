@@ -12,3 +12,7 @@ user_groups: []
 # A list of groups each user will be assigned to (beyond their own) if the user doesn't have the
 # "groups" attribute defined.
 default_groups: []
+
+# A list of user groups to authorize to use the Ansible user's SSH agent forwarding socket
+ssh_auth_sock_groups:
+  - sshauthsock

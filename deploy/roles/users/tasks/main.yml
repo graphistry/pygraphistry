@@ -20,6 +20,24 @@
         recurse=yes
   sudo: yes
 
+- name: Create group for users authorized to use the Ansible user's SSH agent auth socket
+  group: name=sshauthsock
+  sudo: yes
+  sudo_user: root
+
+- name: Create ~/.ssh directory
+  file: path="~/.ssh"
+        state=directory
+        mode=0710
+  sudo: no
+
+- name: Upload ~/.ssh/rc script, which allows us to use SSH agent forwarding under `sudo`
+  template: src=sshrc.j2
+            dest="~/.ssh/rc"
+            mode=0744
+            validate='/bin/sh -n "%s"'
+  sudo: no
+
 - name: Create groups
   group: name={{ item }}
   with_items: user_groups
@@ -40,6 +58,10 @@
   sudo_user: "{{ item.username }}"
   when: item.pubkey|default(False)
   with_items: users
+
+- name: Run ~/.ssh/rc (it may not get run after uploading if SSH pipelining is on in Ansible)
+  shell: ~/.ssh/rc
+  sudo: no
 
 - name: Do extra user tasks for user 'mtorok'
   include: mtorok.yml

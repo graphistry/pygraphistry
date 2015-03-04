@@ -1,0 +1,54 @@
+#!/bin/sh
+#     Sets the permissions of your $SSH_AUTH_SOCK to allow access
+#     by the graphistry-dev group, so that you can still have access
+#     to it while you sudo.
+
+# A list of the groups allowed to access our auth sock
+SSH_AUTH_SOCK_ACCESS_GROUPS='{{ ssh_auth_sock_groups|join(' ') }}'
+
+# Checks if the group given in the first argument exists. Returns 0 if it exits.
+group_exists() {
+    local group_to_check="$1"
+    if egrep -i "^$group_to_check:" /etc/group >/dev/null 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+
+set_auth_sock_perms() {
+    # If there's no auth sock set, nothing to be done
+    [ -z "$SSH_AUTH_SOCK" ] && return
+
+    # If we don't own the auth sock, don't try to set it's permissions
+    [ x"$(stat --format=%U "$SSH_AUTH_SOCK")" = x"$USER" ] || return
+
+    # Set socket permissions so that the groups can use our SSH_AUTH_SOCK
+    local authorized=''
+    for authorized in $SSH_AUTH_SOCK_ACCESS_GROUPS; do
+        group_exists "$authorized" || continue
+
+        setfacl -m group:${authorized}:x "$(dirname "$SSH_AUTH_SOCK")" >/dev/null
+        setfacl -m group:${authorized}:rwx "$SSH_AUTH_SOCK" >/dev/null
+    done
+}
+set_auth_sock_perms
+
+
+export SSH_AUTH_SOCK_ACCESS_GROUPS
+
+unset -f group_exists
+unset -f set_auth_sock_perms
+
+
+if read proto cookie && [ -n "$DISPLAY" ]; then
+    if [ `echo $DISPLAY | cut -c1-10` = 'localhost:' ]; then
+        # X11UseLocalhost=yes
+        echo add unix:`echo $DISPLAY |
+        cut -c11-` $proto $cookie
+    else
+        # X11UseLocalhost=no
+        echo add $DISPLAY $proto $cookie
+    fi | xauth -q -fi -qfi
+fi
