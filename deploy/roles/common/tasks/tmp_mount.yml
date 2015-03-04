@@ -3,11 +3,7 @@
 # server running our instance. It is fast, and free for many instance types, but it is deleted every
 # time we shut down our instance.
 
-- name: Gather facts for app servers
-  setup:
-  sudo: no
-
-- name: Proceeding with /tmp re-mount
+- name: Checking if we should remount /tmp
   set_fact: remount_tmp=True
   when: '"/mnt" in ansible_mounts|map(attribute="mount")'
 
