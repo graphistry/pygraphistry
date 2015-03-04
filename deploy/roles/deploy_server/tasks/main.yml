@@ -13,6 +13,23 @@
   sudo: yes
   when: add_ansible_repo.changed
 
-- name: Install Ansible
-  apt: name=ansible state=latest update_cache=yes cache_valid_time=600
+- name: Install Ansible + dependencies
+  apt: name={{ item }} state=latest update_cache=yes cache_valid_time=600
+  sudo: yes
+  with_items:
+    - software-properties-common
+    - ansible
+
+- name: Set permissions on Graphistry Ansible directory on deploy
+  file: path="{{ ansible_files }}"
+        group=graphistry-dev
+        mode="g+rw"
+        recurse=yes
+  sudo: yes
+
+- name: Install tmux on deploy
+  apt: name=tmux
+       state=latest
+       update_cache=yes
+       cache_valid_time=600
   sudo: yes
