@@ -8,7 +8,6 @@
 
 # TODO: Secure sensitive data:
 # * Username/password variable files should be encrypted and/or distributed out-of-band.
-# * No SSH deploy key in repo (refactor GitHub tasks to use SSH agent forwarding).
 # * No Ansible SSH private key in repo (users use their own SSH keys to log in either as `ubuntu`,
 #   like present, or even as their own user account.)
 # * Review account creation and permissions on 'production' machines.
@@ -19,10 +18,6 @@
 # success (this file should be deleted at the beginning of deploys.) We can further add a check at
 # the beginning of deploys for this lock file (or maybe just lock files from other users?) and not
 # continue if one is found.
-
-# TODO: Turn on gather_facts by default in ansible.cfg, but create a new play for all hosts but
-# localhost to run the common role, where we turn it off. There are too many edge cases where we use
-# ansible facts, but we haven't run the setup module manually for one reason or another.
 
 - hosts: localhost
   gather_facts: no
