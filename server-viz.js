@@ -122,10 +122,10 @@ function init(app, socket) {
 
     img.take(1)
         .do(colorTexture)
-        .subscribe(_.identity, util.makeErrorHandler('ERROR IMG'));
+        .subscribe(_.identity, util.makeErrorHandler('img.take'));
     colorTexture
         .do(function() { debug('HAS COLOR TEXTURE'); })
-        .subscribe(_.identity, util.makeErrorHandler('ERROR colorTexture'));
+        .subscribe(_.identity, util.makeErrorHandler('colorTexture'));
 
 
 
@@ -145,7 +145,7 @@ function init(app, socket) {
             }
             res.send();
         } catch (e) {
-            util.makeErrorHandler('[server-viz.js] bad /vbo request')(e);
+            util.makeErrorHandler('bad /vbo request')(e);
         }
 
         finishBufferTransfers[id](bufferName);
@@ -162,7 +162,7 @@ function init(app, socket) {
                 .subscribe(_.identity, util.makeErrorHandler('colorTexture pluck'));
 
         } catch (e) {
-            util.makeErrorHandler('[server-viz.js] bad /texture request')(e);
+            util.makeErrorHandler('bad /texture request')(e);
         }
     });
 
@@ -189,11 +189,6 @@ function init(app, socket) {
         }).fail(util.makeErrorHandler('sending render.config'));
     });
 
-    var qLayoutControls = qDataset.then(function (dataset) {
-        var controls = driver.getControls(dataset.metadata.controls)[0];
-        return lConf.toClient(controls.layoutAlgorithms);
-    }).fail(util.makeErrorHandler('getting layout controls'));
-
     socket.on('get_layout_controls', function() {
         debug('Sending layout controls to client');
         animStep.graph.then(function (graph) {
@@ -213,7 +208,7 @@ function init(app, socket) {
         qDataset.then(function (dataset) {
             resetState(dataset);
             cb();
-        }).fail(util.makeErrorHandler('resett graph request'));
+        }).fail(util.makeErrorHandler('reset graph request'));
     });
 
     return module.exports;
@@ -309,7 +304,7 @@ function stream(socket, renderConfig, colorTexture) {
 
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, util.makeErrorHandler('highlighted_pointd'));
+            .subscribe(_.identity, util.makeErrorHandler('highlighted_points'));
 
     });
 
