@@ -1,3 +1,8 @@
+/*******/
+html {
+    overflow: hidden;
+}
+
 .graph-label-container {
     position: absolute;
     top: 0;
@@ -60,19 +65,25 @@
 
 
 
+.info {
+        .meter {
+            display: block;
+            position: fixed;
+            bottom: 3em;
+            opacity: 0.75;
+            color: rgb(51,51,102) !important;
+
+            .flavor, div {
+                color: rgb(51,51,102);
+                text-transform: uppercase !important;
+                font-weight: bold !important;
+                text-shadow: none;
+            }
+        }
+}
+
 .meter {
-    position: fixed;
-    bottom: 3em;
-    opacity: 0.75;
-    color: rgb(51,51,102) !important;
-
-    .flavor, div {
-        color: rgb(51,51,102);
-        text-transform: uppercase !important;
-        font-weight: bold !important;
-        text-shadow: none;
-    }
-
+    display:none;
 }
 
 .meter-fps {
@@ -280,14 +291,30 @@ button.btn-default {
 
 
 
-
-/*******/
-html {
-    overflow: hidden;
-}
-
 #simulation {
     border: 0px;
+}
+
+.debug {
+    #timeSlider {
+        display: inline-block;
+    }
+
+    #menuState {
+        display: inline-block;
+    }
+
+    #mouser, {
+        display: inline-block !important;
+    }
+
+    #marqueerectangle, {
+        display: inline-block !important;
+    }
+
+    #backgroundColor {
+        display: inline-block;
+    }
 }
 
 #timeSlider {
@@ -295,12 +322,21 @@ html {
 }
 
 #menuState {
-    display: none
+    display: none;
 }
 
 #mouser, {
-    display: none !important
+    display: none !important;
 }
+
+#marqueerectangle, {
+    display: none !important;
+}
+
+#backgroundColor {
+    display: none;
+}
+
 
 .graphistry-body {
 
