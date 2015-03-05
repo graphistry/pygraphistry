@@ -19,6 +19,12 @@
 # the beginning of deploys for this lock file (or maybe just lock files from other users?) and not
 # continue if one is found.
 
+# TODO: Use Ansible's sysctl module instead of uploading individual conf files in common/performance
+
+# TODO: Setup ssh config on servers that enables compression and ControlMaster to speed up git
+# clones of our modules' repos. Make sure this is in a place Ansilbe's git task (sudo'ed under user
+# `www`) will find and use it.
+
 - hosts: localhost
   gather_facts: no
   roles:
