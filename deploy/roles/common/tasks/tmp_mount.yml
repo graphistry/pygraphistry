@@ -42,7 +42,7 @@
   mount: name=/tmp
          src=/dev/xvdb
          fstype=ext3
-         opts="defaults,nobootwait,acl"
+         opts="defaults,nobootwait,acl,nofail,barrier=0,noatime,nodiratime"
          dump=0
          passno=2
          state=mounted

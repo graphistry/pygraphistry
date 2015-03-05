@@ -85,7 +85,7 @@
   mount: name=/
          src='LABEL=cloudimg-rootfs'
          fstype=ext4
-         opts='defaults,acl,discard'
+         opts='defaults,acl,discard,barrier=0,noatime,nodiratime'
          state=mounted
   sudo: yes
 
