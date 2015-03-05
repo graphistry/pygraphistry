@@ -10,7 +10,7 @@ mongodb_dbname="graphistry-prod"
 
 # When switching regions, run the following command locally to clear the existing pings (install
 # mongodb/mongo client locally first):
-#   mongo c48.lighthouse.3.mongolayer.com:10048/graphistry-prod -u graphistry -p graphtheplanet --eval 'db.node_monitor.remove({})'
+#   mongo c48.lighthouse.3.mongolayer.com:10048/graphistry-staging -u graphistry -p graphtheplanet -eval 'db.node_monitor.remove({$isolated: 1})'
 
 #### AWS region: us-west-1 (N. California)
 [central]
