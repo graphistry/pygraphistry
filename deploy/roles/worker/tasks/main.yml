@@ -56,7 +56,7 @@
 - name: Prune unused npm modules from viz-server
   command: npm prune
            chdir="{{ graphistry_install_path }}/viz-server"
-  notify: Restart central
+  notify: Restart workers
 
 - name: Install viz-server module
   npm: path={{ graphistry_install_path }}/viz-server
