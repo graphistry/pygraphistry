@@ -15,8 +15,8 @@ void main(void) {
     vec4 pos = mvp * vec4(curPos.x, curPos.y, Z_VAL, W_VAL);
 
     float furthestComponent = max(abs(pos.x), abs(pos.y));
-    float m = 1.0 / (1.1 - 1.2);
-    float b = -1.0 * m * 1.2;
+    float m = 1.0 / (1.02 - 1.05);
+    float b = -1.0 * m * 1.05;
     float remapped = m * furthestComponent + b;
 
     alpha = clamp(remapped, 0.0, 1.0);
