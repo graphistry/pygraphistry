@@ -1,0 +1,51 @@
+---
+# System configuration for performance (taken from http://www.brendangregg.com/blog/2015-03-03/performance-tuning-linux-instances-on-ec2.html)
+
+# This should be set per-process, replacing `<PID>` below with the actual PID of the process
+# - name: Tune CPU scheduling
+#   command: schedtool –B <PID>
+#   sudo: yes
+
+# Default setting: `always` (though sometimes `madvise`)
+- name: Tune memory page handling by disabling Transparent Huge Pages
+  shell: echo never > /sys/kernel/mm/transparent_hugepage/enabled
+  sudo: yes
+
+- name: Tune filesystem rq_affinity
+  shell: echo 2 > /sys/block/{{ item.key }}/queue/rq_affinity
+  sudo: yes
+  with_dict: ansible_devices
+
+# SSDs can perform better with the “noop” scheduler (if not default already)
+- name: Tune filesystem scheduler
+  shell: echo noop > /sys/block/{{ item.key }}/queue/scheduler
+  sudo: yes
+  with_dict: ansible_devices
+
+- name: Tune filesystem nr_requests
+  shell: echo 256 > /sys/block/{{ item.key }}/queue/nr_requests
+  sudo: yes
+  with_dict: ansible_devices
+
+# Some workloads, e.g., Cassandra, can be sensitive to read ahead size
+- name: Tune filesystem read_ahead_kb
+  shell: echo 256 > /sys/block/{{ item.key }}/queue/read_ahead_kb
+  sudo: yes
+  with_dict: ansible_devices
+
+- name: Tuning kernel clocksource
+  shell: echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource
+  sudo: yes
+
+- name: Configure sysctl settings for performance
+  copy: src=sysctl.d/
+        dest=/etc/sysctl.d/
+        owner=root
+        group=root
+        mode=0644
+        directory_mode=0755
+  sudo: yes
+  notify: Apply sysctl settings
+
+# Do we need to reboot to make these take effect?
+# Alternatively, are these persistent between reboots?

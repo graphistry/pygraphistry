@@ -65,6 +65,7 @@
     - ntp
     - pkg-config
     - acl
+    - schedtool
 
 - name: Install common Python packages
   pip: name={{ item }}
@@ -90,3 +91,5 @@
   sudo: yes
 
 - { include: tmp_mount.yml, tags: [ 'tmp_mount' ] }
+
+- { include: performance.yml, tags: [ 'performance' ] }
