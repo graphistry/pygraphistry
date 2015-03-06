@@ -4,7 +4,7 @@
 
 command=/usr/bin/nodejs {{ graphistry_install_path }}/viz-server/server.js "{\"VIZ_LISTEN_PORT\": %(process_num)d, \"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ inventory_hostname }}\" }"
 directory={{ graphistry_install_path }}/viz-server
-environment=DEBUG="*"
+environment=DEBUG='(express:*)|(graphistry:*)'
 
 process_name=%(program_name)s-%(process_num)d
 numprocs={{ workers_count }}

@@ -4,7 +4,7 @@
 
 command=/usr/bin/nodejs {{ graphistry_install_path }}/central/server.js "{\"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ inventory_hostname }}\" }"
 directory={{ graphistry_install_path }}/central
-environment=DEBUG="*"
+environment=DEBUG='(express:*)|(graphistry:*)'
 
 process_name=%(program_name)s
 numprocs=1
