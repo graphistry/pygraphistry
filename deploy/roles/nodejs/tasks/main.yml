@@ -168,15 +168,6 @@
             mode=0755
   sudo: yes
 
-- name: Source npm global config for Ansible user
-  shell: . /etc/profile.d/Z90-graphistry-nodeglobal.sh
-         executable=/bin/bash
-  sudo: "{{ item == 'default' | ternary('no', 'yes') }}"
-  sudo_user: "{{ item }}"
-  with_items:
-    - default
-    - www
-
 - name: Install node-gyp globally
   npm: name=node-gyp
        global=yes
