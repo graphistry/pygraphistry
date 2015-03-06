@@ -31,5 +31,3 @@
         mode=0664
   sudo: yes
   notify: Restart Supervisor
-
-- { include: ssh_config.yml, tags: [ 'ssh' ]}
