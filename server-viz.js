@@ -480,7 +480,7 @@ if (require.main === module) {
             http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
 
     listen.subscribe(
-        function () { console.log('\nViz worker listening'); },
+        function () { console.log('\nViz worker listening...'); },
         util.makeErrorHandler('server-viz main')
     );
 
