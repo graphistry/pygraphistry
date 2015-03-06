@@ -272,9 +272,8 @@ function stream(socket, renderConfig, colorTexture) {
             .subscribe(
                 _.identity,
                 function (err) {
-                    console.error('err', err, (err||{}).stack);
+                    util.makeErrorHandler('get_labels')(err);
                     cb('fail');
-                    util.makeErrorHandler('get_labels')();
                 });
     });
 
