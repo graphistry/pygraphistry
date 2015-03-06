@@ -48,6 +48,16 @@
     - system-upgrade
     - slow
 
+- name: Add git apt PPA repo (to get the most up-to-date git)
+  apt_repository: repo='ppa:git-core/ppa'
+  sudo: yes
+  register: git_ppa
+
+- name: Update apt cache for git PPA
+  apt: update_cache=yes
+  sudo: yes
+  when: git_ppa.changed
+
 - name: Install common tools
   apt: pkg={{ item }}
        state=latest
