@@ -91,6 +91,12 @@ function vboSizeMB(vbos) {
 
 function init(app, socket) {
     debug('Client connected', socket.id);
+    var query = socket.handshake.query;
+
+    if (query.usertag !== 'undefined' && query.usertag !== '') {
+        debug('Tagging client with', query.usertag);
+        util.setUserTag(decodeURIComponent(query.usertag));
+    }
 
     var colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
@@ -166,8 +172,8 @@ function init(app, socket) {
         }
     });
 
+
     // Get the datasetname from the socket query param, sent by Central
-    var query = socket.handshake.query;
     var qDataset = loader.downloadDataset(query);
 
     var qRenderConfig = qDataset.then(function (dataset) {
