@@ -91,6 +91,12 @@ function vboSizeMB(vbos) {
 
 function init(app, socket) {
     debug('Client connected', socket.id);
+    var query = socket.handshake.query;
+
+    if (query.usertag !== 'undefined' && query.usertag !== '') {
+        debug('Tagging client with', query.usertag);
+        util.setUserTag(decodeURIComponent(query.usertag));
+    }
 
     var colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
@@ -122,10 +128,10 @@ function init(app, socket) {
 
     img.take(1)
         .do(colorTexture)
-        .subscribe(_.identity, util.makeErrorHandler('ERROR IMG'));
+        .subscribe(_.identity, util.makeErrorHandler('img.take'));
     colorTexture
         .do(function() { debug('HAS COLOR TEXTURE'); })
-        .subscribe(_.identity, util.makeErrorHandler('ERROR colorTexture'));
+        .subscribe(_.identity, util.makeErrorHandler('colorTexture'));
 
 
 
@@ -144,9 +150,8 @@ function init(app, socket) {
                 res.send(lastCompressedVbos[id][bufferName]);
             }
             res.send();
-
         } catch (e) {
-            console.error('[viz-server.js] bad request', e, e.stack);
+            util.makeErrorHandler('bad /vbo request')(e);
         }
 
         finishBufferTransfers[id](bufferName);
@@ -160,16 +165,15 @@ function init(app, socket) {
                     res.set('Content-Encoding', 'gzip');
                     res.send(data);
                 })
-                .subscribe(_.identity,
-                    util.makeErrorHandler('ERROR colorTexture pluck'));
+                .subscribe(_.identity, util.makeErrorHandler('colorTexture pluck'));
 
         } catch (e) {
-            console.error('[viz-server.js] bad request', e, e.stack);
+            util.makeErrorHandler('bad /texture request')(e);
         }
     });
 
+
     // Get the datasetname from the socket query param, sent by Central
-    var query = socket.handshake.query;
     var qDataset = loader.downloadDataset(query);
 
     var qRenderConfig = qDataset.then(function (dataset) {
@@ -182,23 +186,14 @@ function init(app, socket) {
 
         resetState(dataset);
         return rConf.scenes[metadata.scene];
-    }).fail(function (err) {
-        console.error('ERROR in initialization: ', (err||{}).stack);
-    });
+    }).fail(util.makeErrorHandler('resetting state'));
 
     socket.on('get_render_config', function() {
         debug('Sending render-config to client');
         qRenderConfig.then(function (renderConfig) {
             socket.emit('render_config', renderConfig);
-        }).fail(function (err) {
-            console.error('ERROR sending rendererConfig ', (err||{}).stack);
-        });
+        }).fail(util.makeErrorHandler('sending render.config'));
     });
-
-    var qLayoutControls = qDataset.then(function (dataset) {
-        var controls = driver.getControls(dataset.metadata.controls)[0];
-        return lConf.toClient(controls.layoutAlgorithms);
-    })
 
     socket.on('get_layout_controls', function() {
         debug('Sending layout controls to client');
@@ -211,9 +206,7 @@ function init(app, socket) {
     socket.on('begin_streaming', function() {
         qRenderConfig.then(function (renderConfig) {
             stream(socket, renderConfig, colorTexture);
-        }).fail(function (err) {
-            console.error('ERROR streaming ', (err||{}).stack);
-        });
+        }).fail(util.makeErrorHandler('streaming'));
     });
 
     socket.on('reset_graph', function (_, cb) {
@@ -221,9 +214,7 @@ function init(app, socket) {
         qDataset.then(function (dataset) {
             resetState(dataset);
             cb();
-        }).fail(function (err) {
-            console.error('ERROR resetting graph ', (err||{}).stack);
-        });
+        }).fail(util.makeErrorHandler('reset graph request'));
     });
 
     return module.exports;
@@ -305,7 +296,7 @@ function stream(socket, renderConfig, colorTexture) {
                 graph.simulator.setColor(color);
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, util.makeErrorHandler('color'));
+            .subscribe(_.identity, util.makeErrorHandler('set_colors'));
     });
 
     socket.on('highlight_points', function (points) {
@@ -319,7 +310,7 @@ function stream(socket, renderConfig, colorTexture) {
 
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, util.makeErrorHandler('color'));
+            .subscribe(_.identity, util.makeErrorHandler('highlighted_points'));
 
     });
 
@@ -489,8 +480,9 @@ if (require.main === module) {
             http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
 
     listen.subscribe(
-            function () { console.log('\nViz worker listening'); },
-            function (err) { console.error('\nError starting viz worker', err); });
+        function () { console.log('\nViz worker listening...'); },
+        util.makeErrorHandler('server-viz main')
+    );
 
 }
 

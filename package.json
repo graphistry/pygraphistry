@@ -14,6 +14,7 @@
   "license": "ISC",
   "dependencies": {
     "StreamGL": "git+ssh://git@github.com:graphistry/StreamGL.git#master",
+    "chalk": "~1.0.0",
     "config": "git+ssh://git@github.com:graphistry/config.git#master",
     "debug": "~2.1.0",
     "dijkstra": "git+ssh://git@github.com:graphistry/dijkstra.git#dev/unabstracted",
