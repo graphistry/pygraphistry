@@ -16,9 +16,10 @@ nodecl_env:
     LIBRARY_PATH: "/usr/local/cuda/lib64"
     C_INCLUDE_PATH: "/usr/local/cuda/include"
     CPLUS_INCLUDE_PATH: "/usr/local/cuda/include"
-    npm_config_prefix: "{{ npm_global_path }}"
-    NODE_PATH: "{{ npm_global_path }}/lib/node_modules"
+    NODE_PATH: "/usr/lib/nodejs:{{ npm_global_path }}/lib/node_modules:/usr/lib/node_modules:/usr/share/javascript"
     _GRAPHISTRY_CUDA_INIT: 1
+    npm_config_globalconfig: '{{ npm_global_path }}/etc/npmrc'
+    _GRAPHISTRY_NODEJS_INIT: 1
 
 
 
