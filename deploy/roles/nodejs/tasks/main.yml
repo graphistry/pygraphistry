@@ -182,5 +182,3 @@
        global=yes
        state=latest
   environment: nodecl_env
-  sudo: yes
-  sudo_user: www
