@@ -168,15 +168,6 @@
             mode=0755
   sudo: yes
 
-- name: Delete www user's npm cache by force
-  file: path=/home/www/.npm
-        state=absent
-  sudo: yes
-
-- name: Delete www user's node-gyp cache by force
-  file: path=/home/www/.node-gyp
-        state=absent
-  sudo: yes
 
 - name: Install node-gyp globally
   npm: name=node-gyp
