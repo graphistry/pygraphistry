@@ -36,7 +36,6 @@
 // Correctness is guaranteed if WARPSIZE is less than or equal to actual warp size.
 //#define WARPSIZE 32
 #define MAXDEPTH 32
-#define COMPUTE_SUMS_ITERATION_LIMIT 5000
 
 // TODO: I've replaced comparisons >= 0 with > NULLPOINTER for readability.
 // We should benchmark to make sure that doesn't impact perf.
@@ -334,8 +333,6 @@ __kernel void build_tree(
                     patch = NULLPOINTER;
                     // create new cell(s) and insert the old and new body
 
-                    // TODO: Do we still need test?
-                    int test = 1000000;
                     do {
 
                         // We allocate from right to left, so we use an atomic_dec
@@ -379,12 +376,6 @@ __kernel void build_tree(
                         if (y < y_cords[ch]) j += 2;
                         child[cell*4+j] = ch;
 
-                        // If they have the exact same location, shift one slightly.
-                        // TODO: Do we need this? Not in original CUDA impl.
-                        if (x_cords[ch] == px && y_cords[ch] == py) {
-                            x_cords[ch] += 0.0000001;
-                            y_cords[ch] += 0.0000001;
-                        }
 
                         n = cell;
                         j = 0;
@@ -395,10 +386,25 @@ __kernel void build_tree(
                         // If it's -1 (null) we exit out of this loop.
                         ch = child[n*4+j];
 
-                        // TODO: Do we still need this?
-                        test--;
+                        // If child cannot position is perfectly equal to current node 
+                        // position. Just insert node arbitrarily. This should happen 
+                        // so rarely and at such a low depth, that the approximation 
+                        // should be tribial. 
+                        if (px == x_cords[ch] && py == y_cords[ch] && (ch != -1)) {
+                          j = 0;
+                          // Following lines are useful for debuging precision errors. 
+                          /*int ch2 = ch;*/
+                          /*printf("K: %d, step: %d i %d, ch%d x, %.9g y %.9g ch_x %.9g ch_y %.9g depth: %d\n", j, step_number, i, ch2, x, y, x_cords[ch], y_cords[ch], depth);*/
+                          while ((ch = child[n*4 + j]) > NULLPOINTER && j < 3) j++;
+                          /*printf("K: %d, step: %d i %d, ch%d x, %.9g y %.9g ch_x %.9g ch_y %.9g \n", j, step_number, i, ch2, x, y, x_cords[ch], y_cords[ch]);*/
+                          // Even if child node has filled leaves, set ch to -1. This is a slightly
+                          // larger approximation, but makes sure nothing breaks. 
+                          ch = -1;
+                        }
+                        
 
-                    } while (test > 0 && ch > NULLPOINTER);
+
+                    } while (ch > NULLPOINTER);
 
                     // Place our body and expose to other threads.
                     child[n*4+j] = i;
@@ -476,13 +482,6 @@ __kernel void compute_sums(
     int iterations = 0;
     while (k <= num_nodes) {
 
-        // TODO: Find a clean way to avoid this entirely.
-        // It's likely impossible in OpenCL 1.2 because of lack of
-        // global memory sync.
-        if (iterations++ > COMPUTE_SUMS_ITERATION_LIMIT) {
-            // printf("Compute sums iterations exceeded limit.\n");
-            break;
-        }
 
         if (num_children_missing == 0) { // Must be new cell
             // Initialize
