@@ -168,6 +168,8 @@
             mode=0755
   sudo: yes
 
+- name: Source npm global config
+  shell: source /etc/profile.d/Z90-graphistry-nodeglobal.sh
 
 - name: Install node-gyp globally
   npm: name=node-gyp
