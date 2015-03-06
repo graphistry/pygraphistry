@@ -9,55 +9,77 @@ html {
     left: 0;
 }
 
+//label -> container -> title + (contents -> pair -> (key+value))
 .graph-label {
 
-    background-color: rgba(255, 255, 255, 0.8);
-
-    margin-top: 1.5em;
-
     position: absolute;
-    color: rgb(51, 51, 102);
-    font-weight: bold;
-    font-size: 0.75em;
-    text-shadow: 0 0 5px rgba(235,235,245,1.0);
-    padding: 0.5em;
-
-    border-radius: 10px;
-
-    border: 1px solid transparent;
-
-    opacity: 0.8;
-
-    overflow: hidden;
-    height: 2em;
-
     z-index: 10000;
 
-    color: rgb(31, 31, 51);
+    //shrink-to-fit: hidden bounding box for autosizing contents
+    width: 30em;
+    pointer-events: none;
+    .graph-label-container {
+        width: auto;
+        height: auto;
+        pointer-events: auto;
+    }
+
+    //hover effect: show & higher than other labels
+    .graph-label-contents {
+        display: none;
+    }
+    &.on {
+        z-index: 100000;
+        & .graph-label-contents {
+            display: block;
+        }
+    }
+
+
+    .graph-label-container {
+        margin-top: 1.5em;
+        padding: 0.5em;
+        border: 1px solid transparent;
+        border-radius: 10px;
+
+        background-color: rgba(255, 255, 255, 0.8);
+        color: rgb(31, 31, 51);
+        font-size: 0.75em;
+        opacity: 0.8;
+
+        text-align: left;
+    }
+
+    &.on .graph-label-container {
+        box-shadow: 0 0 10px rgba(235,235,245,0.75);
+        opacity: 1.0;
+        background-color: rgba(255, 255, 255, 0.95);
+        border-color: rgba(51, 51, 102, 1);
+    }
+
+    .graph-label-contents {
+        margin-top: 0.5em;
+        padding-top: 0.5em;
+        border-top: 1px solid rgb(51,51,102);
+    }
+
+
+
+    .graph-label-title {
+        font-weight: bold;
+    }
+    .graph-label-pair {
+        display: block;
+        .graph-label-key {
+            font-weight: bold;
+        }
+        .graph-label-key:after {
+            content: ": "
+        }
+    }
+
 
 }
-
-.graph-label.on {
-
-    opacity: 1.0;
-
-    background-color: rgba(255, 255, 255, 0.95);
-    border-color: rgba(51, 51, 102, 1);
-
-
-    width: auto;
-    height: auto;
-    overflow: auto;
-
-    box-shadow: 0 0 10px rgba(235,235,245,0.75);
-
-    z-index: 100000;
-
-}
-
-.graph-label.on hr { margin: 0; margin-bottom: 0.3em;}
-.graph-label.on > div:first-child { margin-bottom: 0.5em; }
-
 
 .highlighted-point {
     box-shadow: 0 0 10px rgba(235,235,245,0.75);
