@@ -18,6 +18,7 @@ var util        = require('./js/util.js');
 var compress    = require('node-pigz');
 var StreamGL    = require('StreamGL');
 var config      = require('config')();
+var labeler     = require('./js/labeler.js');
 
 var renderer = StreamGL.renderer;
 
@@ -262,23 +263,19 @@ function stream(socket, renderConfig, colorTexture) {
 
     socket.on('get_labels', function (labels, cb) {
         graph.take(1)
-            .do(function (graph) {
-
-                var offset = graph.simulator.timeSubset.pointsRange.startIdx;
-
-                if (!graph.simulator.labels.length) {
-                    return cb(null,
-                        labels.map(function (idx) {
-                            return 'node ' + (offset + idx);
-                        }));
-                }
-
-                var hits = labels.map(function (idx) {
-                    return graph.simulator.labels[offset + idx];
-                });
-                cb(null, hits);
+            .map(function (graph) {
+                return labeler.labels(graph, labels);
             })
-            .subscribe(_.identity, util.makeErrorHandler('get_labels'));
+            .do(function (out) {
+                cb(null, out);
+            })
+            .subscribe(
+                _.identity,
+                function (err) {
+                    console.error('err', err, (err||{}).stack);
+                    cb('fail');
+                    util.makeErrorHandler('get_labels')();
+                });
     });
 
     socket.on('shortest_path', function (pair) {
