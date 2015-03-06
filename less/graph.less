@@ -25,11 +25,22 @@ html {
     }
 
     //hover effect: show & higher than other labels
+    .graph-label-title {
+        max-height: 1em;
+        max-width: 10em;
+        display: inline-block;
+        overflow:hidden;
+    }
     .graph-label-contents {
         display: none;
     }
     &.on {
         z-index: 100000;
+        & .graph-label-title {
+            max-height: none;
+            max-width: none;
+            height: auto;
+        }
         & .graph-label-contents {
             display: block;
         }
@@ -78,6 +89,9 @@ html {
         }
     }
 
+    hr {
+        margin: 0px;
+    }
 
 }
 
