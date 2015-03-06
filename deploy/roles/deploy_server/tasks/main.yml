@@ -33,3 +33,19 @@
        update_cache=yes
        cache_valid_time=600
   sudo: yes
+
+# TODO: Create 'deploy' user
+
+# TODO: Clone deploy repo onto server
+
+# TODO: Set deploy repo's git config to have receive.denyCurrentBranch = updateInstead (allows us to
+# `git push` to deploy server and have the files-on-disk immediately change, so long as there are no
+# uncommitted changes.)
+
+# TODO: create mechanism for users to kick off a deploy, which triggers Ansible on the deploy server
+# to run the site.yml playbook under the `deploy` user (iff a deploy isn't already in progress;
+# ignore the trigger or queue it up otherwise), and connects the user who triggered it to a shared
+# read-only tmux session showing the output of the Ansible run. Also allow users to connect to this
+# read-only shared tmux session at-will to check on the status of their deploy (if they disconnected
+# after kicking it off), look over logged Ansible output, check if there's already a deploy going
+# on, etc.
