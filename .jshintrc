@@ -16,7 +16,7 @@
 	"trailing": true,
 	"maxparams": 10,
 	"maxdepth": 2,
-	"maxcomplexity": 10,
+	"maxcomplexity": 11,
 
 	"debug": true,
 	"devel": true,
