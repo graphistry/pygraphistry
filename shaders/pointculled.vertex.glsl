@@ -27,10 +27,7 @@ void main(void) {
     gl_Position = pos;
 
     if (fog > 1.0) {
-        float furthestComponent = max(abs(pos.x), abs(pos.y));
-        float remapped = (-furthestComponent + SENSITIVITY) / SENSITIVITY;
-        float alpha =  remapped < 0.0 ? 0.6 : (0.6 + clamp(remapped, 0.0, 0.2));
-        vColor = vec4(pointColor.x, pointColor.y, pointColor.z, alpha);
+        vColor = vec4(pointColor.x, pointColor.y, pointColor.z, 0.8);
     } else {
         vColor = vec4(pointColor.xyz, 1.0);
     }

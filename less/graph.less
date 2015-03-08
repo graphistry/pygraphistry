@@ -12,6 +12,10 @@ html {
 //label -> container -> title + (contents -> pair -> (key+value))
 .graph-label {
 
+    &, & table {
+        color: rgb(31, 31, 51);
+    }
+
     position: absolute;
     z-index: 10000;
 
@@ -43,6 +47,12 @@ html {
         }
         & .graph-label-contents {
             display: block;
+
+            max-height: 20em;
+            max-width: 50em;
+            height: auto;
+            overflow: auto;
+
         }
     }
 
@@ -53,8 +63,7 @@ html {
         border: 1px solid transparent;
         border-radius: 10px;
 
-        background-color: rgba(255, 255, 255, 0.8);
-        color: rgb(31, 31, 51);
+        background-color: rgba(255, 255, 255, 0.9);
         font-size: 0.75em;
         opacity: 0.8;
 
@@ -64,7 +73,6 @@ html {
     &.on .graph-label-container {
         box-shadow: 0 0 10px rgba(235,235,245,0.75);
         opacity: 1.0;
-        background-color: rgba(255, 255, 255, 0.95);
         border-color: rgba(51, 51, 102, 1);
     }
 
@@ -72,6 +80,10 @@ html {
         margin-top: 0.5em;
         padding-top: 0.5em;
         border-top: 1px solid rgb(51,51,102);
+
+        table {
+            font-size: 1.1em;
+        }
     }
 
 
@@ -79,13 +91,26 @@ html {
     .graph-label-title {
         font-weight: bold;
     }
+    .graph-label-pair:nth-child(odd) {
+        background-color: rgba(51,51,102,0.1);
+    }
     .graph-label-pair {
-        display: block;
+        font-size: 1.1em;
+        .graph-label-key, .graph-label-value {
+            padding-top: 0.3em;
+            vertical-align: top;
+        }
         .graph-label-key {
             font-weight: bold;
+            text-align: right;
+            padding-right: 0.5em;
         }
         .graph-label-key:after {
             content: ": "
+        }
+        .graph-label-value-wrapper {
+            max-height: 5em;
+            overflow: auto;
         }
     }
 
