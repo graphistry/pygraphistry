@@ -28,6 +28,7 @@
 #define FACTOR4 1  /* must all be resident at the same time */
 #define FACTOR5 5
 #define FACTOR6 3
+#define EPSILON2 0.01f
 
 // In theory this should be set dynamically, or the code should be rewritten to be
 // warp agnostic (as is proper in OpenCL)
@@ -390,7 +391,7 @@ __kernel void build_tree(
                         // position. Just insert node arbitrarily. This should happen 
                         // so rarely and at such a low depth, that the approximation 
                         // should be tribial. 
-                        if (px == x_cords[ch] && py == y_cords[ch] && (ch != -1)) {
+                        if ((fabs(px - x_cords[ch]) < EPSILON2) && fabs(py - y_cords[ch]) < EPSILON && (ch != -1)) {
                           j = 0;
                           // Following lines are useful for debuging precision errors. 
                           /*int ch2 = ch;*/
