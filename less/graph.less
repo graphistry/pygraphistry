@@ -212,8 +212,22 @@ html {
 }
 
 .status-bar {
+    visibility: hidden;
     max-height: 1.5em;
-    background-color: rgba(51,51,153, 0.3);
+    position: fixed;
+    left: 0px;
+    bottom: 0px;
+    width: 100%;
+    text-align: left;
+    z-index: 99999;
+    background-color: rgba(200, 0, 0, 0.9);
+    color: rgb(255, 255, 255);
+    font-weight: 800;
+}
+
+.status-error {
+    cursor: pointer;
+    padding-left: 0.25em;
 }
 
 #main, .accordion {
