@@ -189,19 +189,26 @@ function init(app, socket) {
         return rConf.scenes[metadata.scene];
     }).fail(util.makeErrorHandler('resetting state'));
 
-    socket.on('get_render_config', function() {
-        debug('Sending render-config to client');
+    socket.on('render_config', function(_, cb) {
+        debug('get render config');
         qRenderConfig.then(function (renderConfig) {
-            socket.emit('render_config', renderConfig);
-        }).fail(util.makeErrorHandler('sending render.config'));
+            debug('Sending render-config to client');
+            cb({success: true, renderConfig: renderConfig});
+        }).fail(function (err) {
+            cb({success: false, error: 'Unknown dataset or scene error'});
+            util.makeErrorHandler('sending render_config')(err)
+        });
     });
 
-    socket.on('get_layout_controls', function() {
+    socket.on('layout_controls', function(_, cb) {
         debug('Sending layout controls to client');
         animStep.graph.then(function (graph) {
             var controls = graph.simulator.controls;
-            socket.emit('layout_controls', lConf.toClient(controls.layoutAlgorithms));
-        }).fail(util.makeErrorHandler('get_layout_controls'));
+            cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
+        }).fail(function (err) {
+            cb({success: false, error: 'Server error when fetching controls'});
+            util.makeErrorHandler('sending layout_controls')(err);
+        });
     });
 
     socket.on('begin_streaming', function() {
