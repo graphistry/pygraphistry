@@ -134,6 +134,49 @@ function clone(repo) {
         )
         .thenResolve(repo);
 }
+
+function startSshControlMaster(socketPath) {
+    socketPath = socketPath || defaultSshControlPath;
+
+    return Q
+        .nfcall(fs.stat, defaultSshControlPath)
+        // socketPath exists; ControlMaster must already be running; don't start
+        .then(function(stats) {
+            return Q.value(true);
+        })
+        // socketPath does not exist; safe to start ControlMaster
+        .catch(function(err) {
+            // var out = fs.openSync('./out.log', 'a'), err = fs.openSync('./out.log', 'a');
+            // console.log("--- Starting ssh master control connection to github.com");
+
+            var proc = child_process.spawn('ssh',
+                [
+                    '-o', 'PermitLocalCommand=no',
+                    '-o', 'ServerAliveInterval=0',
+                    '-o', 'ControlMaster=yes',
+                    '-o', 'ControlPersist=10s',
+                    '-o', util.format('ControlPath=%s', socketPath),
+                    'git@github.com'
+                ],
+                {
+                    detached: true,
+                    stdio: ['ignore', 'ignore', 'ignore']
+                }
+            );
+
+            // proc.on('error', function(err) {
+            //     console.error("==== ssh master connection: execution of ssh command failed:", err);
+            // });
+            // proc.on('exit', function(code) {
+            //     console.error(util.format("==== ssh master connection process exited with code %d", code));
+            // });
+
+            // Allow Node to exit even if the ssh master control process is still running
+            proc.unref();
+
+            // Wait 1 sec for socket to be set up
+            return Q.delay(1000);
+        });
 }
 
 function isInternal (x) { return x.internal; };

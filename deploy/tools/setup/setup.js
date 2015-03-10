@@ -106,7 +106,10 @@ if (argv.v) {
 
 Q().then(function () {
         if (argv.c) {
+            return tooling.startSshControlMaster()
+                .then(function() {
                     return cloneAll(roots);
+                });
         }
     })
     .done(
