@@ -276,15 +276,11 @@ function link(module, linkExternals) {
         toLink = toLink.concat(module.links.external);
     }
 
-    return Q.all(
-        _.map(toLink, function (target) {
-            var args = ['link', target];
-            return exec(cmd, args, cwd).fail(errorHandler);
-        })
-    ).then(function () {
-        var args = ['link'];
-        return exec(cmd, args, cwd).fail(errorHandler);
-    }).fail(errorHandler);
+    return exec(cmd, ['prune'], cwd)
+        .all(_.map(toLink, function (target) { return exec(cmd, ['link', target], cwd); }))
+        .then(function () {
+            return exec(cmd, ['link'], cwd);
+        });
 }
 
 function installGlobally(externals) {
