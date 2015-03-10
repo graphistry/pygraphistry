@@ -116,7 +116,7 @@ describe ("[SMOKE] Server-viz", function () {
 
                 expect(render_config).toBeDefined();
                 expect(render_config.render.length).toBeGreaterThan(0);
-                expect(_.keys(render_config.programs.length)).toBeGreaterThan(0);
+                expect(_.keys(render_config.programs).length).toBeGreaterThan(0);
 
                 done();
             });
