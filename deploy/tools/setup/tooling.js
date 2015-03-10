@@ -2,48 +2,64 @@
 
 var path = require('path');
 var fs = require('fs');
+var util = require('util');
 var child_process = require('child_process');
-var _ = require('underscore');
+var _ = require('lodash');
 var Q = require('q');
+var debug = require('debug')('graphistry:setup:tooling');
 
+// The path passed to `ssh` to use for the Control Master socket
+var defaultSshControlPath = '/tmp/deploy-ssh-github';
 var wd = path.resolve(__dirname, '..', '..', '..');
-var DEBUG = false;
-
-var errorHandler = function (err) {
-    console.error('Error', err, (err||{}).stack);
-};
 
 // Exec a command and wrap its result in a promise
 // From https://gist.github.com/Stuk/6226938
-function exec(command, args, cwd) {
-    if (!command || !cwd) {
-        return Q.reject(new Error("Both command and working directory must be given, not " + command + " and " + cwd));
-    }
-    if (args && !args.every(function (arg) {
-        var type = typeof arg;
-        return type === "boolean" || type === "string" || type === "number";
-    })) {
-        return Q.reject(new Error("All arguments must be a boolean, string or number"));
-    }
-
+function exec(command, args, cwd, sshControlPath) {
+    args = args || [];
+    sshControlPath = sshControlPath || defaultSshControlPath;
     var deferred = Q.defer();
 
-    console.log("+", command, args.join(" "), "# in", cwd);
+    var stderr_output = [];
+    function combineStderr(data) { stderr_output.push(data); }
 
-    var proc = child_process.spawn(command, args, {
-        cwd: cwd,
-        stdio: DEBUG ? "inherit" : "ignore"
-    });
-    proc.on("error", function (error) {
-        deferred.reject(new Error(command + " " + args.join(" ") + " in " + cwd + " encountered error " + error.message));
-    });
-    proc.on("exit", function(code) {
-        if (code !== 0) {
-            deferred.reject(new Error(command + " " + args.join(" ") + " in " + cwd + " exited with code " + code));
-        } else {
-            deferred.resolve();
-        }
-    });
+    if (!(_.isString(command) && _.isString(cwd))) {
+        deferred.reject(new Error("Both command and working directory must be given, not " + command + " and " + cwd));
+    } else if(!_.every(args, function(a){return _.isBoolean(a)||_.isString(a)||_.isNumber(a);})) {
+        deferred.reject(new Error("All arguments must be a boolean, string or number"));
+    } else {
+        var command_with_args = [command].concat(args).join(' ');
+        debug(util.format('(%s)$ %s', cwd, command_with_args));
+
+        var proc_env = _.clone(process.env);
+        proc_env['GIT_SSH_COMMAND'] = util.format(
+            'ssh -o PermitLocalCommand=no -o ServerAliveInterval=0 -o ControlMaster=no -o ControlPath="%s"',
+            sshControlPath);
+
+        var proc = child_process.spawn(command, args, {
+            cwd: cwd,
+            env: proc_env,
+            stdio: 'pipe'
+        });
+        // Speculatively create this so that its stack trace is useful (if we do it in .on('close'),
+        // its stack trace will just be some async pipe close callback.)
+        var spec_error = new Error('error executing command');
+
+        proc.stdin.end();
+        proc.stderr.on('data', combineStderr);
+
+        proc.on("error", function (error) { deferred.reject(error); });
+        proc.on("close", function(code) {
+            proc.stderr.removeListener('data', combineStderr);
+            if (code !== 0) {
+                spec_error.message = util.format('command `%s` exited with error code %d (in %s)\n%s',
+                    command_with_args, code, cwd, stderr_output.join('').replace(/^/mg, '\t| '));
+                deferred.reject(spec_error);
+            } else {
+                deferred.resolve(proc);
+            }
+        });
+    }
+
     return deferred.promise;
 };
 
@@ -81,11 +97,43 @@ function getPkgInfo(roots, repo) {
 // Return promise contaning the repo name when cloning has terminated
 // String -> Promise[]
 function clone(repo) {
+    var clone_path = path.resolve(wd, repo);
     var cmd = 'git';
-    var args = ['clone', 'git@github.com:graphistry/' + repo + '.git'];
-    return exec(cmd, args, wd).then(function () {
-        return repo;
-    }).fail(errorHandler);
+    var clone_args = ['clone', 'git@github.com:graphistry/' + repo + '.git'];
+    var pull_args = ['pull', '--ff-only', '--quiet'];
+
+    // console.error('Cloning/updating repo "%s" (clone path: %s)', repo, clone_path);
+
+    return Q.nfcall(fs.stat, clone_path)
+        .then(
+            function(stats) {
+                console.error('Pulling repo "%s" (in %s)', repo, clone_path);
+
+                return exec(cmd, pull_args, clone_path)
+                    .catch(function(git_pull_err) {
+                        var friendly_error = new Error(util.format(
+                            'Error doing a `git pull --ff-only for repo "%s": %s',
+                            repo, git_pull_err.message
+                        ));
+
+                        friendly_error.friendly_headline =
+                            util.format('Repo "%s": could not do a fast-forward only pull', repo);
+                        friendly_error.friendly_explanation =
+                            ["You likeley have uncommited changes in that repo, or the merge with",
+                             "the remote was more complicated than a fast-forward merge",
+                             "(this tool will only allow fast-forward merges for safety reasons;",
+                             "you should perform more complicated merges by hand.)"].join(' ');
+
+                        throw friendly_error;
+                    });
+            },
+            function(err) {
+                console.error('Cloning repo "%s" (in %s)', repo, wd);
+                return exec(cmd, clone_args, wd)
+            }
+        )
+        .thenResolve(repo);
+}
 }
 
 function isInternal (x) { return x.internal; };
@@ -199,17 +247,19 @@ function link(module, linkExternals) {
 function installGlobally(externals) {
     var cmd = 'npm';
 
-    return _.reduce(externals, function (wait, dep) {
-        var args = ['install', '-g', dep.name + '@' + dep.version];
-        return wait.then(function () {
-            return exec(cmd, args, wd).fail(errorHandler);
-        });
-    }, Q()).fail(errorHandler);
+    return _.reduce(
+        externals,
+        function (wait, dep) {
+            var args = ['install', '-g', dep.name + '@' + dep.version];
+            return wait.then(function () { return exec(cmd, args, wd); });
+        },
+        Q());
 }
 
 module.exports = {
     getPkgInfo: getPkgInfo,
     clone: clone,
+    startSshControlMaster: startSshControlMaster,
     buildDepTree: buildDepTree,
     topoSort: topoSort,
     distinctExternals: distinctExternals,
