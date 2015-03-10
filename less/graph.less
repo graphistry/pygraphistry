@@ -467,7 +467,25 @@ button.btn-default {
     }
 }
 
+#inspector {
+    &.panel {
+        z-index: 2;
+        position:fixed;
+        left: 0px;
+        bottom: 0px;
+        width: 400px;
+        height: auto;
+    }
 
+    .backgrid {
+        font-size:0.75em;
+        th,
+        .integer-cell,
+        .string-cell {
+            padding: 0px 5px;
+        }
+    }
+}
 
 .automode {
     animation: pulsate 1s linear infinite;
