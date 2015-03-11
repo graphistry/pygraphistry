@@ -270,13 +270,19 @@ function stream(socket, renderConfig, colorTexture) {
 
     socket.on('inspect', function (sel, cb) {
         console.log('Selection', sel);
+        graph.take(1).do(function (graph) {
+            console.log('execing selection');
+            graph.simulator.selectNodes(sel).then(function (idx) {
+                console.log('Got ', idx);
+            });
+        }).subscribe(_.identity, util.makeErrorHandler('inspect'));
         cb('Hello world');
     })
 
-    socket.on('get_labels', function (labels, cb) {
+    socket.on('get_labels', function (indices, cb) {
         graph.take(1)
             .map(function (graph) {
-                return labeler.labels(graph, labels);
+                return labeler.getLabels(graph, indices);
             })
             .do(function (out) {
                 cb(null, out);
@@ -284,8 +290,8 @@ function stream(socket, renderConfig, colorTexture) {
             .subscribe(
                 _.identity,
                 function (err) {
-                    util.makeErrorHandler('get_labels')(err);
                     cb('fail');
+                    util.makeErrorHandler('get_labels')(err);
                 });
     });
 
