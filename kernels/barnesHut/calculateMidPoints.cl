@@ -109,7 +109,8 @@ __kernel void calculate_forces(
         const int num_bodies,
         const int num_nodes,
         __global float2* nextMidPoints,
-        float tau
+        float tau,
+        float charge
 ){
 
     debugonce("calculate forces\n");
@@ -120,6 +121,10 @@ __kernel void calculate_forces(
     const int local_id = get_local_id(0);
     int k, index, i;
     float force;
+    
+    /*if (idx == 0) {*/
+      /*printf("Num Points %d, num nodes %d \n", num_bodies, num_nodes);*/
+    /*}*/
 
     //float forceX, forceY;
     float2 forceVector;
@@ -240,9 +245,9 @@ __kernel void calculate_forces(
                           float2 n1Pos = (float2) (px, py);
                           float2 otherPoint = (float2) (x_cords[child], y_cords[child]);
                           if (dx < FLT_EPSILON && dy < FLT_EPSILON) {
-                            forceVector += 0.000001f * pointForce(n1Pos, otherPoint, -0.000001f);
+                            forceVector += 0.0000001f * pointForce(n1Pos, otherPoint, charge);
                           } else {
-                            forceVector += pointForce(n1Pos, otherPoint, -0.00001f);
+                            forceVector += pointForce(n1Pos, otherPoint, charge);
                           }
                          /*forceVector += (float2) (0.000001f, 0.000001f);*/
 
