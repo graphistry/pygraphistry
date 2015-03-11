@@ -15,7 +15,7 @@
 	"strict": true,
 	"trailing": true,
 	"maxparams": 10,
-	"maxdepth": 2,
+	"maxdepth": 3,
 	"maxcomplexity": 11,
 
 	"debug": true,
