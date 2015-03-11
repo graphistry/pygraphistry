@@ -3,5 +3,6 @@ config.json
 .tern-project
 tests.log
 kernels/debug.*
+kernels/**/*.debug
 .jshintrc
 graph.css
