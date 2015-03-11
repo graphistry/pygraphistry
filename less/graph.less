@@ -438,7 +438,7 @@ button.btn-default {
     &.off {
         overflow:hidden;
         height: 2.4em;
-        width: 1em;
+        width: 2.4em;
         min-width: 1em;
     }
 
@@ -485,7 +485,15 @@ button.btn-default {
 
     .toggles {
         text-align: right;
+        position: absolute;
+        right: 0.7em;
+        top: 0.7em;
     }
+
+    &.off > :not(:first-child) {
+        visibility: hidden;
+    }
+
     &.on .revealer,
     &.off .hider {
         display: none;
