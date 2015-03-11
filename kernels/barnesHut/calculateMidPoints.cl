@@ -119,12 +119,16 @@ __kernel void calculate_forces(
     const int local_size = get_local_size(0);
     const int global_size = get_global_size(0);
     const int local_id = get_local_id(0);
+  const float alpha = max(0.1f * pown(0.99f, floor(convert_float(step_number) / (float) TILES_PER_ITERATION)), 0.005f);
+
+    /*const float alpha = (float) TILES_PER_ITERATION;*/
     int k, index, i;
     float force;
     
-    /*if (idx == 0) {*/
+    if (idx == 0) {
+      printf("charge %f \n", charge);
       /*printf("Num Points %d, num nodes %d \n", num_bodies, num_nodes);*/
-    /*}*/
+    }
 
     //float forceX, forceY;
     float2 forceVector;
@@ -235,7 +239,7 @@ __kernel void calculate_forces(
                         distVector = (float2) (dx, dy);
                         temp = dx*dx + (dy*dy + 0.00000000001);
 
-                        if ((child < num_bodies) || reduction_thread_vote(votingBuffer, temp >= dq[depth], starting_warp_thread_id, difference)) {
+                        if ((child < num_bodies) /*|| reduction_thread_vote(votingBuffer, temp >= dq[depth], starting_warp_thread_id, difference)*/) {
                             // check if ALL threads agree that cell is far enough away (or is a body)
 
                             // TODO: Determine how often we diverge when a few threads see a body, and the
@@ -243,11 +247,14 @@ __kernel void calculate_forces(
 
                             // Adding all forces
                           float2 n1Pos = (float2) (px, py);
+                          float2 distVector = (float2) (dx, dy);
                           float2 otherPoint = (float2) (x_cords[child], y_cords[child]);
-                          if (dx < FLT_EPSILON && dy < FLT_EPSILON) {
-                            forceVector += 0.0000001f * pointForce(n1Pos, otherPoint, charge);
+                          /*float err = fast_distance(otherPoint, myPos);*/
+                          if (dx < FLT_EPSILON || dy < FLT_EPSILON) {
+                            forceVector += 0.000001f * pointForce(n1Pos, otherPoint, mass[child] * charge);
+                            /*otherPoint = (float2) (x_choods[child % 23], y_cords[child % 3]);*/
                           } else {
-                            forceVector += pointForce(n1Pos, otherPoint, charge);
+                            forceVector += (pointForce(n1Pos, otherPoint, charge * alpha) * 1.0f);
                           }
                          /*forceVector += (float2) (0.000001f, 0.000001f);*/
 
@@ -274,8 +281,11 @@ __kernel void calculate_forces(
             const float2 dimensions = (float2) (width, height);
             const float2 centerVec = (dimensions / 2.0f) - n1Pos;
             const float gForce = gravityForce(gravity, mass[index], centerVec, IS_STRONG_GRAVITY(flags));
-            forceVector += gForce * 0.000001f;
-            nextMidPoints[index] = n1Pos + (0.0001f * normalize(centerVec) * (forceVector));
+            forceVector += normalize(centerVec) * gForce * 0.00000001f;
+                            if (get_global_id(0) < 32) {
+                              printf("Force x %f, Force y %f \n", forceVector.x, forceVector.y);
+                            }
+            nextMidPoints[index] = n1Pos + (0.01f * (forceVector));
             /*nextMidPoints[index] = n1Pos + 0.00001f * normalize(centerVec) * gForce + forceVector * mass[index];*/
 
         }
