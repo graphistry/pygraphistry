@@ -106,18 +106,20 @@ describe ("[SMOKE] Server-viz", function () {
 
     // Tests
     it ("should get correct render config for LayoutDebugLines", function (done) {
-        clients.layout.on('render_config', function (render_config) {
-            theRenderConfig = render_config;
-            expect(render_config).toBeDefined();
-            var render_list = ['pointpicking', 'pointsampling', 'pointculledtexture',
-                               'pointoutlinetexture', 'edgeculled', 'pointoutline',
-                               'pointculled'];
-            expect(render_config.render).toEqual(render_list);
-            var program_list = ['points', 'pointculled', 'edgeculled'];
-            expect(_.keys(render_config.programs)).toEqual(program_list);
-            done();
-        });
-        clients.layout.emit('get_render_config');
+        clients.layout.emit('render_config', null,
+            function (data) {
+                expect(data.success).toBeTruthy();
+                expect(data.renderConfig).toBeDefined();
+
+                var render_config = data.renderConfig;
+                theRenderConfig = render_config;
+
+                expect(render_config).toBeDefined();
+                expect(render_config.render.length).toBeGreaterThan(0);
+                expect(_.keys(render_config.programs).length).toBeGreaterThan(0);
+
+                done();
+            });
     });
 
     it ("should start streaming LayoutDebugLines and get an animation tick", function (done) {
@@ -189,17 +191,15 @@ describe ("[SMOKE] Server-viz", function () {
     });
 
     it ("should get correct render config for Uber", function (done) {
-        clients.uber.on('render_config', function (render_config) {
+        clients.uber.emit('render_config', null, function (data) {
+            expect(data.success).toBeTruthy();
+            expect(data.renderConfig).toBeDefined();
+            var render_config = data.renderConfig;
             theRenderConfig = render_config;
-            expect(render_config).toBeDefined();
-            var render_list = ['pointpicking', 'pointsampling',
-                'midedgetextured', 'pointculled'];
-            expect(render_config.render).toEqual(render_list);
-            var program_list = ['points', 'midedgetextured', 'pointculled'];
-            expect(_.keys(render_config.programs)).toEqual(program_list);
+            expect(render_config.render.length).toBeGreaterThan(0);
+            expect(_.keys(render_config.programs).length).toBeGreaterThan(0);
             done();
         });
-        clients.uber.emit('get_render_config');
     });
 
     it ("should start streaming Uber and get an animation tick", function (done) {

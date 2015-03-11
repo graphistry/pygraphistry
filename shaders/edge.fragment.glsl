@@ -9,6 +9,6 @@ void main(void) {
     if (alpha <= 0.0) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
     } else {
-        gl_FragColor = vec4(eColor.x, eColor.y, eColor.z, 1);
+        gl_FragColor = vec4(eColor.x, eColor.y, eColor.z, eColor.w);
     }
 }

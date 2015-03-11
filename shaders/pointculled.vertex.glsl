@@ -1,7 +1,7 @@
 precision highp float;
 
 #define W_VAL 1.0
-#define Z_VAL 0.0
+#define Z_VAL 0.1
 #define SENSITIVITY 0.5
 
 uniform mat4 mvp;
