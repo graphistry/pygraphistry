@@ -20,5 +20,7 @@ void main(void) {
     alpha = m * furthestComponent + b;
 
     gl_Position = pos;
-    eColor = edgeColor;
+
+    // eColor = edgeColor;
+    eColor = vec4(edgeColor.g, edgeColor.b, edgeColor.a, 1.0);
 }
