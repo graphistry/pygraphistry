@@ -37,9 +37,8 @@ inline int reduction_thread_vote(__local int* buffer, int cond, int offset, int 
 
 
 
-inline float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
+inline float repulsionForce(const float dist, const uint n1Degree, const uint n2Degree,
                             const float scalingRatio, const bool preventOverlap) {
-    const float dist = length(distVec);
     const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
     float force;
 
@@ -226,16 +225,16 @@ __kernel void calculate_forces(
                         dx = px - x_cords[child];
                         dy = py - y_cords[child];
                         distVector = (float2) (dx, dy);
-                        temp = dx*dx + (dy*dy + 0.00000000001);
+                        temp = fast_length(distVector) + 0.000000000001f;
 
-                        if ((child < num_bodies) || reduction_thread_vote(votingBuffer, temp >= dq[depth], starting_warp_thread_id, difference)) {
+                        if ((child < num_bodies) || reduction_thread_vote(votingBuffer, temp * temp >= dq[depth], starting_warp_thread_id, difference)) {
                             // check if ALL threads agree that cell is far enough away (or is a body)
 
                             // TODO: Determine how often we diverge when a few threads see a body, and the
                             // rest fail because of insufficient distance.
 
                             // Adding all forces
-                            forceVector += normalize(distVector) * repulsionForce(distVector, 1.0,
+                            forceVector += fast_normalize(distVector) * repulsionForce(temp, 1.0,
                                             mass[child], scalingRatio, IS_PREVENT_OVERLAP(flags));
                                 // forceVector += (float2) (0.000001f, 0.000001f);
 
