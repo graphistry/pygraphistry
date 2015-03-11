@@ -268,6 +268,11 @@ function stream(socket, renderConfig, colorTexture) {
         animStep.interact(_.extend(defaults, payload || {}));
     });
 
+    socket.on('inspect', function (sel, cb) {
+        console.log('Selection', sel);
+        cb('Hello world');
+    })
+
     socket.on('get_labels', function (labels, cb) {
         graph.take(1)
             .map(function (graph) {
