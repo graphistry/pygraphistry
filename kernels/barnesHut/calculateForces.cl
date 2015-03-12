@@ -37,26 +37,30 @@ inline int reduction_thread_vote(__local int* buffer, int cond, int offset, int 
 
 
 
-inline float repulsionForce(const float dist, const uint n1Degree, const uint n2Degree,
+inline float repulsionForce(const float distSquared, const uint n1DegreePlusOne, const uint n2DegreePlusOne,
                             const float scalingRatio, const bool preventOverlap) {
-    const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
+    const int degreeProd = (n1DegreePlusOne * n2DegreePlusOne);
     float force;
 
     if (preventOverlap) {
         //FIXME include in prefetch etc, use actual sizes
         float n1Size = DEFAULT_NODE_SIZE;
         float n2Size = DEFAULT_NODE_SIZE;
-        float distB2B = dist - n1Size - n2Size; //border-to-border
+        float distB2B = distSquared - n1Size - n2Size; //border-to-border
 
-        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / dist)
+        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / distSquared)
             : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
             : 0.0f;
     } else {
-        force = scalingRatio * degreeProd / dist;
+        // We use dist squared instead of dist because we want to normalize the
+        // distance vector as well
+        force = scalingRatio * degreeProd / distSquared;
     }
 
 #ifndef NOREPULSION
-    return clamp(force, 0.0f, 1000000.0f);
+    // Assuming always positive.
+    // return clamp(force, 0.0f, 1000000.0f);
+    return min(force, 1000000.0f);
 #else
     return 0.0f;
 #endif
@@ -125,7 +129,7 @@ __kernel void calculate_forces(
 
 
 
-    float px, py, ax, ay, dx, dy, temp;
+    float px, py, ax, ay, dx, dy, temp, distSquared;
     int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
 
     // THREADS1/WARPSIZE is number of warps
@@ -226,16 +230,17 @@ __kernel void calculate_forces(
                         dy = py - y_cords[child];
                         distVector = (float2) (dx, dy);
                         temp = fast_length(distVector) + 0.000000000001f;
+                        distSquared = temp * temp;
 
-                        if ((child < num_bodies) || reduction_thread_vote(votingBuffer, temp * temp >= dq[depth], starting_warp_thread_id, difference)) {
+                        if ((child < num_bodies) || reduction_thread_vote(votingBuffer, distSquared >= dq[depth], starting_warp_thread_id, difference)) {
                             // check if ALL threads agree that cell is far enough away (or is a body)
 
                             // TODO: Determine how often we diverge when a few threads see a body, and the
                             // rest fail because of insufficient distance.
 
                             // Adding all forces
-                            forceVector += fast_normalize(distVector) * repulsionForce(temp, 1.0,
-                                            mass[child], scalingRatio, IS_PREVENT_OVERLAP(flags));
+                            forceVector += distVector * repulsionForce(distSquared, 2.0f,
+                                            mass[child] + 1.0f, scalingRatio, IS_PREVENT_OVERLAP(flags));
                                 // forceVector += (float2) (0.000001f, 0.000001f);
 
                         } else {
