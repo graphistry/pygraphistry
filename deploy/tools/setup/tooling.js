@@ -297,7 +297,9 @@ function link(module, linkExternals) {
     return exec(cmd, ['prune'], cwd)
         .all(_.map(toLink, function (target) { return exec(cmd, ['link', target], cwd); }))
         .then(function () {
-            return exec(cmd, ['link'], cwd);
+            // Without `--no-bin-links`, npm will error if we ever `npm link` a module with binaries
+            // twice, since it will refuse to overwrite the existing linked binary.
+            return exec(cmd, ['link', '--no-bin-links'], cwd);
         });
 }
 
