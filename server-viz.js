@@ -272,11 +272,18 @@ function stream(socket, renderConfig, colorTexture) {
         console.log('Selection', sel);
         graph.take(1).do(function (graph) {
             console.log('execing selection');
-            graph.simulator.selectNodes(sel).then(function (idx) {
-                console.log('Got ', idx);
-            });
-        }).subscribe(_.identity, util.makeErrorHandler('inspect'));
-        cb('Hello world');
+            graph.simulator.selectNodes(sel).then(function (indices) {
+                throw new Error('caca')
+                cb(null, labeler.infoFrame(indices));
+            }).done(_.identity, util.makeErrorHandler('handler 2'));
+        }).subscribe(
+            _.identity,
+            function (err) {
+                console.info('e ahdnler')
+                cb('inspect error');
+                util.makeErrorHandler('inspect')(err);
+            }
+        );
     })
 
     socket.on('get_labels', function (indices, cb) {
@@ -290,7 +297,7 @@ function stream(socket, renderConfig, colorTexture) {
             .subscribe(
                 _.identity,
                 function (err) {
-                    cb('fail');
+                    cb('get_labels error');
                     util.makeErrorHandler('get_labels')(err);
                 });
     });

@@ -28,11 +28,11 @@ html {
     }
 
     & .graph-label-title .fa-thumb-tack {
-        visibility: hidden;
+        display: none;
     }
 
     &.clicked .graph-label-title .fa-thumb-tack {
-        visibility: visible;
+        display: inline-block;
         color: rgba(31, 31, 51, 0.5);
     }
 
@@ -55,7 +55,6 @@ html {
 
     //hover effect: show & higher than other labels
     .graph-label-title {
-        max-height: 1em;
         max-width: 10em;
         display: inline-block;
         overflow:hidden;
@@ -76,7 +75,8 @@ html {
             max-height: 20em;
             max-width: 50em;
             height: auto;
-            overflow: auto;
+            overflow-y: auto;
+            overflow-x: hidden;
 
         }
     }
@@ -84,7 +84,7 @@ html {
 
     .graph-label-container {
         margin-top: 1.5em;
-        padding: 0.5em;
+        padding: 0.5em 0.5em 0.4em 0.5em;
         border: 1px solid transparent;
         border-radius: 10px;
 
@@ -108,6 +108,15 @@ html {
 
         table {
             font-size: 1.1em;
+            margin-right: 0.8em;
+
+            td,
+            .graph-label-value-wrapper{
+                max-width: 15em;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
         }
     }
 
@@ -438,7 +447,7 @@ button.btn-default {
     &.off {
         overflow:hidden;
         height: 2.4em;
-        width: 1em;
+        width: 2.4em;
         min-width: 1em;
     }
 
@@ -485,7 +494,15 @@ button.btn-default {
 
     .toggles {
         text-align: right;
+        position: absolute;
+        right: 0.7em;
+        top: 0.7em;
     }
+
+    &.off > :not(:first-child) {
+        visibility: hidden;
+    }
+
     &.on .revealer,
     &.off .hider {
         display: none;
