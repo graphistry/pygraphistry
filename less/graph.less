@@ -53,11 +53,17 @@ html {
         pointer-events: auto;
     }
 
+    cursor: pointer;
+    .graph-label-contents {
+        cursor: auto;
+    }
+
     //hover effect: show & higher than other labels
     .graph-label-title {
         max-width: 10em;
         display: inline-block;
         overflow:hidden;
+        pointer-events: none;
     }
     .graph-label-contents {
         display: none;
