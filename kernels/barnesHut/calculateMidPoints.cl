@@ -124,15 +124,10 @@ __kernel void calculate_forces(
     /*const float alpha = (float) TILES_PER_ITERATION;*/
     int k, index, i;
     float force;
-    
-    if (idx == 0) {
-      printf("charge %f \n", charge);
-      /*printf("Num Points %d, num nodes %d \n", num_bodies, num_nodes);*/
-    }
 
     //float forceX, forceY;
-    float2 forceVector;
-    float2 distVector;
+    float2 forceVector = (0.0f, 0.0f);
+    float2 distVector = (0.0f, 0.0f);
 
 
 
@@ -250,14 +245,11 @@ __kernel void calculate_forces(
                           float2 distVector = (float2) (dx, dy);
                           float2 otherPoint = (float2) (x_cords[child], y_cords[child]);
                           /*float err = fast_distance(otherPoint, myPos);*/
-                          if (dx < FLT_EPSILON || dy < FLT_EPSILON) {
-                            forceVector += 0.000001f * pointForce(n1Pos, otherPoint, mass[child] * charge);
-                            /*otherPoint = (float2) (x_choods[child % 23], y_cords[child % 3]);*/
+                          if (fast_length(distVector) < FLT_EPSILON) {
+                            forceVector += 0.00001f * pointForce(n1Pos, otherPoint, alpha* charge);
                           } else {
-                            forceVector += (pointForce(n1Pos, otherPoint, charge * alpha) * 1.0f);
+                            forceVector += 1.0f * (pointForce(n1Pos, otherPoint, charge * alpha) * -1.0f);
                           }
-                         /*forceVector += (float2) (0.000001f, 0.000001f);*/
-
                         } else {
                             // Push this cell onto the stack.
                             depth++;
@@ -280,12 +272,14 @@ __kernel void calculate_forces(
             float2 n1Pos = (float2) (px, py);
             const float2 dimensions = (float2) (width, height);
             const float2 centerVec = (dimensions / 2.0f) - n1Pos;
-            const float gForce = gravityForce(gravity, mass[index], centerVec, IS_STRONG_GRAVITY(flags));
-            forceVector += normalize(centerVec) * gForce * 0.00000001f;
-                            if (get_global_id(0) < 32) {
-                              printf("Force x %f, Force y %f \n", forceVector.x, forceVector.y);
+            const float gForce = gravityForce(gravity, /*mass[index]*/1.0f, centerVec, IS_STRONG_GRAVITY(flags));
+            /*const float2 gForce2 = normalize(centerVec) * gForce * 0.000001f;*/
+            /*forceVector += gForce2;*/
+                            if (get_global_id(0) < 64) {
+                              /*printf("Force x %f, Force y %f \n gForce x %f y %f \n", forceVector.x, forceVector.y, gForce2.x, gForce2.y);*/
+                              /*printf("gForce x %.9g y %.9g x %.9g y %9g mass %f gravity %f\n", gForce2.x, gForce2.y, centerVec.x, centerVec.y, mass[index], gForce);*/
                             }
-            nextMidPoints[index] = n1Pos + (0.01f * (forceVector));
+            nextMidPoints[index] = (float2) n1Pos + ((forceVector));
             /*nextMidPoints[index] = n1Pos + 0.00001f * normalize(centerVec) * gForce + forceVector * mass[index];*/
 
         }
