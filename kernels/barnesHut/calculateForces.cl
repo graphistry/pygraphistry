@@ -127,7 +127,7 @@ __kernel void calculate_forces(
     int k, index, i;
     float force;
 
-    //float forceX, forceY;
+    float forceX, forceY, distX, distY, repForce;
     float2 forceVector;
     float2 distVector;
 
@@ -201,7 +201,11 @@ __kernel void calculate_forces(
             index = sort[k];
             px = x_cords[index];
             py = y_cords[index];
-            forceVector = (float2) (0.0f, 0.0f);
+
+            // forceVector = (float2) (0.0f, 0.0f);
+            forceX = 0.0f;
+            forceY = 0.0f;
+
             depth = shared_mem_offset; // We use this to both keep track of depth and index into dq.
 
             // initialize iteration stack, i.e., push root node onto stack
@@ -230,11 +234,11 @@ __kernel void calculate_forces(
                     if (child > NULLPOINTER) {
 
                         // Compute distances
-                        // dx = px - x_cords[child];
-                        // dy = py - y_cords[child];
-                        distVector = (float2) (px - x_cords[child], py - y_cords[child]);
-                        temp = fast_length(distVector) + 0.000000000001f;
-                        distSquared = temp * temp;
+                        distX = px - x_cords[child];
+                        distY = py - y_cords[child];
+
+                        // distVector = (float2) (px - x_cords[child], py - y_cords[child]);
+                        distSquared = distX*distX + distY*distY + 0.000000000001f;
 
                         if ((child < num_bodies) || reduction_thread_vote(votingBuffer, distSquared >= dq[depth], starting_warp_thread_id, difference)) {
 
@@ -244,8 +248,14 @@ __kernel void calculate_forces(
                             // rest fail because of insufficient distance.
 
                             // Adding all forces
-                            forceVector += distVector * repulsionForce(distSquared, 2.0f,
+                            repForce = repulsionForce(distSquared, 2.0f,
                                             mass[child] + 1.0f, scalingRatio, IS_PREVENT_OVERLAP(flags));
+                            forceX += distX * repForce;
+                            forceY += distY * repForce;
+
+
+                            // forceVector += distVector * repulsionForce(distSquared, 2.0f,
+                            //                 mass[child] + 1.0f, scalingRatio, IS_PREVENT_OVERLAP(flags));
 
                         } else {
                             // Push this cell onto the stack.
@@ -266,6 +276,7 @@ __kernel void calculate_forces(
             }
 
             // Assigning force for force atlas.
+            forceVector = (float2) (forceX, forceY);
             float2 n1Pos = (float2) (px, py);
             const float2 dimensions = (float2) (width, height);
             const float2 centerVec = (dimensions / 2.0f) - n1Pos;
