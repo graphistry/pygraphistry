@@ -135,6 +135,10 @@ function clone(repo) {
         .thenResolve(repo);
 }
 
+
+// Starts a `ssh` master connection to git@github.com. This will effectively pre-connect to GitHub,
+// then allow subsequent connection (e.g. from `git {clone,pull}`) to tunnel over it without having
+// to renegotiate a new SSH session eeach time, which may speed up cloning/pulling a bunch of repos.
 function startSshControlMaster(socketPath) {
     socketPath = socketPath || defaultSshControlPath;
 
@@ -151,13 +155,20 @@ function startSshControlMaster(socketPath) {
 
             var proc = child_process.spawn('ssh',
                 [
+                    // Disable any local commands the user has configured to run after ssh connects,
+                    // since this connection is going to be running headless in the background.
                     '-o', 'PermitLocalCommand=no',
+                    // Don't send SSH protocol heartbeats (our connection is too short to merit it)
                     '-o', 'ServerAliveInterval=0',
+                    // Make this a master connection (will connect and then background)
                     '-o', 'ControlMaster=yes',
+                    // Keep the connection open for 30 seconds of idleness before closing
                     '-o', 'ControlPersist=30s',
                     '-o', util.format('ControlPath=%s', socketPath),
+                    // Enable compression
                     '-o', 'Compression=yes',
                     '-o', 'CompressionLevel=6',
+                    // Master connections don't need a TTY
                     '-o', 'RequestTTY=no',
                     '-N',   // do not execute a remote command
                     '-n',   // redirect STDIN from /dev/null (required for background SSH)
@@ -273,14 +284,16 @@ function link(module, linkExternals) {
     if (module.name === 'ROOT')
         return Q();
 
+    console.log('Linking module "%s"...', module.name);
+
     var cmd = 'npm';
     var cwd = path.resolve(wd, module.repo);
-
     var toLink = module.links.internal;
     if (linkExternals) {
         toLink = toLink.concat(module.links.external);
     }
 
+    //     `npm prune` module
     return exec(cmd, ['prune'], cwd)
         .all(_.map(toLink, function (target) { return exec(cmd, ['link', target], cwd); }))
         .then(function () {

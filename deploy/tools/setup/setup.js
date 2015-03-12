@@ -71,6 +71,9 @@ function cloneAll(stack, done) {
 // Link all repositories following the topological order given
 // [Repos] -> Boolean -> Promise[]
 function linkAll(repos, installExternalGlobally) {
+    // If `-c` was also given, then we've already printed `cloneAll()` messages, so write a `\n`
+    if (argv.c) { console.log(''); }
+
     var allExternals= [];
     var depTree = tooling.buildDepTree(roots, 'ROOT', allExternals);
     debug('Dependencies tree', JSON.stringify(depTree, null, 2))
