@@ -269,19 +269,15 @@ function stream(socket, renderConfig, colorTexture) {
     });
 
     socket.on('inspect', function (sel, cb) {
-        console.log('Selection', sel);
         graph.take(1).do(function (graph) {
-            console.log('execing selection');
             graph.simulator.selectNodes(sel).then(function (indices) {
-                throw new Error('caca')
-                cb(null, labeler.infoFrame(indices));
-            }).done(_.identity, util.makeErrorHandler('handler 2'));
+                cb({success: true, frame: labeler.infoFrame(graph, indices)});
+            }).done(_.identity, util.makeErrorHandler('selectNodes'));
         }).subscribe(
             _.identity,
             function (err) {
-                console.info('e ahdnler')
-                cb('inspect error');
-                util.makeErrorHandler('inspect')(err);
+                cb({success: false, error: 'inspect error'});
+                util.makeRxErrorHandler('inspect handler')(err);
             }
         );
     })
