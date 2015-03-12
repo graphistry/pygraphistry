@@ -74,9 +74,11 @@ inline float repulsionForce(const float distSquared, const uint n1DegreePlusOne,
 inline float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
                           const bool strong) {
 
-    const float gForce = gravity *
-            (n1Degree + 1.0f) *
-            (strong ? length(centerVec) : 1.0f);
+    float gForce = gravity * (n1Degree + 1.0f);
+    if (strong) {
+        gForce *= fast_length(centerVec);
+    }
+
 #ifndef NOGRAVITY
     return gForce;
 #else
@@ -130,6 +132,7 @@ __kernel void calculate_forces(
     float forceX, forceY, distX, distY, repForce;
     float2 forceVector;
     float2 distVector;
+    const float2 halfDimensions = ((float2) (width, height))/2.0f;
 
 
 
@@ -278,10 +281,9 @@ __kernel void calculate_forces(
             // Assigning force for force atlas.
             forceVector = (float2) (forceX, forceY);
             float2 n1Pos = (float2) (px, py);
-            const float2 dimensions = (float2) (width, height);
-            const float2 centerVec = (dimensions / 2.0f) - n1Pos;
+            const float2 centerVec = halfDimensions - n1Pos;
             const float gForce = gravityForce(gravity, mass[index], centerVec, IS_STRONG_GRAVITY(flags));
-            pointForces[index] = normalize(centerVec) * gForce + forceVector * mass[index];
+            pointForces[index] = fast_normalize(centerVec) * gForce + forceVector * mass[index];
 
         }
     }
