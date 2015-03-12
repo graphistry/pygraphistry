@@ -201,6 +201,7 @@ html {
 
     &.on {
         display: block;
+        cursor: crosshair;
     }
 
     &.off {
@@ -331,6 +332,7 @@ html {
 }
 
 .graphistry-body {
+    visibility: hidden;
     background-color: #223 !important;
     height: 100%;
     overflow:hidden;
@@ -402,6 +404,11 @@ button.btn-default {
 
 #simulation {
     border: 0px;
+    cursor: pointer;
+
+    &.moving {
+        cursor: move;
+    }
 }
 
 .debug {
@@ -439,6 +446,19 @@ button.btn-default {
         background: none;
     }
 
+}
+
+.load-spinner {
+    visibility: visible;
+}
+
+#load-text {
+    position: absolute;
+    width: 400px;
+    top: 50px;
+    left: -200px;
+    text-align: center;
+    color: rgb(51,51,102);
 }
 
 

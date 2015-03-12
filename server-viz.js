@@ -64,7 +64,7 @@ function resetState(dataset) {
 
     //make available to all clients
     graph = new Rx.ReplaySubject(1);
-    ticksMulti.take(1).subscribe(graph, debug.bind('ERROR ticksMulti'));
+    ticksMulti.take(1).subscribe(graph, util.makeRxErrorHandler('ticksMulti failure'));
 
     debug('RESET APP STATE.');
 }
@@ -129,10 +129,10 @@ function init(app, socket) {
 
     img.take(1)
         .do(colorTexture)
-        .subscribe(_.identity, util.makeErrorHandler('img.take'));
+        .subscribe(_.identity, util.makeRxErrorHandler('img/texture'));
     colorTexture
         .do(function() { debug('HAS COLOR TEXTURE'); })
-        .subscribe(_.identity, util.makeErrorHandler('colorTexture'));
+        .subscribe(_.identity, util.makeRxErrorHandler('colorTexture'));
 
 
 
@@ -166,7 +166,7 @@ function init(app, socket) {
                     res.set('Content-Encoding', 'gzip');
                     res.send(data);
                 })
-                .subscribe(_.identity, util.makeErrorHandler('colorTexture pluck'));
+                .subscribe(_.identity, util.makeRxErrorHandler('colorTexture pluck'));
 
         } catch (e) {
             util.makeErrorHandler('bad /texture request')(e);
@@ -298,7 +298,7 @@ function stream(socket, renderConfig, colorTexture) {
                 _.identity,
                 function (err) {
                     cb('get_labels error');
-                    util.makeErrorHandler('get_labels')(err);
+                    util.makeRxErrorHandler('get_labels')(err);
                 });
     });
 
@@ -308,7 +308,7 @@ function stream(socket, renderConfig, colorTexture) {
                 graph.simulator.highlightShortestPaths(pair);
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, util.makeErrorHandler('shortest_path'));
+            .subscribe(_.identity, util.makeRxErrorHandler('shortest_path'));
     });
 
     socket.on('set_colors', function (color) {
@@ -317,7 +317,7 @@ function stream(socket, renderConfig, colorTexture) {
                 graph.simulator.setColor(color);
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, util.makeErrorHandler('set_colors'));
+            .subscribe(_.identity, util.makeRxErrorHandler('set_colors'));
     });
 
     socket.on('highlight_points', function (points) {
@@ -331,7 +331,7 @@ function stream(socket, renderConfig, colorTexture) {
 
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, util.makeErrorHandler('highlighted_points'));
+            .subscribe(_.identity, util.makeRxErrorHandler('highlighted_points'));
 
     });
 
@@ -351,7 +351,7 @@ function stream(socket, renderConfig, colorTexture) {
         clientReady.onNext(true);
     });
 
-    clientReady.subscribe(debug.bind('CLIENT STATUS'), debug.bind('ERROR clientReady'));
+    clientReady.subscribe(debug.bind('CLIENT STATUS'), util.makeRxErrorHandler('clientReady'));
 
     debug('SETTING UP CLIENT EVENT LOOP ===================================================================');
     var step = 0;
@@ -446,7 +446,7 @@ function stream(socket, renderConfig, colorTexture) {
     })
     .subscribe(function () {
         debug('9. LOOP ITERATED', socket.id);
-    }, util.makeErrorHandler('ERROR LOOP'));
+    }, util.makeRxErrorHandler('Main loop failure'));
 }
 
 
@@ -502,7 +502,7 @@ if (require.main === module) {
 
     listen.subscribe(
         function () { console.log('\nViz worker listening...'); },
-        util.makeErrorHandler('server-viz main')
+        util.makeRxErrorHandler('server-viz main')
     );
 
 }
