@@ -268,10 +268,24 @@ function stream(socket, renderConfig, colorTexture) {
         animStep.interact(_.extend(defaults, payload || {}));
     });
 
-    socket.on('get_labels', function (labels, cb) {
+    socket.on('inspect', function (sel, cb) {
+        graph.take(1).do(function (graph) {
+            graph.simulator.selectNodes(sel).then(function (indices) {
+                cb({success: true, frame: labeler.infoFrame(graph, indices)});
+            }).done(_.identity, util.makeErrorHandler('selectNodes'));
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, error: 'inspect error'});
+                util.makeRxErrorHandler('inspect handler')(err);
+            }
+        );
+    })
+
+    socket.on('get_labels', function (indices, cb) {
         graph.take(1)
             .map(function (graph) {
-                return labeler.labels(graph, labels);
+                return labeler.getLabels(graph, indices);
             })
             .do(function (out) {
                 cb(null, out);
@@ -279,8 +293,8 @@ function stream(socket, renderConfig, colorTexture) {
             .subscribe(
                 _.identity,
                 function (err) {
+                    cb('get_labels error');
                     util.makeRxErrorHandler('get_labels')(err);
-                    cb('fail');
                 });
     });
 
