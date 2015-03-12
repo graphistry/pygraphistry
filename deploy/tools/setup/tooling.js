@@ -281,8 +281,7 @@ function distinctExternals(externals, checkVersionMismatch) {
 
 
 function link(module, linkExternals) {
-    if (module.name === 'ROOT')
-        return Q();
+    if (module.name === 'ROOT') { return Q(); }
 
     console.log('Linking module "%s"...', module.name);
 
@@ -295,8 +294,31 @@ function link(module, linkExternals) {
 
     //     `npm prune` module
     return exec(cmd, ['prune'], cwd)
-        .all(_.map(toLink, function (target) { return exec(cmd, ['link', target], cwd); }))
-        .then(function () {
+        // `npm link <dependency>` for each unlinked dependency
+        .thenResolve(
+            _.chain(toLink)
+            // Only `npm link <dependency>` if it's not already linked
+            .filter(function filterUnlinkedDependencies(dependency) {
+                try {
+                    var depPath = path.resolve(cwd, 'node_modules', dependency);
+                    // Already linked?
+                    if(fs.lstatSync(depPath).isSymbolicLink()) {
+                        return false;
+                    } else {
+                        console.log("  ...linking dependency \"%s\" (already installed, but not as a link)", dependency);
+                        return true;
+                    }
+                } catch(e) {
+                    console.log("  ...linking dependency \"%s\"", dependency);
+                    return true;
+                }
+            })
+            .map(function linkDepndency(dependency) {
+                return exec(cmd, ['link', dependency], cwd);
+            })
+            .value())
+        // `npm link` the module itself
+        .all(function () {
             // Without `--no-bin-links`, npm will error if we ever `npm link` a module with binaries
             // twice, since it will refuse to overwrite the existing linked binary.
             return exec(cmd, ['link', '--no-bin-links'], cwd);
