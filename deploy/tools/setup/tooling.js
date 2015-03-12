@@ -154,8 +154,13 @@ function startSshControlMaster(socketPath) {
                     '-o', 'PermitLocalCommand=no',
                     '-o', 'ServerAliveInterval=0',
                     '-o', 'ControlMaster=yes',
-                    '-o', 'ControlPersist=10s',
+                    '-o', 'ControlPersist=30s',
                     '-o', util.format('ControlPath=%s', socketPath),
+                    '-o', 'Compression=yes',
+                    '-o', 'CompressionLevel=6',
+                    '-o', 'RequestTTY=no',
+                    '-N',   // do not execute a remote command
+                    '-n',   // redirect STDIN from /dev/null (required for background SSH)
                     'git@github.com'
                 ],
                 {
