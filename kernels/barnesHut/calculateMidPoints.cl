@@ -234,7 +234,7 @@ __kernel void calculate_forces(
                         distVector = (float2) (dx, dy);
                         temp = dx*dx + (dy*dy + 0.00000000001);
 
-                        if ((child < num_bodies) /*|| reduction_thread_vote(votingBuffer, temp >= dq[depth], starting_warp_thread_id, difference)*/) {
+                        if ((child < num_bodies) || reduction_thread_vote(votingBuffer, temp >= dq[depth], starting_warp_thread_id, difference)) {
                             // check if ALL threads agree that cell is far enough away (or is a body)
 
                             // TODO: Determine how often we diverge when a few threads see a body, and the
