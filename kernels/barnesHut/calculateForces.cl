@@ -2,7 +2,6 @@
 #include "barnesHut/barnesHutCommon.h"
 
 #define HALF_WARP (WARPSIZE / 2)
-// #define INLINEPTX
 
 inline int thread_vote(__local int* allBlock, int warpId, int cond)
 {
