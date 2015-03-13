@@ -31,11 +31,22 @@ html {
         display: none;
     }
 
-    &.clicked .graph-label-title .fa-thumb-tack {
-        display: inline-block;
-        color: rgba(31, 31, 51, 0.5);
-    }
+    &.clicked {
 
+        margin-top: -2px;
+        margin-left: -2px;
+
+        .graph-label-container {
+
+            background-color: white;
+            border-width: 3px;
+
+            .graph-label-title .fa-thumb-tack {
+                display: inline-block;
+                color: rgba(31, 31, 51, 1.0);
+            }
+        }
+    }
 
     &, & table {
         color: rgb(31, 31, 51);
@@ -89,7 +100,8 @@ html {
 
 
     .graph-label-container {
-        margin-top: 1.5em;
+        margin-top: 2.5em;
+        margin-left: 1.5em;
         padding: 0.5em 0.5em 0.4em 0.5em;
         border: 1px solid transparent;
         border-radius: 10px;
