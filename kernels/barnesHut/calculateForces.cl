@@ -2,7 +2,7 @@
 #include "barnesHut/barnesHutCommon.h"
 
 #define HALF_WARP (WARPSIZE / 2)
-#define INLINEPTX
+// #define INLINEPTX
 
 inline int thread_vote(__local int* allBlock, int warpId, int cond)
 {
@@ -22,13 +22,28 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
     return ret;
 }
 
-//#define INLINEPTX
+
 #ifdef INLINEPTX
 #define warpCellVote(buffer, distSquared, dq, offset, diff) ptx_thread_vote(distSquared, dq)
 #else
 #define warpCellVote(buffer, distSquared, dq, offset, diff) reduction_thread_vote(buffer, distSquared, dq, offset, diff)
 #endif
 
+#ifdef INLINEPTX
+inline uint ptx_thread_vote(float rSq, float rCritSq) {
+    uint result = 0;
+    asm("{\n\t"
+         ".reg .pred cond, out;\n\t"
+         "setp.ge.f32 cond, %1, %2;\n\t"
+         "vote.all.pred out, cond;\n\t"
+         "selp.u32 %0, 1, 0, out;\n\t"
+         "}\n\t"
+         : "=r"(result)
+         : "f"(rSq), "f"(rCritSq));
+
+    return result;
+}
+#endif
 
 inline int reduction_thread_vote(__local int* const buffer, const float distSquared, const float dq, const int offset, const int diff) {
     // Relies on the fact that the wavefront/warp (not whole workgroup)
@@ -51,21 +66,7 @@ inline int reduction_thread_vote(__local int* const buffer, const float distSqua
     return (buffer[offset] == WARPSIZE);
 }
 
-#ifdef INLINEPTX
-inline uint ptx_thread_vote(float rSq, float rCritSq) {
-    uint result = 0;
-    asm("{\n\t"
-         ".reg .pred cond, out;\n\t"
-         "setp.ge.f32 cond, %1, %2;\n\t"
-         "vote.all.pred out, cond;\n\t"
-         "selp.u32 %0, 1, 0, out;\n\t"
-         "}\n\t"
-         : "=r"(result)
-         : "f"(rSq), "f"(rCritSq));
 
-    return result;
-}
-#endif
 
 
 inline float repulsionForce(const float distSquared, const uint n1DegreePlusOne, const uint n2DegreePlusOne,
