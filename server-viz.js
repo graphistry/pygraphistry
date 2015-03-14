@@ -225,6 +225,19 @@ function init(app, socket) {
         }).fail(util.makeErrorHandler('reset graph request'));
     });
 
+    socket.on('inspect_header', function (nothing, cb) {
+        debug('inspect header');
+        graph.take(1).do(function (graph) {
+            cb({success: true, header: labeler.frameHeader(graph)});
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, error: 'inspect_header error'});
+                util.makeRxErrorHandler('inspect_header handler')(err);
+            }
+        );
+    });
+
     return module.exports;
 }
 
@@ -269,6 +282,7 @@ function stream(socket, renderConfig, colorTexture) {
     });
 
     socket.on('inspect', function (sel, cb) {
+        debug('Got inspect')
         graph.take(1).do(function (graph) {
             graph.simulator.selectNodes(sel).then(function (indices) {
                 cb({success: true, frame: labeler.infoFrame(graph, indices)});
@@ -280,7 +294,7 @@ function stream(socket, renderConfig, colorTexture) {
                 util.makeRxErrorHandler('inspect handler')(err);
             }
         );
-    })
+    });
 
     socket.on('get_labels', function (indices, cb) {
         graph.take(1)
