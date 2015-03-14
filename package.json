@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "backbone": "~1.1.0",
-    "backbone.iobind": "~0.4.0",
     "backbone.paginator": "~2.0.0",
     "backgrid": "~0.3.0",
+    "backgrid-paginator": "~0.3.0",
     "bootstrap-slider": "~4.3.0",
     "brfs": "~1.2.0",
     "debug": "~2.1.0",
