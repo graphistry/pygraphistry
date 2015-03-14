@@ -3,6 +3,23 @@ html {
     overflow: hidden;
 }
 
+
+.logo-container {
+
+    &.disabled {
+        display: none;
+    }
+
+    position: absolute;
+    left: 2em;
+    top: 2em;
+    pointer-events: none;
+
+    img {
+        width: 80%;
+    }
+}
+
 .graph-label-container {
     position: absolute;
     top: 0;
