@@ -1,6 +1,12 @@
 #include "common.h"
 #include "barnesHut/barnesHutCommon.h"
 
+#ifdef INLINEPTX
+#define threadfenceWrapper() asm("{\n\t membar.gl;\n\t }\n\t")
+#else
+#define threadfenceWrapper() mem_fence(CLK_GLOBAL_MEM_FENCE)
+#endif
+
 __kernel void build_tree(
         //graph params
         float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
@@ -180,7 +186,7 @@ __kernel void build_tree(
 
                     // Place our body and expose to other threads.
                     child[n*4+j] = i;
-                    mem_fence(CLK_GLOBAL_MEM_FENCE); // push out our subtree to other threads.
+                    threadfenceWrapper();
                     child[locked] = patch;
                 }
 
