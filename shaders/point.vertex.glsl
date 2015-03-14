@@ -12,6 +12,7 @@ attribute vec4 pointColor;
 varying vec4 vColor;
 
 uniform float zoomScalingFactor;
+uniform float maxPointSize;
 
 void main(void) {
     gl_PointSize = clamp(zoomScalingFactor * pointSize, 5.0, 50.0);
