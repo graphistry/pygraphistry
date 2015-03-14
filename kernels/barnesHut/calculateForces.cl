@@ -21,13 +21,39 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
     return ret;
 }
 
-inline int reduction_thread_vote(__local int* const buffer, const int cond, const int offset, const int diff) {
+
+#ifdef INLINEPTX
+#define warpCellVote(buffer, distSquared, dq, offset, diff) ptx_thread_vote(distSquared, dq)
+#else
+#define warpCellVote(buffer, distSquared, dq, offset, diff) reduction_thread_vote(buffer, distSquared, dq, offset, diff)
+#endif
+
+#ifdef INLINEPTX
+inline uint ptx_thread_vote(float rSq, float rCritSq) {
+    uint result = 0;
+    asm("{\n\t"
+         ".reg .pred cond, out;\n\t"
+         "setp.ge.f32 cond, %1, %2;\n\t"
+         "vote.all.pred out, cond;\n\t"
+         "selp.u32 %0, 1, 0, out;\n\t"
+         "}\n\t"
+         : "=r"(result)
+         : "f"(rSq), "f"(rCritSq));
+
+    return result;
+}
+#endif
+
+inline int reduction_thread_vote(__local int* const buffer, const float distSquared, const float dq, const int offset, const int diff) {
     // Relies on the fact that the wavefront/warp (not whole workgroup)
     // is executing in lockstep to avoid a barrier
     // Also, in C (and openCL) a conditional is an int value of 0 or 1
+    int cond = (distSquared >= dq);
+
     int myoffset = offset + diff;
     buffer[myoffset] = cond;
     __local int* myBuffer = buffer + myoffset;
+
 
     // Runs in log_2(WARPSIZE) steps.
     for (int step = HALF_WARP; step > 0; step = step / 2) {
@@ -38,6 +64,7 @@ inline int reduction_thread_vote(__local int* const buffer, const int cond, cons
 
     return (buffer[offset] == WARPSIZE);
 }
+
 
 
 
@@ -243,7 +270,7 @@ __kernel void calculate_forces(
                         // distVector = (float2) (px - x_cords[child], py - y_cords[child]);
                         distSquared = distX*distX + distY*distY + 0.000000000001f;
 
-                        if ((child < num_bodies) || reduction_thread_vote(votingBuffer, distSquared >= dq[depth], starting_warp_thread_id, difference)) {
+                        if ((child < num_bodies) || warpCellVote(votingBuffer, distSquared, dq[depth], starting_warp_thread_id, difference)) {
 
                             // check if ALL threads agree that cell is far enough away (or is a body)
 
