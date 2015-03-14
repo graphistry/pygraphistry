@@ -15,12 +15,13 @@ varying vec4 vColor;
 uniform float fog;
 uniform float stroke;
 uniform float zoomScalingFactor;
+uniform float maxPointSize;
 
 void main(void) {
     if (stroke > 0.0) {
-        gl_PointSize = clamp(zoomScalingFactor * pointSize, 5.0, 50.0);
+        gl_PointSize = clamp(zoomScalingFactor * pointSize, 7.0, maxPointSize);
     } else {
-        gl_PointSize = stroke + clamp(zoomScalingFactor * pointSize, 5.0, 50.0);
+        gl_PointSize = stroke + clamp(zoomScalingFactor * pointSize, 7.0, maxPointSize);
     }
 
     vec4 pos = mvp * vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);
