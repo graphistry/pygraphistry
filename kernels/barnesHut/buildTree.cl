@@ -190,7 +190,7 @@ __kernel void build_tree(
             }
         }
         // TODO: Uncomment this throttle after testing:
-        barrier(CLK_LOCAL_MEM_FENCE);
+        barrier(CLK_LOCAL_MEM_FENCE || CLK_GLOBAL_MEM_FENCE);
     }
     // Record our maximum depth globally.
     atomic_max(maxdepth, localmaxdepth);
