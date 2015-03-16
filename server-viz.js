@@ -6,6 +6,7 @@
 
 var Rx          = require('rx');
 var _           = require('underscore');
+var Q           = require('q');
 var debug       = require('debug')('graphistry:graph-viz:driver:viz-server');
 var profiling   = require('debug')('profiling');
 var fs          = require('fs');
@@ -31,6 +32,7 @@ var renderer = StreamGL.renderer;
 //{socketID -> {buffer...}
 var lastCompressedVbos;
 var finishBufferTransfers;
+var qLastSelection;
 
 
 // ----- ANIMATION ------------------------------------
@@ -87,6 +89,28 @@ function vboSizeMB(vbos) {
             _.pluck(_.values(vbos.buffers), 'byteLength'),
             function(acc, v) { return acc + v; }, 0);
     return (vboSizeBytes / (1024 * 1024)).toFixed(1);
+}
+
+// Sort and then subset the dataFrame. Used for pageing selection.
+function sliceSelection(dataFrame, start, end, sort_by, ascending) {
+    var sorted;
+    if (sort_by !== undefined) {
+        sorted = dataFrame.slice(0).sort(function (row1, row2) {
+            var a = row1[sort_by];
+            var b = row2[sort_by];
+            if (a < b)
+                return ascending ? -1 : 1;
+            else if (a > b)
+                return ascending ? 1 : -1;
+            else
+                return 0;
+        });
+
+    } else {
+        sorted = dataFrame;
+    }
+
+    return sorted.slice(start, end);
 }
 
 
@@ -171,6 +195,24 @@ function init(app, socket) {
         } catch (e) {
             util.makeErrorHandler('bad /texture request')(e);
         }
+    });
+
+    app.get('/read_selection', function (req, res) {
+        console.log('Got read_selection', req.query);
+        qLastSelection.then(function (lastSelection) {
+            if (!lastSelection) {
+                util.error('Client tried to read non-existent selection');
+                res.send();
+            }
+
+            var page = parseInt(req.query.page);
+            var per_page = parseInt(req.query.per_page);
+            var start = (page - 1) * per_page;
+            var end = start + per_page;
+            var data = sliceSelection(lastSelection, start, end,
+                                      req.query.sort_by, req.query.order === 'asc')
+            res.send(data);
+        }).fail(util.makeErrorHandler('read_selection qLastSelection'));
     });
 
 
@@ -292,6 +334,22 @@ function stream(socket, renderConfig, colorTexture) {
             function (err) {
                 cb({success: false, error: 'inspect error'});
                 util.makeRxErrorHandler('inspect handler')(err);
+            }
+        );
+    });
+
+    socket.on('set_selection', function (sel, cb) {
+        debug('Got set_selection')
+        graph.take(1).do(function (graph) {
+            graph.simulator.selectNodes(sel).then(function (indices) {
+                cb({success: true, count: indices.length});
+                qLastSelection = Q(labeler.infoFrame(graph, indices));
+            }).done(_.identity, util.makeErrorHandler('selectNodes'));
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, error: 'set_selection error'});
+                util.makeRxErrorHandler('set_selection handler')(err);
             }
         );
     });
