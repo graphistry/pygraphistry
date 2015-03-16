@@ -198,7 +198,7 @@ function init(app, socket) {
     });
 
     app.get('/read_selection', function (req, res) {
-        console.log('Got read_selection', req.query);
+        debug('Got read_selection', req.query);
         qLastSelection.then(function (lastSelection) {
             if (!lastSelection) {
                 util.error('Client tried to read non-existent selection');
@@ -210,7 +210,7 @@ function init(app, socket) {
             var start = (page - 1) * per_page;
             var end = start + per_page;
             var data = sliceSelection(lastSelection, start, end,
-                                      req.query.sort_by, req.query.order === 'asc')
+                                      req.query.sort_by, req.query.order === 'asc');
             res.send(data);
         }).fail(util.makeErrorHandler('read_selection qLastSelection'));
     });
