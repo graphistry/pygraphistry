@@ -1,6 +1,14 @@
 ---
 # Provisions app servers (that is, the servers running the viz workers and/or cental.)
 
+- name: Create Graphistry apps json log folder
+  file: path=/var/log/graphistry-json
+        state=directory
+        owner=www
+        group=root
+        mode=0775
+  sudo: yes
+
 - name: Create temp folder for Graphistry data
   file: path="{{ graphistry_temp_path }}"
         state=directory
