@@ -14,7 +14,7 @@ __kernel void faIntegrate (
     const unsigned int n1Idx = (unsigned int) get_global_id(0);
     const unsigned int numPoints = (unsigned int) get_global_size(0);
 
-    #define SPEED_CONSTANT 1.5f
+    #define SPEED_CONSTANT 5.0f
 
     float sqrtPoints = sqrt((float)numPoints);
     float speedFactor = max(SPEED_CONSTANT * sqrtPoints / 1000.0f, 0.1f);
