@@ -33,7 +33,7 @@ __kernel void faEdgeMap(
 
 
         // TODO (paden) This can probably be optimized
-        const float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
+        const float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 2.0f,
                                              IS_PREVENT_OVERLAP(flags), edgeInfluence,
                                              IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
 
