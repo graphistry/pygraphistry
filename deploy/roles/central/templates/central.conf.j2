@@ -2,7 +2,7 @@
 
 [program:central]
 
-command=/usr/bin/nodejs {{ graphistry_install_path }}/central/server.js "{\"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ inventory_hostname }}\" }"
+command=/usr/bin/nodejs {{ graphistry_install_path }}/centratfgutl/server.js "{\"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ inventory_hostname }}\" }"
 directory={{ graphistry_install_path }}/central
 environment=DEBUG='(express:*)|(graphistry:*)'
 
@@ -14,6 +14,7 @@ user=www
 umask=002
 
 stdout_logfile=/var/log/central-app/central.log
+stdout_logfile_maxbytes=10MB
 redirect_stderr=true
 ; stderr_logfile=/var/log/central-app/central.err.log
 
