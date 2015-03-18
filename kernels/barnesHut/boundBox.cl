@@ -50,8 +50,8 @@ __kernel void bound_box(
 
 
     // TODO: Make these kernel parameters, don't rely on macro
-    __local float sminx[THREADS1], smaxx[THREADS1], sminy[THREADS1], smaxy[THREADS1];
-    __local float local_swings[THREADS1], local_tractions[THREADS1];
+    __local float sminx[THREADS_BOUND], smaxx[THREADS_BOUND], sminy[THREADS_BOUND], smaxy[THREADS_BOUND];
+    __local float local_swings[THREADS_BOUND], local_tractions[THREADS_BOUND];
     minx = maxx = x_cords[0];
     miny = maxy = y_cords[0];
     swing = 0.0f;
