@@ -47,8 +47,8 @@
 - name: Create log directory for central app
   file: path=/var/log/central-app
         state=directory
-        owner=root
-        group=www
+        owner=www
+        group=graphistry-dev
         mode=0775
   sudo: yes
   sudo_user: root

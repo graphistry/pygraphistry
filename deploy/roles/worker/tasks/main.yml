@@ -16,21 +16,22 @@
         mode=0775
 
 - name: Ensure everything in install path can be read/written to by group 'www'
-  sudo: yes
-  sudo_user: root
   file: path={{ graphistry_install_path }}
         state=directory
         recurse=yes
         group=www
         mode='g+rw'
+  sudo: yes
+  sudo_user: root
 
 - name: Create worker log folder
-  sudo: yes
   file: path=/var/log/worker
         state=directory
         owner=www
-        group=root
-        mode=1774
+        group=graphistry-dev
+        mode=0775
+  sudo: yes
+  sudo_user: root
 
 - { include: reaper.yml, tags: [ 'reaper' ]}
 
