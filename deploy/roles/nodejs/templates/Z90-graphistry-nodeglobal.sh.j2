@@ -6,8 +6,8 @@
 # Only execute this file if we haven't already done so
 if [[ $_GRAPHISTRY_NODEJS_INIT != 1 ]]; then
     export npm_config_globalconfig='{{ npm_global_path }}/etc/npmrc'
-    export NODE_PATH="${NODE_PATH+:}/usr/lib/nodejs:{{ npm_global_path }}/lib/node_modules:/usr/lib/node_modules:/usr/share/javascript"
-    export PATH="{{ npm_global_path }}/bin/:$PATH"
+    export NODE_PATH="{{ npm_global_path }}/lib/node_modules:${NODE_PATH+:}/usr/lib/nodejs:/usr/lib/node_modules:/usr/share/javascript"
+    export PATH="{{ npm_global_path }}/bin:$PATH"
 
     export _GRAPHISTRY_NODEJS_INIT=1
 fi
