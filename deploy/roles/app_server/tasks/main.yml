@@ -5,8 +5,20 @@
   file: path=/var/log/graphistry-json
         state=directory
         owner=www
-        group=root
+        group=graphistry-dev
         mode=0775
+  sudo: yes
+
+- name: Configure logrotate for Graphisty apps json logs
+  copy: src=graphistry-json.logrotate.conf
+        dest=/etc/logrotate.d/graphistry-json
+        owner=root
+        group=root
+        mode=0644
+  sudo: yes
+
+- name: Force logrotate to rotate Graphistry app json logs
+  command: logrotate --force /etc/logrotate.d/graphistry-json
   sudo: yes
 
 - name: Create temp folder for Graphistry data
