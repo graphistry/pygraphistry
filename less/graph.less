@@ -11,8 +11,8 @@ html {
     }
 
     position: absolute;
-    left: 2em;
-    top: 2em;
+    left: 40%;
+    top: 0.5em;
     pointer-events: none;
 
     img {
@@ -309,7 +309,6 @@ html {
     text-shadow: 0 0 10px rgba(255,255,255,0.75);
 }
 
-
 #menus {
     position: absolute;
     width: 100%;
@@ -599,15 +598,40 @@ button.btn-default {
 
 
 #renderingItems {
-    .form-group {
-         margin-bottom: 10px;
+    width: 330px;
 
-         .control-label {
+    .control-title {
+        font-weight: bold;
+        font-size: 15px;
+    }
+
+    .form-group {
+        margin-bottom: 10px;
+
+        .control-label {
             padding-top: 0px;
-         }
+            font-weight: normal;
+            font-size: 13px;
+        }
     }
 
 }
+
+.slider {
+    .slider-track {
+        background-image: linear-gradient(to bottom, #C9C9C9 0%, #C3C3C3 100%);
+
+        .slider-selection {
+            background-image: linear-gradient(to bottom, #FFFFFF 0%, #FAFAFA 100%);
+        }
+
+        .slider-handle {
+            opacity: 1.0;
+            background-image: linear-gradient(to bottom, #149bdf 0%, #0480be 100%);
+        }
+    }
+}
+
 
 .automode {
     animation: pulsate 1s linear infinite;
