@@ -16,11 +16,11 @@
   tags: tmux
 
 - name: "Download CUDA repo .deb package"
-  get_url: "dest={{ ansible_files }}/cuda-repo-ubuntu1404_6.5-14_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_6.5-14_amd64.deb"
+  get_url: "dest={{ ansible_files }}/cuda-repo-ubuntu1404_7.0-28_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_7.0-28_amd64.deb"
   sudo: yes
 
 - name: Install CUDA repo .deb package
-  apt: "deb={{ ansible_files }}/cuda-repo-ubuntu1404_6.5-14_amd64.deb state=present"
+  apt: "deb={{ ansible_files }}/cuda-repo-ubuntu1404_7.0-28_amd64.deb state=present"
   sudo: yes
   register: cuda_repo_installed
 
