@@ -198,11 +198,11 @@
 #   sudo: yes
 #   sudo_user: mtorok
 
-- name: "[mtorok] Compiling Vim plugin 'YouCompleteMe'"
-  command: /home/mtorok/.janus/YouCompleteMe/install.sh --clang-completer
-           chdir=/home/mtorok/.janus/YouCompleteMe/
-  when: mtorok_dotfile_repo.changed
-  sudo: yes
-  sudo_user: mtorok
-  tags:
-    - slow
+# - name: "[mtorok] Compiling Vim plugin 'YouCompleteMe'"
+#   command: /home/mtorok/.janus/YouCompleteMe/install.sh --clang-completer
+#            chdir=/home/mtorok/.janus/YouCompleteMe/
+#   when: mtorok_dotfile_repo.changed
+#   sudo: yes
+#   sudo_user: mtorok
+#   tags:
+#     - slow
