@@ -67,6 +67,7 @@
     - build-essential
     - curl
     - git
+    - logrotate
     - vim
     - ack-grep
     - python-pip
