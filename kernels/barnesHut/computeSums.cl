@@ -40,7 +40,7 @@ __kernel void compute_sums(
     float m, cm, px, py;
 
     // TODO: Should this be THREADS3 * 4 like in CUDA?
-    volatile int missing_children[THREADS1 * 4];
+    volatile int missing_children[THREADS_SUMS * 4];
     // TODO cache kernel information
 
     bottom_value = *bottom;

@@ -167,11 +167,11 @@ __kernel void calculate_forces(
     int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
 
     // THREADS1/WARPSIZE is number of warps
-    __local volatile int child_index[MAXDEPTH * THREADS1/WARPSIZE], parent_index[MAXDEPTH * THREADS1/WARPSIZE];
-    __local volatile float dq[MAXDEPTH * THREADS1/WARPSIZE];
+    __local volatile int child_index[MAXDEPTH * THREADS_FORCES/WARPSIZE], parent_index[MAXDEPTH * THREADS_FORCES/WARPSIZE];
+    __local volatile float dq[MAXDEPTH * THREADS_FORCES/WARPSIZE];
 
     __local volatile int shared_step, shared_maxdepth;
-    __local int votingBuffer[THREADS1];
+    __local int votingBuffer[THREADS_FORCES];
 
     if (local_id == 0) {
         int itolsqd = 1.0f / (0.5f*0.5f);
