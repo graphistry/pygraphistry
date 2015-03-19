@@ -39,14 +39,14 @@
 - name: Configure timezone
   copy: src=timezone dest=/etc/timezone owner=root group=root mode=0644
 
-- name: Upgrade packages
-  apt: upgrade=dist
-       state=latest
-       update_cache=yes
-       cache_valid_time=300
-  tags:
-    - system-upgrade
-    - slow
+# - name: Upgrade packages
+#   apt: upgrade=dist
+#        state=latest
+#        update_cache=yes
+#        cache_valid_time=300
+#   tags:
+#     - system-upgrade
+#     - slow
 
 - name: Add git apt PPA repo (to get the most up-to-date git)
   apt_repository: repo='ppa:git-core/ppa'
