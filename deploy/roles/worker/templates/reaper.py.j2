@@ -15,7 +15,7 @@ import logging
 import sys
 
 logger = logging.getLogger()
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.WARN)
 
 ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.INFO)
@@ -23,133 +23,200 @@ formatter = logging.Formatter('%(asctime)s :: %(message)s')
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
+# The number of seconds without a ping before a worker process is considered a zombie
+WORKER_TIMEOUT = 30
+
 auth = HTTPBasicAuth('{{ boundary_username }}', '{{ boundary_password }}')
 ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
+HOSTNAME = socket.getfqdn()
 
-def convert(gpu_memory_used):
-    if 'GiB' in gpu_memory_used:
-        gpu_memory_used = int(gpu_memory_used.replace('GiB','')) * 1024 * 1024 * 1024
+DATABASE = '{{ mongodb_dbname }}'
+MONGO_SERVER = '{{ mongodb_url }}/{{ mongodb_dbname }}'
 
-    elif 'MiB' in gpu_memory_used:
-        gpu_memory_used = int(gpu_memory_used.replace('MiB','')) * 1024 * 1024
 
-    elif 'KiB' in gpu_memory_used:
-        gpu_memory_used = int(gpu_memory_used.replace('KiB','')) * 1024
+def connect_mongo():
+    """ Connects to the MongoDB database and returns a dictionary with the database object,
+    gpu_monitor collection, and node_monitor collection."""
+    client = MongoClient(MONGO_SERVER)
+    db = client[DATABASE]
+    return db, db['gpu_monitor'], db['node_monitor']
 
-    return gpu_memory_used
 
-def monitor(db):
-    """
-    This monitors GPU usage using nvidia-smi and updates it in the gpu_monitor
-    table (for overall usage) and the node_monitor table (for individual usage)
-    """
-    global ip
+def setup_db(db):
+    """ Sets up the database collections, specifically ensuring the right indices exist."""
+    return db.node_monitor.ensure_index( [("port", ASCENDING), ("ip", ASCENDING), ("pid", ASCENDING)], unique=True )
 
+
+def str_to_bytes(human_size):
+    """ Converts human-readable string of memory units (e.g. '10 Mib') to bytes as integer."""
+    size_str = human_size.replace(' ', '')
+
+    if 'GiB' in size_str:
+        return int(size_str.replace('GiB','')) * 1024 * 1024 * 1024
+    elif 'MiB' in size_str:
+        return int(size_str.replace('MiB','')) * 1024 * 1024
+    elif 'KiB' in size_str:
+        return int(size_str.replace('KiB','')) * 1024
+    else:
+        raise SyntaxError('String "{}" could not be converted into an integer number of bytes'.format(human_size))
+
+
+def log_boundary(metric, value):
+    """ Sends the given value to Boundary under the metric name given. If value is not a JSON
+    primitive type (number, etc), it should be string that includes quotes as part of the string."""
+    data = '{{"source": "{source}", "metric": "{metric}", "measure": {measure}, "timestamp": {timestamp}}}'.format(
+        source=HOSTNAME, metric=metric, measure=value, timestamp=int(time.time()))
+    headers = {'content-type': 'application/json'}
+
+    try:
+        r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
+    except requests.exceptions.ChunkedEncodingError as chunk_err:
+        # Boundary, for some stupid reason, gives the wrong ContentLength field in its response,
+        # causing ChunkedEncodingError when the connection closes before requests expects. This is
+        # harmless, and the API call seems to succeed anyway.
+        pass
+    except Exception as err:
+        logger.warn("Boundary: error logging metric {metric}: {err}".format(metric=metric, err=str(err)))
+    except:
+        logger.warn("Boundary: unknown error logging metric {metric}".format(metric=metric))
+
+
+def get_available_memory():
     # Get GPU free memory from nvidia-smi
     p = subprocess.Popen(["nvidia-smi",
                         "--query-gpu=memory.free",
                         "--format=csv,noheader"], stdout=subprocess.PIPE)
     gpu_data = p.communicate()[0]
-    gpu_memory_free = convert(gpu_data)
-    db['gpu_monitor'].update({'ip': ip}, {'$set':
+    return str_to_bytes(gpu_data)
+
+
+def gpu_process_usage():
+    p = subprocess.Popen(["nvidia-smi",
+                            "--query-compute-apps=used_gpu_memory,pid",
+                            "--format=csv,noheader"], stdout=subprocess.PIPE)
+    gpu_memory_by_process = p.communicate()[0].split('\n')
+
+    logger.info('GPU driver GPU memory used by process: {}'.format(gpu_memory_by_process))
+
+    gpu_processes = []
+    for process in gpu_memory_by_process:
+        process_data = process.replace(' ', '').split(',')
+        if len(process_data) != 2 or process_data[0] == '':
+            continue
+
+        gpu_process_pid = int(process_data[1])
+        gpu_memory_used = str_to_bytes(process_data[0])
+
+        logger.info('Process PID {pid} is using {mem} bytes of GPU memory'.format(pid=gpu_process_pid, mem=gpu_memory_used))
+        gpu_processes.append({'pid': gpu_process_pid, 'memory': gpu_memory_used, 'raw': process})
+
+    return gpu_processes
+
+
+class ProcessTermError(Exception):
+    def __init__(self, pid, message):
+        self.pid = pid
+        self.message = message
+    def __str__(self):
+        return 'ProcessTermError: could not terminate process {pid}: {message}'.format(pid=self.pid, message=self.message)
+
+
+def process_is_running(pid):
+    """Returns a boolean indicating whether the process with the given PID is currently running."""
+    running_pids = [pid for pid in os.listdir('/proc') if pid.isdigit()]
+    return str(pid) in running_pids
+
+
+def kill_process(pid):
+    """ """
+    if process_is_running(pid):
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except OSError as oserr:
+            # Ignore "no such process" errors; re-raise everything else
+            if oserr.errno == 3:
+                return False
+            else:
+                raise oserr
+
+        if process_is_running(pid):
+            raise ProcessTermError(pid, "sent SIGTERM, but process still running")
+
+        return True
+    else:
+        return False
+
+
+def advertise_gpu_memory(gpu_collection, workers_collection):
+    """Updates the database with the current amount of GPU memory available on this instance."""
+    gpu_memory_free = get_available_memory()
+    gpu_collection.update({'ip': ip}, {'$set':
         {
             'gpu_memory_free': gpu_memory_free,
             'updated': datetime.utcnow()
         }}, True)
     logger.info('gpu_memory_free %s' % gpu_memory_free)
+    log_boundary("GPU_FREE", gpu_memory_free)
 
-    # Post GPU data to Boundary
-    data = '{"source": "%s", "metric": "GPU_FREE", "measure": %s, "timestamp": %s}' % (ip, gpu_memory_free, int(time.time()))
-    headers = {'content-type': 'application/json'}
-    r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
-    # logger.info(data)
-    # logger.info("boundary status: %s" % str(r.json()))
 
-    # Get per-process data from nvidia-smi
-    p = subprocess.Popen(["nvidia-smi",
-                        "--query-compute-apps=used_gpu_memory,pid",
-                        "--format=csv,noheader"], stdout=subprocess.PIPE)
-    process_data = p.communicate()[0].split('\n')
-
+def advertise_process_memory(workers_collection):
+    """Updates the entries of active workers in the database to report how much GPU memory they're
+    currently using. Also logs the number of active/inactive workers to Boundary.
+    """
     # Update db for each process talking to the GPU
-    # Todo: set this up with Graphite
-    collection = db['node_monitor']
-    for process in process_data:
-        logger.info("Process GPU date: %s" % str(process))
-        process = process.replace(' ', '').split(',')
-        if process == ['']:
-            continue
+    for process in gpu_process_usage():
+        logger.info("Process GPU data: {}".format(process['raw']))
+        workers_collection.update(
+            { 'ip': ip, 'pid': int(process['pid']) },
+            { '$set': {'gpu_memory' : int(process['memory'])} })
 
-        gpu_memory_used = convert(process[0])
+    # Update Boundary
+    try:
+        active_users = workers_collection.find({"ip": ip, "active": True}).count()
+        log_boundary("ACTIVE_USERS", active_users)
 
-        doc = {
-                'ip': ip,
-                'pid': process[1]
-               }
+        inactive_workers = workers_collection.find({"ip": ip, "active": False}).count()
+        log_boundary("INACTIVE_WORKERS", inactive_workers)
+    except Exception as activity_err:
+        console.warn("Error while attempting to count and log active/inactive workers: {err}".format(err=str(activity_err)))
 
-        collection.update(doc, {'$set': {'gpu_memory_used' : gpu_memory_used } })
 
-def reap(db):
+def reap_workers(workers_collection):
+    """Checks the database for workers on this instance who have not pinged in WORKER_TIMEOUT, and
+    attempts to kill those processes and remove their entry from the database.
     """
-    This reaps all dead processes by checking the node_monitor table for
-    outdated rows. The rows should be updated every three seconds by each node
-    process itself. This also finds all active processes with users and
-    updates Boundary.
-    """
-    global ip
-
     # Select all checkins older than 30 seconds
-    collection = db['node_monitor']
-    old = collection.find({"ip": ip, "updated": {"$lt": datetime.now() - timedelta(seconds=30)}})
-    for doc in old:
-        pid = doc['pid']
-        port = doc['port']
-        collection.remove({"_id": doc['_id']})
-        logger.info("killing {0}".format(pid))
+    zombie_timestamp = datetime.now() - timedelta(seconds=WORKER_TIMEOUT)
+    zombie_workers = workers_collection.find({"ip": ip, "updated": {"$lt": zombie_timestamp}})
+
+    for worker in zombie_workers:
+        logger.info("Terminating stale worker. Port: {port}, PID: {pid}".format(port=worker['port'], pid=worker['pid']))
+
         try:
-            os.kill(pid, signal.SIGKILL)
-        except:
-            pass
+            if kill_process(int(worker['pid'])):
+                logger.info('Reaped worker with PID {pid}'.fomat(worker['pid']))
+            else:
+                logger.info('Worker with PID {pid} was not running, so its ping was removed from the database'.format(pid=worker['pid']))
+            workers_collection.remove({"_id": worker['_id']})
 
-    # Update Boundary
-    active = collection.find({"ip": ip, "active": True})
-    active_users = 0
-    for doc in active:
-      active_users += 1
-    data = '{"source": "%s", "metric": "ACTIVE_USERS", "measure": %s, "timestamp": %s}' % (ip, active_users, int(time.time()))
-    headers = {'content-type': 'application/json'}
-    r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
-    # logger.info(data)
-    # logger.info("boundary status: %s" % str(r.json()))
+        except Exception as e:
+            logger.warn('Error encountered reaping process "{pid}": {err}'.format(pid=worker['pid'], err=str(e)))
 
-    # Update Boundary
-    inactive = collection.find({"ip": ip, "active": False})
-    inactive_workers = 0
-    for doc in inactive:
-      inactive_workers += 1
-    data = '{"source": "%s", "metric": "INACTIVE_WORKERS", "measure": %s, "timestamp": %s}' % (ip, inactive_workers, int(time.time()))
-    headers = {'content-type': 'application/json'}
-    r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
-    # logger.info(data)
-    # logger.info("boundary status: %s " % str(r.json()))
 
 if __name__=="__main__":
-    DATABASE = '{{ mongodb_dbname }}'
-    MONGO_SERVER = '{{ mongodb_url }}/{{ mongodb_dbname }}';
-
     # Connect to central db
-    url = MONGO_SERVER
-    conn = MongoClient(url)
-    db = conn[DATABASE]
+    db, gpu_collection, workers_collection = connect_mongo()
+
+    setup_db(db)
+
     while 1:
         try:
-            db.node_monitor.ensure_index( [("port", ASCENDING), ("ip", ASCENDING), ("pid", ASCENDING)], unique=True )
-            monitor(db)
-            reap(db)
+            advertise_gpu_memory(gpu_collection, workers_collection)
+            reap_workers(workers_collection)
+            advertise_process_memory(workers_collection)
         except errors.ConnectionFailure:
-          conn = MongoClient(url)
-          db = conn[DATABASE]
-        except Exception as e:
-            print e
+          db, gpu_collection, workers_collection = connect_mongo()
+        # except Exception as e:
+        #     print e
 
         time.sleep(10)
