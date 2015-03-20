@@ -13,6 +13,7 @@ __kernel void faEdgeMap(
     const uint numEdges,
     const __global uint4* workList,             // Array of spring [edge index, sinks length, source index] triples to compute (read-only)
     const __global float2* inputPoints,         // Current point positions (read-only)
+    const __global float* edgeWeights,
     const uint stepNumber,
     const uint numWorkItems,
     //output
@@ -33,7 +34,7 @@ __kernel void faEdgeMap(
 
 
         // TODO (paden) This can probably be optimized
-        const float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
+        const float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, edgeWeights[workItem],
                                              IS_PREVENT_OVERLAP(flags), edgeInfluence,
                                              IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
 
