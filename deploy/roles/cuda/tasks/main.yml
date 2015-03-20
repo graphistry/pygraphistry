@@ -22,12 +22,36 @@
   when: cuda_repo_installed.changed
   sudo: yes
 
-- name: Install nvidia kernel drivers
+- name: Remove old CUDA 6.5
+  apt: pkg=cuda-6-5
+       state=absent
+       purge=yes
+  notify:
+    - Reboot server
+    - Wait for server to restart
+  sudo: yes
+
+# Force handlers to run, which will cause a reboot here if one is to be performed
+- meta: flush_handlers
+
+- name: Install CUDA 7.0 (includes NVIDIA drivers)
+  apt: pkg=cuda-7-0
+       state=present
+       update_cache=yes
+       cache_valid_time=600
+  notify:
+      - Reboot server
+      - Wait for server to restart
+  sudo: yes
+
+# Force handlers to run, which will cause a reboot here if one is to be performed
+- meta: flush_handlers
+
+- name: Install CUDA/NVIDIA/Xorg support packages
   apt: pkg={{ item }} state=present
   sudo: yes
   register: cuda_installed
   with_items:
-    - nvidia-340-dev
     - linux-image-extra-virtual
     - mesa-utils
     - libxrandr-dev
@@ -35,9 +59,15 @@
     - libglew-dev
     - libglu1-mesa-dev
     - libfreeimage-dev
-  notify:
-    - Reboot server
-    - Wait for server to restart
+    - libxinerama-dev
+    - xinput
+    - libxi-dev
+    - cmake
+    - unzip
+  # Not sure if we need to reboot after installing the above...
+  # notify:
+  #   - Reboot server
+  #   - Wait for server to restart
 
 - name: Set X.Org conf file
   copy: src=xorg.conf
@@ -79,20 +109,6 @@
 #                 delay=30
 #   when: cuda_installed.changed
 #   sudo: false
-
-- name: Install CUDA support packages
-  apt: pkg={{ item }} state=present update_cache=yes cache_valid_time=600
-  sudo: yes
-  with_items:
-    - cuda
-    - libxinerama-dev
-    - xinput
-    - libxi-dev
-    - cmake
-    - unzip
-
-# Force handlers to run, which will cause a reboot here if one is to be performed
-- meta: flush_handlers
 
 - name: Configure Bash environment to support CUDA
   copy: src=50graphistry-cuda.sh
