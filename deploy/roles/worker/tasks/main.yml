@@ -62,6 +62,7 @@
 - name: Install viz-server module
   npm: path={{ graphistry_install_path }}/viz-server
        state=latest
+       executable={{ npm_global_path }}/bin/npm
   environment: nodecl_env
   notify: Restart workers
 

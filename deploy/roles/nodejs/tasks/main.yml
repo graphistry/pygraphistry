@@ -168,8 +168,15 @@
             mode=0755
   sudo: yes
 
+- name: Install latest version of npm
+  npm: name=npm
+       global=yes
+       state=latest
+  environment: nodecl_env
+
 - name: Install node-gyp globally
   npm: name=node-gyp
        global=yes
        state=latest
+       executable={{ npm_global_path }}/bin/npm
   environment: nodecl_env
