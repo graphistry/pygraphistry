@@ -21,7 +21,6 @@
   apt: update_cache=yes
   when: cuda_repo_installed.changed
   sudo: yes
-  tags: provision
 
 - name: Install nvidia kernel drivers
   apt: pkg={{ item }} state=present
@@ -49,7 +48,7 @@
         mode=0644
   sudo: yes
 
-- name: Configure GRUB for nvidia kernel drivers
+- name: Configure GRUB to not run a graphical shell on startup
   copy: src=grub
         dest=/etc/default/grub
         force=yes
@@ -58,13 +57,11 @@
         mode=0644
   register: grub_config
   sudo: yes
-  tags: provision
 
 - name: Update GRUB
   command: update-grub
   when: grub_config.changed
   sudo: yes
-  tags: provision
 
 # - name: Reboot server
 #   command: shutdown -r now "Ansible updates triggered"
