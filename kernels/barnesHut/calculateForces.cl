@@ -21,11 +21,10 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
     return ret;
 }
 
-
 #ifdef INLINEPTX
-#define warpCellVote(buffer, distSquared, dq, offset, diff) ptx_thread_vote(distSquared, dq)
+#define warpCellVote(buffer, distSquared, dq, warpId) ptx_thread_vote(distSquared, dq)
 #else
-#define warpCellVote(buffer, distSquared, dq, offset, diff) reduction_thread_vote(buffer, distSquared, dq, offset, diff)
+#define warpCellVote(buffer, distSquared, dq, warpId) portable_all(buffer, distSquared, dq, warpId)
 #endif
 
 #ifdef INLINEPTX
@@ -43,6 +42,16 @@ inline uint ptx_thread_vote(float rSq, float rCritSq) {
     return result;
 }
 #endif
+
+inline int portable_all(__local int volatile * buffer, const float distSquared, const float dq, const int warpId) {
+    int cond = (distSquared >= dq);
+    if (cond) {
+        buffer[warpId] = 1;
+    } else {
+        buffer[warpId] = 0;
+    }
+    return buffer[warpId];
+}
 
 inline int reduction_thread_vote(__local int* const buffer, const float distSquared, const float dq, const int offset, const int diff) {
     // Relies on the fact that the wavefront/warp (not whole workgroup)
@@ -171,7 +180,7 @@ __kernel void calculate_forces(
     __local volatile float dq[MAXDEPTH * THREADS_FORCES/WARPSIZE];
 
     __local volatile int shared_step, shared_maxdepth;
-    __local int votingBuffer[THREADS_FORCES];
+    __local volatile int votingBuffer[THREADS_FORCES/WARPSIZE];
 
     if (local_id == 0) {
         int itolsqd = 1.0f / (0.5f*0.5f);
@@ -270,7 +279,7 @@ __kernel void calculate_forces(
                         // distVector = (float2) (px - x_cords[child], py - y_cords[child]);
                         distSquared = distX*distX + distY*distY + 0.000000000001f;
 
-                        if ((child < num_bodies) || warpCellVote(votingBuffer, distSquared, dq[depth], starting_warp_thread_id, difference)) {
+                        if ((child < num_bodies) || warpCellVote(votingBuffer, distSquared, dq[depth], warp_id)) {
 
                             // check if ALL threads agree that cell is far enough away (or is a body)
 
