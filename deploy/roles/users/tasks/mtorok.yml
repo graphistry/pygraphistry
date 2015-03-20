@@ -37,11 +37,11 @@
 #   sudo_user: root
 #   tags: tmux
 
-- name: "[mtorok] Remove Trusty apt pinning preference"
-  file: path=/etc/apt/preferences.d/99trusty-high-priority
-        state=absent
-  sudo: yes
-  tags: tmux
+# - name: "[mtorok] Remove Trusty apt pinning preference"
+#   file: path=/etc/apt/preferences.d/99trusty-high-priority
+#         state=absent
+#   sudo: yes
+#   tags: tmux
 
 # - name: "[mtorok] Pin tmux apt package to Utopic"
 #   copy: src=mtorok/apt/50pin-tmux-utopic
@@ -53,11 +53,11 @@
 #   sudo_user: root
 #   tags: tmux
 
-- name: "[mtorok] Remove tmux pinning to Utopic"
-  file: path=/etc/apt/preferences.d/50pin-tmux-utopic
-        state=absent
-  sudo: yes
-  tags: tmux
+# - name: "[mtorok] Remove tmux pinning to Utopic"
+#   file: path=/etc/apt/preferences.d/50pin-tmux-utopic
+#         state=absent
+#   sudo: yes
+#   tags: tmux
 
 # - name: "[mtorok] Add Ubuntu 'Utopic' apt repo"
 #   apt_repository: repo='deb http://us.archive.ubuntu.com/ubuntu/ utopic main'
@@ -67,13 +67,13 @@
 #   sudo_user: root
 #   tags: tmux
 
-- name: "[mtorok] Remove Ubuntu 'Utopic' apt repo"
-  apt_repository: repo='deb http://us.archive.ubuntu.com/ubuntu/ utopic main'
-                  state=absent
-                  update_cache=no
-  sudo: yes
-  sudo_user: root
-  tags: tmux
+# - name: "[mtorok] Remove Ubuntu 'Utopic' apt repo"
+#   apt_repository: repo='deb http://us.archive.ubuntu.com/ubuntu/ utopic main'
+#                   state=absent
+#                   update_cache=no
+#   sudo: yes
+#   sudo_user: root
+#   tags: tmux
 
 # - name: "[mtorok] Add Ubuntu 'Utopic' apt source repo"
 #   apt_repository: repo='deb-src http://us.archive.ubuntu.com/ubuntu/ utopic main'
@@ -83,13 +83,13 @@
 #   sudo_user: root
 #   tags: tmux
 
-- name: "[mtorok] Remove Ubuntu 'Utopic' apt source repo"
-  apt_repository: repo='deb-src http://us.archive.ubuntu.com/ubuntu/ utopic main'
-                  state=absent
-                  update_cache=yes
-  sudo: yes
-  sudo_user: root
-  tags: tmux
+# - name: "[mtorok] Remove Ubuntu 'Utopic' apt source repo"
+#   apt_repository: repo='deb-src http://us.archive.ubuntu.com/ubuntu/ utopic main'
+#                   state=absent
+#                   update_cache=yes
+#   sudo: yes
+#   sudo_user: root
+#   tags: tmux
 
 
 ###############################################################################
