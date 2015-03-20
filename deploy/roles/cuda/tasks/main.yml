@@ -43,6 +43,9 @@
     - libglew-dev
     - libglu1-mesa-dev
     - libfreeimage-dev
+  notify:
+    - Reboot server
+    - Wait for server to restart
 
 - name: Set X.Org conf file
   copy: src=xorg.conf
@@ -70,24 +73,24 @@
   sudo: yes
   tags: provision
 
-- name: Reboot server
-  command: shutdown -r now "Ansible updates triggered"
-  sudo: yes
-  async: 0
-  poll: 0
-  ignore_errors: true
-  when: cuda_installed.changed
-  tags: provision
+# - name: Reboot server
+#   command: shutdown -r now "Ansible updates triggered"
+#   sudo: yes
+#   async: 0
+#   poll: 0
+#   ignore_errors: true
+#   when: cuda_installed.changed
+#   tags: provision
 
-- name: Wait for server to restart
-  local_action: wait_for host={{ inventory_hostname }}
-                state=started
-                port={{ ansible_ssh_port }}
-                delay=30
-  when: cuda_installed.changed
-  sudo: false
+# - name: Wait for server to restart
+#   local_action: wait_for host={{ inventory_hostname }}
+#                 state=started
+#                 port={{ ansible_ssh_port }}
+#                 delay=30
+#   when: cuda_installed.changed
+#   sudo: false
 
-- name: Install CUDA packages
+- name: Install CUDA support packages
   apt: pkg={{ item }} state=present update_cache=yes cache_valid_time=600
   sudo: yes
   with_items:
@@ -97,6 +100,9 @@
     - libxi-dev
     - cmake
     - unzip
+
+# Force handlers to run, which will cause a reboot here if one is to be performed
+- meta: flush_handlers
 
 - name: Configure Bash environment to support CUDA
   copy: src=50graphistry-cuda.sh

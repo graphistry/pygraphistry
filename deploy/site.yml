@@ -38,6 +38,8 @@
   gather_facts: no
   roles:
     - sshd_port
+  handlers:
+    - include: handlers/common_handlers.yml
   tags:
     - sshd
     - provision
@@ -47,12 +49,16 @@
     - { role: common, sudo: yes, tags: [ 'common' ] }
     - { role: users, tags: [ 'users' ] }
     - { role: splunkfwd, sudo: yes, tags: [ 'splunkfwd' ] }
+  handlers:
+    - include: handlers/common_handlers.yml
   tags:
     - provision
 
 - hosts: deploy_server
   roles:
     - deploy_server
+  handlers:
+    - include: handlers/common_handlers.yml
   tags:
     - provision
     - deploy_server
@@ -61,6 +67,8 @@
   roles:
    - { role: nodejs, tags: [ 'nodejs' ] }
    - { role: app_server, tags: [ 'app_servers' ] }
+  handlers:
+    - include: handlers/common_handlers.yml
   tags:
     - provision
     - workers
@@ -70,12 +78,16 @@
   roles:
    - { role: cuda, tags: [ 'provision' , 'cuda' ] }
    - { role: worker, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
+  handlers:
+    - include: handlers/common_handlers.yml
   tags:
     - workers
 
 - hosts: central
   roles:
    - { role: central, sudo: yes, sudo_user: www }
+  handlers:
+    - include: handlers/common_handlers.yml
   tags:
     - central
     - deploy
