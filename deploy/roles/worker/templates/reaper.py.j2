@@ -64,7 +64,7 @@ def str_to_bytes(human_size):
 def log_boundary(metric, value):
     """ Sends the given value to Boundary under the metric name given. If value is not a JSON
     primitive type (number, etc), it should be string that includes quotes as part of the string."""
-    data = '{{"source": "{source}", "metric": "{metric}", "measure": {measure}, "timestamp": {timestamp}}}'.format(
+    data = '{{ '{{' }}"source": "{source}", "metric": "{metric}", "measure": {measure}, "timestamp": {timestamp} {{ '}}' }}'.format(
         source=HOSTNAME, metric=metric, measure=value, timestamp=int(time.time()))
     headers = {'content-type': 'application/json'}
 
