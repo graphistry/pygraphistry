@@ -25,6 +25,9 @@
 # clones of our modules' repos. Make sure this is in a place Ansilbe's git task (sudo'ed under user
 # `www`) will find and use it.
 
+# TODO: Install & configure `ccache` to speed up install of node-gyp native modules
+
+
 - hosts: localhost
   gather_facts: no
   roles:
