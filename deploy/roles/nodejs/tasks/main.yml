@@ -173,6 +173,7 @@
        global=yes
        state=latest
   environment: nodecl_env
+  sudo: yes
 
 - name: Install node-gyp globally
   npm: name=node-gyp
