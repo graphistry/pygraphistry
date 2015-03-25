@@ -323,23 +323,8 @@ function stream(socket, renderConfig, colorTexture) {
         animStep.interact(_.extend(defaults, payload || {}));
     });
 
-    socket.on('inspect', function (sel, cb) {
-        debug('Got inspect')
-        graph.take(1).do(function (graph) {
-            graph.simulator.selectNodes(sel).then(function (indices) {
-                cb({success: true, frame: labeler.infoFrame(graph, indices)});
-            }).done(_.identity, util.makeErrorHandler('selectNodes'));
-        }).subscribe(
-            _.identity,
-            function (err) {
-                cb({success: false, error: 'inspect error'});
-                util.makeRxErrorHandler('inspect handler')(err);
-            }
-        );
-    });
-
     socket.on('set_selection', function (sel, cb) {
-        debug('Got set_selection')
+        debug('Got set_selection');
         graph.take(1).do(function (graph) {
             graph.simulator.selectNodes(sel).then(function (indices) {
                 cb({success: true, count: indices.length});
@@ -350,6 +335,28 @@ function stream(socket, renderConfig, colorTexture) {
             function (err) {
                 cb({success: false, error: 'set_selection error'});
                 util.makeRxErrorHandler('set_selection handler')(err);
+            }
+        );
+    });
+
+    socket.on('aggregate', function (query, cb) {
+        debug('Got aggregate', query);
+        graph.take(1).do(function (graph) {
+            graph.simulator.selectNodes(query.sel).then(function (indices) {
+                var data;
+                try {
+                    data = labeler.histogram(graph, indices, query.attribute);
+                    cb({success: true, data: data});
+                } catch (err) {
+                    cb({success: false, error: err.message});
+                }
+
+            }).done(_.identity, util.makeErrorHandler('selectNodes'));
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, error: 'aggregate error'});
+                util.makeRxErrorHandler('aggregate handler')(err);
             }
         );
     });
