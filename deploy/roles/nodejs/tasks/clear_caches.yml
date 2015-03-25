@@ -1,6 +1,7 @@
 ---
-- name: Find npm cache items to delete
+- name: Find npm cache items to delete (it's OK if this fails)
   command: ls -1 "{{ npm_temp_path }}/"
+  ignore_errors: true
   sudo: yes
   sudo_user: root
   changed_when: False
