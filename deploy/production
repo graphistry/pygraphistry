@@ -7,6 +7,8 @@ mongodb_url="mongodb://graphistry:graphtheplanet@lighthouse.2.mongolayer.com:100
 # The name of the MongoDB database on compose.io to write pings to
 mongodb_dbname="graphistry-prod"
 
+workers_count=16
+
 
 # When switching regions, run the following command locally to clear the existing pings (install
 # mongodb/mongo client locally first):
