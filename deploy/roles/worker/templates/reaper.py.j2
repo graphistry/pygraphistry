@@ -31,7 +31,7 @@ ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read
 HOSTNAME = socket.getfqdn()
 
 DATABASE = '{{ mongodb_dbname }}'
-MONGO_SERVER = '{{ mongodb_url }}/{{ mongodb_dbname }}'
+MONGO_SERVER = '{{ mongodb_url }}'
 
 
 def connect_mongo():
