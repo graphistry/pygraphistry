@@ -281,7 +281,7 @@ function init(app, socket) {
     });
 
     socket.on('aggregate', function (query, cb) {
-        console.log('Got aggregate', query);
+        debug('Got aggregate', query);
         graph.take(1).do(function (graph) {
             var qIndices
             if (query.all === true) {
@@ -293,7 +293,6 @@ function init(app, socket) {
            qIndices.then(function (indices) {
                 try {
                     var data = labeler.aggregate(graph, indices, query.attribute);
-                    console.log(data)
                     cb({success: true, data: data});
                 } catch (err) {
                     cb({success: false, error: err.message});
