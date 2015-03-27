@@ -280,6 +280,34 @@ function init(app, socket) {
         );
     });
 
+    socket.on('aggregate', function (query, cb) {
+        console.log('Got aggregate', query);
+        graph.take(1).do(function (graph) {
+            var qIndices
+            if (query.all === true) {
+                qIndices = Q(_.range(graph.simulator.numPoints));
+            } else {
+                qIndices = graph.simulator.selectNodes(query.sel);
+            }
+
+           qIndices.then(function (indices) {
+                try {
+                    var data = labeler.aggregate(graph, indices, query.attribute);
+                    console.log(data)
+                    cb({success: true, data: data});
+                } catch (err) {
+                    cb({success: false, error: err.message});
+                }
+            }).done(_.identity, util.makeErrorHandler('selectNodes'));
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, error: 'aggregate error'});
+                util.makeRxErrorHandler('aggregate handler')(err);
+            }
+        );
+    });
+
     return module.exports;
 }
 
@@ -335,28 +363,6 @@ function stream(socket, renderConfig, colorTexture) {
             function (err) {
                 cb({success: false, error: 'set_selection error'});
                 util.makeRxErrorHandler('set_selection handler')(err);
-            }
-        );
-    });
-
-    socket.on('aggregate', function (query, cb) {
-        debug('Got aggregate', query);
-        graph.take(1).do(function (graph) {
-            graph.simulator.selectNodes(query.sel).then(function (indices) {
-                var data;
-                try {
-                    data = labeler.histogram(graph, indices, query.attribute);
-                    cb({success: true, data: data});
-                } catch (err) {
-                    cb({success: false, error: err.message});
-                }
-
-            }).done(_.identity, util.makeErrorHandler('selectNodes'));
-        }).subscribe(
-            _.identity,
-            function (err) {
-                cb({success: false, error: 'aggregate error'});
-                util.makeRxErrorHandler('aggregate handler')(err);
             }
         );
     });
@@ -568,8 +574,8 @@ if (require.main === module) {
 
 
     io.on('connection', function (socket) {
-        socket.on('viz', function (msg, cb) { cb({success: true}); });
         init(app, socket);
+        socket.on('viz', function (msg, cb) { cb({success: true}); });
     });
 
     var listen = Rx.Observable.fromNodeCallback(
