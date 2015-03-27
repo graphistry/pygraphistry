@@ -39,7 +39,7 @@ def connect_mongo():
     gpu_monitor collection, and node_monitor collection."""
     client = MongoClient(MONGO_SERVER)
     db = client[DATABASE]
-    return db, db['gpu_monitor'], db['node_monitor']
+    return db['gpu_monitor'], db['node_monitor']
 
 
 def setup_db(db):
@@ -205,7 +205,7 @@ def reap_workers(workers_collection):
 
 if __name__=="__main__":
     # Connect to central db
-    db, gpu_collection, workers_collection = connect_mongo()
+    gpu_collection, workers_collection = connect_mongo()
 
     setup_db(db)
 
@@ -215,8 +215,8 @@ if __name__=="__main__":
             reap_workers(workers_collection)
             advertise_process_memory(workers_collection)
         except errors.ConnectionFailure:
-          db, gpu_collection, workers_collection = connect_mongo()
+            gpu_collection, workers_collection = connect_mongo()
         # except Exception as e:
         #     print e
 
-        time.sleep(10)
+        time.sleep(25)
