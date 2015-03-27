@@ -37,6 +37,7 @@ MONGO_SERVER = '{{ mongodb_url }}'
 def connect_mongo():
     """ Connects to the MongoDB database and returns a dictionary with the database object,
     gpu_monitor collection, and node_monitor collection."""
+    logger.info("Connecting to MongoDB at URL '{url}' and using the database named {db}".format(url=MONGO_SERVER, db=DATABASE))
     client = MongoClient(MONGO_SERVER)
     db = client[DATABASE]
     return db['gpu_monitor'], db['node_monitor']
@@ -96,7 +97,7 @@ def gpu_process_usage():
                             "--format=csv,noheader"], stdout=subprocess.PIPE)
     gpu_memory_by_process = p.communicate()[0].split('\n')
 
-    logger.info('GPU driver GPU memory used by process: {}'.format(gpu_memory_by_process))
+    logger.debug('GPU driver GPU memory used by process: {}'.format(gpu_memory_by_process))
 
     gpu_processes = []
     for process in gpu_memory_by_process:
@@ -129,21 +130,27 @@ def process_is_running(pid):
 
 def kill_process(pid):
     """ """
+    logger.warn("Attempting to kill process {pid}".format(pid=pid))
     if process_is_running(pid):
         try:
             os.kill(int(pid), signal.SIGTERM)
         except OSError as oserr:
             # Ignore "no such process" errors; re-raise everything else
             if oserr.errno == 3:
+                logger.error("!! Error: could not kill process {pid} because the OS could not find it (though it was running when we checked right before trying to kill it)".format(pid=pid))
                 return False
             else:
+                logger.error("!! Error: could not kill process {pid} because of an unknown error: {err}".format(pid=pid, err=str(oserr)))
                 raise oserr
 
         if process_is_running(pid):
+            logger.error("!! Error: could not kill process {pid} because our powers are useless on it! (we sent it a SIGTERM, but the process is still running)".format(pid=pid))
             raise ProcessTermError(pid, "sent SIGTERM, but process still running")
 
+        logger.warn("Successfully killed process {pid}".format(pid=pid))
         return True
     else:
+        logger.warn("Process {pid} was not running, so we didn't try to kill it".format(pid=pid))
         return False
 
 
@@ -155,7 +162,7 @@ def advertise_gpu_memory(gpu_collection, workers_collection):
             'gpu_memory_free': gpu_memory_free,
             'updated': datetime.utcnow()
         }}, True)
-    logger.info('gpu_memory_free %s' % gpu_memory_free)
+    logger.info('GPU memory available: {mem}'.format(mem=gpu_memory_free))
     log_boundary("GPU_FREE", gpu_memory_free)
 
 
@@ -165,7 +172,7 @@ def advertise_process_memory(workers_collection):
     """
     # Update db for each process talking to the GPU
     for process in gpu_process_usage():
-        logger.info("Process GPU data: {}".format(process['raw']))
+        logger.debug("Process GPU data: {}".format(process['raw']))
         workers_collection.update(
             { 'ip': ip, 'pid': int(process['pid']) },
             { '$set': {'gpu_memory' : int(process['memory'])} })
@@ -189,8 +196,10 @@ def reap_workers(workers_collection):
     zombie_timestamp = datetime.now() - timedelta(seconds=WORKER_TIMEOUT)
     zombie_workers = workers_collection.find({"ip": ip, "updated": {"$lt": zombie_timestamp}})
 
+    logger.debug("Checking for zombie worker processes and reaping them (processes that haven't pinged since {ztime} are considered zombies)".format(ztime=zombie_timestamp))
+
     for worker in zombie_workers:
-        logger.info("Terminating stale worker. Port: {port}, PID: {pid}".format(port=worker['port'], pid=worker['pid']))
+        logger.warn("Terminating stale worker. Port: {port}, PID: {pid}".format(port=worker['port'], pid=worker['pid']))
 
         try:
             if kill_process(int(worker['pid'])):
@@ -200,7 +209,7 @@ def reap_workers(workers_collection):
             workers_collection.remove({"_id": worker['_id']})
 
         except Exception as e:
-            logger.warn('Error encountered reaping process "{pid}": {err}'.format(pid=worker['pid'], err=str(e)))
+            logger.error('Error encountered reaping process "{pid}": {err}'.format(pid=worker['pid'], err=str(e)))
 
 
 if __name__=="__main__":
@@ -215,6 +224,7 @@ if __name__=="__main__":
             reap_workers(workers_collection)
             advertise_process_memory(workers_collection)
         except errors.ConnectionFailure:
+            logger.error("!! Error: lost connection to the Mongo database. Attempting to reconnect...")
             gpu_collection, workers_collection = connect_mongo()
         # except Exception as e:
         #     print e
