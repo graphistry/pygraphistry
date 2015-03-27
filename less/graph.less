@@ -593,6 +593,56 @@ button.btn-default {
     }
 }
 
+#histogram {
+    cursor: auto !important;
+
+    &.panel {
+        visibility: hidden;
+        z-index: 10000;
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        max-height: 12em;
+        min-height: 8em;
+        height: auto;
+        margin: 0;
+    }
+
+    .histogramDiv {
+        height: 100%;
+        width: 100%;
+
+        .axis {
+            text {
+                font: 10px sans-serif;
+            }
+            path, line {
+                fill: none;
+                stroke: #000;
+                shape-rendering: crispEdges;
+            }
+        }
+
+        .bar {
+            fill: steelblue;
+            fill-opacity: .9;
+        }
+
+        .x.axis path {
+            display: none;
+        }
+
+        label {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+
+    }
+
+}
+
 
 #renderingItems {
     width: 25em;
