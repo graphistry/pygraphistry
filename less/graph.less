@@ -3,6 +3,24 @@ html {
     overflow: hidden;
 }
 
+.noselect {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+.selecttext {
+    -webkit-user-select: text;
+    -khtml-user-select: text;
+    -moz-user-select: text;
+    -o-user-select: text;
+    user-select: text;
+}
+
+
 
 .logo-container {
 
@@ -71,6 +89,18 @@ html {
 
     position: absolute;
     z-index: 10000;
+
+
+    //only selectable when clicked
+    //trick: no text elements above labels so effectively contained
+    &, & * {
+        .noselect();
+    }
+    &.clicked, &.clicked * {
+        .selecttext();
+    }
+
+
 
     //shrink-to-fit: hidden bounding box for autosizing contents
     width: 30em;
@@ -245,15 +275,6 @@ html {
 }
 
 
-.noselect {
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    -khtml-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-}
-
 .selection {
     position: relative;
     margin: 0;
@@ -318,6 +339,8 @@ html {
     position: absolute;
     width: 100%;
     z-index: 1000000;
+
+    .noselect();
 }
 
 #controlState {
@@ -398,6 +421,8 @@ button.btn-default {
     top: -10px;
     left: -10px;
     cursor: pointer;
+
+    .noselect();
 }
 
 .highlighted-point {
