@@ -43,9 +43,9 @@ def connect_mongo():
     return db['gpu_monitor'], db['node_monitor']
 
 
-def setup_db(db):
+def setup_db(workers_collection):
     """ Sets up the database collections, specifically ensuring the right indices exist."""
-    return db.node_monitor.ensure_index( [("port", ASCENDING), ("ip", ASCENDING), ("pid", ASCENDING)], unique=True )
+    return workers_collection.ensure_index( [("port", ASCENDING), ("ip", ASCENDING), ("pid", ASCENDING)], unique=True )
 
 
 def str_to_bytes(human_size):
@@ -216,7 +216,7 @@ if __name__=="__main__":
     # Connect to central db
     gpu_collection, workers_collection = connect_mongo()
 
-    setup_db(db)
+    setup_db(workers_collection)
 
     while 1:
         try:
@@ -226,7 +226,5 @@ if __name__=="__main__":
         except errors.ConnectionFailure:
             logger.error("!! Error: lost connection to the Mongo database. Attempting to reconnect...")
             gpu_collection, workers_collection = connect_mongo()
-        # except Exception as e:
-        #     print e
 
         time.sleep(25)
