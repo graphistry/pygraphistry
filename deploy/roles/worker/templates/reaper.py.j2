@@ -193,7 +193,7 @@ def reap_workers(workers_collection):
     attempts to kill those processes and remove their entry from the database.
     """
     # Select all checkins older than 30 seconds
-    zombie_timestamp = datetime.now() - timedelta(seconds=WORKER_TIMEOUT)
+    zombie_timestamp = datetime.utcnow() - timedelta(seconds=WORKER_TIMEOUT)
     zombie_workers = workers_collection.find({"ip": ip, "updated": {"$lt": zombie_timestamp}})
 
     logger.debug("Checking for zombie worker processes and reaping them (processes that haven't pinged since {ztime} are considered zombies)".format(ztime=zombie_timestamp))
