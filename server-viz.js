@@ -17,11 +17,9 @@ var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var util        = require('./js/util.js');
 var compress    = require('node-pigz');
-var StreamGL    = require('StreamGL');
 var config      = require('config')();
 var labeler     = require('./js/labeler.js');
 
-var renderer = StreamGL.renderer;
 
 
 /**** GLOBALS ****************************************************/
@@ -327,9 +325,23 @@ function stream(socket, renderConfig, colorTexture) {
 
     //Used for tracking what needs to be sent
     //Starts as all active, and as client caches, whittles down
-    var activeBuffers = renderer.getServerBufferNames(renderConfig),
-        activeTextures = renderer.getServerTextureNames(renderConfig),
-        activePrograms = renderConfig.render;
+    var activeBuffers = _.chain(renderConfig.models).pairs().filter(function (pair) {
+        var model = pair[1];
+        return rConf.isBufServerSide(model)
+    }).map(function (pair) {
+        return pair[0];
+    }).value();
+
+    var activeTextures = _.chain(renderConfig.textures).pairs().filter(function (pair) {
+        var texture = pair[1];
+        return rConf.isTextureServerSide(texture);
+    }).map(function (pair) {
+        return pair[0];
+    }).value();
+
+    var activePrograms = renderConfig.render;
+
+
 
     var requestedBuffers = activeBuffers,
         requestedTextures = activeTextures;
