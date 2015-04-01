@@ -583,7 +583,11 @@ if (require.main === module) {
 
     //Dyn routing
     app.get('/vizaddr/graph', function(req, res) {
-        res.json({'hostname': config.HTTP_LISTEN_ADDRESS, 'port': config.HTTP_LISTEN_PORT});
+        res.json({
+            'hostname': config.HTTP_LISTEN_ADDRESS,
+            'port': config.HTTP_LISTEN_PORT,
+            'timestamp': Date.now()
+        });
     });
 
 
