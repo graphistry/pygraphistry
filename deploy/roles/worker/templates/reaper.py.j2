@@ -65,6 +65,9 @@ def str_to_bytes(human_size):
 def log_boundary(metric, value):
     """ Sends the given value to Boundary under the metric name given. If value is not a JSON
     primitive type (number, etc), it should be string that includes quotes as part of the string."""
+    # The below template needs to be escaped twice: '{' and '}' need to be escaped as '{{'/'}}' for
+    # Python's `format()` string formatter, but '{{'/'}}' needs to be escape because it's also used
+    # for Ansible's JINJA2 template engine, so "{" turns into "{{ '{{' }}".
     data = '{{ '{{' }}"source": "{source}", "metric": "{metric}", "measure": {measure}, "timestamp": {timestamp} {{ '}}' }}'.format(
         source=HOSTNAME, metric=metric, measure=value, timestamp=int(time.time()))
     headers = {'content-type': 'application/json'}
