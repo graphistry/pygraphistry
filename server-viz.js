@@ -98,7 +98,10 @@ function sliceSelection(dataFrame, start, end, sort_by, ascending) {
         sorted = dataFrame.slice(0).sort(function (row1, row2) {
             var a = row1[sort_by];
             var b = row2[sort_by];
-            if (isNaN(a) || a < b)
+
+            if (typeof a === 'string' && typeof b === 'string')
+                return (ascending ? a.localeCompare(b) : b.localeCompare(a));
+            else if (isNaN(a) || a < b)
                 return ascending ? -1 : 1;
             else if (isNaN(b) || a > b)
                 return ascending ? 1 : -1;
