@@ -171,9 +171,13 @@
 - name: Install latest version of npm
   npm: name=npm
        global=yes
-       state=latest
+       state=present
+       version=2.7.3
   environment: nodecl_env
   sudo: yes
+
+- name: Warn about buggy npm version
+  local_action: debug msg="WARNING! We are explicitly installing npm@2.7.3, but we really want to install the latest version. However, as of April 1st, 2015, the latest npm version (2.7.4, 2.7.5) have a bug installing modules from GitHub. If/when this bug is fixed, please remove the 'version=2.7.3' parameter of the 'Install latest version of npm' task in the 'nodejs' role."
 
 - name: Install node-gyp globally
   npm: name=node-gyp
