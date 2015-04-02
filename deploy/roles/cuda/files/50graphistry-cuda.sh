@@ -7,11 +7,11 @@
 if [[ $_GRAPHISTRY_CUDA_INIT != 1 ]]; then
     # Setup environment variables for using CUDA/OpenCL
     export DISPLAY=:0
-    export PATH="/usr/local/cuda/bin:$PATH"
-    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH+:}/usr/local/cuda/lib64"
-    export LIBRARY_PATH="${LIBRARY_PATH+:}/usr/local/cuda/lib64"
-    export C_INCLUDE_PATH="${C_INCLUDE_PATH+:}/usr/local/cuda/include"
-    export CPLUS_INCLUDE_PATH="${CPLUS_INCLUDE_PATH+:}/usr/local/cuda/include"
+    export PATH="/usr/local/cuda-7.0/bin:$PATH"
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH+:}/usr/local/cuda-7.0/lib64"
+    export LIBRARY_PATH="${LIBRARY_PATH+:}/usr/local/cuda-7.0/lib64"
+    export C_INCLUDE_PATH="${C_INCLUDE_PATH+:}/usr/local/cuda-7.0/include"
+    export CPLUS_INCLUDE_PATH="${CPLUS_INCLUDE_PATH+:}/usr/local/cuda-7.0/include"
 
     export _GRAPHISTRY_CUDA_INIT=1
 fi

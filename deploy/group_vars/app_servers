@@ -11,11 +11,11 @@ graphistry_install_path: "/var/graphistry"
 # The Bash environmental variables needed to install node-webcl modules (CUDA + npm config)
 nodecl_env:
     DISPLAY: ":0"
-    PATH: "{{ npm_global_path }}/bin/:/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
-    LD_LIBRARY_PATH: "/usr/local/cuda/lib64"
-    LIBRARY_PATH: "/usr/local/cuda/lib64"
-    C_INCLUDE_PATH: "/usr/local/cuda/include"
-    CPLUS_INCLUDE_PATH: "/usr/local/cuda/include"
+    PATH: "{{ npm_global_path }}/bin/:/usr/local/cuda-7.0/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
+    LD_LIBRARY_PATH: "/usr/local/cuda-7.0/lib64"
+    LIBRARY_PATH: "/usr/local/cuda-7.0/lib64"
+    C_INCLUDE_PATH: "/usr/local/cuda-7.0/include"
+    CPLUS_INCLUDE_PATH: "/usr/local/cuda-7.0/include"
     NODE_PATH: "/usr/lib/nodejs:{{ npm_global_path }}/lib/node_modules:/usr/lib/node_modules:/usr/share/javascript"
     _GRAPHISTRY_CUDA_INIT: 1
     npm_config_globalconfig: '{{ npm_global_path }}/etc/npmrc'
