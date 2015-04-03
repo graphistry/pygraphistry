@@ -3,6 +3,10 @@ html {
     overflow: hidden;
 }
 
+.tooltip {
+    z-index: 10002;
+}
+
 .noselect {
     -webkit-touch-callout: none;
     -webkit-user-select: none;
@@ -252,8 +256,6 @@ html {
 .meter-network {
     left: 11em;
 }
-
-
 
 
 .marquee-outline {
@@ -579,12 +581,10 @@ button.btn-default {
         visibility: hidden;
         z-index: 10000;
         position: fixed;
-        left: 0;
+        left: 35%;
         bottom: 0;
-        width: 100%;
-        max-height: 11em;
-        min-height: 5.5em;
-        height: auto;
+        width: 65%;
+        height: 10em;
         margin: 0;
     }
 
@@ -620,6 +620,21 @@ button.btn-default {
     }
 }
 
+#inspector-overlay {
+    &.panel {
+        z-index: 10001;
+        position: fixed;
+        left: 35%;
+        bottom: 0;
+        width: 65%;
+        height: 10em;
+        margin: 0;
+        visibility: hidden;
+        background-color: gray;
+        opacity: .75;
+    }
+}
+
 #histogram {
     cursor: auto !important;
 
@@ -629,11 +644,18 @@ button.btn-default {
         position: fixed;
         left: 0;
         bottom: 0;
-        width: 100%;
-        max-height: 12em;
-        min-height: 8em;
-        height: auto;
+        width: 35%;
+        height: 10em;
+
         margin: 0;
+    }
+
+    .tooltip {
+        margin-left: 10px;
+    }
+
+    .button {
+        z-index: 10002;
     }
 
     .histogramDiv {
