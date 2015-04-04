@@ -24,7 +24,7 @@ __kernel void to_barnes_layout(
     for (int i = gid; i < numPoints; i += global_size) {
         x_cords[i] = inputPositions[i].x;
         y_cords[i] = inputPositions[i].y;
-        mass[i] = 1.0f; //(float) pointDegrees[i];
+        mass[i] = (float) pointDegrees[i];
     }
     if (gid == 0) {
         *maxdepthd = -1;
