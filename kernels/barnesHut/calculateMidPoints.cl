@@ -110,16 +110,21 @@ __kernel void calculate_forces(
         const int num_nodes,
         __global float2* nextMidPoints,
         float tau,
-        float charge
+        float charge,
+        const uint midpoint_stride,
+        const uint midpoints_per_edge
 ){
 
+    /*if (gid == get_global_id(0)) {*/
+        /*printf("Stride %d, midpoints_per_edge %d \n", midpoint_stride, midpoints_per_edge);*/
+    /*}*/
     debugonce("calculate forces\n");
 
     const int idx = get_global_id(0);
     const int local_size = get_local_size(0);
     const int global_size = get_global_size(0);
     const int local_id = get_local_id(0);
-  const float alpha = max(0.1f * pown(0.99f, floor(convert_float(step_number) / (float) TILES_PER_ITERATION)), 0.005f);
+    const float alpha = max(0.1f * pown(0.99f, floor(convert_float(step_number) / (float) TILES_PER_ITERATION)), 0.005f);
 
     /*const float alpha = (float) TILES_PER_ITERATION;*/
     int k, index, i;
@@ -279,7 +284,7 @@ __kernel void calculate_forces(
                               /*printf("Force x %f, Force y %f \n gForce x %f y %f \n", forceVector.x, forceVector.y, gForce2.x, gForce2.y);*/
                               /*printf("gForce x %.9g y %.9g x %.9g y %9g mass %f gravity %f\n", gForce2.x, gForce2.y, centerVec.x, centerVec.y, mass[index], gForce);*/
                             }
-            nextMidPoints[index] = (float2) n1Pos + ((forceVector));
+            nextMidPoints[(index * midpoints_per_edge) + midpoint_stride] = (float2) n1Pos + ((forceVector));
             /*nextMidPoints[index] = n1Pos + 0.00001f * normalize(centerVec) * gForce + forceVector * mass[index];*/
 
         }
