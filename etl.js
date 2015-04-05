@@ -3,6 +3,7 @@ var urllib   = require('url');
 var debug    = require('debug')('graphistry:etlworker:etl');
 var _        = require('underscore');
 var Q        = require('q');
+var bodyParser  = require('body-parser');
 
 var config   = require('config')();
 
@@ -63,7 +64,7 @@ function etl(msg) {
 }
 
 // Handler for ETL requests on central/etl
-function post(req, res) {
+function post(k, req, res) {
     var data = "";
 
     req.on('data', function (chunk) {
@@ -89,12 +90,7 @@ function post(req, res) {
                         //debug('msg', msg);
                         res.send({ success: true, dataset: name });
                         debug('notified');
-                        debug('worker finished, exiting');
-                        if (config.ENVIRONMENT === 'production' || config.ENVIRONMENT === 'staging') {
-                            process.exit(0);
-                        } else {
-                            console.warn('not actually exiting');
-                        }
+                        k();
                     }, fail);
         } catch (err) {
             fail(err);
@@ -102,6 +98,24 @@ function post(req, res) {
     });
 }
 
+function route (app, socket) {
+
+    var done = function () {
+        debug('worker finished, exiting');
+        if (config.ENVIRONMENT === 'production' || config.ENVIRONMENT === 'staging') {
+            process.exit(0);
+        } else {
+            console.warn('not actually exiting, only disconnect socket');
+            socket.disconnect();
+        }
+    };
+
+    // Temporarly handle ETL request from Splunk
+    app.post('/etl', bodyParser.json({type: '*', limit: '64mb'}), post.bind('', done));
+
+}
+
 module.exports = {
-    post: post
+    post: post,
+    route: route
 }
