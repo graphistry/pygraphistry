@@ -1,46 +1,14 @@
 /*******/
-html {
-    overflow: hidden;
-}
-
-.tooltip {
-    z-index: 1000001;
-}
-
-.noselect {
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    -khtml-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-}
-
-.selecttext {
-    -webkit-user-select: text;
-    -khtml-user-select: text;
-    -moz-user-select: text;
-    -o-user-select: text;
-    user-select: text;
-}
 
 
+//////////////////////////////////////////////////////////////////////////////
+// Constants
+//////////////////////////////////////////////////////////////////////////////
 
-.logo-container {
 
-    &.disabled {
-        display: none;
-    }
-
-    position: absolute;
-    left: 40%;
-    top: 0.5em;
-    pointer-events: none;
-
-    img {
-        width: 40%;
-    }
-}
+//////////////////////////////////////////////////////////////////////////////
+// Labels
+//////////////////////////////////////////////////////////////////////////////
 
 .graph-label-container {
     position: absolute;
@@ -223,6 +191,45 @@ html {
 
 }
 
+label {
+    color: rgba(255,255,255,0.9);
+}
+
+#highlighted-point-cont {
+    z-index: 5001;
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    cursor: pointer;
+
+    .noselect();
+}
+
+.highlighted-point {
+    position: relative;
+    left: -9px;
+    top: -9px;
+    border: 1px solid rgba(255,255,255,0.8);
+    border-radius: 10px;
+    width: 20px;
+    height: 20px;
+    box-shadow: 0 0 10px rgba(255,255,255,0.75);
+}
+
+.highlighted-point-center {
+    position: relative;
+    left: 7px;
+    top: 7px;
+    border-radius: 4px;
+    background-color: white;
+    width: 5px;
+    height: 5px;
+    border: 1px solid rgb(51,51,102);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Meter
+//////////////////////////////////////////////////////////////////////////////
 
 .info {
 
@@ -257,6 +264,9 @@ html {
     left: 11em;
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Marquee Selector
+//////////////////////////////////////////////////////////////////////////////
 
 .marquee-outline {
     width: 100%;
@@ -298,6 +308,51 @@ html {
 
 }
 
+.draggable, .dragging {
+    border-width: 3px;
+    border-color: rgba(51, 51, 102, 1);
+    border-radius: 10px;
+
+}
+
+.draggable {
+    cursor:pointer;
+}
+
+.dragging {
+    cursor:move !important;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Main View
+//////////////////////////////////////////////////////////////////////////////
+
+.graphistry-body {
+    visibility: hidden;
+    background-color: #223 !important;
+    height: 100%;
+    overflow:hidden;
+}
+
+.graphistry-body {
+
+    background: linear-gradient(to bottom, #EDF8FF 0%, #F0F4F9 100%);
+
+    .heading {
+        background: none;
+    }
+
+}
+
+#simulation {
+    border: 0px;
+    cursor: default;
+
+    &.moving {
+        cursor: move;
+    }
+}
+
 .content {
     position: absolute;
     left: 0;
@@ -322,6 +377,10 @@ html {
     cursor: pointer;
     padding-left: 0.25em;
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// Buttons and Controls
+//////////////////////////////////////////////////////////////////////////////
 
 #main, .accordion {
     background-color: rgba(204, 204, 204, 0.3);
@@ -363,36 +422,10 @@ html {
     padding: 0.2em;
 }
 
-.draggable, .dragging {
-    border-width: 3px;
-    border-color: rgba(51, 51, 102, 1);
-    border-radius: 10px;
-
-}
-
-.draggable {
-    cursor:pointer;
-}
-
-.dragging {
-    cursor:move !important;
-}
-
 .menu {
     position: absolute;
     z-index: 100001;
     left: 4em;
-}
-
-.graphistry-body {
-    visibility: hidden;
-    background-color: #223 !important;
-    height: 100%;
-    overflow:hidden;
-}
-
-label {
-    color: rgba(255,255,255,0.9);
 }
 
 .accordion-heading a:hover .fa {
@@ -417,52 +450,29 @@ button.btn-default {
     color: white;
 }
 
+#renderingItems {
+    width: 25em;
 
-
-#highlighted-point-cont {
-    z-index: 5001;
-    position: absolute;
-    top: -10px;
-    left: -10px;
-    cursor: pointer;
-
-    .noselect();
-}
-
-.highlighted-point {
-    position: relative;
-    left: -9px;
-    top: -9px;
-    border: 1px solid rgba(255,255,255,0.8);
-    border-radius: 10px;
-    width: 20px;
-    height: 20px;
-    box-shadow: 0 0 10px rgba(255,255,255,0.75);
-}
-
-.highlighted-point-center {
-    position: relative;
-    left: 7px;
-    top: 7px;
-    border-radius: 4px;
-    background-color: white;
-    width: 5px;
-    height: 5px;
-    border: 1px solid rgb(51,51,102);
-}
-
-
-
-
-
-#simulation {
-    border: 0px;
-    cursor: default;
-
-    &.moving {
-        cursor: move;
+    .control-title {
+        font-weight: bold;
+        font-size: 15px;
     }
+
+    .form-group {
+        margin-bottom: 10px;
+
+        .control-label {
+            padding-top: 0px;
+            font-weight: normal;
+            font-size: 13px;
+        }
+    }
+
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// Hidden by Debug
+//////////////////////////////////////////////////////////////////////////////
 
 .debug {
     #timeSlider {
@@ -483,15 +493,9 @@ button.btn-default {
     display: none !important;
 }
 
-.graphistry-body {
-
-    background: linear-gradient(to bottom, #EDF8FF 0%, #F0F4F9 100%);
-
-    .heading {
-        background: none;
-    }
-
-}
+//////////////////////////////////////////////////////////////////////////////
+// Loading
+//////////////////////////////////////////////////////////////////////////////
 
 .load-spinner {
     visibility: visible;
@@ -506,6 +510,9 @@ button.btn-default {
     color: rgb(51,51,102);
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Legend
+//////////////////////////////////////////////////////////////////////////////
 
 .legend-container {
 
@@ -574,6 +581,10 @@ button.btn-default {
     }
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Data Inspector
+//////////////////////////////////////////////////////////////////////////////
+
 #inspector {
     cursor: auto !important;
 
@@ -634,6 +645,10 @@ button.btn-default {
         opacity: .4;
     }
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// Histogram
+//////////////////////////////////////////////////////////////////////////////
 
 #histogram {
     cursor: auto !important;
@@ -725,25 +740,49 @@ button.btn-default {
 
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Misc
+//////////////////////////////////////////////////////////////////////////////
 
-#renderingItems {
-    width: 25em;
+html {
+    overflow: hidden;
+}
 
-    .control-title {
-        font-weight: bold;
-        font-size: 15px;
+.tooltip {
+    z-index: 1000001;
+}
+
+.noselect {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+.selecttext {
+    -webkit-user-select: text;
+    -khtml-user-select: text;
+    -moz-user-select: text;
+    -o-user-select: text;
+    user-select: text;
+}
+
+.logo-container {
+
+    &.disabled {
+        display: none;
     }
 
-    .form-group {
-        margin-bottom: 10px;
+    position: absolute;
+    left: 40%;
+    top: 0.5em;
+    pointer-events: none;
 
-        .control-label {
-            padding-top: 0px;
-            font-weight: normal;
-            font-size: 13px;
-        }
+    img {
+        width: 40%;
     }
-
 }
 
 .slider {
@@ -761,6 +800,7 @@ button.btn-default {
     }
 }
 
+// Animations
 
 .automode {
     animation: pulsate 1s linear infinite;
