@@ -583,7 +583,7 @@ button.btn-default {
         position: fixed;
         left: 0;
         bottom: 0;
-        width: 85%;
+        width: 100%;
         height: 10em;
         margin: 0;
     }
@@ -626,7 +626,7 @@ button.btn-default {
         position: fixed;
         left: 0;
         bottom: 0;
-        width: 85%;
+        width: 100%;
         height: 10em;
         margin: 0;
         visibility: hidden;
@@ -639,28 +639,41 @@ button.btn-default {
     cursor: auto !important;
 
     &.panel {
+        //border-left-style: solid;
+        //border-left-width: 2px;
+        //border-left-color: #B2B2B2;
+        background-color: rgba(250, 250, 250, 0.75);
+        //background-color: transparent;
         visibility: hidden;
         z-index: 10000;
         position: fixed;
-        left: 85%;
+        right: 1em;
         bottom: 0;
+        top: 2.5em;
         width: 15%;
-        height: 100%;
+        height: 50%;
 
-        margin: 0;
+        border: 1px solid rgba(0, 0, 0, 0.3);
+        border-radius: 7px;
     }
 
     .tooltip {
-        margin-left: 10px;
+        margin-left: 0px;
     }
 
     .btn-default {
         z-index: 10002;
         color: black;
+        text-align: center;
+        font-weight: bold;
+
+        &::first-letter {
+            text-transform: uppercase;
+        }
     }
 
     .histogramDiv {
-        height: 50%;
+        height: 100%;
         width: 100%;
 
         .vizContainer {
@@ -669,6 +682,11 @@ button.btn-default {
 
         .topMenu {
             height: 20%;
+
+            .dropdown {
+                margin: 3px;
+            }
+
         }
 
         .axis {
@@ -687,7 +705,7 @@ button.btn-default {
             fill-opacity: .9;
         }
 
-        .x.axis path {
+        .y.axis path {
             display: none;
         }
 
@@ -697,9 +715,11 @@ button.btn-default {
             right: 10px;
         }
 
-        border-bottom-style: solid;
-        border-bottom-width: 1px;
-        border-bottom-color: #B2B2B2;
+
+
+        // border-bottom-style: solid;
+        // border-bottom-width: 1px;
+        // border-bottom-color: #B2B2B2;
 
     }
 
