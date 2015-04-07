@@ -198,10 +198,6 @@
 
 }
 
-label {
-    color: rgba(255,255,255,0.9);
-}
-
 #highlighted-point-cont {
     z-index: 5001;
     position: absolute;
@@ -419,7 +415,6 @@ label {
 
     box-shadow: @floating-box-shadow;
     border-radius: @floating-border-radius;
-    //border: 1px solid rgba(0,0,0,0.3);
     background-color: @light-grey-background;
     margin-bottom: 6px;
 
@@ -477,13 +472,47 @@ i.fa {
 
 button.btn-default {
     background-color: transparent;
-    color: white;
+    //color: white;
+}
+
+.slider {
+    .slider-track {
+        background-image: linear-gradient(to bottom, #C9C9C9 0%, #C3C3C3 100%);
+
+        .slider-selection {
+            background-image: linear-gradient(to bottom, #0FA5C5 0%, #1E95AE 100%);
+        }
+
+        .slider-handle {
+            opacity: 1.0;
+            background-image: linear-gradient(to bottom, #149bdf 0%, #0480be 100%);
+        }
+    }
 }
 
 #renderingItems {
+
+    label {
+        color: black;
+    }
+
+    box-shadow: @floating-box-shadow;
+    border-radius: @floating-border-radius;
+    background-color: @light-grey-background;
+
+    padding: 0.5em;
+
+    position: absolute;
+    display: none;
+    //opacity: 0;
     width: 25em;
 
+    left: 5em;
+    top: 2.5em;
+
     .control-title {
+        padding-top: 4px;
+        padding-bottom: 4px;
         font-weight: bold;
         font-size: 15px;
     }
@@ -817,21 +846,6 @@ html {
 
     img {
         width: 40%;
-    }
-}
-
-.slider {
-    .slider-track {
-        background-image: linear-gradient(to bottom, #C9C9C9 0%, #C3C3C3 100%);
-
-        .slider-selection {
-            background-image: linear-gradient(to bottom, #FFFFFF 0%, #FAFAFA 100%);
-        }
-
-        .slider-handle {
-            opacity: 1.0;
-            background-image: linear-gradient(to bottom, #149bdf 0%, #0480be 100%);
-        }
     }
 }
 
