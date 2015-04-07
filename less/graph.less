@@ -417,17 +417,6 @@
     border-radius: @floating-border-radius;
     background-color: @light-grey-background;
     margin-bottom: 6px;
-
-    .divide-line {
-        margin-top: 1px;
-        margin-bottom: 1px;
-        margin-left: auto;
-        margin-right: auto;
-        width: 60%;
-        border-bottom: solid 1px @medium-grey;
-    }
-
-
 }
 
 #controlState {
@@ -746,11 +735,34 @@ button.btn-default {
         }
     }
 
+    #addHistogramButton {
+        margin: 10px;
+    }
+
+    .divide-line {
+        width: 80%;
+        margin-top: 3px;
+        margin-bottom: 3px;
+    }
+
+    .col-xs-1, .col-xs-10 {
+        padding: 5px;
+    }
+
+    .closeButton {
+        margin-top: 4px;
+        font-size: 0.7em;
+        .fa {
+            color: @dark-grey;
+
+        }
+    }
+
     .tooltip {
         margin-left: 0px;
 
         &.bottom {
-            margin-top: 16px;
+            margin-top: 12px;
         }
     }
 
@@ -760,6 +772,7 @@ button.btn-default {
         color: black;
         text-align: center;
         font-weight: bold;
+        font-size: 0.8em;
 
         &::first-letter {
             text-transform: uppercase;
@@ -821,6 +834,15 @@ button.btn-default {
 //////////////////////////////////////////////////////////////////////////////
 // Misc
 //////////////////////////////////////////////////////////////////////////////
+
+.divide-line {
+    margin-top: 1px;
+    margin-bottom: 1px;
+    margin-left: auto;
+    margin-right: auto;
+    width: 60%;
+    border-bottom: solid 1px @medium-grey;
+}
 
 html {
     overflow: hidden;
