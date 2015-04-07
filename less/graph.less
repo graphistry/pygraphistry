@@ -5,6 +5,13 @@
 // Constants
 //////////////////////////////////////////////////////////////////////////////
 
+@light-grey-blue: #F0F4F7;
+@light-grey-background: rgba(252, 252, 252, 1.0);
+@light-grey-transparent: rgba(250, 250, 250, 0.7);
+@medium-grey: rgba(200,200,200,1.0);
+@dark-grey: rgba(100,100,100,1.0);
+@floating-box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+@floating-border-radius: 3px;
 
 //////////////////////////////////////////////////////////////////////////////
 // Labels
@@ -382,13 +389,15 @@ label {
 // Buttons and Controls
 //////////////////////////////////////////////////////////////////////////////
 
+
 #main, .accordion {
     background-color: rgba(204, 204, 204, 0.3);
     color: #EEF;
     padding: 0.5em;
 }
 
-#main, #menuState, #controlState {
+
+#menuState{
     border: 1px solid rgba(0, 0, 0, 0.3);
     background-color: rgba(51, 51, 102, 0.4);
     border-radius: 7px;
@@ -406,9 +415,29 @@ label {
     .noselect();
 }
 
+.options-group {
+
+    box-shadow: @floating-box-shadow;
+    border-radius: @floating-border-radius;
+    //border: 1px solid rgba(0,0,0,0.3);
+    background-color: @light-grey-background;
+    margin-bottom: 6px;
+
+    .divide-line {
+        margin-top: 1px;
+        margin-bottom: 1px;
+        margin-left: auto;
+        margin-right: auto;
+        width: 60%;
+        border-bottom: solid 1px @medium-grey;
+    }
+
+
+}
+
 #controlState {
     position: absolute;
-    left: 1em;
+    left: 0.5em;
     display: inline-block;
     top: 1em;
     margin: 1em;
@@ -433,7 +462,7 @@ label {
 }
 
 .accordion-heading .fa {
-    color: rgba(255,255,255,0.9);
+    color: @dark-grey;
 }
 
 .accordion-heading .toggle-on {
@@ -442,7 +471,8 @@ label {
 }
 
 i.fa {
-   display: inline-block;
+    font-size: 1.5em;
+    display: inline-block;
 }
 
 button.btn-default {
@@ -474,13 +504,17 @@ button.btn-default {
 // Hidden by Debug
 //////////////////////////////////////////////////////////////////////////////
 
+#menuState {
+    display: none !important;
+}
+
 .debug {
     #timeSlider {
         display: inline-block;
     }
 
-    #mouser, {
-        display: inline-block !important;
+    #menuState {
+        display: inline-block;
     }
 
 }
@@ -594,9 +628,10 @@ button.btn-default {
         position: fixed;
         left: 0;
         bottom: 0;
-        width: 100%;
+        width: 85%;
         height: 10em;
         margin: 0;
+        box-shadow: @floating-box-shadow;
     }
 
     .backgrid {
@@ -637,12 +672,13 @@ button.btn-default {
         position: fixed;
         left: 0;
         bottom: 0;
-        width: 100%;
+        width: 85%;
         height: 10em;
         margin: 0;
         visibility: hidden;
         background-color: gray;
         opacity: .4;
+        box-shadow: @floating-box-shadow;
     }
 }
 
@@ -654,22 +690,21 @@ button.btn-default {
     cursor: auto !important;
 
     &.panel {
-        //border-left-style: solid;
-        //border-left-width: 2px;
-        //border-left-color: #B2B2B2;
-        background-color: rgba(250, 250, 250, 0.75);
-        //background-color: transparent;
+        background-color: @light-grey-background;
         visibility: hidden;
         z-index: 10000;
         position: fixed;
-        right: 1em;
+        right: 0;
         bottom: 0;
         top: 2.5em;
         width: 15%;
-        height: 50%;
+        height: -moz-calc(100% - 2.5em);
+        height: -webkit-calc(100% - 2.5em);
+        height: calc(100% - 2.5em);
 
-        border: 1px solid rgba(0, 0, 0, 0.3);
-        border-radius: 7px;
+        box-shadow: @floating-box-shadow;
+        border-radius: @floating-border-radius;
+        overflow:scroll;
     }
 
     .tooltip {
@@ -688,15 +723,15 @@ button.btn-default {
     }
 
     .histogramDiv {
-        height: 100%;
+        height: 16em;
         width: 100%;
 
         .vizContainer {
-            height: 80%;
+            height: calc(100% - 30px);
         }
 
         .topMenu {
-            height: 20%;
+            height: 30px;
 
             .dropdown {
                 margin: 3px;

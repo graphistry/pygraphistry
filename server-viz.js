@@ -293,7 +293,7 @@ function init(app, socket) {
 
            qIndices.then(function (indices) {
                 try {
-                    var data = labeler.aggregate(graph, indices, query.attribute, query.binning, query.mode);
+                    var data = labeler.aggregate(graph, indices, query.attributes, query.binning, query.mode);
                     cb({success: true, data: data});
                 } catch (err) {
                     cb({success: false, error: err.message});
