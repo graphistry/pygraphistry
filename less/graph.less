@@ -1,42 +1,21 @@
 /*******/
-html {
-    overflow: hidden;
-}
-
-.noselect {
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    -khtml-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-}
-
-.selecttext {
-    -webkit-user-select: text;
-    -khtml-user-select: text;
-    -moz-user-select: text;
-    -o-user-select: text;
-    user-select: text;
-}
 
 
+//////////////////////////////////////////////////////////////////////////////
+// Constants
+//////////////////////////////////////////////////////////////////////////////
 
-.logo-container {
+@light-grey-blue: #F0F4F7;
+@light-grey-background: rgba(252, 252, 252, 1.0);
+@light-grey-transparent: rgba(250, 250, 250, 0.7);
+@medium-grey: rgba(200,200,200,1.0);
+@dark-grey: rgba(100,100,100,1.0);
+@floating-box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+@floating-border-radius: 3px;
 
-    &.disabled {
-        display: none;
-    }
-
-    position: absolute;
-    left: 40%;
-    top: 0.5em;
-    pointer-events: none;
-
-    img {
-        width: 40%;
-    }
-}
+//////////////////////////////////////////////////////////////////////////////
+// Labels
+//////////////////////////////////////////////////////////////////////////////
 
 .graph-label-container {
     position: absolute;
@@ -219,6 +198,41 @@ html {
 
 }
 
+#highlighted-point-cont {
+    z-index: 5001;
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    cursor: pointer;
+
+    .noselect();
+}
+
+.highlighted-point {
+    position: relative;
+    left: -9px;
+    top: -9px;
+    border: 1px solid rgba(255,255,255,0.8);
+    border-radius: 10px;
+    width: 20px;
+    height: 20px;
+    box-shadow: 0 0 10px rgba(255,255,255,0.75);
+}
+
+.highlighted-point-center {
+    position: relative;
+    left: 7px;
+    top: 7px;
+    border-radius: 4px;
+    background-color: white;
+    width: 5px;
+    height: 5px;
+    border: 1px solid rgb(51,51,102);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Meter
+//////////////////////////////////////////////////////////////////////////////
 
 .info {
 
@@ -253,8 +267,9 @@ html {
     left: 11em;
 }
 
-
-
+//////////////////////////////////////////////////////////////////////////////
+// Marquee Selector
+//////////////////////////////////////////////////////////////////////////////
 
 .marquee-outline {
     width: 100%;
@@ -296,6 +311,51 @@ html {
 
 }
 
+.draggable, .dragging {
+    border-width: 3px;
+    border-color: rgba(51, 51, 102, 1);
+    border-radius: 10px;
+
+}
+
+.draggable {
+    cursor:pointer;
+}
+
+.dragging {
+    cursor:move !important;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Main View
+//////////////////////////////////////////////////////////////////////////////
+
+.graphistry-body {
+    visibility: hidden;
+    background-color: #223 !important;
+    height: 100%;
+    overflow:hidden;
+}
+
+.graphistry-body {
+
+    background: linear-gradient(to bottom, #EDF8FF 0%, #F0F4F9 100%);
+
+    .heading {
+        background: none;
+    }
+
+}
+
+#simulation {
+    border: 0px;
+    cursor: default;
+
+    &.moving {
+        cursor: move;
+    }
+}
+
 .content {
     position: absolute;
     left: 0;
@@ -321,13 +381,19 @@ html {
     padding-left: 0.25em;
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Buttons and Controls
+//////////////////////////////////////////////////////////////////////////////
+
+
 #main, .accordion {
     background-color: rgba(204, 204, 204, 0.3);
     color: #EEF;
     padding: 0.5em;
 }
 
-#main, #menuState, #controlState {
+
+#menuState{
     border: 1px solid rgba(0, 0, 0, 0.3);
     background-color: rgba(51, 51, 102, 0.4);
     border-radius: 7px;
@@ -345,9 +411,17 @@ html {
     .noselect();
 }
 
+.options-group {
+
+    box-shadow: @floating-box-shadow;
+    border-radius: @floating-border-radius;
+    background-color: @light-grey-background;
+    margin-bottom: 6px;
+}
+
 #controlState {
     position: absolute;
-    right: 1em;
+    left: 0.5em;
     display: inline-block;
     top: 1em;
     margin: 1em;
@@ -361,36 +435,10 @@ html {
     padding: 0.2em;
 }
 
-.draggable, .dragging {
-    border-width: 3px;
-    border-color: rgba(51, 51, 102, 1);
-    border-radius: 10px;
-
-}
-
-.draggable {
-    cursor:pointer;
-}
-
-.dragging {
-    cursor:move !important;
-}
-
 .menu {
     position: absolute;
     z-index: 100001;
-    left: 0;
-}
-
-.graphistry-body {
-    visibility: hidden;
-    background-color: #223 !important;
-    height: 100%;
-    overflow:hidden;
-}
-
-label {
-    color: rgba(255,255,255,0.9);
+    left: 4em;
 }
 
 .accordion-heading a:hover .fa {
@@ -398,7 +446,7 @@ label {
 }
 
 .accordion-heading .fa {
-    color: rgba(255,255,255,0.9);
+    color: @dark-grey;
 }
 
 .accordion-heading .toggle-on {
@@ -407,59 +455,75 @@ label {
 }
 
 i.fa {
-   display: inline-block;
+    font-size: 1.5em;
+    display: inline-block;
 }
 
 button.btn-default {
     background-color: transparent;
-    color: white;
+    //color: white;
 }
 
+.slider {
+    .slider-track {
+        background-image: linear-gradient(to bottom, #C9C9C9 0%, #C3C3C3 100%);
 
+        .slider-selection {
+            background-image: linear-gradient(to bottom, #0FA5C5 0%, #1E95AE 100%);
+        }
 
-#highlighted-point-cont {
-    z-index: 5001;
-    position: absolute;
-    top: -10px;
-    left: -10px;
-    cursor: pointer;
-
-    .noselect();
-}
-
-.highlighted-point {
-    position: relative;
-    left: -9px;
-    top: -9px;
-    border: 1px solid rgba(255,255,255,0.8);
-    border-radius: 10px;
-    width: 20px;
-    height: 20px;
-    box-shadow: 0 0 10px rgba(255,255,255,0.75);
-}
-
-.highlighted-point-center {
-    position: relative;
-    left: 7px;
-    top: 7px;
-    border-radius: 4px;
-    background-color: white;
-    width: 5px;
-    height: 5px;
-    border: 1px solid rgb(51,51,102);
-}
-
-
-
-
-
-#simulation {
-    border: 0px;
-    cursor: default;
-
-    &.moving {
-        cursor: move;
+        .slider-handle {
+            opacity: 1.0;
+            background-image: linear-gradient(to bottom, #149bdf 0%, #0480be 100%);
+        }
     }
+}
+
+#renderingItems {
+
+    label {
+        color: black;
+    }
+
+    box-shadow: @floating-box-shadow;
+    border-radius: @floating-border-radius;
+    background-color: @light-grey-background;
+
+    padding: 0.5em;
+
+    position: absolute;
+    display: none;
+    //opacity: 0;
+    width: 25em;
+
+    left: 5em;
+    top: 2.5em;
+
+    .control-title {
+        padding-top: 4px;
+        padding-bottom: 4px;
+        font-weight: bold;
+        font-size: 15px;
+    }
+
+    .form-group {
+        margin-bottom: 10px;
+
+        .control-label {
+            padding-top: 0px;
+            font-weight: normal;
+            font-size: 13px;
+        }
+    }
+
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Hidden by Debug
+//////////////////////////////////////////////////////////////////////////////
+
+#menuState {
+    display: none !important;
 }
 
 .debug {
@@ -467,8 +531,8 @@ button.btn-default {
         display: inline-block;
     }
 
-    #mouser, {
-        display: inline-block !important;
+    #menuState {
+        display: inline-block;
     }
 
 }
@@ -481,15 +545,9 @@ button.btn-default {
     display: none !important;
 }
 
-.graphistry-body {
-
-    background: linear-gradient(to bottom, #EDF8FF 0%, #F0F4F9 100%);
-
-    .heading {
-        background: none;
-    }
-
-}
+//////////////////////////////////////////////////////////////////////////////
+// Loading
+//////////////////////////////////////////////////////////////////////////////
 
 .load-spinner {
     visibility: visible;
@@ -504,6 +562,9 @@ button.btn-default {
     color: rgb(51,51,102);
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Legend
+//////////////////////////////////////////////////////////////////////////////
 
 .legend-container {
 
@@ -572,6 +633,10 @@ button.btn-default {
     }
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Data Inspector
+//////////////////////////////////////////////////////////////////////////////
+
 #inspector {
     cursor: auto !important;
 
@@ -581,11 +646,11 @@ button.btn-default {
         position: fixed;
         left: 0;
         bottom: 0;
-        width: 100%;
-        max-height: 11em;
-        min-height: 5.5em;
-        height: auto;
+        width: 85%;
+        height: 10em;
         margin: 0;
+        box-shadow: @floating-box-shadow;
+        background-color: @light-grey-background;
     }
 
     .backgrid {
@@ -620,25 +685,117 @@ button.btn-default {
     }
 }
 
+#inspector-overlay {
+    &.panel {
+        z-index: 10001;
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 85%;
+        height: 10em;
+        margin: 0;
+        visibility: hidden;
+        background-color: gray;
+        opacity: .4;
+        box-shadow: @floating-box-shadow;
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Histogram
+//////////////////////////////////////////////////////////////////////////////
+
 #histogram {
     cursor: auto !important;
 
     &.panel {
+        background-color: @light-grey-background;
         visibility: hidden;
         z-index: 10000;
         position: fixed;
-        left: 0;
+        right: 0;
         bottom: 0;
-        width: 100%;
-        max-height: 12em;
-        min-height: 8em;
-        height: auto;
-        margin: 0;
+        top: 0;
+        width: 15%;
+        height: 100%;
+
+        box-shadow: @floating-box-shadow;
+        border-radius: @floating-border-radius;
+        overflow-y:scroll;
+
+        // Scrollbars are hidden on mac, so we force it to show
+        &::-webkit-scrollbar {
+            -webkit-appearance: none;
+            width: 7px;
+        }
+        &::-webkit-scrollbar-thumb {
+            border-radius: 4px;
+            background-color: rgba(0,0,0,.5);
+            -webkit-box-shadow: 0 0 1px rgba(255,255,255,.5);
+        }
+    }
+
+    #addHistogramButton {
+        display: none;
+        margin: 10px;
+    }
+
+    .divide-line {
+        width: 80%;
+        margin-top: 3px;
+        margin-bottom: 3px;
+    }
+
+    .col-xs-1, .col-xs-10 {
+        padding: 5px;
+    }
+
+    .closeButton {
+        display: none;
+        margin-top: 4px;
+        font-size: 0.7em;
+        .fa {
+            color: @dark-grey;
+
+        }
+    }
+
+    .tooltip {
+        margin-left: 0px;
+
+        &.bottom {
+            margin-top: 12px;
+        }
+    }
+
+
+    .btn-default {
+        z-index: 10002;
+        color: black;
+        text-align: center;
+        font-weight: bold;
+        font-size: 0.8em;
+
+        &::first-letter {
+            text-transform: uppercase;
+        }
     }
 
     .histogramDiv {
-        height: 100%;
         width: 100%;
+
+        .vizContainer {
+            height: calc(100% - 30px);
+        }
+
+        .topMenu {
+            height: 30px;
+
+            .dropdown {
+                margin: 3px;
+            }
+
+        }
 
         .axis {
             text {
@@ -656,7 +813,7 @@ button.btn-default {
             fill-opacity: .9;
         }
 
-        .x.axis path {
+        .y.axis path {
             display: none;
         }
 
@@ -666,46 +823,71 @@ button.btn-default {
             right: 10px;
         }
 
+
+
+        // border-bottom-style: solid;
+        // border-bottom-width: 1px;
+        // border-bottom-color: #B2B2B2;
+
     }
 
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Misc
+//////////////////////////////////////////////////////////////////////////////
 
-#renderingItems {
-    width: 25em;
-
-    .control-title {
-        font-weight: bold;
-        font-size: 15px;
-    }
-
-    .form-group {
-        margin-bottom: 10px;
-
-        .control-label {
-            padding-top: 0px;
-            font-weight: normal;
-            font-size: 13px;
-        }
-    }
-
+.divide-line {
+    margin-top: 1px;
+    margin-bottom: 1px;
+    margin-left: auto;
+    margin-right: auto;
+    width: 60%;
+    border-bottom: solid 1px @medium-grey;
 }
 
-.slider {
-    .slider-track {
-        background-image: linear-gradient(to bottom, #C9C9C9 0%, #C3C3C3 100%);
+html {
+    overflow: hidden;
+}
 
-        .slider-selection {
-            background-image: linear-gradient(to bottom, #FFFFFF 0%, #FAFAFA 100%);
-        }
+.tooltip {
+    z-index: 1000001;
+}
 
-        .slider-handle {
-            opacity: 1.0;
-            background-image: linear-gradient(to bottom, #149bdf 0%, #0480be 100%);
-        }
+.noselect {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+.selecttext {
+    -webkit-user-select: text;
+    -khtml-user-select: text;
+    -moz-user-select: text;
+    -o-user-select: text;
+    user-select: text;
+}
+
+.logo-container {
+
+    &.disabled {
+        display: none;
+    }
+
+    position: absolute;
+    left: 40%;
+    top: 0.5em;
+    pointer-events: none;
+
+    img {
+        width: 40%;
     }
 }
 
+// Animations
 
 .automode {
     animation: pulsate 1s linear infinite;
