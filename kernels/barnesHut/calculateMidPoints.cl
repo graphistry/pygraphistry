@@ -251,9 +251,9 @@ __kernel void calculate_forces(
                           float2 otherPoint = (float2) (x_cords[child], y_cords[child]);
                           /*float err = fast_distance(otherPoint, myPos);*/
                           if (fast_length(distVector) < FLT_EPSILON) {
-                            forceVector += 0.00001f * pointForce(n1Pos, otherPoint, alpha* charge);
+                            forceVector += 0.00001f * pointForce(n1Pos, otherPoint, alpha* charge * mass[child]);
                           } else {
-                            forceVector += 1.0f * (pointForce(n1Pos, otherPoint, charge * alpha) * -1.0f);
+                            forceVector += 1.0f * (pointForce(n1Pos, otherPoint, charge * alpha * mass[child]) * -1.0f);
                           }
                         } else {
                             // Push this cell onto the stack.
