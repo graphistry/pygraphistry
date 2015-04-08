@@ -736,7 +736,6 @@ button.btn-default {
     }
 
     #addHistogramButton {
-        display: none;
         margin: 10px;
     }
 
@@ -751,7 +750,6 @@ button.btn-default {
     }
 
     .closeButton {
-        display: none;
         margin-top: 4px;
         font-size: 0.7em;
         .fa {
@@ -768,13 +766,25 @@ button.btn-default {
         }
     }
 
-
     .btn-default {
         z-index: 10002;
-        color: black;
+        color: @dark-grey;
         text-align: center;
         font-weight: bold;
         font-size: 0.8em;
+
+        &::first-letter {
+            text-transform: uppercase;
+        }
+    }
+
+    .attributeName {
+        margin-left: 14px;
+        margin-top: 2px;
+        z-index: 10002;
+        color: black;
+        font-weight: bold;
+        font-size: 1em;
 
         &::first-letter {
             text-transform: uppercase;
