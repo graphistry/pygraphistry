@@ -296,7 +296,7 @@ function init(app, socket) {
                     var data = labeler.aggregate(graph, indices, query.attributes, query.binning, query.mode);
                     cb({success: true, data: data});
                 } catch (err) {
-                    cb({success: false, error: err.message});
+                    cb({success: false, error: err.message, stack: err.stack});
                 }
             }).done(_.identity, util.makeErrorHandler('selectNodes'));
         }).subscribe(
