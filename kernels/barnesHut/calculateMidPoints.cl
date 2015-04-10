@@ -108,7 +108,7 @@ __kernel void calculate_forces(
         float height,
         const int num_bodies,
         const int num_nodes,
-        __global float2* nextMidPoints,
+        __global float2* pointForces,
         float tau,
         float charge,
         const uint midpoint_stride,
@@ -284,7 +284,7 @@ __kernel void calculate_forces(
                               /*printf("Force x %f, Force y %f \n gForce x %f y %f \n", forceVector.x, forceVector.y, gForce2.x, gForce2.y);*/
                               /*printf("gForce x %.9g y %.9g x %.9g y %9g mass %f gravity %f\n", gForce2.x, gForce2.y, centerVec.x, centerVec.y, mass[index], gForce);*/
                             }
-            nextMidPoints[(index * midpoints_per_edge) + midpoint_stride] = (float2) n1Pos + ((forceVector));
+            pointForces[(index * midpoints_per_edge) + midpoint_stride] = n1Pos * forceVector;
             /*nextMidPoints[index] = n1Pos + 0.00001f * normalize(centerVec) * gForce + forceVector * mass[index];*/
 
         }

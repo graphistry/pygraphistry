@@ -114,24 +114,24 @@ __kernel void gaussSeidelMidsprings(
 
 	if (numSplits == 0) return;
 
-    const size_t workItem = (unsigned int) get_global_id(0);
-    const uint springsStart = workList[workItem].x;
+  const size_t workItem = (unsigned int) get_global_id(0);
+  const uint springsStart = workList[workItem].x;
 	const uint springsCount = workList[workItem].y;
 	const uint nodeId = workList[workItem].z;
 
-    if (springsCount == 0) {
-        outputMidPoints[nodeId] = inputMidPoints[nodeId];
-        return;
-    }
+  if (springsCount == 0) {
+      outputMidPoints[nodeId] = inputMidPoints[nodeId];
+      return;
+  }
 
-    const uint sourceIdx = springs[springsStart].x;
-    float2 start = inputPoints[sourceIdx];
+  const uint sourceIdx = springs[springsStart].x;
+  float2 start = inputPoints[sourceIdx];
 
 	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);
 
-    for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
+  for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
 
-		float2 curQP = start;
+	  float2 curQP = start;
 		uint firstQPIdx = curSpringIdx * numSplits;
 		float2 nextQP = inputMidPoints[firstQPIdx];
 		float dist = distance(curQP, nextQP);
@@ -141,7 +141,7 @@ __kernel void gaussSeidelMidsprings(
 
         for (uint qp = 0; qp < numSplits; qp++) {
         	// Set the color coordinate for this mid-spring to the coordinate of the start point
-        	midSpringColorCoords[curSpringIdx * (numSplits + 1) + qp] = (float4)(start, start);
+          /*midSpringColorCoords[curSpringIdx * (numSplits + 1) + qp] = (float4)(start, start);*/
 
 			float2 prevQP = curQP;
 			float2 prevForce = nextForce;
@@ -151,13 +151,15 @@ __kernel void gaussSeidelMidsprings(
 		        (nextQP - curQP) * alpha * springStrength * (dist - springDistance) / dist
 		        : 0.0f;
 		    float2 delta = (qp == numSplits - 1 ? 1.0f : 1.0f) * nextForce - (qp == 0 ? 1.0f : 1.0f) * prevForce;
-		    outputMidPoints[firstQPIdx + qp] = curQP + delta;
-		    springMidPositions[curSpringIdx * (numSplits + 1) + qp] = (float4) (prevQP.x, prevQP.y, curQP.x, curQP.y);
+		    outputMidPoints[firstQPIdx + qp] = delta;
+        debug3("Delta x %f, y %f \n", delta.x, delta.y);
+        debug3("Prev Force x %f, y %f \n", prevForce.x, prevForce.y);
+        /*springMidPositions[curSpringIdx * (numSplits + 1) + qp] = (float4) (prevQP.x, prevQP.y, curQP.x, curQP.y);*/
 		}
-        const uint dstIdx = springs[curSpringIdx].y;
-	    float2 end = inputPoints[dstIdx];
-		springMidPositions[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (curQP.x, curQP.y, end.x, end.y);
-		midSpringColorCoords[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (start, start);
+    const uint dstIdx = springs[curSpringIdx].y;
+    float2 end = inputPoints[dstIdx];
+    /*springMidPositions[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (curQP.x, curQP.y, end.x, end.y);*/
+    /*midSpringColorCoords[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (start, start);*/
 
     }
 
