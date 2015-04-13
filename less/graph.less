@@ -1,4 +1,5 @@
 /*******/
+<<<<<<< HEAD
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -43,6 +44,26 @@
 //////////////////////////////////////////////////////////////////////////////
 
 
+=======
+
+
+//////////////////////////////////////////////////////////////////////////////
+// Constants
+//////////////////////////////////////////////////////////////////////////////
+
+@light-grey-blue: #F0F4F7;
+@light-grey-background: rgba(252, 252, 252, 1.0);
+@light-grey-transparent: rgba(250, 250, 250, 0.7);
+@medium-grey: rgba(200,200,200,1.0);
+@dark-grey: rgba(100,100,100,1.0);
+@floating-box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+@floating-border-radius: 3px;
+
+//////////////////////////////////////////////////////////////////////////////
+// Labels
+//////////////////////////////////////////////////////////////////////////////
+
+>>>>>>> Cherry picked graph.less file
 .graph-label-container {
     position: absolute;
     top: 0;
@@ -247,7 +268,11 @@
 }
 
 #highlighted-point-cont {
+<<<<<<< HEAD
     z-index: @highlighted-point-z;
+=======
+    z-index: 5001;
+>>>>>>> Cherry picked graph.less file
     position: absolute;
     top: -10px;
     left: -10px;
@@ -380,13 +405,28 @@
 
 .graphistry-body {
     visibility: hidden;
+<<<<<<< HEAD
     background-color: #F0F4F9 !important;
     height: 100%;
     overflow:hidden;
+=======
+    background-color: #223 !important;
+    height: 100%;
+    overflow:hidden;
+}
+
+.graphistry-body {
+
+    background: linear-gradient(to bottom, #EDF8FF 0%, #F0F4F9 100%);
+>>>>>>> Cherry picked graph.less file
 
     .heading {
         background: none;
     }
+<<<<<<< HEAD
+=======
+
+>>>>>>> Cherry picked graph.less file
 }
 
 #simulation {
@@ -466,6 +506,7 @@ html.nomenu #menus, html.nomenu #sliders {
     border-radius: @floating-border-radius;
     background-color: @light-grey-background;
     margin-bottom: 6px;
+<<<<<<< HEAD
 
     .divide-line {
         margin-top: 1px;
@@ -475,6 +516,8 @@ html.nomenu #menus, html.nomenu #sliders {
         width: 60%;
         border-bottom: solid 1px #DDD;
     }
+=======
+>>>>>>> Cherry picked graph.less file
 }
 
 #controlState {
@@ -495,7 +538,11 @@ html.nomenu #menus, html.nomenu #sliders {
 
 .menu {
     position: absolute;
+<<<<<<< HEAD
     z-index: @menu-z;
+=======
+    z-index: 100001;
+>>>>>>> Cherry picked graph.less file
     left: 4em;
 }
 
@@ -532,11 +579,16 @@ button.btn-default {
 
         .slider-handle {
             opacity: 1.0;
+<<<<<<< HEAD
             background: #333366;
+=======
+            background-image: linear-gradient(to bottom, #149bdf 0%, #0480be 100%);
+>>>>>>> Cherry picked graph.less file
         }
     }
 }
 
+<<<<<<< HEAD
 .bootstrap-switch-container >.bootstrap-switch-handle-on.bootstrap-switch-primary {
     background: #0fa5c5;
 }
@@ -578,6 +630,45 @@ button.btn-default {
         }
     }
 
+=======
+#renderingItems {
+
+    label {
+        color: black;
+    }
+
+    box-shadow: @floating-box-shadow;
+    border-radius: @floating-border-radius;
+    background-color: @light-grey-background;
+
+    padding: 0.5em;
+
+    position: absolute;
+    display: none;
+    //opacity: 0;
+    width: 25em;
+
+    left: 5em;
+    top: 2.5em;
+
+    .control-title {
+        padding-top: 4px;
+        padding-bottom: 4px;
+        font-weight: bold;
+        font-size: 15px;
+    }
+
+    .form-group {
+        margin-bottom: 10px;
+
+        .control-label {
+            padding-top: 0px;
+            font-weight: normal;
+            font-size: 13px;
+        }
+    }
+
+>>>>>>> Cherry picked graph.less file
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -711,6 +802,7 @@ button.btn-default {
     padding: 0;
     background-color: @light-grey-background-2;
 
+<<<<<<< HEAD
     .inspector-tabs {
         position: relative;
         float: left;
@@ -730,7 +822,19 @@ button.btn-default {
         position: relative;
         width: 100%;
         padding-left: 2.8em;
+=======
+    &.panel {
+        visibility: hidden;
+        z-index: 10000;
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 85%;
+        height: 10em;
+>>>>>>> Cherry picked graph.less file
         margin: 0;
+        box-shadow: @floating-box-shadow;
+        background-color: @light-grey-background;
     }
 
     .inspector {
@@ -827,12 +931,20 @@ button.btn-default {
 
 #inspector-overlay {
     &.panel {
+<<<<<<< HEAD
         z-index: @inspector-overlay-z;
+=======
+        z-index: 10001;
+>>>>>>> Cherry picked graph.less file
         position: fixed;
         left: 0;
         bottom: 0;
         width: 85%;
+<<<<<<< HEAD
         height: 16em;
+=======
+        height: 10em;
+>>>>>>> Cherry picked graph.less file
         margin: 0;
         visibility: hidden;
         background-color: gray;
@@ -849,7 +961,11 @@ button.btn-default {
     cursor: auto !important;
 
     &.panel {
+<<<<<<< HEAD
         background-color: @light-grey-background-2;
+=======
+        background-color: @light-grey-background;
+>>>>>>> Cherry picked graph.less file
         visibility: hidden;
         z-index: @histogram-z;
         position: fixed;
@@ -875,6 +991,7 @@ button.btn-default {
         }
     }
 
+<<<<<<< HEAD
     #addHistogram {
 
         .dropdown {
@@ -901,12 +1018,23 @@ button.btn-default {
     .divide-line {
         width: 100%;
         border-bottom: solid 1px #DDD;
+=======
+    #addHistogramButton {
+        margin: 10px;
+    }
+
+    .divide-line {
+        width: 80%;
+        margin-top: 3px;
+        margin-bottom: 3px;
+>>>>>>> Cherry picked graph.less file
     }
 
     .col-xs-1, .col-xs-10 {
         padding: 5px;
     }
 
+<<<<<<< HEAD
 
     .expandHistogramButton, .expandedHistogramButton {
         font-size: 1.3em;
@@ -953,6 +1081,18 @@ button.btn-default {
 
     .tooltip {
         pointer-events: none;
+=======
+    .closeButton {
+        margin-top: 4px;
+        font-size: 0.7em;
+        .fa {
+            color: @dark-grey;
+
+        }
+    }
+
+    .tooltip {
+>>>>>>> Cherry picked graph.less file
         margin-left: 0px;
 
         &.bottom {
@@ -961,7 +1101,11 @@ button.btn-default {
     }
 
     .btn-default {
+<<<<<<< HEAD
         z-index: @histogram-btn-z;
+=======
+        z-index: 10002;
+>>>>>>> Cherry picked graph.less file
         color: @dark-grey;
         text-align: center;
         font-weight: bold;
@@ -973,12 +1117,20 @@ button.btn-default {
     }
 
     .attributeName {
+<<<<<<< HEAD
         text-align: center;
         margin-left: 4px;
         padding-left: 4px;
         margin-top: 5px;
         z-index: @histogram-name-z;
         color: @dark-grey;
+=======
+        margin-left: 14px;
+        margin-top: 2px;
+        z-index: 10002;
+        color: black;
+        font-weight: bold;
+>>>>>>> Cherry picked graph.less file
         font-size: 1em;
 
         &::first-letter {
@@ -997,6 +1149,19 @@ button.btn-default {
         .topMenu {
             height: 30px;
             padding-left: 4px;
+
+            .dropdown {
+                margin: 3px;
+            }
+
+        }
+
+        .vizContainer {
+            height: calc(100% - 30px);
+        }
+
+        .topMenu {
+            height: 30px;
 
             .dropdown {
                 margin: 3px;
@@ -1046,13 +1211,28 @@ button.btn-default {
 // Misc
 //////////////////////////////////////////////////////////////////////////////
 
+<<<<<<< HEAD
+=======
+.divide-line {
+    margin-top: 1px;
+    margin-bottom: 1px;
+    margin-left: auto;
+    margin-right: auto;
+    width: 60%;
+    border-bottom: solid 1px @medium-grey;
+}
+>>>>>>> Cherry picked graph.less file
 
 html {
     overflow: hidden;
 }
 
 .tooltip {
+<<<<<<< HEAD
     z-index: @tooltip-z;
+=======
+    z-index: 1000001;
+>>>>>>> Cherry picked graph.less file
 }
 
 .noselect {
@@ -1063,6 +1243,7 @@ html {
     -ms-user-select: none;
     user-select: none;
 }
+<<<<<<< HEAD
 
 .selecttext {
     -webkit-user-select: text;
@@ -1074,7 +1255,29 @@ html {
 
 html.nologo .logo-container {
     display: none;
+=======
+
+.selecttext {
+    -webkit-user-select: text;
+    -khtml-user-select: text;
+    -moz-user-select: text;
+    -o-user-select: text;
+    user-select: text;
+>>>>>>> Cherry picked graph.less file
 }
+.logo-container {
+
+<<<<<<< HEAD
+    &.disabled {
+        display: none;
+    }
+
+    position: absolute;
+    left: 40%;
+    top: 0.5em;
+    pointer-events: none;
+
+=======
 .logo-container {
 
     &.disabled {
@@ -1086,6 +1289,7 @@ html.nologo .logo-container {
     top: 0.5em;
     pointer-events: none;
 
+>>>>>>> Cherry picked graph.less file
     img {
         width: 40%;
     }
