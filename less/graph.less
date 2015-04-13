@@ -749,7 +749,35 @@ button.btn-default {
         padding: 5px;
     }
 
-    .closeButton {
+
+    @rotateDuration: 0.25s;
+    .expandHistogramButton {
+        -webkit-transform: rotate(0deg);
+        -moz-transform: rotate(0deg);
+        -o-transform: rotate(0deg);
+        -ms-transform: rotate(0deg);
+        transform: rotate(0deg);
+
+        -webkit-transition: all @rotateDuration ease-in-out;
+        -moz-transition: all @rotateDuration ease-in-out;
+        -o-transition: all @rotateDuration ease-in-out;
+        transition: all @rotateDuration ease-in-out;
+    }
+
+    .expandedHistogramButton {
+        -webkit-transform: rotate(90deg);
+        -moz-transform: rotate(90deg);
+        -o-transform: rotate(90deg);
+        -ms-transform: rotate(90deg);
+        transform: rotate(90deg);
+
+        -webkit-transition: all @rotateDuration ease-in-out;
+        -moz-transition: all @rotateDuration ease-in-out;
+        -o-transition: all @rotateDuration ease-in-out;
+        transition: all @rotateDuration ease-in-out;
+    }
+
+    .closeButton, .expandButton {
         margin-top: 4px;
         font-size: 0.7em;
         .fa {
@@ -779,8 +807,9 @@ button.btn-default {
     }
 
     .attributeName {
-        margin-left: 14px;
-        margin-top: 2px;
+        margin-left: 4px;
+        padding-left: 4px;
+        margin-top: 5px;
         z-index: 10002;
         color: black;
         font-weight: bold;
