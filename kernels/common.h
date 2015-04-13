@@ -24,12 +24,14 @@
     #define debug3(X,Y,Z)     printf(X,Y,Z)
     #define debug4(X,Y,Z,W)   printf(X,Y,Z,W)
     #define debug5(X,Y,Z,W,V) printf(X,Y,Z,W,V)
+    #define debug6(U,V,W,X,Y,Z) printf(U,V,W,X,Y,Z)
 #else
     #define debug1(X)
     #define debug2(X,Y)
     #define debug3(X,Y,Z)
     #define debug4(X,Y,Z,W)
     #define debug5(X,Y,Z,W,V)
+    #define debug6(U,V,W,Y,X,Z)
 #endif
 
 // #define DEBUGONCE

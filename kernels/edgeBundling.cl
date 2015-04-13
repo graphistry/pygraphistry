@@ -143,7 +143,7 @@ __kernel void gaussSeidelMidsprings(
         	// Set the color coordinate for this mid-spring to the coordinate of the start point
           /*midSpringColorCoords[curSpringIdx * (numSplits + 1) + qp] = (float4)(start, start);*/
 
-			float2 prevQP = curQP;
+			/*float2 prevQP = curQP;*/
 			float2 prevForce = nextForce;
 			curQP = nextQP;
 			nextQP = qp < numSplits - 1 ? inputMidPoints[firstQPIdx + qp + 1] : inputPoints[springs[curSpringIdx].y];
@@ -157,7 +157,7 @@ __kernel void gaussSeidelMidsprings(
         /*springMidPositions[curSpringIdx * (numSplits + 1) + qp] = (float4) (prevQP.x, prevQP.y, curQP.x, curQP.y);*/
 		}
     const uint dstIdx = springs[curSpringIdx].y;
-    float2 end = inputPoints[dstIdx];
+    /*float2 end = inputPoints[dstIdx];*/
     /*springMidPositions[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (curQP.x, curQP.y, end.x, end.y);*/
     /*midSpringColorCoords[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (start, start);*/
 
