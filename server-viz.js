@@ -237,6 +237,10 @@ function init(app, socket) {
         qRenderConfig.then(function (renderConfig) {
             debug('Sending render-config to client');
             cb({success: true, renderConfig: renderConfig});
+
+            console.log('saving config', renderConfig);
+            fs.writeFileSync('/Users/lmeyerov/Desktop/work/graph-viz/assets/viz/facebook.renderconfig.json', JSON.stringify(renderConfig));
+
         }).fail(function (err) {
             cb({success: false, error: 'Unknown dataset or scene error'});
             util.makeErrorHandler('sending render_config')(err)
@@ -451,6 +455,9 @@ function stream(socket, renderConfig, colorTexture) {
     debug('SETTING UP CLIENT EVENT LOOP ===================================================================');
     var step = 0;
     var lastVersions = null;
+
+    var prevHeader = {elements: {}, bufferByteLengths: {}};
+
     graph.expand(function (graph) {
         step++;
 
@@ -464,6 +471,22 @@ function stream(socket, renderConfig, colorTexture) {
                 debug('1. prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB', ticker);
                 //tell XHR2 sender about it
                 lastCompressedVbos[socket.id] = vbos.compressed;
+
+                //save
+                prevHeader = {
+                    elements: _.extend(prevHeader.elements, vbos.elements),
+                    bufferByteLengths: _.extend(prevHeader.bufferByteLengths, vbos.bufferByteLengths)
+                };
+                fs.writeFileSync('/Users/lmeyerov/Desktop/work/graph-viz/assets/viz/facebook.metadata.json',
+                    JSON.stringify(prevHeader));
+                var read = fs.readFileSync('/tmp/offline/facebook.metadata.json', {encoding: 'utf8'});
+                var buffers = vbos.compressed;
+                for (var i in buffers) {
+                    fs.writeFileSync('/Users/lmeyerov/Desktop/work/graph-viz/assets/viz/facebook.' + i + '.vbo', buffers[i]);
+                }
+                console.log('wrote/read', JSON.parse(read), _.keys(buffers));
+
+
             })
             .flatMap(function (vbos) {
                 debug('2. Waiting for client to finish previous', socket.id, ticker);
