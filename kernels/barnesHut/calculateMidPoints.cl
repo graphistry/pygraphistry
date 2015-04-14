@@ -134,6 +134,10 @@ __kernel void calculate_forces(
     float2 forceVector = (0.0f, 0.0f);
     float2 distVector = (0.0f, 0.0f);
 
+    if (idx == 0) {
+      debug2("Num of points in calculate midpoint %u \n", num_bodies);
+    } 
+
 
 
     float px, py, ax, ay, dx, dy, temp;
@@ -284,8 +288,10 @@ __kernel void calculate_forces(
                               /*printf("Force x %f, Force y %f \n gForce x %f y %f \n", forceVector.x, forceVector.y, gForce2.x, gForce2.y);*/
                               /*printf("gForce x %.9g y %.9g x %.9g y %9g mass %f gravity %f\n", gForce2.x, gForce2.y, centerVec.x, centerVec.y, mass[index], gForce);*/
                             }
-            /*pointForces[(index * midpoints_per_edge) + midpoint_stride] = n1Pos * forceVector;*/
-            pointForces[(index * midpoints_per_edge) + midpoint_stride] = n1Pos;
+            float2 result = (float2) n1Pos + forceVector;
+            pointForces[(index * midpoints_per_edge) + midpoint_stride] = result;
+            debug6("Force in calculate midpoints x (%u) %.9g, y %.9g Result x %.9g y %.9g\n", (index * midpoints_per_edge) + midpoint_stride, forceVector.x, forceVector.y, result.x, result.y);
+            /*pointForces[(index * midpoints_per_edge) + midpoint_stride] = n1Pos;*/
             /*nextMidPoints[index] = n1Pos + 0.00001f * normalize(centerVec) * gForce + forceVector * mass[index];*/
 
         }
