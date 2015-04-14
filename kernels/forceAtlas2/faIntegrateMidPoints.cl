@@ -27,12 +27,12 @@ __kernel void faIntegrate (
 
 
     /*float2 delta = min(speed, maxSpeed) * curForces[n1Idx];*/
-    float2 delta = curForces[n1Idx];
+    float2 delta = curForces[n1Idx] * min(speed, maxSpeed);
 
     debug4("Speed (%d) %f max: %f\n", n1Idx, speed, maxSpeed);
     debug4("Delta (%d) %f\t%f\n", n1Idx, delta.x, delta.y);
 
     /*outputPositions[n1Idx] = inputPositions[n1Idx] + delta;*/
-    outputPositions[n1Idx] = inputPositions[n1Idx] + curForces[n1Idx];
+    outputPositions[n1Idx] = inputPositions[n1Idx] + delta;
     return;
 }
