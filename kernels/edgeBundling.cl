@@ -1,4 +1,6 @@
+/*#define DEBUG*/
 #include "common.h"
+#undef DEBUG
 #include "gsCommon.cl"
 
 // Calculate the force of point b on point a, returning a vector indicating the movement to point a
@@ -100,6 +102,7 @@ __kernel void gaussSeidelMidsprings(
 	const __global uint2* springs,	           // 1: Array of (unsplit) springs, of the form [source node, targer node] (read-only)
 	const __global uint4* workList, 	           // 2: Array of (unsplit) spring [index, length] pairs to compute (read-only)
 	const __global float2* inputPoints,          // 3: Current point positions (read-only)
+  const __global float2* inputForces,
 	const __global float2* inputMidPoints,       // 4: Current midpoint positions (read-only)
 	__global float2* outputMidPoints,      // 5: Point positions after spring forces have been applied (write-only)
 	__global float4* springMidPositions,   // 6: Positions of the springs after forces are applied. Length
@@ -120,12 +123,19 @@ __kernel void gaussSeidelMidsprings(
 	const uint nodeId = workList[workItem].z;
 
   if (springsCount == 0) {
-      outputMidPoints[nodeId] = inputMidPoints[nodeId];
+      /*printf("HERE ERROR \n");*/
+      /*outputMidPoints[nodeId] = (0.0f, 0.0f); //inputMidPoints[nodeId];*/
       return;
+  }
+  if (workItem == 0) {
+    printf("Spring distance %f\n", springDistance);
   }
 
   const uint sourceIdx = springs[springsStart].x;
+  const uint dstIdx = springs[springsStart + springsCount].y;
   float2 start = inputPoints[sourceIdx];
+  float2 end = inputPoints[dstIdx];
+  float thisSpringDist = distance(start, end);
 
 	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);
 
@@ -136,24 +146,26 @@ __kernel void gaussSeidelMidsprings(
 		float2 nextQP = inputMidPoints[firstQPIdx];
 		float dist = distance(curQP, nextQP);
 		float2 nextForce = (dist > FLT_EPSILON) ?
-		    -1.0f * (curQP - nextQP) * alpha * springStrength * (dist - springDistance) / dist
+		    -1.0f * (curQP - nextQP) * alpha * springStrength * (dist - (thisSpringDist * springDistance)) / dist
 		    : 0.0f;
 
         for (uint qp = 0; qp < numSplits; qp++) {
         	// Set the color coordinate for this mid-spring to the coordinate of the start point
           /*midSpringColorCoords[curSpringIdx * (numSplits + 1) + qp] = (float4)(start, start);*/
 
-			/*float2 prevQP = curQP;*/
+      float2 prevQP = curQP;
 			float2 prevForce = nextForce;
 			curQP = nextQP;
 			nextQP = qp < numSplits - 1 ? inputMidPoints[firstQPIdx + qp + 1] : inputPoints[springs[curSpringIdx].y];
+		float dist = distance(curQP, nextQP);
 			nextForce = (dist > FLT_EPSILON) ?
-		        (nextQP - curQP) * alpha * springStrength * (dist - springDistance) / dist
+		        (nextQP - curQP) * alpha * springStrength * (dist - (thisSpringDist * springDistance)) / dist
 		        : 0.0f;
-		    float2 delta = (qp == numSplits - 1 ? 1.0f : 1.0f) * nextForce - (qp == 0 ? 1.0f : 1.0f) * prevForce;
-		    outputMidPoints[firstQPIdx + qp] = delta;
-        debug3("Delta x %f, y %f \n", delta.x, delta.y);
-        debug3("Prev Force x %f, y %f \n", prevForce.x, prevForce.y);
+		    float2 delta = (qp == numSplits - 1 ? 2.0f : 1.0f) * nextForce - (qp == 0 ? 2.0f : 1.0f) * prevForce;
+		    outputMidPoints[firstQPIdx + qp] = delta + inputForces[firstQPIdx + qp];
+        debug4("Delta in edge Bundling(%u) x %f, y %f \n", (firstQPIdx + qp) , outputMidPoints[firstQPIdx + qp], outputMidPoints[firstQPIdx + qp]);
+        debug6("QPs (%u) Prev x %f, y %f Next x %f, y %f\n", (firstQPIdx + qp), curQP.x, curQP.y, nextQP.x, nextQP.y);
+        /*debug6("In Midpoints eb Forces (%u) Prev Force x %f, y %f Next Force x %f, y %f\n", (firstQPIdx + qp), prevForce.x, prevForce.y, nextForce.x, nextForce.y);*/
         /*springMidPositions[curSpringIdx * (numSplits + 1) + qp] = (float4) (prevQP.x, prevQP.y, curQP.x, curQP.y);*/
 		}
     const uint dstIdx = springs[curSpringIdx].y;
