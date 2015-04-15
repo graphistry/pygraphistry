@@ -19,6 +19,7 @@ var util        = require('./js/util.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
 var labeler     = require('./js/labeler.js');
+var perf        = require('debug')('perf');
 
 
 
@@ -284,6 +285,7 @@ function init(app, socket) {
     socket.on('aggregate', function (query, cb) {
         debug('Got aggregate', query);
         graph.take(1).do(function (graph) {
+            perf('Selecting Indices');
             var qIndices
             if (query.all === true) {
                 qIndices = Q(_.range(graph.simulator.numPoints));
@@ -292,8 +294,10 @@ function init(app, socket) {
             }
 
            qIndices.then(function (indices) {
+                perf('Done selecting indices');
                 try {
                     var data = labeler.aggregate(graph, indices, query.attributes, query.binning, query.mode);
+                    perf('Sending back data');
                     cb({success: true, data: data});
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
