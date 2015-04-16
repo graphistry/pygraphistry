@@ -124,22 +124,27 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
     // For detecting duplicate edges.
     var edgeMap = {}
 
-    function addNode(node) {
+    var addNode = function (node) {
         if (!(node in node2Idx)) {
             idx2Node[nodeCount] = node;
             node2Idx[node] = nodeCount;
             nodeCount++;
         }
-    }
+    };
 
     var warnsLeftDuplicated = 100;
     var warnsLeftBi = 100;
-    function warnIfDuplicated(src, dst) {
+    var warnsLeftNull = 100;
+    var warnsLeftSelf = 100;
+    // 'a * 'a -> bool
+    // return true if dupe
+    var isBadEdge = function (src, dst) {
         var dsts = edgeMap[src] || {};
         if (dst in dsts) {
             if (warnsLeftDuplicated-- > 0) {
                 console.info('Edge %s -> %s is duplicated', src, dst);
             }
+            return true;
         }
 
         var srcs = edgeMap[dst] || {};
@@ -147,19 +152,40 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
             if (warnsLeftBi-- > 0) {
                 console.info('Edge %s <-> %s has both directions', src, dst);
             }
+            return true;
         }
-    }
 
+        if (src === undefined || dst === undefined || src === null || dst === null) {
+            if (warnsLeftNull-- > 0) {
+                console.info('Edge %s <-> %s has null field', src, dst);
+            }
+            return true;
+        }
+
+        if (src === dst) {
+            if (warnsLeftSelf-- > 0) {
+                console.info('Edge %s <-> %s is a self-edge', src, dst);
+            }
+            return true;
+        }
+
+        return false;
+    };
+
+    //return whether added
+    // -> bool
     function addEdge(node0, node1, entry) {
+
         var e = new pb_root.VectorGraph.Edge();
         e.src = node2Idx[node0];
         e.dst = node2Idx[node1];
         edges.push(e);
 
-        warnIfDuplicated(node0, node1);
         var dsts = edgeMap[node0] || {};
         dsts[node1] = true;
         edgeMap[node0] = dsts;
+
+        return true;
     }
 
     function addAttributes(vectors, entry) {
@@ -184,15 +210,16 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         console.log(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
     });
 
-    if (!(srcField in eheader) || eheader[srcField].count < elist.length) {
+    if (!(srcField in eheader)) {
         console.warn('Edges have no srcField' , srcField);
+        console.warn('header', eheader);
         return undefined;
     }
-    if (!(dstField in eheader) || eheader[dstField].count < elist.length) {
+    if (!(dstField in eheader)) {
         console.warn('Edges have no dstField' , dstField);
         return undefined;
     }
-    if (!(idField in nheader) || nheader[idField].count < nlabels.length) {
+    if (!(idField in nheader)) {
         console.warn('Nodes have no idField' , idField);
         return undefined;
     }
@@ -205,8 +232,13 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         var node1 = entry[dstField];
         addNode(node0);
         addNode(node1);
-        addEdge(node0, node1);
-        addAttributes(evectors, entry);
+        if (!isBadEdge(node0, node1)) {
+
+            //must happen after addNode
+            addEdge(node0, node1);
+
+            addAttributes(evectors, entry);
+        }
     });
 
     debug('Loading', nlabels.length, 'labels for', nodeCount, 'nodes');
@@ -224,7 +256,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
             sortedLabels[labelIdx] = label;
         } else {
             if (warnsLeftLabel-- > 0) {
-                console.info(sprintf('Skipping label #%6d (nodeId: %10s) which has no matching node.', i, nodeId));
+                console.info(sprintf('Skipping label #%6d (nodeId: %10s) which has no matching node. (ID field: %s, label: %s)', i, nodeId, idField, JSON.stringify(label)));
             }
         }
     }
