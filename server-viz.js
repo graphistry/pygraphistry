@@ -25,6 +25,9 @@ var perf        = require('debug')('perf');
 
 /**** GLOBALS ****************************************************/
 
+var SAVE_AT_EACH_STEP = false;
+
+
 // ----- BUFFERS (multiplexed over clients) ----------
 //Serve most recent compressed binary buffers
 //TODO reuse across users
@@ -477,7 +480,7 @@ function stream(socket, renderConfig, colorTexture) {
                 lastCompressedVbos[socket.id] = vbos.compressed;
 
                 //save
-                if (false) {
+                if (SAVE_AT_EACH_STEP && (step < 3 || Math.random() > 0.95)) {
                     console.log('serializing vbo');
                     prevHeader = {
                         elements: _.extend(prevHeader.elements, vbos.elements),
@@ -488,13 +491,34 @@ function stream(socket, renderConfig, colorTexture) {
                     var read = fs.readFileSync(__dirname + '/assets/viz/facebook.metadata.json', {encoding: 'utf8'});
                     var buffers = vbos.uncompressed;
                     for (var i in buffers) {
-                        var buff = new Buffer(buffers[i].byteLength);
-                        var arr = new Uint8Array(buffers[i]);
-                        for (var j = 0; j < buffers[i].byteLength; j++) {
-                            buff[j] = arr[j];
+                        var vboPath = __dirname + '/assets/viz/facebook.' + i + '.vbo';
+                        var raw = buffers[i];
+                        var buff = new Buffer(raw.byteLength);
+                        var arr = new Uint8Array(raw);
+                        for (var j = 0; j < raw.byteLength; j++) {
+                            buff[j] = raw[j];
                         }
-                        fs.writeFileSync(__dirname + '/assets/viz/facebook.' + i + '.vbo', buff);
-                        console.log('writing', __dirname + '/assets/viz/facebook.' + i + '.vbo', buffers[i].byteLength);
+
+                        fs.writeFileSync(vboPath, buff);
+                        var readback = fs.readFileSync(vboPath);
+
+                        console.log('writing', vboPath, raw.byteLength, buff.length);
+                        console.log('readback', readback.length);
+
+                        //check
+                        for (var j = 0; j < raw.byteLength; j++) {
+                            if (buff[j] !== raw[j]) {
+                                console.error('bad write', j, buff[j], raw[j]);
+                                throw 'exn';
+                            }
+                        }
+                        for (var j = 0; j < raw.byteLength; j++) {
+                            if (buff[j] !== readback[j]) {
+                                console.error('mismatch', j, buff[j], readback[j]);
+                                throw 'exn';
+                            }
+                        }
+
                     }
                     console.log('wrote/read', JSON.parse(read), _.keys(buffers));
                 }
