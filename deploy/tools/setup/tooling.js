@@ -253,14 +253,28 @@ function topoSort(node) {
     return sort;
 }
 
+function isEquivalent(v1, v2) {
+    var parts1 = v1.split('.');
+    var parts2 = v2.split('.');
+
+    var meat1 = parts1.slice(0, -1);
+    var meat2 = parts2.slice(0, -1);
+
+    return meat1.join() === meat2.join();
+}
 
 function distinctExternals(externals, checkVersionMismatch) {
     var mismatchs = {};
     var distinctExternals = _.reduce(externals, function (acc, dep) {
+        var modifier = dep.version[0];
+        if (modifier !== '~' && isNaN(modifier) && dep.version.indexOf('git') !== 0) {
+            console.warn('In %s, dependency %s is not set to bugfixes only (~): %s',
+                         dep.source, dep.name, dep.version);
+        }
         function sameDep(dep1, dep2) { return dep1.name === dep2.name; };
         var otherDep = _.find(acc, sameDep.bind('', dep));
         if (otherDep) {
-            if (otherDep.version !== dep.version) {
+            if (!isEquivalent(otherDep.version, dep.version)) {
                 var entries = mismatchs[dep.name] || {};
                 entries[dep.source] = dep.version;
                 entries[otherDep.source] = otherDep.version;
