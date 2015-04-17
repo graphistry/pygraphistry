@@ -16,6 +16,7 @@ var lConf       = require('./js/layout.config.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var util        = require('./js/util.js');
+var maybePersist= require('./js/persist.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
 var labeler     = require('./js/labeler.js');
@@ -24,9 +25,6 @@ var perf        = require('debug')('perf');
 
 
 /**** GLOBALS ****************************************************/
-
-var SAVE_AT_EACH_STEP = false;
-
 
 // ----- BUFFERS (multiplexed over clients) ----------
 //Serve most recent compressed binary buffers
@@ -463,8 +461,6 @@ function stream(socket, renderConfig, colorTexture) {
     var step = 0;
     var lastVersions = null;
 
-    var prevHeader = {elements: {}, bufferByteLengths: {}};
-
     graph.expand(function (graph) {
         step++;
 
@@ -476,53 +472,11 @@ function stream(socket, renderConfig, colorTexture) {
                                 activeBuffers, lastVersions, activePrograms)
             .do(function (vbos) {
                 debug('1. prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB', ticker);
+
                 //tell XHR2 sender about it
                 lastCompressedVbos[socket.id] = vbos.compressed;
 
-                //save
-                if (SAVE_AT_EACH_STEP && (step < 3 || Math.random() > 0.95)) {
-                    console.log('serializing vbo');
-                    prevHeader = {
-                        elements: _.extend(prevHeader.elements, vbos.elements),
-                        bufferByteLengths: _.extend(prevHeader.bufferByteLengths, vbos.bufferByteLengths)
-                    };
-                    fs.writeFileSync(__dirname + '/assets/viz/facebook.metadata.json',
-                        JSON.stringify(prevHeader));
-                    var read = fs.readFileSync(__dirname + '/assets/viz/facebook.metadata.json', {encoding: 'utf8'});
-                    var buffers = vbos.uncompressed;
-                    for (var i in buffers) {
-                        var vboPath = __dirname + '/assets/viz/facebook.' + i + '.vbo';
-                        var raw = buffers[i];
-                        var buff = new Buffer(raw.byteLength);
-                        var arr = new Uint8Array(raw);
-                        for (var j = 0; j < raw.byteLength; j++) {
-                            buff[j] = raw[j];
-                        }
-
-                        fs.writeFileSync(vboPath, buff);
-                        var readback = fs.readFileSync(vboPath);
-
-                        console.log('writing', vboPath, raw.byteLength, buff.length);
-                        console.log('readback', readback.length);
-
-                        //check
-                        for (var j = 0; j < raw.byteLength; j++) {
-                            if (buff[j] !== raw[j]) {
-                                console.error('bad write', j, buff[j], raw[j]);
-                                throw 'exn';
-                            }
-                        }
-                        for (var j = 0; j < raw.byteLength; j++) {
-                            if (buff[j] !== readback[j]) {
-                                console.error('mismatch', j, buff[j], readback[j]);
-                                throw 'exn';
-                            }
-                        }
-
-                    }
-                    console.log('wrote/read', JSON.parse(read), _.keys(buffers));
-                }
-
+                maybePersist(vbos, step);
 
             })
             .flatMap(function (vbos) {
