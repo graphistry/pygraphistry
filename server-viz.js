@@ -477,18 +477,27 @@ function stream(socket, renderConfig, colorTexture) {
                 lastCompressedVbos[socket.id] = vbos.compressed;
 
                 //save
-                prevHeader = {
-                    elements: _.extend(prevHeader.elements, vbos.elements),
-                    bufferByteLengths: _.extend(prevHeader.bufferByteLengths, vbos.bufferByteLengths)
-                };
-                fs.writeFileSync('/Users/lmeyerov/Desktop/work/graph-viz/assets/viz/facebook.metadata.json',
-                    JSON.stringify(prevHeader));
-                var read = fs.readFileSync('/tmp/offline/facebook.metadata.json', {encoding: 'utf8'});
-                var buffers = vbos.compressed;
-                for (var i in buffers) {
-                    fs.writeFileSync('/Users/lmeyerov/Desktop/work/graph-viz/assets/viz/facebook.' + i + '.vbo', buffers[i]);
+                if (false) {
+                    console.log('serializing vbo');
+                    prevHeader = {
+                        elements: _.extend(prevHeader.elements, vbos.elements),
+                        bufferByteLengths: _.extend(prevHeader.bufferByteLengths, vbos.bufferByteLengths)
+                    };
+                    fs.writeFileSync(__dirname + '/assets/viz/facebook.metadata.json',
+                        JSON.stringify(prevHeader));
+                    var read = fs.readFileSync(__dirname + '/assets/viz/facebook.metadata.json', {encoding: 'utf8'});
+                    var buffers = vbos.uncompressed;
+                    for (var i in buffers) {
+                        var buff = new Buffer(buffers[i].byteLength);
+                        var arr = new Uint8Array(buffers[i]);
+                        for (var j = 0; j < buffers[i].byteLength; j++) {
+                            buff[j] = arr[j];
+                        }
+                        fs.writeFileSync(__dirname + '/assets/viz/facebook.' + i + '.vbo', buff);
+                        console.log('writing', __dirname + '/assets/viz/facebook.' + i + '.vbo', buffers[i].byteLength);
+                    }
+                    console.log('wrote/read', JSON.parse(read), _.keys(buffers));
                 }
-                console.log('wrote/read', JSON.parse(read), _.keys(buffers));
 
 
             })
