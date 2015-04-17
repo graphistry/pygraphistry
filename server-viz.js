@@ -16,6 +16,7 @@ var lConf       = require('./js/layout.config.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var util        = require('./js/util.js');
+var maybePersist= require('./js/persist.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
 var labeler     = require('./js/labeler.js');
@@ -238,6 +239,10 @@ function init(app, socket) {
         qRenderConfig.then(function (renderConfig) {
             debug('Sending render-config to client');
             cb({success: true, renderConfig: renderConfig});
+
+            console.log('saving config', renderConfig);
+            fs.writeFileSync('/Users/lmeyerov/Desktop/work/graph-viz/assets/viz/facebook.renderconfig.json', JSON.stringify(renderConfig));
+
         }).fail(function (err) {
             cb({success: false, error: 'Unknown dataset or scene error'});
             util.makeErrorHandler('sending render_config')(err)
@@ -455,6 +460,7 @@ function stream(socket, renderConfig, colorTexture) {
     debug('SETTING UP CLIENT EVENT LOOP ===================================================================');
     var step = 0;
     var lastVersions = null;
+
     graph.expand(function (graph) {
         step++;
 
@@ -466,8 +472,12 @@ function stream(socket, renderConfig, colorTexture) {
                                 activeBuffers, lastVersions, activePrograms)
             .do(function (vbos) {
                 debug('1. prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB', ticker);
+
                 //tell XHR2 sender about it
                 lastCompressedVbos[socket.id] = vbos.compressed;
+
+                maybePersist(vbos, step);
+
             })
             .flatMap(function (vbos) {
                 debug('2. Waiting for client to finish previous', socket.id, ticker);
