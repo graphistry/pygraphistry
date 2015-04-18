@@ -16,7 +16,7 @@ var lConf       = require('./js/layout.config.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var util        = require('./js/util.js');
-var maybePersist= require('./js/persist.js');
+var persistor   = require('./js/persist.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
 var labeler     = require('./js/labeler.js');
@@ -240,8 +240,7 @@ function init(app, socket) {
             debug('Sending render-config to client');
             cb({success: true, renderConfig: renderConfig});
 
-            console.log('saving config', renderConfig);
-            fs.writeFileSync('/Users/lmeyerov/Desktop/work/graph-viz/assets/viz/facebook.renderconfig.json', JSON.stringify(renderConfig));
+            persistor.maybeSaveConfig(renderConfig);
 
         }).fail(function (err) {
             cb({success: false, error: 'Unknown dataset or scene error'});
@@ -476,7 +475,7 @@ function stream(socket, renderConfig, colorTexture) {
                 //tell XHR2 sender about it
                 lastCompressedVbos[socket.id] = vbos.compressed;
 
-                maybePersist(vbos, step);
+                persistor.maybeSaveVbos(vbos, step);
 
             })
             .flatMap(function (vbos) {
