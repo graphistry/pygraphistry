@@ -13,6 +13,9 @@
 @floating-box-shadow: 0 2px 4px rgba(0,0,0,0.3);
 @floating-border-radius: 3px;
 
+@graphistry-lightblue: #0fa5c5;
+@graphistry-darkblue: #0C1134;
+
 //////////////////////////////////////////////////////////////////////////////
 // Labels
 //////////////////////////////////////////////////////////////////////////////
@@ -680,19 +683,35 @@ button.btn-default {
         .string-cell {
             padding: 0px 5px;
             a {
-                color: rgb(51,51,102);
+                color: @dark-grey;
+                &:hover {
+                    color: @graphistry-lightblue;
+                }
             }
-            a:hover {
-                color: rgb(255,51,102);
+            &.ascending a, &.descending a {
+                color: @graphistry-lightblue;
             }
+        }
+
+        .ascending .sort-caret, .descending .sort-caret {
+            border-top-color: @graphistry-lightblue;
+            border-bottom-color: @graphistry-lightblue;
         }
     }
 
     .backgrid-paginator {
         font-size: 0.75em;
         font-weight: bold;
+        background-color: #f9f9f9;
+        li.active > a {
+            color: @graphistry-lightblue;
+        }
         li:not(.active) > a {
-            color: rgb(51,51,102);
+            color: @dark-grey;
+        }
+
+        li:not(.active) > a:hover {
+            color: @graphistry-lightblue;
         }
 
         ul {
@@ -729,7 +748,7 @@ button.btn-default {
     cursor: auto !important;
 
     &.panel {
-        background-color: @light-grey-background;
+        background-color: @light-grey-transparent;
         visibility: hidden;
         z-index: 10000;
         position: fixed;
@@ -755,20 +774,52 @@ button.btn-default {
         }
     }
 
-    #addHistogramButton {
-        margin: 10px;
+    #addHistogram {
+
+        .dropdown {
+            text-align: center;
+        }
+
+        #addHistogramButton {
+            background-color: white;
+            border: 1px solid @medium-grey;
+            color: @dark-grey;
+            margin: 10px;
+
+            font-weight: bold;
+            font-size: 0.75em;
+        }
+
+        #addHistogramButton:hover {
+            border-color: @graphistry-lightblue;
+            color: @graphistry-lightblue;
+        }
     }
 
+
     .divide-line {
-        width: 80%;
-        margin-top: 3px;
-        margin-bottom: 3px;
+        width: 100%;
+        border-bottom: solid 1px #DDD;
     }
+/*
+.divide-line {
+    margin-top: 1px;
+    margin-bottom: 1px;
+    margin-left: auto;
+    margin-right: auto;
+    width: 60%;
+
+*/
+
 
     .col-xs-1, .col-xs-10 {
         padding: 5px;
     }
 
+
+    .expandHistogramButton, .expandedHistogramButton {
+        font-size: 1.3em;
+    }
 
     @rotateDuration: 0.1s;
     .expandHistogramButton {
@@ -801,8 +852,11 @@ button.btn-default {
         margin-top: 4px;
         font-size: 0.7em;
         .fa {
-            color: @dark-grey;
+            color: @medium-grey;
 
+        }
+        .fa:hover {
+            color: @graphistry-lightblue;
         }
     }
 
@@ -828,12 +882,12 @@ button.btn-default {
     }
 
     .attributeName {
+        text-align: center;
         margin-left: 4px;
         padding-left: 4px;
         margin-top: 5px;
         z-index: 10002;
-        color: black;
-        font-weight: bold;
+        color: @dark-grey;
         font-size: 1em;
 
         &::first-letter {
@@ -843,6 +897,7 @@ button.btn-default {
 
     .histogramDiv {
         width: 100%;
+        background-color: @light-grey-background;
 
         .vizContainer {
             height: calc(100% - 30px);
@@ -860,10 +915,12 @@ button.btn-default {
         .axis {
             text {
                 font: 10px sans-serif;
+                fill: @dark-grey;
+
             }
             path, line {
                 fill: none;
-                stroke: #000;
+                stroke: @dark-grey;
                 shape-rendering: crispEdges;
             }
         }
@@ -897,14 +954,6 @@ button.btn-default {
 // Misc
 //////////////////////////////////////////////////////////////////////////////
 
-.divide-line {
-    margin-top: 1px;
-    margin-bottom: 1px;
-    margin-left: auto;
-    margin-right: auto;
-    width: 60%;
-    border-bottom: solid 1px @medium-grey;
-}
 
 html {
     overflow: hidden;
