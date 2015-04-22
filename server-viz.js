@@ -378,7 +378,7 @@ function stream(socket, renderConfig, colorTexture) {
         graph.take(1).do(function (graph) {
             graph.simulator.selectNodes(sel).then(function (indices) {
                 cb({success: true, count: indices.length});
-                qLastSelection = Q(labeler.infoFrame(graph, indices));
+                qLastSelection = Q(labeler.infoFrame(graph, 'point', indices));
             }).done(_.identity, util.makeErrorHandler('selectNodes'));
         }).subscribe(
             _.identity,
@@ -389,10 +389,14 @@ function stream(socket, renderConfig, colorTexture) {
         );
     });
 
-    socket.on('get_labels', function (indices, cb) {
+    socket.on('get_labels', function (query, cb) {
+
+        var indices = query.indices;
+        var dim = query.dim;
+
         graph.take(1)
             .map(function (graph) {
-                return labeler.getLabels(graph, indices);
+                return labeler.getLabels(graph, indices, dim);
             })
             .do(function (out) {
                 cb(null, out);
