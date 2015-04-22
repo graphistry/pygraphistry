@@ -116,6 +116,22 @@ function sliceSelection(dataFrame, start, end, sort_by, ascending) {
     return sorted.slice(start, end);
 }
 
+function read_selection(type, query, res) {
+    qLastSelection.then(function (lastSelection) {
+        if (!lastSelection || !lastSelection[type]) {
+            util.error('Client tried to read non-existent selection');
+            res.send();
+        }
+
+        var page = parseInt(query.page);
+        var per_page = parseInt(query.per_page);
+        var start = (page - 1) * per_page;
+        var end = start + per_page;
+        var data = sliceSelection(lastSelection[type], start, end,
+                                    query.sort_by, query.order === 'asc');
+        res.send(data);
+    }).fail(util.makeErrorHandler('read_selection qLastSelection'));
+}
 
 function init(app, socket) {
     debug('Client connected', socket.id);
@@ -200,24 +216,15 @@ function init(app, socket) {
         }
     });
 
-    app.get('/read_selection', function (req, res) {
-        debug('Got read_selection', req.query);
-        qLastSelection.then(function (lastSelection) {
-            if (!lastSelection) {
-                util.error('Client tried to read non-existent selection');
-                res.send();
-            }
-
-            var page = parseInt(req.query.page);
-            var per_page = parseInt(req.query.per_page);
-            var start = (page - 1) * per_page;
-            var end = start + per_page;
-            var data = sliceSelection(lastSelection, start, end,
-                                      req.query.sort_by, req.query.order === 'asc');
-            res.send(data);
-        }).fail(util.makeErrorHandler('read_selection qLastSelection'));
+    app.get('/read_node_selection', function (req, res) {
+        debug('Got read_node_selection', req.query);
+        read_selection('nodes', req.query, res);
     });
 
+    app.get('/read_edge_selection', function (req, res) {
+        debug('Got read_edge_selection', req.query);
+        read_selection('edges', req.query, res);
+    });
 
     // Get the datasetname from the socket query param, sent by Central
     var qDataset = loader.downloadDataset(query);
@@ -276,7 +283,13 @@ function init(app, socket) {
     socket.on('inspect_header', function (nothing, cb) {
         debug('inspect header');
         graph.take(1).do(function (graph) {
-            cb({success: true, header: labeler.frameHeader(graph)});
+            cb({
+                success: true,
+                header: {
+                    nodes: labeler.frameHeader(graph, 'point'),
+                    edges: labeler.frameHeader(graph, 'edge')
+                }
+            });
         }).subscribe(
             _.identity,
             function (err) {
@@ -376,9 +389,25 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('set_selection', function (sel, cb) {
         debug('Got set_selection');
         graph.take(1).do(function (graph) {
-            graph.simulator.selectNodes(sel).then(function (indices) {
-                cb({success: true, count: indices.length});
-                qLastSelection = Q(labeler.infoFrame(graph, 'point', indices));
+            graph.simulator.selectNodes(sel).then(function (nodeIndices) {
+                var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
+                cb({
+                    success: true,
+                    params: {
+                        nodes: {
+                            urn: '/read_node_selection',
+                            count: nodeIndices.length
+                        },
+                        edges: {
+                            urn: '/read_edge_selection',
+                            count: edgeIndices.length
+                        }
+                    }
+                });
+                qLastSelection = Q({
+                    nodes: labeler.infoFrame(graph, 'point', nodeIndices),
+                    edges: labeler.infoFrame(graph, 'edge', edgeIndices)
+                });
             }).done(_.identity, util.makeErrorHandler('selectNodes'));
         }).subscribe(
             _.identity,
