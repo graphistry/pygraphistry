@@ -664,23 +664,49 @@ button.btn-default {
 //////////////////////////////////////////////////////////////////////////////
 
 #inspector {
-    cursor: auto !important;
+    visibility: hidden;
+    z-index: 10000;
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 85%;
+    height: 16em;
+    margin: 0;
+    padding: 0;
+    background-color: @light-grey-background-2;
 
-    &.panel {
-        visibility: hidden;
-        z-index: 10000;
-        position: fixed;
-        left: 0;
-        bottom: 0;
-        width: 85%;
-        height: 10em;
-        margin: 0;
-        box-shadow: @floating-box-shadow;
-        background-color: @light-grey-background;
+    .inspector-tabs {
+        position: relative;
+        float: left;
+        width: 2.8em;
+    }
+
+    .tab-content {
+        position: relative;
+        width: 100%;
+        margin-left: 2.8em;
+        padding: 0;
+    }
+
+    .inspector {
+        cursor: auto !important;
+        width: 100%;
+        height: 16em;
+        overflow: auto;
+        &.panel {
+            box-shadow: @floating-box-shadow;
+            background-color: @light-grey-background-2;
+        }
     }
 
     .backgrid {
-        font-size:0.75em;
+        width: 100%;
+        font-size: 0.75em;
+
+        & > tbody {
+            background-color: white;
+        }
+
         th,
         .integer-cell,
         .string-cell {
@@ -703,9 +729,16 @@ button.btn-default {
     }
 
     .backgrid-paginator {
+        // Breaks scroll bars
+        //position: fixed;
+        //bottom: 0;
+        //width: 85%;
+
         font-size: 0.75em;
         font-weight: bold;
-        background-color: #f9f9f9;
+        background-color: @light-grey-background-2;
+
+
         li.active > a {
             color: @graphistry-lightblue;
         }
