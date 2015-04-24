@@ -29,6 +29,16 @@
 //label -> container -> title + (contents -> pair -> (key+value))
 .graph-label {
 
+    position: absolute;
+    z-index: 6000;
+    &.clicked {
+        z-index: 6500;
+    }
+    &.on:not(.clicked) {
+        z-index: 7000;
+    }
+
+
     //scrollbar
     &::-webkit-scrollbar,
     & .graph-label-container::-webkit-scrollbar,
@@ -69,8 +79,6 @@
         color: rgb(31, 31, 51);
     }
 
-    position: absolute;
-    z-index: 10000;
 
 
     //only selectable when clicked
@@ -109,7 +117,6 @@
         display: none;
     }
     &.on {
-        z-index: 100000;
         & .graph-label-title {
             max-height: none;
             max-width: none;
