@@ -138,6 +138,12 @@
         pointer-events: none;
     }
 
+    .label-type {
+        text-transform: uppercase;
+        font-size: 0.9em;
+        color: @dark-grey;
+    }
+
     .graph-label-contents {
         display: none;
     }
@@ -159,11 +165,11 @@
         }
 
         .graph-label-container.graph-label-point .graph-label-title .label-type:after {
-            content: " [Point]";
+            content: " Point";
         }
 
         .graph-label-container.graph-label-edge .graph-label-title .label-type:after {
-            content: " [Edge]";
+            content: " Edge";
         }
     }
 
