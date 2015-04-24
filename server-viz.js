@@ -424,6 +424,16 @@ function stream(socket, renderConfig, colorTexture) {
         var dim = query.dim;
 
         graph.take(1)
+            .do(function (graph) {
+                // If edge, convert from sorted to unsorted index
+                if (dim === 2) {
+                    var permutation = graph.simulator.bufferHostCopies.forwardsEdges.edgePermutationInverseTyped;
+                    var newIndices = _.map(indices, function (idx) {
+                        return permutation[idx];
+                    });
+                    indices = newIndices;
+                }
+            })
             .map(function (graph) {
                 return labeler.getLabels(graph, indices, dim);
             })
