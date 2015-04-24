@@ -786,6 +786,17 @@ button.btn-default {
         font-weight: bold;
         background-color: @light-grey-background-2;
 
+        li {
+            display: inline-block;
+            width: 2em;
+            margin-left: 5px;
+
+        }
+
+        li.disabled, li.disabled a {
+            color: @medium-grey !important;
+        }
+
 
         li.active > a {
             color: @graphistry-lightblue;
