@@ -131,11 +131,13 @@
 
     //hover effect: show & higher than other labels
     .graph-label-title {
+        width: 100%;
         max-width: 10em;
         display: inline-block;
         overflow:hidden;
         pointer-events: none;
     }
+
     .graph-label-contents {
         display: none;
     }
@@ -155,8 +157,15 @@
             overflow-x: hidden;
 
         }
-    }
 
+        .graph-label-container.graph-label-point .graph-label-title .label-type:after {
+            content: " [Point]";
+        }
+
+        .graph-label-container.graph-label-edge .graph-label-title .label-type:after {
+            content: " [Edge]";
+        }
+    }
 
     .graph-label-container {
         margin-top: 2.5em;
