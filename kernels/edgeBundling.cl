@@ -1,4 +1,4 @@
-/*#define DEBUG*/
+#define DEBUG
 #include "common.h"
 #undef DEBUG
 #include "gsCommon.cl"
@@ -127,17 +127,17 @@ __kernel void gaussSeidelMidsprings(
       /*outputMidPoints[nodeId] = (0.0f, 0.0f); //inputMidPoints[nodeId];*/
       return;
   }
-  if (workItem == 0) {
-    printf("Spring distance %f\n", springDistance);
-  }
 
   const uint sourceIdx = springs[springsStart].x;
-  const uint dstIdx = springs[springsStart + springsCount].y;
+  const uint dstIdx = springs[springsStart + springsCount - 1].y;
   float2 start = inputPoints[sourceIdx];
   float2 end = inputPoints[dstIdx];
-  float thisSpringDist = distance(start, end);
+  // TODO Should be set to num Splits
+  float thisSpringDist = springDistance * (distance(start, end)) / ((float) numSplits + 1);
+  debug6("Springs distance source %u dst %u, thisSpringDist %.9g springsStart %u springCount %u \n", sourceIdx, dstIdx, thisSpringDist, springsStart, springsCount);
 
-	const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);
+	/*const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);*/
+  const float alpha = 1.0f;
 
   for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
 
@@ -146,8 +146,9 @@ __kernel void gaussSeidelMidsprings(
 		float2 nextQP = inputMidPoints[firstQPIdx];
 		float dist = distance(curQP, nextQP);
 		float2 nextForce = (dist > FLT_EPSILON) ?
-		    -1.0f * (curQP - nextQP) * alpha * springStrength * (dist - (thisSpringDist * springDistance)) / dist
+		    -1.0f * (curQP - nextQP) * alpha * springStrength * (dist - (thisSpringDist)) / (dist)
 		    : 0.0f;
+        /*debug5("Spring strength in edge bundling(%u) this %.9g,  springDistance %.9g  comobined %.9g\n", (firstQPIdx) , thisSpringDist, springDistance, thisSpringDist * springDistance);*/
 
         for (uint qp = 0; qp < numSplits; qp++) {
         	// Set the color coordinate for this mid-spring to the coordinate of the start point
@@ -159,12 +160,12 @@ __kernel void gaussSeidelMidsprings(
 			nextQP = qp < numSplits - 1 ? inputMidPoints[firstQPIdx + qp + 1] : inputPoints[springs[curSpringIdx].y];
 		float dist = distance(curQP, nextQP);
 			nextForce = (dist > FLT_EPSILON) ?
-		        (nextQP - curQP) * alpha * springStrength * (dist - (thisSpringDist * springDistance)) / dist
+		        (nextQP - curQP) * alpha * springStrength * (dist - (thisSpringDist)) / (dist)
 		        : 0.0f;
 		    float2 delta = (qp == numSplits - 1 ? 2.0f : 1.0f) * nextForce - (qp == 0 ? 2.0f : 1.0f) * prevForce;
 		    outputMidPoints[firstQPIdx + qp] = delta + inputForces[firstQPIdx + qp];
-        debug4("Delta in edge Bundling(%u) x %f, y %f \n", (firstQPIdx + qp) , outputMidPoints[firstQPIdx + qp], outputMidPoints[firstQPIdx + qp]);
-        debug6("QPs (%u) Prev x %f, y %f Next x %f, y %f\n", (firstQPIdx + qp), curQP.x, curQP.y, nextQP.x, nextQP.y);
+        /*debug4("Delta in edge Bundling(%u) x %f, y %f \n", (firstQPIdx + qp) , outputMidPoints[firstQPIdx + qp], outputMidPoints[firstQPIdx + qp]);*/
+        /*debug6("QPs (%u) Prev x %f, y %f Next x %f, y %f\n", (firstQPIdx + qp), curQP.x, curQP.y, nextQP.x, nextQP.y);*/
         /*debug6("In Midpoints eb Forces (%u) Prev Force x %f, y %f Next Force x %f, y %f\n", (firstQPIdx + qp), prevForce.x, prevForce.y, nextForce.x, nextForce.y);*/
         /*springMidPositions[curSpringIdx * (numSplits + 1) + qp] = (float4) (prevQP.x, prevQP.y, curQP.x, curQP.y);*/
 		}

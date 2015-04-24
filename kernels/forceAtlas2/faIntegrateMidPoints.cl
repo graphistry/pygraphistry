@@ -21,23 +21,29 @@ __kernel void faIntegrate (
     float sqrtPoints = sqrt((float)numPoints);
     // Set to 0.1f
     /*float speedFactor = max(SPEED_CONSTANT * sqrtPoints / 1000.0f, 0.1f);*/
-    float speedFactor = 0.1f;
+    float speedFactor = 0.05f;
     // Set to 10
     //
     /*float maxSpeedFactor = max(SPEED_CONSTANT * sqrtPoints / 10.0f, 10.0f);*/
-    float maxSpeedFactor = 10.0f;
+    float maxSpeedFactor = 0.01f;
 
 
-    float normalizedSwing = sqrt( (swings[n1Idx] ) / (sqrtPoints) );
+    float2 delta;
+    if (swings[n1Idx] > 0.0f) {
+    float temp = 10000.0f * swings[n1Idx];
+    float normalizedSwing = pow((temp  / (sqrtPoints) ), 2.0f);
     float speed = speedFactor * (*globalSpeed) / (1.0f + (*globalSpeed) * normalizedSwing);
     float maxSpeed = maxSpeedFactor / length(curForces[n1Idx]);
 
 
-    float2 delta = min(speed, maxSpeed) * curForces[n1Idx];
+    delta = min(speed, maxSpeed) * curForces[n1Idx];
     /*float2 delta = (float2) curForces[n1Idx]; */
 
-    debug5("Speed (%d) %f max: %f, global_speed %f\n", n1Idx, speed, maxSpeed, *globalSpeed);
-    debug6("Delta in integrate (%d) %f\t%f \nforces x %f, y %f\n", n1Idx, delta.x, delta.y, curForces[n1Idx].x, curForces[n1Idx].y);
+    debug6("Speed (%d) %f max: %f, global_speed %f swing %.9g \n", n1Idx, speed, maxSpeed, *globalSpeed, normalizedSwing);
+    /*debug6("Delta in integrate (%d) %f\t%f \nforces x %f, y %f\n", n1Idx, delta.x, delta.y, curForces[n1Idx].x, curForces[n1Idx].y);*/
+    }  else {
+      delta = (float2) (0.0f, 0.0f);
+   }
 
     /*outputPositions[n1Idx] = inputPositions[n1Idx] + delta;*/
     outputPositions[n1Idx] = inputPositions[n1Idx] + delta;

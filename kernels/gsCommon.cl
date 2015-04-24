@@ -8,7 +8,8 @@ float2 pointForce(float2 a, float2 b, float force) {
     const float k = force / max((d.x * d.x) + (d.y * d.y), FLT_EPSILON);
     const float2 norm = normalize(d);
 
-    return (float2) (norm.x * k, norm.y * k);
+    /*return (float2) (norm.x * k, norm.y * k);*/
+    return (float2) (d.x * k, d.y * k);
 }
 
 float2 randomPoint(__local float2* points, unsigned int numPoints, __constant float2* randValues, unsigned int randOffset) {

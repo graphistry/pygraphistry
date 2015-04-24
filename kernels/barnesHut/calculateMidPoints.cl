@@ -86,6 +86,8 @@ __kernel void calculate_forces(
         const float scalingRatio, const float gravity, const unsigned int edgeWeightInfluence, const unsigned int flags,
         __global float *x_cords,
         __global float *y_cords,
+        __global float* edgeDirectionX,
+        __global float* edgeDirectionY,
         __global float *accx,
         __global float * accy,
         __global int* children,
@@ -135,13 +137,6 @@ __kernel void calculate_forces(
     //float forceX, forceY;
     float2 forceVector = (0.0f, 0.0f);
     float2 distVector = (0.0f, 0.0f);
-
-    if (idx == 0) {
-      debug2("Num of points in calculate midpoint %u \n", num_bodies);
-      printf("Charge %f \n", charge);
-    } 
-
-
 
     float px, py, ax, ay, dx, dy, temp;
     int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
@@ -212,6 +207,8 @@ __kernel void calculate_forces(
             index = sort[k];
             px = x_cords[index];
             py = y_cords[index];
+            float edgeDirX = edgeDirectionX[index];
+            float edgeDirY = edgeDirectionY[index];
             forceVector = (float2) (0.0f, 0.0f);
             depth = shared_mem_offset; // We use this to both keep track of depth and index into dq.
 
@@ -240,6 +237,7 @@ __kernel void calculate_forces(
                     mem_fence(CLK_LOCAL_MEM_FENCE);
                     if (child > NULLPOINTER) {
 
+
                         // Compute distances
                         dx = px - x_cords[child];
                         dy = py - y_cords[child];
@@ -256,11 +254,26 @@ __kernel void calculate_forces(
                           float2 n1Pos = (float2) (px, py);
                           float2 distVector = (float2) (dx, dy);
                           float2 otherPoint = (float2) (x_cords[child], y_cords[child]);
+                          float edgeDirXOtherPoint = edgeDirectionX[child];
+                          float edgeDirYOtherPoint = edgeDirectionY[child];
                           /*float err = fast_distance(otherPoint, myPos);*/
-                          if (fast_length(distVector) < FLT_EPSILON) {
+                          if (fast_length(distVector) < FLT_EPSILON * 500.0f) {
                             /*forceVector += 0.00001f * pointForce(n1Pos, otherPoint, alpha* charge * mass[child] * -1.0f);*/
+                            if (child < num_bodies && (child != index)) {
+                              /*printf("Distance %.9g px %.9g py %.9g x %.9g, y %.9g child %d, index %d\n", fast_length(distVector), px, py, x_cords[child], y_cords[child], child,*/
+                                /*index);*/
+                            /*printf("Index %d \n", (index * midpoints_per_edge) + midpoint_stride);*/
+                            /*swings[(index * midpoints_per_edge) + midpoint_stride] = -1.0f;*/
+                            } else {
+                              if (child > num_bodies) {
+                                printf("HERE ! \n");
+                              }
+                            }
                           } else {
-                            forceVector += 1.0f * (pointForce(n1Pos, otherPoint, charge * alpha * mass[child]) * -1.0f);
+                            if (child < num_bodies) {
+                              float edgeAngleCompat = (edgeDirXOtherPoint * edgeDirX) + (edgeDirYOtherPoint * edgeDirY);
+                              forceVector += edgeAngleCompat * edgeAngleCompat * 1.0f * (pointForce(n1Pos, otherPoint, charge * alpha * mass[child]) * -1.0f);
+                            }
                           }
                         } else {
                             // Push this cell onto the stack.
