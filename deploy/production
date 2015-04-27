@@ -9,6 +9,9 @@ mongodb_dbname="graphistry-prod"
 
 workers_count=16
 
+# The URL to the splunk instance the reverse proxy should route to
+splunk_url="demo.graphistry.com:8000"
+
 
 # When switching regions, run the following command locally to clear the existing pings (install
 # mongodb/mongo client locally first):

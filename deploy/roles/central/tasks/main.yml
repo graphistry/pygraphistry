@@ -107,6 +107,8 @@
   sudo: yes
   sudo_user: root
   notify: Restart nginx
+  tags:
+    - nginx
 
 - name: Configure nginx (main config file)
   copy: src=nginx.conf
@@ -117,6 +119,8 @@
   sudo: yes
   sudo_user: root
   notify: Restart nginx
+  tags:
+    - nginx
 
 - name: Configure nginx (individual config file)
   copy: src={{ item }}
@@ -129,6 +133,8 @@
   notify: Restart nginx
   with_fileglob:
     - nginx.conf.d/*
+  tags:
+    - nginx
 
 - name: Disable nginx default site
   file: path=/etc/nginx/sites-enabled/default
@@ -136,6 +142,8 @@
   sudo: yes
   sudo_user: root
   notify: Restart nginx
+  tags:
+    - nginx
 
 - name: Configure nginx to proxy to nodejs
   template: src=central.site.j2
@@ -146,3 +154,17 @@
   sudo: yes
   sudo_user: root
   notify: Restart nginx
+  tags:
+    - nginx
+
+- name: Configure nginx to proxy to central
+  template: src=proxy-central.site.j2
+            dest=/etc/nginx/sites-enabled/proxy-central
+            owner=root
+            group=www
+            mode=0664
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
+  tags:
+    - nginx
