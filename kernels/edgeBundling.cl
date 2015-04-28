@@ -129,17 +129,17 @@ __kernel void gaussSeidelMidsprings(
   }
 
   const uint sourceIdx = springs[springsStart].x;
-  const uint dstIdx = springs[springsStart + springsCount - 1].y;
   float2 start = inputPoints[sourceIdx];
-  float2 end = inputPoints[dstIdx];
   // TODO Should be set to num Splits
-  float thisSpringDist = springDistance * (distance(start, end)) / ((float) numSplits + 1);
   debug6("Springs distance source %u dst %u, thisSpringDist %.9g springsStart %u springCount %u \n", sourceIdx, dstIdx, thisSpringDist, springsStart, springsCount);
 
 	/*const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);*/
   const float alpha = 1.0f;
 
   for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
+    const uint dstIdx = springs[curSpringIdx].y;
+    float2 end = inputPoints[dstIdx];
+    float thisSpringDist = springDistance * (distance(start, end)) / ((float) numSplits + 1);
 
 	  float2 curQP = start;
 		uint firstQPIdx = curSpringIdx * numSplits;
@@ -169,7 +169,6 @@ __kernel void gaussSeidelMidsprings(
         /*debug6("In Midpoints eb Forces (%u) Prev Force x %f, y %f Next Force x %f, y %f\n", (firstQPIdx + qp), prevForce.x, prevForce.y, nextForce.x, nextForce.y);*/
         /*springMidPositions[curSpringIdx * (numSplits + 1) + qp] = (float4) (prevQP.x, prevQP.y, curQP.x, curQP.y);*/
 		}
-    const uint dstIdx = springs[curSpringIdx].y;
     /*float2 end = inputPoints[dstIdx];*/
     /*springMidPositions[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (curQP.x, curQP.y, end.x, end.y);*/
     /*midSpringColorCoords[(curSpringIdx + 1) * (numSplits + 1) - 1] = (float4) (start, start);*/
