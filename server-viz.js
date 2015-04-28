@@ -603,10 +603,14 @@ function stream(socket, renderConfig, colorTexture) {
 
 if (require.main === module) {
 
-    var express = require('express'),
-        app     = express(),
-        http    = require('http').Server(app),
-        io      = require('socket.io')(http, {transports: ['websocket']});
+    var url     = require('url');
+
+    var express = require('express');
+    var proxy   = require('express-http-proxy');
+
+    var app     = express();
+    var http    = require('http').Server(app);
+    var io      = require('socket.io')(http);
 
     debug('Config set to %j', config);
 
@@ -646,16 +650,30 @@ if (require.main === module) {
         });
     });
 
-
     io.on('connection', function (socket) {
         init(app, socket);
         socket.on('viz', function (msg, cb) { cb({success: true}); });
     });
 
+    debug('Binding', config.HTTP_LISTEN_ADDRESS, config.HTTP_LISTEN_PORT);
     var listen = Rx.Observable.fromNodeCallback(
             http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
 
-    listen.subscribe(
+    listen.do(function () {
+
+        //proxy worker requests
+        var from = '/worker/' + config.HTTP_LISTEN_PORT + '/';
+        var to = 'http://localhost:' + config.HTTP_LISTEN_PORT;
+        debug('setting up proxy', from, '->', to);
+        app.use(from, proxy(to, {
+            forwardPath: function(req, res) {
+                return url.parse(req.url).path.replace(RegExp('worker/' + config.HTTP_LISTEN_PORT + '/'),'/');
+            }
+        }));
+
+
+
+    }).subscribe(
         function () { console.log('\nViz worker listening...'); },
         util.makeRxErrorHandler('server-viz main')
     );
