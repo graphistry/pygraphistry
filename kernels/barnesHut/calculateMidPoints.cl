@@ -88,6 +88,7 @@ __kernel void calculate_forces(
         __global float *y_cords,
         __global float* edgeDirectionX,
         __global float* edgeDirectionY,
+        __global float* edgeLengths,
         __global float *accx,
         __global float * accy,
         __global int* children,
@@ -207,6 +208,7 @@ __kernel void calculate_forces(
             index = sort[k];
             px = x_cords[index];
             py = y_cords[index];
+            float edgeLength = edgeLengths[index];
             float edgeDirX = edgeDirectionX[index];
             float edgeDirY = edgeDirectionY[index];
             forceVector = (float2) (0.0f, 0.0f);
@@ -256,8 +258,10 @@ __kernel void calculate_forces(
                           float2 otherPoint = (float2) (x_cords[child], y_cords[child]);
                           float edgeDirXOtherPoint = edgeDirectionX[child];
                           float edgeDirYOtherPoint = edgeDirectionY[child];
+                          float edgeLengthOtherPoint = edgeLengths[child];
+                          float distVectorLength = fast_length(distVector);
                           /*float err = fast_distance(otherPoint, myPos);*/
-                          if (fast_length(distVector) < FLT_EPSILON * 500.0f) {
+                          if (distVectorLength < FLT_EPSILON * 500.0f) {
                             /*forceVector += 0.00001f * pointForce(n1Pos, otherPoint, alpha* charge * mass[child] * -1.0f);*/
                             if (child < num_bodies && (child != index)) {
                               /*printf("Distance %.9g px %.9g py %.9g x %.9g, y %.9g child %d, index %d\n", fast_length(distVector), px, py, x_cords[child], y_cords[child], child,*/
@@ -272,7 +276,13 @@ __kernel void calculate_forces(
                           } else {
                             if (child < num_bodies) {
                               float edgeAngleCompat = (edgeDirXOtherPoint * edgeDirX) + (edgeDirYOtherPoint * edgeDirY);
-                              forceVector += edgeAngleCompat * edgeAngleCompat * 1.0f * (pointForce(n1Pos, otherPoint, charge * alpha * mass[child]) * -1.0f);
+                              edgeAngleCompat = edgeAngleCompat * edgeAngleCompat * edgeAngleCompat;
+                              float averageLength = (edgeLength + edgeLengthOtherPoint) / 2.0f;
+                              float maxLength = max(edgeLength, edgeLengthOtherPoint);
+                              float minLength = min(edgeLength, edgeLengthOtherPoint);
+                              float edgeScaleCompat = 2.0f / ((maxLength / averageLength) + (minLength / averageLength));
+                              float positCompat = averageLength / (averageLength + distVectorLength);
+                              forceVector +=  edgeScaleCompat * edgeAngleCompat * (pointForce(n1Pos, otherPoint, charge * alpha * mass[child]) * -1.0f);
                             }
                           }
                         } else {

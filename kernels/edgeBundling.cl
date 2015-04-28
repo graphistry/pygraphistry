@@ -1,4 +1,4 @@
-#define DEBUG
+/*#define DEBUG*/
 #include "common.h"
 #undef DEBUG
 #include "gsCommon.cl"
