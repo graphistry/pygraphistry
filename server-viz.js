@@ -481,6 +481,18 @@ function stream(socket, renderConfig, colorTexture) {
 
     });
 
+    socket.on('fork_vgraph', function (query, cb) {
+        graph.take(1)
+            .do(function (graph) {
+                console.log('fork query', query);
+                cb(null, 'http://www.graphistry.com');
+            })
+            .subscribe(_.identity, function (err) {
+                util.makeRxErrorHandler('fork err', err);
+                cb('bad fork');
+            });
+    });
+
 
 
 
