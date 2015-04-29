@@ -22,7 +22,7 @@
     "dijkstra": "git+ssh://git@github.com:graphistry/dijkstra.git#dev/unabstracted",
     "dns": "~0.2.0",
     "express": "~4.12.3",
-    "express-http-proxy": "^0.6.0",
+    "express-http-proxy": "~0.6.0",
     "fs-tools": "~0.2.0",
     "gl-matrix": "~2.2.0",
     "less": "~2.2.0",
