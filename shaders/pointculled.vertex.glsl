@@ -22,7 +22,7 @@ void main(void) {
         gl_PointSize = stroke + clamp(zoomScalingFactor * pointSize, 17.0, maxPointSize);
     }
 
-    vec4 pos = mvp * vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);
+    vec4 pos = mvp * vec4(curPos.xy, Z_VAL, W_VAL);
     gl_Position = pos;
 
     vColor = vec4(stroke > 0.0 ? 0.5 * pointColor.xyz : pointColor.xyz, 0.8);
