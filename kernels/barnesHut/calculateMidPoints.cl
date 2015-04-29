@@ -239,53 +239,44 @@ __kernel void calculate_forces(
                     mem_fence(CLK_LOCAL_MEM_FENCE);
                     if (child > NULLPOINTER) {
 
-
                         // Compute distances
                         dx = px - x_cords[child];
                         dy = py - y_cords[child];
                         distVector = (float2) (dx, dy);
                         temp = dx*dx + (dy*dy + 0.00000000001);
 
-                        if ((child < num_bodies) || reduction_thread_vote(votingBuffer, temp >= dq[depth], starting_warp_thread_id, difference)) {
-                            // check if ALL threads agree that cell is far enough away (or is a body)
-
-                            // TODO: Determine how often we diverge when a few threads see a body, and the
-                            // rest fail because of insufficient distance.
-
-                            // Adding all forces
-                          float2 n1Pos = (float2) (px, py);
+                        // Edgebundling currently only uses the quadtree in order to test which points are close enough
+                        // to compute forces on. It does not compute forces with any of the summarized nodes.
+                        if ((child < num_bodies)) {
                           float2 distVector = (float2) (dx, dy);
-                          float2 otherPoint = (float2) (x_cords[child], y_cords[child]);
-                          float edgeDirXOtherPoint = edgeDirectionX[child];
-                          float edgeDirYOtherPoint = edgeDirectionY[child];
-                          float edgeLengthOtherPoint = edgeLengths[child];
                           float distVectorLength = fast_length(distVector);
-                          /*float err = fast_distance(otherPoint, myPos);*/
-                          if (distVectorLength < FLT_EPSILON * 500.0f) {
-                            /*forceVector += 0.00001f * pointForce(n1Pos, otherPoint, alpha* charge * mass[child] * -1.0f);*/
-                            if (child < num_bodies && (child != index)) {
-                              /*printf("Distance %.9g px %.9g py %.9g x %.9g, y %.9g child %d, index %d\n", fast_length(distVector), px, py, x_cords[child], y_cords[child], child,*/
-                                /*index);*/
-                            /*printf("Index %d \n", (index * midpoints_per_edge) + midpoint_stride);*/
-                            /*swings[(index * midpoints_per_edge) + midpoint_stride] = -1.0f;*/
-                            } else {
-                              if (child > num_bodies) {
-                                printf("HERE ! \n");
-                              }
-                            }
+                          // If the distance to the point is too small, skip the point.
+                          if (distVectorLength < FLT_EPSILON * 1.0f) {
+                            // TODO It may be worth looking into setting a flag on swings when this happens. With our current
+                            // datasets, this does not hit very often.
+                            /*printf("Distance between points is too small \n");*/
                           } else {
-                            if (child < num_bodies) {
-                              float edgeAngleCompat = fabs((edgeDirXOtherPoint * edgeDirX) + (edgeDirYOtherPoint * edgeDirY));
-                              edgeAngleCompat = edgeAngleCompat * edgeAngleCompat * edgeAngleCompat;
-                              float averageLength = (edgeLength + edgeLengthOtherPoint) / 2.0f;
-                              float maxLength = max(edgeLength, edgeLengthOtherPoint);
-                              float minLength = min(edgeLength, edgeLengthOtherPoint);
-                              float edgeScaleCompat = 2.0f / ((maxLength / averageLength) + (minLength / averageLength));
-                              float positCompat = averageLength / (averageLength + distVectorLength);
-                              forceVector +=  edgeScaleCompat * edgeAngleCompat * (pointForce(n1Pos, otherPoint, charge * alpha * mass[child]) * -1.0f);
-                            }
+                            float2 n1Pos = (float2) (px, py);
+                            float2 otherPoint = (float2) (x_cords[child], y_cords[child]);
+                            float edgeDirXOtherPoint = edgeDirectionX[child];
+                            float edgeDirYOtherPoint = edgeDirectionY[child];
+                            float edgeLengthOtherPoint = edgeLengths[child];
+                            // TODO It would be interesting to to having edges of opposite direction repel instead of attract each other.
+                            // TODO optimized registers.
+                            float edgeAngleCompat = (fmax((edgeDirXOtherPoint * edgeDirX), 0) + fmax((edgeDirYOtherPoint * edgeDirY), 0))/2;
+                            edgeAngleCompat = edgeAngleCompat * edgeAngleCompat * edgeAngleCompat;
+                            float averageLength = (edgeLength + edgeLengthOtherPoint) / 2.0f;
+                            float maxLength = max(edgeLength, edgeLengthOtherPoint);
+                            float minLength = min(edgeLength, edgeLengthOtherPoint);
+                            float edgeScaleCompat = 2.0f / ((maxLength / averageLength) + (minLength / averageLength));
+                            float positCompat = averageLength / (averageLength + distVectorLength);
+                            float2 projectionVector = dot(distVector, (float2) (edgeDirX, edgeDirY)) * (float2) (edgeDirX, edgeDirY);
+                            float midEdgeLength = edgeLength / midpoints_per_edge;
+                            float alignmentCompat = 1.0f / (1 + (length(projectionVector)) / (midEdgeLength));
+                            forceVector +=  alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(n1Pos, otherPoint, charge * alpha * mass[child]) * -1.0f);
                           }
-                        } else {
+                          // If all threads agree that cell is too far away, move on. 
+                        } else if (!(reduction_thread_vote(votingBuffer, temp >= dq[depth], starting_warp_thread_id, difference))) {
                             // Push this cell onto the stack.
                             depth++;
                             if (starting_warp_thread_id == local_id) {

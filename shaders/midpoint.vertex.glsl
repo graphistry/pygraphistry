@@ -9,7 +9,7 @@ attribute vec2 curPos;
 void main(void) {
     float w = 1.0;
 
-    gl_PointSize = 2.0;
+    gl_PointSize = 0.5;
 
     vec4 pos = vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);
     gl_Position = mvp * pos;
