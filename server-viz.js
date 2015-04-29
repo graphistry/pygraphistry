@@ -610,7 +610,7 @@ if (require.main === module) {
 
     var app     = express();
     var http    = require('http').Server(app);
-    var io      = require('socket.io')(http);
+    var io      = require('socket.io')(http, {path: '/worker/3000/socket.io'});
 
     debug('Config set to %j', config);
 
