@@ -275,7 +275,7 @@ __kernel void calculate_forces(
                             }
                           } else {
                             if (child < num_bodies) {
-                              float edgeAngleCompat = (edgeDirXOtherPoint * edgeDirX) + (edgeDirYOtherPoint * edgeDirY);
+                              float edgeAngleCompat = fabs((edgeDirXOtherPoint * edgeDirX) + (edgeDirYOtherPoint * edgeDirY));
                               edgeAngleCompat = edgeAngleCompat * edgeAngleCompat * edgeAngleCompat;
                               float averageLength = (edgeLength + edgeLengthOtherPoint) / 2.0f;
                               float maxLength = max(edgeLength, edgeLengthOtherPoint);
