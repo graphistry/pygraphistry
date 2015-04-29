@@ -95,6 +95,13 @@ __kernel void build_tree(
             ch = child[n*4+j];
         }
 
+        // Skip duplicate points or points below max depth
+        if (depth >= MAXDEPTH || (fabs(px - x_cords[n]) < FLT_EPSILON) && (fabs(py - y_cords[n]) < FLT_EPSILON)) {
+          i += inc;  // move on to next body
+          skip = 1;
+          continue;
+        }
+
         // Skip if the child is currently locked.
         if (ch != TREELOCK) {
             locked = n*4+j;
@@ -120,7 +127,7 @@ __kernel void build_tree(
                         // Error case
                         if (cell <= num_bodies) {
                             // TODO (paden) add error message
-                            // printf("BUILD TREE PROBLEM\n");
+                             /*printf("BUILD TREE PROBLEM\n");*/
                             *bottom = num_nodes;
                             return;
                         }
@@ -168,13 +175,9 @@ __kernel void build_tree(
                         // position. Just insert node arbitrarily. This should happen
                         // so rarely and at such a low depth, that the approximation
                         // should be tribial.
-                        if ((fabs(px - x_cords[ch]) < EPSILON2) && fabs(py - y_cords[ch]) < EPSILON && (ch != -1)) {
+                        if ((fabs(px - x_cords[ch]) <= FLT_EPSILON) && (fabs(py - y_cords[ch]) <= FLT_EPSILON) && (ch != -1)) {
                           j = 0;
-                          // Following lines are useful for debuging precision errors.
-                          /*int ch2 = ch;*/
-                          /*printf("K: %d, step: %d i %d, ch%d x, %.9g y %.9g ch_x %.9g ch_y %.9g depth: %d\n", j, step_number, i, ch2, x, y, x_cords[ch], y_cords[ch], depth);*/
                           while ((ch = child[n*4 + j]) > NULLPOINTER && j < 3) j++;
-                          /*printf("K: %d, step: %d i %d, ch%d x, %.9g y %.9g ch_x %.9g ch_y %.9g \n", j, step_number, i, ch2, x, y, x_cords[ch], y_cords[ch]);*/
                           // Even if child node has filled leaves, set ch to -1. This is a slightly
                           // larger approximation, but makes sure nothing breaks.
                           ch = -1;
