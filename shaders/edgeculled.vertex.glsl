@@ -2,13 +2,12 @@ precision mediump float;
 
 #define W_VAL 1.0
 #define Z_VAL 0.0
-#define SENSITIVITY 0.99
 
 uniform mat4 mvp;
-attribute vec2 curPos;
-varying float alpha;
 
+attribute vec2 curPos;
 attribute vec4 edgeColor;
+
 varying vec4 eColor;
 
 void main(void) {
@@ -18,9 +17,9 @@ void main(void) {
     float m = 1.0 / (1.02 - 1.05);
     float b = -1.0 * m * 1.05;
     float remapped = m * furthestComponent + b;
-    alpha = clamp(remapped, 0.0, 1.0);
+    float alpha = clamp(remapped, 0.0, 1.0);
 
     pos.z = 1.0 - alpha;
     gl_Position = pos;
-    eColor = edgeColor;
+    eColor =  vec4(edgeColor.xyz, alpha);
 }

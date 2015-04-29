@@ -2,16 +2,14 @@ precision highp float;
 
 #define W_VAL 1.0
 #define Z_VAL 0.1
-#define SENSITIVITY 0.5
 
-uniform mat4 mvp;
 attribute vec2 curPos;
-
 attribute float pointSize;
-
 attribute vec4 pointColor;
+
 varying vec4 vColor;
 
+uniform mat4 mvp;
 uniform float fog;
 uniform float stroke;
 uniform float zoomScalingFactor;
