@@ -37,6 +37,7 @@
 @menu-z:                      100001;
 @menus-z:                    1000000;
 @tooltip-z:                  1000001;
+@forker-z:                   1001000;
 
 //////////////////////////////////////////////////////////////////////////////
 // Labels
@@ -580,6 +581,19 @@ button.btn-default {
 
 }
 
+////////////
+
+
+.forker {
+    z-index: @forker-z;
+
+    .modal-body {
+        word-wrap: break-word
+    }
+}
+
+
+
 //////////////////////////////////////////////////////////////////////////////
 // Hidden by Debug
 //////////////////////////////////////////////////////////////////////////////
@@ -597,6 +611,14 @@ button.btn-default {
         display: inline-block;
     }
 
+    a#forkButton {
+        display: block;
+    }
+
+}
+
+a#forkButton {
+    display: none;
 }
 
 #timeSlider {

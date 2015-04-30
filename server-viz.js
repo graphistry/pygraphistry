@@ -17,9 +17,11 @@ var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var util        = require('./js/util.js');
 var persistor   = require('./js/persist.js');
+var labeler     = require('./js/labeler.js');
+var vgwriter    = require('./js/libs/VGraphWriter.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
-var labeler     = require('./js/labeler.js');
+
 var perf        = require('debug')('perf');
 
 
@@ -475,6 +477,23 @@ function stream(socket, renderConfig, colorTexture) {
 
     });
 
+    socket.on('fork_vgraph', function (name, cb) {
+        graph.take(1)
+            .do(function (graph) {
+                var vgName = 'Users/' + name;
+                vgwriter.save(graph, vgName).then(function () {
+                    cb({success: true, data: vgName});
+                }).done(
+                    _.identity,
+                    util.makeErrorHandler('fork_vgraph')
+                );
+            })
+            .subscribe(_.identity, function (err) {
+                cb({success: false, error: 'fork_vgraph error'});
+                util.makeRxErrorHandler('fork_vgraph error')(err);
+            });
+    });
+
 
 
 
@@ -604,7 +623,7 @@ if (require.main === module) {
 
     var app     = express();
     var http    = require('http').Server(app);
-    var io      = require('socket.io')(http);
+    var io      = require('socket.io')(http, {path: '/worker/3000/socket.io'});
 
     debug('Config set to %j', config);
 
