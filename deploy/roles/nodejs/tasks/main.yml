@@ -172,7 +172,7 @@
   npm: name=npm
        global=yes
        state=present
-       version=2.7.3
+       version=2.8.4
   environment: nodecl_env
   sudo: yes
 
