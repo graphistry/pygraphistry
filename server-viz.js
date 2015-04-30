@@ -17,9 +17,11 @@ var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var util        = require('./js/util.js');
 var persistor   = require('./js/persist.js');
+var labeler     = require('./js/labeler.js');
+var vgwriter    = require('./js/libs/VGraphWriter.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
-var labeler     = require('./js/labeler.js');
+
 var perf        = require('debug')('perf');
 
 
@@ -476,17 +478,24 @@ function stream(socket, renderConfig, colorTexture) {
     });
 
     socket.on('fork_vgraph', function (name, cb) {
+        try {
         graph.take(1)
             .do(function (graph) {
-                console.log('fork query', query);
-                setTimeout(
-                    cb.bind(null, {success: true, data: 'http://www.graphistry.com'}),
-                    3000);
+                var vgName = 'Users/' + name;
+                vgwriter.save(graph, vgName).then(function () {
+                    cb({success: true, data: vgName});
+                }).done(
+                    _.identity,
+                    util.makeErrorHandler('fork_vgraph')
+                );
             })
             .subscribe(_.identity, function (err) {
-                util.makeRxErrorHandler('fork err', err);
-                cb({success: false, error: 'bad fork'});
+                cb({success: false, error: 'fork_vgraph error'});
+                util.makeRxErrorHandler('fork_vgraph error', err);
             });
+        } catch (err) {
+            console.err('try catch', err);
+        }
     });
 
 
