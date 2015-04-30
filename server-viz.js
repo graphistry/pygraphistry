@@ -490,7 +490,7 @@ function stream(socket, renderConfig, colorTexture) {
             })
             .subscribe(_.identity, function (err) {
                 cb({success: false, error: 'fork_vgraph error'});
-                util.makeRxErrorHandler('fork_vgraph error', err);
+                util.makeRxErrorHandler('fork_vgraph error')(err);
             });
     });
 
