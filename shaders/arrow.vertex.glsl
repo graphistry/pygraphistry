@@ -15,11 +15,11 @@ attribute vec2 edgeVec;
 varying vec4 aColor;
 
 void main(void) {
-    float radius = clamp(zoomScalingFactor * pointSize, 7.0, maxPointSize) / 30.0;
+    float radius = clamp(zoomScalingFactor * pointSize, 7.0, maxPointSize) / 2000.0;
     vec4 offset = mvp * vec4(edgeVec.xy, Z_VAL, 0.0);
     
     vec4 pos0 = mvp * vec4(curPos.xy, Z_VAL, W_VAL);
-    vec4 pos = pos0 + 0.03 * offset;
+    vec4 pos = pos0 + radius * normalize(offset);
 
     float furthestComponent = max(abs(pos0.x), abs(pos0.y));
     float m = 1.0 / (1.02 - 1.05);

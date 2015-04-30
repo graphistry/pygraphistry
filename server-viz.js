@@ -72,12 +72,6 @@ function resetState(dataset) {
 }
 
 
-function getState() {
-    return animStep.graph.then(function (graph) {
-        return graph;
-    })
-}
-
 /**** END GLOBALS ****************************************************/
 
 
@@ -683,5 +677,4 @@ if (require.main === module) {
 
 module.exports = {
     init: init,
-    getState: getState
 }
