@@ -1,5 +1,5 @@
 var urllib   = require('url');
-
+var zlib     = require('zlib');
 var debug    = require('debug')('graphistry:etlworker:etl');
 var _        = require('underscore');
 var Q        = require('q');
@@ -8,9 +8,9 @@ var bodyParser  = require('body-parser');
 var config   = require('config')();
 
 var vgraph   = require('./vgraph.js');
-var vgwriter = require('../graph-viz/js/libs/VGraphWriter.js');
-var loader = require('../graph-viz/js/data-loader.js');
+var Cache = require('../graph-viz/js/cache.js');
 
+var tmpCache = new Cache(config.LOCAL_CACHE_DIR, config.LOCAL_CACHE);
 
 // Convert JSON edgelist to VGraph then upload VGraph to S3 and local /tmp
 // JSON
@@ -30,9 +30,16 @@ function etl(msg) {
 
     if (vg === undefined) {
         throw new Error('Invalid edgelist');
+    } else {
+        return publish(vg, name);
     }
+}
 
+
+// VGraph * String -> Promise[String]
+function publish(vg, name) {
     var metadata = {name: name};
+    var binData = vg.encode().toBuffer();
 
     function cacheLocally() {
         // Wait a couple of seconds to make sure our cache has a
@@ -40,28 +47,53 @@ function etl(msg) {
         var res = Q.defer();
         setTimeout(function () {
             debug('Caching dataset locally');
-            res.resolve(loader.cache(vg.encode().toBuffer(), urllib.parse(name)));
+            res.resolve(tmpCache.put(urllib.parse(name)), binData);
         }, 2000);
         return res.promise;
     }
 
     if (config.ENVIRONMENT === 'local') {
         debug('Attempting to upload dataset');
-        return vgwriter.uploadVGraph(vg, metadata)
+        return s3Upload(binData, metadata)
             .fail(function (err) {
                 console.error('S3 Upload failed', err.message);
             }).then(cacheLocally, cacheLocally) // Cache locally regardless of result
             .then(_.constant(name)); // We succeed iff cacheLocally succeeds
     } else {
         // On prod/staging ETL fails if upload fails
-        debug('Uploading dataset')
-        return vgwriter.uploadVGraph(vg, metadata)
+        debug('Uploading dataset');
+        return s3Upload(binData, metadata)
             .then(_.constant(name))
             .fail(function (err) {
                 console.error('S3 Upload failed', err.message);
             });
     }
 }
+
+
+// Buffer * {name: String, ...} -> Promise
+function s3Upload(binaryBuffer, metadata) {
+    debug('uploading VGraph', metadata.name);
+
+    return Q.nfcall(zlib.gzip, binaryBuffer)
+        .then(function (zipped) {
+            var params = {
+                Bucket: config.BUCKET,
+                Key: metadata.name,
+                ACL: 'private',
+                Metadata: metadata,
+                Body: zipped,
+                ServerSideEncryption: 'AES256'
+            };
+
+            debug('Upload size', (zipped.length/1000).toFixed(1), 'KB');
+            return Q.nfcall(config.S3.putObject.bind(config.S3), params);
+        })
+        .then(function () {
+            debug('Upload done', metadata.name);
+        });
+}
+
 
 // Handler for ETL requests on central/etl
 function post(k, req, res) {
@@ -114,6 +146,8 @@ function route (app, socket) {
     app.post('/etl', bodyParser.json({type: '*', limit: '64mb'}), post.bind('', done));
 
 }
+
+
 
 module.exports = {
     post: post,
