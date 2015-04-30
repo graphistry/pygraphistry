@@ -8,7 +8,7 @@ var bodyParser  = require('body-parser');
 var config   = require('config')();
 
 var vgraph   = require('./vgraph.js');
-var Cache = require('../graph-viz/js/cache.js');
+var Cache = require('common/cache.js');
 
 var tmpCache = new Cache(config.LOCAL_CACHE_DIR, config.LOCAL_CACHE);
 

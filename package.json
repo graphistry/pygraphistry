@@ -17,6 +17,7 @@
   },
   "homepage": "https://github.com/graphistry/etl-worker",
   "dependencies": {
+    "common": "git+ssh://git@github.com:graphistry/common.git#master",
     "debug": "~2.1.3",
     "protobufjs": "~3.8.0",
     "q": "~1.1.0",
