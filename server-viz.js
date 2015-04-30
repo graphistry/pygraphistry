@@ -475,6 +475,20 @@ function stream(socket, renderConfig, colorTexture) {
 
     });
 
+    socket.on('fork_vgraph', function (name, cb) {
+        graph.take(1)
+            .do(function (graph) {
+                console.log('fork query', query);
+                setTimeout(
+                    cb.bind(null, {success: true, data: 'http://www.graphistry.com'}),
+                    3000);
+            })
+            .subscribe(_.identity, function (err) {
+                util.makeRxErrorHandler('fork err', err);
+                cb({success: false, error: 'bad fork'});
+            });
+    });
+
 
 
 
@@ -604,7 +618,7 @@ if (require.main === module) {
 
     var app     = express();
     var http    = require('http').Server(app);
-    var io      = require('socket.io')(http);
+    var io      = require('socket.io')(http, {path: '/worker/3000/socket.io'});
 
     debug('Config set to %j', config);
 
