@@ -478,7 +478,6 @@ function stream(socket, renderConfig, colorTexture) {
     });
 
     socket.on('fork_vgraph', function (name, cb) {
-        try {
         graph.take(1)
             .do(function (graph) {
                 var vgName = 'Users/' + name;
@@ -493,9 +492,6 @@ function stream(socket, renderConfig, colorTexture) {
                 cb({success: false, error: 'fork_vgraph error'});
                 util.makeRxErrorHandler('fork_vgraph error', err);
             });
-        } catch (err) {
-            console.err('try catch', err);
-        }
     });
 
 
