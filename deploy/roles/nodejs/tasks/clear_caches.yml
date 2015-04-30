@@ -22,6 +22,19 @@
     - npm
     - npm_cache_clear
 
+- name: Create npm cache directory with proper permission
+  file: path="{{ npm_temp_path }}"
+        state=directory
+        owner=root
+        group=root
+        mode=1777
+  sudo: yes
+  sudo_user: root
+  tags:
+    - nodejs
+    - npm
+    - npm_cache_clear
+
 - name: Find home directories
   command: ls -1 /home
   register: ls_home
