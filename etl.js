@@ -1,3 +1,5 @@
+'use strict';
+
 var urllib   = require('url');
 var zlib     = require('zlib');
 var debug    = require('debug')('graphistry:etlworker:etl');
@@ -8,7 +10,8 @@ var bodyParser  = require('body-parser');
 var config   = require('config')();
 
 var vgraph   = require('./vgraph.js');
-var Cache = require('common/cache.js');
+var Cache    = require('common/cache.js');
+var s3       = require('common/s3.js');
 
 var tmpCache = new Cache(config.LOCAL_CACHE_DIR, config.LOCAL_CACHE);
 
@@ -73,25 +76,7 @@ function publish(vg, name) {
 
 // Buffer * {name: String, ...} -> Promise
 function s3Upload(binaryBuffer, metadata) {
-    debug('uploading VGraph', metadata.name);
-
-    return Q.nfcall(zlib.gzip, binaryBuffer)
-        .then(function (zipped) {
-            var params = {
-                Bucket: config.BUCKET,
-                Key: metadata.name,
-                ACL: 'private',
-                Metadata: metadata,
-                Body: zipped,
-                ServerSideEncryption: 'AES256'
-            };
-
-            debug('Upload size', (zipped.length/1000).toFixed(1), 'KB');
-            return Q.nfcall(config.S3.putObject.bind(config.S3), params);
-        })
-        .then(function () {
-            debug('Upload done', metadata.name);
-        });
+    return s3.upload(config.S3, config.BUCKET, metadata, binaryBuffer)
 }
 
 
