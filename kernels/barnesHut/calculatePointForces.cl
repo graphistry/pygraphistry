@@ -1,6 +1,8 @@
 #include "common.h"
 #include "barnesHut/barnesHutCommon.h"
 
+#define HALF_WARP (WARPSIZE / 2)
+
 inline int thread_vote(__local int* allBlock, int warpId, int cond)
 {
      /*Relies on underlying wavefronts (not whole workgroup)*/
@@ -19,45 +21,86 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
     return ret;
 }
 
-inline int reduction_thread_vote(__local int* buffer, int cond, int offset, int diff) {
+#ifdef INLINEPTX
+#define warpCellVote(buffer, distSquared, dq, warpId) ptx_thread_vote(distSquared, dq)
+#else
+#define warpCellVote(buffer, distSquared, dq, warpId) portable_all(buffer, distSquared, dq, warpId)
+#endif
+
+#ifdef INLINEPTX
+inline uint ptx_thread_vote(float rSq, float rCritSq) {
+    uint result = 0;
+    asm("{\n\t"
+         ".reg .pred cond, out;\n\t"
+         "setp.ge.f32 cond, %1, %2;\n\t"
+         "vote.all.pred out, cond;\n\t"
+         "selp.u32 %0, 1, 0, out;\n\t"
+         "}\n\t"
+         : "=r"(result)
+         : "f"(rSq), "f"(rCritSq));
+
+    return result;
+}
+#endif
+
+inline int portable_all(__local int volatile * buffer, const float distSquared, const float dq, const int warpId) {
+    int cond = (distSquared >= dq);
+    if (cond) {
+        buffer[warpId] = 1;
+    } else {
+        buffer[warpId] = 0;
+    }
+    return buffer[warpId];
+}
+
+inline int reduction_thread_vote(__local int* const buffer, const float distSquared, const float dq, const int offset, const int diff) {
     // Relies on the fact that the wavefront/warp (not whole workgroup)
     // is executing in lockstep to avoid a barrier
     // Also, in C (and openCL) a conditional is an int value of 0 or 1
+    int cond = (distSquared >= dq);
+
     int myoffset = offset + diff;
     buffer[myoffset] = cond;
+    __local int* myBuffer = buffer + myoffset;
+
 
     // Runs in log_2(WARPSIZE) steps.
-    for (int step = WARPSIZE / 2; step > 0; step = step / 2) {
+    for (int step = HALF_WARP; step > 0; step = step / 2) {
         if (diff < step) {
-            buffer[myoffset] = buffer[myoffset] + buffer[myoffset + step];
+            myBuffer[0] = myBuffer[0] + myBuffer[step];
         }
     }
+
     return (buffer[offset] == WARPSIZE);
 }
 
 
 
-inline float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
+
+inline float repulsionForce(const float distSquared, const uint n1DegreePlusOne, const uint n2DegreePlusOne,
                             const float scalingRatio, const bool preventOverlap) {
-    const float dist = length(distVec);
-    const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
+    const int degreeProd = (n1DegreePlusOne * n2DegreePlusOne);
     float force;
 
     if (preventOverlap) {
         //FIXME include in prefetch etc, use actual sizes
         float n1Size = DEFAULT_NODE_SIZE;
         float n2Size = DEFAULT_NODE_SIZE;
-        float distB2B = dist - n1Size - n2Size; //border-to-border
+        float distB2B = distSquared - n1Size - n2Size; //border-to-border
 
-        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / dist)
+        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / distSquared)
             : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
             : 0.0f;
     } else {
-        force = scalingRatio * degreeProd / dist;
+        // We use dist squared instead of dist because we want to normalize the
+        // distance vector as well
+        force = scalingRatio * degreeProd / distSquared;
     }
 
 #ifndef NOREPULSION
-    return clamp(force, 0.0f, 1000000.0f);
+    // Assuming always positive.
+    // return clamp(force, 0.0f, 1000000.0f);
+    return min(force, 1000000.0f);
 #else
     return 0.0f;
 #endif
@@ -67,9 +110,11 @@ inline float repulsionForce(const float2 distVec, const uint n1Degree, const uin
 inline float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
                           const bool strong) {
 
-    const float gForce = gravity *
-            (n1Degree + 1.0f) *
-            (strong ? length(centerVec) : 1.0f);
+    float gForce = gravity * (n1Degree + 1.0f);
+    if (strong) {
+        gForce *= fast_length(centerVec);
+    }
+
 #ifndef NOGRAVITY
     return gForce;
 #else
@@ -120,21 +165,22 @@ __kernel void calculate_forces(
     int k, index, i;
     float force;
 
-    //float forceX, forceY;
+    float forceX, forceY, distX, distY, repForce;
     float2 forceVector;
     float2 distVector;
+    const float2 halfDimensions = ((float2) (width, height))/2.0f;
 
 
 
-    float px, py, ax, ay, dx, dy, temp;
+    float px, py, temp, distSquared;
     int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
 
     // THREADS1/WARPSIZE is number of warps
-    __local volatile int child_index[MAXDEPTH * THREADS1/WARPSIZE], parent_index[MAXDEPTH * THREADS1/WARPSIZE];
-    __local volatile float dq[MAXDEPTH * THREADS1/WARPSIZE];
+    __local volatile int child_index[MAXDEPTH * THREADS_FORCES/WARPSIZE], parent_index[MAXDEPTH * THREADS_FORCES/WARPSIZE];
+    __local volatile float dq[MAXDEPTH * THREADS_FORCES/WARPSIZE];
 
     __local volatile int shared_step, shared_maxdepth;
-    __local int votingBuffer[THREADS1];
+    __local volatile int votingBuffer[THREADS_FORCES/WARPSIZE];
 
     if (local_id == 0) {
         int itolsqd = 1.0f / (0.5f*0.5f);
@@ -194,7 +240,11 @@ __kernel void calculate_forces(
             index = sort[k];
             px = x_cords[index];
             py = y_cords[index];
-            forceVector = (float2) (0.0f, 0.0f);
+
+            // forceVector = (float2) (0.0f, 0.0f);
+            forceX = 0.0f;
+            forceY = 0.0f;
+
             depth = shared_mem_offset; // We use this to both keep track of depth and index into dq.
 
             // initialize iteration stack, i.e., push root node onto stack
@@ -223,21 +273,28 @@ __kernel void calculate_forces(
                     if (child > NULLPOINTER) {
 
                         // Compute distances
-                        dx = px - x_cords[child];
-                        dy = py - y_cords[child];
-                        distVector = (float2) (dx, dy);
-                        temp = dx*dx + (dy*dy + 0.00000000001);
+                        distX = px - x_cords[child];
+                        distY = py - y_cords[child];
 
-                        if ((child < num_bodies) || reduction_thread_vote(votingBuffer, temp >= dq[depth], starting_warp_thread_id, difference)) {
+                        // distVector = (float2) (px - x_cords[child], py - y_cords[child]);
+                        distSquared = distX*distX + distY*distY + 0.000000000001f;
+
+                        if ((child < num_bodies) || warpCellVote(votingBuffer, distSquared, dq[depth], warp_id)) {
+
                             // check if ALL threads agree that cell is far enough away (or is a body)
 
                             // TODO: Determine how often we diverge when a few threads see a body, and the
                             // rest fail because of insufficient distance.
 
                             // Adding all forces
-                            forceVector += normalize(distVector) * repulsionForce(distVector, 1.0,
-                                            mass[child], scalingRatio, IS_PREVENT_OVERLAP(flags));
-                                // forceVector += (float2) (0.000001f, 0.000001f);
+                            repForce = repulsionForce(distSquared, 2.0f,
+                                            mass[child] + 1.0f, scalingRatio, IS_PREVENT_OVERLAP(flags));
+                            forceX += distX * repForce;
+                            forceY += distY * repForce;
+
+
+                            // forceVector += distVector * repulsionForce(distSquared, 2.0f,
+                            //                 mass[child] + 1.0f, scalingRatio, IS_PREVENT_OVERLAP(flags));
 
                         } else {
                             // Push this cell onto the stack.
@@ -258,11 +315,11 @@ __kernel void calculate_forces(
             }
 
             // Assigning force for force atlas.
+            forceVector = (float2) (forceX, forceY);
             float2 n1Pos = (float2) (px, py);
-            const float2 dimensions = (float2) (width, height);
-            const float2 centerVec = (dimensions / 2.0f) - n1Pos;
+            const float2 centerVec = halfDimensions - n1Pos;
             const float gForce = gravityForce(gravity, mass[index], centerVec, IS_STRONG_GRAVITY(flags));
-            pointForces[index] = normalize(centerVec) * gForce + forceVector * mass[index];
+            pointForces[index] = fast_normalize(centerVec) * gForce + forceVector * mass[index];
 
         }
     }
