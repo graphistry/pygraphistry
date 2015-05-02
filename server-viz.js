@@ -625,6 +625,10 @@ if (require.main === module) {
     var http    = require('http').Server(app);
     var io      = require('socket.io')(http, {path: '/worker/3000/socket.io'});
 
+    // Tell Express to trust reverse-proxy connections from localhost, linklocal, and private IP ranges.
+    // This allows Express to expose the client's real IP and protocol, not the proxy's.
+    app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal']);
+
     debug('Config set to %j', config);
 
     var nocache = function (req, res, next) {
