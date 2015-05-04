@@ -139,6 +139,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
     // 'a * 'a -> bool
     // return true if dupe
     var isBadEdge = function (src, dst) {
+
         var dsts = edgeMap[src] || {};
         if (dst in dsts) {
             if (warnsLeftDuplicated-- > 0) {
@@ -146,16 +147,6 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
             }
             return true;
         }
-
-/*
-        var srcs = edgeMap[dst] || {};
-        if (src in srcs) {
-            if (warnsLeftBi-- > 0) {
-                console.info('Edge %s <-> %s has both directions', src, dst);
-            }
-            return true;
-        }
-*/
 
         if (src === undefined || dst === undefined || src === null || dst === null) {
             if (warnsLeftNull-- > 0) {
