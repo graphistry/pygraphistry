@@ -190,7 +190,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
 
     function addAttributes(vectors, entry) {
         _.each(vectors, function (vector, name) {
-            if (name in entry && entry[name] !== null) {
+            if (name in entry && entry[name] !== null && entry[name] !== undefined) {
                 vector.values.push(vector.transform(entry[name]));
             } else {
                 vector.values.push(vector.default);
