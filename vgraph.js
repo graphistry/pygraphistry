@@ -147,6 +147,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
             return true;
         }
 
+/*
         var srcs = edgeMap[dst] || {};
         if (src in srcs) {
             if (warnsLeftBi-- > 0) {
@@ -154,6 +155,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
             }
             return true;
         }
+*/
 
         if (src === undefined || dst === undefined || src === null || dst === null) {
             if (warnsLeftNull-- > 0) {
