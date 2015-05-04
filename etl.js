@@ -50,7 +50,7 @@ function publish(vg, name) {
         var res = Q.defer();
         setTimeout(function () {
             debug('Caching dataset locally');
-            res.resolve(tmpCache.put(urllib.parse(name)), binData);
+            res.resolve(tmpCache.put(urllib.parse(name), binData));
         }, 2000);
         return res.promise;
     }
