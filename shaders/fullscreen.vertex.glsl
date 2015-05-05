@@ -8,7 +8,11 @@ varying vec2 textureCoords;
 const vec2 scale = vec2(0.5, 0.5);
 
 void main(void) {
+    // scale vertex attribute to [0,1] range
+    textureCoords = vertexPosition * scale + scale;
 
-    textureCoords = vertexPosition * scale + scale; // scale vertex attribute to [0,1] range
+    // Flip Y coordinate
+    textureCoords.y = 1.0 - textureCoords.y;
+
     gl_Position = vec4(vertexPosition, 1.0, 1.0);
 }
