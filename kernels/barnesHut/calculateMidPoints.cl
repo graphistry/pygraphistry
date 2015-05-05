@@ -1,8 +1,8 @@
-/*#define DEBUG*/
 #include "common.h"
-#undef DEBUG
 #include "gsCommon.cl"
 #include "barnesHut/barnesHutCommon.h"
+
+#define HALF_WARP (WARPSIZE / 2)
 
 inline int thread_vote(__local int* allBlock, int warpId, int cond)
 {
@@ -22,45 +22,86 @@ inline int thread_vote(__local int* allBlock, int warpId, int cond)
     return ret;
 }
 
-inline int reduction_thread_vote(__local int* buffer, int cond, int offset, int diff) {
+#ifdef INLINEPTX
+#define warpCellVote(buffer, distSquared, dq, warpId) ptx_thread_vote(distSquared, dq)
+#else
+#define warpCellVote(buffer, distSquared, dq, warpId) portable_all(buffer, distSquared, dq, warpId)
+#endif
+
+#ifdef INLINEPTX
+inline uint ptx_thread_vote(float rSq, float rCritSq) {
+    uint result = 0;
+    asm("{\n\t"
+         ".reg .pred cond, out;\n\t"
+         "setp.ge.f32 cond, %1, %2;\n\t"
+         "vote.all.pred out, cond;\n\t"
+         "selp.u32 %0, 1, 0, out;\n\t"
+         "}\n\t"
+         : "=r"(result)
+         : "f"(rSq), "f"(rCritSq));
+
+    return result;
+}
+#endif
+
+inline int portable_all(__local int volatile * buffer, const float distSquared, const float dq, const int warpId) {
+    int cond = (distSquared >= dq);
+    if (cond) {
+        buffer[warpId] = 1;
+    } else {
+        buffer[warpId] = 0;
+    }
+    return buffer[warpId];
+}
+
+inline int reduction_thread_vote(__local int* const buffer, const float distSquared, const float dq, const int offset, const int diff) {
     // Relies on the fact that the wavefront/warp (not whole workgroup)
     // is executing in lockstep to avoid a barrier
     // Also, in C (and openCL) a conditional is an int value of 0 or 1
+    int cond = (distSquared >= dq);
+
     int myoffset = offset + diff;
     buffer[myoffset] = cond;
+    __local int* myBuffer = buffer + myoffset;
+
 
     // Runs in log_2(WARPSIZE) steps.
-    for (int step = WARPSIZE / 2; step > 0; step = step / 2) {
+    for (int step = HALF_WARP; step > 0; step = step / 2) {
         if (diff < step) {
-            buffer[myoffset] = buffer[myoffset] + buffer[myoffset + step];
+            myBuffer[0] = myBuffer[0] + myBuffer[step];
         }
     }
+
     return (buffer[offset] == WARPSIZE);
 }
 
 
 
-inline float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
+
+inline float repulsionForce(const float distSquared, const uint n1DegreePlusOne, const uint n2DegreePlusOne,
                             const float scalingRatio, const bool preventOverlap) {
-    const float dist = length(distVec);
-    const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
+    const int degreeProd = (n1DegreePlusOne * n2DegreePlusOne);
     float force;
 
     if (preventOverlap) {
         //FIXME include in prefetch etc, use actual sizes
         float n1Size = DEFAULT_NODE_SIZE;
         float n2Size = DEFAULT_NODE_SIZE;
-        float distB2B = dist - n1Size - n2Size; //border-to-border
+        float distB2B = distSquared - n1Size - n2Size; //border-to-border
 
-        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / dist)
+        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / distSquared)
             : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
             : 0.0f;
     } else {
-        force = scalingRatio * degreeProd / dist;
+        // We use dist squared instead of dist because we want to normalize the
+        // distance vector as well
+        force = scalingRatio * degreeProd / distSquared;
     }
 
 #ifndef NOREPULSION
-    return clamp(force, 0.0f, 1000000.0f);
+    // Assuming always positive.
+    // return clamp(force, 0.0f, 1000000.0f);
+    return min(force, 1000000.0f);
 #else
     return 0.0f;
 #endif
@@ -70,9 +111,11 @@ inline float repulsionForce(const float2 distVec, const uint n1Degree, const uin
 inline float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
                           const bool strong) {
 
-    const float gForce = gravity *
-            (n1Degree + 1.0f) *
-            (strong ? length(centerVec) : 1.0f);
+    float gForce = gravity * (n1Degree + 1.0f);
+    if (strong) {
+        gForce *= fast_length(centerVec);
+    }
+
 #ifndef NOGRAVITY
     return gForce;
 #else
@@ -120,9 +163,6 @@ __kernel void calculate_forces(
         const uint midpoints_per_edge
 ){
 
-    /*if (gid == get_global_id(0)) {*/
-        /*printf("Stride %d, midpoints_per_edge %d \n", midpoint_stride, midpoints_per_edge);*/
-    /*}*/
     debugonce("calculate forces\n");
 
     const int idx = get_global_id(0);
@@ -143,14 +183,13 @@ __kernel void calculate_forces(
     int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
 
     // THREADS1/WARPSIZE is number of warps
-    __local volatile int child_index[MAXDEPTH * THREADS1/WARPSIZE], parent_index[MAXDEPTH * THREADS1/WARPSIZE];
-    __local volatile float dq[MAXDEPTH * THREADS1/WARPSIZE];
+    __local volatile int child_index[MAXDEPTH * THREADS_FORCES/WARPSIZE], parent_index[MAXDEPTH * THREADS_FORCES/WARPSIZE];
+    __local volatile float dq[MAXDEPTH * THREADS_FORCES/WARPSIZE];
 
     __local volatile int shared_step, shared_maxdepth;
-    __local int votingBuffer[THREADS1];
+    __local volatile int votingBuffer[THREADS_FORCES/WARPSIZE];
 
     if (local_id == 0) {
-      /*printf("num_nodes %d, num_bodies %d \n", num_nodes, num_bodies);*/
         int itolsqd = 1.0f / (0.5f*0.5f);
         shared_step = *step; // local
         shared_maxdepth = *maxdepth; // local
@@ -276,7 +315,7 @@ __kernel void calculate_forces(
                             forceVector +=  alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(n1Pos, otherPoint, charge * alpha * mass[child]) * -1.0f);
                           }
                           // If all threads agree that cell is too far away, move on. 
-                        } else if (!(reduction_thread_vote(votingBuffer, temp >= dq[depth], starting_warp_thread_id, difference))) {
+                        } else if (!(warpCellVote(votingBuffer, temp, dq[depth], warp_id))) {
                             // Push this cell onto the stack.
                             depth++;
                             if (starting_warp_thread_id == local_id) {
