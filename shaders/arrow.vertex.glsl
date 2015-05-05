@@ -39,7 +39,7 @@ void main(void) {
     vec4 offset = abs(normalDir) * edgeVecN + 0.5 * normalDir * normalVecN;
     float semanticSizeFactor = clamp(-75.0 * edgeLength + 135.0, 60.0, 120.0);
     //float semanticSizeFactor = clamp(-100.0 * edgeLength + 170.0, 70.0, 160.0);
-    float arrowSize = maxScreenSize / semanticSizeFactor;
+    float arrowSize = 0.8 * maxScreenSize / semanticSizeFactor;
     vec4 pos0 = pointPos + arrowSize * offset;
 
     // Displace arrow to move the tip from the center to the edge of the point.
@@ -53,7 +53,7 @@ void main(void) {
     culledAlpha(screenPointPos.xy, alpha);
 
     // Clip small arrows by placing them behing the far plane.
-    pos.z = edgeLength < 0.2 ? 100.0 : 1.0 - alpha;
+    pos.z = edgeLength < 0.05 ? 100.0 : 1.0 - alpha;
 
     gl_Position = pos;
     aColor = vec4(arrowColor.xyz, alpha);
