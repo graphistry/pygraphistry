@@ -36,6 +36,8 @@
     - provision
     - deploy
     - local
+    - central_deploy
+    - workers_deploy
 
 - hosts: all:!localhost
   gather_facts: no
@@ -72,7 +74,7 @@
 - hosts: workers
   roles:
    - { role: cuda, tags: [ 'provision' , 'cuda' ] }
-   - { role: worker, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
+   - { role: worker, sudo: yes, sudo_user: www, tags: [ 'deploy', 'workers_deploy' ] }
   tags:
     - workers
 
@@ -82,6 +84,7 @@
   tags:
     - central
     - deploy
+    - central_deploy
 
 
 - hosts: localhost
@@ -92,3 +95,5 @@
     - provision
     - deploy
     - local
+    - central_deploy
+    - workers_deploy
