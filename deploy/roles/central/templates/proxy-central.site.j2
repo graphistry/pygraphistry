@@ -33,7 +33,7 @@ server {
         proxy_buffering         off;
     }
 
-    location ~* ^/(graphistry|graph|uber|api)/?.* {
+    location ~* ^/(graphistry|graph|horizon|uber|api)/?.* {
         proxy_pass              http://proxy-central;
     }
 
