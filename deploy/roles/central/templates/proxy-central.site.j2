@@ -37,6 +37,9 @@ server {
         proxy_pass              http://proxy-central;
     }
 
+    location ~* /StreamGL\.(js|map)$ {
+        proxy_pass              http://proxy-central;
+    }
 
     location ~* ^/worker/(?<worker_port>100[0-9][0-9])/?.* {
         rewrite                 ^/worker/(100[0-9][0-9])(/?.*)$ $2 break;
