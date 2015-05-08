@@ -191,7 +191,7 @@ def kill_process(pid):
         return False
 
 
-def advertise_gpu_memory(gpu_collection, workers_collection):
+def advertise_gpu_memory(gpu_collection):
     """Updates the database with the current amount of GPU memory available on this instance."""
     gpu_memory_free = get_available_memory()
     gpu_collection.update({'ip': ip}, {'$set':
@@ -259,7 +259,7 @@ if __name__=="__main__":
 
     while 1:
         try:
-            advertise_gpu_memory(gpu_collection, workers_collection)
+            advertise_gpu_memory(gpu_collection)
             reap_workers(workers_collection)
             advertise_process_memory(workers_collection)
 
