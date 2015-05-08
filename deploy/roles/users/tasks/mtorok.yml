@@ -110,6 +110,7 @@
     - automake
     - socat
     - cmake
+    - python-pygments
   sudo: yes
   sudo_user: root
 
