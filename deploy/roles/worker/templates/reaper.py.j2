@@ -219,8 +219,8 @@ def advertise_process_memory(workers_collection):
         active_users = workers_collection.find({"ip": ip, "active": True}).count()
         log_boundary("ACTIVE_USERS", active_users)
 
-        inactive_workers = workers_collection.find({"ip": ip, "active": False}).count()
-        log_boundary("INACTIVE_WORKERS", inactive_workers)
+        # inactive_workers = workers_collection.find({"ip": ip, "active": False}).count()
+        # log_boundary("INACTIVE_WORKERS", inactive_workers)
     except Exception as activity_err:
         console.warn("Error while attempting to count and log active/inactive workers: {err}".format(err=str(activity_err)))
 
