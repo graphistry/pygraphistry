@@ -6,6 +6,7 @@ import subprocess
 import socket
 import time
 import os
+import random
 import signal
 import urllib2
 import requests
@@ -56,6 +57,29 @@ def connect_mongo():
 def setup_db(workers_collection):
     """ Sets up the database collections, specifically ensuring the right indices exist."""
     return workers_collection.ensure_index( [("port", ASCENDING), ("ip", ASCENDING), ("pid", ASCENDING)], unique=True )
+
+
+def cleanup_server_records(gpu_collection, workers_collection):
+    """
+    Goes into the db and deletes records for workers belongind to servers who are no longer
+    registered in the db. Necessary because reaper.py won't be running for that server anymore, and
+    reaper.py normally only concerns itself with workers for the server it's running on.
+    """
+    active_addresses = []
+
+    servers = gpu_collection.find({}, {"ip": True})
+    for server in servers:
+        active_addresses.append({server["ip"]})
+
+    logger.debug("Active viz server ip addresses: {active}".format(
+        active=", ".join(active_addresses) ))
+
+    removed_workers = workers_collection.delete_many({"ip": {"$nin": active_addresses}})
+
+    if removed_workers.deleted_count > 0:
+        logging.info("Removed {count} stale worker entries from the database".format(count=removed_workers.deleted_count))
+
+    return removed_workers.deleted_count
 
 
 def str_to_bytes(human_size):
@@ -231,13 +255,26 @@ if __name__=="__main__":
 
     setup_db(workers_collection)
 
+    tick_count = 0
+
     while 1:
         try:
             advertise_gpu_memory(gpu_collection, workers_collection)
             reap_workers(workers_collection)
             advertise_process_memory(workers_collection)
+
+            # Do this at a random, but long-ish, interval to save work, and ensure multiple reapers
+            # don't all do this at the same time.
+            if tick_count <= 0:
+                tick_count = random.randint(10, 20)
+                logger.debug('Cleaning workers table of records belong to do dead servers')
+                cleanup_server_records(gpu_collection, workers_collection)
+
         except errors.ConnectionFailure:
             logger.error("!! Error: lost connection to the Mongo database. Attempting to reconnect...")
             gpu_collection, workers_collection = connect_mongo()
+
+        finally:
+            tick_count -= 1
 
         time.sleep(25)
