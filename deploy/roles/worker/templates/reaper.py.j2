@@ -14,8 +14,18 @@ from requests.auth import HTTPBasicAuth
 import logging
 import sys
 
-logger = logging.getLogger()
+loggerParent = logging.getLogger()
+loggerParent.setLevel(logging.ERROR)
+
+# Quiet down request's log output
+requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.ERROR)
+requests_log.propagate = False
+
+# Our own logging object
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+logger.propagate = True
 
 ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.INFO)
@@ -111,7 +121,7 @@ def gpu_process_usage():
         gpu_process_pid = int(process_data[1])
         gpu_memory_used = str_to_bytes(process_data[0])
 
-        logger.info('Process PID {pid} is using {mem} bytes of GPU memory'.format(pid=gpu_process_pid, mem=gpu_memory_used))
+        logger.debug('Process PID {pid} is using {mem} bytes of GPU memory'.format(pid=gpu_process_pid, mem=gpu_memory_used))
         gpu_processes.append({'pid': gpu_process_pid, 'memory': gpu_memory_used, 'raw': process})
 
     return gpu_processes
@@ -147,7 +157,7 @@ def kill_process(pid):
                 raise oserr
 
         if process_is_running(pid):
-            logger.error("!! Error: could not kill process {pid} because our powers are useless on it! (we sent it a SIGTERM, but the process is still running)".format(pid=pid))
+            logger.error("!! Error: could not kill process {pid}! Our powers are useless! (we sent it a SIGTERM, but the process is still running)".format(pid=pid))
             raise ProcessTermError(pid, "sent SIGTERM, but process still running")
 
         logger.warn("Successfully killed process {pid}".format(pid=pid))
@@ -165,7 +175,7 @@ def advertise_gpu_memory(gpu_collection, workers_collection):
             'gpu_memory_free': gpu_memory_free,
             'updated': datetime.utcnow()
         }}, True)
-    logger.info('GPU memory available: {mem}'.format(mem=gpu_memory_free))
+    logger.debug('GPU memory available: {mem}'.format(mem=gpu_memory_free))
     log_boundary("GPU_FREE", gpu_memory_free)
 
 
@@ -208,7 +218,7 @@ def reap_workers(workers_collection):
             if kill_process(int(worker['pid'])):
                 logger.info('Reaped worker with PID {pid}'.fomat(worker['pid']))
             else:
-                logger.info('Worker with PID {pid} was not running, so its ping was removed from the database'.format(pid=worker['pid']))
+                logger.warn('Worker with PID {pid} was not running, so we just removed its ping from the database'.format(pid=worker['pid']))
             workers_collection.remove({"_id": worker['_id']})
 
         except Exception as e:
