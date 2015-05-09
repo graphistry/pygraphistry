@@ -1,6 +1,7 @@
 ---
 - name: Install pymongo
   pip: name=pymongo
+       version=3.0.1
   sudo: yes
 
 - name: Set Supervisor config for reaper.py
