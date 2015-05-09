@@ -134,8 +134,6 @@ def gpu_process_usage():
                             "--format=csv,noheader"], stdout=subprocess.PIPE)
     gpu_memory_by_process = p.communicate()[0].split('\n')
 
-    logger.debug('GPU driver GPU memory used by process: {}'.format(gpu_memory_by_process))
-
     gpu_processes = []
     for process in gpu_memory_by_process:
         process_data = process.replace(' ', '').split(',')
@@ -145,8 +143,11 @@ def gpu_process_usage():
         gpu_process_pid = int(process_data[1])
         gpu_memory_used = str_to_bytes(process_data[0])
 
-        logger.debug('Process PID {pid} is using {mem} bytes of GPU memory'.format(pid=gpu_process_pid, mem=gpu_memory_used))
+        logger.debug('Process GPU memory: pid: {pid}, {mem} bytes'.format(pid=gpu_process_pid, mem=gpu_memory_used))
         gpu_processes.append({'pid': gpu_process_pid, 'memory': gpu_memory_used, 'raw': process})
+
+    if len(gpu_memory_by_process) < 1:
+        logger.debug('Process GPU memory: no processes are using GPU memory at this time')
 
     return gpu_processes
 
