@@ -11,15 +11,45 @@ import signal
 import urllib2
 import requests
 from requests.auth import HTTPBasicAuth
+import sys
+
+
+#########################
+# Constants
+#########################
+
+# The number of seconds without a ping before a worker process is considered a zombie
+WORKER_TIMEOUT = 30
+
+DATABASE = '{{ mongodb_dbname }}'
+MONGO_SERVER = '{{ mongodb_url }}'
+
+
+auth = HTTPBasicAuth('{{ boundary_username }}', '{{ boundary_password }}')
+ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
+hostname = socket.gethostname()
+fqdn = socket.getfqdn()
+reaper_pid = os.getpid()
+
+
+#########################
+# Logging
+#########################
 
 import logging
-import sys
+
+# Output dates in GMT
+logging.Formatter.converter = time.gmtime
+
+# Optimizations for logging library to not lookup calling stack frame, or collect threading info
+logging._srcfile = None
+logging.logThreads = 0
 
 loggerParent = logging.getLogger()
 loggerParent.setLevel(logging.ERROR)
 
 # Quiet down request's log output
-requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log = logging.getLogger("requests")
 requests_log.setLevel(logging.ERROR)
 requests_log.propagate = False
 
@@ -30,20 +60,22 @@ logger.propagate = True
 
 ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s :: %(message)s')
+
+# Format the output as JSON
+formatter = logging.Formatter(
+    '{"name": "reaper.py", "hostname": "' + str(hostname) + '", "pid": ' + str(reaper_pid) + \
+        ', "level": %(levelno)s, "time": "%(asctime)s", "content": {"type": "%(levelname)s", "pid": "' + \
+        str(reaper_pid) + '", "msg": "%(message)s"}}',
+    datefmt='%Y-%m-%dT%H:%M:%S%Z')
+formatter.converter = time.gmtime
 ch.setFormatter(formatter)
+
 logger.addHandler(ch)
 
-# The number of seconds without a ping before a worker process is considered a zombie
-WORKER_TIMEOUT = 30
 
-auth = HTTPBasicAuth('{{ boundary_username }}', '{{ boundary_password }}')
-ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
-HOSTNAME = socket.getfqdn()
-
-DATABASE = '{{ mongodb_dbname }}'
-MONGO_SERVER = '{{ mongodb_url }}'
-
+#########################
+# Main logic
+#########################
 
 def connect_mongo():
     """ Connects to the MongoDB database and returns a dictionary with the database object,
@@ -103,7 +135,7 @@ def log_boundary(metric, value):
     # Python's `format()` string formatter, but '{{'/'}}' needs to be escape because it's also used
     # for Ansible's JINJA2 template engine, so "{" turns into "{{ '{{' }}".
     data = '{{ '{{' }}"source": "{source}", "metric": "{metric}", "measure": {measure}, "timestamp": {timestamp} {{ '}}' }}'.format(
-        source=HOSTNAME, metric=metric, measure=value, timestamp=int(time.time()))
+        source=fqdn, metric=metric, measure=value, timestamp=int(time.time()))
     headers = {'content-type': 'application/json'}
 
     try:
