@@ -3,6 +3,7 @@
   pip: name=pymongo
        version=3.0.1
   sudo: yes
+  sudo_user: root
 
 - name: Set Supervisor config for reaper.py
   template: src=reaper.conf.j2
