@@ -69,7 +69,7 @@ def cleanup_server_records(gpu_collection, workers_collection):
 
     servers = gpu_collection.find({}, {"ip": True})
     for server in servers:
-        active_addresses.append({server["ip"]})
+        active_addresses.append(server["ip"])
 
     logger.debug("Active viz server ip addresses: {active}".format(
         active=", ".join(active_addresses) ))
