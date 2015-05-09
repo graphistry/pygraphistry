@@ -66,7 +66,7 @@ formatter = logging.Formatter(
     '{"name": "reaper.py", "hostname": "' + str(hostname) + '", "pid": ' + str(reaper_pid) + \
         ', "level": %(levelno)s, "time": "%(asctime)s", "content": {"type": "%(levelname)s", "pid": "' + \
         str(reaper_pid) + '", "msg": "%(message)s"}}',
-    datefmt='%Y-%m-%dT%H:%M:%S%Z')
+    datefmt='%Y-%m-%dT%H:%M:%SZ')
 formatter.converter = time.gmtime
 ch.setFormatter(formatter)
 
