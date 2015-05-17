@@ -15,7 +15,8 @@ var rConf       = require('./js/renderer.config.js');
 var lConf       = require('./js/layout.config.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
-var util        = require('./js/util.js');
+var log         = require('common/log.js');
+var eh          = require('common/errorHandlers.js')(log);
 var persistor   = require('./js/persist.js');
 var labeler     = require('./js/labeler.js');
 var vgwriter    = require('./js/libs/VGraphWriter.js');
@@ -68,7 +69,7 @@ function resetState(dataset) {
 
     //make available to all clients
     graph = new Rx.ReplaySubject(1);
-    ticksMulti.take(1).subscribe(graph, util.makeRxErrorHandler('ticksMulti failure'));
+    ticksMulti.take(1).subscribe(graph, eh.makeRxErrorHandler('ticksMulti failure'));
 
     debug('RESET APP STATE.');
 }
@@ -115,7 +116,7 @@ function sliceSelection(dataFrame, start, end, sort_by, ascending) {
 function read_selection(type, query, res) {
     qLastSelection.then(function (lastSelection) {
         if (!lastSelection || !lastSelection[type]) {
-            util.error('Client tried to read non-existent selection');
+            log.error('Client tried to read non-existent selection');
             res.send();
         }
 
@@ -126,7 +127,7 @@ function read_selection(type, query, res) {
         var data = sliceSelection(lastSelection[type], start, end,
                                     query.sort_by, query.order === 'asc');
         res.send(data);
-    }).fail(util.makeErrorHandler('read_selection qLastSelection'));
+    }).fail(eh.makeErrorHandler('read_selection qLastSelection'));
 }
 
 function init(app, socket) {
@@ -135,7 +136,7 @@ function init(app, socket) {
 
     if (query.usertag !== 'undefined' && query.usertag !== '') {
         debug('Tagging client with', query.usertag);
-        util.setUserTag(decodeURIComponent(query.usertag));
+        log.setUserTag(decodeURIComponent(query.usertag));
     }
 
     var colorTexture = new Rx.ReplaySubject(1);
@@ -168,10 +169,10 @@ function init(app, socket) {
 
     img.take(1)
         .do(colorTexture)
-        .subscribe(_.identity, util.makeRxErrorHandler('img/texture'));
+        .subscribe(_.identity, eh.makeRxErrorHandler('img/texture'));
     colorTexture
         .do(function() { debug('HAS COLOR TEXTURE'); })
-        .subscribe(_.identity, util.makeRxErrorHandler('colorTexture'));
+        .subscribe(_.identity, eh.makeRxErrorHandler('colorTexture'));
 
 
 
@@ -191,7 +192,7 @@ function init(app, socket) {
             }
             res.send();
         } catch (e) {
-            util.makeErrorHandler('bad /vbo request')(e);
+            eh.makeErrorHandler('bad /vbo request')(e);
         }
 
         finishBufferTransfers[id](bufferName);
@@ -205,10 +206,10 @@ function init(app, socket) {
                     res.set('Content-Encoding', 'gzip');
                     res.send(data);
                 })
-                .subscribe(_.identity, util.makeRxErrorHandler('colorTexture pluck'));
+                .subscribe(_.identity, eh.makeRxErrorHandler('colorTexture pluck'));
 
         } catch (e) {
-            util.makeErrorHandler('bad /texture request')(e);
+            eh.makeErrorHandler('bad /texture request')(e);
         }
     });
 
@@ -235,7 +236,7 @@ function init(app, socket) {
 
         resetState(dataset);
         return rConf.scenes[metadata.scene];
-    }).fail(util.makeErrorHandler('resetting state'));
+    }).fail(eh.makeErrorHandler('resetting state'));
 
     socket.on('render_config', function(_, cb) {
         debug('get render config');
@@ -247,7 +248,7 @@ function init(app, socket) {
 
         }).fail(function (err) {
             cb({success: false, error: 'Unknown dataset or scene error'});
-            util.makeErrorHandler('sending render_config')(err)
+            eh.makeErrorHandler('sending render_config')(err)
         });
     });
 
@@ -258,14 +259,14 @@ function init(app, socket) {
             cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
         }).fail(function (err) {
             cb({success: false, error: 'Server error when fetching controls'});
-            util.makeErrorHandler('sending layout_controls')(err);
+            eh.makeErrorHandler('sending layout_controls')(err);
         });
     });
 
     socket.on('begin_streaming', function() {
         qRenderConfig.then(function (renderConfig) {
             stream(socket, renderConfig, colorTexture);
-        }).fail(util.makeErrorHandler('streaming'));
+        }).fail(eh.makeErrorHandler('streaming'));
     });
 
     socket.on('reset_graph', function (_, cb) {
@@ -273,7 +274,7 @@ function init(app, socket) {
         qDataset.then(function (dataset) {
             resetState(dataset);
             cb();
-        }).fail(util.makeErrorHandler('reset graph request'));
+        }).fail(eh.makeErrorHandler('reset graph request'));
     });
 
     socket.on('inspect_header', function (nothing, cb) {
@@ -290,7 +291,7 @@ function init(app, socket) {
             _.identity,
             function (err) {
                 cb({success: false, error: 'inspect_header error'});
-                util.makeRxErrorHandler('inspect_header handler')(err);
+                eh.makeRxErrorHandler('inspect_header handler')(err);
             }
         );
     });
@@ -315,12 +316,12 @@ function init(app, socket) {
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
                 }
-            }).done(_.identity, util.makeErrorHandler('selectNodes'));
+            }).done(_.identity, eh.makeErrorHandler('selectNodes'));
         }).subscribe(
             _.identity,
             function (err) {
                 cb({success: false, error: 'aggregate error'});
-                util.makeRxErrorHandler('aggregate handler')(err);
+                eh.makeRxErrorHandler('aggregate handler')(err);
             }
         );
     });
@@ -404,12 +405,12 @@ function stream(socket, renderConfig, colorTexture) {
                     nodes: labeler.infoFrame(graph, 'point', nodeIndices),
                     edges: labeler.infoFrame(graph, 'edge', edgeIndices)
                 });
-            }).done(_.identity, util.makeErrorHandler('selectNodes'));
+            }).done(_.identity, eh.makeErrorHandler('selectNodes'));
         }).subscribe(
             _.identity,
             function (err) {
                 cb({success: false, error: 'set_selection error'});
-                util.makeRxErrorHandler('set_selection handler')(err);
+                eh.makeRxErrorHandler('set_selection handler')(err);
             }
         );
     });
@@ -440,7 +441,7 @@ function stream(socket, renderConfig, colorTexture) {
                 _.identity,
                 function (err) {
                     cb('get_labels error');
-                    util.makeRxErrorHandler('get_labels')(err);
+                    eh.makeRxErrorHandler('get_labels')(err);
                 });
     });
 
@@ -450,7 +451,7 @@ function stream(socket, renderConfig, colorTexture) {
                 graph.simulator.highlightShortestPaths(pair);
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, util.makeRxErrorHandler('shortest_path'));
+            .subscribe(_.identity, eh.makeRxErrorHandler('shortest_path'));
     });
 
     socket.on('set_colors', function (color) {
@@ -459,7 +460,7 @@ function stream(socket, renderConfig, colorTexture) {
                 graph.simulator.setColor(color);
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, util.makeRxErrorHandler('set_colors'));
+            .subscribe(_.identity, eh.makeRxErrorHandler('set_colors'));
     });
 
     socket.on('highlight_points', function (points) {
@@ -473,7 +474,7 @@ function stream(socket, renderConfig, colorTexture) {
 
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, util.makeRxErrorHandler('highlighted_points'));
+            .subscribe(_.identity, eh.makeRxErrorHandler('highlighted_points'));
 
     });
 
@@ -485,12 +486,12 @@ function stream(socket, renderConfig, colorTexture) {
                     cb({success: true, data: vgName});
                 }).done(
                     _.identity,
-                    util.makeErrorHandler('fork_vgraph')
+                    eh.makeErrorHandler('fork_vgraph')
                 );
             })
             .subscribe(_.identity, function (err) {
                 cb({success: false, error: 'fork_vgraph error'});
-                util.makeRxErrorHandler('fork_vgraph error')(err);
+                eh.makeRxErrorHandler('fork_vgraph error')(err);
             });
     });
 
@@ -510,7 +511,7 @@ function stream(socket, renderConfig, colorTexture) {
         clientReady.onNext(true);
     });
 
-    clientReady.subscribe(debug.bind('CLIENT STATUS'), util.makeRxErrorHandler('clientReady'));
+    clientReady.subscribe(debug.bind('CLIENT STATUS'), eh.makeRxErrorHandler('clientReady'));
 
     debug('SETTING UP CLIENT EVENT LOOP ===================================================================');
     var step = 0;
@@ -610,7 +611,7 @@ function stream(socket, renderConfig, colorTexture) {
     })
     .subscribe(function () {
         debug('9. LOOP ITERATED', socket.id);
-    }, util.makeRxErrorHandler('Main loop failure'));
+    }, eh.makeRxErrorHandler('Main loop failure'));
 }
 
 
@@ -692,7 +693,7 @@ if (require.main === module) {
 
     }).subscribe(
         function () { console.log('\nViz worker listening...'); },
-        util.makeRxErrorHandler('server-viz main')
+        eh.makeRxErrorHandler('server-viz main')
     );
 
 }
