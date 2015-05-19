@@ -10,16 +10,4 @@ exports.init = function init(app, socket) {
     debug('Client connected', socket.id);
 
     etl.route(app, socket);
-
-    return {
-        getState: function () {
-            return {
-                then: function () {
-                    return {
-                        done: function (f) { return f(); }
-                    };
-                }
-            };
-        }
-    };
 };
