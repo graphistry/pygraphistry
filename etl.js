@@ -41,7 +41,7 @@ function etl(msg) {
 
 // VGraph * String -> Promise[String]
 function publish(vg, name) {
-    var metadata = {name: name};
+    var metadata = {name: name || vg.name};
     var binData = vg.encode().toBuffer();
 
     function cacheLocally() {
@@ -80,43 +80,67 @@ function s3Upload(binaryBuffer, metadata) {
 }
 
 
-// Handler for ETL requests on central/etl
-function post(k, req, res) {
+function req2data(req) {
     var data = "";
+    var result = Q.defer();
 
     req.on('data', function (chunk) {
         data += chunk;
     });
 
     req.on('end', function () {
-        var fail = function (err) {
-            console.error('ETL post fail', (err||{}).stack);
-            res.send({
-                success: false,
-                msg: JSON.stringify(err)
-            });
-            console.error('Failed worker, exiting');
-            process.exit(1);
-        };
-
-        try {
-            etl(JSON.parse(data))
-                .done(
-                    function (name) {
-                        debug('ETL done, notifying client to proceed');
-                        //debug('msg', msg);
-                        res.send({ success: true, dataset: name });
-                        debug('notified');
-                        k();
-                    }, fail);
-        } catch (err) {
-            fail(err);
-        }
+        result.resolve(data);
     });
+
+    return result.promise;
 }
 
-function route (app, socket) {
 
+function makeFailHandler(res) {
+    return function (err) {
+        console.error('ETL post fail', (err||{}).stack);
+        res.send({
+            success: false,
+            msg: err.message
+        });
+        console.error('Failed worker, exiting');
+        process.exit(1);
+    }
+}
+
+
+// Handler for ETL requests on central/etl
+function jsonEtl(k, req, res) {
+    req2data(req).then(function (data) {
+        try {
+            etl(JSON.parse(data))
+                .then(function (name) {
+                    debug('ETL done, notifying client to proceed');
+                    res.send({ success: true, dataset: name });
+                    k();
+                }, makeFailHandler(res));
+        } catch (err) {
+            makeFailHandler(res)(err);
+        }
+    }).fail(makeFailHandler(res));
+}
+
+
+function vgraphEtl(k, req, res) {
+    return req2data(req).then(function (data) {
+            try {
+                var buffer = new Buffer(data);
+                var vg = vgraph.decodeVGraph(buffer);
+                publish(vg);
+                k();
+            } catch (err) {
+                makeFailHandler(res)(err)
+            }
+        }).fail(makeFailHandler(res));
+}
+
+
+function route (app, socket) {
     var done = function () {
         debug('worker finished, exiting');
         if (config.ENVIRONMENT === 'production' || config.ENVIRONMENT === 'staging') {
@@ -127,14 +151,11 @@ function route (app, socket) {
         }
     };
 
-    // Temporarly handle ETL request from Splunk
-    app.post('/etl', bodyParser.json({type: '*', limit: '64mb'}), post.bind('', done));
-
+    app.post('/etl', bodyParser.json({type: '*', limit: '64mb'}), jsonEtl.bind('', done));
+    app.post('/etlvgraph', bodyParser.raw({type: '*', limit: '64mb'}), vgraphEtl.bind('', done))
 }
 
 
-
 module.exports = {
-    post: post,
     route: route
 }

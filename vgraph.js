@@ -281,6 +281,11 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
     return vg;
 }
 
+function decodeVGraph(buffer) {
+    return pb_root.VectorGraph.decode(buffer);
+}
+
 module.exports = {
-    fromEdgeList: fromEdgeList
+    fromEdgeList: fromEdgeList,
+    decodeVGraph: decodeVGraph,
 };
