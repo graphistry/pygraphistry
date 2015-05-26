@@ -56,7 +56,5 @@ void main(void) {
     pos.z = edgeLength < 0.05 ? 100.0 : 1.0 - alpha;
 
     gl_Position = pos;
-    // aColor = vec4(arrowColor.xyz, alpha);
-    // Should be orange
-    aColor =  vec4(0.89, 0.369, 0.0745, alpha);
+    aColor =  vec4(0.0, 0.0, 0.0, alpha);
 }

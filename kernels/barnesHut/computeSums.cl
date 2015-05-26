@@ -127,7 +127,8 @@ __kernel void compute_sums(
             //We're done! finish the sum
 
             count[k] = cnt;
-            m = 1.0f / cm;
+            // Guard for case where children have no mass
+            m = (cm == 0.0f) ? 0.0f : 1.0f / cm;
             x_cords[k] = px * m;
             y_cords[k] = py * m;
             mem_fence(CLK_GLOBAL_MEM_FENCE);

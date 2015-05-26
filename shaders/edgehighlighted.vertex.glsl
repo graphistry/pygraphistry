@@ -24,6 +24,5 @@ void main(void) {
     pos.z = 1.0 - alpha;
     gl_Position = pos;
 
-    // Should be orange
-    eColor =  vec4(0.89, 0.369, 0.0745, alpha);
+    eColor =  vec4(0.0, 0.0, 0.0, alpha);
 }
