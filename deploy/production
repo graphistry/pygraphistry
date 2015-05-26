@@ -26,7 +26,7 @@ labs.graphistry.com
 # worker02.graphistry.com
 
 [deploy_server]
-deploy.graphistry.com
+# deploy.graphistry.com
 
 [app_servers:children]
 workers
