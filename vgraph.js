@@ -226,7 +226,6 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         addNode(node0);
         addNode(node1);
         if (!isBadEdge(node0, node1)) {
-
             //must happen after addNode
             addEdge(node0, node1);
 
