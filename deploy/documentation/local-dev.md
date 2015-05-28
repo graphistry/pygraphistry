@@ -9,7 +9,7 @@ Mac sure you've installed [Homebrew](https://github.com/Homebrew/homebrew), then
 **Note**: make sure you *don't* install the `node` package (or `brew uninstall node` if you have it installed.) Homebrew now only includes Node.js v0.12.x, and some of our modules only work with v0.10.x. We will use `n` to install Node.js instead.
 
 ```bash
-brew install git freeimage glfw3 anttweakbar ansible
+brew install n git freeimage glfw3 anttweakbar ansible glew
 # Use this command to find the latest 0.10.x version of Node
 n ls
 # Assuming "0.10.36" is the latest 0.10.x version found above...
