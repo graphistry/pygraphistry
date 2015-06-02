@@ -1,12 +1,11 @@
 #include "common.h"
 
-__kernel void midEdgeGather(
-    const __global uint2* edges,      // Array of [source node, target node]
-    const __global float2* restrict points,   // Current point positions
-    const uint numEdges,                       // Length of edges array
-    const uint numSplits,                // Number of splits/midpoints in each edge
-    const __global float2* outputMidPoints    // Positions of midpoints after
-                                              // interpolation
+__kernel void interpolateMidpoints(
+    __global uint2* edges,      // Array of [source node, target node]
+    __global float2* points,   // Current point positions
+    uint numEdges,                       // Length of edges array
+    uint numSplits,                // Number of splits/midpoints in each edge
+    __global float2* outputMidPoints    // Positions of interpolated midpoints
     )
 {
     const int gid = get_global_id(0);
@@ -17,13 +16,11 @@ __kernel void midEdgeGather(
     float2 nextPoint;
     for (int i = gid; i < numEdges; i += global_size) {
         edge = edges[i];
-        srcIdx = edge.x;
-        dstIdx = edge.y;
-        srcPoint = points[srcIdx];
-        dstPoint = points[dstIdx];
+        uint srcIdx = edge.x;
+        uint dstIdx = edge.y;
+        float2 srcPoint = points[srcIdx];
+        float2 dstPoint = points[dstIdx];
         float2 step = (dstPoint - srcPoint) / (numSplits + 1);
-        /*xStep = (dstPoint.x - srcPoint.y) / (numSplits + 1);*/
-        /*yStep = (dstPoint.y - srcPoint.y) / (numSplits + 1);*/
         for (uint midPointIdx = 0; midPointIdx < numSplits; midPointIdx++) {
           outputMidPoints[(i * numSplits) + midPointIdx] = srcPoint + (step * midPointIdx);
         }
