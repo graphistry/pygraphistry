@@ -483,7 +483,7 @@ function stream(socket, renderConfig, colorTexture) {
             .do(function (graph) {
                 var vgName = 'Users/' + name;
                 vgwriter.save(graph, vgName).then(function () {
-                    cb({success: true, data: vgName});
+                    cb({success: true, name: vgName});
                 }).done(
                     _.identity,
                     eh.makeErrorHandler('fork_vgraph')
