@@ -1,4 +1,3 @@
-#define DEBUG
 #include "common.h"
 #include "gsCommon.cl"
 #include "barnesHut/barnesHutCommon.h"
