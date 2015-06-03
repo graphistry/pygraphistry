@@ -120,11 +120,16 @@ __kernel void bound_box(
             }
 
             // Compute global speed
-            if (step_number > 1) {
+            if (step_number > 130) {
                 *globalSpeed = min(tau * (traction / swing), *globalSpeed * 2);
             } else {
                 *globalSpeed = 1.0f;
             }
+
+
+            /*if (step_number == 100) {*/
+                /**globalSpeed = 1.0f;*/
+            /*}*/
 
             // Compute the radius
             val = max(maxx - minx, maxy - miny);
