@@ -20,9 +20,9 @@ __kernel void interpolateMidpoints(
         uint dstIdx = edge.y;
         float2 srcPoint = points[srcIdx];
         float2 dstPoint = points[dstIdx];
-        float2 step = (dstPoint - srcPoint) / (numSplits + 1);
+        float2 step = (dstPoint - srcPoint) / (float) (numSplits + 1);
         for (uint midPointIdx = 0; midPointIdx < numSplits; midPointIdx++) {
-          outputMidPoints[(i * numSplits) + midPointIdx] = srcPoint + (step * midPointIdx);
+          outputMidPoints[(i * numSplits) + midPointIdx] = srcPoint + (step * (midPointIdx + 1));
         }
     }
 }
