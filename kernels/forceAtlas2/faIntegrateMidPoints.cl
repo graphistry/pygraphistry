@@ -34,8 +34,8 @@ __kernel void faIntegrate (
     float maxSpeed = maxSpeedFactor / length(curForces[n1Idx]);
 
 
-    /*delta = min(speed, maxSpeed) * curForces[n1Idx];*/
-    delta = 0.001f * curForces[n1Idx];
+    delta = min(speed, maxSpeed) * curForces[n1Idx];
+    /*delta = 0.001f * curForces[n1Idx];*/
 
     debug6("Speed (%d) %f max: %f, global_speed %f swing %.9g \n", n1Idx, speed, maxSpeed, *globalSpeed, normalizedSwing);
 
