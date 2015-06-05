@@ -18,5 +18,6 @@ void main(void) {
 
     alpha = clamp(remapped, 0.0, 0.1);
     eColor = edgeColor;
+    eColor = edgeColor;
     gl_Position = pos;
 }
