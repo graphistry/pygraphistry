@@ -1,8 +1,87 @@
+# This is a Python Class established as a Data Loader for Graphistry
+
+# This Loader support four types of data : Json (eg. '{"xxx":"xxx"}'),
+# Json Pointer (eg. './xxx/xxx.json'), Pandas (eg. csv table),
+# Pandas Pointer (eg. './xxx/xxx.csv')
+
+# Class Load has the following public methods:
+
+# settings(serveraddress)
+# This function does the work of setting proper server for user.
+# serveradress = 'proxy'/'localhost', the default value is 'proxy'.
+# 'localhost' would let user connect to the local server, 'proxy'
+# would let user connect with server from Graphistry
+# ................................................................................
+
+# loadFileSync (document, node, graphname, sourcefield, desfield, nodefield,
+#         edgeTitle, edgeLabel, edgeWeight, pointTitle , pointLabel,
+#         pointColor, pointSize)
+# loadFileSync is the primary method. it parses the input data/file and load it
+# to proper Graphistry server, and send back the concerned graph. It is a wrapper for
+# loadJsonPointer(), loadPandasPointer(),loadPandas().
+
+# r = loadFileSync (document) is used when the input data format is Json or Json Pointer
+
+# r = laodFileSync (document, sourcefield, desfield) is used when the input data format is
+# Pandas pointer.
+# document = Pandas pointer (eg. '.Desktop/xxx.csv')
+# sourcefield = name of the column in document for sourcePointers (eg. 'source'),
+# desfield = name of the column in document for destinationPointers (eg. 'des'),
+# All other input arguments are optional:
+# nodefield = name of the column in document for all pointers, the default value is the
+# same as sourcefield
+# graphname = a name string the user prefer (eg. 'myGraph'), the default value is a random
+# generagted ten-characters string with numbers and capital letters.
+# edgeTitle, edgeLabel, edgeWeight, pointTitle, pointLabel, pointColor, pointSize =
+# name of the column in document for edges'/pointers' titles, labels, weights, color.
+#
+# r = laodFileSync (document, node, sourcefield, desfield, nodefield) is used when the input
+# data format is Pandas. The edge data and point data must be inputed as document and node seperately.
+# document = Pandas format for edges.
+# node = Pandas format for nodes.
+# sourcefield = name of the column in document for sourcePointers (eg. 'source'),
+# desfield = name of the column in document for destinationPointers (eg. 'des'),
+# nodefield = name of the column in node for all pointers (eg. 'name').
+# All other input arguments are optional:
+# graphname = a name string the user prefer (eg. 'myGraph'), the default value is a random
+# generagted ten-characters string with numbers and capital letters.
+# edgeTitle, edgeLabel, edgeWeight = name of the column in document for edges' titles, labels, weights.
+# pointTitle, pointLabel, pointColor, pointSize = name of the column in node for points'
+# titles, labels, colors, sizes.
+#...............................................................................
+
+# loadJsonPointer(filedir)
+# This function load Json file from give directory and returns it with Json format (Decoding)
+#...............................................................................
+
+# loadPandasPointer(filedir, graphname, sourcefield, desfield, edgeTitle, edgeLabel, edgeWeight,
+#                   pointTitle, pointLabel, pointColor, pointSize)
+# This function load Pandas file from give directory and returns it with Json format (Decoding)
+#...............................................................................
+
+# loadPandas(edge, node, graphname, sourcefield, desfield, nodefield, edgeTitle, edgeLabel,
+#            edgeWeight, pointTitle, pointLabel, pointColor, pointSize)
+# This function load data with pandas format as edge and node seperately
+# and returns it with Json format (Decoding)
+#...............................................................................
+
+# isJson(document)
+# This function checks whether the input document is Json
+#...............................................................................
+
+# isJsonPointer(document)
+# This function checks whether the input document is Json pointer
+#...............................................................................
+
+# isPandasPointer(document)
+# This function checks whether the input document is Pandas pointer
+#...............................................................................
+
+
 class Load (object):
 
 
-
-
+    # This function checks whether the input document is Json
     def isJson(self,document):
         import json
         global json_ob
@@ -14,6 +93,7 @@ class Load (object):
         return True
 
 
+    # This function checks whether the input document is Json pointer
     def isJsonPointer(self,document):
         if document[-4:] == 'json':
             return True
@@ -21,6 +101,7 @@ class Load (object):
             return False
 
 
+    # This function checks whether the input document is Pandas pointer
     def isPandasPointer(self,document):
         if document[-4:] == '.csv':
             return True
@@ -28,6 +109,7 @@ class Load (object):
             return False
 
 
+    # This function load Json file from give directory and returns it with Json format
     def loadJsonPointer (self,filedir):
         import json
         print 'Loading Json...'
@@ -36,6 +118,7 @@ class Load (object):
         return files
 
 
+    # This function load Pandas file from give directory and returns it with Json format (Decoding)
     def loadPandasPointer (self,filedir, graphname,
                        sourcefield, desfield, edgeTitle,
                        edgeLabel, edgeWeight,
@@ -100,6 +183,8 @@ class Load (object):
         return files
 
 
+    # This function load data with pandas format as edge and node seperately
+    # and returns it with Json format (Decoding)
     def loadPandas (self, edge, node, graphname,
                        sourcefield, desfield, nodefield, edgeTitle,
                        edgeLabel, edgeWeight,
@@ -164,6 +249,7 @@ class Load (object):
         return files
 
 
+    # This function is to set server preference
     def settings(self,serveraddress = 'proxy'):
         global url
         global mid
@@ -179,7 +265,7 @@ class Load (object):
             print 'Can not find this server'
 
 
-
+    # This function is the prime function
     def loadFileSync (self, document, node = 'donothaveone', graphname = 'Idontlikeanamelol',
                   sourcefield = 'donothaveone', desfield = 'donothaveone',
                   nodefield = 'donothaveone', edgeTitle = 'donothaveone',
