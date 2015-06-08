@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """A setuptools based setup module.
 See:
 https://packaging.python.org/en/latest/distributing.html
@@ -16,7 +18,7 @@ from setuptools import setup, find_packages
 setup(
     name='Graphistry',
 
-    version='1.1.0.dev1',
+    version='0.0.1',
     py_modules = ['graphistry'],
     description = 'This is established as a Data Loader for Graphistry',
     #long_description=long_description,
@@ -24,9 +26,11 @@ setup(
     url='https://github.com/graphistry/pygraphistry',
 
     author='Graphistry',
-    author_email='xin@graphistry.com',
+    author_email='pygraphistry@graphistry.com',
 
-    license='MIT',
+    install_requires=['pyyaml'],
+
+    license='BSD',
 
     classifiers=[
         'Development Status :: 3 - Alpha',
@@ -47,7 +51,5 @@ setup(
 
     keywords='Python Data Loader',
 
-    packages=find_packages(exclude=['contrib', 'docs', 'tests*']),
-
-
+    packages=find_packages(exclude=['contrib', 'tests*'])
 )
