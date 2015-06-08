@@ -212,7 +212,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         console.warn('Edges have no dstField' , dstField);
         return undefined;
     }
-    if (!(idField in nheader)) {
+    if (nlabels.length > 0 && !(idField in nheader)) {
         console.warn('Nodes have no idField' , idField);
         return undefined;
     }
