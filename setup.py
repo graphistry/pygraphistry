@@ -35,9 +35,6 @@ setup(
     classifiers=[
         'Development Status :: 3 - Alpha',
 
-        'Intended Audience :: Graphistry User',
-        'Topic :: Data Visualization Development :: Load Tools',
-
         'License :: OSI Approved :: BSD License',
 
         'Programming Language :: Python :: 2',

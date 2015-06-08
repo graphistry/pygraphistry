@@ -224,6 +224,8 @@ class Graphistry (object):
         files['type'] = 'edgelist'
 
         # for Edge
+        edge = edge.reset_index()
+        del edge['index']
         edgejson = edge.to_json(orient='records')
         edgej = json.loads(edgejson)
         if sourcefield is None:
@@ -260,6 +262,8 @@ class Graphistry (object):
         files['graph'] = json.loads(u_edgej)
 
         # for Label
+        node = node.reset_index()
+        del node['index']
         nodejson = node.to_json(orient='records')
         nodej = json.loads(nodejson)
         if nodefield is None:
