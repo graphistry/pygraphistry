@@ -13,7 +13,7 @@ $ pip install graphistry
 We recommend [Pandas](http://pandas.pydata.org) to load and process data. If you don't have Pandas already, install it with `$ pip install pandas`.
 
 #### Loading data
-Let's load the characters from [Les Miserables](http://en.wikipedia.org/wiki/Les_Misérables). Our  [dataset is a CSV file](http://todo.com) that looks like this:
+Let's load the characters from [Les Miserables](http://en.wikipedia.org/wiki/Les_Misérables). Our  [dataset is a CSV file](http://gist.github.com/thibaudh/3da4096c804680f549e6/) that looks like this:
 
 | source        | target        | value  |
 | ------------- |:-------------:| ------:|
@@ -36,9 +36,9 @@ import graphistry as g
 g.plot(links, sourcefield="source", destfield="target")
 ```
 
-This should proccude a beautiful graph like this one:
+You should see a beautiful graph like this one:
+![Graph of Miserables](http://i.imgur.com/N6UZLSG.png)
 
-.
 Note that the visualization is computed in the cloud. As such an Internet connection is required.
 
 
