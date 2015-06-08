@@ -5,21 +5,21 @@ https://github.com/pypa/sampleproject
 """
 
 from setuptools import setup, find_packages
-from codecs import open
-from os import path
+#from codecs import open
+#from os import path
 
-here = path.abspath(path.dirname(__file__))
+#here = path.abspath(path.dirname(__file__))
 
-with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
-    long_description = f.read()
+#with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
+ #   long_description = f.read()
 
 setup(
     name='Graphistry',
 
     version='1.1.0.dev1',
-
-    description='This is established as a Data Loader for Graphistry',
-    long_description=long_description,
+    py_modules = ['graphistry'],
+    description = 'This is established as a Data Loader for Graphistry',
+    #long_description=long_description,
 
     url='https://github.com/graphistry/pygraphistry',
 

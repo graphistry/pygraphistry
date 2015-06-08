@@ -1,5 +1,6 @@
 # This is a Python Class established as a Data Loader for Graphistry
 
+
 # This Loader support four types of data : Json (eg. '{"xxx":"xxx"}'),
 # Json Pointer (eg. './xxx/xxx.json'), Pandas (eg. csv table),
 # Pandas Pointer (eg. './xxx/xxx.csv')
@@ -295,4 +296,5 @@ class Graphistry (object):
         files['labels'] = json.loads(u_nodej)
 
         return files
+
 
