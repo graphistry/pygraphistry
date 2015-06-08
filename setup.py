@@ -20,7 +20,7 @@ setup(
 
     version='0.0.1',
     py_modules = ['graphistry'],
-    description = 'Visualize node-links graphs using Graphistry\'s cloud',
+    description = 'Visualize node-link graphs using Graphistry\'s cloud',
     #long_description=long_description,
 
     url='https://github.com/graphistry/pygraphistry',
