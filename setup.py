@@ -20,7 +20,7 @@ setup(
 
     version='0.0.1',
     py_modules = ['graphistry'],
-    description = 'This is established as a Data Loader for Graphistry',
+    description = 'Visualize node-links graphs using Graphistry\'s cloud',
     #long_description=long_description,
 
     url='https://github.com/graphistry/pygraphistry',
@@ -34,7 +34,6 @@ setup(
 
     classifiers=[
         'Development Status :: 3 - Alpha',
-
         'License :: OSI Approved :: BSD License',
 
         'Programming Language :: Python :: 2',
@@ -46,7 +45,7 @@ setup(
         'Programming Language :: Python :: 3.4',
     ],
 
-    keywords='Python Data Loader',
+    keywords='graph plot visualization pandas',
 
     packages=find_packages(exclude=['contrib', 'tests*'])
 )
