@@ -34,7 +34,7 @@ setup(
         'Intended Audience :: Graphistry User',
         'Topic :: Data Visualization Development :: Load Tools',
 
-        'License :: OSI Approved :: MIT License',
+        'License :: OSI Approved :: BSD License',
 
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.6',
