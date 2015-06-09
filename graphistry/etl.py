@@ -79,22 +79,61 @@
 #...............................................................................
 
 
-def settings():
-    print "TODO"
+def settings(url='proxy', frameheight=500):
+    height = frameheight
+    print 'Setting server...'
+    if url is 'localhost':
+        hostname = 'localhost:3000'
+        url = 'http://localhost:3000/etl'
+    elif url is 'proxy':
+        hostname = 'proxy-staging.graphistry.com'
+        url = 'http://proxy-staging.graphistry.com/etl'
+    else:
+        url = '-1'
+        raise ValueError("Can not find this server")
+    g = Graphistry (height, url, hostname)
+    return g
     # Return Graphistry object
 
-def plot():
+def plot(url='proxy', frameheight=500, edge=None, node=None, graphname=None,
+         sourcefield=None, destfield=None, nodefield=None,
+         edgetitle=None, edgelabel=None, edgeweight=None,
+         pointtitle=None, pointlabel=None, pointcolor=None,
+         pointsize=None):
+
+    import pandas as pd
+    height = frameheight
+    print 'Setting server...'
+    if url is 'localhost':
+        hostname = 'localhost:3000'
+        url = 'http://localhost:3000/etl'
+    elif url is 'proxy':
+        hostname = 'proxy-staging.graphistry.com'
+        url = 'http://proxy-staging.graphistry.com/etl'
+    else:
+        url = '-1'
+        raise ValueError("Can not find this server")
+    g = Graphistry (height, url, hostname)
+
+    if node is not None:
+        #setting = settings(url=url, frameheight=frameheight)
+        return g.loadpandassync(edge, node, graphname, sourcefield,
+                               destfield, nodefield, edgetitle, edgelabel,
+                               edgeweight, pointtitle, pointlabel, pointcolor,
+                               pointsize)
+    else:
+        #setting = settings(url='proxy', frameheight=500)
+        return g.loadjsonsync(edge)
+
     # Call settings with default values
     # Call loadpandassync
-    print "TODO"
-
 
 class Graphistry (object):
 
-    def __init__ (self):
+    def __init__ (self,height,url,hostname):
         self.height = 500
-        self.url = 'http://proxy-staging.graphistry.com/etl'
-        self.hostname = 'proxy-staging.graphistry.com'
+        self.url = url
+        self.hostname = hostname
 
     def settings(self, url='proxy', frameheight=500):
 
