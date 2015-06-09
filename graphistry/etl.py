@@ -4,6 +4,7 @@ import string
 import requests
 import json
 import yaml
+
 """
 Documentation for the code
 **************************
@@ -18,6 +19,7 @@ Module #1
 ----------------
 
 This class works as data Loader.
+
 It contains six functions :func: `loadpandassync`. :func: `loadjsonsync`.
 :func: `loadjsonpointer`. :func: `loadpandas`. :func: `isjsonpointer`. :func: `settings`.
 
@@ -115,6 +117,10 @@ def plot(edge, node=None, graphname=None,
 
 
 class Graphistry (object):
+    """
+    loadjsonsync is the primary method. it parses the data with Json format or with Json pointer and load it to proper Graphistry server, and send back the concerned graph. It is a wrapper for :func: `isjsonpointer`, :func: `loadjsonpointer`.
+    :param document(Json pointer / Json)(compulsory): complete dataset for edge and node
+    """
 
     def __init__ (self,height,url,hostname):
         self.height = height
@@ -186,6 +192,10 @@ class Graphistry (object):
                         str(self.height) + 'px; border: 1px solid #DDD">')
 
     def loadjsonsync(self, document):
+        """
+        loadjsonsync is the primary method. it parses the data with Json format or with Json pointer and load it to proper Graphistry server, and send back the concerned graph. It is a wrapper for :func: `isjsonpointer`, :func: `loadjsonpointer`.
+        :param document(Json pointer / Json)(compulsory): complete dataset for edge and node
+        """
         print 'Loading Json...'
 
         if self.isjsonpointer(document):
