@@ -37,7 +37,7 @@ g.plot(links, sourcefield="source", destfield="target")
 ```
 
 You should see a beautiful graph like this one:
-![Graph of Miserables](http://i.imgur.com/N6UZLSG.png)
+![Graph of Miserables](http://i.imgur.com/lt05Hik.png)
 
 Note that the visualization performed in the cloud. As such, an Internet connection is required.
 

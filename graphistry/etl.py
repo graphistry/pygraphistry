@@ -90,57 +90,40 @@ It contains six functions :func: `loadpandassync`. :func: `loadjsonsync`.
 
 
 
-def settings(url='proxy', frameheight=500):
+def settings(server='labs', frameheight=500):
     height = frameheight
-    print 'Setting server...'
-    if url is 'localhost':
+
+    if server is 'localhost':
         hostname = 'localhost:3000'
         url = 'http://localhost:3000/etl'
-    elif url is 'proxy':
+    elif server is 'proxy':
         hostname = 'proxy-staging.graphistry.com'
         url = 'http://proxy-staging.graphistry.com/etl'
+    elif server is 'labs':
+        hostname = 'proxy-labs.graphistry.com'
+        url = 'http://proxy-labs.graphistry.com/etl'
     else:
-        url = '-1'
-        raise ValueError("Can not find this server")
-    return Graphistry (height, url, hostname)
+        raise ValueError("Unknown server: " + server)
+
+    return Graphistry(height, url, hostname)
 
 
-def plot(edge, node=None, graphname=None,
-         sourcefield=None, destfield=None, nodefield=None,
-         edgetitle=None, edgelabel=None, edgeweight=None,
-         pointtitle=None, pointlabel=None, pointcolor=None,
-         pointsize=None):
+def plot(edge, node=None, graphname=None, sourcefield=None, destfield=None,
+         nodefield=None, edgetitle=None, edgelabel=None, edgeweight=None,
+         pointtitle=None, pointlabel=None, pointcolor=None, pointsize=None):
 
-    return settings().plot(edge, node, graphname, sourcefield, destfield, nodefield,
-                           edgetitle, edgelabel, edgeweight, pointtitle, pointlabel,
-                           pointcolor, pointsize)
+    g = settings()
+    return g.plot(edge, node, graphname, sourcefield, destfield, nodefield, edgetitle,
+                  edgelabel, edgeweight, pointtitle, pointlabel, pointcolor, pointsize)
 
 
 class Graphistry (object):
-    """
-    loadjsonsync is the primary method. it parses the data with Json format or with Json pointer and load it to proper Graphistry server, and send back the concerned graph. It is a wrapper for :func: `isjsonpointer`, :func: `loadjsonpointer`.
-    :param document(Json pointer / Json)(compulsory): complete dataset for edge and node
-    """
 
-    def __init__ (self,height,url,hostname):
+    def __init__ (self, height, url, hostname):
         self.height = height
         self.url = url
         self.hostname = hostname
 
-    def settings(self, url='proxy', frameheight=500):
-
-        self.height = frameheight
-        print 'Setting server...'
-        if url is 'localhost':
-            self.hostname = 'localhost:3000'
-            self.url = 'http://localhost:3000/etl'
-        elif url is 'proxy':
-            self.hostname = 'proxy-staging.graphistry.com'
-            self.url = 'http://proxy-staging.graphistry.com/etl'
-        else:
-            self.url = '-1'
-            raise ValueError("Can not find this server")
-        return self
 
     def plot(self, edge, node=None, graphname=None,
              sourcefield=None, destfield=None, nodefield=None,
@@ -149,23 +132,23 @@ class Graphistry (object):
              pointsize=None):
 
         if isinstance(edge, pandas.core.frame.DataFrame):
-            return self.loadpandassync(edge, node, graphname, sourcefield,
-                                       destfield, nodefield, edgetitle, edgelabel,
-                                       edgeweight, pointtitle, pointlabel, pointcolor,
-                                       pointsize)
+            return self.loadpandassync(edge, node, graphname, sourcefield, destfield,
+                                       nodefield, edgetitle, edgelabel, edgeweight,
+                                       pointtitle, pointlabel, pointcolor, pointsize)
         else:
             return self.loadjsonsync(edge)
 
-    def loadpandassync(self, edge, node, graphname=None,
+
+    def loadpandassync(self, edge, node=None, graphname=None,
                        sourcefield=None, destfield=None,
                        nodefield=None, edgetitle=None,
                        edgelabel=None, edgeweight=None,
                        pointtitle=None, pointlabel=None,
                        pointcolor=None, pointsize=None):
+        from IPython.core.display import HTML
 
-
-        doc = self.loadpandas(edge, node, graphname,
-                              sourcefield, destfield, nodefield, edgetitle,
+        doc = self.loadpandas(edge, node, graphname, sourcefield,
+                              destfield, nodefield, edgetitle,
                               edgelabel, edgeweight, pointtitle,
                               pointlabel, pointcolor, pointsize)
 
@@ -183,20 +166,17 @@ class Graphistry (object):
 
         else:
             name = yaml.safe_load(doc['name'])
-            print 'Loading Finished!'
-            print 'Getting iframe...'
-            from IPython.core.display import HTML
             l = "http://" + self.hostname + "/graph/graph.html?dataset=%s"%name
-            print "url: ", l
+            print "Url: ", l
             return HTML('<iframe src="' + l + '" style="width:100%; height:' +
                         str(self.height) + 'px; border: 1px solid #DDD">')
 
+
     def loadjsonsync(self, document):
-        """
-        loadjsonsync is the primary method. it parses the data with Json format or with Json pointer and load it to proper Graphistry server, and send back the concerned graph. It is a wrapper for :func: `isjsonpointer`, :func: `loadjsonpointer`.
-        :param document(Json pointer / Json)(compulsory): complete dataset for edge and node
-        """
         print 'Loading Json...'
+=======
+        from IPython.core.display import HTML
+>>>>>>> 809572b78002fd3afbb72e70694fbf57e0820b80
 
         if self.isjsonpointer(document):
             doc = self.loadjsonpointer(document)
@@ -218,12 +198,10 @@ class Graphistry (object):
             raise ValueError("HTTPError:", e.message)
 
         else:
-            print 'Loading Finished!'
-            print 'Getting iframe...'
-            from IPython.core.display import HTML
             l = "http://" + self.hostname + "/graph/graph.html?dataset=%s"%name
-            print "url:", l
-            return HTML('<iframe src="' + l + '" style="width:100%; height:' + str(self.height) + 'px; border: 1px solid #DDD">')
+            print "Url:", l
+            return HTML('<iframe src="' + l + '" style="width:100%; height:' +
+                        str(self.height) + 'px; border: 1px solid #DDD">')
 
 
     def isjsonpointer(self, document):
@@ -235,19 +213,19 @@ class Graphistry (object):
         else:
             return False
 
+
     def loadjsonpointer(self, filedir):
         print 'Loading Json...'
         with open(filedir) as data_file:
             files = json.load(data_file)
         return files
 
-    def loadpandas(self, edge, node, graphname=None,
+
+    def loadpandas(self, edge, node=None, graphname=None,
                    sourcefield=None, destfield=None, nodefield=None,
                    edgetitle=None, edgelabel=None, edgeweight=None,
                    pointtitle=None, pointlabel=None,
-                   pointcolor=None, pointsize=None,):
-        print 'Loading Pandas...'
-
+                   pointcolor=None, pointsize=None):
         if isinstance(edge, str):
             if (edge[-4:] == '.csv'):
                 edge = pandas.read_csv(edge, na_values=['-'], low_memory=False)
@@ -261,6 +239,12 @@ class Graphistry (object):
                 node.dropna(how='all', axis=1, inplace=True)
             else:
                 raise ValueError("This Pandas Pointer is Invalid")
+
+        if node is None:
+            nodefield = 'id'
+            node = pandas.DataFrame()
+            node[nodefield] = pandas.concat([edge[sourcefield], edge[destfield]], ignore_index=True).drop_duplicates()
+            node['pointTitle'] = node[nodefield].map(lambda x: x)
 
         if graphname is None:
             graphname = ''.join(random.choice(string.ascii_uppercase +
