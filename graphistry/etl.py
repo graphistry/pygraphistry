@@ -116,7 +116,7 @@ def plot(edge, node=None, graphname=None,
 class Graphistry (object):
 
     def __init__ (self,height,url,hostname):
-        self.height = 500
+        self.height = height
         self.url = url
         self.hostname = hostname
 
