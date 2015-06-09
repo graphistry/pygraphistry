@@ -16,7 +16,7 @@ from setuptools import setup, find_packages
  #   long_description = f.read()
 
 setup(
-    name='graphistry1',
+    name='graphistrytest',
 
     version='0.0.1',
     py_modules = ['graphistry.etl'],
