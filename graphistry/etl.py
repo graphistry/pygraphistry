@@ -101,29 +101,18 @@ def plot(url='proxy', frameheight=500, edge=None, node=None, graphname=None,
          pointtitle=None, pointlabel=None, pointcolor=None,
          pointsize=None):
 
-    import pandas as pd
-    height = frameheight
-    print 'Setting server...'
-    if url is 'localhost':
-        hostname = 'localhost:3000'
-        url = 'http://localhost:3000/etl'
-    elif url is 'proxy':
-        hostname = 'proxy-staging.graphistry.com'
-        url = 'http://proxy-staging.graphistry.com/etl'
-    else:
-        url = '-1'
-        raise ValueError("Can not find this server")
-    g = Graphistry (height, url, hostname)
+    g = settings()
 
-    if node is not None:
+    if node is None:
         #setting = settings(url=url, frameheight=frameheight)
+        return g.loadjsonsync(edge)
+
+    else:
+        #setting = settings(url='proxy', frameheight=500)
         return g.loadpandassync(edge, node, graphname, sourcefield,
                                destfield, nodefield, edgetitle, edgelabel,
                                edgeweight, pointtitle, pointlabel, pointcolor,
                                pointsize)
-    else:
-        #setting = settings(url='proxy', frameheight=500)
-        return g.loadjsonsync(edge)
 
     # Call settings with default values
     # Call loadpandassync
@@ -131,7 +120,7 @@ def plot(url='proxy', frameheight=500, edge=None, node=None, graphname=None,
 class Graphistry (object):
 
     def __init__ (self,height,url,hostname):
-        self.height = 500
+        self.height = height
         self.url = url
         self.hostname = hostname
 
