@@ -28,7 +28,7 @@ setup(
     author='Graphistry',
     author_email='pygraphistry@graphistry.com',
 
-    install_requires=['pyyaml'],
+    install_requires=['pyyaml', 'requests'],
 
     license='BSD',
 
