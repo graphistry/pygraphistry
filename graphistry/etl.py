@@ -1,3 +1,9 @@
+import pandas
+import random
+import string
+import requests
+import json
+import yaml
 """
 Documentation for the code
 **************************
@@ -94,31 +100,19 @@ def settings(url='proxy', frameheight=500):
     else:
         url = '-1'
         raise ValueError("Can not find this server")
-    g = Graphistry (height, url, hostname)
-    return g
-    # Return Graphistry object
+    return Graphistry (height, url, hostname)
 
-def plot(url='proxy', frameheight=500, edge=None, node=None, graphname=None,
+
+def plot(edge, node=None, graphname=None,
          sourcefield=None, destfield=None, nodefield=None,
          edgetitle=None, edgelabel=None, edgeweight=None,
          pointtitle=None, pointlabel=None, pointcolor=None,
          pointsize=None):
 
-    g = settings()
+    return settings().plot(edge, node, graphname, sourcefield, destfield, nodefield,
+                           edgetitle, edgelabel, edgeweight, pointtitle, pointlabel,
+                           pointcolor, pointsize)
 
-    if node is None:
-        #setting = settings(url=url, frameheight=frameheight)
-        return g.loadjsonsync(edge)
-
-    else:
-        #setting = settings(url='proxy', frameheight=500)
-        return g.loadpandassync(edge, node, graphname, sourcefield,
-                               destfield, nodefield, edgetitle, edgelabel,
-                               edgeweight, pointtitle, pointlabel, pointcolor,
-                               pointsize)
-
-    # Call settings with default values
-    # Call loadpandassync
 
 class Graphistry (object):
 
@@ -142,6 +136,20 @@ class Graphistry (object):
             raise ValueError("Can not find this server")
         return self
 
+    def plot(self, edge, node=None, graphname=None,
+             sourcefield=None, destfield=None, nodefield=None,
+             edgetitle=None, edgelabel=None, edgeweight=None,
+             pointtitle=None, pointlabel=None, pointcolor=None,
+             pointsize=None):
+
+        if isinstance(edge, pandas.core.frame.DataFrame):
+            return self.loadpandassync(edge, node, graphname, sourcefield,
+                                       destfield, nodefield, edgetitle, edgelabel,
+                                       edgeweight, pointtitle, pointlabel, pointcolor,
+                                       pointsize)
+        else:
+            return self.loadjsonsync(edge)
+
     def loadpandassync(self, edge, node, graphname=None,
                        sourcefield=None, destfield=None,
                        nodefield=None, edgetitle=None,
@@ -149,11 +157,6 @@ class Graphistry (object):
                        pointtitle=None, pointlabel=None,
                        pointcolor=None, pointsize=None):
 
-        import random
-        import string
-        import requests
-        import json
-        import yaml
 
         doc = self.loadpandas(edge, node, graphname,
                               sourcefield, destfield, nodefield, edgetitle,
@@ -183,11 +186,6 @@ class Graphistry (object):
                         str(self.height) + 'px; border: 1px solid #DDD">')
 
     def loadjsonsync(self, document):
-
-        import requests
-        import json
-        import yaml
-
         print 'Loading Json...'
 
         if self.isjsonpointer(document):
@@ -228,7 +226,6 @@ class Graphistry (object):
             return False
 
     def loadjsonpointer(self, filedir):
-        import json
         print 'Loading Json...'
         with open(filedir) as data_file:
             files = json.load(data_file)
@@ -239,24 +236,18 @@ class Graphistry (object):
                    edgetitle=None, edgelabel=None, edgeweight=None,
                    pointtitle=None, pointlabel=None,
                    pointcolor=None, pointsize=None,):
-
-        import pandas as pd
-        import json
-        import random
-        import string
-
         print 'Loading Pandas...'
 
         if isinstance(edge, str):
             if (edge[-4:] == '.csv'):
-                edge = pd.read_csv(edge, na_values=['-'], low_memory=False)
+                edge = pandas.read_csv(edge, na_values=['-'], low_memory=False)
                 edge.dropna(how='all', axis=1, inplace=True)
             else:
                 raise ValueError("This Pandas Pointer is Invalid")
 
         if isinstance(node, str):
             if (node[-4:] == '.csv'):
-                node = pd.read_csv(node, na_values=['-'], low_memory=False)
+                node = pandas.read_csv(node, na_values=['-'], low_memory=False)
                 node.dropna(how='all', axis=1, inplace=True)
             else:
                 raise ValueError("This Pandas Pointer is Invalid")
