@@ -48,6 +48,8 @@ var ticksMulti;
 //most recent tick
 var graph;
 
+var saveAtEachStep = false;
+var defaultSnapshotName = 'snapshot';
 
 
 // ----- INITIALIZATION ------------------------------------
@@ -244,7 +246,9 @@ function init(app, socket) {
             debug('Sending render-config to client');
             cb({success: true, renderConfig: renderConfig});
 
-            persistor.maybeSaveConfig(renderConfig);
+            if (saveAtEachStep) {
+                persistor.saveConfig(defaultSnapshotName, renderConfig);
+            }
 
         }).fail(function (err) {
             cb({success: false, error: 'Unknown dataset or scene error'});
@@ -478,6 +482,14 @@ function stream(socket, renderConfig, colorTexture) {
 
     });
 
+    socket.on('persist_current_vbo', function(name, cb) {
+        graph.take(1)
+            .do(function (graph) {
+                persistor.saveCurrentVBO(name, vbos);
+            })
+            .subscribe(_.identity, eh.makeRxErrorHandler('persist_current_vbo'));
+    });
+
     socket.on('fork_vgraph', function (name, cb) {
         graph.take(1)
             .do(function (graph) {
@@ -532,8 +544,9 @@ function stream(socket, renderConfig, colorTexture) {
                 //tell XHR2 sender about it
                 lastCompressedVbos[socket.id] = vbos.compressed;
 
-                persistor.maybeSaveVbos(vbos, step);
-
+                if (saveAtEachStep) {
+                    persistor.saveVBOs(defaultSnapshotName, vbos, step);
+                }
             })
             .flatMap(function (vbos) {
                 debug('2. Waiting for client to finish previous', socket.id, ticker);
