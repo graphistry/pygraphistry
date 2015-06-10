@@ -92,118 +92,169 @@ import random
 import string
 import requests
 import json
-import yaml
 
-def settings(server='labs', frameheight=500):
-    height = frameheight
+
+def settings(server='labs', height=500):
+    """ Configure plot settings
+
+    Keywords arguments:
+    server -- the Graphistry server. Possible values: "labs", "staging", "localhost" (default "labs")
+    height -- the height of the plot in pixels (default 500)
+    """
 
     if server is 'localhost':
         hostname = 'localhost:3000'
-        url = 'http://localhost:3000/etl'
-    elif server is 'proxy':
+    elif server is 'staging':
         hostname = 'proxy-staging.graphistry.com'
-        url = 'http://proxy-staging.graphistry.com/etl'
     elif server is 'labs':
         hostname = 'proxy-labs.graphistry.com'
-        url = 'http://proxy-labs.graphistry.com/etl'
     else:
         raise ValueError("Unknown server: " + server)
 
-    return Graphistry(height, url, hostname)
+    return Graphistry(height, hostname)
 
 
-def plot(edge, node=None, graphname=None, sourcefield=None, destfield=None,
-         nodefield=None, edgetitle=None, edgelabel=None, edgecolor=None, edgeweight=None,
-         pointtitle=None, pointlabel=None, pointcolor=None, pointsize=None):
+def plot(edges, nodes=None, graph_name=None, source=None, destination=None, id=None,
+         edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
+         point_title=None, point_label=None, point_color=None, point_size=None):
+    """
+        Plot a node-link diagram (graph).
+        If running in IPython, returns an iframe. Otherwise, open webbrowser to show the plot.
+
+        Mandatory Keywords arguments:
+        edges -- the pandas dataframe containing edges
+        source -- name of the source column for edges
+        destination -- name of the destination column for edges
+
+        Optional Keywords arguments:
+        graph_name -- the name of the graph (default to random string)
+        edge_title -- the column name (inside edges) containing edge titles
+        edge_label -- the column name (inside edges) containing edge labels
+        edge_color -- the column name (inside edges) containing edge colors
+        edge_weight -- the column name (inside edges) containing edge weights
+        nodes -- pandas dataframe containing node labels
+        point_title -- the column name (inside nodes) containing node titles
+        point_label -- the column name (inside nodes) containing node labels
+        point_size -- the column name (inside nodes) containing node sizes
+        point_color -- the column name (inside nodes) containing node colors
+
+        TODO WRITE ME
+    """
 
     g = settings()
-    return g.plot(edge, node, graphname, sourcefield, destfield, nodefield, edgetitle,
-                  edgelabel, edgecolor, edgeweight, pointtitle, pointlabel, pointcolor, pointsize)
+    return g.plot(edges, nodes, graph_name, source, destination, id, edge_title,
+                  edge_label, edge_color, edge_weight, point_title, point_label, point_color, point_size)
+
+
+def fingerprint():
+    import sys
+    import platform as p
+    import uuid
+    import hashlib
+
+    md5 = hashlib.md5()
+    # Hostname, OS, CPU, MAC,
+    data = [p.node(), p.system(), p.machine(), str(uuid.getnode())]
+    md5.update(''.join(data))
+    return "%s-pygraphistry%s" % (md5.hexdigest()[:8], sys.modules['graphistry'].__version__)
+
+
+def in_ipython():
+        try:
+            __IPYTHON__
+            return True
+        except NameError:
+            return False
 
 
 class Graphistry (object):
+    tag = fingerprint()
 
-    def __init__ (self, height, url, hostname):
+
+    def __init__(self, height, hostname):
         self.height = height
-        self.url = url
         self.hostname = hostname
 
 
-    def plot(self, edge, node=None, graphname=None,
-             sourcefield=None, destfield=None, nodefield=None,
-             edgetitle=None, edgelabel=None, edgecolor=None , edgeweight=None,
-             pointtitle=None, pointlabel=None, pointcolor=None,
-             pointsize=None):
+    def etl_url(self):
+        return "http://%s/etl" % self.hostname
 
-        if isinstance(edge, pandas.core.frame.DataFrame):
-            return self.loadpandassync(edge, node, graphname, sourcefield, destfield,
-                                       nodefield, edgetitle, edgelabel, edgecolor, edgeweight,
-                                       pointtitle, pointlabel, pointcolor, pointsize)
+
+    def viz_url(self, dataset_name):
+        return "http://%s/graph/graph.html?dataset=%s&tag=%s" % (self.hostname, dataset_name, self.tag)
+
+
+    def iframe(self, url):
+        return '<iframe src="%s" style="width:100%%; height:%dpx; border: 1px solid #DDD">' % (url, self.height)
+
+
+    def plot(self, edges, nodes=None, graph_name=None, source=None, destination=None, id=None,
+             edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
+             point_title=None, point_label=None, point_color=None, point_size=None):
+
+        if isinstance(edges, pandas.core.frame.DataFrame):
+            return self.load_pandas(edges, nodes, graph_name, source, destination, id,
+                                    edge_title, edge_label, edge_color, edge_weight,
+                                    point_title, point_label, point_color, point_size)
         else:
-            return self.loadjsonsync(edge)
+            return self.loadjsonsync(edges)
 
 
-    def loadpandassync(self, edge, node=None, graphname=None,
+    def etl(self, json_dataset):
+        headers = {'Content-Encoding': 'gzip', 'Content-Type': 'application/json',
+                   'Accept-Encoding': 'gzip', 'Accept': 'application/json'}
+        try:
+            response = requests.post(self.etl_url(), json_dataset, headers=headers)
+        except requests.exceptions.ConnectionError as e:
+            raise ValueError("Connection Error:", e.message)
+        except requests.exceptions.HTTPError as e:
+            raise ValueError("HTTPError:", e.message)
+
+        jres = response.json()
+        if (jres['success'] is not True):
+            raise ValueError("Server reported error:", jres['error'])
+        else:
+            url = self.viz_url(jres['dataset'])
+            return {'url': url, 'iframe': self.iframe(url)}
+
+
+    def load_pandas(self, edge, node=None, graphname=None,
                        sourcefield=None, destfield=None,
                        nodefield=None, edgetitle=None,
                        edgelabel=None, edgecolor=None, edgeweight=None,
                        pointtitle=None, pointlabel=None,
                        pointcolor=None, pointsize=None):
-        from IPython.core.display import HTML
-
-        doc = self.loadpandas(edge, node, graphname, sourcefield,
+        dataset = self.package_pandas(edge, node, graphname, sourcefield,
                               destfield, nodefield, edgetitle,
                               edgelabel, edgecolor, edgeweight, pointtitle,
                               pointlabel, pointcolor, pointsize)
 
-        docj = json.dumps(doc)
+        result = self.etl(json.dumps(dataset))
 
-        headers = {'content type': 'json', 'content-Encoding': 'gzip',
-                   'Accept-Encoding': 'gzip', 'Accept': 'application/json',
-                   'Content-Type': 'application/json'}
-        try:
-            r = requests.post(self.url, docj, headers=headers)
-        except requests.exceptions.ConnectionError as e:
-            raise ValueError("Connection Error")
-        except requests.exceptions.HTTPError as e:
-            raise ValueError("HTTPError:", e.message)
-
+        if in_ipython() is True:
+            from IPython.core.display import HTML
+            print "Url: ", result['url']
+            return HTML(result['iframe'])
         else:
-            name = yaml.safe_load(doc['name'])
-            l = "http://" + self.hostname + "/graph/graph.html?dataset=%s"%name
-            print "Url: ", l
-            return HTML('<iframe src="' + l + '" style="width:100%; height:' +
-                        str(self.height) + 'px; border: 1px solid #DDD">')
+            import webbrowser
+            webbrowser.open(result['url'])
 
 
-    def loadjsonsync(self, document):
-        print 'Loading Json...'
-        from IPython.core.display import HTML
-
-        if self.isjsonpointer(document):
-            doc = self.loadjsonpointer(document)
-            name = yaml.safe_load(doc['name'])
-            doc = json.dumps(doc)
-
+    def load_json(self, dataset):
+        if self.isjsonpointer(dataset):
+            json_dataset = json.dumps(self.loadjsonpointer(dataset))
         else:
-            doc = document
-            name = yaml.safe_load(doc['name'])
+            json_dataset = dataset
 
-        headers = {'content type': 'json', 'content-Encoding': 'gzip',
-                   'Accept-Encoding': 'gzip', 'Accept': 'application/json',
-                   'Content-Type': 'application/json'}
-        try:
-            r = requests.post(self.url, doc, headers=headers)
-        except requests.exceptions.ConnectionError as e:
-            raise ValueError("Connection Error")
-        except requests.exceptions.HTTPError as e:
-            raise ValueError("HTTPError:", e.message)
+        result = self.etl(json_dataset)
 
+        if in_ipython is True:
+            from IPython.core.display import HTML
+            print "Url: ", result['url']
+            return HTML(result['iframe'])
         else:
-            l = "http://" + self.hostname + "/graph/graph.html?dataset=%s"%name
-            print "Url:", l
-            return HTML('<iframe src="' + l + '" style="width:100%; height:' +
-                        str(self.height) + 'px; border: 1px solid #DDD">')
+            import webbrowser
+            webbrowser.open(result['url'])
 
 
     def isjsonpointer(self, document):
@@ -223,7 +274,7 @@ class Graphistry (object):
         return files
 
 
-    def loadpandas(self, edge, node=None, graphname=None,
+    def package_pandas(self, edge, node=None, graphname=None,
                    sourcefield=None, destfield=None, nodefield=None,
                    edgetitle=None, edgelabel=None, edgecolor=None, edgeweight=None,
                    pointtitle=None, pointlabel=None,

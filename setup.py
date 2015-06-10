@@ -18,7 +18,7 @@ from setuptools import setup, find_packages
 setup(
     name='graphistry',
 
-    version='0.0.3',
+    version='0.0.4',
     py_modules = ['graphistry.etl'],
     description = 'Visualize node-link graphs using Graphistry\'s cloud',
     #long_description=long_description,
@@ -28,7 +28,7 @@ setup(
     author='Graphistry',
     author_email='pygraphistry@graphistry.com',
 
-    install_requires=['pyyaml', 'requests'],
+    install_requires=['requests'],
 
     license='BSD',
 
