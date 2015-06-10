@@ -181,7 +181,7 @@ class Graphistry (object):
 
 
     def viz_url(self, dataset_name):
-        return "http://%s/graph/graph.html?dataset=%s&tag=%s" % (self.hostname, dataset_name, self.tag)
+        return "http://%s/graph/graph.html?dataset=%s&info=true&tag=%s" % (self.hostname, dataset_name, self.tag)
 
 
     def iframe(self, url):
@@ -212,7 +212,7 @@ class Graphistry (object):
 
         jres = response.json()
         if (jres['success'] is not True):
-            raise ValueError("Server reported error:", jres['error'])
+            raise ValueError("Server reported error when processsing data:", jres['msg'])
         else:
             url = self.viz_url(jres['dataset'])
             return {'url': url, 'iframe': self.iframe(url)}
