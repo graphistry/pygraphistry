@@ -169,6 +169,7 @@ def in_ipython():
 
 class Graphistry (object):
     tag = fingerprint()
+    dataset_prefix = "PyGraphistry/"
 
 
     def __init__(self, height, hostname):
@@ -185,7 +186,7 @@ class Graphistry (object):
 
 
     def iframe(self, url):
-        return '<iframe src="%s" style="width:100%%; height:%dpx; border: 1px solid #DDD">' % (url, self.height)
+        return '<iframe src="%s" style="width:100%%; height:%dpx; border: 1px solid #DDD" />' % (url, self.height)
 
 
     def plot(self, edges, nodes=None, graph_name=None, source=None, destination=None, id=None,
@@ -303,7 +304,7 @@ class Graphistry (object):
             graphname = ''.join(random.choice(string.ascii_uppercase +
                                 string.digits)for _ in range(10))
 
-        files = {'name': graphname}
+        files = {'name': self.dataset_prefix + graphname}
         files['bindings'] = {'idField': 'node', 'destinationField': 'dst',
                              'sourceField': 'src'}
         files['type'] = 'edgelist'
