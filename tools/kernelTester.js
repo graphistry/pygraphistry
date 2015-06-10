@@ -34,18 +34,23 @@ KernelTester.prototype.exec = function () {
             this.argTypes, this.fileName, this.clContext);
 
     // Make temp buffers
+    var bufferOrig = [];
     var bufferPromises = [];
     var bufferKeys = [];
     _.each(_.keys(that.buffersToMake), function (key) {
         var orig = that.buffersToMake[key];
         bufferKeys.push(key);
+        bufferOrig.push(orig);
         bufferPromises.push(that.clContext.createBuffer(
             (orig.length) * Float32Array.BYTES_PER_ELEMENT, key));
     })
 
     Q.all(bufferPromises)
         .spread(function () {
+
+            // Copy into argValues.
             _.each(arguments, function (arg, idx) {
+                arg.write(bufferOrig[idx]);
                 that.argValues[bufferKeys[idx]] = arg.buffer;
             });
 
@@ -147,15 +152,15 @@ function mainTestFunction (clContext) {
     // Values for arguments
     ////////////////////////
 
-    var input = [1,1,2,2,3,3,1,1,2,2,3,3] // Double length so 6
+    var input = new Float32Array([1,1,2,2,3,3,1,1,2,2,3,3]); // Double length so 6
     var numInput = input.length / 2;
-    var edgeStartEndIdxs = [0,1,1,4,4,5];
-    var segStart = [0,1,4];
-    var workList = [0];
+    var edgeStartEndIdxs = new Uint32Array([0,1,1,4,4,6]); // Right side is exclusive
+    var segStart = new Uint32Array([0,1,4]);
+    var workList = new Uint32Array([0]);
     var numOutput = segStart.length;
-    var carryOut_global = makeZeroFilledArray(10);
-    var output = makeZeroFilledArray(numOutput);
-    var partialForces = makeZeroFilledArray(numOutput);
+    var carryOut_global = new Float32Array(makeZeroFilledArray(numOutput*2));
+    var output = new Float32Array(makeZeroFilledArray(numOutput*2));
+    var partialForces = new Float32Array(makeZeroFilledArray(numOutput*2));
 
 
     var argValues = {
