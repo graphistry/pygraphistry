@@ -485,6 +485,7 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('persist_current_vbo', function(name, cb) {
         graph.take(1)
             .do(function (graph) {
+                var vbos = lastCompressedVbos[socket.id];
                 persistor.saveCurrentVBO(name, vbos);
             })
             .subscribe(_.identity, eh.makeRxErrorHandler('persist_current_vbo'));
