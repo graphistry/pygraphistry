@@ -22,18 +22,18 @@ Let's load the characters from [Les Miserables](http://en.wikipedia.org/wiki/Les
 *Source* and *target* are character names, and the *value* column counts the number of time they meet. Parsing the data is a one-liner with Pandas:
 
 ```python
-import pandas as pd
+import pandas
 
-links = pd.read_csv('./lesmiserables.csv')
+links = pandas.read_csv('./lesmiserables.csv')
 ```
 
 #### Visualize Data
 The graphistry package can plot graphs directly from Pandas dataframes. We do specify the name of the two columns indicating the start and end nodes of each edges with *sourcefield* and *destfield*. 
 
 ```python
-import graphistry as g
+import graphistry
 
-g.plot(links, sourcefield="source", destfield="target")
+graphistry.plot(links, source="source", destination="target")
 ```
 
 You should see a beautiful graph like this one:
