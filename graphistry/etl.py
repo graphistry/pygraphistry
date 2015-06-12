@@ -186,7 +186,7 @@ class Graphistry (object):
 
 
     def iframe(self, url):
-        return '<iframe src="%s" style="width:100%%; height:%dpx; border: 1px solid #DDD" />' % (url, self.height)
+        return '<iframe src="%s" style="width:100%%; height:%dpx; border: 1px solid #DDD"></iframe>' % (url, self.height)
 
 
     def plot(self, edges, nodes=None, graph_name=None, source=None, destination=None, id=None,
