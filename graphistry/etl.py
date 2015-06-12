@@ -114,7 +114,7 @@ def settings(server='labs', height=500):
     return Graphistry(height, hostname)
 
 
-def plot(edges, nodes=None, graph_name=None, source=None, destination=None, id=None,
+def plot(edges, nodes=None, graph_name=None, source=None, destination=None, node=None,
          edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
          point_title=None, point_label=None, point_color=None, point_size=None):
     """
@@ -142,7 +142,7 @@ def plot(edges, nodes=None, graph_name=None, source=None, destination=None, id=N
     """
 
     g = settings()
-    return g.plot(edges, nodes, graph_name, source, destination, id, edge_title,
+    return g.plot(edges, nodes, graph_name, source, destination, node, edge_title,
                   edge_label, edge_color, edge_weight, point_title, point_label, point_color, point_size)
 
 
@@ -189,12 +189,12 @@ class Graphistry (object):
         return '<iframe src="%s" style="width:100%%; height:%dpx; border: 1px solid #DDD"></iframe>' % (url, self.height)
 
 
-    def plot(self, edges, nodes=None, graph_name=None, source=None, destination=None, id=None,
+    def plot(self, edges, nodes=None, graph_name=None, source=None, destination=None, node=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
              point_title=None, point_label=None, point_color=None, point_size=None):
 
         if isinstance(edges, pandas.core.frame.DataFrame):
-            return self.load_pandas(edges, nodes, graph_name, source, destination, id,
+            return self.load_pandas(edges, nodes, graph_name, source, destination, node,
                                     edge_title, edge_label, edge_color, edge_weight,
                                     point_title, point_label, point_color, point_size)
         else:
@@ -378,7 +378,7 @@ class Graphistry (object):
             for i in range(0, len(nodej)):
                 nodej[i]['node'] = node['node'][i]
         else:
-            nodej = {each[nodefield]: each for each in nodej}.values()
+            #nodej = {each[nodefield]: each for each in nodej}.values()
             for i in range(0, len(nodej)):
                 nodej[i]['node'] = node[nodefield][i]
 
