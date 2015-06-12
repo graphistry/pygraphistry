@@ -156,7 +156,7 @@ def fingerprint():
     # Hostname, OS, CPU, MAC,
     data = [p.node(), p.system(), p.machine(), str(uuid.getnode())]
     md5.update(''.join(data))
-    return "%s-pygraphistry%s" % (md5.hexdigest()[:8], sys.modules['graphistry'].__version__)
+    return "%s-pygraphistry-%s" % (md5.hexdigest()[:8], sys.modules['graphistry'].__version__)
 
 
 def in_ipython():
