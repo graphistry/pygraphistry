@@ -77,7 +77,12 @@ function getPkgInfo(roots, repo) {
     var pkgFile = path.resolve(wd, repo, 'package.json');
     var content = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
     var deps = _.map(content.dependencies, function (url, name) {
-        var regex = /^git\+ssh:\/\/git@github.com:graphistry\/([\w-]+)\.git#master$/;
+        // Old Regex for explicit SSH link
+        // var regex = /^git\+ssh:\/\/git@github.com:graphistry\/([\w-]+)\.git#master$/;
+
+        // Regex for implicit github link, should also grab from old explicit link
+        var regex = /graphistry\/([\w-]+)/;
+
         var result = url.match(regex);
         return {
             internal: result !== null,
