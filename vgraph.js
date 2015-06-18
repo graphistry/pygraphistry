@@ -56,7 +56,7 @@ function makeVector(name, type, target) {
 function getAttributeVectors(header, target) {
     var map = _.map(header, function (info, key) {
         if (info.type === 'empty') {
-            console.info('Skipping attribute', key, 'because it has no data.');
+            console.log('Skipping attribute', key, 'because it has no data.');
             return [];
         }
         var vec = makeVector(key, info.type, target);
@@ -143,21 +143,21 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         var dsts = edgeMap[src] || {};
         if (dst in dsts) {
             if (warnsLeftDuplicated-- > 0) {
-                console.info('Edge %s -> %s is duplicated', src, dst);
+                console.log('Edge %s -> %s is duplicated', src, dst);
             }
             return true;
         }
 
         if (src === undefined || dst === undefined || src === null || dst === null) {
             if (warnsLeftNull-- > 0) {
-                console.info('Edge %s <-> %s has null field', src, dst);
+                console.log('Edge %s <-> %s has null field', src, dst);
             }
             return true;
         }
 
         if (src === dst) {
             if (warnsLeftSelf-- > 0) {
-                console.info('Edge %s <-> %s is a self-edge', src, dst);
+                console.log('Edge %s <-> %s is a self-edge', src, dst);
             }
             return true;
         }
@@ -204,8 +204,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
     });
 
     if (!(srcField in eheader)) {
-        console.warn('Edges have no srcField' , srcField);
-        console.warn('header', eheader);
+        console.warn('Edges have no srcField' , srcField, 'header', eheader);
         return undefined;
     }
     if (!(dstField in eheader)) {
@@ -235,7 +234,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
 
     debug('Loading', nlabels.length, 'labels for', nodeCount, 'nodes');
     if (nodeCount > nlabels.length) {
-        console.info('There are', nodeCount - nlabels.length, 'labels missing');
+        console.log('There are', nodeCount - nlabels.length, 'labels missing');
     }
 
     var sortedLabels = new Array(nodeCount);
@@ -248,7 +247,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
             sortedLabels[labelIdx] = label;
         } else {
             if (warnsLeftLabel-- > 0) {
-                console.info(sprintf('Skipping label #%6d (nodeId: %10s) which has no matching node. (ID field: %s, label: %s)', i, nodeId, idField, JSON.stringify(label)));
+                console.log(sprintf('Skipping label #%6d (nodeId: %10s) which has no matching node. (ID field: %s, label: %s)', i, nodeId, idField, JSON.stringify(label)));
             }
         }
     }
