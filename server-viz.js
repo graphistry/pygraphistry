@@ -33,7 +33,8 @@ var perf        = require('debug')('perf');
 //Serve most recent compressed binary buffers
 //TODO reuse across users
 //{socketID -> {buffer...}
-var lastCompressedVbos;
+var lastCompressedVBOs;
+var lastRenderConfig;
 var finishBufferTransfers;
 var qLastSelection;
 
@@ -48,6 +49,8 @@ var ticksMulti;
 //most recent tick
 var graph;
 
+var saveAtEachStep = false;
+var defaultSnapshotName = 'snapshot';
 
 
 // ----- INITIALIZATION ------------------------------------
@@ -59,7 +62,7 @@ function resetState(dataset) {
 
     //FIXME explicitly destroy last graph if it exists?
 
-    lastCompressedVbos = {};
+    lastCompressedVBOs = {};
     finishBufferTransfers = {};
 
 
@@ -186,9 +189,9 @@ function init(app, socket) {
             var id = req.query.id;
 
             res.set('Content-Encoding', 'gzip');
-            var vbos = lastCompressedVbos[id];
+            var vbos = lastCompressedVBOs[id];
             if (vbos) {
-                res.send(lastCompressedVbos[id][bufferName]);
+                res.send(lastCompressedVBOs[id][bufferName]);
             }
             res.send();
         } catch (e) {
@@ -223,7 +226,7 @@ function init(app, socket) {
         read_selection('edges', req.query, res);
     });
 
-    // Get the datasetname from the socket query param, sent by Central
+    // Get the dataset name from the socket query param, sent by Central
     var qDataset = loader.downloadDataset(query);
 
     var qRenderConfig = qDataset.then(function (dataset) {
@@ -244,8 +247,11 @@ function init(app, socket) {
             debug('Sending render-config to client');
             cb({success: true, renderConfig: renderConfig});
 
-            persistor.maybeSaveConfig(renderConfig);
+            if (saveAtEachStep) {
+                persistor.saveConfig(defaultSnapshotName, renderConfig);
+            }
 
+            lastRenderConfig = renderConfig;
         }).fail(function (err) {
             cb({success: false, error: 'Unknown dataset or scene error'});
             eh.makeErrorHandler('sending render_config')(err)
@@ -333,10 +339,10 @@ function stream(socket, renderConfig, colorTexture) {
 
     // ========== BASIC COMMANDS
 
-    lastCompressedVbos[socket.id] = {};
+    lastCompressedVBOs[socket.id] = {};
     socket.on('disconnect', function () {
         debug('disconnecting', socket.id);
-        delete lastCompressedVbos[socket.id];
+        delete lastCompressedVBOs[socket.id];
     });
 
 
@@ -478,12 +484,21 @@ function stream(socket, renderConfig, colorTexture) {
 
     });
 
+    socket.on('persist_current_vbo', function(name, cb) {
+        graph.take(1)
+            .do(function (graph) {
+                var vbos = lastCompressedVBOs[socket.id];
+                persistor.publishStaticContents(name, vbos, renderConfig);
+            })
+            .subscribe(_.identity, eh.makeRxErrorHandler('persist_current_vbo'));
+    });
+
     socket.on('fork_vgraph', function (name, cb) {
         graph.take(1)
             .do(function (graph) {
                 var vgName = 'Users/' + name;
                 vgwriter.save(graph, vgName).then(function () {
-                    cb({success: true, data: vgName});
+                    cb({success: true, name: vgName});
                 }).done(
                     _.identity,
                     eh.makeErrorHandler('fork_vgraph')
@@ -530,10 +545,11 @@ function stream(socket, renderConfig, colorTexture) {
                 debug('1. prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB', ticker);
 
                 //tell XHR2 sender about it
-                lastCompressedVbos[socket.id] = vbos.compressed;
+                lastCompressedVBOs[socket.id] = vbos.compressed;
 
-                persistor.maybeSaveVbos(vbos, step);
-
+                if (saveAtEachStep) {
+                    persistor.saveVBOs(defaultSnapshotName, vbos, step);
+                }
             })
             .flatMap(function (vbos) {
                 debug('2. Waiting for client to finish previous', socket.id, ticker);
