@@ -48,6 +48,8 @@ users:
     pubkey: "{{ pubkey_base }}/paden.pub"
   - username: brian
     pubkey: "{{ pubkey_base }}/brian.pub"
+  - username: kevin
+    pubkey: "{{ pubkey_base }}/kevin.pub"
   - username: ubuntu
     pubkey: "{{ playbook_dir }}/tools/ansible_id_rsa.pub"
     groups:

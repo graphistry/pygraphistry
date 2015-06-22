@@ -6,7 +6,7 @@
 
 Mac sure you've installed [Homebrew](https://github.com/Homebrew/homebrew), then install our dependencies with the below commands.
 
-If you have issues with including header files during the install, try `brew unlink && brew link`.
+If you have issues with including header files during the install, try `brew unlink && brew link`. If you're still having issues, try reinstalling the XCode command line tools.
 
 **Note**: make sure you *don't* install the `node` package (or `brew uninstall node` if you have it installed.) Homebrew now only includes Node.js v0.12.x, and some of our modules only work with v0.10.x. We will use `n` to install Node.js instead.
 
