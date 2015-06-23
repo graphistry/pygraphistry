@@ -31,14 +31,13 @@ __kernel void faIntegrate (
     float swing = swings[n1Idx];
     float normalizedSwing = pow((swing  / (sqrtPoints) ), 2.0f);
     float speed = speedFactor * (*globalSpeed) / (1.0f + (*globalSpeed) * normalizedSwing);
-    float maxSpeed = maxSpeedFactor / length(curForces[n1Idx]);
+    float maxSpeed = maxSpeedFactor / max(length(curForces[n1Idx]), FLT_EPSILON);
 
 
     delta = min(speed, maxSpeed) * curForces[n1Idx];
     /*delta = 0.001f * curForces[n1Idx];*/
 
-    /*debug6("Speed (%d) %f max: %f, global_speed %f swing %.9g \n", n1Idx, speed, maxSpeed, *globalSpeed, normalizedSwing);*/
-    debug6("Speed (%d) %f max: %f, global_speed %f delta %.9g \n", n1Idx, speed, maxSpeed, *globalSpeed, normalizedSwing);
+    debug5("Speed (%d) %f max: %f, min %.9g \n", n1Idx, speed, maxSpeed, min(speed, maxSpeed));
 
     outputPositions[n1Idx] = inputPositions[n1Idx] + delta;
     return;
