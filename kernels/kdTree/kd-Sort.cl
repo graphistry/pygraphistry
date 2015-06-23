@@ -3,38 +3,21 @@
 
 // Sort bodies in in-order traversal order
 __kernel void sort(
-        //graph params
-        float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
         __global volatile float *x_cords,
         __global float *y_cords,
-        __global float* accx,
-        __global float* accy,
         __global volatile int* children,
-        __global float* mass,
         __global volatile int* start,
         __global int* sort,
-        __global float* global_x_mins,
-        __global float* global_x_maxs,
-        __global float* global_y_mins,
-        __global float* global_y_maxs,
-        __global float* swings,
-        __global float* tractions,
         __global int* count,
-        __global volatile int* blocked,
         __global volatile int* step,
         __global volatile int* bottom,
         __global volatile int* maxdepth,
         __global volatile float* radiusd,
         __global volatile float* globalSpeed,
         unsigned int step_number,
-        float width,
-        float height,
         const int num_bodies,
-        const int num_nodes,
-        __global float2* pointForces,
-        float tau
+        const int num_nodes
 ){
-
     debugonce("sort\n");
 
     int i, k, child, decrement, start_index, bottom_node;
@@ -42,9 +25,6 @@ __kernel void sort(
     bottom_node = *bottom;
     decrement = get_global_size(0);
     k = num_nodes + 1 - decrement + get_global_id(0);
-
-
-
     while (k >= bottom_node) {
         start_index = start[k];
         if (start_index >= 0) {

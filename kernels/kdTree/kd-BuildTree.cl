@@ -8,36 +8,18 @@
 #endif
 
 __kernel void build_tree(
-        //graph params
-        float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
         __global volatile float *x_cords,
         __global float *y_cords,
-        __global float* accx,
-        __global float* accy,
         __global volatile int* child,
         __global float* mass,
         __global int* start,
-        __global int* sort,
-        __global float* global_x_mins,
-        __global float* global_x_maxs,
-        __global float* global_y_mins,
-        __global float* global_y_maxs,
-        __global float* swings,
-        __global float* tractions,
-        __global int* count,
-        __global volatile int* blocked,
         __global volatile int* step,
         __global volatile int* bottom,
         __global volatile int* maxdepth,
         __global volatile float* radiusd,
-        __global volatile float* globalSpeed,
         unsigned int step_number,
-        float width,
-        float height,
         const int num_bodies,
-        const int num_nodes,
-        __global float2* pointForces,
-        float tau
+        const int num_nodes
 ){
 
     int inc =  get_global_size(0);

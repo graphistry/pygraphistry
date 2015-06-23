@@ -2,16 +2,11 @@
 #include "barnesHut/barnesHutCommon.h"
 
 __kernel void bound_box(
-        //graph params
-        float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
         __global float *x_cords,
         __global float *y_cords,
-        __global float* accx,
-        __global float* accy,
         __global int* children,
         __global float* mass,
         __global int* start,
-        __global int* sort,
         __global float* global_x_mins,
         __global float* global_x_maxs,
         __global float* global_y_mins,
@@ -24,15 +19,11 @@ __kernel void bound_box(
         __global volatile int* blocked,
         __global volatile int* stepd,
         __global volatile int* bottomd,
-        __global volatile int* maxdepthd,
         __global volatile float* radiusd,
         __global volatile float* globalSpeed,
         unsigned int step_number,
-        float width,
-        float height,
         const int num_bodies,
         const int num_nodes,
-        __global float2* pointForces,
         float tau
 ){
 

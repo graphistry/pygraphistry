@@ -3,10 +3,8 @@
 #undef DEBUG
 #include "barnesHut/barnesHutCommon.h"
 
-// Computes BarnesHut specific data.
-__kernel void to_barnes_layout(
-        //GRAPH_PARAMS
-        float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
+// transforms buffers for more optimized memory accesses.
+__kernel void to_kd_layout(
         // number of points
         const uint numPoints,
         const __global float2* inputMidPositions,
@@ -20,7 +18,6 @@ __kernel void to_barnes_layout(
         __global float* mass,
         __global volatile int* blocked,
         __global volatile int* maxdepthd,
-        const __global uint* pointDegrees,
         const uint step_number,
         const uint midpoint_stride,
         const uint midpoints_per_edge
@@ -32,7 +29,7 @@ __kernel void to_barnes_layout(
 
     if (gid == 0) {
     debug2("Num of points %u \n", numPoints);
-    } 
+    }
 
     uint src, target;
     float2 directionVector;

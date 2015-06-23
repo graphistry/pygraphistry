@@ -75,89 +75,21 @@ inline int reduction_thread_vote(__local int* const buffer, const float distSqua
     return (buffer[offset] == WARPSIZE);
 }
 
-
-
-
-inline float repulsionForce(const float distSquared, const uint n1DegreePlusOne, const uint n2DegreePlusOne,
-                            const float scalingRatio, const bool preventOverlap) {
-    const int degreeProd = (n1DegreePlusOne * n2DegreePlusOne);
-    float force;
-
-    if (preventOverlap) {
-        //FIXME include in prefetch etc, use actual sizes
-        float n1Size = DEFAULT_NODE_SIZE;
-        float n2Size = DEFAULT_NODE_SIZE;
-        float distB2B = distSquared - n1Size - n2Size; //border-to-border
-
-        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / distSquared)
-            : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
-            : 0.0f;
-    } else {
-        // We use dist squared instead of dist because we want to normalize the
-        // distance vector as well
-        force = scalingRatio * degreeProd / distSquared;
-    }
-
-#ifndef NOREPULSION
-    // Assuming always positive.
-    // return clamp(force, 0.0f, 1000000.0f);
-    return min(force, 1000000.0f);
-#else
-    return 0.0f;
-#endif
-}
-
-
-inline float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
-                          const bool strong) {
-
-    float gForce = gravity * (n1Degree + 1.0f);
-    if (strong) {
-        gForce *= fast_length(centerVec);
-    }
-
-#ifndef NOGRAVITY
-    return gForce;
-#else
-    return 0.0f;
-#endif
-}
-
-
 __kernel void calculate_forces(
-        //graph params
-        const float scalingRatio, const float gravity, const unsigned int edgeWeightInfluence, const unsigned int flags,
         __global float *x_cords,
         __global float *y_cords,
         __global float* edgeDirectionX,
         __global float* edgeDirectionY,
         __global float* edgeLengths,
-        __global float *accx,
-        __global float * accy,
         __global int* children,
-        __global float* mass,
-        __global int* start,
         __global int* sort,
-        __global float* global_x_mins,
-        __global float* global_x_maxs,
-        __global float* global_y_mins,
-        __global float* global_y_maxs,
-        __global float* swings,
-        __global float* tractions,
-        __global int* count,
         __global int* blocked,
-        __global int* step,
-        __global int* bottom,
         __global int* maxdepth,
         __global float* radiusd,
-        __global volatile float* globalSpeed,
         unsigned int step_number,
-        float width,
-        float height,
         const int num_bodies,
         const int num_nodes,
         __global float2* pointForces,
-        float tau,
         float charge,
         const uint midpoint_stride,
         const uint midpoints_per_edge
@@ -186,12 +118,11 @@ __kernel void calculate_forces(
     __local volatile int child_index[MAXDEPTH * THREADS_FORCES/WARPSIZE], parent_index[MAXDEPTH * THREADS_FORCES/WARPSIZE];
     __local volatile float dq[MAXDEPTH * THREADS_FORCES/WARPSIZE];
 
-    __local volatile int shared_step, shared_maxdepth;
+    __local volatile int shared_maxdepth;
     __local volatile int votingBuffer[THREADS_FORCES/WARPSIZE];
 
     if (local_id == 0) {
         int itolsqd = 1.0f / (0.5f*0.5f);
-        shared_step = *step; // local
         shared_maxdepth = *maxdepth; // local
         temp = *radiusd; // local
 
@@ -314,7 +245,7 @@ __kernel void calculate_forces(
                             float2 projectionVector = dot(distVector, (float2) (edgeDirX, edgeDirY)) * (float2) (edgeDirX, edgeDirY);
                             float midEdgeLength = edgeLength / midpoints_per_edge;
                             float alignmentCompat = 1.0f / (1 + (length(projectionVector)) / (midEdgeLength));
-                            forceVector +=  alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(n1Pos, otherPoint, charge * alpha * mass[child]) * -1.0f);
+                            forceVector +=  alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(n1Pos, otherPoint, charge * alpha) * -1.0f);
                           }
                           // If all threads agree that cell is too far away, move on. 
                         /*} else if (!(warpCellVote(votingBuffer, 100.0f * pow((dist - (edgeLength / 2.0f)), 2.0f), dq[depth], warp_id))) {*/
@@ -335,23 +266,8 @@ __kernel void calculate_forces(
                 }
                 depth--; // Finished this level
             }
-
-            // Assigning force for force atlas.
-            float2 n1Pos = (float2) (px, py);
-            const float2 dimensions = (float2) (width, height);
-            const float2 centerVec = (dimensions / 2.0f) - n1Pos;
-            const float gForce = gravityForce(gravity, /*mass[index]*/1.0f, centerVec, IS_STRONG_GRAVITY(flags));
-            /*const float2 gForce2 = normalize(centerVec) * gForce * 0.000001f;*/
-            /*forceVector += gForce2;*/
-                            if (get_global_id(0) < 64) {
-                              /*printf("Force x %f, Force y %f \n gForce x %f y %f \n", forceVector.x, forceVector.y, gForce2.x, gForce2.y);*/
-                              /*printf("gForce x %.9g y %.9g x %.9g y %9g mass %f gravity %f\n", gForce2.x, gForce2.y, centerVec.x, centerVec.y, mass[index], gForce);*/
-                            }
-            float2 result = (float2) (forceVector);
-            pointForces[(index * midpoints_per_edge) + midpoint_stride] = (float2) result;
+            pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector;
             debug6("Force in calculate midpoints x (%u) %.9g, y %.9g Result x %.9g y %.9g\n", (index * midpoints_per_edge) + midpoint_stride, forceVector.x, forceVector.y, result.x, result.y);
-            /*pointForces[(index * midpoints_per_edge) + midpoint_stride] = n1Pos;*/
-            /*nextMidPoints[index] = n1Pos + 0.00001f * normalize(centerVec) * gForce + forceVector * mass[index];*/
 
         }
     }
