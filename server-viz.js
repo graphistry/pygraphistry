@@ -548,7 +548,11 @@ function stream(socket, renderConfig, colorTexture) {
                 debug('1. prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB', ticker);
 
                 //tell XHR2 sender about it
-                lastCompressedVBOs[socket.id] = vbos.compressed;
+                if (!lastCompressedVBOs[socket.id]) {
+                    lastCompressedVBOs[socket.id] = vbos.compressed;
+                } else {
+                    _.extend(lastCompressedVBOs[socket.id], vbos.compressed);
+                }
                 lastMetadata[socket.id] = {elements: vbos.elements, bufferByteLengths: vbos.bufferByteLengths};
 
                 if (saveAtEachStep) {
