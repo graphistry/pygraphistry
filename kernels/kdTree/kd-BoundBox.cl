@@ -135,6 +135,8 @@ __kernel void bound_box(
             // Compute the radius
             val = max(maxx - minx, maxy - miny);
             *radiusd = (float) (val* 0.5f);
+            radiusd[0] = (float) (val * 0.5f);
+            radiusd[1] = (float) (val * 0.5f);
 
             // Create the root node at index num_nodes.
             // Because memory is laid out as bodies then tree-nodes,

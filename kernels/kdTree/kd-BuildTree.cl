@@ -43,13 +43,21 @@ __kernel void build_tree(
     int inc =  get_global_size(0);
     int i = get_global_id(0);
 
-    float radius = *radiusd;
+    float x_radius = radiusd[0];
+    float y_radius = radiusd[1];
+    float radius = x_radius;
+
+
     float rootx = x_cords[num_nodes];
     float rooty = y_cords[num_nodes];
     int localmaxdepth = 1;
     int skip = 1;
 
-    float r;
+    float r, cell_x_radius, cell_y_radius;
+    /*float r;*/
+
+
+
     float x, y;
     int j;
     float px, py; // x and y of particle we're looking at
@@ -70,7 +78,8 @@ __kernel void build_tree(
             py = y_cords[i];
             n = num_nodes;
             depth = 1;
-            r = radius;
+            cell_x_radius = x_radius;
+            cell_y_radius = y_radius;
 
             // j lets us know which of the 4 children to follow.
             j = 0;
@@ -87,7 +96,8 @@ __kernel void build_tree(
         while (ch >= num_bodies) {
             n = ch;
             depth++;
-            r *= 0.5f;
+            cell_x_radius *= 0.5f;
+            cell_y_radius *= 0.5f;
             j = 0;
             // determine which child to follow
             if (x_cords[n] < px) j = 1;
@@ -134,14 +144,15 @@ __kernel void build_tree(
 
                         patch = max(patch, cell);
 
-                        x = (j & 1) * r;
-                        y = ((j >> 1) & 1) * r;
-                        r *= 0.5f;
+                        x = (j & 1) * cell_x_radius;
+                        y = ((j >> 1) & 1) * cell_y_radius;
+                        cell_x_radius *= 0.5f;
+                        cell_y_radius *= 0.5f;
 
                         mass[cell] = -1.0f;
                         start[cell] = NULLPOINTER;
-                        x = x_cords[cell] = x_cords[n] - r + x;
-                        y = y_cords[cell] = y_cords[n] - r + y;
+                        x = x_cords[cell] = x_cords[n] - cell_x_radius + x;
+                        y = y_cords[cell] = y_cords[n] - cell_y_radius + y;
 
                         // TODO: Unroll
                         // Initialize new children to null.
