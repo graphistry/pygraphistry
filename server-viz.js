@@ -35,6 +35,7 @@ var perf        = require('debug')('perf');
 //{socketID -> {buffer...}
 var lastCompressedVBOs;
 var lastRenderConfig;
+var lastMetadata;
 var finishBufferTransfers;
 var qLastSelection;
 
@@ -63,6 +64,7 @@ function resetState(dataset) {
     //FIXME explicitly destroy last graph if it exists?
 
     lastCompressedVBOs = {};
+    lastMetadata = {};
     finishBufferTransfers = {};
 
 
@@ -488,7 +490,8 @@ function stream(socket, renderConfig, colorTexture) {
         graph.take(1)
             .do(function (graph) {
                 var vbos = lastCompressedVBOs[socket.id];
-                persistor.publishStaticContents(name, vbos, renderConfig);
+                var metadata = lastMetadata[socket.id];
+                persistor.publishStaticContents(name, vbos, metadata, renderConfig);
             })
             .subscribe(_.identity, eh.makeRxErrorHandler('persist_current_vbo'));
     });
@@ -546,6 +549,7 @@ function stream(socket, renderConfig, colorTexture) {
 
                 //tell XHR2 sender about it
                 lastCompressedVBOs[socket.id] = vbos.compressed;
+                lastMetadata[socket.id] = {elements: vbos.elements, bufferByteLengths: vbos.bufferByteLengths};
 
                 if (saveAtEachStep) {
                     persistor.saveVBOs(defaultSnapshotName, vbos, step);
