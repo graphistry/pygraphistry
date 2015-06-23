@@ -16,6 +16,8 @@ __kernel void bound_box(
         __global float* global_x_maxs,
         __global float* global_y_mins,
         __global float* global_y_maxs,
+        __global float* global_edge_mins,
+        __global float* global_edge_maxs,
         __global float* swings,
         __global float* tractions,
         __global int* count,

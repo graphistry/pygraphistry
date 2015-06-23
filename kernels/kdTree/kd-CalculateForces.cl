@@ -282,6 +282,7 @@ __kernel void calculate_forces(
                         dx = px - x_cords[child];
                         dy = py - y_cords[child];
                         distVector = (float2) (dx, dy);
+                        float dist = length(distVector);
                         temp = dx*dx + (dy*dy + 0.00000000001);
 
                         // Edgebundling currently only uses the quadtree in order to test which points are close enough
@@ -290,7 +291,7 @@ __kernel void calculate_forces(
                           float2 distVector = (float2) (dx, dy);
                           float distVectorLength = fast_length(distVector);
                           // If the distance to the point is too small, skip the point.
-                          if (distVectorLength < FLT_EPSILON * 1.0f) {
+                          if (distVectorLength < FLT_EPSILON * 0.0f) {
                             // TODO It may be worth looking into setting a flag on swings when this happens. With our current
                             // datasets, this does not hit very often.
                             /*printf("Distance between points is too small \n");*/
@@ -300,7 +301,8 @@ __kernel void calculate_forces(
                             float edgeDirXOtherPoint = edgeDirectionX[child];
                             float edgeDirYOtherPoint = edgeDirectionY[child];
                             float edgeLengthOtherPoint = edgeLengths[child];
-                            // TODO It would be interesting to to having edges of opposite direction repel instead of attract each other.
+                            // TODO It would be interesting to to having edges of opposite 
+                            // direction repel instead of attract each other.
                             // TODO optimized registers.
                             float edgeAngleCompat = (fmax((edgeDirXOtherPoint * edgeDirX), 0) + fmax((edgeDirYOtherPoint * edgeDirY), 0))/2;
                             edgeAngleCompat = edgeAngleCompat * edgeAngleCompat * edgeAngleCompat;
@@ -315,7 +317,8 @@ __kernel void calculate_forces(
                             forceVector +=  alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(n1Pos, otherPoint, charge * alpha * mass[child]) * -1.0f);
                           }
                           // If all threads agree that cell is too far away, move on. 
-                        } else if (!(warpCellVote(votingBuffer, temp, dq[depth], warp_id))) {
+                        /*} else if (!(warpCellVote(votingBuffer, 100.0f * pow((dist - (edgeLength / 2.0f)), 2.0f), dq[depth], warp_id))) {*/
+                        } else if (!(warpCellVote(votingBuffer, pow(dist - (edgeLength / 16.0f), 2.0f), dq[depth], warp_id))) {
                             // Push this cell onto the stack.
                             depth++;
                             if (starting_warp_thread_id == local_id) {

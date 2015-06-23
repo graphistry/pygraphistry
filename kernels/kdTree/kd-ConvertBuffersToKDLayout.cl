@@ -16,7 +16,7 @@ __kernel void to_barnes_layout(
         const __global uint2* springs,
         __global float *edgeDirectionX,
         __global float *edgeDirectionY,
-        __global float* edgeLength,
+        __global float* edgeLengths,
         __global float* mass,
         __global volatile int* blocked,
         __global volatile int* maxdepthd,
@@ -51,7 +51,7 @@ __kernel void to_barnes_layout(
         distanceVector = (float) distance(inputPositions[target],inputPositions[src]);
         edgeDirectionX[i] = directionVector.x;
         edgeDirectionY[i] = directionVector.y;
-        edgeLength[i] = distanceVector;
+        edgeLengths[i] = distanceVector;
         debug4("Edge direction (%u), X: %f, Y: %f \n", index, directionVector.x, directionVector.y);
     }
     if (gid == 0) {
