@@ -4,5 +4,4 @@ config.json
 tests.log
 kernels/debug.*
 kernels/**/*.debug
-.jshintrc
 graph.css

@@ -9,7 +9,8 @@
     "test": "jasmine-node spec/ --forceexit",
     "less": "mkdir -p assets/css && (lessc less/graph.less > assets/css/graph.css)",
     "install": "npm run less",
-    "watch": "watch-less -d less --output assets/css -e .css"
+    "watch": "watch-less -d less --output assets/css -e .css",
+    "jshint": "jshint -c .jshintrc --exclude-path .gitignore ."
   },
   "license": "ISC",
   "dependencies": {
