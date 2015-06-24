@@ -91,6 +91,9 @@ function req2data(req) {
 
     req.on('end', function () {
         var data = Buffer.concat(chunks)
+
+        debug('Request bytes:%d, encoding:%s', data.length, encoding);
+
         if (encoding == 'identity') {
             result.resolve(data.toString());
         } else if (encoding === 'gzip') {
