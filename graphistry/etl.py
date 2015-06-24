@@ -92,6 +92,8 @@ import random
 import string
 import requests
 import json
+import gzip
+import StringIO
 
 
 def settings(server='labs', height=500):
@@ -202,10 +204,14 @@ class Graphistry (object):
 
 
     def etl(self, json_dataset):
-        headers = {'Content-Encoding': 'gzip', 'Content-Type': 'application/json',
-                   'Accept-Encoding': 'gzip', 'Accept': 'application/json'}
+        headers = {'Content-Encoding': 'gzip', 'Content-Type': 'application/json'}
+
+        out_file = StringIO.StringIO()
+        with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
+            f.write(json_dataset)
+
         try:
-            response = requests.post(self.etl_url(), json_dataset, headers=headers)
+            response = requests.post(self.etl_url(), out_file.getvalue(), headers=headers)
         except requests.exceptions.ConnectionError as e:
             raise ValueError("Connection Error:", e.message)
         except requests.exceptions.HTTPError as e:
