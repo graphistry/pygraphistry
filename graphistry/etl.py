@@ -87,13 +87,15 @@
 # This function checks whether the input document is Json pointer
 #...............................................................................
 
-import pandas
+import sys
 import random
 import string
-import requests
 import json
 import gzip
 import StringIO
+
+import requests
+import pandas
 
 
 def settings(server='labs', height=500):
@@ -149,7 +151,6 @@ def plot(edges, nodes=None, graph_name=None, source=None, destination=None, node
 
 
 def fingerprint():
-    import sys
     import platform as p
     import uuid
     import hashlib
@@ -205,13 +206,15 @@ class Graphistry (object):
 
     def etl(self, json_dataset):
         headers = {'Content-Encoding': 'gzip', 'Content-Type': 'application/json'}
+        params = {'agent': 'pygraphistry', 'apiversion' : '1',
+                  'agentversion': sys.modules['graphistry'].__version__}
 
         out_file = StringIO.StringIO()
         with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
             f.write(json_dataset)
 
         try:
-            response = requests.post(self.etl_url(), out_file.getvalue(), headers=headers)
+            response = requests.post(self.etl_url(), out_file.getvalue(), headers=headers, params=params)
         except requests.exceptions.ConnectionError as e:
             raise ValueError("Connection Error:", e.message)
         except requests.exceptions.HTTPError as e:
