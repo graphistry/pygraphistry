@@ -81,15 +81,25 @@ function s3Upload(binaryBuffer, metadata) {
 
 
 function req2data(req) {
-    var data = "";
+    var encoding = req.headers['content-encoding'] || 'identity'
+    var chunks = [];
     var result = Q.defer();
 
     req.on('data', function (chunk) {
-        data += chunk;
+        chunks.push(chunk);
     });
 
     req.on('end', function () {
-        result.resolve(data);
+        var data = Buffer.concat(chunks)
+        if (encoding == 'identity') {
+            result.resolve(data.toString());
+        } else if (encoding === 'gzip') {
+            result.resolve(Q.denodeify(zlib.gunzip)(data))
+        } else if (encoding === 'deflate') {
+            result.resolve(Q.denodeify(zlib.inflate)(data))
+        } else {
+            result.reject('Unknown encoding: ' + encoding)
+        }
     });
 
     return result.promise;
