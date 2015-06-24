@@ -113,7 +113,7 @@ def settings(server='labs', height=500):
     elif server is 'labs':
         hostname = 'proxy-labs.graphistry.com'
     else:
-        raise ValueError("Unknown server: " + server)
+        hostname = server
 
     return Graphistry(height, hostname)
 
@@ -178,6 +178,12 @@ class Graphistry (object):
     def __init__(self, height, hostname):
         self.height = height
         self.hostname = hostname
+
+
+    def settings(self, height=None, hostname=None):
+        ht = self.height if height == None else height
+        hn = self.hostname if hostname == None else hostname
+        return settings(hn, ht)
 
 
     def etl_url(self):
