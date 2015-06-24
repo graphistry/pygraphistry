@@ -3,6 +3,7 @@ var zlib = require('zlib');
 var path = require('path');
 
 var debug = require('debug')('graphistry:etlworker:vgraph');
+var log = require('common/log.js');
 var Q = require('q');
 var _ = require('underscore');
 var pb = require('protobufjs');
@@ -11,8 +12,7 @@ var sprintf = require('sprintf-js').sprintf;
 var protoFile = path.resolve(__dirname, '../graph-viz/js/libs/graph_vector.proto');
 var builder = pb.loadProtoFile(protoFile);
 if (builder === null) {
-    console.error('error: could not build proto', err, err.stack);
-    process.exit(-1);
+    log.die('error: could not build proto', err, err.stack);
 }
 var pb_root = builder.build();
 
@@ -272,9 +272,6 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
     _.each(_.omit(nvectors, '_mkv_child', '_timediff'), function (vector) {
         vg[vector.dest].push(vector);
     });
-
-    //debug('VectorGraph', vg);
-    debug('Encoding vgraph done');
 
     return vg;
 }

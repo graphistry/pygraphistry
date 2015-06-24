@@ -12,6 +12,7 @@ var config   = require('config')();
 var vgraph   = require('./vgraph.js');
 var Cache    = require('common/cache.js');
 var s3       = require('common/s3.js');
+var log      = require('common/log.js');
 
 var tmpCache = new Cache(config.LOCAL_CACHE_DIR, config.LOCAL_CACHE);
 
@@ -34,6 +35,7 @@ function etl(msg) {
     if (vg === undefined) {
         throw new Error('Invalid edgelist');
     } else {
+        log.info('VGraph created with', vg.nvertices, 'nodes and', vg.nedges, 'edges');
         return publish(vg, name);
     }
 }
@@ -59,7 +61,7 @@ function publish(vg, name) {
         debug('Attempting to upload dataset');
         return s3Upload(binData, metadata)
             .fail(function (err) {
-                console.error('S3 Upload failed', err.message);
+                log.error('S3 Upload failed', err.message);
             }).then(cacheLocally, cacheLocally) // Cache locally regardless of result
             .then(_.constant(name)); // We succeed iff cacheLocally succeeds
     } else {
@@ -68,7 +70,7 @@ function publish(vg, name) {
         return s3Upload(binData, metadata)
             .then(_.constant(name))
             .fail(function (err) {
-                console.error('S3 Upload failed', err.message);
+                log.error('S3 Upload failed', err.message);
             });
     }
 }
@@ -80,8 +82,24 @@ function s3Upload(binaryBuffer, metadata) {
 }
 
 
+function parseQueryParams(req) {
+    var res = [];
+
+    res.agent = req.query.agent || 'unknown';
+    res.agentVersion = req.query.agentversion || '0.0.0';
+    res.apiVersion = parseInt(req.query.apiversion) || 0;
+
+    return res;
+}
+
+
 function req2data(req) {
-    var encoding = req.headers['content-encoding'] || 'identity'
+    var params = parseQueryParams(req);
+    var encoding = params.apiVersion === 0 ? 'identity'
+                                           : req.headers['content-encoding'] || 'identity';
+
+    log.info('ETL request submitted', params);
+
     var chunks = [];
     var result = Q.defer();
 
@@ -111,12 +129,12 @@ function req2data(req) {
 
 function makeFailHandler(res) {
     return function (err) {
-        console.error('ETL post fail', (err||{}).stack);
+        log.error('ETL post fail', (err||{}).stack);
         res.send({
             success: false,
             msg: err.message
         });
-        console.error('Failed worker, exiting');
+        debug('Failed worker, exiting');
         process.exit(1);
     }
 }
@@ -128,7 +146,7 @@ function jsonEtl(k, req, res) {
         try {
             etl(JSON.parse(data))
                 .then(function (name) {
-                    debug('ETL done, notifying client to proceed');
+                    log.info('ETL successful, dataset name is', name);
                     res.send({ success: true, dataset: name });
                     k();
                 }, makeFailHandler(res));
@@ -140,26 +158,26 @@ function jsonEtl(k, req, res) {
 
 
 function vgraphEtl(k, req, res) {
-    return req2data(req).then(function (data) {
-            try {
-                var buffer = new Buffer(data);
-                var vg = vgraph.decodeVGraph(buffer);
-                publish(vg);
-                k();
-            } catch (err) {
-                makeFailHandler(res)(err)
-            }
-        }).fail(makeFailHandler(res));
+    req2data(req).then(function (data) {
+        try {
+            var buffer = new Buffer(data);
+            var vg = vgraph.decodeVGraph(buffer);
+            publish(vg);
+            k();
+        } catch (err) {
+            makeFailHandler(res)(err)
+        }
+    }).fail(makeFailHandler(res));
 }
 
 
 function route (app, socket) {
     var done = function () {
-        debug('worker finished, exiting');
+        debug('Worker finished, exiting');
         if (config.ENVIRONMENT === 'production' || config.ENVIRONMENT === 'staging') {
             process.exit(0);
         } else {
-            console.warn('not actually exiting, only disconnect socket');
+            log.warn('not actually exiting, only disconnect socket');
             socket.disconnect();
         }
     };
