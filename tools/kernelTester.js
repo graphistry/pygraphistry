@@ -45,7 +45,7 @@ KernelTester.prototype.exec = function () {
             (orig.length) * Float32Array.BYTES_PER_ELEMENT, key));
     })
 
-    Q.all(bufferPromises)
+    return Q.all(bufferPromises)
         .spread(function () {
 
             // Copy into argValues.
@@ -185,7 +185,17 @@ function mainTestFunction (clContext) {
     tester.setArgTypes(argTypes);
     tester.setArgValues(argValues);
 
-    tester.exec();
+    // Usage for multiple kernels in a row.
+    //
+    // tester.exec()
+    //     .then(function () {
+    //         return tester2.exec();
+    //     }).then(function () {
+    //         return tester3.exec();
+    //     }).fail(eh.makeErrorHandler("Error on Spread"));
+
+    tester.exec()
+
 }
 
 

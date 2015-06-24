@@ -5,6 +5,8 @@ precision mediump float;
 
 uniform mat4 mvp;
 attribute vec2 curPos;
+attribute vec4 edgeColor;
+attribute vec4 eColor;
 
 void main(void) {
     vec4 pos = vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);

@@ -295,8 +295,8 @@ __kernel void calculate_forces(
                             // datasets, this does not hit very often.
                             /*printf("Distance between points is too small \n");*/
                           } else {
-                            float2 n1Pos = (float2) (px, py);
-                            float2 otherPoint = (float2) (x_cords[child], y_cords[child]);
+                            float2 n1Pos = (float2) (px, py) / *radiusd;
+                            float2 otherPoint = (float2) (x_cords[child], y_cords[child]) / *radiusd;
                             float edgeDirXOtherPoint = edgeDirectionX[child];
                             float edgeDirYOtherPoint = edgeDirectionY[child];
                             float edgeLengthOtherPoint = edgeLengths[child];
