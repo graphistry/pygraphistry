@@ -117,11 +117,11 @@ __kernel void bound_box(
             if (step_number > 1) {
                 /**globalSpeed = min(tau * (traction / swing), *globalSpeed * 2);*/
                 if (swing < FLT_EPSILON) {
-                    *globalSpeed = 1.0f;
+                    *globalSpeed = 0.5f;
                 } else {
                     *globalSpeed = tau * (traction / swing);
                 }
-                printf("Global speed %f traction %f, swing %f num_bodies %d\n", *globalSpeed, traction, swing, num_bodies);
+                debug5("Global speed %f traction %f, swing %f num_bodies %d\n", *globalSpeed, traction, swing, num_bodies);
             } else {
                 *globalSpeed = 1.0f;
             }
