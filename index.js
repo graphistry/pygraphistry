@@ -1,5 +1,5 @@
-var debug   = require('debug')('graphistry:etlworker:index');
-
+var Log         = require('common/logger.js');
+var logger      = Log.createLogger('etlworker:index');
 var etl     = require('./etl.js');
 
 exports.staticFilePath = function() {
@@ -7,7 +7,7 @@ exports.staticFilePath = function() {
 };
 
 exports.init = function init(app, socket) {
-    debug('Client connected', socket.id);
+    logger.debug('Client connected', socket.id);
 
     etl.route(app, socket);
 };
