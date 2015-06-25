@@ -108,8 +108,20 @@ __kernel void calculate_forces(
     float force;
 
     //float forceX, forceY;
-    float2 forceVector = (0.0f, 0.0f);
-    float2 distVector = (0.0f, 0.0f);
+    float2 forceVector;
+    float2 distVector;
+
+    // Edge compatability variables
+    float edgeLengthOtherPoint;
+    float edgeAngleCompat;
+    float averageLength;
+    /*float maxLength;*/
+    /*float minLength;*/
+    float edgeScaleCompat;
+    float positCompat;
+    float2 projectionVector;
+    float midEdgeLength;
+    float alignmentCompat;
 
     float px, py, ax, ay, dx, dy, temp;
     int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
@@ -178,6 +190,7 @@ __kernel void calculate_forces(
             index = sort[k];
             px = x_cords[index];
             py = y_cords[index];
+            float2 normalizedPos = (float2) (px, py) / *radiusd;
             float edgeLength = edgeLengths[index];
             float edgeDirX = edgeDirectionX[index];
             float edgeDirY = edgeDirectionY[index];
@@ -219,37 +232,25 @@ __kernel void calculate_forces(
                         // Edgebundling currently only uses the quadtree in order to test which points are close enough
                         // to compute forces on. It does not compute forces with any of the summarized nodes.
                         if ((child < num_bodies)) {
-                          float2 distVector = (float2) (dx, dy);
-                          float distVectorLength = fast_length(distVector);
-                          // If the distance to the point is too small, skip the point.
-                          if (distVectorLength < FLT_EPSILON * 0.0f) {
-                            // TODO It may be worth looking into setting a flag on swings when this happens. With our current
-                            // datasets, this does not hit very often.
-                            /*printf("Distance between points is too small \n");*/
-                          } else {
-                            float2 n1Pos = (float2) (px, py) / *radiusd;
-                            float2 otherPoint = (float2) (x_cords[child], y_cords[child]) / *radiusd;
-                            float edgeDirXOtherPoint = edgeDirectionX[child];
-                            float edgeDirYOtherPoint = edgeDirectionY[child];
-                            float edgeLengthOtherPoint = edgeLengths[child];
+                            const float2 otherPoint = (float2) (x_cords[child], y_cords[child]) / *radiusd;
+                            edgeLengthOtherPoint = edgeLengths[child];
                             // TODO It would be interesting to to having edges of opposite 
                             // direction repel instead of attract each other.
                             // TODO optimized registers.
-                            float edgeAngleCompat = (fmax((edgeDirXOtherPoint * edgeDirX), 0) + fmax((edgeDirYOtherPoint * edgeDirY), 0))/2;
-                            edgeAngleCompat = edgeAngleCompat * edgeAngleCompat * edgeAngleCompat;
-                            float averageLength = (edgeLength + edgeLengthOtherPoint) / 2.0f;
-                            float maxLength = max(edgeLength, edgeLengthOtherPoint);
-                            float minLength = min(edgeLength, edgeLengthOtherPoint);
-                            float edgeScaleCompat = 2.0f / ((maxLength / averageLength) + (minLength / averageLength));
-                            float positCompat = averageLength / (averageLength + distVectorLength);
-                            float2 projectionVector = dot(distVector, (float2) (edgeDirX, edgeDirY)) * (float2) (edgeDirX, edgeDirY);
-                            float midEdgeLength = edgeLength / midpoints_per_edge;
-                            float alignmentCompat = 1.0f / (1 + (length(projectionVector)) / (midEdgeLength));
-                            forceVector +=  alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(n1Pos, otherPoint, charge * alpha) * -1.0f);
-                          }
-                          // If all threads agree that cell is too far away, move on. 
+
+                            edgeAngleCompat = pown((fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/2, 2);
+                            /*edgeAngleCompat = (fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/ 2.0f;*/
+                            averageLength = (edgeLength + edgeLengthOtherPoint) / 2.0f;
+                            edgeScaleCompat = 2.0f / ((max(edgeLength, edgeLengthOtherPoint) / averageLength) + (min(edgeLength, edgeLengthOtherPoint) / averageLength));
+                            positCompat = averageLength / (averageLength + fast_length(distVector));
+                            projectionVector = dot(distVector, (float2) (edgeDirX, edgeDirY)) * (float2) (edgeDirX, edgeDirY);
+                            midEdgeLength = edgeLength / midpoints_per_edge;
+                            alignmentCompat = 1.0f / (1 + (fast_length(projectionVector)) / (midEdgeLength));
+                            forceVector +=  5.0f * pow((edgeLength / *radiusd), 1.0f)  * alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(normalizedPos, otherPoint, 20.0f * charge * alpha) * -1.0f);
+                      // If all threads agree that cell is too far away, move on. 
                         /*} else if (!(warpCellVote(votingBuffer, 100.0f * pow((dist - (edgeLength / 2.0f)), 2.0f), dq[depth], warp_id))) {*/
-                        } else if (!(warpCellVote(votingBuffer, pow(dist , 2.0f), dq[depth] / 20.0f, warp_id))) {
+                        } else if (!(warpCellVote(votingBuffer,  pow(dist , 2.0f), dq[depth] / 20.0f, warp_id))) {
+                        /*} else if (!(warpCellVote(votingBuffer, (edgeLength / *radiusd) * pow(dist , 2.0f), dq[depth] / 4000.0f, warp_id))) {*/
                             // Push this cell onto the stack.
                             depth++;
                             if (starting_warp_thread_id == local_id) {
