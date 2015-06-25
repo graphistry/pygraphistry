@@ -191,7 +191,7 @@ class Graphistry (object):
 
 
     def viz_url(self, dataset_name):
-        return "http://%s/graph/graph.html?dataset=%s&info=true&tag=%s" % (self.hostname, dataset_name, self.tag)
+        return "http://%s/graph/graph.html?dataset=%s&info=true&usertag=%s" % (self.hostname, dataset_name, self.tag)
 
 
     def iframe(self, url):
