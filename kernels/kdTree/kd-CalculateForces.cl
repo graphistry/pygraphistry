@@ -249,7 +249,7 @@ __kernel void calculate_forces(
                           }
                           // If all threads agree that cell is too far away, move on. 
                         /*} else if (!(warpCellVote(votingBuffer, 100.0f * pow((dist - (edgeLength / 2.0f)), 2.0f), dq[depth], warp_id))) {*/
-                        } else if (!(warpCellVote(votingBuffer, pow(dist - (edgeLength / 16.0f), 2.0f), dq[depth], warp_id))) {
+                        } else if (!(warpCellVote(votingBuffer, pow(dist , 2.0f), dq[depth] / 20.0f, warp_id))) {
                             // Push this cell onto the stack.
                             depth++;
                             if (starting_warp_thread_id == local_id) {
