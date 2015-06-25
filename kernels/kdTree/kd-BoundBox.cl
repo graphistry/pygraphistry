@@ -1,4 +1,3 @@
-#define DEBUGONCE
 #include "common.h"
 #include "barnesHut/barnesHutCommon.h"
 
