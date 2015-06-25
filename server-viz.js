@@ -291,8 +291,8 @@ function init(app, socket) {
             cb({
                 success: true,
                 header: {
-                    nodes: labeler.frameHeader(graph, 'point'),
-                    edges: labeler.frameHeader(graph, 'edge')
+                    nodes: graph.dataframe.getAttributeKeys('point'),
+                    edges: graph.dataframe.getAttributeKeys('edge')
                 }
             });
         }).subscribe(
@@ -318,7 +318,7 @@ function init(app, socket) {
            qIndices.then(function (indices) {
                 perf('Done selecting indices');
                 try {
-                    var data = labeler.aggregate(graph, indices, query.attributes, query.binning, query.mode);
+                    var data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, 'point');
                     perf('Sending back data');
                     cb({success: true, data: data});
                 } catch (err) {
@@ -410,8 +410,8 @@ function stream(socket, renderConfig, colorTexture) {
                     }
                 });
                 qLastSelection = Q({
-                    nodes: labeler.infoFrame(graph, 'point', nodeIndices),
-                    edges: labeler.infoFrame(graph, 'edge', edgeIndices)
+                    nodes: graph.dataframe.getRows(nodeIndices, 'point'),
+                    edges: graph.dataframe.getRows(edgeIndices, 'edge')
                 });
             }).done(_.identity, eh.makeErrorHandler('selectNodes'));
         }).subscribe(
