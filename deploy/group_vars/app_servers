@@ -1,4 +1,6 @@
 ---
+ansible_ssh_private_key_file: "./tools/ansible_id_rsa.pem"
+
 # The path on the remote system where we should install global npm modules
 npm_global_path: "/opt/npm_global"
 
