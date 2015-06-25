@@ -1,3 +1,4 @@
+#define DEBUGONCE
 #include "common.h"
 #include "barnesHut/barnesHutCommon.h"
 
@@ -15,7 +16,6 @@ __kernel void bound_box(
         __global float* global_edge_maxs,
         __global float* swings,
         __global float* tractions,
-        __global int* count,
         __global volatile int* blocked,
         __global volatile int* stepd,
         __global volatile int* bottomd,
@@ -112,10 +112,16 @@ __kernel void bound_box(
                 traction = traction + tractions[j];
             }
 
+
             // Compute global speed
             if (step_number > 1) {
                 /**globalSpeed = min(tau * (traction / swing), *globalSpeed * 2);*/
-                *globalSpeed = tau * (traction / swing);
+                if (swing < FLT_EPSILON) {
+                    *globalSpeed = 1.0f;
+                } else {
+                    *globalSpeed = tau * (traction / swing);
+                }
+                printf("Global speed %f traction %f, swing %f num_bodies %d\n", *globalSpeed, traction, swing, num_bodies);
             } else {
                 *globalSpeed = 1.0f;
             }
