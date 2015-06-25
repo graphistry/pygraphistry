@@ -20,11 +20,11 @@ __kernel void faIntegrate (
     float sqrtPoints = sqrt((float)numPoints);
     // Set to 0.1f
     /*float speedFactor = max(SPEED_CONSTANT * sqrtPoints / 1000.0f, 0.1f);*/
-    float speedFactor = 0.01f;
+    float speedFactor = 8.41f;
     // Set to 10
     //
     /*float maxSpeedFactor = max(SPEED_CONSTANT * sqrtPoints / 10.0f, 10.0f);*/
-    float maxSpeedFactor = 1.0f;
+    float maxSpeedFactor = 5.0f;
 
 
     float2 delta;
