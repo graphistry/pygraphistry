@@ -194,17 +194,17 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         });
     }
 
-    console.trace('Infering schema...');
+    logger.trace('Infering schema...');
 
     var eheader = getHeader(elist);
     console.log('Edge Table');
     _.each(eheader, function (data, key) {
-        lconsole.log(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
+        console.log(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
     });
     var nheader = getHeader(nlabels);
     console.log('Node Table');
     _.each(nheader, function (data, key) {
-        lconsole.log(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
+        console.log(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
     });
 
     if (!(srcField in eheader)) {
@@ -222,7 +222,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
     var evectors = getAttributeVectors(eheader, pb_root.VectorGraph.AttributeTarget.EDGE);
     var nvectors = getAttributeVectors(nheader, pb_root.VectorGraph.AttributeTarget.VERTEX);
 
-    console.trace('Loading', elist.length, 'edges...');
+    logger.trace('Loading', elist.length, 'edges...');
     _.each(elist, function (entry) {
         var node0 = entry[srcField];
         var node1 = entry[dstField];
@@ -236,7 +236,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         }
     });
 
-    console.trace('Loading', nlabels.length, 'labels for', nodeCount, 'nodes');
+    logger.trace('Loading', nlabels.length, 'labels for', nodeCount, 'nodes');
     if (nodeCount > nlabels.length) {
         console.log('There are', nodeCount - nlabels.length, 'labels missing');
     }
@@ -260,7 +260,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         addAttributes(nvectors, entry || {});
     });
 
-    console.trace('Encoding protobuf...');
+    logger.trace('Encoding protobuf...');
     var vg = new pb_root.VectorGraph();
     vg.version = 0;
     vg.name = name;
