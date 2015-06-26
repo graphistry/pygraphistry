@@ -5,9 +5,9 @@ var cljs        = require('../js/cl.js');
 var _           = require('underscore');
 var simCl       = require('../js/SimCL.js');
 var RenderNull  = require('../js/RenderNull.js');
-var log         = require('common/log.js');
-var eh          = require('common/errorHandlers.js')(log);
 var Q           = require('q');
+var Log         = require('common/logger.js');
+var logger      = Log.createLogger('graph-viz:tools:kerneltester');
 
 // Things to do:
 // Read back from buffer.
@@ -72,12 +72,12 @@ KernelTester.prototype.exec = function () {
                     diff = process.hrtime(startTime);
 
                     // Print out all relevant stuff.
-                    console.log('Finished executing ' + that.name + ' in ' +
+                    logger.info('Finished executing ' + that.name + ' in ' +
                         diff[0] + ' seconds and ' + diff[1] + ' nano seconds.');
                     // TODO: Read back and print buffers out.
-                }).fail(eh.makeErrorHandler("Error on Execution"));
+                }).fail(Log.makeQErrorHandler(logger, "Error on Execution"));
 
-        }).fail(eh.makeErrorHandler("Error on Spread"));
+        }).fail(Log.makeQErrorHandler(logger, "Error on Spread"));
 };
 
 KernelTester.prototype.setNumWorkGroups = function (num) {
@@ -192,7 +192,7 @@ function mainTestFunction (clContext) {
     //         return tester2.exec();
     //     }).then(function () {
     //         return tester3.exec();
-    //     }).fail(eh.makeErrorHandler("Error on Spread"));
+    //     }).fail(Log.makeQErrorHandler(logger, "Error on Spread"));
 
     tester.exec()
 
@@ -201,7 +201,7 @@ function mainTestFunction (clContext) {
 
 
 if (require.main === module) {
-    console.log('\nRunning kernelTester in standalone mode.');
+    logger.info('\nRunning kernelTester in standalone mode.');
 
     var DEVICE = 'gpu';
     var VENDOR = 'default';

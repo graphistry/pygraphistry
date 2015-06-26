@@ -70,7 +70,7 @@ function resetState(dataset) {
 
     //make available to all clients
     graph = new Rx.ReplaySubject(1);
-    ticksMulti.take(1).subscribe(graph, Log.makeRxErrorHandler('ticksMulti failure'));
+    ticksMulti.take(1).subscribe(graph, Log.makeRxErrorHandler(logger, logger, 'ticksMulti failure'));
 
     logger.debug('RESET APP STATE.');
 }
@@ -128,7 +128,7 @@ function read_selection(type, query, res) {
         var data = sliceSelection(lastSelection[type], start, end,
                                     query.sort_by, query.order === 'asc');
         res.send(data);
-    }).fail(Log.makeQErrorHandler('read_selection qLastSelection'));
+    }).fail(Log.makeQErrorHandler(logger, logger, 'read_selection qLastSelection'));
 }
 
 function init(app, socket) {
@@ -170,10 +170,10 @@ function init(app, socket) {
 
     img.take(1)
         .do(colorTexture)
-        .subscribe(_.identity, Log.makeRxErrorHandler('img/texture'));
+        .subscribe(_.identity, Log.makeRxErrorHandler(logger, 'img/texture'));
     colorTexture
         .do(function() { logger.debug('HAS COLOR TEXTURE'); })
-        .subscribe(_.identity, Log.makeRxErrorHandler('colorTexture'));
+        .subscribe(_.identity, Log.makeRxErrorHandler(logger, 'colorTexture'));
 
 
 
@@ -193,7 +193,7 @@ function init(app, socket) {
             }
             res.send();
         } catch (e) {
-            Log.makeQErrorHandler('bad /vbo request')(e);
+            Log.makeQErrorHandler(logger, 'bad /vbo request')(e);
         }
 
         finishBufferTransfers[id](bufferName);
@@ -207,10 +207,10 @@ function init(app, socket) {
                     res.set('Content-Encoding', 'gzip');
                     res.send(data);
                 })
-                .subscribe(_.identity, Log.makeRxErrorHandler('colorTexture pluck'));
+                .subscribe(_.identity, Log.makeRxErrorHandler(logger, 'colorTexture pluck'));
 
         } catch (e) {
-            Log.makeQErrorHandler('bad /texture request')(e);
+            Log.makeQErrorHandler(logger, 'bad /texture request')(e);
         }
     });
 
@@ -237,7 +237,7 @@ function init(app, socket) {
 
         resetState(dataset);
         return rConf.scenes[metadata.scene];
-    }).fail(Log.makeQErrorHandler('resetting state'));
+    }).fail(Log.makeQErrorHandler(logger, 'resetting state'));
 
     socket.on('render_config', function(_, cb) {
         logger.trace('get render config');
@@ -252,7 +252,7 @@ function init(app, socket) {
             lastRenderConfig = renderConfig;
         }).fail(function (err) {
             cb({success: false, error: 'Unknown dataset or scene error'});
-            Log.makeQErrorHandler('sending render_config')(err)
+            Log.makeQErrorHandler(logger, 'sending render_config')(err)
         });
     });
 
@@ -263,14 +263,14 @@ function init(app, socket) {
             cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
         }).fail(function (err) {
             cb({success: false, error: 'Server error when fetching controls'});
-            Log.makeQErrorHandler('sending layout_controls')(err);
+            Log.makeQErrorHandler(logger, 'sending layout_controls')(err);
         });
     });
 
     socket.on('begin_streaming', function() {
         qRenderConfig.then(function (renderConfig) {
             stream(socket, renderConfig, colorTexture);
-        }).fail(Log.makeQErrorHandler('streaming'));
+        }).fail(Log.makeQErrorHandler(logger, 'streaming'));
     });
 
     socket.on('reset_graph', function (_, cb) {
@@ -278,7 +278,7 @@ function init(app, socket) {
         qDataset.then(function (dataset) {
             resetState(dataset);
             cb();
-        }).fail(Log.makeQErrorHandler('reset graph request'));
+        }).fail(Log.makeQErrorHandler(logger, 'reset graph request'));
     });
 
     socket.on('inspect_header', function (nothing, cb) {
@@ -295,7 +295,7 @@ function init(app, socket) {
             _.identity,
             function (err) {
                 cb({success: false, error: 'inspect_header error'});
-                Log.makeRxErrorHandler('inspect_header handler')(err);
+                Log.makeRxErrorHandler(logger, 'inspect_header handler')(err);
             }
         );
     });
@@ -320,12 +320,12 @@ function init(app, socket) {
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
                 }
-            }).done(_.identity, Log.makeQErrorHandler('selectNodes'));
+            }).done(_.identity, Log.makeQErrorHandler(logger, 'selectNodes'));
         }).subscribe(
             _.identity,
             function (err) {
                 cb({success: false, error: 'aggregate error'});
-                Log.makeRxErrorHandler('aggregate handler')(err);
+                Log.makeRxErrorHandler(logger, 'aggregate handler')(err);
             }
         );
     });
@@ -409,12 +409,12 @@ function stream(socket, renderConfig, colorTexture) {
                     nodes: labeler.infoFrame(graph, 'point', nodeIndices),
                     edges: labeler.infoFrame(graph, 'edge', edgeIndices)
                 });
-            }).done(_.identity, Log.makeQErrorHandler('selectNodes'));
+            }).done(_.identity, Log.makeQErrorHandler(logger, 'selectNodes'));
         }).subscribe(
             _.identity,
             function (err) {
                 cb({success: false, error: 'set_selection error'});
-                Log.makeRxErrorHandler('set_selection handler')(err);
+                Log.makeRxErrorHandler(logger, 'set_selection handler')(err);
             }
         );
     });
@@ -445,7 +445,7 @@ function stream(socket, renderConfig, colorTexture) {
                 _.identity,
                 function (err) {
                     cb('get_labels error');
-                    Log.makeRxErrorHandler('get_labels')(err);
+                    Log.makeRxErrorHandler(logger, 'get_labels')(err);
                 });
     });
 
@@ -455,7 +455,7 @@ function stream(socket, renderConfig, colorTexture) {
                 graph.simulator.highlightShortestPaths(pair);
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, Log.makeRxErrorHandler('shortest_path'));
+            .subscribe(_.identity, Log.makeRxErrorHandler(logger, 'shortest_path'));
     });
 
     socket.on('set_colors', function (color) {
@@ -464,7 +464,7 @@ function stream(socket, renderConfig, colorTexture) {
                 graph.simulator.setColor(color);
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, Log.makeRxErrorHandler('set_colors'));
+            .subscribe(_.identity, Log.makeRxErrorHandler(logger, 'set_colors'));
     });
 
     socket.on('highlight_points', function (points) {
@@ -478,7 +478,7 @@ function stream(socket, renderConfig, colorTexture) {
 
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, Log.makeRxErrorHandler('highlighted_points'));
+            .subscribe(_.identity, Log.makeRxErrorHandler(logger, 'highlighted_points'));
 
     });
 
@@ -491,10 +491,10 @@ function stream(socket, renderConfig, colorTexture) {
                     cb({success: true, name: name});
                 }).done(
                     _.identity,
-                    Log.makeQErrorHandler('persist_current_vbo')
+                    Log.makeQErrorHandler(logger, 'persist_current_vbo')
                 );
             })
-            .subscribe(_.identity, Log.makeRxErrorHandler('persist_current_vbo'));
+            .subscribe(_.identity, Log.makeRxErrorHandler(logger, 'persist_current_vbo'));
     });
 
     socket.on('fork_vgraph', function (name, cb) {
@@ -505,12 +505,12 @@ function stream(socket, renderConfig, colorTexture) {
                     cb({success: true, name: vgName});
                 }).done(
                     _.identity,
-                    Log.makeQErrorHandler('fork_vgraph')
+                    Log.makeQErrorHandler(logger, 'fork_vgraph')
                 );
             })
             .subscribe(_.identity, function (err) {
                 cb({success: false, error: 'fork_vgraph error'});
-                Log.makeRxErrorHandler('fork_vgraph error')(err);
+                Log.makeRxErrorHandler(logger, 'fork_vgraph error')(err);
             });
     });
 
@@ -530,7 +530,7 @@ function stream(socket, renderConfig, colorTexture) {
         clientReady.onNext(true);
     });
 
-    clientReady.subscribe(logger.debug.bind('CLIENT STATUS'), Log.makeRxErrorHandler('clientReady'));
+    clientReady.subscribe(logger.debug.bind('CLIENT STATUS'), Log.makeRxErrorHandler(logger, 'clientReady'));
 
     logger.debug('SETTING UP CLIENT EVENT LOOP ===================================================================');
     var step = 0;
@@ -636,7 +636,7 @@ function stream(socket, renderConfig, colorTexture) {
     })
     .subscribe(function () {
         logger.trace('9. LOOP ITERATED', socket.id);
-    }, Log.makeRxErrorHandler('Main loop failure'));
+    }, Log.makeRxErrorHandler(logger, 'Main loop failure'));
 }
 
 
@@ -718,7 +718,7 @@ if (require.main === module) {
 
     }).subscribe(
         function () { logger.info('\nViz worker listening...'); },
-        Log.makeRxErrorHandler('server-viz main')
+        Log.makeRxErrorHandler(logger, 'server-viz main')
     );
 
 }
