@@ -10,6 +10,8 @@ var sprintf = require('sprintf-js').sprintf;
 var Log         = require('common/logger.js');
 var logger      = Log.createLogger('etlworker:vgraph');
 
+//TODO: Lines 60-261 instances of console should be changed to pipe output to client
+
 var protoFile = path.resolve(__dirname, '../graph-viz/js/libs/graph_vector.proto');
 var builder = pb.loadProtoFile(protoFile);
 if (builder === null) {
@@ -57,7 +59,7 @@ function makeVector(name, type, target) {
 function getAttributeVectors(header, target) {
     var map = _.map(header, function (info, key) {
         if (info.type === 'empty') {
-            logger.info('Skipping attribute', key, 'because it has no data.');
+            console.log('Skipping attribute', key, 'because it has no data.');
             return [];
         }
         var vec = makeVector(key, info.type, target);
@@ -144,21 +146,21 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         var dsts = edgeMap[src] || {};
         if (dst in dsts) {
             if (warnsLeftDuplicated-- > 0) {
-                logger.info('Edge %s -> %s is duplicated', src, dst);
+                console.log('Edge %s -> %s is duplicated', src, dst);
             }
             return true;
         }
 
         if (src === undefined || dst === undefined || src === null || dst === null) {
             if (warnsLeftNull-- > 0) {
-                logger.info('Edge %s <-> %s has null field', src, dst);
+                console.log('Edge %s <-> %s has null field', src, dst);
             }
             return true;
         }
 
         if (src === dst) {
             if (warnsLeftSelf-- > 0) {
-                logger.info('Edge %s <-> %s is a self-edge', src, dst);
+                console.log('Edge %s <-> %s is a self-edge', src, dst);
             }
             return true;
         }
@@ -192,36 +194,35 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         });
     }
 
-    logger.debug('Infering schema...');
+    console.trace('Infering schema...');
 
-    //TODO: log this in a better way, i.e. without saying "Edge Table" before logging the edge table itself
     var eheader = getHeader(elist);
-    logger.info('Edge Table');
+    console.log('Edge Table');
     _.each(eheader, function (data, key) {
-        logger.info(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
+        lconsole.log(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
     });
     var nheader = getHeader(nlabels);
-    logger.info('Node Table');
+    console.log('Node Table');
     _.each(nheader, function (data, key) {
-        logger.info(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
+        lconsole.log(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
     });
 
     if (!(srcField in eheader)) {
-        logger.warn('Edges have no srcField' , srcField, 'header', eheader);
+        console.warn('Edges have no srcField' , srcField, 'header', eheader);
         return undefined;
     }
     if (!(dstField in eheader)) {
-        logger.warn('Edges have no dstField' , dstField);
+        console.warn('Edges have no dstField' , dstField);
         return undefined;
     }
     if (nlabels.length > 0 && !(idField in nheader)) {
-        logger.warn('Nodes have no idField' , idField);
+        console.warn('Nodes have no idField' , idField);
         return undefined;
     }
     var evectors = getAttributeVectors(eheader, pb_root.VectorGraph.AttributeTarget.EDGE);
     var nvectors = getAttributeVectors(nheader, pb_root.VectorGraph.AttributeTarget.VERTEX);
 
-    logger.debug('Loading', elist.length, 'edges...');
+    console.trace('Loading', elist.length, 'edges...');
     _.each(elist, function (entry) {
         var node0 = entry[srcField];
         var node1 = entry[dstField];
@@ -235,9 +236,9 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         }
     });
 
-    logger.debug('Loading', nlabels.length, 'labels for', nodeCount, 'nodes');
+    console.trace('Loading', nlabels.length, 'labels for', nodeCount, 'nodes');
     if (nodeCount > nlabels.length) {
-        logger.info('There are', nodeCount - nlabels.length, 'labels missing');
+        console.log('There are', nodeCount - nlabels.length, 'labels missing');
     }
 
     var sortedLabels = new Array(nodeCount);
@@ -250,7 +251,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
             sortedLabels[labelIdx] = label;
         } else {
             if (warnsLeftLabel-- > 0) {
-                logger.info(sprintf('Skipping label #%6d (nodeId: %10s) which has no matching node. (ID field: %s, label: %s)', i, nodeId, idField, JSON.stringify(label)));
+                console.log(sprintf('Skipping label #%6d (nodeId: %10s) which has no matching node. (ID field: %s, label: %s)', i, nodeId, idField, JSON.stringify(label)));
             }
         }
     }
@@ -259,7 +260,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         addAttributes(nvectors, entry || {});
     });
 
-    logger.debug('Encoding protobuf...');
+    console.trace('Encoding protobuf...');
     var vg = new pb_root.VectorGraph();
     vg.version = 0;
     vg.name = name;
