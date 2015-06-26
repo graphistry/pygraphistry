@@ -2,7 +2,6 @@
 
 var urllib   = require('url');
 var zlib     = require('zlib');
-var debug    = require('debug')('graphistry:etlworker:etl');
 var _        = require('underscore');
 var Q        = require('q');
 var bodyParser  = require('body-parser');
@@ -12,7 +11,9 @@ var config   = require('config')();
 var vgraph   = require('./vgraph.js');
 var Cache    = require('common/cache.js');
 var s3       = require('common/s3.js');
-var log      = require('common/log.js');
+
+var Log         = require('common/logger.js');
+var logger      = Log.createLogger('etlworker:etl');
 
 var tmpCache = new Cache(config.LOCAL_CACHE_DIR, config.LOCAL_CACHE);
 
@@ -20,8 +21,8 @@ var tmpCache = new Cache(config.LOCAL_CACHE_DIR, config.LOCAL_CACHE);
 // JSON
 function etl(msg) {
     var name = decodeURIComponent(msg.name);
-    debug('ETL for', msg.name);
-    //debug('Data', msg.labels);
+    logger.debug('ETL for', msg.name);
+    //logger.debug('Data', msg.labels);
 
     var vg = vgraph.fromEdgeList(
         msg.graph,
@@ -35,7 +36,7 @@ function etl(msg) {
     if (vg === undefined) {
         throw new Error('Invalid edgelist');
     } else {
-        log.info('VGraph created with', vg.nvertices, 'nodes and', vg.nedges, 'edges');
+        logger.info('VGraph created with', vg.nvertices, 'nodes and', vg.nedges, 'edges');
         return publish(vg, name);
     }
 }
@@ -51,26 +52,26 @@ function publish(vg, name) {
         // more recent timestamp than S3
         var res = Q.defer();
         setTimeout(function () {
-            debug('Caching dataset locally');
+            logger.debug('Caching dataset locally');
             res.resolve(tmpCache.put(urllib.parse(name), binData));
         }, 2000);
         return res.promise;
     }
 
     if (config.ENVIRONMENT === 'local') {
-        debug('Attempting to upload dataset');
+        logger.debug('Attempting to upload dataset');
         return s3Upload(binData, metadata)
             .fail(function (err) {
-                log.error('S3 Upload failed', err.message);
+                logger.error(err, 'S3 Upload failed');
             }).then(cacheLocally, cacheLocally) // Cache locally regardless of result
             .then(_.constant(name)); // We succeed iff cacheLocally succeeds
     } else {
         // On prod/staging ETL fails if upload fails
-        debug('Uploading dataset');
+        logger.debug('Uploading dataset');
         return s3Upload(binData, metadata)
             .then(_.constant(name))
             .fail(function (err) {
-                log.error('S3 Upload failed', err.message);
+                logger.error(err, 'S3 Upload failed');
             });
     }
 }
@@ -98,7 +99,7 @@ function req2data(req) {
     var encoding = params.apiVersion === 0 ? 'identity'
                                            : req.headers['content-encoding'] || 'identity';
 
-    log.info('ETL request submitted', params);
+    logger.info('ETL request submitted', params);
 
     var chunks = [];
     var result = Q.defer();
@@ -110,7 +111,7 @@ function req2data(req) {
     req.on('end', function () {
         var data = Buffer.concat(chunks)
 
-        debug('Request bytes:%d, encoding:%s', data.length, encoding);
+        logger.debug('Request bytes:%d, encoding:%s', data.length, encoding);
 
         if (encoding == 'identity') {
             result.resolve(data.toString());
@@ -129,12 +130,12 @@ function req2data(req) {
 
 function makeFailHandler(res) {
     return function (err) {
-        log.error('ETL post fail', (err||{}).stack);
+        logger.error(err, 'ETL post fail');
         res.send({
             success: false,
             msg: err.message
         });
-        debug('Failed worker, exiting');
+        logger.debug('Failed worker, exiting');
         process.exit(1);
     }
 }
@@ -146,7 +147,7 @@ function jsonEtl(k, req, res) {
         try {
             etl(JSON.parse(data))
                 .then(function (name) {
-                    log.info('ETL successful, dataset name is', name);
+                    logger.info('ETL successful, dataset name is', name);
                     res.send({ success: true, dataset: name });
                     k();
                 }, makeFailHandler(res));
@@ -173,11 +174,11 @@ function vgraphEtl(k, req, res) {
 
 function route (app, socket) {
     var done = function () {
-        debug('Worker finished, exiting');
+        logger.debug('Worker finished, exiting');
         if (config.ENVIRONMENT === 'production' || config.ENVIRONMENT === 'staging') {
             process.exit(0);
         } else {
-            log.warn('not actually exiting, only disconnect socket');
+            logger.warn('not actually exiting, only disconnect socket');
             socket.disconnect();
         }
     };
