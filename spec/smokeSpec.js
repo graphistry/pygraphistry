@@ -21,11 +21,14 @@ var XMLHttpRequest = require('xhr2');
 var io           = require('socket.io')(http, {transports: ['websocket']});
 var zlib         = require('zlib');
 
+var Log         = require('common/logger.js');
+var logger      = Log.createLogger('graph-viz:smokespec');
+
 // Because node swallows a lot of exceptions, uncomment this if tests are
 // crashing without any details.
 
 process.on('uncaughtException', function(err) {
-  console.log(err.stack);
+  logger.error(err);
   throw err;
 });
 
@@ -33,7 +36,7 @@ function distance(x, y) {
     return Math.sqrt(Math.pow(x[0] - y[0], 2) + Math.pow(x[1] - y[1], 2))
 }
 
-describe ("[SMOKE] Server-viz", function () {
+describe ("[SMOKE] Server-viz", function () { //describe is not defined?
     var animatePayload = {play: true, layout: true};
     var buffernames;
     var clients = {};
@@ -87,10 +90,10 @@ describe ("[SMOKE] Server-viz", function () {
         var listen = Rx.Observable.fromNodeCallback(
                 http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
         listen.subscribe(
-                function () { console.log('\nViz worker listening'); done();},
-                function (err) { console.error('\nError starting viz worker', err); });
+                function () { logger.info('\nViz worker listening'); done();},
+                function (err) { logger.error('\nError starting viz worker', err); });
         io.on('connection', function (socket) {
-            console.log("Connected");
+            logger.info("Connected");
             socket.on('viz', function (msg, cb) { cb(); });
             server.init(app, socket);
         });
