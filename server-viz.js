@@ -22,7 +22,6 @@ var config      = require('config')();
 var Log         = require('common/logger.js');
 var logger      = Log.createLogger('graph-viz:driver:viz-server');
 var profiling   = Log.createLogger('profiling');
-var perf        = Log.createLogger('perf');
 
 /**** GLOBALS ****************************************************/
 
@@ -304,7 +303,7 @@ function init(app, socket) {
     socket.on('aggregate', function (query, cb) {
         logger.trace('Got aggregate', query);
         graph.take(1).do(function (graph) {
-            perf.trace('Selecting Indices');
+            logger.trace('Selecting Indices');
             var qIndices
             if (query.all === true) {
                 qIndices = Q(_.range(graph.simulator.numPoints));
@@ -313,10 +312,10 @@ function init(app, socket) {
             }
 
            qIndices.then(function (indices) {
-                perf.trace('Done selecting indices');
+                logger.trace('Done selecting indices');
                 try {
                     var data = labeler.aggregate(graph, indices, query.attributes, query.binning, query.mode);
-                    perf.trace('Sending back data');
+                    logger.trace('Sending back data');
                     cb({success: true, data: data});
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
