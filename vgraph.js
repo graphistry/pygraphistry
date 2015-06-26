@@ -57,7 +57,7 @@ function makeVector(name, type, target) {
 function getAttributeVectors(header, target) {
     var map = _.map(header, function (info, key) {
         if (info.type === 'empty') {
-            logger('Skipping attribute', key, 'because it has no data.');
+            logger.info('Skipping attribute', key, 'because it has no data.');
             return [];
         }
         var vec = makeVector(key, info.type, target);
