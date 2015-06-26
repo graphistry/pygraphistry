@@ -13,7 +13,7 @@ var logger      = Log.createLogger('etlworker:vgraph');
 var protoFile = path.resolve(__dirname, '../graph-viz/js/libs/graph_vector.proto');
 var builder = pb.loadProtoFile(protoFile);
 if (builder === null) {
-    logger.die(new Error(), 'error: could not build proto'); //err is not defined
+    logger.die(new Error(), 'error: could not build proto');
 }
 var pb_root = builder.build();
 
