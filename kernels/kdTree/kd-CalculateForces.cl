@@ -239,7 +239,7 @@ __kernel void calculate_forces(
                             // direction repel instead of attract each other.
                             // TODO optimized registers.
 
-                            edgeAngleCompat = pown((fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/2, 2);
+                            edgeAngleCompat = pown((fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/2, 1);
                             /*edgeAngleCompat = (fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/ 2.0f;*/
                             averageLength = (edgeLength + edgeLengthOtherPoint) / 2.0f;
                             edgeScaleCompat = 2.0f / ((max(edgeLength, edgeLengthOtherPoint) / averageLength) + (min(edgeLength, edgeLengthOtherPoint) / averageLength));
@@ -247,11 +247,11 @@ __kernel void calculate_forces(
                             projectionVector = dot(distVector, (float2) (edgeDirX, edgeDirY)) * (float2) (edgeDirX, edgeDirY);
                             midEdgeLength = edgeLength / midpoints_per_edge;
                             alignmentCompat = 1.0f / (1 + (fast_length(projectionVector)) / (midEdgeLength));
-                            forceVector +=  5.0f * pow((edgeLength / *radiusd), 1.0f)  * alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(normalizedPos, otherPoint, 20.0f * charge * alpha) * -1.0f);
+                            forceVector +=  1.0f * pow((edgeLength / *radiusd), 1.0f)  * alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(normalizedPos, otherPoint, 20.0f * charge * alpha) * -1.0f);
                             }
                       // If all threads agree that cell is too far away, move on. 
                         /*} else if (!(warpCellVote(votingBuffer, 100.0f * pow((dist - (edgeLength / 2.0f)), 2.0f), dq[depth], warp_id))) {*/
-                        } else if (!(warpCellVote(votingBuffer,  (edgeLength / *radiusd) * pow(dist , 2.0f), dq[depth] / 40.0f, warp_id))) {
+                        } else if (!(warpCellVote(votingBuffer, pow(dist , 2.0f), (edgeLength / *radiusd) * dq[depth],  warp_id))) {
                         /*} else if (!(warpCellVote(votingBuffer, (edgeLength / *radiusd) * pow(dist , 2.0f), dq[depth] / 4000.0f, warp_id))) {*/
                             // Push this cell onto the stack.
                             depth++;
