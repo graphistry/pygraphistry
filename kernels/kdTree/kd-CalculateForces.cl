@@ -232,6 +232,7 @@ __kernel void calculate_forces(
                         // Edgebundling currently only uses the quadtree in order to test which points are close enough
                         // to compute forces on. It does not compute forces with any of the summarized nodes.
                         if ((child < num_bodies)) {
+                            if (temp > FLT_EPSILON) {
                             const float2 otherPoint = (float2) (x_cords[child], y_cords[child]) / *radiusd;
                             edgeLengthOtherPoint = edgeLengths[child];
                             // TODO It would be interesting to to having edges of opposite 
@@ -247,9 +248,10 @@ __kernel void calculate_forces(
                             midEdgeLength = edgeLength / midpoints_per_edge;
                             alignmentCompat = 1.0f / (1 + (fast_length(projectionVector)) / (midEdgeLength));
                             forceVector +=  5.0f * pow((edgeLength / *radiusd), 1.0f)  * alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(normalizedPos, otherPoint, 20.0f * charge * alpha) * -1.0f);
+                            }
                       // If all threads agree that cell is too far away, move on. 
                         /*} else if (!(warpCellVote(votingBuffer, 100.0f * pow((dist - (edgeLength / 2.0f)), 2.0f), dq[depth], warp_id))) {*/
-                        } else if (!(warpCellVote(votingBuffer,  pow(dist , 2.0f), dq[depth] / 20.0f, warp_id))) {
+                        } else if (!(warpCellVote(votingBuffer,  (edgeLength / *radiusd) * pow(dist , 2.0f), dq[depth] / 40.0f, warp_id))) {
                         /*} else if (!(warpCellVote(votingBuffer, (edgeLength / *radiusd) * pow(dist , 2.0f), dq[depth] / 4000.0f, warp_id))) {*/
                             // Push this cell onto the stack.
                             depth++;
@@ -268,7 +270,7 @@ __kernel void calculate_forces(
                 depth--; // Finished this level
             }
             /*pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector;*/
-            pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector + (pow((edgeLength / (*radiusd / 4)), 1.2f) * 1000.0f * normalize((float2) (edgeDirY, -edgeDirX)));
+            pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector + (pow((edgeLength / (*radiusd / 4)), 2.0f) * -500.0f * normalize((float2) (edgeDirY, -edgeDirX)));
             debug6("Force in calculate midpoints x (%u) %.9g, y %.9g Result x %.9g y %.9g\n", (index * midpoints_per_edge) + midpoint_stride, forceVector.x, forceVector.y, result.x, result.y);
 
         }
