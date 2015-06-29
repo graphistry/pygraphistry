@@ -17,7 +17,7 @@ void main(void) {
     float furthestComponent = max(abs(pos.x), abs(pos.y));
     float remapped = M * furthestComponent + B;
 
-    float alpha = clamp(remapped, 0.0, 0.1);
+    float alpha = clamp(remapped, 0.0, 0.4);
     pos.z = 1.0 - alpha;
 
     eColor = vec4(edgeColor.xyz, alpha);

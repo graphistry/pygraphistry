@@ -1,0 +1,17 @@
+{
+	"curly": true,
+	"eqeqeq": true,
+	"freeze": true,
+	"latedef": "nofunc",
+	"noarg": true,
+	"nonbsp": true,
+	"quotmark": "single",
+	"undef": true,
+	"unused": true,
+	"strict": true,
+
+	"debug": true,
+	"devel": true,
+
+	"node": true
+}

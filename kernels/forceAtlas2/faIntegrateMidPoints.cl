@@ -20,25 +20,29 @@ __kernel void faIntegrate (
     float sqrtPoints = sqrt((float)numPoints);
     // Set to 0.1f
     /*float speedFactor = max(SPEED_CONSTANT * sqrtPoints / 1000.0f, 0.1f);*/
-    float speedFactor = 0.01f;
+    /*float speedFactor = 1.41f; // FACEBOOK*/
+    float speedFactor = 0.01f; // FACEBOOK
+    /*float speedFactor = 0.01f; // PYGRAPHISTRY/2NZZJ*/
     // Set to 10
     //
     /*float maxSpeedFactor = max(SPEED_CONSTANT * sqrtPoints / 10.0f, 10.0f);*/
-    float maxSpeedFactor = 1.0f;
+    /*float maxSpeedFactor = 5.0f; // FACEBOOK*/
+    /*float maxSpeedFactor = 1.0f; // PYGRAPHISTRY/2NZZJ*/
+    float maxSpeedFactor = 10.0f; // FACEBOOK
+
 
 
     float2 delta;
     float swing = swings[n1Idx];
     float normalizedSwing = pow((swing  / (sqrtPoints) ), 2.0f);
     float speed = speedFactor * (*globalSpeed) / (1.0f + (*globalSpeed) * normalizedSwing);
-    float maxSpeed = maxSpeedFactor / length(curForces[n1Idx]);
+    float maxSpeed = maxSpeedFactor / max(length(curForces[n1Idx]), FLT_EPSILON);
 
 
     delta = min(speed, maxSpeed) * curForces[n1Idx];
     /*delta = 0.001f * curForces[n1Idx];*/
 
-    /*debug6("Speed (%d) %f max: %f, global_speed %f swing %.9g \n", n1Idx, speed, maxSpeed, *globalSpeed, normalizedSwing);*/
-    debug6("Speed (%d) %f max: %f, global_speed %f delta %.9g \n", n1Idx, speed, maxSpeed, *globalSpeed, normalizedSwing);
+    debug5("Speed (%d) %f max: %f, min %.9g \n", n1Idx, speed, maxSpeed, min(speed, maxSpeed));
 
     outputPositions[n1Idx] = inputPositions[n1Idx] + delta;
     return;

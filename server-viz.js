@@ -491,7 +491,12 @@ function stream(socket, renderConfig, colorTexture) {
             .do(function (graph) {
                 var vbos = lastCompressedVBOs[socket.id];
                 var metadata = lastMetadata[socket.id];
-                persistor.publishStaticContents(name, vbos, metadata, graph.dataframe, renderConfig);
+                persistor.publishStaticContents(name, vbos, metadata, graph.dataframe, renderConfig).then(function() {
+                    cb({success: true, name: name});
+                }).done(
+                    _.identity,
+                    eh.makeErrorHandler('persist_current_vbo')
+                );
             })
             .subscribe(_.identity, eh.makeRxErrorHandler('persist_current_vbo'));
     });
