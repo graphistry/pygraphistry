@@ -96,12 +96,14 @@ __kernel void build_tree(
         }
 
         // Skip duplicate points or points below max depth
-        if (depth >= MAXDEPTH || (fabs(px - x_cords[n]) < FLT_EPSILON) && (fabs(py - y_cords[n]) < FLT_EPSILON)) {
+        if (depth >= MAXDEPTH || (fabs(px - x_cords[n]) <= FLT_EPSILON) && (fabs(py - y_cords[n]) <= FLT_EPSILON)) {
           i += inc;  // move on to next body
           skip = 1;
           continue;
         }
 
+
+        mem_fence(CLK_GLOBAL_MEM_FENCE);
         // Skip if the child is currently locked.
         if (ch != TREELOCK) {
             locked = n*4+j;
@@ -109,7 +111,7 @@ __kernel void build_tree(
             // Attempt to lock the child
             if (ch == atomic_cmpxchg(&child[locked], ch, TREELOCK)) {
                 // TODO: Determine if we need this fence
-                //mem_fence(CLK_GLOBAL_MEM_FENCE);
+                mem_fence(CLK_GLOBAL_MEM_FENCE);
 
                 // If the child was null, just insert the body.
                 if (ch == NULLPOINTER) {
@@ -175,7 +177,7 @@ __kernel void build_tree(
                         // position. Just insert node arbitrarily. This should happen
                         // so rarely and at such a low depth, that the approximation
                         // should be tribial.
-                        if ((fabs(px - x_cords[ch]) <= FLT_EPSILON) && (fabs(py - y_cords[ch]) <= FLT_EPSILON) && (ch != -1)) {
+                        if (depth >= MAXDEPTH || ((fabs(px - x_cords[ch]) <= FLT_EPSILON) && (fabs(py - y_cords[ch]) <= FLT_EPSILON) && (ch != -1))) {
                           j = 0;
                           while ((ch = child[n*4 + j]) > NULLPOINTER && j < 3) j++;
                           // Even if child node has filled leaves, set ch to -1. This is a slightly
