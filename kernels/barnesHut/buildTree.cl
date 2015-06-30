@@ -201,6 +201,7 @@ __kernel void build_tree(
         // TODO: Uncomment this throttle after testing:
         // Technically not valid opencl, but valid CUDA/PTX.
         // This will work on an nvidia platform that allows for inline PTX
+        mem_fence(CLK_GLOBAL_MEM_FENCE);
         #ifdef INLINEPTX
         barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
         #endif
