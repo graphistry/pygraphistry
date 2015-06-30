@@ -55,7 +55,7 @@ var defaultSnapshotName = 'snapshot';
 //Do more innocuous initialization inline (famous last words..)
 
 function resetState(dataset) {
-    logger.debug('RESETTING APP STATE');
+    logger.trace('RESETTING APP STATE');
 
     //FIXME explicitly destroy last graph if it exists?
 
@@ -72,7 +72,7 @@ function resetState(dataset) {
     graph = new Rx.ReplaySubject(1);
     ticksMulti.take(1).subscribe(graph, Log.makeRxErrorHandler(logger, logger, 'ticksMulti failure'));
 
-    logger.debug('RESET APP STATE.');
+    logger.trace('RESET APP STATE.');
 }
 
 
@@ -172,7 +172,7 @@ function init(app, socket) {
         .do(colorTexture)
         .subscribe(_.identity, Log.makeRxErrorHandler(logger, 'img/texture'));
     colorTexture
-        .do(function() { logger.debug('HAS COLOR TEXTURE'); })
+        .do(function() { logger.trace('HAS COLOR TEXTURE'); })
         .subscribe(_.identity, Log.makeRxErrorHandler(logger, 'colorTexture'));
 
 
@@ -532,7 +532,7 @@ function stream(socket, renderConfig, colorTexture) {
 
     clientReady.subscribe(logger.debug.bind('CLIENT STATUS'), Log.makeRxErrorHandler(logger, 'clientReady'));
 
-    logger.debug('SETTING UP CLIENT EVENT LOOP ===================================================================');
+    logger.trace('SETTING UP CLIENT EVENT LOOP ===================================================================');
     var step = 0;
     var lastVersions = null;
 
