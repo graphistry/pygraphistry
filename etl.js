@@ -182,7 +182,7 @@ function route (app, socket) {
         }
     };
 
-    app.post('/etl', bodyParser.json({type: '*', limit: '64mb'}), jsonEtl.bind('', done));
+    app.post('/etl', bodyParser.json({type: '*', limit: '128mb'}), jsonEtl.bind('', done));
     app.post('/etlvgraph', bodyParser.raw({type: '*', limit: '64mb'}), vgraphEtl.bind('', done))
 }
 
