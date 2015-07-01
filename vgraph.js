@@ -2,17 +2,20 @@ var fs = require('fs');
 var zlib = require('zlib');
 var path = require('path');
 
-var debug = require('debug')('graphistry:etlworker:vgraph');
-var log = require('common/log.js');
 var Q = require('q');
 var _ = require('underscore');
 var pb = require('protobufjs');
 var sprintf = require('sprintf-js').sprintf;
 
+var Log         = require('common/logger.js');
+var logger      = Log.createLogger('etlworker:vgraph');
+
+//TODO: Lines 60-261 instances of console should be changed to pipe output to client
+
 var protoFile = path.resolve(__dirname, '../graph-viz/js/libs/graph_vector.proto');
 var builder = pb.loadProtoFile(protoFile);
 if (builder === null) {
-    log.die('error: could not build proto', err, err.stack);
+    logger.die(new Error(), 'error: could not build proto');
 }
 var pb_root = builder.build();
 
@@ -191,7 +194,8 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         });
     }
 
-    debug('Infering schema...');
+    logger.trace('Infering schema...');
+
     var eheader = getHeader(elist);
     console.log('Edge Table');
     _.each(eheader, function (data, key) {
@@ -218,7 +222,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
     var evectors = getAttributeVectors(eheader, pb_root.VectorGraph.AttributeTarget.EDGE);
     var nvectors = getAttributeVectors(nheader, pb_root.VectorGraph.AttributeTarget.VERTEX);
 
-    debug('Loading', elist.length, 'edges...');
+    logger.trace('Loading', elist.length, 'edges...');
     _.each(elist, function (entry) {
         var node0 = entry[srcField];
         var node1 = entry[dstField];
@@ -232,7 +236,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         }
     });
 
-    debug('Loading', nlabels.length, 'labels for', nodeCount, 'nodes');
+    logger.trace('Loading', nlabels.length, 'labels for', nodeCount, 'nodes');
     if (nodeCount > nlabels.length) {
         console.log('There are', nodeCount - nlabels.length, 'labels missing');
     }
@@ -256,7 +260,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         addAttributes(nvectors, entry || {});
     });
 
-    debug('Encoding protobuf...');
+    logger.trace('Encoding protobuf...');
     var vg = new pb_root.VectorGraph();
     vg.version = 0;
     vg.name = name;
