@@ -5,3 +5,8 @@
   sudo: yes
   tags:
     - performance
+
+- name: Update timezone
+  command: dpkg-reconfigure --frontend noninteractive tzdata
+  become: yes
+  become_user: root

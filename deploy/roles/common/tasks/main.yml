@@ -24,7 +24,13 @@
   sudo_user: root
 
 - name: Configure timezone
-  copy: src=timezone dest=/etc/timezone owner=root group=root mode=0644
+  copy: content="US/Pacific-New"
+        dest=/etc/timezone
+        owner=root
+        group=root
+        mode=0644
+  notify: Update timezone
+  become: yes
 
 # - name: Upgrade packages
 #   apt: upgrade=dist
