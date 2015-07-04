@@ -4,10 +4,10 @@
 # See the sshd_config(5) manpage for details
 
 # What ports, IPs and protocols we listen for
-Port {{ graphistry_ssh_port }}
+# Port {{ graphistry_ssh_port }}
 # Use these options to restrict which interfaces/protocols sshd will bind to
 #ListenAddress ::
-#ListenAddress 0.0.0.0
+ListenAddress 0.0.0.0:{{ graphistry_ssh_port }}
 Protocol 2
 # HostKeys for protocol version 2
 HostKey /etc/ssh/ssh_host_rsa_key
