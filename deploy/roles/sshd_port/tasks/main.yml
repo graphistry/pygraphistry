@@ -17,6 +17,25 @@
   register: sshd_config
   sudo: yes
 
+- name: Set fully-qualified domain name
+  template: src=hosts.j2 dest=/etc/hosts
+  become: yes
+  become_user: root
+
+- name: Set hostname
+  hostname: name="{{ inventory_hostname_short }}"
+  become: yes
+  become_user: root
+
+- name: Configure Ubuntu cloud-init to use our hostname and not overwrite it
+  template: src=50graphistry-hostname.cfg.j2
+            dest=/etc/cloud/cloud.cfg.d/50graphistry-hostname.cfg
+            owner=root
+            group=root
+            mode=0644
+  become: yes
+  become_user: root
+
 - name: Restart sshd
   service: name=ssh state=restarted
   when: sshd_config|changed

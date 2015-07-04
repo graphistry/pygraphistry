@@ -23,19 +23,6 @@
   sudo: yes
   sudo_user: root
 
-- name: Set fully-qualified domain name
-  template: src=hosts.j2 dest=/etc/hosts
-
-- name: Set hostname
-  hostname: name="{{ inventory_hostname_short }}"
-
-- name: Configure Ubuntu cloud-init to use our hostname and not overwrite it
-  template: src=50graphistry-hostname.cfg.j2
-            dest=/etc/cloud/cloud.cfg.d/50graphistry-hostname.cfg
-            owner=root
-            group=root
-            mode=0644
-
 - name: Configure timezone
   copy: src=timezone dest=/etc/timezone owner=root group=root mode=0644
 
