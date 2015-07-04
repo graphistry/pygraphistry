@@ -1,0 +1,31 @@
+---
+ask_sudo_pass: yes
+
+# TODO: set to 'false' to disable passwordless `sudo` access for graphistry-dev user group. Need to
+# set a password for ansible user (`ubuntu` currently) first, though, or we won't be able to sudo!
+graphistrydev_sudo_nopasswd: true
+
+user_groups:
+  - graphistry-dev
+
+users:
+  - username: ubuntu
+    groups:
+      - graphistry-dev
+      - sudo
+      - ubuntu
+      - adm
+      - dialout
+      - cdrom
+      - floppy
+      - audio
+      - dip
+      - video
+      - plugdev
+      - netdev
+      - sshauthsock
+  - username: mtorok
+    pubkey: "{{ pubkey_base }}/mtorok.pub"
+    groups:
+      - graphistry-dev
+      - sshauthsock
