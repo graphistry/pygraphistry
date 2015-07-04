@@ -1,0 +1,73 @@
+---
+- name: Install nginx
+  apt: pkg=nginx
+       state=latest
+       update_cache=yes
+       cache_valid_time=600
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
+  tags:
+    - nginx
+
+- name: Configure nginx for proxy (main config file)
+  copy: src=nginx.conf
+        dest=/etc/nginx/nginx.conf
+        owner=root
+        group=graphistry-dev
+        mode=0664
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
+  tags:
+    - nginx
+
+- name: Configure nginx for proxy (individual config file)
+  copy: src={{ item }}
+        dest=/etc/nginx/conf.d/{{ item | basename }}
+        owner=root
+        group=graphistry-dev
+        mode=0664
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
+  with_fileglob:
+    - nginx.conf.d/*
+  tags:
+    - nginx
+
+# - name: print stuff
+#   debug: msg="IP network {{ ansible_default_ipv4.network }}"
+
+- name: Disable nginx for proxy default site
+  file: path=/etc/nginx/sites-enabled/default
+        state=absent
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
+  tags:
+    - nginx
+
+- name: Configure nginx for proxy to proxy to nodejs
+  template: src=proxy.site.j2
+            dest=/etc/nginx/sites-enabled/10-proxy
+            owner=root
+            group=graphistry-dev
+            mode=0664
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
+  tags:
+    - nginx
+
+- name: Configure nginx for proxy to support SSL
+  template: src=ssl.site.j2
+            dest=/etc/nginx/sites-enabled/15-ssl
+            owner=root
+            group=graphistry-dev
+            mode=0664
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
+  tags:
+    - nginx

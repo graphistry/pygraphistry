@@ -1,0 +1,89 @@
+# HTTPS server
+# From: https://mozilla.github.io/server-side-tls/ssl-config-generator/?server=nginx-1.4.0&openssl=1.0.1e&hsts=yes&profile=intermediate
+server {
+    listen               443 ssl;
+    server_name          {{ inventory_hostname }};
+
+    # Graphistry-specific directives
+    gzip                 on;
+    ssl                  on;
+    # /Graphistry-specific directives
+
+    # certs sent to the client in SERVER HELLO are concatenated in ssl_certificate
+    # This cert includes the graphistry.com cert, and the RapidSSL intermediate cert, in that order
+    ssl_certificate      /etc/pki/tls/certs/graphistry-chain.crt;
+    # Unencrypted key file
+    ssl_certificate_key  /etc/pki/tls/certs/graphistry-unencrypted.pem;
+    # We could also provide the encrypted key + a password file to nginx (if nginx >= v1.7.3)
+    ssl_session_timeout  1d;
+    ssl_session_cache    shared:SSL:50m;
+
+    # Diffie-Hellman parameter for DHE ciphersuites, recommended 2048 bits
+    ssl_dhparam          /etc/pki/tls/certs/dhparam.pem;
+
+    # intermediate configuration. tweak to your needs.
+    ssl_protocols        TLSv1 TLSv1.1 TLSv1.2;
+    ssl_ciphers          'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:AES:CAMELLIA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:!EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA';
+    ssl_prefer_server_ciphers on;
+
+    # HSTS (ngx_http_headers_module is required) (15768000 seconds = 6 months)
+    # add_header           Strict-Transport-Security max-age=15768000;
+
+    # OCSP Stapling ---
+    # fetch OCSP records from URL in ssl_certificate and cache them
+    ssl_stapling         on;
+    ssl_stapling_verify  on;
+
+    # verify chain of trust of OCSP response using Root CA and Intermediate certs
+    # This is the full certificate chain, including graphistry.com, the RapidSSL intermediate cert, and
+    # the RapidSSL Global Root CA cert, in that order.
+    ssl_trusted_certificate /etc/pki/tls/certs/graphistry-chain-root.crt;
+
+
+    proxy_http_version      1.1;
+    proxy_set_header        Connection       "";
+    proxy_set_header        Host            $host;
+    proxy_set_header        X-Real-IP       $remote_addr;
+    proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+
+    location ~* ^/(vizaddr|error)(/.*)? {
+        proxy_pass              http://proxy-central;
+        proxy_cache             off;
+    }
+    location /etl {
+        proxy_pass              http://proxy-central;
+        proxy_cache             off;
+        proxy_buffering         off;
+    }
+
+    location ~* ^/(graphistry|graph|horizon|uber|api)/?.* {
+        proxy_pass              http://proxy-central;
+    }
+
+    location ~* /StreamGL\.(js|map)$ {
+        proxy_pass              http://proxy-central;
+    }
+
+    location ~* ^/worker/(?<worker_port>100[0-9][0-9])/?.* {
+        rewrite                 ^/worker/(100[0-9][0-9])(/?.*)$ $2 break;
+        proxy_pass              http://{{ groups['workers'][0] }}:$worker_port;
+
+        proxy_cache             off;
+        proxy_buffering         off;
+
+        proxy_set_header        Upgrade $http_upgrade;
+        proxy_set_header        Connection $connection_upgrade;
+    }
+
+    location /splunk {
+        return                  301 /en-us/;
+    }
+
+    location = / {
+        return                  301 /graphistry/;
+    }
+
+    location / {
+        proxy_pass              http://proxy-splunk;
+    }
+}
