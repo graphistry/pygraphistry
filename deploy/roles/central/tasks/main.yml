@@ -122,17 +122,36 @@
   tags:
     - nginx
 
-- name: Configure nginx (individual config file)
-  copy: src={{ item }}
-        dest=/etc/nginx/conf.d/{{ item | basename }}
-        owner=root
-        group=graphistry-dev
-        mode=0664
+- name: Delete old nginx config files
+  file: path=/etc/nginx/conf.d
+        state=absent
   sudo: yes
   sudo_user: root
   notify: Restart nginx
-  with_fileglob:
-    - nginx.conf.d/*
+  tags:
+    - nginx
+
+- name: Create Graphistry nginx config directory
+  file: path=/etc/nginx/config.d
+        state=directory
+        owner=root
+        group=graphistry-dev
+        mode=0775
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
+  tags:
+    - nginx
+
+- name: Set nginx Gzip options
+  template: src=gzip.nginx.conf.j2
+            dest=/etc/nginx/config.d/gzip.conf
+            owner=root
+            group=graphistry-dev
+            mode=0664
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
   tags:
     - nginx
 
