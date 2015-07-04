@@ -1,28 +1,52 @@
 # -*- mode: INI -*-
+################################################################################
+# Servers
+################################################################################
+[central]
+staging.graphistry.com
+
+[workers]
+staging.graphistry.com
+
+[proxy]
+staging-secure.graphistry.com
+
+[deploy_server]
+# deploy.graphistry.com
+
+
+################################################################################
+# Vars
+################################################################################
 [all:vars]
 # The name of this deploy type (used for Slack notifications)
 cluster="staging"
+
 # The MongoDB connection string/URL. Used only by reaper.py; node apps use the `config` node module
 # to find their MongoDB URL.
 mongodb_url="mongodb://graphistry:graphtheplanet@c48.lighthouse.2.mongolayer.com:10048,c48.lighthouse.3.mongolayer.com:10048/graphistry-staging?replicaSet=set-545152bc461811298c009c03"
 # The name of the MongoDB database on compose.io to write pings to
 mongodb_dbname="graphistry-staging"
+
 # The URL to the splunk instance the reverse proxy should route to
 splunk_url="splunk.graphistry.com:3000"
 
-[workers]
-staging.graphistry.com
 
-[central]
-staging.graphistry.com
-
-[deploy_server]
-# deploy.graphistry.com
+################################################################################
+# Groups
+################################################################################
+[proxy_active]
+# Leave empty. Dynamically populated by playbook.
 
 [app_servers:children]
 workers
 central
 
+[remote_servers:children]
+app_servers
+proxy_active
+deploy_server
+
 [staging:children]
-workers
-central
+app_servers
+proxy_active

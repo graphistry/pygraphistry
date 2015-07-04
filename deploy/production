@@ -1,4 +1,23 @@
 # -*- mode: INI -*-
+################################################################################
+# Servers
+################################################################################
+[central]
+labs.graphistry.com
+
+[workers]
+labs.graphistry.com
+# worker02.graphistry.com
+
+[proxy]
+
+[deploy_server]
+# deploy.graphistry.com
+
+
+################################################################################
+# Vars
+################################################################################
 [all:vars]
 # The name of this deploy type (used for Slack notifications)
 cluster="production"
@@ -7,43 +26,28 @@ mongodb_url="mongodb://graphistry:graphtheplanet@c48.lighthouse.2.mongolayer.com
 # The name of the MongoDB database on compose.io to write pings to
 mongodb_dbname="graphistry-prod"
 
+# Overrides the default number of viz server worker processes per server (8) with the below value
 workers_count=16
 
 # The URL to the splunk instance the reverse proxy should route to
 splunk_url="demo.graphistry.com:8000"
 
 
-# When switching regions, run the following command locally to clear the existing pings (install
-# mongodb/mongo client locally first):
-#   mongo c48.lighthouse.3.mongolayer.com:10048/graphistry-staging -u graphistry -p graphtheplanet -eval 'db.node_monitor.remove({$isolated: 1})'
-
-#### AWS region: us-west-1 (N. California)
-[central]
-labs.graphistry.com
-
-[workers]
-labs.graphistry.com
-# worker02.graphistry.com
-
-[deploy_server]
-# deploy.graphistry.com
+################################################################################
+# Groups
+################################################################################
+[proxy_active]
+# Leave empty. Dynamically populated by playbook.
 
 [app_servers:children]
 workers
 central
 
+[remote_servers:children]
+app_servers
+proxy_active
+deploy_server
+
 [production:children]
-workers
-central
-
-#### /us-west-1
-
-
-#### AWS region: us-east-1 (N. Virginia)
-# [central]
-# 54.173.54.110 hostname=central01
-
-# [workers]
-# 54.173.54.110 hostname=worker01
-# 54.173.242.106 hostname=worker02
-#### /us-east-1
+app_servers
+proxy_active
