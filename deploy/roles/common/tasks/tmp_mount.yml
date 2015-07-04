@@ -13,7 +13,7 @@
         owner=root
         group=root
         mode=1777
-  sudo: yes
+  become: yes
   when: remount_tmp
 
 - name: Unmount the instance store at /mnt
@@ -21,13 +21,13 @@
          src=/dev/xvdb
          fstype=ext3
          state=unmounted
-  sudo: yes
+  become: yes
   when: remount_tmp
 
 - name: Move /tmp to /tmp_old
   shell: mv -v /tmp /tmp_old
          executable=/bin/bash
-  sudo: yes
+  become: yes
   when: remount_tmp
 
 - name: Create /tmp mount point
@@ -36,7 +36,7 @@
         owner=root
         group=root
         mode=1777
-  sudo: yes
+  become: yes
 
 - name: Add fstab entry to mount instance store at /tmp
   mount: name=/tmp
@@ -46,20 +46,20 @@
          dump=0
          passno=2
          state=mounted
-  sudo: yes
+  become: yes
   when: remount_tmp
 
 - name: Move contents of /tmp_old back to /tmp (it's OK if this fails)
   shell: mv -v /tmp_old/* /tmp/
          executable=/bin/bash
   ignore_errors: true
-  sudo: yes
+  become: yes
   when: remount_tmp
 
 - name: Remove /tmp_old
   file: path=/tmp_old
         state=absent
-  sudo: yes
+  become: yes
 
 # When we connect over SSH, the SSH Agent forwarding socket is created in /tmp. When we remount
 # /tmp, this socket is deleted (sockets can't be moved between drives, so the `mv` command doesn't
@@ -70,6 +70,6 @@
 # match Ansible's exactly. On the next task, SSH will reconnect and the socket will be recreated.
 - name: Disconnect SSH master connection (so that the SSH agent forwarding socket is recreated)
   local_action: command ssh -o ControlMaster=auto -o ControlPath=/tmp/ansible-ssh-%u-%n-%p-%r -o IdentityFile={{ ansible_ssh_private_key_file|default('./tools/ansible_id_rsa.pem') }} -o Port={{ ansible_ssh_port }} -o User={{ ansible_ssh_user }} -O exit {{ ansible_ssh_host|default(inventory_hostname) }}
-  sudo: no
+  become: no
   ignore_errors: yes
   when: remount_tmp

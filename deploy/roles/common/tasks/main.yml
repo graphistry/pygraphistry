@@ -3,7 +3,7 @@
   fail: msg="Your version of ansible is too old. You need at least version {{ ansible_minimum_version }} to run this playbook, but you are running version {{ ansible_version.full }}."
   when: not (ansible_version | default('0.0.0') | version_compare(ansible_minimum_version, '>='))
   run_once: true
-  sudo: no
+  become: no
   tags:
     - version_check
     - preflight
@@ -14,14 +14,14 @@
     - deploy_server
 
 - name: Create Ansible file folder
-  sudo: no
+  become: no
   file: path="{{ ansible_files }}"
         state=directory
         owner=root
         mode=1777
         recurse=no
-  sudo: yes
-  sudo_user: root
+  become: yes
+  become_user: root
 
 - name: Configure timezone
   copy: content="US/Pacific-New"
@@ -43,12 +43,12 @@
 
 - name: Add git apt PPA repo (to get the most up-to-date git)
   apt_repository: repo='ppa:git-core/ppa'
-  sudo: yes
+  become: yes
   register: git_ppa
 
 - name: Update apt cache for git PPA
   apt: update_cache=yes
-  sudo: yes
+  become: yes
   when: git_ppa.changed
 
 - name: Install common tools
@@ -70,14 +70,14 @@
     - pkg-config
     - acl
     - schedtool
-  sudo: yes
+  become: yes
 
 - name: Install common Python packages
   pip: name={{ item }}
   with_items:
     - setuptools
     - distribute
-  sudo: yes
+  become: yes
 
 - name: Create apt auto-upgrades job configuration
   copy: src=auto-upgrades
@@ -86,6 +86,7 @@
         group=root
         mode=0644
         force=yes
+  become: yes
 
 - name: Enable ACLs on root filesystem
   mount: name=/
@@ -93,7 +94,7 @@
          fstype=ext4
          opts='defaults,acl,discard,barrier=0,noatime,nodiratime'
          state=mounted
-  sudo: yes
+  become: yes
 
 - { include: tmp_mount.yml, tags: [ 'tmp_mount' ] }
 

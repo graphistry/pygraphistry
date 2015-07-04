@@ -19,18 +19,18 @@
 # SSDs can perform better with the “noop” scheduler (if not default already)
 - name: Tune filesystem scheduler
   shell: echo noop > /sys/block/{{ item.key }}/queue/scheduler
-  sudo: yes
+  become: yes
   with_dict: ansible_devices
 
 - name: Tune filesystem nr_requests
   shell: echo 256 > /sys/block/{{ item.key }}/queue/nr_requests
-  sudo: yes
+  become: yes
   with_dict: ansible_devices
 
 # Some workloads, e.g., Cassandra, can be sensitive to read ahead size
 - name: Tune filesystem read_ahead_kb
   shell: echo 256 > /sys/block/{{ item.key }}/queue/read_ahead_kb
-  sudo: yes
+  become: yes
   with_dict: ansible_devices
 
 - name: Tuning kernel clocksource
@@ -44,7 +44,7 @@
         group=root
         mode=0644
         directory_mode=0755
-  sudo: yes
+  become: yes
   notify: Apply sysctl settings
 
 # Do we need to reboot to make these take effect?

@@ -49,7 +49,7 @@
 
 - hosts: deploy_server:workers:central
   roles:
-    - { role: common, sudo: yes, tags: [ 'common' ] }
+    - { role: common, become: yes, tags: [ 'common' ] }
     - { role: users, tags: [ 'users' ] }
     - { role: splunkfwd, sudo: yes, tags: [ 'splunkfwd' ] }
   tags:

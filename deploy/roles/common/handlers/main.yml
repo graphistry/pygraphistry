@@ -2,7 +2,7 @@
 - name: Apply sysctl settings
   service: name=procps
            state=started
-  sudo: yes
+  become: yes
   tags:
     - performance
 

@@ -138,8 +138,8 @@
         owner=mtorok
         group=mtorok
         mode=0775
-  sudo: yes
-  sudo_user: mtorok
+  become: yes
+  become_user: mtorok
 
 - name: "[mtorok] Clone dotfiles repo (it's OK if this fails)"
   git: repo=git@github.com:int3h/dotfiles.git
