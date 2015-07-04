@@ -33,8 +33,6 @@ default_groups:
   - graphistry-dev
   - www
 
-pubkey_base: "{{ playbook_dir }}/roles/users/files/ssh_keys"
-
 users:
   - username: www
     # Only a member of the 'www' group
