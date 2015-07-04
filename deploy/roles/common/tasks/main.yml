@@ -96,6 +96,20 @@
          state=mounted
   become: yes
 
+# - name: Clone 'ec2-net-utils for Ubuntu' repo
+#   git: repo=https://github.com/graphistry/ubuntu-ec2net.git
+#        dest="{{ ansible_files }}/ubuntu-ec2net"
+#        update=yes
+#        accept_hostkey=yes
+#   register: ec2_net_utils_repo
+#
+# - name: Install ec2-net-utils
+#   command: make install
+#            chdir="{{ ansible_files }}/ubuntu-ec2net"
+#   when: ec2_net_utils_repo.changed
+#   become: yes
+#   become_user: root
+
 - { include: tmp_mount.yml, tags: [ 'tmp_mount' ] }
 
 # - { include: performance.yml, tags: [ 'performance' ] }
