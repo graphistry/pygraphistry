@@ -3,7 +3,7 @@
   become: no
   local_action: shell nc -z -w5 {{ inventory_hostname }} {{ ansible_ssh_port }}
   register: nc_ssh_port
-  failed_when: nc_ssh_port.stdout.find('failed') != -1
+  failed_when: nc_ssh_port.rc != 0
   changed_when: False
   ignore_errors: yes
 
@@ -37,9 +37,11 @@
   become: yes
   become_user: root
 
+# This seems to fail with the latest version of Ansible (v1.9). If that happens, log into the
+# machine manually (on port 22) and run `sudo service sshd restart`.
 - name: Restart sshd
-  service: name=ssh state=restarted
-  when: sshd_config|changed
+  service: name=ssh state=reloaded pattern=/usr/sbin/sshd enabled=yes
+  when: nc_ssh_port|failed
   become: yes
 
 - name: Set Ansible back to using our custom SSH port
