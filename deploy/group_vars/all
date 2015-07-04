@@ -36,3 +36,6 @@ splunk_deploy_server_uri: "splunk.graphistry.com:8089"
 ansible_files: "/var/ansible_graphistry"
 
 pubkey_base: "{{ playbook_dir }}/roles/users/files/ssh_keys"
+
+# The size we set in nginx (used for central, proxies, and SSL) for file upload size limit
+upload_limit: "128M"

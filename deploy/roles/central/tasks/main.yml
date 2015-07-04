@@ -155,6 +155,18 @@
   tags:
     - nginx
 
+- name: Set nginx upload size options
+  template: src=upload_size_limit.nginx.conf.j2
+            dest=/etc/nginx/config.d/upload_size_limit.conf
+            owner=root
+            group=graphistry-dev
+            mode=0664
+  sudo: yes
+  sudo_user: root
+  notify: Restart nginx
+  tags:
+    - nginx
+
 - name: Disable nginx default site
   file: path=/etc/nginx/sites-enabled/default
         state=absent
