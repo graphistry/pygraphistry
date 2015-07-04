@@ -5,12 +5,12 @@
   sudo_user: root
 
 - name: Configure sudo for graphistry-dev group
-  copy: src=40-graphistry-dev.sudoers
-        dest=/etc/sudoers.d/40-graphistry-dev
-        owner=root
-        group=root
-        mode=0440
-        validate='visudo -cf %s'
+  template: src=40-graphistry-dev.sudoers.j2
+            dest=/etc/sudoers.d/40-graphistry-dev
+            owner=root
+            group=root
+            mode=0440
+            validate='visudo -cf %s'
   sudo: yes
 
 - name: Set permissions on Graphistry Ansible directory

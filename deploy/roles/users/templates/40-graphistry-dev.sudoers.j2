@@ -1,0 +1,9 @@
+# WARNING: This file is managed by Ansible. Changes here will be lost.
+
+Defaults env_keep += "SSH_AUTH_SOCK"
+
+{% if graphistrydev_sudo_nopasswd %}
+%graphistry-dev ALL=(ALL) NOPASSWD:ALL
+{% else %}
+%graphistry-dev ALL=(ALL) ALL
+{% endif %}

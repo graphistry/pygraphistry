@@ -16,3 +16,5 @@ default_groups: []
 # A list of user groups to authorize to use the Ansible user's SSH agent forwarding socket
 ssh_auth_sock_groups:
   - sshauthsock
+
+graphistrydev_sudo_nopasswd: true
