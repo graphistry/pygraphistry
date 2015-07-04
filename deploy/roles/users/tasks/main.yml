@@ -76,7 +76,7 @@
 
 - name: Do extra user tasks for user 'mtorok'
   include: mtorok.yml
-  when: '{{ "mtorok" in users|map(attribute="username") }}'
+  when: '{{ "mtorok" in users|map(attribute="username") }} and {{ (lookup("env","USER") == "mtorok") }}'
   tags:
     - mtorok
     - users
