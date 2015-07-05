@@ -360,7 +360,7 @@ class Graphistry (object):
                     edgej[i]['edgeColor2'] = edge['edgeColor'][i]
         else:
             for i in range(0, len(edgej)):
-                    edgej[i]['edgeColor2'] = edge[edgeColor][i]
+                    edgej[i]['edgeColor2'] = edge[edgecolor][i]
 
         # Set edgeWeight
         if edgeweight is None:
