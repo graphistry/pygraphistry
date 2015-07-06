@@ -21,14 +21,14 @@ __kernel void faIntegrate (
     // Set to 0.1f
     /*float speedFactor = max(SPEED_CONSTANT * sqrtPoints / 1000.0f, 0.1f);*/
     /*float speedFactor = 1.41f; // FACEBOOK*/
-    float speedFactor = 0.01f; // FACEBOOK
+    float speedFactor = 0.10f; // FACEBOOK
     /*float speedFactor = 0.01f; // PYGRAPHISTRY/2NZZJ*/
     // Set to 10
     //
     /*float maxSpeedFactor = max(SPEED_CONSTANT * sqrtPoints / 10.0f, 10.0f);*/
     /*float maxSpeedFactor = 5.0f; // FACEBOOK*/
     /*float maxSpeedFactor = 1.0f; // PYGRAPHISTRY/2NZZJ*/
-    float maxSpeedFactor = 5.0f; // FACEBOOK
+    float maxSpeedFactor = 0.25f; // FACEBOOK
 
 
 
