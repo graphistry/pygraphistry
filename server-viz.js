@@ -37,7 +37,7 @@ var lastCompressedVBOs;
 var lastRenderConfig;
 var lastMetadata;
 var finishBufferTransfers;
-var qLastSelection;
+var qLastSelectionIndices;
 
 
 // ----- ANIMATION ------------------------------------
@@ -94,9 +94,10 @@ function vboSizeMB(vbos) {
 }
 
 // Sort and then subset the dataFrame. Used for pageing selection.
-function sliceSelection(dataFrame, start, end, sort_by, ascending) {
+function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending) {
     var sorted;
     if (sort_by !== undefined) {
+        return dataFrame.getRows(indices.slice(start, end), type);
         sorted = dataFrame.slice(0).sort(function (row1, row2) {
             var a = row1[sort_by];
             var b = row2[sort_by];
@@ -112,27 +113,38 @@ function sliceSelection(dataFrame, start, end, sort_by, ascending) {
         });
 
     } else {
-        sorted = dataFrame;
+        return dataFrame.getRows(indices.slice(start, end), type);
     }
 
-    return sorted.slice(start, end);
+    // return sorted.slice(start, end);
 }
 
 function read_selection(type, query, res) {
-    qLastSelection.then(function (lastSelection) {
-        if (!lastSelection || !lastSelection[type]) {
-            log.error('Client tried to read non-existent selection');
-            res.send();
-        }
 
-        var page = parseInt(query.page);
-        var per_page = parseInt(query.per_page);
-        var start = (page - 1) * per_page;
-        var end = start + per_page;
-        var data = sliceSelection(lastSelection[type], start, end,
-                                    query.sort_by, query.order === 'asc');
-        res.send(data);
-    }).fail(eh.makeErrorHandler('read_selection qLastSelection'));
+    animStep.graph.then(function (graph) {
+        qLastSelectionIndices.then(function (lastSelectionIndices) {
+            // TODO: Change these on the client side.
+            if (type === 'nodes') type = 'point';
+            if (type === 'edges') type = 'edge';
+
+            if (!lastSelectionIndices || !lastSelectionIndices[type]) {
+                log.error('Client tried to read non-existent selection');
+                res.send();
+            }
+
+            var page = parseInt(query.page);
+            var per_page = parseInt(query.per_page);
+            var start = (page - 1) * per_page;
+            var end = start + per_page;
+            var data = sliceSelection(graph.dataframe, type, lastSelectionIndices[type], start, end,
+                                        query.sort_by, query.order === 'asc');
+            res.send(data);
+        }).fail(eh.makeErrorHandler('read_selection qLastSelectionIndices'));
+
+    }).fail(function (err) {
+        cb({success: false, error: 'Server error when fetching graph for read selection'});
+        eh.makeErrorHandler('reading selection')(err);
+    });
 }
 
 function init(app, socket) {
@@ -409,9 +421,9 @@ function stream(socket, renderConfig, colorTexture) {
                         }
                     }
                 });
-                qLastSelection = Q({
-                    nodes: graph.dataframe.getRows(nodeIndices, 'point'),
-                    edges: graph.dataframe.getRows(edgeIndices, 'edge')
+                qLastSelectionIndices = Q({
+                    'point': nodeIndices,
+                    'edge': edgeIndices
                 });
             }).done(_.identity, eh.makeErrorHandler('selectNodes'));
         }).subscribe(
