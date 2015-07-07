@@ -98,7 +98,7 @@ import requests
 import pandas
 
 
-def settings(server='labs', height=500):
+def settings(server='labs', height=500, url_params=None):
     """ Configure plot settings
 
     Keywords arguments:
@@ -115,7 +115,7 @@ def settings(server='labs', height=500):
     else:
         hostname = server
 
-    return Graphistry(height, hostname)
+    return Graphistry(height, hostname, url_params)
 
 
 def plot(edges, nodes=None, graph_name=None, source=None, destination=None, node=None,
@@ -175,15 +175,18 @@ class Graphistry (object):
     dataset_prefix = "PyGraphistry/"
 
 
-    def __init__(self, height, hostname):
+    def __init__(self, height, hostname, url_params):
         self.height = height
         self.hostname = hostname
+        self.url_params = url_params
 
 
-    def settings(self, height=None, hostname=None):
+    def settings(self, height=None, hostname=None, url_params=None):
         ht = self.height if height == None else height
         hn = self.hostname if hostname == None else hostname
-        return settings(hn, ht)
+        up = self.url_params if url_params == None else url_params
+
+        return settings(hn, ht, up)
 
 
     def etl_url(self):
@@ -191,7 +194,10 @@ class Graphistry (object):
 
 
     def viz_url(self, dataset_name):
-        return "http://%s/graph/graph.html?dataset=%s&info=true&usertag=%s" % (self.hostname, dataset_name, self.tag)
+        extra = ''
+        if not self.url_params == None and not self.url_params == {}:
+            extra = '&' + '&'.join([ k + '=' + self.url_params[k] for k in self.url_params])
+        return "http://%s/graph/graph.html?dataset=%s&info=true&usertag=%s%s" % (self.hostname, dataset_name, self.tag, extra)
 
 
     def iframe(self, url):
