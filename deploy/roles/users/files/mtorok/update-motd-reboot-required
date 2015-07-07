@@ -1,0 +1,13 @@
+#!/bin/sh -e
+#
+# helper for update-motd
+
+if [ -f /var/run/reboot-required ]; then
+    if [ -f /var/run/reboot-required.pkgs ]; then
+        printf '  One or more packages require a reboot:\n'
+        cat /var/run/reboot-required.pkgs | sed -e 's/^\(.*\)$/    * \1/g'
+        printf '\n'
+    fi
+
+        cat /var/run/reboot-required
+fi

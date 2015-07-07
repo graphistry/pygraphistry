@@ -208,3 +208,43 @@
 #   sudo_user: mtorok
 #   tags:
 #     - slow
+
+
+###############################################################################
+# System Settings
+###############################################################################
+
+- name: "[mtorok] Modify pam MOTD directive pt. 1"
+  lineinfile: dest={{ item }}
+              regexp='^session([ \t]+)optional([ \t]+)pam_motd\.so([ \t]+)motd=(.+)([ \t]+)noupdate$'
+              line='session    optional     pam_motd.so  motd=/run/motd.dynamic'
+              create=no
+              backup=yes
+              backrefs=yes
+  with_items:
+    - "/etc/pam.d/login"
+    - "/etc/pam.d/sshd"
+  become: yes
+  become_user: root
+
+- name: "[mtorok] Modify pam MOTD directive pt. 2"
+  lineinfile: dest={{ item }}
+              regexp='^session([ \t]+)optional([ \t]+)pam_motd\.so([ \t]*)(#.*)?$'
+              line="session    optional     pam_motd.so  noupdate"
+              create=no
+              backup=no
+              backrefs=yes
+  with_items:
+    - "/etc/pam.d/login"
+    - "/etc/pam.d/sshd"
+  become: yes
+  become_user: root
+
+- name: Make MOTD 'reboot required' message more informative
+  copy: dest=/usr/lib/update-notifier/update-motd-reboot-required
+        src=mtorok/update-motd-reboot-required
+        owner=root
+        group=root
+        mode=0755
+  become: yes
+  become_user: root
