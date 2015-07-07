@@ -95,13 +95,17 @@ function vboSizeMB(vbos) {
 
 // Sort and then subset the dataFrame. Used for pageing selection.
 function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending) {
-    var sorted;
     if (sort_by !== undefined) {
-        return dataFrame.getRows(indices.slice(start, end), type);
-        sorted = dataFrame.slice(0).sort(function (row1, row2) {
-            var a = row1[sort_by];
-            var b = row2[sort_by];
 
+        // TODO: Speed this up / cache sorting. Alternatively, put this into dataframe itself.
+        var sortCol = dataFrame.getColumn(sort_by, type);
+        var taggedSortCol = _.map(indices, function (idx) {
+            return [sortCol[idx], idx];
+        });
+
+        var sortedTags = taggedSortCol.sort(function (val1, val2) {
+            var a = val1[0];
+            var b = val2[0];
             if (typeof a === 'string' && typeof b === 'string')
                 return (ascending ? a.localeCompare(b) : b.localeCompare(a));
             else if (isNaN(a) || a < b)
@@ -112,11 +116,16 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
                 return 0;
         });
 
+        var slicedTags = sortedTags.slice(start, end);
+        var slicedIndices = _.map(slicedTags, function (val) {
+            return val[1];
+        });
+
+        return dataFrame.getRows(slicedIndices, type);
+
     } else {
         return dataFrame.getRows(indices.slice(start, end), type);
     }
-
-    // return sorted.slice(start, end);
 }
 
 function read_selection(type, query, res) {
