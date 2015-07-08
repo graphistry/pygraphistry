@@ -35,10 +35,9 @@ function etl(msg) {
 
     if (vg === undefined) {
         throw new Error('Invalid edgelist');
-    } else {
-        logger.info('VGraph created with', vg.nvertices, 'nodes and', vg.nedges, 'edges');
-        return publish(vg, name);
     }
+    logger.info('VGraph created with', vg.nvertices, 'nodes and', vg.nedges, 'edges');
+    return publish(vg, name);
 }
 
 
@@ -79,7 +78,7 @@ function publish(vg, name) {
 
 // Buffer * {name: String, ...} -> Promise
 function s3Upload(binaryBuffer, metadata) {
-    return s3.upload(config.S3, config.BUCKET, metadata, binaryBuffer)
+    return s3.upload(config.S3, config.BUCKET, metadata, binaryBuffer);
 }
 
 
@@ -137,7 +136,7 @@ function makeFailHandler(res) {
         });
         logger.debug('Failed worker, exiting');
         process.exit(1);
-    }
+    };
 }
 
 
@@ -190,4 +189,4 @@ function route (app, socket) {
 
 module.exports = {
     route: route
-}
+};
