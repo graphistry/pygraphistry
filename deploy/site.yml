@@ -104,6 +104,13 @@
     - deploy
     - proxy
 
+- hosts: deploy
+  roles:
+    - { role: nodejs, tags: [ 'nodejs' ] }
+  tags:
+    - deploy_server
+    - provision
+
 - hosts: localhost
   gather_facts: no
   roles:
