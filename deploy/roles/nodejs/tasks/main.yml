@@ -3,7 +3,7 @@
   file: path="{{ npm_temp_path }}"
         state=directory
         recurse=no
-        owner=www
+        owner={{ node_user_name }}
         group=graphistry-dev
         mode=1777
   sudo: yes
@@ -44,15 +44,15 @@
   file: path={{ graphistry_install_path }}
         state=directory
         recurse=no
-        owner=www
-        group=www
+        owner={{ node_user_name }}
+        group={{ node_user_group }}
         mode=0775
 
 - name: Set ownership of everything in graphistry app install directory and subdirectories
   file: path={{ graphistry_install_path }}
         state=directory
         recurse=yes
-        group=www
+        group={{ node_user_group }}
         mode='g+rw'
   sudo: yes
   sudo_user: root

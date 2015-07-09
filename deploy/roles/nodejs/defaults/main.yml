@@ -1,0 +1,7 @@
+---
+node_user_name: "www"
+node_user_group: "www"
+
+npm_group_permissions:
+    - { group: "graphistry-dev", permissions: "rwx" }
+    - { group: "{{ node_user_group }}", permissions: "rx" }

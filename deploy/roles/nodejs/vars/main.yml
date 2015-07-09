@@ -7,7 +7,3 @@ npm_subdirs:
     - "{{ npm_global_path }}/lib"
     - "{{ npm_global_path }}/lib/node_modules"
     - "{{ graphistry_install_path }}"
-
-npm_group_permissions:
-    - { group: "graphistry-dev", permissions: "rwx" }
-    - { group: "www", permissions: "rx" }
