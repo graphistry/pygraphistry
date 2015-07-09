@@ -331,7 +331,8 @@ function init(app, socket) {
             perf('Selecting Indices');
             var qIndices
             if (query.all === true) {
-                qIndices = Q(_.range(graph.simulator.numPoints));
+                var numPoints = graph.simulator.dataframe.getNumElements('point');
+                qIndices = Q(_.range(numPoints));
             } else {
                 qIndices = graph.simulator.selectNodes(query.sel);
             }
@@ -453,7 +454,7 @@ function stream(socket, renderConfig, colorTexture) {
             .do(function (graph) {
                 // If edge, convert from sorted to unsorted index
                 if (dim === 2) {
-                    var permutation = graph.simulator.bufferHostCopies.forwardsEdges.edgePermutationInverseTyped;
+                    var permutation = graph.simulator.dataframe.getHostBuffer('forwardsEdges').edgePermutationInverseTyped;
                     var newIndices = _.map(indices, function (idx) {
                         return permutation[idx];
                     });
@@ -497,7 +498,8 @@ function stream(socket, renderConfig, colorTexture) {
             .do(function (graph) {
 
                 points.forEach(function (point) {
-                    graph.simulator.buffersLocal.pointColors[point.index] = point.color;
+                    graph.simulator.dataframe.getLocalBuffer('pointColors')[point.index] = point.color;
+                    // graph.simulator.buffersLocal.pointColors[point.index] = point.color;
                 });
                 graph.simulator.tickBuffers(['pointColors']);
 
