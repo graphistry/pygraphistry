@@ -512,8 +512,9 @@ function stream(socket, renderConfig, colorTexture) {
             .do(function (graph) {
                 var vbos = lastCompressedVBOs[socket.id];
                 var metadata = lastMetadata[socket.id];
-                persistor.publishStaticContents(name, vbos, metadata, graph.dataframe, renderConfig).then(function() {
-                    cb({success: true, name: name});
+                var cleanName = encodeURIComponent(name);
+                persistor.publishStaticContents(cleanName, vbos, metadata, graph.dataframe, renderConfig).then(function() {
+                    cb({success: true, name: cleanName});
                 }).done(
                     _.identity,
                     eh.makeErrorHandler('persist_current_vbo')
