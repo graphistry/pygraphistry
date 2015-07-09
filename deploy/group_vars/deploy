@@ -1,0 +1,50 @@
+---
+node_user_name: "nodejs"
+node_user_group: "nodejs"
+
+# The Bash environmental variables needed to install node-webcl modules (CUDA + npm config)
+nodecl_env:
+    PATH: "{{ npm_global_path }}/bin/:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
+    NODE_PATH: "/usr/lib/nodejs:{{ npm_global_path }}/lib/node_modules:/usr/lib/node_modules:/usr/share/javascript"
+    npm_config_globalconfig: '{{ npm_global_path }}/etc/npmrc'
+    _GRAPHISTRY_NODEJS_INIT: 1
+
+user_groups:
+  - graphistry-dev
+
+default_groups:
+  - graphistry-dev
+
+users:
+  - username: nodejs
+    # Only a member of the 'www' group
+    groups:
+      - sshauthsock
+  - username: kevin
+    pubkey: "{{ pubkey_base }}/kevin.pub"
+  - username: ubuntu
+    pubkey: "{{ pubkey_base }}/mtorok.pub"
+    groups:
+      - graphistry-dev
+      - sudo
+      - ubuntu
+      - adm
+      - dialout
+      - cdrom
+      - floppy
+      - audio
+      - dip
+      - video
+      - plugdev
+      - netdev
+      - sshauthsock
+  - username: mtorok
+    pubkey: "{{ pubkey_base }}/mtorok.pub"
+    groups:
+      - graphistry-dev
+      - sshauthsock
+
+npm_group_permissions:
+    - { group: "graphistry-dev", permissions: "rwx" }
+    - { group: "{{ node_user_group }}", permissions: "rx" }
+    - { group: "jenkins", permissions: "rwx" }

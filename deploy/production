@@ -11,8 +11,8 @@ labs.graphistry.com
 
 [proxy]
 
-[deploy_server]
-# deploy.graphistry.com
+[deploy]
+deploy.graphistry.com
 
 
 ################################################################################
@@ -46,7 +46,7 @@ central
 [remote_servers:children]
 app_servers
 proxy_active
-deploy_server
+deploy
 
 [production:children]
 app_servers

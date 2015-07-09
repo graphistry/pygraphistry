@@ -73,13 +73,6 @@
   tags:
     - provision
 
-- hosts: deploy_server
-  roles:
-    - deploy_server
-  tags:
-    - provision
-    - deploy_server
-
 - hosts: app_servers
   roles:
    - { role: nodejs, tags: [ 'nodejs' ] }

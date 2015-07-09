@@ -39,3 +39,11 @@ pubkey_base: "{{ playbook_dir }}/roles/users/files/ssh_keys"
 
 # The size we set in nginx (used for central, proxies, and SSL) for file upload size limit
 upload_limit: "128M"
+
+# Path on the remote instance where Graphistry nodejs apps will be installed to
+graphistry_install_path: "/var/graphistry"
+graphistry_temp_path: "/tmp/graphistry"
+
+# The path on the remote system where we should install global npm modules
+npm_global_path: "/opt/npm_global"
+npm_temp_path: "/tmp/npm"

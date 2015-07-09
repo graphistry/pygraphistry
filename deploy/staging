@@ -11,8 +11,8 @@ staging.graphistry.com
 [proxy]
 staging-secure.graphistry.com
 
-[deploy_server]
-# deploy.graphistry.com
+[deploy]
+deploy.graphistry.com
 
 
 ################################################################################
@@ -45,8 +45,9 @@ central
 [remote_servers:children]
 app_servers
 proxy_active
-deploy_server
+deploy
 
 [staging:children]
 app_servers
 proxy_active
+deploy
