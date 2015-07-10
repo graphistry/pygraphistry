@@ -106,7 +106,7 @@
 
 - hosts: deploy
   roles:
-    - { role: nodejs, tags: [ 'nodejs' ] }
+    - { role: cuda, tags: [ 'provision' , 'cuda' ] }
   tags:
     - deploy_server
     - provision
