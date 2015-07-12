@@ -325,6 +325,8 @@ function init(app, socket) {
         );
     });
 
+    //query :: {attributes: ??, binning: ??, mode: ??, type: 'point' + 'edge'}
+    // -> {success: false} + {success: true, data: ??}
     socket.on('aggregate', function (query, cb) {
         debug('Got aggregate', query);
         graph.take(1).do(function (graph) {
@@ -344,6 +346,7 @@ function init(app, socket) {
                     cb({success: true, data: data});
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
+                    eh.makeRxErrorHandler('aggregate inner handler')(err);
                 }
             }).done(_.identity, eh.makeErrorHandler('selectNodes'));
         }).subscribe(
