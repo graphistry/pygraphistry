@@ -341,7 +341,7 @@ function init(app, socket) {
            qIndices.then(function (indices) {
                 perf('Done selecting indices');
                 try {
-                    var data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, 'point');
+                    var data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, query.type);
                     perf('Sending back data');
                     cb({success: true, data: data});
                 } catch (err) {
