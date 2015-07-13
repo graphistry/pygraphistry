@@ -1,3 +1,4 @@
+#define DEBUG
 #include "common.h"
 #include "barnesHut/barnesHutCommon.h"
 
@@ -116,14 +117,14 @@ __kernel void bound_box(
             if (step_number > 1) {
                 /**globalSpeed = min(tau * (traction / swing), *globalSpeed * 2);*/
                 if (swing < FLT_EPSILON) {
-                    *globalSpeed = 0.5f;
+                    *globalSpeed = 0.01f;
                 } else {
-                    *globalSpeed = tau * (traction / swing);
+                    *globalSpeed = max(tau * (traction / swing), *globalSpeed / 2);
                 }
-                debug5("Global speed %f traction %f, swing %f num_bodies %d\n", *globalSpeed, traction, swing, num_bodies);
             } else {
-                *globalSpeed = 1.0f;
+                *globalSpeed = 0.01f;
             }
+            debug5("Global speed %f traction %f, swing %f num_bodies %d\n", *globalSpeed, traction, swing, num_bodies);
 
 
             /*if (step_number == 100) {*/

@@ -17,13 +17,13 @@ uniform float maxPointSize;
 
 void main(void) {
     if (stroke > 0.0) {
-        gl_PointSize = clamp(zoomScalingFactor * pointSize, 17.0, maxPointSize);
+        gl_PointSize = clamp(zoomScalingFactor * pointSize, 7.0, maxPointSize);
     } else {
-        gl_PointSize = stroke + clamp(zoomScalingFactor * pointSize, 17.0, maxPointSize);
+        gl_PointSize = stroke + clamp(zoomScalingFactor * pointSize, 7.0, maxPointSize);
     }
 
     vec4 pos = mvp * vec4(curPos.xy, Z_VAL, W_VAL);
     gl_Position = pos;
 
-    vColor = vec4(stroke > 0.0 ? 0.5 * pointColor.xyz : pointColor.xyz, 0.8);
+    vColor = vec4(stroke > 0.0 ? 0.5 * pointColor.xyz : pointColor.xyz, 0.1);
 }

@@ -232,14 +232,14 @@ __kernel void calculate_forces(
                         // Edgebundling currently only uses the quadtree in order to test which points are close enough
                         // to compute forces on. It does not compute forces with any of the summarized nodes.
                         if ((child < num_bodies)) {
-                            if (temp > FLT_EPSILON) {
+                            if (temp > FLT_EPSILON * 10.0f) {
                             const float2 otherPoint = (float2) (x_cords[child], y_cords[child]) / *radiusd;
                             edgeLengthOtherPoint = edgeLengths[child];
                             // TODO It would be interesting to to having edges of opposite 
                             // direction repel instead of attract each other.
                             // TODO optimized registers.
 
-                            edgeAngleCompat = pown((fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/2, 1);
+                            edgeAngleCompat = pown((fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/2, 3);
                             /*edgeAngleCompat = (fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/ 2.0f;*/
                             averageLength = (edgeLength + edgeLengthOtherPoint) / 2.0f;
                             edgeScaleCompat = 2.0f / ((max(edgeLength, edgeLengthOtherPoint) / averageLength) + (min(edgeLength, edgeLengthOtherPoint) / averageLength));
@@ -247,7 +247,7 @@ __kernel void calculate_forces(
                             projectionVector = dot(distVector, (float2) (edgeDirX, edgeDirY)) * (float2) (edgeDirX, edgeDirY);
                             midEdgeLength = edgeLength / midpoints_per_edge;
                             alignmentCompat = 1.0f / (1 + (fast_length(projectionVector)) / (midEdgeLength));
-                            forceVector +=  1.0f * pow((edgeLength / *radiusd), 1.0f) *  alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(normalizedPos, otherPoint, 20.0f * charge * alpha) * -1.0f);
+                            forceVector += pow((edgeLength / *radiusd), 1.0f) *  alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(normalizedPos, otherPoint, charge * alpha) * -1.0f);
                             }
                       // If all threads agree that cell is too far away, move on. 
                         /*} else if (!(warpCellVote(votingBuffer, 100.0f * pow((dist - (edgeLength / 2.0f)), 2.0f), dq[depth], warp_id))) {*/
@@ -269,8 +269,8 @@ __kernel void calculate_forces(
                 }
                 depth--; // Finished this level
             }
-            /*pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector;*/
-            pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector + (pow((edgeLength / (*radiusd / 4)), 1.5f) * -500.0f * normalize((float2) (edgeDirY, -edgeDirX)));
+            pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector;
+            /*pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector + (pow((edgeLength / (*radiusd / 4)), 1.5f) * -500.0f * normalize((float2) (edgeDirY, -edgeDirX)));*/
             debug6("Force in calculate midpoints x (%u) %.9g, y %.9g Result x %.9g y %.9g\n", (index * midpoints_per_edge) + midpoint_stride, forceVector.x, forceVector.y, result.x, result.y);
 
         }
