@@ -5,9 +5,9 @@ var _            = require('underscore');
 var fs           = require('fs');
 var path         = require('path');
 var driver       = require('../js/node-driver.js');
-var StreamGL     = require('StreamGL');
+// var StreamGL     = require('StreamGL');
 var compress     = require('node-pigz');
-var renderer     = StreamGL.renderer;
+// var renderer     = StreamGL.renderer;
 var rConf        = require('../js/renderer.config.js');
 var loader       = require('../js/data-loader.js');
 var server       = require('../server-viz.js');
@@ -125,16 +125,16 @@ describe ("[SMOKE] Server-viz", function () { //describe is not defined?
             });
     });
 
-    it ("should start streaming LayoutDebugLines and get an animation tick", function (done) {
-        clients.layout.on('vbo_update', function (data, handshake) {
-            buffernames = renderer.getServerBufferNames(theRenderConfig);
-            processVbos(data, handshake, buffernames, done, clients.layout, ids.layout);
-        });
-        clients.layout.emit('begin_streaming');
-        setTimeout(function () {
-            clients.layout.emit('interaction', animatePayload);
-        }, 100);
-    });
+    // it ("should start streaming LayoutDebugLines and get an animation tick", function (done) {
+    //     clients.layout.on('vbo_update', function (data, handshake) {
+    //         buffernames = renderer.getServerBufferNames(theRenderConfig);
+    //         processVbos(data, handshake, buffernames, done, clients.layout, ids.layout);
+    //     });
+    //     clients.layout.emit('begin_streaming');
+    //     setTimeout(function () {
+    //         clients.layout.emit('interaction', animatePayload);
+    //     }, 100);
+    // });
 
     it ("should have returned initial vbos of correct size for 8 points", function () {
         // Float, count=2, stride=8, DEVICE
@@ -205,16 +205,16 @@ describe ("[SMOKE] Server-viz", function () { //describe is not defined?
         });
     });
 
-    it ("should start streaming Uber and get an animation tick", function (done) {
-        clients.uber.on('vbo_update', function (data, handshake) {
-            buffernames = renderer.getServerBufferNames(theRenderConfig);
-            processVbos(data, handshake, buffernames, done, clients.uber, ids.uber);
-        });
-        clients.uber.emit('begin_streaming');
-        setTimeout(function () {
-            clients.uber.emit('interaction', animatePayload);
-        }, 100);
-    });
+    // it ("should start streaming Uber and get an animation tick", function (done) {
+    //     clients.uber.on('vbo_update', function (data, handshake) {
+    //         buffernames = renderer.getServerBufferNames(theRenderConfig);
+    //         processVbos(data, handshake, buffernames, done, clients.uber, ids.uber);
+    //     });
+    //     clients.uber.emit('begin_streaming');
+    //     setTimeout(function () {
+    //         clients.uber.emit('interaction', animatePayload);
+    //     }, 100);
+    // });
 
     // No support for afterAll, so using a test case to tear down
     it ("should tear down", function () {
