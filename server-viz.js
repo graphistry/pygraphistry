@@ -137,7 +137,7 @@ function init(app, socket) {
 
     if (query.usertag !== 'undefined' && query.usertag !== '') {
         logger.debug('Tagging client with', query.usertag);
-        logger.addUserInfo({tag: decodeURIComponent(query.usertag)});
+        Log.addUserInfo({tag: decodeURIComponent(query.usertag)});
     }
 
     var colorTexture = new Rx.ReplaySubject(1);
