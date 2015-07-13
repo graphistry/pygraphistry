@@ -239,6 +239,7 @@ function init(app, socket) {
         }
     });
 
+
     app.get('/read_node_selection', function (req, res) {
         debug('Got read_node_selection', req.query);
         read_selection('nodes', req.query, res);
@@ -321,6 +322,23 @@ function init(app, socket) {
             function (err) {
                 cb({success: false, error: 'inspect_header error'});
                 eh.makeRxErrorHandler('inspect_header handler')(err);
+            }
+        );
+    });
+
+    socket.on('filter', function (query, cb) {
+        debug('Got filter', query);
+        graph.take(1).do(function (graph) {
+            console.log('Attempting to Filter');
+            var masks = graph.dataframe.masksFromPoints(query.pointMask);
+            // Promise
+            graph.dataframe.filter(masks, graph.simulator);
+            cb({success: true});
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, error: 'filter error'});
+                eh.makeRxErrorHandler('filter handler')(err);
             }
         );
     });
