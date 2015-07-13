@@ -330,10 +330,18 @@ function init(app, socket) {
         debug('Got filter', query);
         graph.take(1).do(function (graph) {
             console.log('Attempting to Filter');
+            var simulator = graph.simulator;
             var masks = graph.dataframe.masksFromPoints(query.pointMask);
             // Promise
-            graph.dataframe.filter(masks, graph.simulator);
-            cb({success: true});
+            graph.dataframe.filter(masks, graph.simulator)
+                .then(function () {
+                    simulator.layoutAlgorithms
+                        .map(function (alg) {
+                            return alg.updateDataframeBuffers(simulator);
+                        })
+                }).then(function () {
+                    cb({success: true});
+                });
         }).subscribe(
             _.identity,
             function (err) {
