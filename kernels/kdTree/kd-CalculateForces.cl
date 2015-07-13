@@ -232,7 +232,7 @@ __kernel void calculate_forces(
                         // Edgebundling currently only uses the quadtree in order to test which points are close enough
                         // to compute forces on. It does not compute forces with any of the summarized nodes.
                         if ((child < num_bodies)) {
-                            if (temp > FLT_EPSILON * 10.0f) {
+                            if (true || temp > FLT_EPSILON) {
                             const float2 otherPoint = (float2) (x_cords[child], y_cords[child]) / *radiusd;
                             edgeLengthOtherPoint = edgeLengths[child];
                             // TODO It would be interesting to to having edges of opposite 
@@ -242,12 +242,17 @@ __kernel void calculate_forces(
                             edgeAngleCompat = pown((fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/2, 3);
                             /*edgeAngleCompat = (fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/ 2.0f;*/
                             averageLength = (edgeLength + edgeLengthOtherPoint) / 2.0f;
+                            averageLength = (averageLength > 0.15f) ? averageLength : 0.0f;
                             edgeScaleCompat = 2.0f / ((max(edgeLength, edgeLengthOtherPoint) / averageLength) + (min(edgeLength, edgeLengthOtherPoint) / averageLength));
+                            edgeScaleCompat = (edgeScaleCompat > 0.15f) ? edgeScaleCompat : 0.0f;
                             positCompat = averageLength / (averageLength + fast_length(distVector));
+                            positCompat = (positCompat > 0.15f) ? positCompat : 0.0f;
                             projectionVector = dot(distVector, (float2) (edgeDirX, edgeDirY)) * (float2) (edgeDirX, edgeDirY);
+                            projectionVector = (projectionVector > 0.15f) ? projectionVector : 0.0f;
                             midEdgeLength = edgeLength / midpoints_per_edge;
                             alignmentCompat = 1.0f / (1 + (fast_length(projectionVector)) / (midEdgeLength));
-                            forceVector += pow((edgeLength / *radiusd), 1.0f) *  alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(normalizedPos, otherPoint, charge * alpha) * -1.0f);
+                            alignmentCompat = (alignmentCompat > 0.15f) ? alignmentCompat : 0.0f;
+                            forceVector += /*pow((edgeLength / *radiusd), 1.0f) **/  alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(normalizedPos, otherPoint, charge * alpha) * -1.0f);
                             }
                       // If all threads agree that cell is too far away, move on. 
                         /*} else if (!(warpCellVote(votingBuffer, 100.0f * pow((dist - (edgeLength / 2.0f)), 2.0f), dq[depth], warp_id))) {*/
