@@ -330,8 +330,17 @@ function init(app, socket) {
         debug('Got filter', query);
         graph.take(1).do(function (graph) {
             console.log('Attempting to Filter');
+            console.log('Query: ', query);
             var simulator = graph.simulator;
-            var masks = graph.dataframe.masksFromPoints(query.pointMask);
+            var masks;
+            if (query.type === 'point') {
+                var pointMask = graph.dataframe.getPointAttributeMask(query.attribute, query.start, query.stop);
+                masks = graph.dataframe.masksFromPoints(pointMask);
+            } else {
+                // TODO: Implement edges;
+                cb({success: false});
+                return;
+            }
             // Promise
             graph.dataframe.filter(masks, graph.simulator)
                 .then(function () {
