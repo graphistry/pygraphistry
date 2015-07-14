@@ -358,6 +358,10 @@ function init(app, socket) {
                             return alg.updateDataframeBuffers(simulator);
                         })
                 }).then(function () {
+                    simulator.tickBuffers([
+                        'curPoints', 'pointSizes', 'pointColors',
+                        'edgeColors', 'logicalEdges', 'springsPos'
+                    ]);
                     cb({success: true});
                 });
         }).subscribe(
