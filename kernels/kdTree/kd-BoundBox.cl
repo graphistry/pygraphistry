@@ -124,7 +124,7 @@ __kernel void bound_box(
             } else {
                 *globalSpeed = 0.01f;
             }
-            debug5("Global speed %f traction %f, swing %f num_bodies %d\n", *globalSpeed, traction, swing, num_bodies);
+            /*debug5("Global speed %f traction %f, swing %f num_bodies %d\n", *globalSpeed, traction, swing, num_bodies);*/
 
 
             /*if (step_number == 100) {*/

@@ -24,8 +24,8 @@ __kernel void faSwingsTractions (
 
     debug4("Swing/Traction (%d) %f\t%f\n", n1Idx, swing, traction);
 
-    swings[n1Idx] = ((0.1f * swing) + (0.9f * swings[n1Idx]));
-    tractions[n1Idx] = ((0.1f * traction) + (0.9f * tractions[n1Idx]));
+    swings[n1Idx] = ((0.5f * swing) + (0.5f * swings[n1Idx]));
+    tractions[n1Idx] = ((0.5f * traction) + (0.5f * tractions[n1Idx]));
 
     return;
 }
