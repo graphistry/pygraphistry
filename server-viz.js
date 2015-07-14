@@ -336,11 +336,20 @@ function init(app, socket) {
             if (query.type === 'point') {
                 var pointMask = graph.dataframe.getPointAttributeMask(query.attribute, query.start, query.stop);
                 masks = graph.dataframe.masksFromPoints(pointMask);
+            } else if (query.type === 'edge') {
+                var edgeMask = graph.dataframe.getEdgeAttributeMask(query.attribute, query.start, query.stop);
+                masks = graph.dataframe.masksFromEdges(edgeMask);
             } else {
-                // TODO: Implement edges;
                 cb({success: false});
                 return;
             }
+
+            // TODO: Deal with case of empty selection better:
+            if (masks.point.length === 0 || masks.edge.length === 0) {
+                cb({success: false});
+                return;
+            }
+
             // Promise
             graph.dataframe.filter(masks, graph.simulator)
                 .then(function () {
