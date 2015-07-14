@@ -1,4 +1,3 @@
-#define DEBUG
 #include "common.h"
 #include "forceAtlas2/forceAtlas2Common.h"
 
@@ -47,9 +46,7 @@ __kernel void faIntegrate (
     delta = min(speed, maxSpeed) * curForces[n1Idx];
     /*delta = 0.001f * curForces[n1Idx];*/
 
-    if (n1Idx < 10) {
     debug6("Speed (%d) %f max: %f, min %.9g globalSpeed: %.9g\n", n1Idx, speed, maxSpeed, min(speed, maxSpeed), *globalSpeed);
-    }
 
     outputPositions[n1Idx] = inputPositions[n1Idx] + delta;
     return;
