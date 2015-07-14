@@ -25,5 +25,5 @@ void main(void) {
     vec4 pos = mvp * vec4(curPos.xy, Z_VAL, W_VAL);
     gl_Position = pos;
 
-    vColor = vec4(stroke > 0.0 ? 0.5 * pointColor.xyz : pointColor.xyz, 0.1);
+    vColor = vec4(stroke > 0.0 ? 0.5 * pointColor.xyz : pointColor.xyz, 0.3);
 }

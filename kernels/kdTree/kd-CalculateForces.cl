@@ -104,8 +104,7 @@ __kernel void calculate_forces(
     /*const float alpha = max(0.1f * pown(0.99f, floor(convert_float(step_number) / (float) TILES_PER_ITERATION)), 0.005f);*/
     const float alpha = max(1.0f * pown(0.85f, step_number), 0.004f);
     if (idx == 0) {
-
-        printf("Alpha in forces: %f \n", alpha);
+        debug2("Alpha in forces: %f \n", alpha);
     }
     
 
