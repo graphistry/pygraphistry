@@ -5,6 +5,7 @@ var zlib     = require('zlib');
 var _        = require('underscore');
 var Q        = require('q');
 var bodyParser  = require('body-parser');
+var slack    = require('slack-write');
 
 var config   = require('config')();
 
@@ -17,9 +18,36 @@ var logger      = Log.createLogger('etlworker:etl');
 
 var tmpCache = new Cache(config.LOCAL_CACHE_DIR, config.LOCAL_CACHE);
 
+// String * String -> ()
+function slackNotify(name, params) {
+    function makeUrl(server) {
+        return "<http://proxy-" + server + '.graphistry.com/graph/graph.html?info=true&dataset=' + name +
+                '|' + server + '>';
+    }
+
+    var slackConf = {
+        token: 'xoxb-7736668449-X6kR1n3omF4CoQ6VeNiXhZSc',
+        channel: '#datasets',
+        username: 'etl'
+    };
+
+    var part1 = 'New dataset *' + name + '* by user `' + params.usertag + '`\n';
+    var part2 = '_Agent_: ' + params.agent + ',    ' +
+                '_AgentVersion_: ' + params.agentVersion + ',    ' +
+                '_API_: ' + params.apiVersion + '\n';
+    var part3 = 'View on ' + makeUrl('labs') + ' or ' + makeUrl('staging');
+
+    slack.write(part1 + part2 + part3, slackConf, function(err, result) {
+        if (err || !result.ok) {
+            logger.warn('Error posting on slack', (result||{}).error);
+        }
+    });
+}
+
+
 // Convert JSON edgelist to VGraph then upload VGraph to S3 and local /tmp
 // JSON
-function etl(msg) {
+function etl(msg, params) {
     var name = decodeURIComponent(msg.name);
     logger.debug('ETL for', msg.name);
     //logger.debug('Data', msg.labels);
@@ -36,7 +64,10 @@ function etl(msg) {
     if (vg === undefined) {
         throw new Error('Invalid edgelist');
     }
+
     logger.info('VGraph created with', vg.nvertices, 'nodes and', vg.nedges, 'edges');
+    slackNotify(name, params);
+
     return publish(vg, name);
 }
 
@@ -85,6 +116,7 @@ function s3Upload(binaryBuffer, metadata) {
 function parseQueryParams(req) {
     var res = [];
 
+    res.usertag = req.query.usertag || 'unknown';
     res.agent = req.query.agent || 'unknown';
     res.agentVersion = req.query.agentversion || '0.0.0';
     res.apiVersion = parseInt(req.query.apiversion) || 0;
@@ -93,8 +125,7 @@ function parseQueryParams(req) {
 }
 
 
-function req2data(req) {
-    var params = parseQueryParams(req);
+function req2data(req, params) {
     var encoding = params.apiVersion === 0 ? 'identity'
                                            : req.headers['content-encoding'] || 'identity';
 
@@ -142,9 +173,10 @@ function makeFailHandler(res) {
 
 // Handler for ETL requests on central/etl
 function jsonEtl(k, req, res) {
-    req2data(req).then(function (data) {
+    var params = parseQueryParams(req);
+    req2data(req, params).then(function (data) {
         try {
-            etl(JSON.parse(data))
+            etl(JSON.parse(data), params)
                 .then(function (name) {
                     logger.info('ETL successful, dataset name is', name);
                     res.send({ success: true, dataset: name });
@@ -158,7 +190,7 @@ function jsonEtl(k, req, res) {
 
 
 function vgraphEtl(k, req, res) {
-    req2data(req).then(function (data) {
+    req2data(req, params).then(function (data) {
         try {
             var buffer = new Buffer(data);
             var vg = vgraph.decodeVGraph(buffer);
