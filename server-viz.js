@@ -37,7 +37,7 @@ var lastCompressedVBOs;
 var lastRenderConfig;
 var lastMetadata;
 var finishBufferTransfers;
-var qLastSelection;
+var qLastSelectionIndices;
 
 
 // ----- ANIMATION ------------------------------------
@@ -94,13 +94,18 @@ function vboSizeMB(vbos) {
 }
 
 // Sort and then subset the dataFrame. Used for pageing selection.
-function sliceSelection(dataFrame, start, end, sort_by, ascending) {
-    var sorted;
+function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending) {
     if (sort_by !== undefined) {
-        sorted = dataFrame.slice(0).sort(function (row1, row2) {
-            var a = row1[sort_by];
-            var b = row2[sort_by];
 
+        // TODO: Speed this up / cache sorting. Alternatively, put this into dataframe itself.
+        var sortCol = dataFrame.getColumn(sort_by, type);
+        var taggedSortCol = _.map(indices, function (idx) {
+            return [sortCol[idx], idx];
+        });
+
+        var sortedTags = taggedSortCol.sort(function (val1, val2) {
+            var a = val1[0];
+            var b = val2[0];
             if (typeof a === 'string' && typeof b === 'string')
                 return (ascending ? a.localeCompare(b) : b.localeCompare(a));
             else if (isNaN(a) || a < b)
@@ -111,28 +116,44 @@ function sliceSelection(dataFrame, start, end, sort_by, ascending) {
                 return 0;
         });
 
-    } else {
-        sorted = dataFrame;
-    }
+        var slicedTags = sortedTags.slice(start, end);
+        var slicedIndices = _.map(slicedTags, function (val) {
+            return val[1];
+        });
 
-    return sorted.slice(start, end);
+        return dataFrame.getRows(slicedIndices, type);
+
+    } else {
+        return dataFrame.getRows(indices.slice(start, end), type);
+    }
 }
 
 function read_selection(type, query, res) {
-    qLastSelection.then(function (lastSelection) {
-        if (!lastSelection || !lastSelection[type]) {
-            log.error('Client tried to read non-existent selection');
-            res.send();
-        }
 
-        var page = parseInt(query.page);
-        var per_page = parseInt(query.per_page);
-        var start = (page - 1) * per_page;
-        var end = start + per_page;
-        var data = sliceSelection(lastSelection[type], start, end,
-                                    query.sort_by, query.order === 'asc');
-        res.send(data);
-    }).fail(eh.makeErrorHandler('read_selection qLastSelection'));
+    animStep.graph.then(function (graph) {
+        qLastSelectionIndices.then(function (lastSelectionIndices) {
+            // TODO: Change these on the client side.
+            if (type === 'nodes') type = 'point';
+            if (type === 'edges') type = 'edge';
+
+            if (!lastSelectionIndices || !lastSelectionIndices[type]) {
+                log.error('Client tried to read non-existent selection');
+                res.send();
+            }
+
+            var page = parseInt(query.page);
+            var per_page = parseInt(query.per_page);
+            var start = (page - 1) * per_page;
+            var end = start + per_page;
+            var data = sliceSelection(graph.dataframe, type, lastSelectionIndices[type], start, end,
+                                        query.sort_by, query.order === 'asc');
+            res.send(data);
+        }).fail(eh.makeErrorHandler('read_selection qLastSelectionIndices'));
+
+    }).fail(function (err) {
+        cb({success: false, error: 'Server error when fetching graph for read selection'});
+        eh.makeErrorHandler('reading selection')(err);
+    });
 }
 
 function init(app, socket) {
@@ -291,8 +312,8 @@ function init(app, socket) {
             cb({
                 success: true,
                 header: {
-                    nodes: labeler.frameHeader(graph, 'point'),
-                    edges: labeler.frameHeader(graph, 'edge')
+                    nodes: graph.dataframe.getAttributeKeys('point'),
+                    edges: graph.dataframe.getAttributeKeys('edge')
                 }
             });
         }).subscribe(
@@ -304,6 +325,8 @@ function init(app, socket) {
         );
     });
 
+    //query :: {attributes: ??, binning: ??, mode: ??, type: 'point' + 'edge'}
+    // -> {success: false} + {success: true, data: ??}
     socket.on('aggregate', function (query, cb) {
         debug('Got aggregate', query);
         graph.take(1).do(function (graph) {
@@ -318,11 +341,12 @@ function init(app, socket) {
            qIndices.then(function (indices) {
                 perf('Done selecting indices');
                 try {
-                    var data = labeler.aggregate(graph, indices, query.attributes, query.binning, query.mode);
+                    var data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, query.type);
                     perf('Sending back data');
                     cb({success: true, data: data});
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
+                    eh.makeRxErrorHandler('aggregate inner handler')(err);
                 }
             }).done(_.identity, eh.makeErrorHandler('selectNodes'));
         }).subscribe(
@@ -409,9 +433,9 @@ function stream(socket, renderConfig, colorTexture) {
                         }
                     }
                 });
-                qLastSelection = Q({
-                    nodes: labeler.infoFrame(graph, 'point', nodeIndices),
-                    edges: labeler.infoFrame(graph, 'edge', edgeIndices)
+                qLastSelectionIndices = Q({
+                    'point': nodeIndices,
+                    'edge': edgeIndices
                 });
             }).done(_.identity, eh.makeErrorHandler('selectNodes'));
         }).subscribe(
@@ -491,8 +515,9 @@ function stream(socket, renderConfig, colorTexture) {
             .do(function (graph) {
                 var vbos = lastCompressedVBOs[socket.id];
                 var metadata = lastMetadata[socket.id];
-                persistor.publishStaticContents(name, vbos, metadata, renderConfig).then(function() {
-                    cb({success: true, name: name});
+                var cleanName = encodeURIComponent(name);
+                persistor.publishStaticContents(cleanName, vbos, metadata, graph.dataframe, renderConfig).then(function() {
+                    cb({success: true, name: cleanName});
                 }).done(
                     _.identity,
                     eh.makeErrorHandler('persist_current_vbo')
@@ -504,7 +529,7 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('fork_vgraph', function (name, cb) {
         graph.take(1)
             .do(function (graph) {
-                var vgName = 'Users/' + name;
+                var vgName = 'Users/' + encodeURIComponent(name);
                 vgwriter.save(graph, vgName).then(function () {
                     cb({success: true, name: vgName});
                 }).done(
