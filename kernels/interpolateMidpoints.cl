@@ -8,7 +8,7 @@ __kernel void interpolateMidpoints(
     __global float2* outputMidPoints    // Positions of interpolated midpoints
     )
 {
-    const float HEIGHT = 0.2f;
+    const float HEIGHT = 0.0f;
     const int gid = get_global_id(0);
     const int global_size = get_global_size(0);
     uint2 edge;

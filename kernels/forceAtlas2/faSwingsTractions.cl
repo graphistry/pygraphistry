@@ -19,10 +19,13 @@ __kernel void faSwingsTractions (
     float swing = length(curForce - prevForce);
     float traction = length(curForce + prevForce) / 2.0f;
 
+    traction = isnan(traction) ? 0.0f : traction;
+    swing = isnan(swing) ? 0.0f : swing;
+
     debug4("Swing/Traction (%d) %f\t%f\n", n1Idx, swing, traction);
 
-    swings[n1Idx] = swing;
-    tractions[n1Idx] = traction;
+    swings[n1Idx] = ((0.5f * swing) + (0.5f * swings[n1Idx]));
+    tractions[n1Idx] = ((0.5f * traction) + (0.5f * tractions[n1Idx]));
 
     return;
 }
