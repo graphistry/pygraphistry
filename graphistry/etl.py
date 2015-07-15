@@ -218,7 +218,7 @@ class Graphistry (object):
 
     def etl(self, json_dataset):
         headers = {'Content-Encoding': 'gzip', 'Content-Type': 'application/json'}
-        params = {'agent': 'pygraphistry', 'apiversion' : '1',
+        params = {'usertag': self.tag, 'agent': 'pygraphistry', 'apiversion' : '1',
                   'agentversion': sys.modules['graphistry'].__version__}
 
         out_file = StringIO.StringIO()
