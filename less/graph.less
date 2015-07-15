@@ -39,6 +39,7 @@
 @tooltip-z:                  1000001;
 @forker-z:                   1001000;
 @persistor-z:                1001000;
+@colorpicker-z:              1002000;
 
 //////////////////////////////////////////////////////////////////////////////
 // Labels
@@ -462,6 +463,10 @@ html.nomenu #menus, html.nomenu #sliders {
     .noselect();
 }
 
+.colorpicker {
+    z-index: @colorpicker-z;
+}
+
 .options-group {
 
     box-shadow: @floating-box-shadow;
@@ -544,6 +549,9 @@ button.btn-default {
 }
 
 #renderingItems {
+
+    max-height: 23.2em;
+    overflow: auto;
 
     label {
         color: black;
