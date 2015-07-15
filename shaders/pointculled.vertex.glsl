@@ -14,6 +14,7 @@ uniform float fog;
 uniform float stroke;
 uniform float zoomScalingFactor;
 uniform float maxPointSize;
+uniform float pointOpacity;
 
 void main(void) {
     if (stroke > 0.0) {
@@ -25,5 +26,5 @@ void main(void) {
     vec4 pos = mvp * vec4(curPos.xy, Z_VAL, W_VAL);
     gl_Position = pos;
 
-    vColor = vec4(stroke > 0.0 ? 0.5 * pointColor.xyz : pointColor.xyz, 0.8);
+    vColor = vec4(stroke > 0.0 ? 0.5 * pointColor.xyz : pointColor.xyz, pointOpacity);
 }
