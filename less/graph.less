@@ -27,6 +27,8 @@
 @graph-label-clicked-z:         6500;
 @graph-label-hover-z:           7000;
 @legend-z:                      8000;
+@menu-z:                        9000;
+@menus-z:                       9500;
 @histogram-z:                  10000;
 @inspector-z:                  10000;
 @inspector-tabs-z:             10001;
@@ -34,11 +36,10 @@
 @histogram-btn-z:              10002;
 @histogram-name-z:             10002;
 @status-bar-z:                 99999;
-@menu-z:                      100001;
-@menus-z:                    1000000;
 @tooltip-z:                  1000001;
 @forker-z:                   1001000;
 @persistor-z:                1001000;
+@colorpicker-z:              1002000;
 
 //////////////////////////////////////////////////////////////////////////////
 // Labels
@@ -46,6 +47,7 @@
 
 
 .graph-label-container {
+    display: none;
     position: absolute;
     top: 0;
     left: 0;
@@ -94,7 +96,7 @@
             border-width: 3px;
 
             .graph-label-title .fa-thumb-tack {
-                display: inline-block;
+                display: none;
                 color: rgba(31, 31, 51, 1.0);
             }
         }
@@ -462,6 +464,10 @@ html.nomenu #menus, html.nomenu #sliders {
     .noselect();
 }
 
+.colorpicker {
+    z-index: @colorpicker-z;
+}
+
 .options-group {
 
     box-shadow: @floating-box-shadow;
@@ -545,6 +551,9 @@ button.btn-default {
 
 #renderingItems {
 
+    max-height: 23.2em;
+    overflow: auto;
+
     label {
         color: black;
     }
@@ -606,10 +615,6 @@ button.btn-default {
 // Hidden by Debug
 //////////////////////////////////////////////////////////////////////////////
 
-#menuState {
-    display: none !important;
-}
-
 .debug {
     #timeSlider {
         display: inline-block;
@@ -619,13 +624,25 @@ button.btn-default {
         display: inline-block;
     }
 
+
+    #persistButton {
+        display: block !important;
+    }
+}
+
+#menuState {
+    display: none !important;
 }
 
 #timeSlider {
     display: none;
 }
 
-#mouser, {
+#mouser {
+    display: none !important;
+}
+
+#persistButton {
     display: none !important;
 }
 

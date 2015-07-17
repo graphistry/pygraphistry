@@ -130,7 +130,10 @@ __kernel void gaussSeidelMidsprings(
   float2 start = inputPoints[sourceIdx];
   // TODO use a decreasing alpha
 	/*const float alpha = max(0.1f * pown(0.99f, floor(convert_float(stepNumber) / (float) TILES_PER_ITERATION)), 0.005f);*/
-  const float alpha = 1.0f;
+    const float alpha = max(0.1f * pown(0.85f, stepNumber), 0.01f);
+    if (workItem == 0) {
+        debug2("Alpha in edge bundling: %f \n", alpha);
+    }
 
   for (uint curSpringIdx = springsStart; curSpringIdx < springsStart + springsCount; curSpringIdx++) {
     const uint dstIdx = springs[curSpringIdx].y;

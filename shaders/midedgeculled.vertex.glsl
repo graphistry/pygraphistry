@@ -12,14 +12,16 @@ attribute vec2 curPos;
 attribute vec4 edgeColor;
 varying vec4 eColor;
 
+uniform float edgeOpacity;
+
 void main(void) {
     vec4 pos = mvp * vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);
     float furthestComponent = max(abs(pos.x), abs(pos.y));
     float remapped = M * furthestComponent + B;
 
-    float alpha = clamp(remapped, 0.0, 0.1);
+    float alpha = clamp(remapped, 0.0, 1.0);
     pos.z = 1.0 - alpha;
 
-    eColor = vec4(edgeColor.xyz, alpha);
+    eColor = vec4(edgeColor.xyz, edgeOpacity * alpha);
     gl_Position = pos;
 }
