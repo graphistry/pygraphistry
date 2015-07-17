@@ -128,7 +128,7 @@ function read_selection(type, query, res) {
         var data = sliceSelection(lastSelection[type], start, end,
                                     query.sort_by, query.order === 'asc');
         res.send(data);
-    }).fail(Log.makeQErrorHandler(logger, logger, 'read_selection qLastSelection'));
+    }).fail(Log.makeQErrorHandler(logger, 'read_selection qLastSelection'));
 }
 
 function init(app, socket) {
@@ -530,7 +530,7 @@ function stream(socket, renderConfig, colorTexture) {
         clientReady.onNext(true);
     });
 
-    clientReady.subscribe(logger.debug.bind('CLIENT STATUS'), Log.makeRxErrorHandler(logger, 'clientReady'));
+    clientReady.subscribe(logger.debug.bind(logger, 'CLIENT STATUS'), Log.makeRxErrorHandler(logger, 'clientReady'));
 
     logger.trace('SETTING UP CLIENT EVENT LOOP ===================================================================');
     var step = 0;
