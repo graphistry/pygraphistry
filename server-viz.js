@@ -456,10 +456,10 @@ function stream(socket, renderConfig, colorTexture) {
             .do(function (graph) {
                 // If edge, convert from sorted to unsorted index
                 if (dim === 2) {
-                    var permutation = graph.simulator.bufferHostCopies.forwardsEdges.edgePermutationInverseTyped;
-                    var newIndices = _.map(indices, function (idx) {
-                        return permutation[idx];
-                    });
+                    var permutation = graph.simulator.bufferHostCopies.forwardsEdges.edgePermutationInverseTyped,
+                        newIndices = _.map(indices, function (idx) {
+                            return permutation[idx];
+                        });
                     indices = newIndices;
                 }
             })
