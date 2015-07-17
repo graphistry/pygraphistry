@@ -143,7 +143,7 @@ function read_selection(type, query, res) {
             var data = sliceSelection(graph.dataframe, type, lastSelectionIndices[type], start, end,
                                         query.sort_by, query.order === 'asc');
             res.send(data);
-        }).fail(eh.makeErrorHandler('read_selection qLastSelectionIndices'));
+        }).fail(log.makeQErrorHandler(logger, 'read_selection qLastSelectionIndices'));
 
     }).fail(function (err) {
         cb({success: false, error: 'Server error when fetching graph for read selection'});
@@ -342,7 +342,7 @@ function init(app, socket) {
                     cb({success: true, data: data});
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
-                    eh.makeRxErrorHandler('aggregate inner handler')(err);
+                    log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
                 }
             }).done(_.identity, log.makeQErrorHandler(logger, 'selectNodes'));
         }).subscribe(
