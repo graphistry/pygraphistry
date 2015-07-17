@@ -651,10 +651,7 @@ function stream(socket, renderConfig, colorTexture) {
                         });
                         //var observableCallback = Rx.Observable.fromNodeCallback(emitter);
                         //return oberservableCallback;
-                        var resultStream =  Rx.Observable.fromCallback(socket.emit.bind(socket))('vbo_update', metadata);
-                        resultStream.subscribe(function () {
-                            console.log('sucess')}, eh.makeRxErrorHandler('result stream'));
-                        return resultStream;
+                        return Rx.Observable.fromCallback(socket.emit.bind(socket))('vbo_update', metadata);
                         //return emitFnWrapper('vbo_update', metadata);
 
                     }).do(
