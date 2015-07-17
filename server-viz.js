@@ -487,7 +487,7 @@ function stream(socket, renderConfig, colorTexture) {
         graph.take(1)
             .do(function (graph) {
                 graph.simulator.setColor(color);
-                animStep.interact({play: true, layout: true});
+                animStep.interact({play: true, layout: false});
             })
             .subscribe(_.identity, eh.makeRxErrorHandler('set_colors'));
     });
