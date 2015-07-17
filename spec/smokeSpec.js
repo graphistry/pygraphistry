@@ -21,8 +21,8 @@ var XMLHttpRequest = require('xhr2');
 var io           = require('socket.io')(http, {transports: ['websocket']});
 var zlib         = require('zlib');
 
-var Log         = require('common/logger.js');
-var logger      = Log.createLogger('graph-viz:smokespec');
+var log         = require('common/logger.js');
+var logger      = log.createLogger('graph-viz:smokespec');
 
 // Because node swallows a lot of exceptions, uncomment this if tests are
 // crashing without any details.

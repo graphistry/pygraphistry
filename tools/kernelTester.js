@@ -6,8 +6,8 @@ var _           = require('underscore');
 var simCl       = require('../js/SimCL.js');
 var RenderNull  = require('../js/RenderNull.js');
 var Q           = require('q');
-var Log         = require('common/logger.js');
-var logger      = Log.createLogger('graph-viz:tools:kerneltester');
+var log         = require('common/logger.js');
+var logger      = log.createLogger('graph-viz:tools:kerneltester');
 
 // Things to do:
 // Read back from buffer.
@@ -75,9 +75,9 @@ KernelTester.prototype.exec = function () {
                     logger.info('Finished executing ' + that.name + ' in ' +
                         diff[0] + ' seconds and ' + diff[1] + ' nano seconds.');
                     // TODO: Read back and print buffers out.
-                }).fail(Log.makeQErrorHandler(logger, "Error on Execution"));
+                }).fail(log.makeQErrorHandler(logger, "Error on Execution"));
 
-        }).fail(Log.makeQErrorHandler(logger, "Error on Spread"));
+        }).fail(log.makeQErrorHandler(logger, "Error on Spread"));
 };
 
 KernelTester.prototype.setNumWorkGroups = function (num) {
@@ -192,7 +192,7 @@ function mainTestFunction (clContext) {
     //         return tester2.exec();
     //     }).then(function () {
     //         return tester3.exec();
-    //     }).fail(Log.makeQErrorHandler(logger, "Error on Spread"));
+    //     }).fail(log.makeQErrorHandler(logger, "Error on Spread"));
 
     tester.exec()
 
