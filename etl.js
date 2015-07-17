@@ -21,12 +21,13 @@ var tmpCache = new Cache(config.LOCAL_CACHE_DIR, config.LOCAL_CACHE);
 // String * String -> ()
 function slackNotify(name, params) {
     function makeUrl(server) {
-        return "<http://proxy-" + server + '.graphistry.com/graph/graph.html?info=true&dataset=' + name +
-                '|' + server + '>';
+        return '<http://proxy-' + server + '.graphistry.com' +
+               '/graph/graph.html?info=true&dataset=' + name +
+               '|' + server + '>';
     }
 
     var slackConf = {
-        token: 'xoxb-7736668449-X6kR1n3omF4CoQ6VeNiXhZSc',
+        token: config.SLACK_BOT_ETL_TOKEN,
         channel: '#datasets',
         username: 'etl'
     };
@@ -37,11 +38,14 @@ function slackNotify(name, params) {
                 '_API_: ' + params.apiVersion + '\n';
     var part3 = 'View on ' + makeUrl('labs') + ' or ' + makeUrl('staging');
 
-    slack.write(part1 + part2 + part3, slackConf, function(err, result) {
-        if (err || !result.ok) {
-            logger.warn('Error posting on slack', (result||{}).error);
-        }
-    });
+    if (slackConf.token == undefined) {
+        return Q();
+    } else {
+        return Q.denodeify(slack.write)(part1 + part2 + part3, slackConf)
+            .fail(function (err) {
+                logger.error('Error posting on slack', err);
+            });
+    }
 }
 
 
@@ -50,7 +54,6 @@ function slackNotify(name, params) {
 function etl(msg, params) {
     var name = decodeURIComponent(msg.name);
     logger.debug('ETL for', msg.name);
-    //logger.debug('Data', msg.labels);
 
     var vg = vgraph.fromEdgeList(
         msg.graph,
@@ -66,9 +69,10 @@ function etl(msg, params) {
     }
 
     logger.info('VGraph created with', vg.nvertices, 'nodes and', vg.nedges, 'edges');
-    slackNotify(name, params);
-
-    return publish(vg, name);
+    return Q.all([
+        publish(vg, name),
+        slackNotify(name, params)
+    ]).spread(_.identity);
 }
 
 
