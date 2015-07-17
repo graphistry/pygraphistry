@@ -32,7 +32,8 @@ function slackNotify(name, params) {
         username: 'etl'
     };
 
-    var part1 = 'New dataset *' + name + '* by user `' + params.usertag + '`\n';
+    var user = params.usertag.split('-')[0];
+    var part1 = 'New dataset *' + name + '* by user `' + user + '`\n';
     var part2 = '_Agent_: ' + params.agent + ',    ' +
                 '_AgentVersion_: ' + params.agentVersion + ',    ' +
                 '_API_: ' + params.apiVersion + '\n';
