@@ -252,10 +252,10 @@ class Graphistry (object):
                               pointlabel, pointcolor, pointsize)
 
         result = self.etl(json.dumps(dataset))
+        print "Url: ", result['url']
 
         if in_ipython() is True:
             from IPython.core.display import HTML
-            print "Url: ", result['url']
             return HTML(result['iframe'])
         else:
             import webbrowser
