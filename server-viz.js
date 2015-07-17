@@ -21,7 +21,7 @@ var config      = require('config')();
 
 var log         = require('common/logger.js');
 var logger      = log.createLogger('graph-viz:driver:viz-server');
-var profiling   = log.createLogger('profiling');
+var perf        = require('common/perfStats.js').createPerfMonitor();
 
 /**** GLOBALS ****************************************************/
 
@@ -179,7 +179,8 @@ function init(app, socket) {
 
     app.get('/vbo', function(req, res) {
         logger.info('VBOs: HTTP GET %s', req.originalUrl);
-        profiling.debug('VBO request');
+        // perfmonitor here?
+        // profiling.debug('VBO request');
 
         try {
             // TODO: check that query parameters are present, and that given id, buffer exist
@@ -380,7 +381,8 @@ function stream(socket, renderConfig, colorTexture) {
 
 
     socket.on('interaction', function (payload) {
-        profiling.trace('Got Interaction');
+        //perfmonitor here?
+        // profiling.trace('Got Interaction');
         logger.trace('Got interaction:', payload);
         // TODO: Find a way to avoid flooding main thread waiting for GPU ticks.
         var defaults = {play: false, layout: false};
@@ -525,7 +527,7 @@ function stream(socket, renderConfig, colorTexture) {
     var clientReady = new Rx.ReplaySubject(1);
     clientReady.onNext(true);
     socket.on('received_buffers', function (time) {
-        profiling.trace('Received buffers');
+        perf.gauge('graph-viz:driver:viz-server, client end-to-end time', time);
         logger.trace('Client end-to-end time', time);
         clientReady.onNext(true);
     });
@@ -614,7 +616,8 @@ function stream(socket, renderConfig, colorTexture) {
                         lastVersions = vbos.versions;
 
                         logger.trace('4b. notifying client of buffer metadata', metadata, ticker);
-                        profiling.trace('===Sending VBO Update===');
+                        //perfmonitor here?
+                        // profiling.trace('===Sending VBO Update===');
                         return emitFnWrapper('vbo_update', metadata);
 
                     }).do(
