@@ -55,7 +55,7 @@ var defaultSnapshotName = 'snapshot';
 //Do more innocuous initialization inline (famous last words..)
 
 function resetState(dataset) {
-    logger.trace('RESETTING APP STATE');
+    logger.info('RESETTING APP STATE');
 
     //FIXME explicitly destroy last graph if it exists?
 
@@ -132,7 +132,7 @@ function read_selection(type, query, res) {
 }
 
 function init(app, socket) {
-    logger.debug('Client connected', socket.id);
+    logger.info('Client connected', socket.id);
     var query = socket.handshake.query;
 
     if (query.usertag !== 'undefined' && query.usertag !== '') {
@@ -178,7 +178,7 @@ function init(app, socket) {
 
 
     app.get('/vbo', function(req, res) {
-        logger.debug('VBOs: HTTP GET %s', req.originalUrl);
+        logger.info('VBOs: HTTP GET %s', req.originalUrl);
         profiling.debug('VBO request');
 
         try {
@@ -240,8 +240,8 @@ function init(app, socket) {
     }).fail(log.makeQErrorHandler(logger, 'resetting state'));
 
     socket.on('render_config', function(_, cb) {
-        logger.trace('get render config');
         qRenderConfig.then(function (renderConfig) {
+            logger.info('renderConfig', renderConfig);
             logger.trace('Sending render-config to client');
             cb({success: true, renderConfig: renderConfig});
 
@@ -257,7 +257,7 @@ function init(app, socket) {
     });
 
     socket.on('layout_controls', function(_, cb) {
-        logger.trace('Sending layout controls to client');
+        logger.info('Sending layout controls to client');
         animStep.graph.then(function (graph) {
             var controls = graph.simulator.controls;
             cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
@@ -274,7 +274,7 @@ function init(app, socket) {
     });
 
     socket.on('reset_graph', function (_, cb) {
-        logger.trace('reset_graph command');
+        logger.info('reset_graph command');
         qDataset.then(function (dataset) {
             resetState(dataset);
             cb();
@@ -282,7 +282,7 @@ function init(app, socket) {
     });
 
     socket.on('inspect_header', function (nothing, cb) {
-        logger.trace('inspect header');
+        logger.info('inspect header');
         graph.take(1).do(function (graph) {
             cb({
                 success: true,
@@ -301,7 +301,7 @@ function init(app, socket) {
     });
 
     socket.on('aggregate', function (query, cb) {
-        logger.trace('Got aggregate', query);
+        logger.info('Got aggregate', query);
         graph.take(1).do(function (graph) {
             logger.trace('Selecting Indices');
             var qIndices
@@ -339,7 +339,7 @@ function stream(socket, renderConfig, colorTexture) {
 
     lastCompressedVBOs[socket.id] = {};
     socket.on('disconnect', function () {
-        logger.trace('disconnecting', socket.id);
+        logger.info('disconnecting', socket.id);
         delete lastCompressedVBOs[socket.id];
     });
 
@@ -370,7 +370,7 @@ function stream(socket, renderConfig, colorTexture) {
 
     //Knowing this helps overlap communication and computations
     socket.on('planned_binary_requests', function (request) {
-        logger.trace('CLIENT SETTING PLANNED REQUESTS', request.buffers, request.textures);
+        logger.debug('CLIENT SETTING PLANNED REQUESTS', request.buffers, request.textures);
         requestedBuffers = request.buffers;
         requestedTextures = request.textures;
     });
@@ -698,7 +698,7 @@ if (require.main === module) {
         socket.on('viz', function (msg, cb) { cb({success: true}); });
     });
 
-    logger.debug('Binding', config.HTTP_LISTEN_ADDRESS, config.HTTP_LISTEN_PORT);
+    logger.info('Binding', config.HTTP_LISTEN_ADDRESS, config.HTTP_LISTEN_PORT);
     var listen = Rx.Observable.fromNodeCallback(
             http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
 
@@ -707,7 +707,7 @@ if (require.main === module) {
         //proxy worker requests
         var from = '/worker/' + config.HTTP_LISTEN_PORT + '/';
         var to = 'http://localhost:' + config.HTTP_LISTEN_PORT;
-        logger.debug('setting up proxy', from, '->', to);
+        logger.info('setting up proxy', from, '->', to);
         app.use(from, proxy(to, {
             forwardPath: function(req, res) {
                 return url.parse(req.url).path.replace(RegExp('worker/' + config.HTTP_LISTEN_PORT + '/'),'/');
