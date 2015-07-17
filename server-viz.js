@@ -325,6 +325,8 @@ function init(app, socket) {
         );
     });
 
+    //query :: {attributes: ??, binning: ??, mode: ??, type: 'point' + 'edge'}
+    // -> {success: false} + {success: true, data: ??}
     socket.on('aggregate', function (query, cb) {
         debug('Got aggregate', query);
         graph.take(1).do(function (graph) {
@@ -339,11 +341,12 @@ function init(app, socket) {
            qIndices.then(function (indices) {
                 perf('Done selecting indices');
                 try {
-                    var data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, 'point');
+                    var data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, query.type);
                     perf('Sending back data');
                     cb({success: true, data: data});
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
+                    eh.makeRxErrorHandler('aggregate inner handler')(err);
                 }
             }).done(_.identity, eh.makeErrorHandler('selectNodes'));
         }).subscribe(
@@ -607,6 +610,7 @@ function stream(socket, renderConfig, colorTexture) {
                 finishBufferTransfers[socket.id] = function (bufferName) {
                     debug('5a ?. sending a buffer', bufferName, socket.id, ticker);
                     transferredBuffers.push(bufferName);
+                    //console.log("Length", transferredBuffers.length, requestedBuffers.length);
                     if (transferredBuffers.length === requestedBuffers.length) {
                         debug('5b. started sending all', socket.id, ticker);
                         debug('Socket', '...client ping ' + clientElapsed + 'ms');
@@ -641,7 +645,17 @@ function stream(socket, renderConfig, colorTexture) {
 
                         debug('4b. notifying client of buffer metadata', metadata, ticker);
                         profiling('===Sending VBO Update===');
-                        return emitFnWrapper('vbo_update', metadata);
+
+                        var emitter = socket.emit('vbo_update', metadata, function (time) {
+                            return time;
+                        });
+                        //var observableCallback = Rx.Observable.fromNodeCallback(emitter);
+                        //return oberservableCallback;
+                        var resultStream =  Rx.Observable.fromCallback(socket.emit.bind(socket))('vbo_update', metadata);
+                        resultStream.subscribe(function () {
+                            console.log('sucess')}, eh.makeRxErrorHandler('result stream'));
+                        return resultStream;
+                        //return emitFnWrapper('vbo_update', metadata);
 
                     }).do(
                         function (clientElapsedMsg) {

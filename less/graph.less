@@ -39,6 +39,7 @@
 @tooltip-z:                  1000001;
 @forker-z:                   1001000;
 @persistor-z:                1001000;
+@colorpicker-z:              1002000;
 
 //////////////////////////////////////////////////////////////////////////////
 // Labels
@@ -46,6 +47,7 @@
 
 
 .graph-label-container {
+    display: none;
     position: absolute;
     top: 0;
     left: 0;
@@ -94,7 +96,7 @@
             border-width: 3px;
 
             .graph-label-title .fa-thumb-tack {
-                display: inline-block;
+                display: none;
                 color: rgba(31, 31, 51, 1.0);
             }
         }
@@ -462,6 +464,10 @@ html.nomenu #menus, html.nomenu #sliders {
     .noselect();
 }
 
+.colorpicker {
+    z-index: @colorpicker-z;
+}
+
 .options-group {
 
     box-shadow: @floating-box-shadow;
@@ -544,6 +550,9 @@ button.btn-default {
 }
 
 #renderingItems {
+
+    max-height: 23.2em;
+    overflow: auto;
 
     label {
         color: black;
