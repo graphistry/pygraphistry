@@ -98,7 +98,8 @@ import requests
 import pandas
 
 
-def settings(server='labs', height=500, url_params=None):
+def settings(server='labs', height=500, url_params=None, key=None):
+
     """ Configure plot settings
 
     Keywords arguments:
@@ -115,7 +116,7 @@ def settings(server='labs', height=500, url_params=None):
     else:
         hostname = server
 
-    return Graphistry(height, hostname, url_params)
+    return Graphistry(hostname, height, url_params, key)
 
 
 def plot(edges, nodes=None, graph_name=None, source=None, destination=None, node=None,
@@ -175,18 +176,22 @@ class Graphistry (object):
     dataset_prefix = "PyGraphistry/"
 
 
-    def __init__(self, height, hostname, url_params):
+    def __init__(self, hostname, height, url_params, key):
+
         self.height = height
         self.hostname = hostname
         self.url_params = url_params
+        self.key = key
 
 
-    def settings(self, height=None, hostname=None, url_params=None):
-        ht = self.height if height == None else height
+    def settings(self, hostname=None, height=None, url_params=None, key=None):
+
         hn = self.hostname if hostname == None else hostname
+        ht = self.height if height == None else height
         up = self.url_params if url_params == None else url_params
+        ky = self.key if key == None else key
 
-        return settings(hn, ht, up)
+        return settings(hn, ht, up, ky)
 
 
     def etl_url(self):
@@ -220,6 +225,8 @@ class Graphistry (object):
         headers = {'Content-Encoding': 'gzip', 'Content-Type': 'application/json'}
         params = {'usertag': self.tag, 'agent': 'pygraphistry', 'apiversion' : '1',
                   'agentversion': sys.modules['graphistry'].__version__}
+        if self.key:
+            params['key'] = self.key
 
         out_file = StringIO.StringIO()
         with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
