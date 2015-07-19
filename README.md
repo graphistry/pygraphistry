@@ -39,6 +39,8 @@ The graphistry package can plot graphs directly from Pandas dataframes. We do sp
 ```python
 import graphistry
 
+graphistry = graphistry.settings(key='YOUR_API_KEY_HERE')
+
 graphistry.plot(links, source="source", destination="target")
 ```
 
