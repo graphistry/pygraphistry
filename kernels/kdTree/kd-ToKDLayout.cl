@@ -39,6 +39,8 @@ __kernel void to_kd_layout(
         index = (i * midpoints_per_edge) + midpoint_stride;
         x_cords[i] = inputMidPositions[index].x;
         y_cords[i] = inputMidPositions[index].y;
+        /*x_cords[i] = inputMidPositions[index].x * 1000.0f;*/
+        /*y_cords[i] = inputMidPositions[index].y * 1000.0f;*/
         mass[i] = 1.0f;
         src = springs[i].x;
         target = springs[i].y;
