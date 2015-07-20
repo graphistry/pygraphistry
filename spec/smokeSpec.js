@@ -36,7 +36,7 @@ function distance(x, y) {
     return Math.sqrt(Math.pow(x[0] - y[0], 2) + Math.pow(x[1] - y[1], 2))
 }
 
-describe ("[SMOKE] Server-viz", function () { //describe is not defined?
+xdescribe ("[SMOKE] Server-viz", function () { //describe is not defined?
     var animatePayload = {play: true, layout: true};
     var buffernames;
     var clients = {};
@@ -138,6 +138,7 @@ describe ("[SMOKE] Server-viz", function () { //describe is not defined?
 
     it ("should have returned initial vbos of correct size for 8 points", function () {
         // Float, count=2, stride=8, DEVICE
+        console.log("last vbos", lastVbos);
         var curPoints = new Float32Array(lastVbos.curPoints.buffer);
         expect(curPoints.length).toBe(16);
 
