@@ -32,9 +32,9 @@ var argv = require('yargs')
 var roots = ['central', 'viz-server'];
 
 var errorHandler = function (err) {
-    if(err['friendly_headline']) {
+    if (err.friendly_headline) {
         console.error(util.format('\n****** Error\n%s', err.friendly_headline));
-        if(err['friendly_explanation']) {
+        if (err.friendly_explanation) {
             console.error(util.format('\n%s', err.friendly_explanation));
         }
     } else {
@@ -50,7 +50,7 @@ function cloneAll(stack, done) {
     var covered = (done || []).concat(stack);
 
     return Q
-        .all(_.map(stack, function(repo) { return tooling.clone(repo); }))
+        .all(_.map(stack, function (repo) { return tooling.clone(repo); }))
         .then(function getClonedDeps(repos) {
             return _.chain(repos)
                 .map(function (clonedRepo) { return tooling.getPkgInfo(roots, clonedRepo); })
@@ -62,10 +62,10 @@ function cloneAll(stack, done) {
                 .difference(done)
                 .value();
         })
+        // .fail(errorHandler);
         .then(function cloneRecurse(todo) {
             return cloneAll(todo, covered);
         });
-        // .fail(errorHandler);
 }
 
 // Link all repositories following the topological order given
@@ -74,9 +74,9 @@ function linkAll(repos, installExternalGlobally) {
     // If `-c` was also given, then we've already printed `cloneAll()` messages, so write a `\n`
     if (argv.c) { console.log(''); }
 
-    var allExternals= [];
+    var allExternals = [];
     var depTree = tooling.buildDepTree(roots, 'ROOT', allExternals);
-    debug('Dependencies tree', JSON.stringify(depTree, null, 2))
+    debug('Dependencies tree', JSON.stringify(depTree, null, 2));
 
     var sort = tooling.topoSort(depTree);
     debug('Sort', sort);
@@ -96,12 +96,12 @@ function linkAll(repos, installExternalGlobally) {
             return prev.then(function () {
                 return tooling.link(module, installExternalGlobally);
             });
-        }, Q())//.fail(errorHandler);
+        }, Q()); // .fail(errorHandler);
     });
 }
 
 if (argv.v) {
-    var allExternals= [];
+    var allExternals = [];
     var depTree = tooling.buildDepTree(roots, 'ROOT', allExternals);
     tooling.distinctExternals(allExternals, true);
     return;
@@ -110,14 +110,14 @@ if (argv.v) {
 Q().then(function () {
         if (argv.c) {
             return tooling.startSshControlMaster()
-                .then(function() {
+                .then(function () {
                     return cloneAll(roots);
                 });
         }
     })
     .done(
         function () {
-            if (argv.l) { return linkAll(roots, argv.s) }
+            if (argv.l) { return linkAll(roots, argv.s); }
         },
         errorHandler
     );
