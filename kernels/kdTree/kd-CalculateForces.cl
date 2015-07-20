@@ -280,7 +280,8 @@ __kernel void calculate_forces(
                 }
                 depth--; // Finished this level
             }
-            pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector;
+            /*pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector;*/
+            pointForces[(index * midpoints_per_edge) + midpoint_stride] = (float2) (1.0f, 1.0f);
             /*pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector + (pow((edgeLength / (*radiusd / 4)), 1.5f) * -500.0f * normalize((float2) (edgeDirY, -edgeDirX)));*/
             debug6("Force in calculate midpoints x (%u) %.9g, y %.9g Result x %.9g y %.9g\n", (index * midpoints_per_edge) + midpoint_stride, forceVector.x, forceVector.y, result.x, result.y);
 
