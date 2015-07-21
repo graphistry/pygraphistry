@@ -329,19 +329,39 @@ function init(app, socket) {
     socket.on('filter', function (query, cb) {
         debug('Got filter', query);
         graph.take(1).do(function (graph) {
-            console.log('Attempting to Filter');
-            console.log('Query: ', query);
+
             var simulator = graph.simulator;
+            var maskList = [];
+
+            _.each(query, function (data, attribute) {
+                var masks;
+                if (data.type === 'point') {
+                    var pointMask = graph.dataframe.getPointAttributeMask(attribute, data.start, data.stop);
+                    masks = graph.dataframe.masksFromPoints(pointMask);
+                } else if (data.type === 'edge') {
+                    var edgeMask = graph.dataframe.getEdgeAttributeMask(attribute, data.start, data.stop);
+                    masks = graph.dataframe.masksFromEdges(edgeMask);
+                } else {
+                    cb({success: false});
+                    return;
+                }
+                maskList.push(masks);
+            });
+
+
+            console.log('MaskList Length: ', maskList.length);
             var masks;
-            if (query.type === 'point') {
-                var pointMask = graph.dataframe.getPointAttributeMask(query.attribute, query.start, query.stop);
-                masks = graph.dataframe.masksFromPoints(pointMask);
-            } else if (query.type === 'edge') {
-                var edgeMask = graph.dataframe.getEdgeAttributeMask(query.attribute, query.start, query.stop);
-                masks = graph.dataframe.masksFromEdges(edgeMask);
+            if (maskList.length > 0) {
+                // TODO: Compose Correctly;
+                masks = maskList[0];
             } else {
-                cb({success: false});
-                return;
+                // TODO: Don't get these directly -- add function to get these values
+                var edgeMask = _.range(graph.dataframe.rawdata.numElements.edge);
+                var pointMask = _.range(graph.dataframe.rawdata.numElements.point);
+                masks = {
+                    edge: edgeMask,
+                    point: pointMask
+                };
             }
 
             // TODO: Deal with case of empty selection better:
@@ -377,7 +397,7 @@ function init(app, socket) {
         debug('Got aggregate', query);
         graph.take(1).do(function (graph) {
             perf('Selecting Indices');
-            var qIndices
+            var qIndices;
             if (query.all === true) {
                 var numPoints = graph.simulator.dataframe.getNumElements('point');
                 qIndices = Q(_.range(numPoints));
@@ -388,7 +408,7 @@ function init(app, socket) {
            qIndices.then(function (indices) {
                 perf('Done selecting indices');
                 try {
-                    var data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, 'point');
+                    var data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, query.type);
                     perf('Sending back data');
                     cb({success: true, data: data});
                 } catch (err) {
