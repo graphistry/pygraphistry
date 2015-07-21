@@ -106,7 +106,7 @@ __kernel void calculate_forces(
     if (idx == 0) {
         debug2("Alpha in forces: %f \n", alpha);
     }
-    
+
 
     /*const float alpha = (float) TILES_PER_ITERATION;*/
     int k, index, i;
@@ -193,6 +193,9 @@ __kernel void calculate_forces(
         // Iterate through bodies this thread is responsible for.
         for (k = idx; k < num_bodies; k+=global_size) {
             index = sort[k];
+            if ((index < 0) || (index > num_bodies)) {
+                continue;
+            }
             px = x_cords[index];
             py = y_cords[index];
             float2 normalizedPos = (float2) (px, py) / *radiusd;
@@ -240,7 +243,7 @@ __kernel void calculate_forces(
                             if (true || dist > FLT_EPSILON * 100.0f) {
                             const float2 otherPoint = (float2) (x_cords[child], y_cords[child]) / *radiusd;
                             edgeLengthOtherPoint = edgeLengths[child];
-                            // TODO It would be interesting to to having edges of opposite 
+                            // TODO It would be interesting to to having edges of opposite
                             // direction repel instead of attract each other.
                             // TODO optimized registers.
 
@@ -260,7 +263,7 @@ __kernel void calculate_forces(
                             alignmentCompat = (alignmentCompat > 0.15f) ? alignmentCompat : 0.0f;
                             forceVector += /*pow((edgeLength / *radiusd), 1.0f) **/ edgeLength * alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(normalizedPos, otherPoint, charge * alpha) * -1.0f);
                             }
-                      // If all threads agree that cell is too far away, move on. 
+                      // If all threads agree that cell is too far away, move on.
                         /*} else if (!(warpCellVote(votingBuffer, 100.0f * pow((dist - (edgeLength / 2.0f)), 2.0f), dq[depth], warp_id))) {*/
                         } else if (!(warpCellVote(votingBuffer, pow(dist , 2.0f), /*(edgeLength / *radiusd) **/ dq[depth],  warp_id))) {
                         /*} else if (!(warpCellVote(votingBuffer, (edgeLength / *radiusd) * pow(dist , 2.0f), dq[depth] / 4000.0f, warp_id))) {*/

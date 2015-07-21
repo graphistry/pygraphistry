@@ -644,9 +644,9 @@ function stream(socket, renderConfig, colorTexture) {
                         //perfmonitor here?
                         // profiling.trace('===Sending VBO Update===');
 
-                        var emitter = socket.emit('vbo_update', metadata, function (time) {
-                            return time;
-                        });
+                        //var emitter = socket.emit('vbo_update', metadata, function (time) {
+                            //return time;
+                        //});
                         //var observableCallback = Rx.Observable.fromNodeCallback(emitter);
                         //return oberservableCallback;
                         return Rx.Observable.fromCallback(socket.emit.bind(socket))('vbo_update', metadata);
