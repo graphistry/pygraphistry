@@ -18,7 +18,7 @@ from setuptools import setup, find_packages
 setup(
     name='graphistry',
 
-    version='0.0.14',
+    version='0.0.21',
     py_modules = ['graphistry.etl'],
     description = 'Visualize node-link graphs using Graphistry\'s cloud',
     #long_description=long_description,
