@@ -1,4 +1,4 @@
-# Graphistry in a Nutshell
+# PyGraphistry in a Nutshell
 
 ### Installation
 
@@ -12,7 +12,7 @@ $ pip install graphistry
 
 #### Working IPython (Jupyter) Notebooks
 
-We recommend coding in [IPython](http://ipython.org) notebooks. That way, you have your code and visualizations all in one place.   You can download our demo example (below) in this [notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1).
+We recommend coding in [IPython](http://ipython.org) notebooks. That way, you have your code and visualizations all in one place. You can download our demo example (below) in this [notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1).
  
 ## Tutorial: Les Misérables
 
