@@ -12,6 +12,7 @@ var config   = require('config')();
 var vgraph   = require('./vgraph.js');
 var Cache    = require('common/cache.js');
 var s3       = require('common/s3.js');
+var apiKey   = require('common/api.js');
 
 var Log         = require('common/logger.js');
 var logger      = Log.createLogger('etlworker:etl');
@@ -38,12 +39,24 @@ function slackNotify(name, params, nnodes, nedges) {
     var part2 = '_Agent_: ' + params.agent + ',    ' +
                 '_AgentVersion_: ' + params.agentVersion + ',    ' +
                 '_API_: ' + params.apiVersion + '\n';
-    var part3 = 'View on ' + makeUrl('labs') + ' or ' + makeUrl('staging');
+    var part3 = 'View on ' + makeUrl('labs') + ' or ' + makeUrl('staging') + '\n';
+
+    var part4 = 'Key: ';
+    if (params.key) {
+        try {
+            part4 += apiKey.decrypt(params.key);
+        } catch (err) {
+            logger.error('Could not decrypt key', err);
+            part4 += ' COULD NOT DECRYPT';
+        }
+    } else {
+        part4 = 'Key: n/a';
+    }
 
     if (slackConf.token == undefined) {
         return Q();
     } else {
-        return Q.denodeify(slack.write)(part1 + part2 + part3, slackConf)
+        return Q.denodeify(slack.write)(part1 + part2 + part3 + part4, slackConf)
             .fail(function (err) {
                 logger.error('Error posting on slack', err);
             });
@@ -126,6 +139,7 @@ function parseQueryParams(req) {
     res.agent = req.query.agent || 'unknown';
     res.agentVersion = req.query.agentversion || '0.0.0';
     res.apiVersion = parseInt(req.query.apiversion) || 0;
+    res.key = req.query.key;
 
     return res;
 }
