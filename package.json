@@ -14,7 +14,6 @@
   },
   "license": "ISC",
   "dependencies": {
-    "StreamGL": "graphistry/StreamGL",
     "color": "~0.8.0",
     "colorbrewer": "~0.0.2",
     "common": "graphistry/common",
@@ -44,6 +43,7 @@
     "xhr2": "~0.1.0"
   },
   "devDependencies": {
-    "jasmine-node": "^1.14.5"
+    "jasmine-node": "^1.14.5",
+    "StreamGL": "graphistry/StreamGL"
   }
 }
