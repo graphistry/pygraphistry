@@ -22,15 +22,6 @@
   when: cuda_repo_installed.changed
   sudo: yes
 
-- name: Remove old CUDA 6.5
-  apt: pkg=cuda-6-5
-       state=absent
-       purge=yes
-  notify:
-    - Reboot server
-    - Wait for server to restart
-  sudo: yes
-
 # Force handlers to run, which will cause a reboot here if one is to be performed
 - meta: flush_handlers
 
