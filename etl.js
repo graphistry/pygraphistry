@@ -19,7 +19,7 @@ var logger      = Log.createLogger('etlworker:etl');
 var tmpCache = new Cache(config.LOCAL_CACHE_DIR, config.LOCAL_CACHE);
 
 // String * String -> ()
-function slackNotify(name, params) {
+function slackNotify(name, params, nnodes, nedges) {
     function makeUrl(server) {
         return '<http://proxy-' + server + '.graphistry.com' +
                '/graph/graph.html?info=true&dataset=' + name +
@@ -33,7 +33,8 @@ function slackNotify(name, params) {
     };
 
     var user = params.usertag.split('-')[0];
-    var part1 = 'New dataset *' + name + '* by user `' + user + '`\n';
+    var part1 = 'New dataset *' + name + '* by user `' + user + '`\n' +
+                'Nodes: ' + nnodes + ',    Edges: ' + nedges + '\n';
     var part2 = '_Agent_: ' + params.agent + ',    ' +
                 '_AgentVersion_: ' + params.agentVersion + ',    ' +
                 '_API_: ' + params.apiVersion + '\n';
@@ -72,7 +73,7 @@ function etl(msg, params) {
     logger.info('VGraph created with', vg.nvertices, 'nodes and', vg.nedges, 'edges');
     return Q.all([
         publish(vg, name),
-        slackNotify(name, params)
+        slackNotify(name, params, vg.nvertices, vg.nedges)
     ]).spread(_.identity);
 }
 
