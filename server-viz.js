@@ -349,10 +349,8 @@ function init(app, socket) {
             });
 
 
-            console.log('MaskList Length: ', maskList.length);
             var masks;
             if (maskList.length > 0) {
-                // TODO: Compose Correctly;
                 masks = graph.dataframe.composeMasks(maskList);
             } else {
                 // TODO: Don't get these directly -- add function to get these values
