@@ -353,7 +353,7 @@ function init(app, socket) {
             var masks;
             if (maskList.length > 0) {
                 // TODO: Compose Correctly;
-                masks = maskList[0];
+                masks = graph.dataframe.composeMasks(maskList);
             } else {
                 // TODO: Don't get these directly -- add function to get these values
                 var edgeMask = _.range(graph.dataframe.rawdata.numElements.edge);
