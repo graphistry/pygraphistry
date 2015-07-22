@@ -81,8 +81,8 @@
     - mtorok
     - users
 
-- name: Kill zombie ssh-agent processes (it's OK if this fails)
-  command: killall ssh-agent
-  ignore_errors: true
-  sudo: yes
-  sudo_user: root
+# - name: Kill zombie ssh-agent processes (it's OK if this fails)
+#   command: killall ssh-agent
+#   ignore_errors: true
+#   sudo: yes
+#   sudo_user: root
