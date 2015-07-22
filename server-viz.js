@@ -455,7 +455,6 @@ function stream(socket, renderConfig, colorTexture) {
                 if (dim === 2) {
                     var permutation = graph.simulator.bufferHostCopies.forwardsEdges.edgePermutationInverseTyped,
                         newIndices = _.map(indices, function (idx) {
-                            idx = Math.floor(idx / (graph.simulator.numRenderedSplits + 1));
                             return permutation[idx];
                         });
                     indices = newIndices;
