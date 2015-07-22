@@ -63,9 +63,8 @@ ch.setLevel(logging.INFO)
 
 # Format the output as JSON
 formatter = logging.Formatter(
-    '{"name": "reaper.py", "hostname": "' + str(hostname) + '", "pid": ' + str(reaper_pid) + \
-        ', "level": %(levelno)s, "time": "%(asctime)s", "content": {"type": "%(levelname)s", "pid": "' + \
-        str(reaper_pid) + '", "msg": "%(message)s"}}',
+    '{"name": "reaper.py", "module": "reaper", "hostname": "' + str(hostname) + '", "pid": ' + str(reaper_pid) + \
+        ', "level": %(levelno)s, "time": "%(asctime)s", "message_type": "%(levelname)s" , "msg": "%(message)s"}',
     datefmt='%Y-%m-%dT%H:%M:%SZ')
 formatter.converter = time.gmtime
 ch.setFormatter(formatter)
@@ -146,9 +145,9 @@ def log_boundary(metric, value):
         # harmless, and the API call seems to succeed anyway.
         pass
     except Exception as err:
-        logger.warn("Boundary: error logging metric {metric}: {err}".format(metric=metric, err=str(err)))
+        logger.info("Boundary: error logging metric {metric}: {err}".format(metric=metric, err=str(err)))
     except:
-        logger.warn("Boundary: unknown error logging metric {metric}".format(metric=metric))
+        logger.info("Boundary: unknown error logging metric {metric}".format(metric=metric))
 
 
 def get_available_memory():
@@ -184,44 +183,16 @@ def gpu_process_usage():
     return gpu_processes
 
 
-class ProcessTermError(Exception):
-    def __init__(self, pid, message):
-        self.pid = pid
-        self.message = message
-    def __str__(self):
-        return 'ProcessTermError: could not terminate process {pid}: {message}'.format(pid=self.pid, message=self.message)
-
-
-def process_is_running(pid):
-    """Returns a boolean indicating whether the process with the given PID is currently running."""
-    running_pids = [pid for pid in os.listdir('/proc') if pid.isdigit()]
-    return str(pid) in running_pids
-
-
 def kill_process(pid):
-    """ """
-    logger.warn("Attempting to kill process {pid}".format(pid=pid))
-    if process_is_running(pid):
-        try:
-            os.kill(int(pid), signal.SIGTERM)
-        except OSError as oserr:
-            # Ignore "no such process" errors; re-raise everything else
-            if oserr.errno == 3:
-                logger.error("!! Error: could not kill process {pid} because the OS could not find it (though it was running when we checked right before trying to kill it)".format(pid=pid))
-                return False
-            else:
-                logger.error("!! Error: could not kill process {pid} because of an unknown error: {err}".format(pid=pid, err=str(oserr)))
-                raise oserr
-
-        if process_is_running(pid):
-            logger.error("!! Error: could not kill process {pid}! Our powers are useless! (we sent it a SIGTERM, but the process is still running)".format(pid=pid))
-            raise ProcessTermError(pid, "sent SIGTERM, but process still running")
-
-        logger.warn("Successfully killed process {pid}".format(pid=pid))
-        return True
-    else:
-        logger.warn("Process {pid} was not running, so we didn't try to kill it".format(pid=pid))
-        return False
+    try:
+        os.kill(int(pid), signal.SIGKILL)
+        logger.warn("Reaped process {pid}".format(pid=pid))
+    except OSError as oserr:
+        # Ignore "no such process" errors; re-raise everything else
+        if oserr.errno == 3:
+            logger.info("Process {pid} not running".format(pid=pid))
+        else:
+            logger.error("Could not kill process {pid}: {err}".format(pid=pid, err=str(oserr)))
 
 
 def advertise_gpu_memory(gpu_collection):
@@ -268,26 +239,16 @@ def reap_workers(workers_collection):
     zombie_timestamp = datetime.utcnow() - timedelta(seconds=WORKER_TIMEOUT)
     zombie_workers = workers_collection.find({"ip": ip, "updated": {"$lt": zombie_timestamp}})
 
-    logger.debug("Checking for zombie worker processes and reaping them (processes that haven't pinged since {ztime} are considered zombies)".format(ztime=zombie_timestamp))
-
     for worker in zombie_workers:
-        logger.warn("Terminating stale worker. Port: {port}, PID: {pid}".format(port=worker['port'], pid=worker['pid']))
+        kill_process(int(worker['pid']))
+        workers_collection.remove({"_id": worker['_id']})
+        logger.info("Removed stale ping for worker {port}, pid: {pid}".format(port=worker['port'], pid=worker['pid']))
 
-        try:
-            if kill_process(int(worker['pid'])):
-                logger.info('Reaped worker with PID {pid}'.fomat(worker['pid']))
-            else:
-                logger.warn('Worker with PID {pid} was not running, so we just removed its ping from the database'.format(pid=worker['pid']))
-            workers_collection.remove({"_id": worker['_id']})
-
-        except Exception as e:
-            logger.error('Error encountered reaping process "{pid}": {err}'.format(pid=worker['pid'], err=str(e)))
 
 
 if __name__=="__main__":
     # Connect to central db
     gpu_collection, workers_collection = connect_mongo()
-
     setup_db(workers_collection)
 
     tick_count = 0
@@ -306,7 +267,7 @@ if __name__=="__main__":
                 cleanup_server_records(gpu_collection, workers_collection)
 
         except errors.ConnectionFailure:
-            logger.error("!! Error: lost connection to the Mongo database. Attempting to reconnect...")
+            logger.error("Lost connection to the Mongo database. Attempting to reconnect...")
             gpu_collection, workers_collection = connect_mongo()
 
         finally:
