@@ -279,12 +279,16 @@ function init(app, socket) {
 
     socket.on('layout_controls', function(_, cb) {
         logger.info('Sending layout controls to client');
-        animStep.graph.then(function (graph) {
+
+        graph.take(1).do(function (graph) {
+            logger.info('Got layout controls');
             var controls = graph.simulator.controls;
             cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
-        }).fail(function (err) {
+        })
+        .subscribeOnError(function (err) {
+            logger.error(err, 'Error sending layout_controls');
             cb({success: false, error: 'Server error when fetching controls'});
-            log.makeQErrorHandler(logger, 'sending layout_controls')(err);
+            throw err;
         });
     });
 
