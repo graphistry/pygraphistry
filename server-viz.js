@@ -345,9 +345,11 @@ function init(app, socket) {
            qIndices.then(function (indices) {
                 logger.trace('Done selecting indices');
                 try {
-                    var data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, query.type);
-                    logger.trace('Sending back data');
-                    cb({success: true, data: data});
+                    var qData = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, query.type);
+                    qData.then(function (data) {
+                        logger.trace('Sending back data');
+                        cb({success: true, data: data});
+                    }).done(_.identity, log.makeQErrorHandler(logger, 'Aggregate Promise'));
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
                     log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
