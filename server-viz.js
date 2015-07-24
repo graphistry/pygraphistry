@@ -125,7 +125,8 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
 }
 
 function read_selection(type, query, res) {
-    animStep.graph.then(function (graph) {
+    graph.take(1).do(function (graph) {
+
         qLastSelectionIndices.then(function (lastSelectionIndices) {
             // TODO: Change these on the client side.
             if (type === 'nodes') type = 'point';
@@ -145,10 +146,13 @@ function read_selection(type, query, res) {
             res.send(data);
         }).fail(log.makeQErrorHandler(logger, 'read_selection qLastSelectionIndices'));
 
-    }).fail(function (err) {
-        cb({success: false, error: 'Server error when fetching graph for read selection'});
-        log.makeQErrorHandler(logger, 'read_selection qLastSelection')(err);
-    });
+    }).subscribe(
+        _.identity,
+        function (err) {
+            cb({success: false, error: 'read_selection error'});
+            log.makeRxErrorHandler(logger, 'read_selection handler')(err);
+        }
+    );
 }
 
 function init(app, socket) {
@@ -425,11 +429,11 @@ function stream(socket, renderConfig, colorTexture) {
                     success: true,
                     params: {
                         nodes: {
-                            urn: '/read_node_selection',
+                            urn: 'read_node_selection',
                             count: nodeIndices.length
                         },
                         edges: {
-                            urn: '/read_edge_selection',
+                            urn: 'read_edge_selection',
                             count: edgeIndices.length
                         }
                     }
