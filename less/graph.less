@@ -206,11 +206,19 @@
             margin-right: 0.8em;
 
             td,
-            .graph-label-value-wrapper{
+            .graph-label-value-wrapper {
                 max-width: 15em;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
+
+                &:hover {
+                    text-overflow: initial;
+                    white-space: normal;
+                    word-wrap: break-word;
+                    max-height: none;
+                }
+
             }
         }
     }
@@ -808,7 +816,7 @@ button.btn-default {
         .integer-cell,
         .string-cell {
             padding: 0px 5px;
-            border-left: 1px #DDD solid;
+
             a {
                 color: @dark-grey;
                 &:hover {
@@ -817,6 +825,27 @@ button.btn-default {
             }
             &.ascending a, &.descending a {
                 color: @graphistry-lightblue;
+            }
+
+            border: 1px #DDD solid;
+            margin-left: -1px;
+            margin-bottom: -1px;
+        }
+
+        .integer-cell, .string-cell {
+            &:hover {
+              position: absolute;
+
+              background-color: white;
+
+              max-height: none;
+              height: auto;
+              white-space: normal;
+              word-break: break-word;
+              border: 1px solid #777;
+              min-width: 2em;
+              margin-top: -1px;
+
             }
         }
 
