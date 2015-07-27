@@ -21,6 +21,7 @@
 // z-index order
 //////////////////////////////////////////////////////////////////////////////
 
+@meter-z:                       4000;
 @marquee-z:                     5000;
 @highlighted-point-z:           5001;
 @graph-label-z:                 6000;
@@ -39,6 +40,7 @@
 @tooltip-z:                  1000001;
 @forker-z:                   1001000;
 @persistor-z:                1001000;
+@colorpicker-z:              1002000;
 
 //////////////////////////////////////////////////////////////////////////////
 // Labels
@@ -205,11 +207,19 @@
             margin-right: 0.8em;
 
             td,
-            .graph-label-value-wrapper{
+            .graph-label-value-wrapper {
                 max-width: 15em;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
+
+                &:hover {
+                    text-overflow: initial;
+                    white-space: normal;
+                    word-wrap: break-word;
+                    max-height: none;
+                }
+
             }
         }
     }
@@ -293,12 +303,13 @@
         .meter {
             visibility: visible;
             position: fixed;
+            z-index: @meter-z;
             bottom: 3em;
             opacity: 0.75;
-            color: rgb(51,51,102) !important;
+            color: rgb(245,245,253) !important;
 
             .flavor, div {
-                color: rgb(51,51,102);
+                color: rgb(245,245,253);
                 text-transform: uppercase !important;
                 font-weight: bold !important;
                 text-shadow: none;
@@ -382,7 +393,7 @@
 
 .graphistry-body {
     visibility: hidden;
-    background-color: #F0F4F9 !important;
+    background-color: #333339 !important;
     height: 100%;
     overflow:hidden;
 
@@ -460,6 +471,13 @@ html.nomenu #menus, html.nomenu #sliders {
     z-index: @menus-z;
 
     .noselect();
+}
+
+.colorpicker {
+    z-index: @colorpicker-z;
+}
+#renderingItems .form-group.colorer {
+    margin-bottom: 0;
 }
 
 .options-group {
@@ -543,11 +561,10 @@ button.btn-default {
     background: #0fa5c5;
 }
 
-#renderingItems {
 
-    label {
-        color: black;
-    }
+.settingsPanel {
+    max-height: 23.2em;
+    overflow: auto;
 
     box-shadow: @floating-box-shadow;
     border-radius: @floating-border-radius;
@@ -562,6 +579,13 @@ button.btn-default {
 
     left: 5em;
     top: 2.5em;
+}
+
+#renderingItems {
+
+    label {
+        color: black;
+    }
 
     .control-title {
         padding-top: 4px;
@@ -651,7 +675,7 @@ button.btn-default {
     top: 50px;
     left: -200px;
     text-align: center;
-    color: rgb(51,51,102);
+    color: rgb(245,245,253);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -794,7 +818,7 @@ button.btn-default {
         .integer-cell,
         .string-cell {
             padding: 0px 5px;
-            border-left: 1px #DDD solid;
+
             a {
                 color: @dark-grey;
                 &:hover {
@@ -803,6 +827,27 @@ button.btn-default {
             }
             &.ascending a, &.descending a {
                 color: @graphistry-lightblue;
+            }
+
+            border: 1px #DDD solid;
+            margin-left: -1px;
+            margin-bottom: -1px;
+        }
+
+        .integer-cell, .string-cell {
+            &:hover {
+              position: absolute;
+
+              background-color: white;
+
+              max-height: none;
+              height: auto;
+              white-space: normal;
+              word-break: break-word;
+              border: 1px solid #777;
+              min-width: 2em;
+              margin-top: -1px;
+
             }
         }
 

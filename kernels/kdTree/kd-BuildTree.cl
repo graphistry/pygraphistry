@@ -88,7 +88,7 @@ __kernel void build_tree(
         }
 
         // Skip duplicate points or points below max depth
-        if (depth >= MAXDEPTH || (fabs(px - x_cords[n]) < FLT_EPSILON) && (fabs(py - y_cords[n]) < FLT_EPSILON)) {
+        if (depth >= MAXDEPTH || ((fabs(px - x_cords[n]) < FLT_EPSILON) && (fabs(py - y_cords[n]) < FLT_EPSILON))) {
           i += inc;  // move on to next body
           skip = 1;
           continue;
@@ -114,13 +114,15 @@ __kernel void build_tree(
 
                         // We allocate from right to left, so we use an atomic_dec
                         depth++;
+
                         cell = atomic_dec(bottom) - 1;
 
                         // Error case
                         if (cell <= num_bodies) {
                             // TODO (paden) add error message
                              /*printf("BUILD TREE PROBLEM\n");*/
-                            *bottom = num_nodes;
+                            *bottom = 1  / 0;
+                            /**bottom = num_nodes;*/
                             return;
                         }
 
@@ -167,13 +169,18 @@ __kernel void build_tree(
                         // If child cannot position is perfectly equal to current node
                         // position. Just insert node arbitrarily. This should happen
                         // so rarely and at such a low depth, that the approximation
-                        // should be tribial.
-                        if ((fabs(px - x_cords[ch]) <= FLT_EPSILON) && (fabs(py - y_cords[ch]) <= FLT_EPSILON) && (ch != -1)) {
-                          j = 0;
-                          while ((ch = child[n*4 + j]) > NULLPOINTER && j < 3) j++;
-                          // Even if child node has filled leaves, set ch to -1. This is a slightly
-                          // larger approximation, but makes sure nothing breaks.
-                          ch = -1;
+                        // should be trivial.
+                        /*if ((ch != -1) && (fabs(px - x_cords[ch]) <= (max(px, x_cords[ch]) * 0.0001f) && (fabs(py - y_cords[ch]) <= (max(py, y_cords[ch]) * 0.0001f)))) {*/
+                          /*[>j = 0;<]*/
+                          /*[>while ((ch = child[n*4 + j]) > NULLPOINTER && j < 3) j++;<]*/
+                          /*// Even if child node has filled leaves, set ch to -1. This is a slightly*/
+                          /*// larger approximation, but makes sure nothing breaks.*/
+                          /*ch = -1;*/
+                        /*}*/
+                        if (depth >= MAXDEPTH && (ch != -1)) {
+                            j = 0;
+                            while ((ch = child[n*4 + j]) > NULLPOINTER && j < 4) j++;
+                            /*ch = -1;*/
                         }
 
 

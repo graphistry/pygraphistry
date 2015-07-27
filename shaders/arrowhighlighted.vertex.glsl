@@ -56,5 +56,5 @@ void main(void) {
     pos.z = edgeLength < 0.05 ? 100.0 : 1.0 - alpha;
 
     gl_Position = pos;
-    aColor =  vec4(0.0, 0.0, 0.0, alpha);
+    aColor =  vec4(1.0, 1.0, 1.0, alpha);
 }

@@ -8,6 +8,7 @@ uniform float zoomScalingFactor;
 uniform float maxPointSize;
 uniform float maxScreenSize;
 uniform float maxCanvasSize;
+uniform float edgeOpacity;
 
 attribute vec2 startPos;     // Start position of edge
 attribute vec2 endPos;       // End position of edge
@@ -56,5 +57,5 @@ void main(void) {
     pos.z = edgeLength < 0.05 ? 100.0 : 1.0 - alpha;
 
     gl_Position = pos;
-    aColor = vec4(arrowColor.xyz, alpha);
+    aColor = vec4(arrowColor.xyz, edgeOpacity * alpha);
 }

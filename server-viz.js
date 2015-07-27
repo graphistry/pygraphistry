@@ -7,25 +7,21 @@
 var Rx          = require('rx');
 var _           = require('underscore');
 var Q           = require('q');
-var debug       = require('debug')('graphistry:graph-viz:driver:viz-server');
-var profiling   = require('debug')('profiling');
 var fs          = require('fs');
 var path        = require('path');
 var rConf       = require('./js/renderer.config.js');
 var lConf       = require('./js/layout.config.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
-var log         = require('common/log.js');
-var eh          = require('common/errorHandlers.js')(log);
 var persistor   = require('./js/persist.js');
 var labeler     = require('./js/labeler.js');
 var vgwriter    = require('./js/libs/VGraphWriter.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
 
-var perf        = require('debug')('perf');
-
-
+var log         = require('common/logger.js');
+var logger      = log.createLogger('graph-viz:driver:viz-server');
+var perf        = require('common/perfStats.js').createPerfMonitor();
 
 /**** GLOBALS ****************************************************/
 
@@ -62,7 +58,7 @@ var defaultSnapshotName = 'snapshot';
 //Do more innocuous initialization inline (famous last words..)
 
 function resetState(dataset) {
-    debug('RESETTING APP STATE');
+    logger.info('RESETTING APP STATE');
 
     //FIXME explicitly destroy last graph if it exists?
 
@@ -78,9 +74,9 @@ function resetState(dataset) {
 
     //make available to all clients
     graph = new Rx.ReplaySubject(1);
-    ticksMulti.take(1).subscribe(graph, eh.makeRxErrorHandler('ticksMulti failure'));
+    ticksMulti.take(1).subscribe(graph, log.makeRxErrorHandler(logger, logger, 'ticksMulti failure'));
 
-    debug('RESET APP STATE.');
+    logger.trace('RESET APP STATE.');
 }
 
 
@@ -151,7 +147,7 @@ function read_selection(type, query, res) {
             var data = sliceSelection(graph.dataframe, type, lastSelectionIndices[type], start, end,
                                         query.sort_by, query.order === 'asc');
             res.send(data);
-        }).fail(eh.makeErrorHandler('read_selection qLastSelectionIndices'));
+        }).fail(log.makeQErrorHandler(logger, 'read_selection qLastSelectionIndices'));
 
     }).subscribe(
         _.identity,
@@ -175,12 +171,12 @@ function tickGraph () {
 }
 
 function init(app, socket) {
-    debug('Client connected', socket.id);
+    logger.info('Client connected', socket.id);
     var query = socket.handshake.query;
 
     if (query.usertag !== 'undefined' && query.usertag !== '') {
-        debug('Tagging client with', query.usertag);
-        log.setUserTag(decodeURIComponent(query.usertag));
+        logger.debug('Tagging client with', query.usertag);
+        log.addUserInfo({tag: decodeURIComponent(query.usertag)});
     }
 
     var colorTexture = new Rx.ReplaySubject(1);
@@ -188,7 +184,7 @@ function init(app, socket) {
     var img =
         Rx.Observable.fromNodeCallback(fs.readFile)(imgPath)
         .flatMap(function (buffer) {
-            debug('Loaded raw colorTexture', buffer.length);
+            logger.trace('Loaded raw colorTexture', buffer.length);
             return Rx.Observable.fromNodeCallback(compress.deflate)(
                     buffer,//binary,
                     {output: new Buffer(
@@ -200,9 +196,9 @@ function init(app, socket) {
                     };
                 });
         })
-        .do(function () { debug('Compressed color texture'); })
+        .do(function () { logger.trace('Compressed color texture'); })
         .map(function (pair) {
-            debug('colorMap bytes', pair.raw.length);
+            logger.trace('colorMap bytes', pair.raw.length);
             return {
                 buffer: pair.compressed[0],
                 bytes: pair.raw.length,
@@ -213,16 +209,17 @@ function init(app, socket) {
 
     img.take(1)
         .do(colorTexture)
-        .subscribe(_.identity, eh.makeRxErrorHandler('img/texture'));
+        .subscribe(_.identity, log.makeRxErrorHandler(logger, 'img/texture'));
     colorTexture
-        .do(function() { debug('HAS COLOR TEXTURE'); })
-        .subscribe(_.identity, eh.makeRxErrorHandler('colorTexture'));
+        .do(function() { logger.trace('HAS COLOR TEXTURE'); })
+        .subscribe(_.identity, log.makeRxErrorHandler(logger, 'colorTexture'));
 
 
 
     app.get('/vbo', function(req, res) {
-        debug('VBOs: HTTP GET %s', req.originalUrl);
-        profiling('VBO request');
+        logger.info('VBOs: HTTP GET %s', req.originalUrl);
+        // perfmonitor here?
+        // profiling.debug('VBO request');
 
         try {
             // TODO: check that query parameters are present, and that given id, buffer exist
@@ -236,35 +233,35 @@ function init(app, socket) {
             }
             res.send();
         } catch (e) {
-            eh.makeErrorHandler('bad /vbo request')(e);
+            log.makeQErrorHandler(logger, 'bad /vbo request')(e);
         }
 
         finishBufferTransfers[id](bufferName);
     });
 
     app.get('/texture', function (req, res) {
-        debug('got texture req', req.originalUrl, req.query);
+        logger.debug('got texture req', req.originalUrl, req.query);
         try {
             colorTexture.pluck('buffer').do(
                 function (data) {
                     res.set('Content-Encoding', 'gzip');
                     res.send(data);
                 })
-                .subscribe(_.identity, eh.makeRxErrorHandler('colorTexture pluck'));
+                .subscribe(_.identity, log.makeRxErrorHandler(logger, 'colorTexture pluck'));
 
         } catch (e) {
-            eh.makeErrorHandler('bad /texture request')(e);
+            log.makeQErrorHandler(logger, 'bad /texture request')(e);
         }
     });
 
 
     app.get('/read_node_selection', function (req, res) {
-        debug('Got read_node_selection', req.query);
+        logger.debug('Got read_node_selection', req.query);
         read_selection('nodes', req.query, res);
     });
 
     app.get('/read_edge_selection', function (req, res) {
-        debug('Got read_edge_selection', req.query);
+        logger.debug('Got read_edge_selection', req.query);
         read_selection('edges', req.query, res);
     });
 
@@ -275,18 +272,18 @@ function init(app, socket) {
         var metadata = dataset.metadata;
 
         if (!(metadata.scene in rConf.scenes)) {
-            console.warn('WARNING Unknown scene "%s", using default', metadata.scene)
+            logger.warn('WARNING Unknown scene "%s", using default', metadata.scene)
             metadata.scene = 'default';
         }
 
         resetState(dataset);
         return rConf.scenes[metadata.scene];
-    }).fail(eh.makeErrorHandler('resetting state'));
+    }).fail(log.makeQErrorHandler(logger, 'resetting state'));
 
     socket.on('render_config', function(_, cb) {
-        debug('get render config');
         qRenderConfig.then(function (renderConfig) {
-            debug('Sending render-config to client');
+            logger.info('renderConfig', renderConfig);
+            logger.trace('Sending render-config to client');
             cb({success: true, renderConfig: renderConfig});
 
             if (saveAtEachStep) {
@@ -296,37 +293,41 @@ function init(app, socket) {
             lastRenderConfig = renderConfig;
         }).fail(function (err) {
             cb({success: false, error: 'Unknown dataset or scene error'});
-            eh.makeErrorHandler('sending render_config')(err)
+            log.makeQErrorHandler(logger, 'sending render_config')(err)
         });
     });
 
     socket.on('layout_controls', function(_, cb) {
-        debug('Sending layout controls to client');
-        animStep.graph.then(function (graph) {
+        logger.info('Sending layout controls to client');
+
+        graph.take(1).do(function (graph) {
+            logger.info('Got layout controls');
             var controls = graph.simulator.controls;
             cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
-        }).fail(function (err) {
+        })
+        .subscribeOnError(function (err) {
+            logger.error(err, 'Error sending layout_controls');
             cb({success: false, error: 'Server error when fetching controls'});
-            eh.makeErrorHandler('sending layout_controls')(err);
+            throw err;
         });
     });
 
     socket.on('begin_streaming', function() {
         qRenderConfig.then(function (renderConfig) {
             stream(socket, renderConfig, colorTexture);
-        }).fail(eh.makeErrorHandler('streaming'));
+        }).fail(log.makeQErrorHandler(logger, 'streaming'));
     });
 
     socket.on('reset_graph', function (_, cb) {
-        debug('reset_graph command');
+        logger.info('reset_graph command');
         qDataset.then(function (dataset) {
             resetState(dataset);
             cb();
-        }).fail(eh.makeErrorHandler('reset graph request'));
+        }).fail(log.makeQErrorHandler(logger, 'reset graph request'));
     });
 
     socket.on('inspect_header', function (nothing, cb) {
-        debug('inspect header');
+        logger.info('inspect header');
         graph.take(1).do(function (graph) {
             cb({
                 success: true,
@@ -339,7 +340,7 @@ function init(app, socket) {
             _.identity,
             function (err) {
                 cb({success: false, error: 'inspect_header error'});
-                eh.makeRxErrorHandler('inspect_header handler')(err);
+                log.makeRxErrorHandler(logger, 'inspect_header handler')(err);
             }
         );
     });
@@ -411,11 +412,15 @@ function init(app, socket) {
         );
     });
 
+    //query :: {attributes: ??, binning: ??, mode: ??, type: 'point' + 'edge'}
+    // -> {success: false} + {success: true, data: ??}
     socket.on('aggregate', function (query, cb) {
-        debug('Got aggregate', query);
+        logger.info('Got aggregate', query);
         graph.take(1).do(function (graph) {
-            perf('Selecting Indices');
-            var qIndices;
+
+            logger.trace('Selecting Indices');
+            var qIndices
+
             if (query.all === true) {
                 var numPoints = graph.simulator.dataframe.getNumElements('point');
                 qIndices = Q(_.range(numPoints));
@@ -424,7 +429,7 @@ function init(app, socket) {
             }
 
            qIndices.then(function (indices) {
-                perf('Done selecting indices');
+                logger.trace('Done selecting indices');
                 try {
                     var data = {};
                     // Initial case of getting global Stats
@@ -443,17 +448,18 @@ function init(app, socket) {
                         });
                     }
 
-                    perf('Sending back data');
+                    logger.trace('Sending back data');
                     cb({success: true, data: data});
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
+                    log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
                 }
-            }).done(_.identity, eh.makeErrorHandler('selectNodes'));
+            }).done(_.identity, log.makeQErrorHandler(logger, 'selectNodes'));
         }).subscribe(
             _.identity,
             function (err) {
                 cb({success: false, error: 'aggregate error'});
-                eh.makeRxErrorHandler('aggregate handler')(err);
+                log.makeRxErrorHandler(logger, 'aggregate handler')(err);
             }
         );
     });
@@ -467,7 +473,7 @@ function stream(socket, renderConfig, colorTexture) {
 
     lastCompressedVBOs[socket.id] = {};
     socket.on('disconnect', function () {
-        debug('disconnecting', socket.id);
+        logger.info('disconnecting', socket.id);
         delete lastCompressedVBOs[socket.id];
     });
 
@@ -498,25 +504,26 @@ function stream(socket, renderConfig, colorTexture) {
 
     //Knowing this helps overlap communication and computations
     socket.on('planned_binary_requests', function (request) {
-        debug('CLIENT SETTING PLANNED REQUESTS', request.buffers, request.textures);
+        logger.debug('CLIENT SETTING PLANNED REQUESTS', request.buffers, request.textures);
         requestedBuffers = request.buffers;
         requestedTextures = request.textures;
     });
 
 
-    debug('active buffers/textures/programs', activeBuffers, activeTextures, activePrograms);
+    logger.debug('active buffers/textures/programs', activeBuffers, activeTextures, activePrograms);
 
 
     socket.on('interaction', function (payload) {
-        profiling('Got Interaction');
-        debug('Got interaction:', payload);
+        //perfmonitor here?
+        // profiling.trace('Got Interaction');
+        logger.trace('Got interaction:', payload);
         // TODO: Find a way to avoid flooding main thread waiting for GPU ticks.
         var defaults = {play: false, layout: false};
         animStep.interact(_.extend(defaults, payload || {}));
     });
 
     socket.on('set_selection', function (sel, cb) {
-        debug('Got set_selection');
+        logger.trace('Got set_selection');
         graph.take(1).do(function (graph) {
             graph.simulator.selectNodes(sel).then(function (nodeIndices) {
                 var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
@@ -537,12 +544,12 @@ function stream(socket, renderConfig, colorTexture) {
                     'point': nodeIndices,
                     'edge': edgeIndices
                 });
-            }).done(_.identity, eh.makeErrorHandler('selectNodes'));
+            }).done(_.identity, log.makeQErrorHandler(logger, 'selectNodes'));
         }).subscribe(
             _.identity,
             function (err) {
                 cb({success: false, error: 'set_selection error'});
-                eh.makeRxErrorHandler('set_selection handler')(err);
+                log.makeRxErrorHandler(logger, 'set_selection handler')(err);
             }
         );
     });
@@ -560,6 +567,7 @@ function stream(socket, renderConfig, colorTexture) {
                     var newIndices = _.map(indices, function (idx) {
                         return permutation[idx];
                     });
+
                     indices = newIndices;
                 }
             })
@@ -573,7 +581,7 @@ function stream(socket, renderConfig, colorTexture) {
                 _.identity,
                 function (err) {
                     cb('get_labels error');
-                    eh.makeRxErrorHandler('get_labels')(err);
+                    log.makeRxErrorHandler(logger, 'get_labels')(err);
                 });
     });
 
@@ -583,16 +591,16 @@ function stream(socket, renderConfig, colorTexture) {
                 graph.simulator.highlightShortestPaths(pair);
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, eh.makeRxErrorHandler('shortest_path'));
+            .subscribe(_.identity, log.makeRxErrorHandler(logger, 'shortest_path'));
     });
 
     socket.on('set_colors', function (color) {
         graph.take(1)
             .do(function (graph) {
                 graph.simulator.setColor(color);
-                animStep.interact({play: true, layout: true});
+                animStep.interact({play: true, layout: false});
             })
-            .subscribe(_.identity, eh.makeRxErrorHandler('set_colors'));
+            .subscribe(_.identity, log.makeRxErrorHandler(logger, 'set_colors'));
     });
 
     socket.on('highlight_points', function (points) {
@@ -607,7 +615,7 @@ function stream(socket, renderConfig, colorTexture) {
 
                 animStep.interact({play: true, layout: true});
             })
-            .subscribe(_.identity, eh.makeRxErrorHandler('highlighted_points'));
+            .subscribe(_.identity, log.makeRxErrorHandler(logger, 'highlighted_points'));
 
     });
 
@@ -616,30 +624,31 @@ function stream(socket, renderConfig, colorTexture) {
             .do(function (graph) {
                 var vbos = lastCompressedVBOs[socket.id];
                 var metadata = lastMetadata[socket.id];
-                persistor.publishStaticContents(name, vbos, metadata, graph.dataframe, renderConfig).then(function() {
-                    cb({success: true, name: name});
+                var cleanName = encodeURIComponent(name);
+                persistor.publishStaticContents(cleanName, vbos, metadata, graph.dataframe, renderConfig).then(function() {
+                    cb({success: true, name: cleanName});
                 }).done(
                     _.identity,
-                    eh.makeErrorHandler('persist_current_vbo')
+                    log.makeQErrorHandler(logger, 'persist_current_vbo')
                 );
             })
-            .subscribe(_.identity, eh.makeRxErrorHandler('persist_current_vbo'));
+            .subscribe(_.identity, log.makeRxErrorHandler(logger, 'persist_current_vbo'));
     });
 
     socket.on('fork_vgraph', function (name, cb) {
         graph.take(1)
             .do(function (graph) {
-                var vgName = 'Users/' + name;
+                var vgName = 'Users/' + encodeURIComponent(name);
                 vgwriter.save(graph, vgName).then(function () {
                     cb({success: true, name: vgName});
                 }).done(
                     _.identity,
-                    eh.makeErrorHandler('fork_vgraph')
+                    log.makeQErrorHandler(logger, 'fork_vgraph')
                 );
             })
             .subscribe(_.identity, function (err) {
                 cb({success: false, error: 'fork_vgraph error'});
-                eh.makeRxErrorHandler('fork_vgraph error')(err);
+                log.makeRxErrorHandler(logger, 'fork_vgraph error')(err);
             });
     });
 
@@ -654,14 +663,14 @@ function stream(socket, renderConfig, colorTexture) {
     var clientReady = new Rx.ReplaySubject(1);
     clientReady.onNext(true);
     socket.on('received_buffers', function (time) {
-        profiling('Received buffers');
-        debug('Client end-to-end time', time);
+        perf.gauge('graph-viz:driver:viz-server, client end-to-end time', time);
+        logger.trace('Client end-to-end time', time);
         clientReady.onNext(true);
     });
 
-    clientReady.subscribe(debug.bind('CLIENT STATUS'), eh.makeRxErrorHandler('clientReady'));
+    clientReady.subscribe(logger.debug.bind(logger, 'CLIENT STATUS'), log.makeRxErrorHandler(logger, 'clientReady'));
 
-    debug('SETTING UP CLIENT EVENT LOOP ===================================================================');
+    logger.trace('SETTING UP CLIENT EVENT LOOP ===================================================================');
     var step = 0;
     var lastVersions = null;
 
@@ -670,12 +679,12 @@ function stream(socket, renderConfig, colorTexture) {
 
         var ticker = {step: step};
 
-        debug('0. Prefetch VBOs', socket.id, activeBuffers, ticker);
+        logger.trace('0. Prefetch VBOs', socket.id, activeBuffers, ticker);
 
         return driver.fetchData(graph, renderConfig, compress,
                                 activeBuffers, lastVersions, activePrograms)
             .do(function (vbos) {
-                debug('1. prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB', ticker);
+                logger.trace('1. prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB', ticker);
 
                 //tell XHR2 sender about it
                 if (!lastCompressedVBOs[socket.id]) {
@@ -690,30 +699,31 @@ function stream(socket, renderConfig, colorTexture) {
                 }
             })
             .flatMap(function (vbos) {
-                debug('2. Waiting for client to finish previous', socket.id, ticker);
+                logger.trace('2. Waiting for client to finish previous', socket.id, ticker);
                 return clientReady
                     .filter(_.identity)
                     .take(1)
                     .do(function () {
-                        debug('2b. Client ready, proceed and mark as processing.', socket.id, ticker);
+                        logger.trace('2b. Client ready, proceed and mark as processing.', socket.id, ticker);
                         clientReady.onNext(false);
                     })
                     .map(_.constant(vbos));
             })
             .flatMap(function (vbos) {
-                debug('3. tell client about availablity', socket.id, ticker);
+                logger.trace('3. tell client about availablity', socket.id, ticker);
 
                 //for each buffer transfer
                 var clientAckStartTime;
                 var clientElapsed;
                 var transferredBuffers = [];
                 finishBufferTransfers[socket.id] = function (bufferName) {
-                    debug('5a ?. sending a buffer', bufferName, socket.id, ticker);
+                    logger.trace('5a ?. sending a buffer', bufferName, socket.id, ticker);
                     transferredBuffers.push(bufferName);
+                    //console.log("Length", transferredBuffers.length, requestedBuffers.length);
                     if (transferredBuffers.length === requestedBuffers.length) {
-                        debug('5b. started sending all', socket.id, ticker);
-                        debug('Socket', '...client ping ' + clientElapsed + 'ms');
-                        debug('Socket', '...client asked for all buffers',
+                        logger.trace('5b. started sending all', socket.id, ticker);
+                        logger.trace('Socket', '...client ping ' + clientElapsed + 'ms');
+                        logger.trace('Socket', '...client asked for all buffers',
                             Date.now() - clientAckStartTime, 'ms');
                     }
                 };
@@ -723,7 +733,7 @@ function stream(socket, renderConfig, colorTexture) {
                 //notify of buffer/texture metadata
                 //FIXME make more generic and account in buffer notification status
                 var receivedAll = colorTexture.flatMap(function (colorTexture) {
-                        debug('4a. unwrapped texture meta', ticker);
+                        logger.trace('4a. unwrapped texture meta', ticker);
 
                         var textures = {
                             colorMap: _.pick(colorTexture, ['width', 'height', 'bytes'])
@@ -742,13 +752,21 @@ function stream(socket, renderConfig, colorTexture) {
                                 });
                         lastVersions = vbos.versions;
 
-                        debug('4b. notifying client of buffer metadata', metadata, ticker);
-                        profiling('===Sending VBO Update===');
-                        return emitFnWrapper('vbo_update', metadata);
+                        logger.trace('4b. notifying client of buffer metadata', metadata, ticker);
+                        //perfmonitor here?
+                        // profiling.trace('===Sending VBO Update===');
+
+                        //var emitter = socket.emit('vbo_update', metadata, function (time) {
+                            //return time;
+                        //});
+                        //var observableCallback = Rx.Observable.fromNodeCallback(emitter);
+                        //return oberservableCallback;
+                        return Rx.Observable.fromCallback(socket.emit.bind(socket))('vbo_update', metadata);
+                        //return emitFnWrapper('vbo_update', metadata);
 
                     }).do(
                         function (clientElapsedMsg) {
-                            debug('6. client all received', socket.id, ticker);
+                            logger.trace('6. client all received', socket.id, ticker);
                             clientElapsed = clientElapsedMsg;
                             clientAckStartTime = Date.now();
                         });
@@ -756,17 +774,16 @@ function stream(socket, renderConfig, colorTexture) {
                 return receivedAll;
             })
             .flatMap(function () {
-                debug('7. Wait for next anim step', socket.id, ticker);
-
+                logger.trace('7. Wait for next anim step', socket.id, ticker);
                 return ticksMulti.merge(updateVboSubject)
                     .take(1)
-                    .do(function () { debug('8. next ready!', socket.id, ticker); });
+                    .do(function () { logger.trace('8. next ready!', socket.id, ticker); });
             })
             .map(_.constant(graph));
     })
     .subscribe(function () {
-        debug('9. LOOP ITERATED', socket.id);
-    }, eh.makeRxErrorHandler('Main loop failure'));
+        logger.trace('9. LOOP ITERATED', socket.id);
+    }, log.makeRxErrorHandler(logger, 'Main loop failure'));
 }
 
 
@@ -785,7 +802,7 @@ if (require.main === module) {
     // This allows Express to expose the client's real IP and protocol, not the proxy's.
     app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal']);
 
-    debug('Config set to %j', config);
+    // debug('Config set to %j', config); //Only want config to print once, which happens when logger is initialized
 
     var nocache = function (req, res, next) {
         res.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
@@ -828,7 +845,7 @@ if (require.main === module) {
         socket.on('viz', function (msg, cb) { cb({success: true}); });
     });
 
-    debug('Binding', config.HTTP_LISTEN_ADDRESS, config.HTTP_LISTEN_PORT);
+    logger.info('Binding', config.HTTP_LISTEN_ADDRESS, config.HTTP_LISTEN_PORT);
     var listen = Rx.Observable.fromNodeCallback(
             http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
 
@@ -837,7 +854,7 @@ if (require.main === module) {
         //proxy worker requests
         var from = '/worker/' + config.HTTP_LISTEN_PORT + '/';
         var to = 'http://localhost:' + config.HTTP_LISTEN_PORT;
-        debug('setting up proxy', from, '->', to);
+        logger.info('setting up proxy', from, '->', to);
         app.use(from, proxy(to, {
             forwardPath: function(req, res) {
                 return url.parse(req.url).path.replace(RegExp('worker/' + config.HTTP_LISTEN_PORT + '/'),'/');
@@ -847,8 +864,8 @@ if (require.main === module) {
 
 
     }).subscribe(
-        function () { console.log('\nViz worker listening...'); },
-        eh.makeRxErrorHandler('server-viz main')
+        function () { logger.info('\nViz worker listening...'); },
+        log.makeRxErrorHandler(logger, 'server-viz main')
     );
 
 }

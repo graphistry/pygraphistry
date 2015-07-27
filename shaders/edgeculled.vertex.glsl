@@ -10,6 +10,8 @@ attribute vec4 edgeColor;
 
 varying vec4 eColor;
 
+uniform float edgeOpacity;
+
 void main(void) {
     vec4 pos = mvp * vec4(curPos.x, curPos.y, Z_VAL, W_VAL);
 
@@ -21,5 +23,5 @@ void main(void) {
 
     pos.z = 1.0 - alpha;
     gl_Position = pos;
-    eColor =  vec4(edgeColor.xyz, alpha);
+    eColor =  vec4(edgeColor.xyz, edgeOpacity * alpha);
 }
