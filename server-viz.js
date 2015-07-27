@@ -164,8 +164,8 @@ function tickGraph () {
     }).subscribe(
         _.identity,
         function (err) {
-            cb({success: false, error: 'graph force tick error'});
-            eh.makeRxErrorHandler('graph force tick handler')(err);
+            cb({success: false, error: 'aggregate error'});
+            log.makeRxErrorHandler(logger, 'aggregate handler')(err);
         }
     );
 }
@@ -346,7 +346,7 @@ function init(app, socket) {
     });
 
     socket.on('filter', function (query, cb) {
-        debug('Got filter', query);
+        logger.info('Got filter', query);
         graph.take(1).do(function (graph) {
 
             var simulator = graph.simulator;
@@ -402,12 +402,12 @@ function init(app, socket) {
 
                     tickGraph();
                     cb({success: true});
-                });
+                }).done(_.identity, log.makeQErrorHandler(logger, 'dataframe filter'));
         }).subscribe(
             _.identity,
             function (err) {
-                cb({success: false, error: 'filter error'});
-                eh.makeRxErrorHandler('filter handler')(err);
+                cb({success: false, error: 'aggregate error'});
+                log.makeRxErrorHandler(logger, 'aggregate handler')(err);
             }
         );
     });
