@@ -47,6 +47,9 @@ var animStep;
 //multicast of current animation's ticks
 var ticksMulti;
 
+//Signal to Send New VBOs
+var updateVboSubject;
+
 //most recent tick
 var graph;
 
@@ -67,6 +70,7 @@ function resetState(dataset) {
     lastMetadata = {};
     finishBufferTransfers = {};
 
+    updateVboSubject = new Rx.Subject();
 
     animStep = driver.create(dataset);
     ticksMulti = animStep.ticks.publish();
@@ -154,6 +158,18 @@ function read_selection(type, query, res) {
         function (err) {
             cb({success: false, error: 'read_selection error'});
             log.makeRxErrorHandler(logger, 'read_selection handler')(err);
+        }
+    );
+}
+
+function tickGraph () {
+    graph.take(1).do(function (graphContent) {
+        updateVboSubject.onNext(graphContent);
+    }).subscribe(
+        _.identity,
+        function (err) {
+            cb({success: false, error: 'graph force tick error'});
+            eh.makeRxErrorHandler('graph force tick handler')(err);
         }
     );
 }
@@ -382,6 +398,8 @@ function init(app, socket) {
                         'curPoints', 'pointSizes', 'pointColors',
                         'edgeColors', 'logicalEdges', 'springsPos'
                     ]);
+
+                    tickGraph();
                     cb({success: true});
                 });
         }).subscribe(
@@ -739,7 +757,8 @@ function stream(socket, renderConfig, colorTexture) {
             })
             .flatMap(function () {
                 debug('7. Wait for next anim step', socket.id, ticker);
-                return ticksMulti
+
+                return ticksMulti.merge(updateVboSubject)
                     .take(1)
                     .do(function () { debug('8. next ready!', socket.id, ticker); });
             })
