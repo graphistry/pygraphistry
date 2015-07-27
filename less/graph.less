@@ -21,6 +21,7 @@
 // z-index order
 //////////////////////////////////////////////////////////////////////////////
 
+@meter-z:                       4000;
 @marquee-z:                     5000;
 @highlighted-point-z:           5001;
 @graph-label-z:                 6000;
@@ -302,12 +303,13 @@
         .meter {
             visibility: visible;
             position: fixed;
+            z-index: @meter-z;
             bottom: 3em;
             opacity: 0.75;
-            color: rgb(51,51,102) !important;
+            color: rgb(245,245,253) !important;
 
             .flavor, div {
-                color: rgb(51,51,102);
+                color: rgb(245,245,253);
                 text-transform: uppercase !important;
                 font-weight: bold !important;
                 text-shadow: none;
@@ -391,7 +393,7 @@
 
 .graphistry-body {
     visibility: hidden;
-    background-color: #F0F4F9 !important;
+    background-color: #333339 !important;
     height: 100%;
     overflow:hidden;
 
@@ -673,7 +675,7 @@ button.btn-default {
     top: 50px;
     left: -200px;
     text-align: center;
-    color: rgb(51,51,102);
+    color: rgb(245,245,253);
 }
 
 //////////////////////////////////////////////////////////////////////////////
