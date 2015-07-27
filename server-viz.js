@@ -408,7 +408,23 @@ function init(app, socket) {
            qIndices.then(function (indices) {
                 perf('Done selecting indices');
                 try {
-                    var data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, query.type);
+                    var data = {};
+                    // Initial case of getting global Stats
+                    // TODO: Make this match the same structure, not the current hacky approach in streamGL
+                    if (query.type) {
+                        data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, query.type);
+                    } else {
+                        var types = ['point', 'edge'];
+                        _.each(types, function (type) {
+                            var filteredAttrs = _.filter(query.attributes, function (attr) {
+                                return (attr.type === type);
+                            });
+                            var attrNames = _.pluck(filteredAttrs, 'name');
+                            var partialData = graph.dataframe.aggregate(indices, attrNames, query.binning, query.mode, type);
+                            _.extend(data, partialData);
+                        });
+                    }
+
                     perf('Sending back data');
                     cb({success: true, data: data});
                 } catch (err) {
