@@ -4,7 +4,7 @@
 
 command=/usr/bin/nodejs /opt/npm_global/bin/npm start "{\"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ inventory_hostname }}\", \"HTTP_LISTEN_ADDRESS\": \"0.0.0.0\" }"
 directory={{ graphistry_install_path }}/central
-environment=DEBUG='(express:*)|(graphistry:*)'
+environment=
 
 process_name=%(program_name)s
 numprocs=1
