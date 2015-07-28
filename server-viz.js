@@ -531,11 +531,11 @@ function stream(socket, renderConfig, colorTexture) {
                     success: true,
                     params: {
                         nodes: {
-                            urn: '/read_node_selection',
+                            urn: 'read_node_selection',
                             count: nodeIndices.length
                         },
                         edges: {
-                            urn: '/read_edge_selection',
+                            urn: 'read_edge_selection',
                             count: edgeIndices.length
                         }
                     }
