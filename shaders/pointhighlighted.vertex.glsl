@@ -5,6 +5,7 @@ precision highp float;
 
 attribute vec2 curPos;
 attribute float pointSize;
+attribute vec4 pointColor;
 
 varying vec4 vColor;
 
@@ -13,17 +14,18 @@ uniform float fog;
 uniform float stroke;
 uniform float zoomScalingFactor;
 uniform float maxPointSize;
+uniform float minPointSize;
+uniform float pointOpacity;
 
 void main(void) {
     if (stroke > 0.0) {
-        gl_PointSize = clamp(zoomScalingFactor * pointSize, 17.0, maxPointSize);
+        gl_PointSize = clamp(zoomScalingFactor * pointSize, minPointSize, maxPointSize);
     } else {
-        gl_PointSize = stroke + clamp(zoomScalingFactor * pointSize, 17.0, maxPointSize);
+        gl_PointSize = stroke + clamp(zoomScalingFactor * pointSize, minPointSize, maxPointSize);
     }
 
-    vec4 pos = mvp * vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);
+    vec4 pos = mvp * vec4(curPos.xy, Z_VAL, W_VAL);
     gl_Position = pos;
 
-    vColor =  stroke > 0.0 ? vec4(0.0, 0.0, 0.0, 1.0) : vec4(1.0, 1.0, 1.0, 1.0);
-    // vColor = vec4(stroke > 0.0 ? 0.5 * pointColor.xyz : pointColor.xyz, 0.8);
+    vColor = vec4(stroke > 0.0 ? 0.5 * pointColor.xyz : 0.4 * pointColor.xyz + 0.6 * vec3(1.0, 1.0, 1.0), pointOpacity);
 }

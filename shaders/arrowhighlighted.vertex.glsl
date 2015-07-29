@@ -14,7 +14,7 @@ attribute vec2 endPos;       // End position of edge
 attribute float normalDir;   // Direction of normal vector.
                              // 0 for tip vertex Wing vertices -> 1.0/-1.0
 attribute float pointSize;
-// attribute vec4 arrowColor;
+attribute vec4 arrowColor;
 
 varying vec4 aColor;
 
@@ -56,5 +56,5 @@ void main(void) {
     pos.z = edgeLength < 0.05 ? 100.0 : 1.0 - alpha;
 
     gl_Position = pos;
-    aColor =  vec4(1.0, 1.0, 1.0, alpha);
+    aColor = vec4(0.4 * arrowColor.xyz + 0.6 * vec3(1.0, 1.0, 1.0), alpha);
 }
