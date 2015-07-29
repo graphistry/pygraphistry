@@ -383,6 +383,8 @@ function init(app, socket) {
 
             // TODO: Deal with case of empty selection better:
             if (masks.point.length === 0 || masks.edge.length === 0) {
+                logger.debug('Empty Selection. Point length: ' + masks.point.length +
+                        ', Edge length: ' + masks.edge.length);
                 cb({success: false});
                 return;
             }
@@ -428,14 +430,19 @@ function init(app, socket) {
                 qIndices = graph.simulator.selectNodes(query.sel);
             }
 
-           qIndices.then(function (indices) {
+           qIndices.then(function (nodeIndices) {
                 logger.trace('Done selecting indices');
                 try {
+                    var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
+                    var indices = {
+                        point: nodeIndices,
+                        edge: edgeIndices
+                    };
                     var data = {};
                     // Initial case of getting global Stats
                     // TODO: Make this match the same structure, not the current hacky approach in streamGL
                     if (query.type) {
-                        data = graph.dataframe.aggregate(indices, query.attributes, query.binning, query.mode, query.type);
+                        data = graph.dataframe.aggregate(indices[query.type], query.attributes, query.binning, query.mode, query.type);
                     } else {
                         var types = ['point', 'edge'];
                         _.each(types, function (type) {
@@ -443,7 +450,7 @@ function init(app, socket) {
                                 return (attr.type === type);
                             });
                             var attrNames = _.pluck(filteredAttrs, 'name');
-                            var partialData = graph.dataframe.aggregate(indices, attrNames, query.binning, query.mode, type);
+                            var partialData = graph.dataframe.aggregate(indices[type], attrNames, query.binning, query.mode, type);
                             _.extend(data, partialData);
                         });
                     }
