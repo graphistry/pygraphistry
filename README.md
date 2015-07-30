@@ -10,6 +10,10 @@ $ pip install graphistry
 
 *Note*: we only support Python 2.7 for now.
 
+#### API Key
+
+Email us at [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) to get your API key.
+
 #### Working IPython (Jupyter) Notebooks
 
 We recommend coding in [IPython](http://ipython.org) notebooks. That way, you have your code and visualizations all in one place. You can download our demo example (below) in this [notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1).
