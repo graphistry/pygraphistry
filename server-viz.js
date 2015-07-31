@@ -421,13 +421,14 @@ function init(app, socket) {
     socket.on('aggregate', function (query, cb) {
         logger.info('Got aggregate', query);
         graph.take(1).do(function (graph) {
-
             logger.trace('Selecting Indices');
-            var qIndices
+            var qIndices;
 
             if (query.all === true) {
                 var numPoints = graph.simulator.dataframe.getNumElements('point');
                 qIndices = Q(_.range(numPoints));
+            } else if (!query.sel) {
+                qIndices = Q([]);
             } else {
                 qIndices = graph.simulator.selectNodes(query.sel);
             }
