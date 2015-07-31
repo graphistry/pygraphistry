@@ -120,6 +120,8 @@ function getHeader(table) {
 // Simple (and dumb) conversion of JSON edge lists to VGraph
 // JSON * String * String * String -> VGraph
 function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
+    nlabels = nlabels || []
+
     var node2Idx = {};
     var idx2Node = {};
     var nodeCount = 0;
