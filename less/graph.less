@@ -1039,7 +1039,7 @@ button.btn-default {
         transition: all @rotateDuration ease-in-out;
     }
 
-    .closeButton, .expandButton {
+    .refreshButton, .expandButton, .closeButton {
         margin-top: 4px;
         font-size: 0.7em;
         .fa {
@@ -1049,6 +1049,10 @@ button.btn-default {
         .fa:hover {
             color: @graphistry-lightblue;
         }
+    }
+
+    .refreshButton {
+        display: none;
     }
 
     .tooltip {
