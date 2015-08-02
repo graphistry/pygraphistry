@@ -11,8 +11,12 @@ $ pip install graphistry
 *Note*: we only support Python 2.7 for now.
 
 #### API Key
+Email us at [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) to get your API key. Registering your key is easy:
 
-Email us at [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) to get your API key.
+```python
+import graphistry
+graphistry = graphistry.settings(key='<Your key>')
+```
 
 #### Working IPython (Jupyter) Notebooks
 
@@ -66,12 +70,53 @@ Then we bind our new column by passing on extra argument to *plot*:
 graphistry.plot(links, source="source", destination="target", edge_label="label")
 ```
 
+### Controling Node Size and Color
+We are going to use [igraph](http://igraph.org/python/) to size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). Install igraph with `pip install igraph-python`.
+
+We start by converting our edge dateframe to an igraph by indicating the names of the source/destination columns:
+
+```python
+import igraph
+ig = pandas2igraph(links, 'source', 'target')
+```
+By computing the PageRank and community cluster, we create two new attributes (*pagerank* & *community*). Both of them are attacked to nodes.
+
+```python
+ig.vs['pagerank'] = ig.pagerank()
+ig.vs['community'] = ig.community_infomap().membership
+```
+
+Finally, we convert our graph back to Pandas. Since we have not only edge attributes but also node attributes, our graph is represented with two Pandas dataframes: one for nodes and one for edges.
+
+```python
+(links2, nodes2) = igraph2pandas(ig, 'source', 'target')
+graphistry.plot(links2, nodes2, source='source', destination='target', node='__nodeid__',\
+                edge_label='label', point_color='community', point_size='pagerank')
+```
+
+![Second Graph of Miserables](http://i.imgur.com/sk5URzz.png)
+
+
+The full code for the two conversion functions `pandas2igraph` and `igraph2pandas` is in the [Misérables demo notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1)
+
+## Going Further: Marvel Comics
+
+This is a more complex example: we link together Marvel characters who co-star in the same comic. The dataset is split in three files:
+
+- [appearances.txt](https://www.dropbox.com/s/yz78yy58m1mh8l2/appearances.txt?dl=1)
+- [characters.txt](https://www.dropbox.com/s/7zodqsvqa9j29bb/characters.txt?dl=1)
+- [comics.txt](https://www.dropbox.com/s/x1o30enl5abdpnm/comics.txt?dl=1)
+
+Run the code in [the Marvel Demo notebook](https://www.dropbox.com/s/mzzq1mvpdwwmes1/MarvelTutorial.ipynb?dl=1) to browse the entire Marvel universe. Find out who is the most popular Marvel hero!
+
+![Marvel Universe](http://i.imgur.com/0rgPLg7.png)
+
 
 ## API Reference
 
 Have a look at the full [API](http://graphistry.com/api0.3.html#python) for more information on sizes, colors, palettes etc.
 
-#### Cheat Sheet
+### Cheat Sheet
 In a nutshell, `plot` *mandatory* arguments are:
 
 - `edges` *pandas.DataFrame*: The edge dataframe.
