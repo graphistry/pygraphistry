@@ -355,10 +355,10 @@ function init(app, socket) {
             _.each(query, function (data, attribute) {
                 var masks;
                 if (data.type === 'point') {
-                    var pointMask = graph.dataframe.getPointAttributeMask(attribute, data.start, data.stop);
+                    var pointMask = graph.dataframe.getPointAttributeMask(attribute, data);
                     masks = graph.dataframe.masksFromPoints(pointMask);
                 } else if (data.type === 'edge') {
-                    var edgeMask = graph.dataframe.getEdgeAttributeMask(attribute, data.start, data.stop);
+                    var edgeMask = graph.dataframe.getEdgeAttributeMask(attribute, data);
                     masks = graph.dataframe.masksFromEdges(edgeMask);
                 } else {
                     cb({success: false});
