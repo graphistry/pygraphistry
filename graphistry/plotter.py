@@ -137,7 +137,11 @@ class Plotter(object):
         if self.edge_weight:
             elist['edgeWeight'] = elist[self.edge_weight]
         if nodes is None:
-            return self._make_dataset(elist.to_dict(orient='records'))
+            self.node = '__nodeid__'
+            nodes = pandas.DataFrame()
+            nodes[self.node] = pandas.concat([edges[self.source], edges[self.destination]],
+                                             ignore_index=True).drop_duplicates()
+            self.point_title = self.node
 
         nlist = nodes.reset_index()
         if self.point_color:
