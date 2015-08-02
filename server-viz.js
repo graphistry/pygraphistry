@@ -387,7 +387,7 @@ function init(app, socket) {
             if (masks.point.length === 0) {
                 logger.debug('Empty Selection. Point length: ' + masks.point.length +
                         ', Edge length: ' + masks.edge.length);
-                cb({success: false});
+                cb({success: false, error: 'empty selection'});
                 return;
             }
 
