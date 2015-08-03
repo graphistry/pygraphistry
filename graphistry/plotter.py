@@ -71,6 +71,11 @@ class Plotter(object):
         else:
             g = graph
         n = self.nodes if nodes is None else nodes
+
+        if self.source is None or self.destination is None:
+            raise ValueError('Source/destination must be bound before plotting.')
+        if n is not None and self.node is None:
+            raise ValueError('Node identifier must be bound when using node dataframe')
         dataset = self._plot_dispatch(g, n)
         if dataset is None:
             raise TypeError('Expected Pandas dataframe or Igraph graph')
