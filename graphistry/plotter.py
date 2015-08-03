@@ -8,6 +8,8 @@ import util
 
 
 class Plotter(object):
+    defaultNodeId = '__nodeid__'
+
     def __init__(self):
         # Bindings
         self.edges = None
@@ -99,6 +101,7 @@ class Plotter(object):
         eattribs.remove(self.destination)
         cols = [self.source, self.destination] + eattribs
         etuples = [tuple(x) for x in edges[cols].values]
+        self.node = self.node or Plotter.defaultNodeId
         return igraph.Graph.TupleList(etuples, directed=True, edge_attrs=eattribs,
                                       vertex_name_attr=self.node)
 
@@ -132,6 +135,7 @@ class Plotter(object):
         return None
 
     def _pandas2dataset(self, edges, nodes):
+        nodeid = self.node or Plotter.defaultNodeId
         elist = edges.reset_index()
         if self.edge_color:
             elist['edgeColor'] = elist[self.edge_color]
@@ -142,11 +146,9 @@ class Plotter(object):
         if self.edge_weight:
             elist['edgeWeight'] = elist[self.edge_weight]
         if nodes is None:
-            self.node = '__nodeid__'
             nodes = pandas.DataFrame()
-            nodes[self.node] = pandas.concat([edges[self.source], edges[self.destination]],
-                                             ignore_index=True).drop_duplicates()
-            self.point_title = self.node
+            nodes[nodeid] = pandas.concat([edges[self.source], edges[self.destination]],
+                                           ignore_index=True).drop_duplicates()
 
         nlist = nodes.reset_index()
         if self.point_color:
@@ -155,6 +157,8 @@ class Plotter(object):
             nlist['pointLabel'] = nlist[self.point_label]
         if self.point_title:
             nlist['pointTitle'] = nlist[self.point_title]
+        else:
+            nlist['pointTitle'] = nlist[nodeid]
         if self.point_size:
             nlist['pointSize'] = nlist[self.point_size]
         return self._make_dataset(elist.to_dict(orient='records'),
@@ -163,8 +167,8 @@ class Plotter(object):
     def _make_dataset(self, elist, nlist=None):
         name = ''.join(random.choice(string.ascii_uppercase +
                                      string.digits) for _ in range(10))
-        bindings = {'idField': self.node, 'destinationField': self.destination,
-                    'sourceField': self.source}
+        bindings = {'idField': self.node or Plotter.defaultNodeId,
+                    'destinationField': self.destination, 'sourceField': self.source}
         dataset = {'name': pygraphistry.PyGraphistry._dataset_prefix + name,
                    'bindings': bindings, 'type': 'edgelist', 'graph': elist}
         if nlist:
