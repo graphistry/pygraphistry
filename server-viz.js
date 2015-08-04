@@ -384,12 +384,12 @@ function init(app, socket) {
             logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
 
             // TODO: Deal with case of empty selection better:
-            if (masks.point.length === 0) {
-                logger.debug('Empty Selection. Point length: ' + masks.point.length +
-                        ', Edge length: ' + masks.edge.length);
-                cb({success: false, error: 'empty selection'});
-                return;
-            }
+            // if (masks.point.length === 0) {
+            //     logger.debug('Empty Selection. Point length: ' + masks.point.length +
+            //             ', Edge length: ' + masks.edge.length);
+            //     cb({success: false, error: 'empty selection'});
+            //     return;
+            // }
 
             // Promise
             graph.dataframe.filter(masks, graph.simulator)
