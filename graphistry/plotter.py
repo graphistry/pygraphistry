@@ -1,6 +1,7 @@
 import random
 import string
 import json
+import copy
 import pandas
 
 import pygraphistry
@@ -32,38 +33,43 @@ class Plotter(object):
     def bind(self, source=None, destination=None, node=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
              point_title=None, point_label=None, point_color=None, point_size=None):
-        self.source = source or self.source
-        self.destination = destination or self.destination
-        self.node = node or self.node
+        res = copy.copy(self)
+        res.source = source or self.source
+        res.destination = destination or self.destination
+        res.node = node or self.node
 
-        self.edge_title = edge_title or self.edge_title
-        self.edge_label = edge_label or self.edge_label
-        self.edge_color = edge_color or self.edge_color
-        self.edge_weight = edge_weight or self.edge_weight
+        res.edge_title = edge_title or self.edge_title
+        res.edge_label = edge_label or self.edge_label
+        res.edge_color = edge_color or self.edge_color
+        res.edge_weight = edge_weight or self.edge_weight
 
-        self.point_title = point_title or self.point_title
-        self.point_label = point_label or self.point_label
-        self.point_color = point_color or self.point_color
-        self.point_size = point_size or self.point_size
-        return self
+        res.point_title = point_title or self.point_title
+        res.point_label = point_label or self.point_label
+        res.point_color = point_color or self.point_color
+        res.point_size = point_size or self.point_size
+        return res
 
     def nodes(nodes):
-        self.nodes = nodes
-        return self
+        res = copy.copy(self)
+        res.nodes = nodes
+        return res
 
     def edges(edges):
-        self.edges = edges
-        return self
+        res = copy.copy(self)
+        res.edges = edges
+        return res
 
     def graph(ig):
-        self.edges = ig
-        self.nodes = None
-        return self
+        res = copy.copy(self)
+        res.edges = ig
+        res.nodes = None
+        return res
 
     def settings(self, height=None, url_params={}):
-        self.height = height or self.height
-        self.url_params = dict(self.url_params, **url_params)
-        return self
+        res = copy.copy(self)
+        res.height = height or self.height
+        res.url_params = dict(self.url_params, **url_params)
+        return res
 
     def plot(self, graph=None, nodes=None):
         if graph is None:
