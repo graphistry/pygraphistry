@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import sys
 import platform as p
 import uuid
@@ -18,3 +20,17 @@ def in_ipython():
             return True
         except NameError:
             return False
+
+def warn(msg):
+    if in_ipython:
+        import IPython
+        IPython.utils.warn.warn(msg)
+    else:
+        print('WARNING: ', msg, file=sys.stderr)
+
+def error(msg):
+    if in_ipython:
+        import IPython
+        IPython.utils.warn.error(msg)
+    else:
+        raise ValueError(msg)

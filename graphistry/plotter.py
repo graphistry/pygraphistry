@@ -1,3 +1,4 @@
+from __future__ import print_function
 import random
 import string
 import json
@@ -74,19 +75,19 @@ class Plotter(object):
     def plot(self, graph=None, nodes=None):
         if graph is None:
             if self.edges is None:
-                raise ValueError('Must specify graph/edges')
+                util.error('Graph/edges must be specified.')
             g = self.edges
         else:
             g = graph
         n = self.nodes if nodes is None else nodes
 
         if self.source is None or self.destination is None:
-            raise ValueError('Source/destination must be bound before plotting.')
+            util.error('Source/destination must be bound before plotting.')
         if n is not None and self.node is None:
-            raise ValueError('Node identifier must be bound when using node dataframe')
+            util.error('Node identifier must be bound when using node dataframe.')
         dataset = self._plot_dispatch(g, n)
         if dataset is None:
-            raise TypeError('Expected Pandas dataframe or Igraph graph')
+            util.error('Expected Pandas dataframe or Igraph graph.')
 
         dataset_name = pygraphistry.PyGraphistry._etl(json.dumps(dataset))
         viz_url = pygraphistry.PyGraphistry._viz_url(dataset_name, self.url_params)
@@ -95,7 +96,7 @@ class Plotter(object):
             from IPython.core.display import HTML
             return HTML(self._iframe(viz_url))
         else:
-            print 'Url: ', viz_url
+            print('Url: ', viz_url)
             import webbrowser
             webbrowser.open(viz_url)
             return self
