@@ -28,7 +28,7 @@ setup(
     author='Graphistry',
     author_email='pygraphistry@graphistry.com',
 
-    install_requires=['requests', 'pandas'],
+    install_requires=['requests', 'pandas', 'future'],
 
     license='BSD',
 

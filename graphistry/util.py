@@ -11,7 +11,7 @@ def fingerprint():
     md5 = hashlib.md5()
     # Hostname, OS, CPU, MAC,
     data = [p.node(), p.system(), p.machine(), str(uuid.getnode())]
-    md5.update(''.join(data))
+    md5.update(''.join(data).encode('utf8'))
     return "%s-pygraphistry-%s" % (md5.hexdigest()[:8], sys.modules['graphistry'].__version__)
 
 
