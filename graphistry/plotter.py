@@ -146,32 +146,32 @@ class Plotter(object):
         return None
 
     def _pandas2dataset(self, edges, nodes):
+        def bind(df, pbname, attrib, default=None):
+            bound = getattr(self, attrib)
+            if bound:
+                if bound in df.columns.tolist():
+                    df[pbname] = df[bound]
+                else:
+                    util.warn('Attribute "%s" bound to %s does not exist' % (bound, attrib))
+            elif default:
+                df[pbname] = df[default]
+
         nodeid = self.node or Plotter.defaultNodeId
         elist = edges.reset_index()
-        if self.edge_color:
-            elist['edgeColor'] = elist[self.edge_color]
-        if self.edge_label:
-            elist['edgeLabel'] = elist[self.edge_label]
-        if self.edge_title:
-            elist['edgeTitle'] = elist[self.edge_title]
-        if self.edge_weight:
-            elist['edgeWeight'] = elist[self.edge_weight]
+        bind(elist, 'edgeColor', 'edge_color')
+        bind(elist, 'edgeLabel', 'edge_label')
+        bind(elist, 'edgeTitle', 'edge_title')
+        bind(elist, 'edgeWeight', 'edge_weight')
         if nodes is None:
             nodes = pandas.DataFrame()
             nodes[nodeid] = pandas.concat([edges[self.source], edges[self.destination]],
                                            ignore_index=True).drop_duplicates()
 
         nlist = nodes.reset_index()
-        if self.point_color:
-            nlist['pointColor'] = nlist[self.point_color]
-        if self.point_label:
-            nlist['pointLabel'] = nlist[self.point_label]
-        if self.point_title:
-            nlist['pointTitle'] = nlist[self.point_title]
-        else:
-            nlist['pointTitle'] = nlist[nodeid]
-        if self.point_size:
-            nlist['pointSize'] = nlist[self.point_size]
+        bind(nlist, 'pointColor', 'point_color')
+        bind(nlist, 'pointLabel', 'point_label')
+        bind(nlist, 'pointTitle', 'point_title', nodeid)
+        bind(nlist, 'pointSize', 'point_size')
         return self._make_dataset(elist.to_dict(orient='records'),
                                   nlist.to_dict(orient='records'))
 
