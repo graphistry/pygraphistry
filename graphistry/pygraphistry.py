@@ -1,10 +1,13 @@
+from __future__ import absolute_import
+from future import standard_library
+standard_library.install_aliases()
+from builtins import object
 import sys
 import gzip
-import StringIO
+import io
 import requests
 
-import util
-import plotter
+from . import util
 
 
 class PyGraphistry(object):
@@ -28,6 +31,8 @@ class PyGraphistry(object):
     def bind(node=None, source=None, destination=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
              point_title=None, point_label=None, point_color=None, point_size=None):
+
+        from . import plotter
         return plotter.Plotter().bind(source, destination, node, \
                               edge_title, edge_label, edge_color, edge_weight, \
                               point_title, point_label, point_color, point_size)
@@ -38,7 +43,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def _viz_url(dataset_name, url_params):
-        extra = '&'.join([ k + '=' + v for k,v in url_params.items()])
+        extra = '&'.join([ k + '=' + v for k,v in list(url_params.items())])
         pattern = 'http://%s/graph/graph.html?dataset=%s&usertag=%s&%s'
         return pattern % (PyGraphistry._hostname, dataset_name, PyGraphistry._tag, extra)
 
@@ -52,7 +57,7 @@ class PyGraphistry(object):
                   'agentversion': sys.modules['graphistry'].__version__,
                   'key': PyGraphistry.api_key}
 
-        out_file = StringIO.StringIO()
+        out_file = io.BytesIO()
         with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
             f.write(json_dataset)
         try:

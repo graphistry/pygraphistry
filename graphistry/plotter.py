@@ -1,12 +1,15 @@
 from __future__ import print_function
+from __future__ import absolute_import
+from builtins import range
+from builtins import object
 import random
 import string
 import json
 import copy
 import pandas
 
-import pygraphistry
-import util
+from . import pygraphistry
+from . import util
 
 
 class Plotter(object):
@@ -89,7 +92,8 @@ class Plotter(object):
         if dataset is None:
             util.error('Expected Pandas dataframe or Igraph graph.')
 
-        dataset_name = pygraphistry.PyGraphistry._etl(json.dumps(dataset))
+        json_dataset = json.dumps(dataset, ensure_ascii=False).encode('utf8')
+        dataset_name = pygraphistry.PyGraphistry._etl(json_dataset)
         viz_url = pygraphistry.PyGraphistry._viz_url(dataset_name, self.url_params)
 
         if util.in_ipython() is True:
