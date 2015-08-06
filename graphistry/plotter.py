@@ -13,7 +13,7 @@ from . import util
 
 
 class Plotter(object):
-    defaultNodeId = '__nodeid__'
+    _defaultNodeId = '__nodeid__'
 
     def __init__(self):
         # Bindings
@@ -112,7 +112,7 @@ class Plotter(object):
         eattribs.remove(self.destination)
         cols = [self.source, self.destination] + eattribs
         etuples = [tuple(x) for x in edges[cols].values]
-        self.node = self.node or Plotter.defaultNodeId
+        self.node = self.node or Plotter._defaultNodeId
         return igraph.Graph.TupleList(etuples, directed=True, edge_attrs=eattribs,
                                       vertex_name_attr=self.node)
 
@@ -156,7 +156,7 @@ class Plotter(object):
             elif default:
                 df[pbname] = df[default]
 
-        nodeid = self.node or Plotter.defaultNodeId
+        nodeid = self.node or Plotter._defaultNodeId
         elist = edges.reset_index()
         bind(elist, 'edgeColor', 'edge_color')
         bind(elist, 'edgeLabel', 'edge_label')
@@ -172,18 +172,19 @@ class Plotter(object):
         bind(nlist, 'pointLabel', 'point_label')
         bind(nlist, 'pointTitle', 'point_title', nodeid)
         bind(nlist, 'pointSize', 'point_size')
-        return self._make_dataset(elist.to_dict(orient='records'),
-                                  nlist.to_dict(orient='records'))
+        return self._make_dataset(elist, nlist)
 
     def _make_dataset(self, elist, nlist=None):
+        edict = elist.where((pandas.notnull(elist)), None).to_dict(orient='records')
         name = ''.join(random.choice(string.ascii_uppercase +
                                      string.digits) for _ in range(10))
-        bindings = {'idField': self.node or Plotter.defaultNodeId,
+        bindings = {'idField': self.node or Plotter._defaultNodeId,
                     'destinationField': self.destination, 'sourceField': self.source}
         dataset = {'name': pygraphistry.PyGraphistry._dataset_prefix + name,
-                   'bindings': bindings, 'type': 'edgelist', 'graph': elist}
-        if nlist:
-            dataset['labels'] = nlist
+                   'bindings': bindings, 'type': 'edgelist', 'graph': edict}
+        if nlist is not None:
+            ndict = nlist.where((pandas.notnull(nlist)), None).to_dict(orient='records')
+            dataset['labels'] = ndict
         return dataset
 
     def _iframe(self, url):
