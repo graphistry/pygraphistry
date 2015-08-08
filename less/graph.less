@@ -22,13 +22,13 @@
 //////////////////////////////////////////////////////////////////////////////
 
 @meter-z:                       4000;
-@marquee-z:                     5000;
+@marquee-z:                     4500;
+@menu-z:                        4600;
+@menus-z:                       4700;
 @highlighted-point-z:           5001;
 @graph-label-z:                 6000;
 @graph-label-clicked-z:         6500;
 @graph-label-hover-z:           7000;
-@menu-z:                        9000;
-@menus-z:                       9500;
 @histogram-z:                  10000;
 @inspector-z:                  10000;
 @inspector-tabs-z:             10001;
@@ -41,6 +41,8 @@
 @forker-z:                   1001000;
 @persistor-z:                1001000;
 @colorpicker-z:              1002000;
+
+@modal-z:                    2000000;
 
 //////////////////////////////////////////////////////////////////////////////
 // Labels
@@ -470,9 +472,19 @@ html.nomenu #menus, html.nomenu #sliders {
 #menus {
     position: absolute;
     width: 100%;
-    z-index: @menus-z;
 
     .noselect();
+}
+
+#controlState {
+    z-index: @menus-z;
+    &:hover {
+        z-index: @modal-z;
+    }
+}
+
+.settingsPanel {
+    z-index: @modal-z;
 }
 
 .colorpicker {
