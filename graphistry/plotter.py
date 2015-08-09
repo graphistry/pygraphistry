@@ -147,6 +147,22 @@ class Plotter(object):
         edges = pandas.DataFrame(edata, columns=cols)
         return (edges, nodes)
 
+    def networkx2pandas(self, g):
+        def get_nodelist(g):
+            for n in g.nodes(data=True):
+                yield dict({self._node: n[0]}, **n[1])
+        def get_edgelist(g):
+            for e in g.edges(data=True):
+                yield dict({self._source: e[0], self._destination: e[1]}, **e[2])
+
+        vattribs = g.nodes(data=True)[0][1]
+        if self._node is None or self._node not in vattribs:
+            self._node = self._node or Plotter._defaultNodeId
+
+        nodes = pandas.DataFrame(get_nodelist(g))
+        edges = pandas.DataFrame(get_edgelist(g))
+        return (edges, nodes)
+
     def _plot_dispatch(self, graph, nodes):
         if isinstance(graph, pandas.core.frame.DataFrame):
             return self._pandas2dataset(graph, nodes)
@@ -155,6 +171,17 @@ class Plotter(object):
             import igraph
             if isinstance(graph, igraph.Graph):
                 (e, n) = self.igraph2pandas(graph)
+                return self._pandas2dataset(e, n)
+        except ImportError:
+            pass
+
+        try:
+            import networkx
+            if isinstance(graph, networkx.classes.graph.Graph) or \
+               isinstance(graph, networkx.classes.digraph.DiGraph) or \
+               isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
+               isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
+                (e, n) = self.networkx2pandas(graph)
                 return self._pandas2dataset(e, n)
         except ImportError:
             pass
