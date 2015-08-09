@@ -124,10 +124,8 @@ class Plotter(object):
                 yield dict({self._source: idmap[t[0]], self._destination: idmap[t[1]]},
                             **e.attributes())
 
-        if self._node and self._node not in ig.vs.attributes():
-            util.error('Graph has no vertex attribute "%s"' % self._node)
-        elif self._node is None and not ig.vs.attributes():
-            self._node = self._defaultNodeId
+        if self._node is None or self._node not in ig.vs.attributes():
+            self._node = self._node or Plotter._defaultNodeId
             ig.vs[self._node] = [v.index for v in ig.vs]
 
         edata = get_edgelist(ig)
