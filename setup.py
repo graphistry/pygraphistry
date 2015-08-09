@@ -19,7 +19,7 @@ setup(
     name='graphistry',
 
     version='0.0.22',
-    py_modules = ['graphistry.etl'],
+    packages = ['graphistry'],
     description = 'Visualize node-link graphs using Graphistry\'s cloud',
     #long_description=long_description,
 
