@@ -43,7 +43,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def _viz_url(dataset_name, url_params):
-        extra = '&'.join([ k + '=' + v for k,v in list(url_params.items())])
+        extra = '&'.join([ k + '=' + str(v) for k,v in list(url_params.items())])
         pattern = 'http://%s/graph/graph.html?dataset=%s&usertag=%s&%s'
         return pattern % (PyGraphistry._hostname, dataset_name, PyGraphistry._tag, extra)
 
