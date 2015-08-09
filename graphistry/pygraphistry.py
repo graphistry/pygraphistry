@@ -5,7 +5,9 @@ from builtins import object
 import sys
 import gzip
 import io
+import json
 import requests
+import numpy
 
 from . import util
 
@@ -48,10 +50,11 @@ class PyGraphistry(object):
         return pattern % (PyGraphistry._hostname, dataset_name, PyGraphistry._tag, extra)
 
     @staticmethod
-    def _etl(json_dataset):
+    def _etl(dataset):
         if PyGraphistry.api_key is None:
             raise ValueError('API key required')
 
+        json_dataset = json.dumps(dataset, ensure_ascii=False, cls=NumpyJSONEncoder)
         headers = {'Content-Encoding': 'gzip', 'Content-Type': 'application/json'}
         params = {'usertag': PyGraphistry._tag, 'agent': 'pygraphistry', 'apiversion' : '1',
                   'agentversion': sys.modules['graphistry'].__version__,
@@ -59,7 +62,7 @@ class PyGraphistry(object):
 
         out_file = io.BytesIO()
         with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
-            f.write(json_dataset)
+            f.write(json_dataset.encode('utf8'))
         try:
             response = requests.post(PyGraphistry._etl_url(), out_file.getvalue(),
                                      headers=headers, params=params)
@@ -77,3 +80,12 @@ class PyGraphistry(object):
 
 register = PyGraphistry.register
 bind = PyGraphistry.bind
+
+
+class NumpyJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, numpy.ndarray) and obj.ndim == 1:
+                return obj.tolist()
+        elif isinstance(obj, numpy.generic):
+            return obj.item()
+        return json.JSONEncoder.default(self, obj)

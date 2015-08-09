@@ -4,7 +4,6 @@ from builtins import range
 from builtins import object
 import random
 import string
-import json
 import copy
 import pandas
 
@@ -106,8 +105,7 @@ class Plotter(object):
         if dataset is None:
             util.error('Expected Pandas dataframe or Igraph graph.')
 
-        json_dataset = json.dumps(dataset, ensure_ascii=False).encode('utf8')
-        dataset_name = pygraphistry.PyGraphistry._etl(json_dataset)
+        dataset_name = pygraphistry.PyGraphistry._etl(dataset)
         viz_url = pygraphistry.PyGraphistry._viz_url(dataset_name, self._url_params)
 
         if util.in_ipython() is True:
