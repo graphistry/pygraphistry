@@ -34,6 +34,20 @@ class Plotter(object):
         self._height = 500
         self._url_params = {'info': 'true'}
 
+    def __repr__(self):
+        bnds = ['edges', 'nodes', 'source', 'destination', 'node', 'edge_title',
+                'edge_label', 'edge_color', 'edge_weight', 'point_title',
+                'point_label', 'point_color', 'point_size']
+        stgs = ['height', 'url_params']
+
+        rep = {'bindings': dict([(f, getattr(self, '_' + f)) for f in bnds]),
+               'settings': dict([(f, getattr(self, '_' + f)) for f in stgs])}
+        if util.in_ipython():
+            from IPython.lib.pretty import pretty
+            return pretty(rep)
+        else:
+            return str(rep)
+
     def bind(self, source=None, destination=None, node=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
              point_title=None, point_label=None, point_color=None, point_size=None):
