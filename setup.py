@@ -27,8 +27,8 @@ setup(
 
     author='Graphistry',
     author_email='pygraphistry@graphistry.com',
-
-    install_requires=['requests', 'pandas', 'future'],
+    setup_requires=['numpy'],
+    install_requires=['numpy', 'pandas', 'requests', 'future'],
 
     license='BSD',
 
