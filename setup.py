@@ -34,20 +34,19 @@ setup(
 
     classifiers=[
         'Development Status :: 3 - Alpha',
+        'Environment :: Console',
         'License :: OSI Approved :: BSD License',
-
-        'Topic :: Scientific/Engineering :: Visualization',
-
+        'Operating System :: OS Independent',
+        'Intended Audience :: Science/Research',
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.6',
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.2',
-        'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
+        'Topic :: Scientific/Engineering :: Visualization',
     ],
 
-    keywords='graph plot visualization pandas',
+    keywords='graph plot visualization pandas igraph',
 
     packages=find_packages(exclude=['contrib', 'tests*'])
 )
