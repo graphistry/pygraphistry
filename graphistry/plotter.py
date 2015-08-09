@@ -161,7 +161,7 @@ class Plotter(object):
                 df[pbname] = df[default]
 
         nodeid = self._node or Plotter._defaultNodeId
-        elist = edges.reset_index()
+        elist = edges.reset_index(drop=True)
         bind(elist, 'edgeColor', '_edge_color')
         bind(elist, 'edgeLabel', '_edge_label')
         bind(elist, 'edgeTitle', '_edge_title')
@@ -171,7 +171,7 @@ class Plotter(object):
             nodes[nodeid] = pandas.concat([edges[self._source], edges[self._destination]],
                                            ignore_index=True).drop_duplicates()
 
-        nlist = nodes.reset_index()
+        nlist = nodes.reset_index(drop=True)
         bind(nlist, 'pointColor', '_point_color')
         bind(nlist, 'pointLabel', '_point_label')
         bind(nlist, 'pointTitle', '_point_title', nodeid)
