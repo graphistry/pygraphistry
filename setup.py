@@ -24,7 +24,9 @@ setup(
     install_requires=['numpy', 'pandas', 'requests', 'future'],
     extras_require={
         'igraph': ['python-igraph'],
-        'all': ['python-igraph', 'numexpr', 'Bottleneck']
+        'networkx': ['networkx'],
+        'pandas-extra': ['numexpr', 'Bottleneck'],
+        'all': ['python-igraph', 'networkx', 'numexpr', 'Bottleneck']
     },
     license='BSD',
     classifiers=[
