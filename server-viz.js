@@ -441,25 +441,31 @@ function init(app, socket) {
                         point: nodeIndices,
                         edge: edgeIndices
                     };
-                    var data = {};
+                    var data;
                     // Initial case of getting global Stats
                     // TODO: Make this match the same structure, not the current hacky approach in streamGL
                     if (query.type) {
-                        data = graph.dataframe.aggregate(indices[query.type], query.attributes, query.binning, query.mode, query.type);
+                        data = [graph.dataframe.aggregate(indices[query.type], query.attributes, query.binning, query.mode, query.type)];
                     } else {
                         var types = ['point', 'edge'];
-                        _.each(types, function (type) {
+                        data = _.map(types, function (type) {
                             var filteredAttrs = _.filter(query.attributes, function (attr) {
                                 return (attr.type === type);
                             });
                             var attrNames = _.pluck(filteredAttrs, 'name');
-                            var partialData = graph.dataframe.aggregate(indices[type], attrNames, query.binning, query.mode, type);
-                            _.extend(data, partialData);
+                            return graph.dataframe.aggregate(indices[type], attrNames, query.binning, query.mode, type);
                         });
                     }
 
-                    logger.trace('Sending back data');
-                    cb({success: true, data: data});
+                    return Q.all(data).spread(function () {
+                        var returnData = {};
+                        _.each(arguments, function (partialData) {
+                            _.extend(returnData, partialData);
+                        });
+                        logger.trace('Sending back data');
+                        cb({success: true, data: returnData});
+                    }).done(_.identity, log.makeQErrorHandler(logger, 'Combine Aggregates'));
+
                 } catch (err) {
                     cb({success: false, error: err.message, stack: err.stack});
                     log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
