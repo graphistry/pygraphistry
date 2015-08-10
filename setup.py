@@ -17,7 +17,7 @@ setup(
     description = 'Visualize node-link graphs using Graphistry\'s cloud',
     #long_description=long_description,
     url='https://github.com/graphistry/pygraphistry',
-    download_url= 'https://pypi.python.org/pypi/graphistry/'
+    download_url= 'https://pypi.python.org/pypi/graphistry/',
     author='The Graphistry Team',
     author_email='pygraphistry@graphistry.com',
     setup_requires=['numpy'],
