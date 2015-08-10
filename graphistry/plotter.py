@@ -1,10 +1,12 @@
 from __future__ import print_function
 from __future__ import absolute_import
+from builtins import str
 from builtins import range
 from builtins import object
 import random
 import string
 import copy
+import types
 import pandas
 
 from . import pygraphistry
@@ -97,7 +99,7 @@ class Plotter(object):
             g = graph
         n = self._nodes if nodes is None else nodes
 
-        self._check_mandatory_bindings(n != None)
+        self._check_mandatory_bindings(not isinstance(n, type(None)))
         dataset = self._plot_dispatch(g, n)
         if dataset is None:
             util.error('Expected Pandas dataframe(s) or Igraph/NetworkX graph.')
