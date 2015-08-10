@@ -97,13 +97,10 @@ class Plotter(object):
             g = graph
         n = self._nodes if nodes is None else nodes
 
-        if self._source is None or self._destination is None:
-            util.error('Source/destination must be bound before plotting.')
-        if n is not None and self._node is None:
-            util.error('Node identifier must be bound when using node dataframe.')
+        self._check_mandatory_bindings(n != None)
         dataset = self._plot_dispatch(g, n)
         if dataset is None:
-            util.error('Expected Pandas dataframe or Igraph graph.')
+            util.error('Expected Pandas dataframe(s) or Igraph/NetworkX graph.')
 
         dataset_name = pygraphistry.PyGraphistry._etl(dataset)
         viz_url = pygraphistry.PyGraphistry._viz_url(dataset_name, self._url_params)
@@ -119,12 +116,17 @@ class Plotter(object):
 
     def pandas2igraph(self, edges, directed=True):
         import igraph
+        self._check_mandatory_bindings(False)
+        self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
+        if self._node is None:
+            util.warn('"node" is unbound, automatically binding it to "%s".' % Plotter._defaultNodeId)
+
+        self._node = self._node or Plotter._defaultNodeId
         eattribs = edges.columns.values.tolist()
         eattribs.remove(self._source)
         eattribs.remove(self._destination)
         cols = [self._source, self._destination] + eattribs
         etuples = [tuple(x) for x in edges[cols].values]
-        self._node = self._node or Plotter._defaultNodeId
         return igraph.Graph.TupleList(etuples, directed=directed, edge_attrs=eattribs,
                                       vertex_name_attr=self._node)
 
@@ -136,9 +138,13 @@ class Plotter(object):
                 yield dict({self._source: idmap[t[0]], self._destination: idmap[t[1]]},
                             **e.attributes())
 
-        if self._node is None or self._node not in ig.vs.attributes():
-            self._node = self._node or Plotter._defaultNodeId
-            ig.vs[self._node] = [v.index for v in ig.vs]
+        self._check_mandatory_bindings(False)
+        if self._node is None:
+            util.warn('"node" is unbound, automatically binding it to "%s".' % Plotter._defaultNodeId)
+            ig.vs[Plotter._defaultNodeId] = [v.index for v in ig.vs]
+            self._node = Plotter._defaultNodeId
+        elif self._node not in ig.vs.attributes():
+            util.error('Vertex attribute "%s" bound to "node" does not exist.' % self._node)
 
         edata = get_edgelist(ig)
         ndata = [v.attributes() for v in ig.vs]
@@ -155,13 +161,30 @@ class Plotter(object):
             for e in g.edges(data=True):
                 yield dict({self._source: e[0], self._destination: e[1]}, **e[2])
 
-        vattribs = g.nodes(data=True)[0][1]
-        if self._node is None or self._node not in vattribs:
-            self._node = self._node or Plotter._defaultNodeId
+        self._check_mandatory_bindings(False)
+        vattribs = g.nodes(data=True)[0][1] if g.number_of_nodes() > 0 else []
+        if self._node is None:
+            util.warn('"node" is unbound, automatically binding it to "%s".' % Plotter._defaultNodeId)
+            self._node = Plotter._defaultNodeId
+        elif self._node not in vattribs:
+            util.error('Vertex attribute "%s" bound to "node" does not exist.' % self._node)
 
         nodes = pandas.DataFrame(get_nodelist(g))
         edges = pandas.DataFrame(get_edgelist(g))
         return (edges, nodes)
+
+    def _check_mandatory_bindings(self, node_required):
+        if self._source is None or self._destination is None:
+            util.error('Both "source" and "destination" must be bound before plotting.')
+        if node_required and self._node is None:
+            util.error('Node identifier must be bound when using node dataframe.')
+
+    def _check_bound_attribs(self, df, attribs, typ):
+        cols = df.columns.values.tolist()
+        for a in attribs:
+            b = getattr(self, '_' + a)
+            if b not in cols:
+                util.error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
     def _plot_dispatch(self, graph, nodes):
         if isinstance(graph, pandas.core.frame.DataFrame):
@@ -195,10 +218,11 @@ class Plotter(object):
                 if bound in df.columns.tolist():
                     df[pbname] = df[bound]
                 else:
-                    util.warn('Attribute "%s" bound to %s does not exist' % (bound, attrib))
+                    util.warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
             elif default:
                 df[pbname] = df[default]
 
+        self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
         nodeid = self._node or Plotter._defaultNodeId
         elist = edges.reset_index(drop=True)
         bind(elist, 'edgeColor', '_edge_color')
@@ -209,6 +233,8 @@ class Plotter(object):
             nodes = pandas.DataFrame()
             nodes[nodeid] = pandas.concat([edges[self._source], edges[self._destination]],
                                            ignore_index=True).drop_duplicates()
+        else:
+            self._check_bound_attribs(nodes, ['node'], 'Vertex')
 
         nlist = nodes.reset_index(drop=True)
         bind(nlist, 'pointColor', '_point_color')
