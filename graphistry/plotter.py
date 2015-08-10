@@ -167,10 +167,10 @@ class Plotter(object):
         vattribs = g.nodes(data=True)[0][1] if g.number_of_nodes() > 0 else []
         if self._node is None:
             util.warn('"node" is unbound, automatically binding it to "%s".' % Plotter._defaultNodeId)
-            self._node = Plotter._defaultNodeId
-        elif self._node not in vattribs:
-            util.error('Vertex attribute "%s" bound to "node" does not exist.' % self._node)
+        elif self._node in vattribs:
+            util.error('Vertex attribute "%s" already exists.' % self._node)
 
+        self._node = self._node or Plotter._defaultNodeId
         nodes = pandas.DataFrame(get_nodelist(g))
         edges = pandas.DataFrame(get_edgelist(g))
         return (edges, nodes)
