@@ -68,6 +68,12 @@ class PyGraphistry(object):
             else:
                 f.write(json_dataset.encode('utf8'))
 
+        size = len(out_file.getvalue()) / 1024
+        if size >= 10 * 1024:
+            print('Uploading %d kB. This may take a while...' % size)
+        elif size > 100 * 1024:
+            util.error('Dataset is too large (%d kB)!' % size)
+
         try:
             response = requests.post(PyGraphistry._etl_url(), out_file.getvalue(),
                                      headers=headers, params=params)

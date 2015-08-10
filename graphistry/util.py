@@ -33,5 +33,4 @@ def error(msg):
     if in_ipython:
         import IPython
         IPython.utils.warn.error(msg)
-    else:
-        raise ValueError(msg)
+    raise ValueError(msg)
