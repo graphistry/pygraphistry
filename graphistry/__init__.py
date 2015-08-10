@@ -5,4 +5,4 @@ try:
 except DistributionNotFound:
     __version__ = '0.0.0'
 
-#from graphistry.etl import settings, plot
+from graphistry.etl import settings, plot
