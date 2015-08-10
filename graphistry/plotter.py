@@ -68,17 +68,17 @@ class Plotter(object):
         res._point_size = point_size or self._point_size
         return res
 
-    def nodes(nodes):
+    def nodes(self, nodes):
         res = copy.copy(self)
         res._nodes = nodes
         return res
 
-    def edges(edges):
+    def edges(self, edges):
         res = copy.copy(self)
         res._edges = edges
         return res
 
-    def graph(ig):
+    def graph(self, ig):
         res = copy.copy(self)
         res._edges = ig
         res._nodes = None

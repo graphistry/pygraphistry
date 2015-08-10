@@ -41,6 +41,26 @@ class PyGraphistry(object):
                               point_title, point_label, point_color, point_size)
 
     @staticmethod
+    def nodes(nodes):
+        from . import plotter
+        return plotter.Plotter().nodes(nodes)
+
+    @staticmethod
+    def edges(edges):
+        from . import plotter
+        return plotter.Plotter().edges(edges)
+
+    @staticmethod
+    def graph(ig):
+        from . import plotter
+        return plotter.Plotter().graph(ig)
+
+    @staticmethod
+    def settings(height=None, url_params={}):
+        from . import plotter
+        return plotter.Plotter().settings(height, url_params)
+
+    @staticmethod
     def _etl_url():
         return 'http://%s/etl' % PyGraphistry._hostname
 
