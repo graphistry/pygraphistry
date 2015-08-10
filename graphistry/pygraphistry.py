@@ -111,6 +111,10 @@ class PyGraphistry(object):
 
 register = PyGraphistry.register
 bind = PyGraphistry.bind
+edges = PyGraphistry.edges
+nodes = PyGraphistry.nodes
+graph = PyGraphistry.graph
+settings = PyGraphistry.settings
 
 
 class NumpyJSONEncoder(json.JSONEncoder):
