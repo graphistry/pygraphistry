@@ -1,4 +1,8 @@
-# PyGraphistry in a Nutshell
+# PyGraphistry
+
+Graphistry using 
+
+##### Pandas
 
 ### Installation
 
