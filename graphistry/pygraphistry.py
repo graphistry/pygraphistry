@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+from __future__ import print_function
 from future import standard_library
 standard_library.install_aliases()
 from builtins import object
@@ -62,7 +63,11 @@ class PyGraphistry(object):
 
         out_file = io.BytesIO()
         with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
-            f.write(json_dataset.encode('utf8'))
+            if sys.version_info < (3,0):
+                f.write(json_dataset)
+            else:
+                f.write(json_dataset.encode('utf8'))
+
         try:
             response = requests.post(PyGraphistry._etl_url(), out_file.getvalue(),
                                      headers=headers, params=params)
