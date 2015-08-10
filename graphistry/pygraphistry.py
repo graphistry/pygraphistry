@@ -67,8 +67,8 @@ class PyGraphistry(object):
     @staticmethod
     def _viz_url(dataset_name, url_params):
         extra = '&'.join([ k + '=' + str(v) for k,v in list(url_params.items())])
-        pattern = 'http://%s/graph/graph.html?dataset=%s&usertag=%s&%s'
-        return pattern % (PyGraphistry._hostname, dataset_name, PyGraphistry._tag, extra)
+        pattern = 'http://%s/graph/graph.html?dataset=%s&usertag=%s&key=%s&%s'
+        return pattern % (PyGraphistry._hostname, dataset_name, PyGraphistry._tag, PyGraphistry.api_key, extra)
 
     @staticmethod
     def _etl(dataset):
