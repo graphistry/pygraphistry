@@ -1,8 +1,12 @@
 # PyGraphistry
 
-*Visually* understand and analyze relationships in large graphs using [Graphistry's](http://www.graphistry.com) browser-based data explorer. Load and process data in Python using familiar tools with PyGraphistry bindings. Here is an exported (read-only) visualization of Facebook communities created with PyGraphistry.
+*Visually* understand and analyze relationships in large graphs using [Graphistry's](http://www.graphistry.com) browser-based data explorer. Load and process data in Python using familiar tools with PyGraphistry bindings. Here is an exported (read-only) visualization created with PyGraphistry.
 
-![Facebook Graph](http://i.imgur.com/k4YWKUE.png)
+<table style="width:100%;">
+  <tr valign="top">
+    <td>Friendship communities on Facebook. Read-only export. Dataset from <a href="http://snap.stanford.edu">SNAP</a>.<br/><iframe height="600" style="width:100%;" src="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&debug=true&info=true&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"></iframe></td>
+  </tr>
+</table>
 
 - **Fast & Gorgeous** Our data explorer connects to Graphistry's GPU cluster show hundreds of thousand of nodes and edges in your browser. You can cluster, filter, and inspect large amounts of data at interactive speed.
 
@@ -30,6 +34,19 @@
      g = networkx.read_edgelist('facebook_combined.txt')
      graphistry.bind(source='src', destination='dst', node='nodeid').plot(g)
      ```
+
+### Gallery
+
+<table>
+    <tr valign="top">
+        <td width="50%">Twitter Botnet<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/qm5MCqS.jpg"></a></td>
+        <td width="50%">Edit Wars on Wikipedia<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/074zFve.png"></a></td>
+    </tr>
+    <tr valign="top">
+        <td width="50%">Attackers Port Scanning a Network<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/vKUDySw.png"></a></td>
+        <td width="50%">Interactions between Proteins (Biogrid)<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/nrUHLFz.png"></a></td>
+    </tr>
+</table>
 
 ## Installation
 
@@ -83,7 +100,7 @@ plotter.plot(links)
 ```
 
 You should see a beautiful graph like this one:
-![Graph of Miserables](http://i.imgur.com/lt05Hik.png) Since the visualization is performed on Graphistry's GPU cluster, you need an internet connection to see it.
+![Graph of Miserables](http://i.imgur.com/dRHHTyK.png) Since the visualization is performed on Graphistry's GPU cluster, you need an internet connection to see it.
 
 ### Adding Labels
 
@@ -112,7 +129,7 @@ Finally we bind our two new columns and plot the IGraph directly:
 plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 ```
 
-![Second Graph of Miserables](http://i.imgur.com/sk5URzz.png)
+![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
 ## Going Further: Marvel Comics
 
