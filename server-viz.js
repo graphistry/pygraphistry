@@ -445,7 +445,7 @@ function init(app, socket) {
                     // Initial case of getting global Stats
                     // TODO: Make this match the same structure, not the current hacky approach in streamGL
                     if (query.type) {
-                        data = [graph.dataframe.aggregate(indices[query.type], query.attributes, query.binning, query.mode, query.type)];
+                        data = [graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type)];
                     } else {
                         var types = ['point', 'edge'];
                         data = _.map(types, function (type) {
@@ -453,7 +453,7 @@ function init(app, socket) {
                                 return (attr.type === type);
                             });
                             var attrNames = _.pluck(filteredAttrs, 'name');
-                            return graph.dataframe.aggregate(indices[type], attrNames, query.binning, query.mode, type);
+                            return graph.dataframe.aggregate(graph.simulator, indices[type], attrNames, query.binning, query.mode, type);
                         });
                     }
 
