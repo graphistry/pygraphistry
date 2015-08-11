@@ -1,30 +1,62 @@
 # PyGraphistry
 
-Graphistry using 
+Visualize and explore large graphs using [Graphistry](http://www.graphistry.com)'s GPU cluster.
 
-##### Pandas
+#### Fast & Gorgeous
+View hundreds of thousand of nodes and edges at interactive speeds in your browser. Drill down, filter, and inspect in real-time.
+![Facebook Graph](http://i.imgur.com/k4YWKUE.png)
 
-### Installation
+### Science Ready
 
-The simplest way is to use pip:
+Graphistry works out-of-the-box with popular data science libraries. To explore the graph above, use your favorite library to plot [this dataset](https://www.dropbox.com/s/csy1l8e3uv600mj/facebook_combined.txt?dl=1) of Facebook communities from [SNAP](http://snap.stanford.edu).
 
-```console
-$ pip install graphistry
+##### [Pandas](http://pandas.pydata.org)
+
+```python
+df = pandas.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
+graphistry.bind(source='src', destination='dst').plot(df)
+```
+  
+##### [Igraph](http://igraph.org)
+
+```python
+ig = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
+graphistry.bind(source='src', destination='dst').plot(ig)
+```
+  
+##### [NetworkX](https://networkx.github.io)
+
+```python
+g = networkx.read_edgelist('facebook_combined.txt')
+graphistry.bind(source='src', destination='dst', node='nodeid').plot(g)
 ```
 
-*Note*: we only support Python 2.7 for now.
+#### Notebook Friendly
+PyGraphistry integrates with [IPython](http://ipython.org): You can process, visualize and explore data directly within your notebooks.
 
-#### API Key
-Email us at [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) to get your API key. Registering your key is easy:
+## Installation
+
+You need [Python](https://www.python.org) 2.7 or 3.4. The simplest way is using pip: 
+
+- With Pandas only: `pip install graphistry`
+- With Pandas, IGraph, and NetworkX: `pip install "graphistry[all]"`
+
+##### API Key
+You need and API key to connect to our GPU cluster. To get one for free, email us at [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) to get your API key. Registering your key is easy:
 
 ```python
 import graphistry
-graphistry = graphistry.settings(key='<Your key>')
+graphistry.register(key='<Your key>')
 ```
 
-#### Working IPython (Jupyter) Notebooks
+##### Working IPython (Jupyter) Notebooks
 
-We recommend coding in [IPython](http://ipython.org) notebooks. That way, you have your code and visualizations all in one place. You can download our demo example (below) in this [notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1).
+We recommend [IPython](http://ipython.org) notebooks to interleave code and visualizations.
+
+- Install IPython:`pip install "ipython[notebook]"`
+- Launch notebook server: `ipython notebook`
+
+You can download our demo example (below) in this [notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1).
  
 ## Tutorial: Les Misérables
 
