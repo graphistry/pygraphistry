@@ -4,7 +4,7 @@
 
 <table style="width:100%;">
   <tr valign="top">
-    <td>Friendship communities on Facebook. Read-only export. Dataset from <a href="http://snap.stanford.edu">SNAP</a>.<br/><iframe height="600" style="width:100%;" src="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&debug=true&info=true&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"></iframe></td>
+    <td>Friendship communities on Facebook (dataset from <a href="http://snap.stanford.edu">SNAP</a>). <em>Click to open live!</em>.<br><a href="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&debug=true&info=true&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"><img src="http://i.imgur.com/CvO12an.png" title="Click to open."></a>
   </tr>
 </table>
 
