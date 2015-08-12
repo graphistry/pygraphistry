@@ -652,7 +652,7 @@ function stream(socket, renderConfig, colorTexture) {
                 var cleanContentKey = encodeURIComponent(contentKey),
                     cleanImageName = encodeURIComponent(imageName),
                     base64Data = pngDataURL.replace(/^data:image\/png;base64,/,""),
-                    binaryData = new Buffer(base64Data, 'base64').toString('binary');
+                    binaryData = new Buffer(base64Data, 'base64');
                 persistor.publishPNGToStaticContents(cleanContentKey, cleanImageName, binaryData).then(function() {
                     cb({success: true, name: cleanContentKey});
                 }).done(
