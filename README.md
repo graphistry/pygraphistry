@@ -1,6 +1,8 @@
 # PyGraphistry: Explore Relationships
 
-PyGraphistry is a bindings library to extract, transform, and load data in the [Graphistry's](http://www.graphistry.com) data explorer. Try the demo:
+PyGraphistry is a bindings library to extract, transform, and load data in the [Graphistry's](http://www.graphistry.com) data explorer.
+
+### Try The Demo
 
 <table style="width:100%;">
   <tr valign="top">
@@ -10,7 +12,7 @@ PyGraphistry is a bindings library to extract, transform, and load data in the [
 
 ### PyGraphistry is...
 
-- **Fast & Gorgeous** Our data explorer connects to Graphistry's GPU cluster show hundreds of thousand of nodes and edges in your browser. You can cluster, filter, and inspect large amounts of data at interactive speed.
+- **Fast & Gorgeous** Our data explorer connects to Graphistry's GPU cluster show hundreds of thousand of nodes+edges in your browser. You can cluster, filter, and inspect large amounts of data at interactive speed.
 
 -  **Notebook Friendly** PyGraphistry plays well with [IPython](http://ipython.org): You can process and visualize data directly within your notebooks.
 
@@ -76,23 +78,24 @@ We recommend [IPython](http://ipython.org) notebooks to interleave code and visu
 
 ## Tutorial: Les Misérables
 
+Let visualize relationships between characters from [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
 For this example, we use [Pandas](http://pandas.pydata.org) to load/process data and [Igraph](http://igraph.org) to run a community detection algorithm. You can download the [IPython notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1) containing this example.
 
 #### Loading the Dataset
-Let's load the characters from [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables). Our [dataset is a CSV file](http://gist.github.com/thibaudh/3da4096c804680f549e6/) that looks like this:
+Our [dataset is a CSV file](http://gist.github.com/thibaudh/3da4096c804680f549e6/) that looks like this:
 
 | source        | target        | value  |
 | ------------- |:-------------:| ------:|
 | Cravatte |	Myriel | 1| Valjean	| Mme.Magloire | 3| Valjean	| Mlle.Baptistine | 3
 
-*Source* and *target* are character names, and the *value* column counts the number of time they meet. Parsing the data is a one-liner with Pandas:
+*Source* and *target* are character names, and the *value* column counts the number of time they meet. Parsing is a one-liner with Pandas:
 
 ```python
 import pandas
 links = pandas.read_csv('./lesmiserables.csv')
 ```
 
-#### Quick Visualization
+### Quick Visualization
 The PyGraphistry can plot graphs directly from Pandas dataframes, IGraph or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
 
 To create a graph, we bind *source* and *destination* to the columns indicating the start and end nodes of each edges.
@@ -110,7 +113,7 @@ You should see a beautiful graph like this one:
 
 ### Adding Labels
 
-Let's add label to edges showing how many time each pair of characters met. We create a new column called *label* in *links* containing the text of the label and bind *edge_label* to it.
+Let's add labels to edges showing how many time each pair of characters met. We create a new column called *label* in *links* containing the text of the label and bind *edge_label* to it.
 
 ```python
 links["label"] = links.value.map(lambda v: "#Meetings: %d" % v)
@@ -119,9 +122,9 @@ plotter.plot(links)
 ```
 
 ### Controling Node Size and Color
-We are going to use [Igraph](http://igraph.org/python/) to size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). If Igraph is not already installed, fetch it with `pip install igraph-python`. (Warning: `pip install igraph` will install the wrong package!)
+Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). [IGraph](http://igraph.org/python/) already has these algorithms implemented for us. If IGraph is not already installed, fetch it with `pip install igraph-python`. (Warning: `pip install igraph` will install the wrong package!)
 
-We start by converting our edge dateframe to an Igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. By computing PageRank and community clusters, we create two new node attributes (*pagerank* & *community*).
+We start by converting our edge dateframe to an Igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we create two new node attributes (*pagerank* & *community*).
 
 ```python
 ig = plotter.pandas2igraph(links)
