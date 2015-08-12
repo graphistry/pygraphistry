@@ -416,7 +416,7 @@ function init(app, socket) {
         );
     });
 
-    var aggregateRequests = new Rx.Subject();
+    var aggregateRequests = new Rx.Subject().controlled(); // Use pull model.
 
     //query :: {attributes: ??, binning: ??, mode: ??, type: 'point' + 'edge'}
     // -> {success: false} + {success: true, data: ??}
@@ -436,7 +436,7 @@ function init(app, socket) {
                 qIndices = graph.simulator.selectNodes(query.sel);
             }
 
-            aggregateRequests.onNext({
+            aggregateRequests.subject.onNext({
                 qIndices: qIndices,
                 graph: graph,
                 query: query,
@@ -486,9 +486,9 @@ function init(app, socket) {
                 _.each(arguments, function (partialData) {
                     _.extend(returnData, partialData);
                 });
-                logger.debug('Sending back data');
+                logger.debug('Sending back aggregate data');
                 cb({success: true, data: returnData});
-            }).done(_.identity, log.makeQErrorHandler(logger, 'Combine Aggregates'));
+            });
 
         } catch (err) {
             cb({success: false, error: err.message, stack: err.stack});
@@ -496,25 +496,14 @@ function init(app, socket) {
         }
     };
 
-
-
-
+    // Handle aggregate requests. Fully handle one before moving on to the next.
     aggregateRequests.do(function (request) {
-
         request.qIndices.then(processAggregateIndices.bind(null, request))
-            .done(_.identity, log.makeQErrorHandler(logger, 'selectNodes'));
-
-    }).subscribe(
-        _.identity,
-        function (err) {
-            cb({success: false, error: 'aggregate error'});
-            log.makeRxErrorHandler(logger, 'aggregate handler')(err);
-        }
-    );
-
-
-
-
+            .then(function () {
+                aggregateRequests.request(1);
+            }).done(_.identity, log.makeQErrorHandler(logger, 'AggregateIndices Q'));
+    }).subscribe(_.identity, log.makeRxErrorHandler(logger, 'aggregate request loop'));
+    aggregateRequests.request(1); // Always request first.
 
 
     return module.exports;
