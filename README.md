@@ -1,6 +1,6 @@
 # PyGraphistry: Explore Relationships
 
-PyGraphistry is a bindings library to extract, transform, and load data in the [Graphistry's](http://www.graphistry.com) data explorer. Try our demo below:
+PyGraphistry is a bindings library to extract, transform, and load data in the [Graphistry's](http://www.graphistry.com) data explorer. Try the demo:
 
 <table style="width:100%;">
   <tr valign="top">
@@ -8,7 +8,7 @@ PyGraphistry is a bindings library to extract, transform, and load data in the [
   </tr>
 </table>
 
-##### PyGraphistry is...
+### PyGraphistry is...
 
 - **Fast & Gorgeous** Our data explorer connects to Graphistry's GPU cluster show hundreds of thousand of nodes and edges in your browser. You can cluster, filter, and inspect large amounts of data at interactive speed.
 
@@ -16,21 +16,21 @@ PyGraphistry is a bindings library to extract, transform, and load data in the [
 
 - **Science Ready** PyGraphistry works out-of-the-box with popular data science libraries. It is also very easy to use. To create the visualization shown above, download  [this dataset](https://www.dropbox.com/s/csy1l8e3uv600mj/facebook_combined.txt?dl=1) of Facebook communities from [SNAP](http://snap.stanford.edu) and use your favorite library to load it.
 
-  - **[Pandas](http://pandas.pydata.org)**
+  - [Pandas](http://pandas.pydata.org)
 
      ```python
      df = pandas.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
      graphistry.bind(source='src', destination='dst').plot(df)
      ```
 
-  - **[Igraph](http://igraph.org)**
+  - [Igraph](http://igraph.org)
 
      ```python
      ig = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
      graphistry.bind(source='src', destination='dst').plot(ig)
      ```
 
-  - **[NetworkX](https://networkx.github.io)**
+  - [NetworkX](https://networkx.github.io)
 
      ```python
      g = networkx.read_edgelist('facebook_combined.txt')
@@ -119,7 +119,7 @@ plotter.plot(links)
 ### Controling Node Size and Color
 We are going to use [Igraph](http://igraph.org/python/) to size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). If Igraph is not already installed, fetch it with `pip install igraph-python`. (Warning: `pip install igraph` will install the wrong package!)
 
-We start by converting our edge dateframe to an Igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. By computing PageRank and community clusters, we create two new attributes (*pagerank* & *community*). Both of them are attached to nodes.
+We start by converting our edge dateframe to an Igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. By computing PageRank and community clusters, we create two new node attributes (*pagerank* & *community*).
 
 ```python
 ig = plotter.pandas2igraph(links)
