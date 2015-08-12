@@ -629,20 +629,38 @@ function stream(socket, renderConfig, colorTexture) {
 
     });
 
-    socket.on('persist_current_vbo', function(name, cb) {
+    socket.on('persist_current_vbo', function(contentKey, cb) {
         graph.take(1)
             .do(function (graph) {
                 var vbos = lastCompressedVBOs[socket.id];
                 var metadata = lastMetadata[socket.id];
-                var cleanName = encodeURIComponent(name);
-                persistor.publishStaticContents(cleanName, vbos, metadata, graph.dataframe, renderConfig).then(function() {
-                    cb({success: true, name: cleanName});
+                var cleanContentKey = encodeURIComponent(contentKey);
+                persistor.publishStaticContents(cleanContentKey, vbos, metadata, graph.dataframe, renderConfig).then(function() {
+                    cb({success: true, name: cleanContentKey});
                 }).done(
                     _.identity,
                     log.makeQErrorHandler(logger, 'persist_current_vbo')
                 );
             })
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'persist_current_vbo'));
+    });
+
+    socket.on('persist_upload_png_export', function(pngDataURL, contentKey, imageName, cb) {
+        imageName = imageName || 'preview.png';
+        graph.take(1)
+            .do(function (graph) {
+                var cleanContentKey = encodeURIComponent(contentKey),
+                    cleanImageName = encodeURIComponent(imageName),
+                    base64Data = pngDataURL.replace(/^data:image\/png;base64,/,""),
+                    binaryData = new Buffer(base64Data, 'base64').toString('binary');
+                persistor.publishPNGToStaticContents(cleanContentKey, cleanImageName, binaryData).then(function() {
+                    cb({success: true, name: cleanContentKey});
+                }).done(
+                    _.identity,
+                    log.makeQErrorHandler(logger, 'persist_upload_png_export')
+                );
+            })
+            .subscribe(_.identity, log.makeRxErrorHandler(logger, 'persist_upload_png_export'));
     });
 
     socket.on('fork_vgraph', function (name, cb) {
