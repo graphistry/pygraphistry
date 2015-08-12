@@ -416,6 +416,8 @@ function init(app, socket) {
         );
     });
 
+    var aggregateRequests = new Rx.Subject();
+
     //query :: {attributes: ??, binning: ??, mode: ??, type: 'point' + 'edge'}
     // -> {success: false} + {success: true, data: ??}
     socket.on('aggregate', function (query, cb) {
@@ -434,53 +436,86 @@ function init(app, socket) {
                 qIndices = graph.simulator.selectNodes(query.sel);
             }
 
-           qIndices.then(function (nodeIndices) {
-                logger.trace('Done selecting indices');
-                try {
-                    var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
-                    var indices = {
-                        point: nodeIndices,
-                        edge: edgeIndices
-                    };
-                    var data;
+            aggregateRequests.onNext({
+                qIndices: qIndices,
+                graph: graph,
+                query: query,
+                cb: cb
+            });
 
-                    // Initial case of getting global Stats
-                    // TODO: Make this match the same structure, not the current hacky approach in streamGL
-                    if (query.type) {
-                        data = [graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type)];
-                    } else {
-                        var types = ['point', 'edge'];
-                        data = _.map(types, function (type) {
-                            var filteredAttrs = _.filter(query.attributes, function (attr) {
-                                return (attr.type === type);
-                            });
-                            var attrNames = _.pluck(filteredAttrs, 'name');
-                            return graph.dataframe.aggregate(graph.simulator, indices[type], attrNames, query.binning, query.mode, type);
-                        });
-                    }
-
-                    return Q.all(data).spread(function () {
-                        var returnData = {};
-                        _.each(arguments, function (partialData) {
-                            _.extend(returnData, partialData);
-                        });
-                        logger.trace('Sending back data');
-                        cb({success: true, data: returnData});
-                    }).done(_.identity, log.makeQErrorHandler(logger, 'Combine Aggregates'));
-
-                } catch (err) {
-                    cb({success: false, error: err.message, stack: err.stack});
-                    log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
-                }
-            }).done(_.identity, log.makeQErrorHandler(logger, 'selectNodes'));
         }).subscribe(
             _.identity,
             function (err) {
-                cb({success: false, error: 'aggregate error'});
-                log.makeRxErrorHandler(logger, 'aggregate handler')(err);
+                cb({success: false, error: 'aggregate socket error'});
+                log.makeRxErrorHandler(logger, 'aggregate socket handler')(err);
             }
         );
     });
+
+    var processAggregateIndices = function (request, nodeIndices) {
+        var graph = request.graph;
+        var cb = request.cb;
+        var query = request.query;
+
+        logger.debug('Done selecting indices');
+        try {
+            var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
+            var indices = {
+                point: nodeIndices,
+                edge: edgeIndices
+            };
+            var data;
+
+            // Initial case of getting global Stats
+            // TODO: Make this match the same structure, not the current hacky approach in streamGL
+            if (query.type) {
+                data = [graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type)];
+            } else {
+                var types = ['point', 'edge'];
+                data = _.map(types, function (type) {
+                    var filteredAttrs = _.filter(query.attributes, function (attr) {
+                        return (attr.type === type);
+                    });
+                    var attrNames = _.pluck(filteredAttrs, 'name');
+                    return graph.dataframe.aggregate(graph.simulator, indices[type], attrNames, query.binning, query.mode, type);
+                });
+            }
+
+            return Q.all(data).spread(function () {
+                var returnData = {};
+                _.each(arguments, function (partialData) {
+                    _.extend(returnData, partialData);
+                });
+                logger.debug('Sending back data');
+                cb({success: true, data: returnData});
+            }).done(_.identity, log.makeQErrorHandler(logger, 'Combine Aggregates'));
+
+        } catch (err) {
+            cb({success: false, error: err.message, stack: err.stack});
+            log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
+        }
+    };
+
+
+
+
+    aggregateRequests.do(function (request) {
+
+        request.qIndices.then(processAggregateIndices.bind(null, request))
+            .done(_.identity, log.makeQErrorHandler(logger, 'selectNodes'));
+
+    }).subscribe(
+        _.identity,
+        function (err) {
+            cb({success: false, error: 'aggregate error'});
+            log.makeRxErrorHandler(logger, 'aggregate handler')(err);
+        }
+    );
+
+
+
+
+
 
     return module.exports;
 }
