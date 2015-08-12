@@ -41,12 +41,14 @@ PyGraphistry is a bindings library to extract, transform, and load data in the [
 
 <table>
     <tr valign="top">
-        <td width="50%">Twitter Botnet<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/qm5MCqS.jpg"></a></td>
-        <td width="50%">Edit Wars on Wikipedia<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/074zFve.png"></a></td>
+        <td width="33%">Twitter Botnet<br><a href="http://i.imgur.com/qm5MCqS.jpg"><img width="266" src="http://i.imgur.com/qm5MCqS.jpg"></a></td>
+        <td width="33%">Edit Wars on Wikipedia<br><a href="http://i.imgur.com/074zFve.png"><img width="266" src="http://i.imgur.com/074zFve.png"></a></td>
+        <td width="33%">Uber Trips in SF<br><a href="http://http://i.imgur.com/GdT4yV6.jpg"><img width="266" src="http://i.imgur.com/GdT4yV6.jpg"></a></td>
     </tr>
     <tr valign="top">
-        <td width="50%">Attackers Port Scanning a Network<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/vKUDySw.png"></a></td>
-        <td width="50%">Interactions Between Proteins (Biogrid)<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/nrUHLFz.png"></a></td>
+        <td width="33%">Attackers Port Scanning a Network<br><a href="http://i.imgur.com/vKUDySw.png"><img width="266" src="http://i.imgur.com/vKUDySw.png"></a></td>
+        <td width="33%">Interactions Between Proteins (<a href="http://thebiogrid.org">BioGRID</a>)<br><a href="http://i.imgur.com/nrUHLFz.png"><img width="266" src="http://i.imgur.com/nrUHLFz.png"></a></td>
+        <td width="33%">Programming Languages Adoption<br><a href="http://i.imgur.com/0T0EKmD.png"><img width="266" src="http://i.imgur.com/0T0EKmD.png"></a></td>
     </tr>
 </table>
 
