@@ -4,7 +4,7 @@ PyGraphistry is a bindings library to extract, transform, and load data in the [
 
 <table style="width:100%;">
   <tr valign="top">
-    <td>Friendship communities on Facebook. <em>Click to open live!</em> (source: <a href="http://snap.stanford.edu">SNAP</a>)<br><a href="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&debug=true&info=true&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"><img src="http://i.imgur.com/CvO12an.png" title="Click to open."></a>
+    <td>Friendship communities on Facebook. <em>Click to open live!</em> (source: <a href="http://snap.stanford.edu">SNAP</a>)<br><a href="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&info=false&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"><img src="http://i.imgur.com/CvO12an.png" title="Click to open."></a>
   </tr>
 </table>
 
