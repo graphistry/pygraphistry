@@ -1,12 +1,14 @@
-# PyGraphistry
+# PyGraphistry: Explore Relationships
 
-*Visually* understand and analyze relationships in large graphs using [Graphistry's](http://www.graphistry.com) browser-based data explorer. Load and process data in Python using familiar tools with PyGraphistry bindings. Here is an exported (read-only) visualization created with PyGraphistry.
+PyGraphistry is a bindings library to extract, transform, and load data in the [Graphistry's](http://www.graphistry.com) data explorer. Try our demo below:
 
 <table style="width:100%;">
   <tr valign="top">
-    <td>Friendship communities on Facebook (dataset from <a href="http://snap.stanford.edu">SNAP</a>). <em>Click to open live!</em>.<br><a href="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&debug=true&info=true&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"><img src="http://i.imgur.com/CvO12an.png" title="Click to open."></a>
+    <td>Friendship communities on Facebook. <em>Click to open live!</em> (source: <a href="http://snap.stanford.edu">SNAP</a>)<br><a href="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&debug=true&info=true&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"><img src="http://i.imgur.com/CvO12an.png" title="Click to open."></a>
   </tr>
 </table>
+
+##### PyGraphistry is...
 
 - **Fast & Gorgeous** Our data explorer connects to Graphistry's GPU cluster show hundreds of thousand of nodes and edges in your browser. You can cluster, filter, and inspect large amounts of data at interactive speed.
 
@@ -44,19 +46,19 @@
     </tr>
     <tr valign="top">
         <td width="50%">Attackers Port Scanning a Network<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/vKUDySw.png"></a></td>
-        <td width="50%">Interactions between Proteins (Biogrid)<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/nrUHLFz.png"></a></td>
+        <td width="50%">Interactions Between Proteins (Biogrid)<br><a href="http://TODO"><img width="400" src="http://i.imgur.com/nrUHLFz.png"></a></td>
     </tr>
 </table>
 
 ## Installation
 
-You need [Python](https://www.python.org) 2.7 or 3.4. The simplest way is using pip:
+You need [Python](https://www.python.org) 2.7 or 3.4. The simplest way to install PyGraphistry is pip:
 
 - With Pandas only: `pip install graphistry`
 - With Pandas, IGraph, and NetworkX: `pip install "graphistry[all]"`
 
 ##### API Key
-You need and API key to connect to our GPU cluster. We ask for API keys to make use our servers can handle the load. To get your own, email us at [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com). Register you key after the `import graphistry` statement and you are good to go:
+You need and API key to connect to our GPU cluster. We ask for API keys to make use our servers are not melting :) To get your own, email us at [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com). Register you key after the `import graphistry` statement and you are good to go:
 
 ```python
 import graphistry
@@ -72,10 +74,10 @@ We recommend [IPython](http://ipython.org) notebooks to interleave code and visu
 
 ## Tutorial: Les Misérables
 
-For this example, we use [Pandas](http://pandas.pydata.org) to load/process data and [Igraph](http://igraph.org) to run a community detection algorithm. Download the [IPython notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1) containing this example.
+For this example, we use [Pandas](http://pandas.pydata.org) to load/process data and [Igraph](http://igraph.org) to run a community detection algorithm. You can download the [IPython notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1) containing this example.
 
 #### Loading the Dataset
-Let's load the characters from [Les Miserables](http://en.wikipedia.org/wiki/Les_Misérables). Our  [dataset is a CSV file](http://gist.github.com/thibaudh/3da4096c804680f549e6/) that looks like this:
+Let's load the characters from [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables). Our [dataset is a CSV file](http://gist.github.com/thibaudh/3da4096c804680f549e6/) that looks like this:
 
 | source        | target        | value  |
 | ------------- |:-------------:| ------:|
@@ -89,7 +91,9 @@ links = pandas.read_csv('./lesmiserables.csv')
 ```
 
 #### Quick Visualization
-The graphistry package can plot graphs directly from Pandas dataframes. We specify the name of the two columns indicating the start and end nodes of each edges by binding *source* and *destination*. The *plot* function takes a Pandas dataframe of edges, optionally a dataframe of nodes, and bindings between dataframe columns and visual attributes. Calling *plot* uploads the dataframes to our visualization servers and return the url to an embeddable interactive webpage containing the visualization.
+The PyGraphistry can plot graphs directly from Pandas dataframes, IGraph or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
+
+To create a graph, we bind *source* and *destination* to the columns indicating the start and end nodes of each edges.
 
 ```python
 import graphistry
@@ -100,11 +104,11 @@ plotter.plot(links)
 ```
 
 You should see a beautiful graph like this one:
-![Graph of Miserables](http://i.imgur.com/dRHHTyK.png) Since the visualization is performed on Graphistry's GPU cluster, you need an internet connection to see it.
+![Graph of Miserables](http://i.imgur.com/dRHHTyK.png)
 
 ### Adding Labels
 
-Let's add label to edges showing how many time each pair of characters met. To to do, we create a new column called *label* in *links* containing the text of the label. Finally, create a new plotter binding the new column.
+Let's add label to edges showing how many time each pair of characters met. We create a new column called *label* in *links* containing the text of the label and bind *edge_label* to it.
 
 ```python
 links["label"] = links.value.map(lambda v: "#Meetings: %d" % v)
@@ -113,19 +117,15 @@ plotter.plot(links)
 ```
 
 ### Controling Node Size and Color
-We are going to use [igraph](http://igraph.org/python/) to size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). If Igraph is not already installed, fetch it with `pip install igraph-python`. (Warning: `pip install igraph` will install the wrong package!)
+We are going to use [Igraph](http://igraph.org/python/) to size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). If Igraph is not already installed, fetch it with `pip install igraph-python`. (Warning: `pip install igraph` will install the wrong package!)
 
-We start by converting our edge dateframe to an igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. By computing PageRank and community clusters, we create two new attributes (*pagerank* & *community*). Both of them are attacked to nodes.
+We start by converting our edge dateframe to an Igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. By computing PageRank and community clusters, we create two new attributes (*pagerank* & *community*). Both of them are attached to nodes.
 
 ```python
 ig = plotter.pandas2igraph(links)
 ig.vs['pagerank'] = ig.pagerank()
 ig.vs['community'] = ig.community_infomap().membership
-```
 
-Finally we bind our two new columns and plot the IGraph directly:
-
-```python
 plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 ```
 
