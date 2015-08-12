@@ -133,7 +133,7 @@ __kernel void histogram(
         uint numBins, // unsigned int
         uint dataSize, // unsigned int
         __global uint* check, // 1 : count, 1<<1 : sum, 1<<2 : mean, 1<<3 : max, 1<<4 : min, 1<<5: constant binwidth
-        __global int* binStart, // bin seg
+        __global float* binStart, // bin seg
         __global float* data, // data[dataSize]
         __global volatile int* output, // count: output[numBins]
         __global volatile float* outputSum,  // outputSum[numBins]
@@ -144,7 +144,7 @@ __kernel void histogram(
 
     int gid = get_global_id(0); // BlockIdx * BlockDim + ThreadIdx
     int tid = get_local_id(0); // ThreadIdx
-    int step = binStart[1] - binStart[0]; // constant width
+    float step = binStart[1] - binStart[0]; // constant width
     __local int key[THREADS];
 
     barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);

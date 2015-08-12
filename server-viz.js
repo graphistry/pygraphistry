@@ -420,6 +420,7 @@ function init(app, socket) {
     // -> {success: false} + {success: true, data: ??}
     socket.on('aggregate', function (query, cb) {
         logger.info('Got aggregate', query);
+
         graph.take(1).do(function (graph) {
             logger.trace('Selecting Indices');
             var qIndices;
@@ -442,6 +443,7 @@ function init(app, socket) {
                         edge: edgeIndices
                     };
                     var data;
+
                     // Initial case of getting global Stats
                     // TODO: Make this match the same structure, not the current hacky approach in streamGL
                     if (query.type) {
