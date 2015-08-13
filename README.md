@@ -12,13 +12,25 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
   </tr>
 </table>
 
+<!-- IFRAME VESION
+### The Demo:
+
+<table style="width:100%;">
+  <tr valign="top">
+    <td align="center"><b>Friendship Communities on Facebook.</b> (Read-only interactive version.)<br><iframe width="100%" height="500" src="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&info=false&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"></iframe><br></a>
+    <em>Source data: <a href="http://snap.stanford.edu">SNAP</a></em>
+	</td>
+  </tr>
+</table>
+-->
+	
 ### PyGraphistry is...
 
 - **Fast & Gorgeous:** Cluster, filter, and inspect large amounts of data at interactive speed. We layout graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
 
 -  **Notebook Friendly:** PyGraphistry plays well with interactive notebooks like [IPython/Juypter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com): Process, visualize, and drill into with graphs directly within your notebooks.
 
-- **Batteries Included:** PyGraphistry works out-of-the-box with popular data science and graph analytics libraries. It is also very easy to use. To create the visualization shown above, download  [this dataset](https://www.dropbox.com/s/csy1l8e3uv600mj/facebook_combined.txt?dl=1) of Facebook communities from [SNAP](http://snap.stanford.edu) and load it with your favorite library:
+- **Batteries Included:** PyGraphistry works out-of-the-box with popular data science and graph analytics libraries. It is also very easy to use. To create the visualization shown above, download  [this dataset](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/facebook_combined.txt) of Facebook communities from [SNAP](http://snap.stanford.edu) and load it with your favorite library:
 
   - [Pandas](http://pandas.pydata.org)
 
@@ -84,9 +96,9 @@ We recommend [IPython](http://ipython.org) notebooks to interleave code and visu
 ## Tutorial: Les Misérables
 
 Let's visualize relationships between the characters in [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
-For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [Igraph](http://igraph.org) to run a community detection algorithm. You can download the [IPython notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1) containing this example.
+For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [Igraph](http://igraph.org) to run a community detection algorithm. You can download the [IPython notebook](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/MiserablesDemo.ipynb) containing this example.
 
-Our [dataset is a CSV file](http://gist.github.com/thibaudh/3da4096c804680f549e6/) that looks like this:
+Our [dataset is a CSV file](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/lesmiserables.csv) that looks like this:
 
 | source        | target        | value  |
 | ------------- |:-------------:| ------:|
@@ -144,11 +156,11 @@ g.bind(point_color='community', point_size='pagerank').plot(ig)
 
 This is a more complex example: we link together Marvel characters who co-star in the same comic. The dataset is split in three files:
 
-- [appearances.txt](https://www.dropbox.com/s/yz78yy58m1mh8l2/appearances.txt?dl=1)
-- [characters.txt](https://www.dropbox.com/s/7zodqsvqa9j29bb/characters.txt?dl=1)
-- [comics.txt](https://www.dropbox.com/s/x1o30enl5abdpnm/comics.txt?dl=1)
+- [appearances.txt](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/appearances.txt)
+- [characters.txt](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/characters.txt)
+- [comics.txt](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/comics.txt)
 
-Find out who is the most popular Marvel hero! Run the code in [the Marvel Demo notebook](https://www.dropbox.com/s/mzzq1mvpdwwmes1/MarvelTutorial.ipynb?dl=1) to browse the entire Marvel universe.
+Find out who is the most popular Marvel hero! Run the code in [the Marvel Demo notebook](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/MarvelTutorial.ipynb) to browse the entire Marvel universe.
 
 ![Marvel Universe](http://i.imgur.com/0rgPLg7.png)
 
