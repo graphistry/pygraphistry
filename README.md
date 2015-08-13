@@ -6,7 +6,7 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
 
 <table style="width:100%;">
   <tr valign="top">
-    <td align="center"><b>Friendship Communities on Facebook.</b> Click to open interactive version! <a href="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&info=false&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"><img src="http://i.imgur.com/CvO12an.png" title="Click to open."></a>
+    <td align="center"><b>Friendship Communities on Facebook.</b> Click to open interactive version! <a href="http://proxy-labs.graphistry.com/graph/graph.html?dataset=Facebook&info=true&menu=false&play=0&mapper=opentsdb&legend={%22title%22:%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22,%22subtitle%22:%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%22nodes%22:%22People.%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%22edges%22:%22Friendships%22}&static=true&contentKey=Facebook_Static&center=false&left=-1.51e+4&right=1.41e+4&top=-8.81e+3&bottom=7.55e+3"><img src="http://i.imgur.com/CvO12an.png" title="Click to open."></a>
     <em>Source data: <a href="http://snap.stanford.edu">SNAP</a></em>
 	</td>
   </tr>
@@ -17,7 +17,7 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
 
 <table style="width:100%;">
   <tr valign="top">
-    <td align="center"><b>Friendship Communities on Facebook.</b> (Read-only interactive version.)<br><iframe width="100%" height="500" src="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&info=false&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"></iframe><br></a>
+    <td align="center"><b>Friendship Communities on Facebook.</b> (Read-only interactive version.)<br><iframe width="100%" height="500" src="http://proxy-labs.graphistry.com/graph/graph.html?dataset=Facebook&info=true&menu=false&play=0&mapper=opentsdb&legend={%22title%22:%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22,%22subtitle%22:%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%22nodes%22:%22People.%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%22edges%22:%22Friendships%22}&static=true&contentKey=Facebook_Static&center=false&left=-1.51e+4&right=1.41e+4&top=-8.81e+3&bottom=7.55e+3"></iframe><br></a>
     <em>Source data: <a href="http://snap.stanford.edu">SNAP</a></em>
 	</td>
   </tr>
@@ -96,7 +96,7 @@ We recommend [IPython](http://ipython.org) notebooks to interleave code and visu
 ## Tutorial: Les Misérables
 
 Let's visualize relationships between the characters in [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
-For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [Igraph](http://igraph.org) to run a community detection algorithm. You can download the [IPython notebook](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/MiserablesDemo.ipynb) containing this example.
+For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [IGraph](http://igraph.org) to run a community detection algorithm. You can download the [IPython notebook](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/MiserablesDemo.ipynb) containing this example.
 
 Our [dataset is a CSV file](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/lesmiserables.csv) that looks like this:
 
