@@ -81,12 +81,12 @@ module.exports = function(grunt) {
 
     grunt.registerTask('maybeExorcise', 'Run Exorcise as long as browserify has run first', function() {
         if(global['browserifyDidRun']) {
-            grunt.log.oklns("Running exorcise becuase browserify has run before");
+            grunt.log.oklns("Running exorcise because browserify has run before");
             grunt.task.run('exorcise:Main');
 
             global['browserifyDidRun'] = false;
         } else {
-            grunt.log.errorlns("Not running exorcise becuase browserify did NOT run before");
+            grunt.log.errorlns("Not running exorcise because browserify did NOT run before");
         }
     });
 }
