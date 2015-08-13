@@ -23,22 +23,22 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
   - [Pandas](http://pandas.pydata.org)
 
      ```python
-     g = pandas.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
-     graphistry.bind(source='src', destination='dst').plot(g)
+     edges = pandas.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
+     graphistry.bind(source='src', destination='dst').plot(edges)
      ```
 
   - [IGraph](http://igraph.org)
 
      ```python
-     g = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
-     graphistry.bind(source='src', destination='dst').plot(g)
+     graph = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
+     graphistry.bind(source='src', destination='dst').plot(graph)
      ```
 
   - [NetworkX](https://networkx.github.io)
 
      ```python
-     g = networkx.read_edgelist('facebook_combined.txt')
-     graphistry.bind(source='src', destination='dst', node='nodeid').plot(g)
+     graph = networkx.read_edgelist('facebook_combined.txt')
+     graphistry.bind(source='src', destination='dst', node='nodeid').plot(graph)
      ```
 
 ### Gallery
