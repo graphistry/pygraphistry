@@ -27,8 +27,8 @@ MONGO_SERVER = '{{ mongodb_url }}'
 
 auth = HTTPBasicAuth('{{ boundary_username }}', '{{ boundary_password }}')
 ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
-hostname = socket.gethostname()
-fqdn = socket.getfqdn()
+hostname = '{{ inventory_hostname_short }}' #socket.gethostname()
+fqdn = '{{ inventory_hostname }}' #socket.getfqdn()
 reaper_pid = os.getpid()
 
 
