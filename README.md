@@ -1,6 +1,6 @@
 # PyGraphistry: Explore Relationships
 
-PyGraphistry is a bindings library to extract, transform, and load data in the [Graphistry's](http://www.graphistry.com) data explorer.
+PyGraphistry is a library to extract, transform, and load data into the [Graphistry's](http://www.graphistry.com) explorer.
 
 ### Try The Demo
 
@@ -12,11 +12,11 @@ PyGraphistry is a bindings library to extract, transform, and load data in the [
 
 ### PyGraphistry is...
 
-- **Fast & Gorgeous** Our data explorer connects to Graphistry's GPU cluster show hundreds of thousand of nodes+edges in your browser. You can cluster, filter, and inspect large amounts of data at interactive speed.
+- **Fast & Gorgeous** Our data explorer connects to Graphistry's GPU cluster to show hundreds of thousand of nodes+edges in your browser. You can cluster, filter, and inspect large amounts of data at interactive speed.
 
 -  **Notebook Friendly** PyGraphistry plays well with [IPython](http://ipython.org): You can process and visualize data directly within your notebooks.
 
-- **Science Ready** PyGraphistry works out-of-the-box with popular data science libraries. It is also very easy to use. To create the visualization shown above, download  [this dataset](https://www.dropbox.com/s/csy1l8e3uv600mj/facebook_combined.txt?dl=1) of Facebook communities from [SNAP](http://snap.stanford.edu) and use your favorite library to load it.
+- **Science Ready** PyGraphistry works out-of-the-box with popular data science libraries. It is also very easy to use. To create the visualization shown above, download  [this dataset](https://www.dropbox.com/s/csy1l8e3uv600mj/facebook_combined.txt?dl=1) of Facebook communities from [SNAP](http://snap.stanford.edu) and load it with your favorite library:
 
   - [Pandas](http://pandas.pydata.org)
 
@@ -81,7 +81,6 @@ We recommend [IPython](http://ipython.org) notebooks to interleave code and visu
 Let visualize relationships between characters from [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
 For this example, we use [Pandas](http://pandas.pydata.org) to load/process data and [Igraph](http://igraph.org) to run a community detection algorithm. You can download the [IPython notebook](https://www.dropbox.com/s/n35ahbhatshrau6/MiserablesDemo.ipynb?dl=1) containing this example.
 
-#### Loading the Dataset
 Our [dataset is a CSV file](http://gist.github.com/thibaudh/3da4096c804680f549e6/) that looks like this:
 
 | source        | target        | value  |
@@ -113,7 +112,7 @@ You should see a beautiful graph like this one:
 
 ### Adding Labels
 
-Let's add labels to edges showing how many time each pair of characters met. We create a new column called *label* in *links* containing the text of the label and bind *edge_label* to it.
+Let's add labels to edges showing how many times each pair of characters met. We create a new column called *label* in *links* containing the text of the label and bind *edge_label* to it.
 
 ```python
 links["label"] = links.value.map(lambda v: "#Meetings: %d" % v)
