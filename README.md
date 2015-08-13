@@ -6,9 +6,9 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
 
 <table style="width:100%;">
   <tr valign="top">
-    <td><center><b>Friendship communities on Facebook.</b> Click to open interactive version! <a href="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&info=false&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"><img src="http://i.imgur.com/CvO12an.png" title="Click to open."></a>
+    <td align="center"><b>Friendship Communities on Facebook.</b> Click to open interactive version! <a href="http://proxy-staging.graphistry.com/graph/graph.html?dataset=Facebook&info=false&play=0&mapper=opentsdb&menu=false&static=true&contentKey=Facebook_readme&center=false&left=-28057.922443107804&right=19343.789165388305&top=-13990.35481117573&bottom=12682.885549380659#"><img src="http://i.imgur.com/CvO12an.png" title="Click to open."></a>
     <em>Source data: <a href="http://snap.stanford.edu">SNAP</a></em>
-    </center></td>
+	</td>
   </tr>
 </table>
 
@@ -45,14 +45,14 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
 
 <table>
     <tr valign="top">
-        <td width="33%"><center><a href="http://i.imgur.com/qm5MCqS.jpg">Twitter Botnet<br><img width="266" src="http://i.imgur.com/qm5MCqS.jpg"></a></td>
-        <td width="33%"><center><a href="http://i.imgur.com/074zFve.png">Edit Wars on Wikipedia<br><img width="266" src="http://i.imgur.com/074zFve.png"></a></td>
-        <td width="33%"><center><a href="http://i.imgur.com/GdT4yV6.jpg">Uber Trips in SF<br><img width="266" src="http://i.imgur.com/GdT4yV6.jpg"></a></td>
+        <td width="33%" align="center"><a href="http://i.imgur.com/qm5MCqS.jpg">Twitter Botnet<br><img width="266" src="http://i.imgur.com/qm5MCqS.jpg"></a></td>
+        <td width="33%" align="center"><a href="http://i.imgur.com/074zFve.png">Edit Wars on Wikipedia<br><img width="266" src="http://i.imgur.com/074zFve.png"></a></td>
+        <td width="33%" align="center"><a href="http://i.imgur.com/GdT4yV6.jpg">Uber Trips in SF<br><img width="266" src="http://i.imgur.com/GdT4yV6.jpg"></a></td>
     </tr>
     <tr valign="top">
-        <td width="33%"><center><a href="http://i.imgur.com/vKUDySw.png">Port Scan Attack<br><img width="266" src="http://i.imgur.com/vKUDySw.png"></a></td>
-        <td width="33%"><center><a href="http://i.imgur.com/nrUHLFz.png">Protein Interactions <br><img width="266" src="http://i.imgur.com/nrUHLFz.png"></a>Source: <a href="http://thebiogrid.org">BioGRID</a></td>
-        <td width="33%"><center><a href="http://i.imgur.com/0T0EKmD.png">Programming Languages<br><img width="266" src="http://i.imgur.com/0T0EKmD.png"></a></td>
+        <td width="33%" align="center"><a href="http://i.imgur.com/vKUDySw.png">Port Scan Attack<br><img width="266" src="http://i.imgur.com/vKUDySw.png"></a></td>
+        <td width="33%" align="center"><a href="http://i.imgur.com/nrUHLFz.png">Protein Interactions <br><img width="266" src="http://i.imgur.com/nrUHLFz.png"></a><em>Source: <a href="http://thebiogrid.org">BioGRID</a></em></td>
+        <td width="33%" align="center"><a href="http://i.imgur.com/0T0EKmD.png">Programming Languages<br><img width="266" src="http://i.imgur.com/0T0EKmD.png"></a><em>Source: <a href="http://lmeyerov.github.io/projects/socioplt/viz/index.html">Socio-PLT project</a></em></td>
     </tr>
 </table>
 
