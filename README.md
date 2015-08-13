@@ -46,7 +46,7 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
 <table>
     <tr valign="top">
         <td width="33%" align="center"><a href="http://i.imgur.com/qm5MCqS.jpg">Twitter Botnet<br><img width="266" src="http://i.imgur.com/qm5MCqS.jpg"></a></td>
-        <td width="33%" align="center"><a href="http://i.imgur.com/074zFve.png">Edit Wars on Wikipedia<br><img width="266" src="http://i.imgur.com/074zFve.png"></a></td>
+        <td width="33%" align="center"><a href="http://i.imgur.com/074zFve.png">Edit Wars on Wikipedia<br><img width="266" src="http://i.imgur.com/074zFve.png"></a><em>Source: <a href="http://snap.stanford.edu">SNAP</a></em></td>
         <td width="33%" align="center"><a href="http://i.imgur.com/GdT4yV6.jpg">Uber Trips in SF<br><img width="266" src="http://i.imgur.com/GdT4yV6.jpg"></a></td>
     </tr>
     <tr valign="top">
