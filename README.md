@@ -20,21 +20,21 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
 
 - **Batteries Included:** PyGraphistry works out-of-the-box with popular data science and graph analytics libraries. It is also very easy to use. To create the visualization shown above, download  [this dataset](https://www.dropbox.com/s/csy1l8e3uv600mj/facebook_combined.txt?dl=1) of Facebook communities from [SNAP](http://snap.stanford.edu) and load it with your favorite library:
 
-  - [pandas](http://pandas.pydata.org)
+  - [Pandas](http://pandas.pydata.org)
 
      ```python
      g = pandas.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
      graphistry.bind(source='src', destination='dst').plot(g)
      ```
 
-  - [igraph](http://igraph.org)
+  - [IGraph](http://igraph.org)
 
      ```python
      g = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
      graphistry.bind(source='src', destination='dst').plot(g)
      ```
 
-  - [networkx](https://networkx.github.io)
+  - [NetworkX](https://networkx.github.io)
 
      ```python
      g = networkx.read_edgelist('facebook_combined.txt')
@@ -47,11 +47,11 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
     <tr valign="top">
         <td width="33%"><center><a href="http://i.imgur.com/qm5MCqS.jpg">Twitter Botnet<br><img width="266" src="http://i.imgur.com/qm5MCqS.jpg"></a></td>
         <td width="33%"><center><a href="http://i.imgur.com/074zFve.png">Edit Wars on Wikipedia<br><img width="266" src="http://i.imgur.com/074zFve.png"></a></td>
-        <td width="33%"><center><a href="http://http://i.imgur.com/GdT4yV6.jpg">Uber Trips in SF<br><img width="266" src="http://i.imgur.com/GdT4yV6.jpg"></a></td>
+        <td width="33%"><center><a href="http://i.imgur.com/GdT4yV6.jpg">Uber Trips in SF<br><img width="266" src="http://i.imgur.com/GdT4yV6.jpg"></a></td>
     </tr>
     <tr valign="top">
         <td width="33%"><center><a href="http://i.imgur.com/vKUDySw.png">Port Scan Attack<br><img width="266" src="http://i.imgur.com/vKUDySw.png"></a></td>
-        <td width="33%"><center><a href="http://i.imgur.com/nrUHLFz.png">Protein Interactions <br><img width="266" src="http://i.imgur.com/nrUHLFz.png"></a>Data source: <a href="http://thebiogrid.org">BioGRID</a></td>
+        <td width="33%"><center><a href="http://i.imgur.com/nrUHLFz.png">Protein Interactions <br><img width="266" src="http://i.imgur.com/nrUHLFz.png"></a>Source: <a href="http://thebiogrid.org">BioGRID</a></td>
         <td width="33%"><center><a href="http://i.imgur.com/0T0EKmD.png">Programming Languages<br><img width="266" src="http://i.imgur.com/0T0EKmD.png"></a></td>
     </tr>
 </table>
@@ -128,7 +128,7 @@ g.plot(links)
 ### Controlling Node Size and Color
 Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). [IGraph](http://igraph.org/python/) already has these algorithms implemented for us. If IGraph is not already installed, fetch it with `pip install igraph-python`. (<span style="color:maroon">Warning: `pip install igraph` will install the wrong package!</span>)
 
-We start by converting our edge dateframe into an Igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we create two new node attributes (*pagerank* & *community*).
+We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we create two new node attributes (*pagerank* & *community*).
 
 ```python
 ig = g.pandas2igraph(links)
