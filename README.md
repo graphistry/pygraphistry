@@ -67,7 +67,7 @@ The simplest way to install PyGraphistry is with Python's pip package manager:
 - Pandas, IGraph, and NetworkX: `pip install "graphistry[all]"`
 
 ##### API Key
-An API key gives each visualization access to our GPU cluster. We currently ask for API keys to make sure our servers are not melting :) To get your own, email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com). Register you key after the `import graphistry` statement and you are good to go:
+An API key gives each visualization access to our GPU cluster. We currently ask for API keys to make sure our servers are not melting :) To get your own, email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com). Set your key after the `import graphistry` statement and you are good to go:
 
 ```python
 import graphistry
@@ -155,6 +155,10 @@ Find out who is the most popular Marvel hero! Run the code in [the Marvel Demo n
 ## API Reference
 
 Have a look at the full [API](http://graphistry.com/api0.3.html#python) for more information on sizes, colors, palettes etc.
+
+## Next Step
+
+Email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) for an API key!
 
 <!---
 
