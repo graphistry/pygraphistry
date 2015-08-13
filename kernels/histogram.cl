@@ -134,7 +134,8 @@ __kernel void histogram(
         uint dataSize, // unsigned int
         __global uint* check, // 1 : count, 1<<1 : sum, 1<<2 : mean, 1<<3 : max, 1<<4 : min, 1<<5: constant binwidth
         __global float* binStart, // bin seg
-        __global float* data, // data[dataSize]
+        __global uint* indices, // indices[dataSize], all elements >= 0 and < data.length
+        __global float* data, // data which is indexed into by indices.
         __global volatile int* output, // count: output[numBins]
         __global volatile float* outputSum,  // outputSum[numBins]
         __global float* outputMean, // outputMean[numBins]
@@ -152,13 +153,14 @@ __kernel void histogram(
     if (gid < dataSize) {
         // check average
         if ((*check >> 2) & 1) *check |= 1 | (1 << 1);
+        float localElement = data[indices[gid]];
 
         // check binStart
         if ((*check >> 5) & 1) {
-            key[tid] = (data[gid] - binStart[0]) / step;  // constant width
+            key[tid] = (localElement - binStart[0]) / step;  // constant width
         } else {
             for (int i = 0; i < numBins; i++) { // various width
-                if (data[gid] >= binStart[i] && data[gid] < binStart[i + 1]) {
+                if (localElement >= binStart[i] && localElement < binStart[i + 1]) {
                     key[tid] = i;
                 }
             }
@@ -185,7 +187,7 @@ __kernel void histogram(
             if (tid < numBins) sumLocal[tid] = 0.0;
             barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
 
-            AtomicAddLocal(&sumLocal[key[tid]], data[gid]);
+            AtomicAddLocal(&sumLocal[key[tid]], localElement);
             barrier(CLK_LOCAL_MEM_FENCE);
 
             if (tid < numBins) AtomicAdd(&outputSum[tid], sumLocal[tid]);
@@ -207,7 +209,7 @@ __kernel void histogram(
             if (tid < numBins) maxLocal[tid] = outputMax[tid];
             barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
 
-            AtomicMaxLocal(&maxLocal[key[tid]], data[gid]);
+            AtomicMaxLocal(&maxLocal[key[tid]], localElement);
             barrier(CLK_LOCAL_MEM_FENCE);
 
             if (tid < numBins) AtomicMax(&outputMax[tid], maxLocal[tid]);
@@ -221,7 +223,7 @@ __kernel void histogram(
             if (tid < numBins) minLocal[tid] = outputMin[tid];
             barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
 
-            AtomicMinLocal(&minLocal[key[tid]], data[gid]);;
+            AtomicMinLocal(&minLocal[key[tid]], localElement);;
             barrier(CLK_LOCAL_MEM_FENCE);
 
             if (tid < numBins) AtomicMin(&outputMin[tid], minLocal[tid]);
