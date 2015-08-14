@@ -252,11 +252,55 @@ graphistry.bind().bind(source='src', destination='dst').plot(es)
 
 ## `Plotter.pandas2igraph`
 
-TODO
+### Signature
+
+pandas2igraph (edges : <em>pandasDataFrame</em>, directed=True : <em>Boolean</em>) : <em>IGraph</em>
+
+### About
+Convert a pandas edge dataframe (using current bindings) to an IGraph graph.
+
+Defaults to treating edges as directed.
+
+### Examples
+
+```Python
+import graphistry
+g = graphistry.bind()
+
+es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+g = g.bind(source='src', destination='dst')
+
+ig = g.pandas2igraph(es)
+ig.vs['community'] = ig.community_infomap().membership
+g.bind(point_color='community').plot(ig)
+```
 
 ## `Plotter.igraph2pandas`
 
-TODO
+### Signature
+igraph2pandas(ig : <em>IGraph</em>) : (<em>PandasDataFrame</em>, <em>PandasDataFrame</em>)
+
+### About
+
+Under current bindings, transform an IGraph into a pandas edges dataframe and a nodes dataframe.
+
+### Examples
+
+```Python
+import graphistry
+g = graphistry.bind()
+
+es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+g = g.bind(source='src', destination='dst').edges(es)
+
+ig = g.pandas2igraph(es)
+ig.vs['community'] = ig.community_infomap().membership
+
+(es2, vs2) = g.igraph2pandas(ig)
+g.nodes(vs2).bind(point_color='community').plot()
+```
+
+
 
 ## `Plotter.networkx2pandas`
 
