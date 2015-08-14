@@ -218,7 +218,9 @@ TODO
 
 ### Signature
 
-plot : (nodes = None, edges = None, graph = None)
+plot : (graph = None, nodes = None)
+
+Optional attributes follow same rules as the corresponding methods `nodes()`, `edges()`, and `graph()`. When provided, they override the existing binding.
 
 ### About
 
@@ -226,7 +228,10 @@ Upload bound data to the Graphistry server and show an iframe of the graph based
 
 Outputs different results based on the embedding environment. E.g., in IPython, shows the iframe.
 
+
 ### Example
+
+**Simple**
 
 ```Python
 import graphistry
@@ -234,6 +239,15 @@ es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
 g = graphistry.bind().bind(source='src', destination='dst').edges(es)
 g.plot()
 ```
+
+**Sugar**
+
+```Python
+import graphistry
+es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+graphistry.bind().bind(source='src', destination='dst').plot(es)
+```
+
 
 
 ## `Plotter.pandas2igraph`
