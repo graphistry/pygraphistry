@@ -13,9 +13,12 @@ numprocs_start=0
 user=www
 umask=002
 
-stdout_logfile=/var/log/reaper.log
-redirect_stderr=true
-; stderr_logfile=/var/log/reaper.err.log
+stdout_logfile=/var/log/%(program_name)s.log
+stdout_logfile_maxbytes=10MB
+
+redirect_stderr=false
+stderr_logfile=/var/log/%(program_name)s.stderr.log
+stderr_logfile_maxbytes=10MB
 
 autostart=true
 autorestart=true

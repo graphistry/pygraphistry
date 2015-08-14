@@ -13,10 +13,12 @@ numprocs_start={{ workers_port_start }}
 user=www
 umask=002
 
-stdout_logfile=/var/log/worker/%(program_name)s-%(process_num)d.log
+stdout_logfile=/var/log/worker/%(program_name)s-%(process_num)d.stdout.log
 stdout_logfile_maxbytes=10MB
-redirect_stderr=true
-; stderr_logfile=/var/log/worker/%(program_name)s-%(process_num)d.errors.log
+
+redirect_stderr=false
+stderr_logfile=/var/log/worker/%(program_name)s-%(process_num)d.stderr.log
+stderr_logfile_maxbytes=10MB
 
 autostart=true
 autorestart=true
