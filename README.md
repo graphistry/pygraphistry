@@ -166,7 +166,9 @@ Find out who is the most popular Marvel hero! Run the code in [the Marvel Demo n
 
 ## API Reference
 
-Have a look at the full [API](http://graphistry.com/api/api0.9.2.html#python) for more information on sizes, colors, palettes etc.
+Full Python [API](api.md) for more information on sizes, colors, palettes etc.
+
+See also: [REST API and deprecrated Python docs](http://graphistry.com/api/api0.9.2.html#python).
 
 ## Next Step
 
