@@ -128,7 +128,7 @@ function publish(vg, name) {
 
 // Buffer * {name: String, ...} -> Promise
 function s3Upload(binaryBuffer, metadata) {
-    return s3.upload(config.S3, config.BUCKET, metadata, binaryBuffer);
+    return s3.upload(config.S3, config.BUCKET, metadata, binaryBuffer, {ContentEncoding: 'gzip'});
 }
 
 
