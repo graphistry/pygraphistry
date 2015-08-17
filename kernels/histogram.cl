@@ -1,7 +1,7 @@
 #define VT 32
 #define WARPSIZE 32
-#define THREADS 128
-#define BINSIZE 32
+#define THREADS 256
+#define BINSIZE 256
 
 //******** new ********
 // Comments
@@ -153,11 +153,12 @@ __kernel void histogram(
     if (gid < dataSize) {
         // check average
         if ((*check >> 2) & 1) *check |= 1 | (1 << 1);
+
         float localElement = data[indices[gid]];
 
         // check binStart
         if ((*check >> 5) & 1) {
-            key[tid] = (localElement - binStart[0]) / step;  // constant width
+            key[tid] = (int)(localElement - binStart[0]) / step;  // constant width
         } else {
             for (int i = 0; i < numBins; i++) { // various width
                 if (localElement >= binStart[i] && localElement < binStart[i + 1]) {
