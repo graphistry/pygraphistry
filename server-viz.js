@@ -429,9 +429,9 @@ function init(app, socket) {
 
             if (query.all === true) {
                 var numPoints = graph.simulator.dataframe.getNumElements('point');
-                qIndices = Q(_.range(numPoints));
+                qIndices = Q(new Uint32Array(_.range(numPoints)));
             } else if (!query.sel) {
-                qIndices = Q([]);
+                qIndices = Q(new Uint32Array([]));
             } else {
                 qIndices = graph.simulator.selectNodes(query.sel);
             }
