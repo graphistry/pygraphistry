@@ -158,7 +158,7 @@ __kernel void histogram(
 
         // check binStart
         if ((*check >> 5) & 1) {
-            key[tid] = (int)(localElement - binStart[0]) / step;  // constant width
+            key[tid] = (int)((localElement - binStart[0]) / step);  // constant width
         } else {
             for (int i = 0; i < numBins; i++) { // various width
                 if (localElement >= binStart[i] && localElement < binStart[i + 1]) {
