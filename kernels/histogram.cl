@@ -1,4 +1,4 @@
-#define VT 32
+#define VT 16
 #define WARPSIZE 32
 #define THREADS 256
 #define BINSIZE 256
