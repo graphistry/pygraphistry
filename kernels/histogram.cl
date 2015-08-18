@@ -13,6 +13,9 @@
 // check: is to pick the running function; set 1 as run, 0 as not run. check will be less than or equal to 111111 (binary), 0th bit refers to count, 1st bit
 // refers to sum, 2nd bit refers to mean, 3rd bit refers to max, 4th bit refers to min，5th bit refers to constant width
 // binStart: the segment of bin, (check >> 5) == 1, binwidths are constant, otherwise binwidths are various
+//
+// Assumes all outputs are initialized to zero before running kernel.
+//
 
 // ******** new ********
 // atomic_add_local

@@ -18,6 +18,7 @@ var labeler     = require('./js/labeler.js');
 var vgwriter    = require('./js/libs/VGraphWriter.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
+var util        = require('./js/util.js');
 
 var log         = require('common/logger.js');
 var logger      = log.createLogger('graph-viz:driver:viz-server');
@@ -469,7 +470,7 @@ function init(app, socket) {
             // Initial case of getting global Stats
             // TODO: Make this match the same structure, not the current hacky approach in streamGL
             if (query.type) {
-                data = [graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type)];
+                data = [function () {return graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type);}];
             } else {
                 var types = ['point', 'edge'];
                 data = _.map(types, function (type) {
@@ -477,11 +478,14 @@ function init(app, socket) {
                         return (attr.type === type);
                     });
                     var attrNames = _.pluck(filteredAttrs, 'name');
-                    return graph.dataframe.aggregate(graph.simulator, indices[type], attrNames, query.binning, query.mode, type);
+                    var func = function () {
+                        return graph.dataframe.aggregate(graph.simulator, indices[type], attrNames, query.binning, query.mode, type);
+                    };
+                    return func;
                 });
             }
 
-            return Q.all(data).spread(function () {
+            return util.chainQAll(data).spread(function () {
                 var returnData = {};
                 _.each(arguments, function (partialData) {
                     _.extend(returnData, partialData);
