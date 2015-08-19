@@ -21,7 +21,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def register(key, server='proxy-labs.graphistry.com'):
-        PyGraphistry.api_key = key
+        PyGraphistry.api_key = key.strip()
         shortcuts = {'localhost': 'localhost:3000',
                      'staging': 'proxy-staging.graphistry.com',
                      'labs': 'proxy-labs.graphistry.com'}
