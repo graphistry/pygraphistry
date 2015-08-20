@@ -9,6 +9,7 @@ var _           = require('underscore');
 var Q           = require('q');
 var fs          = require('fs');
 var path        = require('path');
+var extend      = require('node.extend');
 var rConf       = require('./js/renderer.config.js');
 var lConf       = require('./js/layout.config.js');
 var loader      = require('./js/data-loader.js');
@@ -294,7 +295,27 @@ function init(app, socket) {
             lastRenderConfig = renderConfig;
         }).fail(function (err) {
             cb({success: false, error: 'Unknown dataset or scene error'});
-            log.makeQErrorHandler(logger, 'sending render_config')(err)
+            log.makeQErrorHandler(logger, 'sending render_config')(err);
+        });
+    });
+
+    socket.on('update_render_config', function(newValues, cb) {
+        qRenderConfig.then(function (renderConfig) {
+            logger.info('renderConfig [before]', renderConfig);
+            logger.trace('Updating render-config from client values');
+
+            extend(true, renderConfig, newValues);
+
+            cb({success: true, renderConfig: renderConfig});
+
+            if (saveAtEachStep) {
+                persistor.saveConfig(defaultSnapshotName, renderConfig);
+            }
+
+            lastRenderConfig = renderConfig;
+        }).fail(function (err) {
+            cb({success: false, error: 'Unknown dataset or scene error'});
+            log.makeQErrorHandler(logger, 'updating render_config')(err);
         });
     });
 

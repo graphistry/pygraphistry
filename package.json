@@ -27,6 +27,7 @@
     "gl-matrix": "~2.2.0",
     "less": "~2.2.0",
     "mongodb": "~2.0.25",
+    "node.extend": "~1.1.5",
     "node-pigz": "graphistry/node-pigz",
     "node-webcl": "graphistry/node-webcl-old",
     "node-webgl": "~0.4.0",
