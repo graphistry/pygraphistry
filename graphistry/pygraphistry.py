@@ -83,11 +83,8 @@ class PyGraphistry(object):
 
         out_file = io.BytesIO()
         with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
-            if sys.version_info < (3,0):
-                try:
-                    f.write(json_dataset)
-                except UnicodeEncodeError:
-                    f.write(json_dataset.encode('utf8'))
+            if sys.version_info < (3,0) and isinstance(json_dataset, str):
+                f.write(json_dataset)
             else:
                 f.write(json_dataset.encode('utf8'))
 
