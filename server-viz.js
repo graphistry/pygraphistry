@@ -274,7 +274,7 @@ function init(app, socket) {
         var metadata = dataset.metadata;
 
         if (!(metadata.scene in rConf.scenes)) {
-            logger.warn('WARNING Unknown scene "%s", using default', metadata.scene)
+            logger.warn('WARNING Unknown scene "%s", using default', metadata.scene);
             metadata.scene = 'default';
         }
 
