@@ -8,6 +8,10 @@ server {
 
     server_name {{ inventory_hostname }};
 
+    if ($http_user_agent ~ ^Slack) {
+        return 403;
+    }
+
     location / {
         proxy_pass              http://central_nodejs_app;
         proxy_http_version      1.1;
