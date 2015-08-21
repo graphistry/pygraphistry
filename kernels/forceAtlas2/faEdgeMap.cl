@@ -8,6 +8,7 @@ __kernel void faEdgeMap(
     //GRAPH_PARAMS
     const float scalingRatio, const float gravity,
     const uint edgeInfluence, const uint flags,
+    const uint isForward,
 
     const __global uint2* edges,          // Array of springs, of the form [source node, target node] (read-only)
     const uint numEdges,
@@ -25,7 +26,7 @@ __kernel void faEdgeMap(
         const uint targetIdx = edges[workItem].y;
         const float2 n1Pos = inputPoints[sourceIdx];
         const float2 n2Pos = inputPoints[targetIdx];
-        const uint n1Deg = pointDegrees[sourceIdx];
+        const uint n1Deg = pointDegrees[(isForward ? sourceIdx : targetIdx)];
         const float n2Size = DEFAULT_NODE_SIZE;
         const float n1Size = DEFAULT_NODE_SIZE;
         const float2 distVec = n2Pos - n1Pos;
