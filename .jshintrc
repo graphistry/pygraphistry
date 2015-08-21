@@ -1,17 +1,19 @@
 {
-	"curly": true,
-	"eqeqeq": true,
 	"freeze": true,
 	"latedef": "nofunc",
 	"noarg": true,
 	"nonbsp": true,
-	"quotmark": "single",
 	"undef": true,
 	"unused": true,
-	"strict": true,
-
-	"debug": true,
+    "debug": true,
 	"devel": true,
+	"node": true,
+    "shadow": "inner",
 
-	"node": true
+	"strict": false,
+	"curly": false,
+	"eqeqeq": false,
+    "asi": true,
+    "sub": true,
+    "laxbreak": true
 }
