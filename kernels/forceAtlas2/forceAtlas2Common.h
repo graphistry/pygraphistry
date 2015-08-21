@@ -22,7 +22,7 @@ float attractionForce(const float2 distVec, const float n1Size, const float n2Si
     const float weightMultiplier = edgeInfluence == 0 ? 1.0f
                                  : edgeInfluence == 1 ? weight
                                                       : pown(weight, edgeInfluence);
-
+    debug3("Weight: %f    Mult:%f\n", weight, weightMultiplier);
     const float dOffset = preventOverlap ? n1Size + n2Size : 0.0f;
     const float dist = length(distVec) - dOffset;
 
