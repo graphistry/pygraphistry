@@ -64,6 +64,88 @@ class Plotter(object):
     def bind(self, source=None, destination=None, node=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
              point_title=None, point_label=None, point_color=None, point_size=None):
+        """Relate data attributes to graph structure and visual representation.
+
+        To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
+
+
+        :param source: Attribute containing an edge's source ID
+        :type source: String.
+
+        :param destination: Attribute containing an edge's destination ID
+        :type destination: String.
+
+        :param node: Attribute containing a node's ID
+        :type node: String.
+
+        :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
+        :type edge_title: HtmlString.
+
+        :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
+        :type edge_label: HtmlString.
+
+        :param edge_color: Attribute overriding edge's color. `See palette definitions <https://github.com/graphistry/pygraphistry/blob/master/graphistry.com/palette.html>`_ for values. Based on Color Brewer.
+        :type edge_color: String.
+
+        :param edge_weight: Attribute overriding edge weight. Default is 1. Advanced layout controls will relayout edges based on this value.
+        :type edge_weight: String.
+
+        :param point_title: Attribute overriding node's minimized label text. By default, the node ID is used.
+        :type point_title: HtmlString.
+
+        :param point_label: Attribute overriding node's expanded label text. By default, scrollable list of attribute/value mappings.
+        :type point_label: HtmlString.
+
+        :param point_color: Attribute overriding node's color. `See palette definitions <https://github.com/graphistry/pygraphistry/blob/master/graphistry.com/palette.html>`_ for values. Based on Color Brewer.
+        :type point_color: Integer.
+
+        :param point_size: Attribute overriding node's size. By default, uses the node degree. The visualization will normalize point sizes and adjust dynamically using semantic zoom.
+        :type point_size: HtmlString.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Minimal**
+            ::
+
+                import graphistry
+                g = graphistry.bind()
+                g.bind(source='src', destination='dst')
+
+        **Example: Node colors**
+            ::
+
+            import graphistry
+            g = graphistry.bind()
+            g.bind(source='src', destination='dst', node='id', point_color='color')
+
+        **Example: Chaining**
+            ::
+
+                import graphistry
+                g = graphistry.bind().bind(source='src', destination='dst', node='id')
+
+                g1 = g.bind(point_color='color1', point_size='size1')
+                g.bind(point_color='color1b')
+
+                g2a = g1.bind(point_color='color2a')
+                g2b = g1.bind(point_color='color2b', point_size='size2b')
+
+                g3a = g2a.bind(point_size='size3a')
+                g3b = g3b.bind(point_size='size3b')
+
+        In the above **Chaining** example, all bindings use src/dst/id. Colors and sizes bind to:
+            ::
+
+                g: default/default
+                g1: color1/size1
+                g2a: color2a/size1
+                g2b: color2b/size2b
+                g3a: color2a/size3a
+                g3b: color2b/size3b
+
+
+        """
         res = copy.copy(self)
         res._source = source or self._source
         res._destination = destination or self._destination
