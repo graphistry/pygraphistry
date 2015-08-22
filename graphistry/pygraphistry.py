@@ -1,3 +1,5 @@
+"""Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
+
 from __future__ import absolute_import
 from __future__ import print_function
 from future import standard_library
@@ -23,6 +25,33 @@ class PyGraphistry(object):
 
     @staticmethod
     def register(key, server='proxy-labs.graphistry.com'):
+        """API key registration and server selection
+
+        Changing the key effects all derived Plotter instances.
+
+        :param key: API key.
+        :type key: String.
+        :param server: URL of the visualization server.
+        :type server: Optional string.
+        :returns: None.
+        :rtype: None.
+
+
+        **Example: Standard**
+                ::
+
+                    import graphistry
+                    graphistry.register(key="my api key")
+
+        **Example: Developer**
+                ::
+
+                    import graphistry
+                    graphistry.register('my api key', 'staging')
+
+
+        """
+
         PyGraphistry.api_key = key.strip()
         shortcuts = {'localhost': 'localhost:3000',
                      'staging': 'proxy-staging.graphistry.com',
@@ -33,9 +62,24 @@ class PyGraphistry(object):
             PyGraphistry._hostname = server
 
     @staticmethod
-    def bind(node=None, source=None, destination=None,
-             edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
-             point_title=None, point_label=None, point_color=None, point_size=None):
+    def bind():
+        """Create a base plotter.
+
+        Typically called at start of a program. For parameters, see ``plotter.bind()`` .
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+
+                ::
+
+                    import graphistry
+                    g = graphistry.bind()
+
+        """
+
+
 
         from . import plotter
         return plotter.Plotter().bind(source, destination, node, \

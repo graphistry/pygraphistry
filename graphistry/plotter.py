@@ -14,6 +14,18 @@ from . import util
 
 
 class Plotter(object):
+    """Graph plotting class.
+
+    Created using ``Graphistry.bind()``.
+
+    Chained calls successively add data and visual encodings, and end with a plot call.
+
+    To streamline reuse and replayable notebooks, Plotter manipulations are immutable. Each chained call returns a new instance that derives from the previous one. The old plotter or the new one can then be used to create different graphs.
+
+    The class supports convenience methods for mixing calls across Pandas, NetworkX, and IGraph.
+    """
+
+
     _defaultNodeId = '__nodeid__'
 
     def __init__(self):
