@@ -708,9 +708,29 @@ button.btn-default {
 
 #retry-load {
     color: #AAA;
-    margin-top: 10em;
+    margin-top: 2em;
     text-decoration: underline;
     font-style: italic;
+}
+
+.splash {
+    position: fixed;
+    cursor: pointer;
+    top: 50%;
+    left: 50%;
+    margin-top: -150px;
+    margin-left: -182px;
+    visibility: visible;
+    text-align: center;
+    vertical-align: top;
+
+    & > span {
+        margin-top: 1em;
+        display: block;
+        & > a {
+            color: #AAA;
+        }
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////
