@@ -1,0 +1,9 @@
+Extracts .RST from parent .PY and converts into .HTML
+
+To run:
+
+   docs $ ./build.sh
+
+Makes 
+
+   docs/build/html/graphistry.html
