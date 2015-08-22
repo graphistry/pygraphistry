@@ -110,22 +110,25 @@ class Plotter(object):
 
                 import graphistry
                 g = graphistry.bind()
-                g.bind(source='src', destination='dst')
+                g = g.bind(source='src', destination='dst')
 
         **Example: Node colors**
             ::
 
-            import graphistry
-            g = graphistry.bind()
-            g.bind(source='src', destination='dst', node='id', point_color='color')
+                import graphistry
+                g = graphistry.bind()
+                g = g.bind(
+                    source='src', destination='dst',
+                    node='id', point_color='color')
 
         **Example: Chaining**
             ::
 
                 import graphistry
-                g = graphistry.bind().bind(source='src', destination='dst', node='id')
+                g = graphistry.bind(source='src', destination='dst', node='id')
 
                 g1 = g.bind(point_color='color1', point_size='size1')
+
                 g.bind(point_color='color1b')
 
                 g2a = g1.bind(point_color='color2a')
@@ -163,28 +166,129 @@ class Plotter(object):
         return res
 
     def nodes(self, nodes):
+        """Specify the set of nodes and associated data.
+
+        Must include any nodes referenced in the edge list.
+
+        :param nodes: Nodes and their attributes.
+        :type point_size: Pandas dataframe
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+            ::
+
+                import graphistry
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(es)
+
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                g = g.bind(node='v').nodes(vs)
+
+                g.plot()
+
+        """
+
+
         res = copy.copy(self)
         res._nodes = nodes
         return res
 
     def edges(self, edges):
+        """Specify edge list data and associated edge attribute values.
+
+        :param edges: Edges and their attributes.
+        :type point_size: Pandas dataframe, NetworkX graph, or IGraph graph.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+            ::
+
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(df)
+                    .plot()
+
+        """
+
         res = copy.copy(self)
         res._edges = edges
         return res
 
     def graph(self, ig):
+        """Specify the node and edge data.
+
+        :param ig: Graph with node and edge attributes.
+        :type ig: NetworkX graph or an IGraph graph.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+        """
+
         res = copy.copy(self)
         res._edges = ig
         res._nodes = None
         return res
 
     def settings(self, height=None, url_params={}):
+        """Specify iframe height and add URL parameter dictionary.
+
+        The library takes care of URI component encoding for the dictionary.
+
+        :param height: Height in pixels.
+        :type height: Integer.
+
+        :param url_params: Dictionary of querystring parameters to append to the URL.
+        :type url_params: Dictionary
+        """
+
         res = copy.copy(self)
         res._height = height or self._height
         res._url_params = dict(self._url_params, **url_params)
         return res
 
     def plot(self, graph=None, nodes=None):
+        """Upload data to the Graphistry server and show as an iframe of it.
+
+        Uses the currently bound schema structure and visual encodings. Optional parameters override the current bindings.
+
+        When used in a notebook environment, will also show an iframe of the visualization.
+
+        :param graph: Edge table or graph.
+        :type graph: Pandas dataframe, NetworkX graph, or IGraph graph.
+
+        :param nodes: Nodes table.
+        :type nodes: Pandas dataframe.
+
+        **Example: Simple**
+            ::
+
+                import graphistry
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(es)
+                    .plot()
+
+        **Example: Shorthand**
+            ::
+
+                import graphistry
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .bind(source='src', destination='dst')
+                    .plot(es)
+
+
+        """
         if graph is None:
             if self._edges is None:
                 util.error('Graph/edges must be specified.')
@@ -211,6 +315,25 @@ class Plotter(object):
             return self
 
     def pandas2igraph(self, edges, directed=True):
+        """Convert a pandas edge dataframe to an IGraph graph.
+
+        Uses current bindings. Defaults to treating edges as directed.
+
+        **Example**
+            ::
+
+                import graphistry
+                g = graphistry.bind()
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = g.bind(source='src', destination='dst')
+
+                ig = g.pandas2igraph(es)
+                ig.vs['community'] = ig.community_infomap().membership
+                g.bind(point_color='community').plot(ig)
+        """
+
+
         import igraph
         self._check_mandatory_bindings(False)
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
@@ -227,6 +350,24 @@ class Plotter(object):
                                       vertex_name_attr=self._node)
 
     def igraph2pandas(self, ig):
+        """Under current bindings, transform an IGraph into a pandas edges dataframe and a nodes dataframe.
+
+        **Example**
+            ::
+
+                import graphistry
+                g = graphistry.bind()
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = g.bind(source='src', destination='dst').edges(es)
+
+                ig = g.pandas2igraph(es)
+                ig.vs['community'] = ig.community_infomap().membership
+
+                (es2, vs2) = g.igraph2pandas(ig)
+                g.nodes(vs2).bind(point_color='community').plot()
+        """
+
         def get_edgelist(ig):
             idmap = dict(enumerate(ig.vs[self._node]))
             for e in ig.es:
@@ -250,6 +391,7 @@ class Plotter(object):
         return (edges, nodes)
 
     def networkx2pandas(self, g):
+
         def get_nodelist(g):
             for n in g.nodes(data=True):
                 yield dict({self._node: n[0]}, **n[1])
