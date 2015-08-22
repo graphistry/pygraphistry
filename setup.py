@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='graphistry',
-    version='0.9.4',
+    version='0.9.5',
     packages = ['graphistry'],
     platforms='any',
     description = 'Visualize node-link graphs using Graphistry\'s cloud',
