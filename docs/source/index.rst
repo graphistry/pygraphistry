@@ -2,7 +2,7 @@ PyGraphistry's documentation (|version|)
 ========================================
 
 Quickstart:
-`Read our tutorial <https://github.com/graphistry/pygraphistry/blob/master/README.md">`_
+`Read our tutorial <https://github.com/graphistry/pygraphistry/blob/master/README.md>`_
 
 Contents:
 
