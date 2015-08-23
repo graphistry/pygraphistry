@@ -5,7 +5,7 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
 1. [Interactive Demo](#launch-the-demo)
 2. [Graph Gallery](#gallery)
 3. [Installation](#installation)
-4. [Tutorial](#tutorial)
+4. [Tutorial](#tutorial-les-misérables)
 5. [API Reference](#api-reference)
 
 ### Launch The Demo:
