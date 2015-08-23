@@ -7,5 +7,5 @@ make html
 
 PLATFORM=`uname`
 if [ "$PLATFORM" == "Darwin" ]; then
-    open build/html/graphistry.html
+    open build/html/index.html
 fi
