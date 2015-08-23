@@ -117,9 +117,8 @@ class Plotter(object):
 
                 import graphistry
                 g = graphistry.bind()
-                g = g.bind(
-                    source='src', destination='dst',
-                    node='id', point_color='color')
+                g = g.bind(source='src', destination='dst',
+                           node='id', point_color='color')
 
         **Example: Chaining**
             ::
@@ -135,7 +134,7 @@ class Plotter(object):
                 g2b = g1.bind(point_color='color2b', point_size='size2b')
 
                 g3a = g2a.bind(point_size='size3a')
-                g3b = g3b.bind(point_size='size3b')
+                g3b = g2b.bind(point_size='size3b')
 
         In the above **Chaining** example, all bindings use src/dst/id. Colors and sizes bind to:
             ::
