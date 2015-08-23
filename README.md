@@ -102,7 +102,9 @@ Our [dataset is a CSV file](https://raw.githubusercontent.com/graphistry/pygraph
 
 | source        | target        | value  |
 | ------------- |:-------------:| ------:|
-| Cravatte |	Myriel | 1| Valjean	| Mme.Magloire | 3| Valjean	| Mlle.Baptistine | 3
+| Cravatte |	Myriel | 1
+| Valjean	| Mme.Magloire | 3
+| Valjean	| Mlle.Baptistine | 3
 
 *Source* and *target* are character names, and the *value* column counts the number of time they meet. Parsing is a one-liner with Pandas:
 
@@ -173,38 +175,4 @@ See also: [REST API and deprecrated Python docs](http://graphistry.com/api/api0.
 ## Next Step
 
 Email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) for an API key!
-
-<!---
-
-### Cheat Sheet
-In a nutshell, `plot` *mandatory* arguments are:
-
-- `edges` *pandas.DataFrame*: The edge dataframe.
-- `source` *string*: The column of `edges` containing the start of each edge.
-- `destination` *string*: The column of `edges` containing the end of each edge.
-
-This is enough to define a graph.
-##### Edges
-We control the visual attributes of edges with the following *optional* arguments. Each of them refers to the name of a column of `edges`.
-
-- `edge_color` *string*
-- `edge_title` *string*
-- `edge_label` *string*
-- `edge_weight` *string*
-
-##### Nodes
-To control node visual attributes, we pass two more arguments:
-
-- `nodes` *pandas.DataFrame*: The node dataframe.
-- `node` *string*: The column of `nodes` that contains node identifiers (these are the same ids used in the `source` and `destination` columns of `edges`).
-
-then we bind columns of `node` using:
-
-- `point_title` *string*
-- `point_label` *string*
-- `point_size` *string*
-- `point_color` *string*
-
--->
-
 
