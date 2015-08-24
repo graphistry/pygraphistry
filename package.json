@@ -14,7 +14,7 @@
   },
   "license": "ISC",
   "dependencies": {
-    "color": "~0.8.0",
+    "color": "~0.10.1",
     "colorbrewer": "~0.0.2",
     "common": "graphistry/common",
     "config": "graphistry/config",
