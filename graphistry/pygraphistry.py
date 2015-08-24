@@ -52,7 +52,6 @@ class PyGraphistry(object):
 
         """
 
-        PyGraphistry.api_key = key.strip()
         shortcuts = {'localhost': 'localhost:3000',
                      'staging': 'proxy-staging.graphistry.com',
                      'labs': 'proxy-labs.graphistry.com'}
@@ -60,6 +59,8 @@ class PyGraphistry(object):
             PyGraphistry._hostname = shortcuts[server]
         else:
             PyGraphistry._hostname = server
+        PyGraphistry.api_key = key.strip()
+        PyGraphistry._check_key()
 
     @staticmethod
     def bind(node=None, source=None, destination=None,
@@ -113,6 +114,10 @@ class PyGraphistry(object):
         return 'http://%s/etl' % PyGraphistry._hostname
 
     @staticmethod
+    def _check_url():
+        return 'http://%s/api/check' % PyGraphistry._hostname
+
+    @staticmethod
     def _viz_url(dataset_name, url_params):
         splash_time = int(calendar.timegm(time.gmtime())) + 5
         extra = '&'.join([ k + '=' + str(v) for k,v in list(url_params.items())])
@@ -153,11 +158,21 @@ class PyGraphistry(object):
             raise ValueError('HTTP Error:', e.message)
 
         jres = response.json()
-        if (jres['success'] is not True):
+        if jres['success'] is not True:
             raise ValueError('Server reported error:', jres['msg'])
         else:
             return jres['dataset']
 
+    @staticmethod
+    def _check_key():
+        params = {'text': PyGraphistry.api_key}
+        try:
+            response = requests.get(PyGraphistry._check_url(), params=params)
+            jres = response.json()
+            if jres['success'] is not True:
+                util.warn(jres['error'])
+        except Exception as e:
+            pass
 
 register = PyGraphistry.register
 bind = PyGraphistry.bind
