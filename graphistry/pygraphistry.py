@@ -62,7 +62,9 @@ class PyGraphistry(object):
             PyGraphistry._hostname = server
 
     @staticmethod
-    def bind():
+    def bind(node=None, source=None, destination=None,
+             edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
+             point_title=None, point_label=None, point_color=None, point_size=None):
         """Create a base plotter.
 
         Typically called at start of a program. For parameters, see ``plotter.bind()`` .
