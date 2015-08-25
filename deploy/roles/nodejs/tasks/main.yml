@@ -168,11 +168,11 @@
             mode=0755
   sudo: yes
 
-- name: Install npm v2.12.1
+- name: Install npm v2.14.0
   npm: name=npm
        global=yes
        state=present
-       version=2.12.1
+       version=2.14.0
   environment: nodecl_env
   sudo: yes
 
