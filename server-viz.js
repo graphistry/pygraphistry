@@ -395,8 +395,8 @@ function init(app, socket) {
                 masks = graph.dataframe.composeMasks(maskList);
             } else {
                 // TODO: Don't get these directly -- add function to get these values
-                var edgeMask = _.range(graph.dataframe.rawdata.numElements.edge);
-                var pointMask = _.range(graph.dataframe.rawdata.numElements.point);
+                var edgeMask = _.range(graph.dataframe.numEdges());
+                var pointMask = _.range(graph.dataframe.numPoints());
                 masks = {
                     edge: edgeMask,
                     point: pointMask
@@ -419,7 +419,7 @@ function init(app, socket) {
                     simulator.layoutAlgorithms
                         .map(function (alg) {
                             return alg.updateDataframeBuffers(simulator);
-                        })
+                        });
                 }).then(function () {
                     simulator.tickBuffers([
                         'curPoints', 'pointSizes', 'pointColors',
