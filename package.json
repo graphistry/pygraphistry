@@ -13,6 +13,7 @@
     "backgrid": "~0.3.0",
     "backgrid-paginator": "graphistry/backgrid-paginator",
     "bootstrap-slider": "~4.3.0",
+    "brace": "~0.5.1",
     "brfs": "~1.4.0",
     "color": "~0.10.1",
     "d3": "~3.5.5",
