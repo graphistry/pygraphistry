@@ -1073,12 +1073,12 @@ button.btn-default {
     }
 
 
-    .expandHistogramButton, .expandedHistogramButton {
+    .expandHistogramButton, .expandedHistogramButton, .expandFilterButton, .expandedFilterButton {
         font-size: 1.3em;
     }
 
     @rotateDuration: 0.1s;
-    .expandHistogramButton {
+    .expandHistogramButton, .expandFilterButton {
         -webkit-transform: rotate(0deg);
         -moz-transform: rotate(0deg);
         -o-transform: rotate(0deg);
@@ -1091,7 +1091,7 @@ button.btn-default {
         transition: all @rotateDuration ease-in-out;
     }
 
-    .expandedHistogramButton {
+    .expandedHistogramButton, .expandedFilterButton {
         -webkit-transform: rotate(90deg);
         -moz-transform: rotate(90deg);
         -o-transform: rotate(90deg);
