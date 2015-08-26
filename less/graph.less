@@ -1066,7 +1066,10 @@ button.btn-default {
     }
 
     .col-xs-1, .col-xs-10 {
-        padding: 5px;
+        /*padding: 5px;*/
+        padding-top: 5px;
+        padding-left: 5px;
+        padding-right: 5px;
     }
 
 
@@ -1139,18 +1142,20 @@ button.btn-default {
     }
 
     .attributeName {
-        text-align: center;
+        text-align: left;
         margin-left: 4px;
         padding-left: 4px;
-        margin-top: 5px;
+        margin-top: 6px;
         z-index: @histogram-name-z;
         color: @dark-grey;
-        font-size: 1em;
+        font-size: 0.85em;
 
         &::first-letter {
             text-transform: uppercase;
         }
     }
+
+
 
     .histogramDiv {
         width: 100%;
@@ -1163,6 +1168,7 @@ button.btn-default {
         .topMenu {
             height: 30px;
             padding-left: 4px;
+            padding-bottom: 0px;
 
             .dropdown {
                 margin: 3px;
