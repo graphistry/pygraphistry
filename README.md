@@ -12,18 +12,18 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
 
 <table style="width:100%;">
   <tr valign="top">
-    <td align="center"><b>Friendship Communities on Facebook.</b> Click to open interactive version! <a href="http://proxy-labs.graphistry.com/graph/graph.html?dataset=Facebook&info=true&menu=false&play=0&mapper=opentsdb&legend={%22title%22:%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22,%22subtitle%22:%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%22nodes%22:%22People.%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%22edges%22:%22Friendships%22}&static=true&contentKey=Facebook_Static&center=false&left=-1.51e+4&right=1.41e+4&top=-8.81e+3&bottom=7.55e+3"><img src="http://i.imgur.com/CvO12an.png" title="Click to open."></a>
+    <td align="center"><b>Friendship Communities on Facebook.</b> Click to open interactive version! <a href="http://proxy-labs.graphistry.com/graph/graph.html?dataset=PyGraphistry/NY0D72L2UWs&info=true&legend={%22nodes%22:%20%22People%20(Names%20are%20fake).%3Cbr/%3E%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%20%22edges%22:%20%22Friendships%22,%20%22subtitle%22:%20%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%20%22title%22:%20%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22}&static=true&contentKey=Facebook_Github_Demo&play=0&center=false&menu=false&goLive=false&left=-2.32e+4&right=1.85e+4&top=-1.03e+4&bottom=1.32e+4"><img src="http://i.imgur.com/Ows4rK4.png" title="Click to open."></a>
     <em>Source data: <a href="http://snap.stanford.edu">SNAP</a></em>
 	</td>
   </tr>
 </table>
 
-<!-- IFRAME VESION
+<!-- IFRAME VERSION
 ### The Demo:
 
 <table style="width:100%;">
   <tr valign="top">
-    <td align="center"><b>Friendship Communities on Facebook.</b> (Read-only interactive version.)<br><iframe width="100%" height="500" src="http://proxy-labs.graphistry.com/graph/graph.html?dataset=Facebook&info=true&menu=false&play=0&mapper=opentsdb&legend={%22title%22:%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22,%22subtitle%22:%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%22nodes%22:%22People.%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%22edges%22:%22Friendships%22}&static=true&contentKey=Facebook_Static&center=false&left=-1.51e+4&right=1.41e+4&top=-8.81e+3&bottom=7.55e+3"></iframe><br></a>
+    <td align="center"><b>Friendship Communities on Facebook.</b> (Read-only interactive version.)<br><iframe width="100%" height="500" src="http://proxy-labs.graphistry.com/graph/graph.html?dataset=PyGraphistry/NY0D72L2UWs&info=true&legend={%22nodes%22:%20%22People%20(Names%20are%20fake).%3Cbr/%3E%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%20%22edges%22:%20%22Friendships%22,%20%22subtitle%22:%20%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%20%22title%22:%20%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22}&static=true&contentKey=Facebook_Github_Demo&play=0&center=false&menu=false&goLive=false&left=-2.32e+4&right=1.85e+4&top=-1.03e+4&bottom=1.32e+4"></iframe><br></a>
     <em>Source data: <a href="http://snap.stanford.edu">SNAP</a></em>
 	</td>
   </tr>
