@@ -218,7 +218,7 @@ function init(app, socket) {
 
 
 
-    app.get('/vbo', function(req, res) {
+    app.get('/vbo', function (req, res) {
         logger.info('VBOs: HTTP GET %s', req.originalUrl);
         // perfmonitor here?
         // profiling.debug('VBO request');
@@ -294,7 +294,7 @@ function init(app, socket) {
 
             lastRenderConfig = renderConfig;
         }).fail(function (err) {
-            cb({success: false, error: 'Unknown dataset or scene error'});
+            cb({success: false, error: 'Render config read error'});
             log.makeQErrorHandler(logger, 'sending render_config')(err);
         });
     });
@@ -314,7 +314,7 @@ function init(app, socket) {
 
             lastRenderConfig = renderConfig;
         }).fail(function (err) {
-            cb({success: false, error: 'Unknown dataset or scene error'});
+            cb({success: false, error: 'Render config update error'});
             log.makeQErrorHandler(logger, 'updating render_config')(err);
         });
     });
