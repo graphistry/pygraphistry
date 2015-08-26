@@ -367,6 +367,22 @@ function init(app, socket) {
         );
     });
 
+    /** Implements/gets a namespace comprehension, for calculation references and metadata. */
+    socket.on('namespace_metadata', function (_, cb) {
+        logger.trace('Sending Namespace metadata to client');
+        graph.take(1).do(function (graph) {
+            var dataframeColumnsByType = graph.dataframe.getColumnsByType();
+            // TODO add special names that can be used in calculation references.
+            // TODO handle multiple datasources.
+            var metadata = _.extend({}, dataframeColumnsByType);
+            cb({success: true,
+                metadata: metadata});
+        }).fail(function (err) {
+            cb({success: false, error: 'Namespace metadata error'});
+            log.makeQErrorHandler(logger, 'sending namespace metadata');
+        });
+    });
+
     socket.on('filter', function (query, cb) {
         logger.info('Got filter', query);
         graph.take(1).do(function (graph) {
