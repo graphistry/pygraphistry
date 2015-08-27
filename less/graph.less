@@ -1014,6 +1014,18 @@ button.btn-default {
         cursor: crosshair;
     }
 
+    .grab-cursor {
+        cursor: -webkit-grab;
+        cursor: -moz-grab;
+        cursor: grab;
+    }
+
+    .grab-cursor:active {
+        cursor: -webkit-grabbing;
+        cursor: -moz-grabbing;
+        cursor: grabbing;
+    }
+
     .upperTooltip, .lowerTooltip {
         -webkit-user-select: none;  /* Chrome all / Safari all */
         -moz-user-select: none;     /* Firefox all */
@@ -1164,8 +1176,6 @@ button.btn-default {
             text-transform: uppercase;
         }
     }
-
-
 
     .histogramDiv {
         width: 100%;
