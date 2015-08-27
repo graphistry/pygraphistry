@@ -25,15 +25,15 @@
 @meter-z:                       2100;
 @highlighted-point-z:           2200;
 @marquee-z:                     2300;
-@legend-z:                      2400;
 
 
 //menu & labels
-@menu-z:                        3100;
-@menus-z:                       3200;
 @graph-label-z:                 3300;
 @graph-label-clicked-z:         3400;
 @graph-label-hover-z:           3500;
+@menu-z:                        3600;
+@menus-z:                       3700;
+@legend-z:                      3800;
 
 //panels
 @histogram-z:                  40100;
@@ -1010,6 +1010,16 @@ button.btn-default {
         margin-left: -5px;
     }
 
+    .crosshair-cursor {
+        cursor: crosshair;
+    }
+
+    .upperTooltip, .lowerTooltip {
+        -webkit-user-select: none;  /* Chrome all / Safari all */
+        -moz-user-select: none;     /* Firefox all */
+        -ms-user-select: none;      /* IE 10+ */
+    }
+
     &.panel {
         background-color: @light-grey-background-2;
         visibility: hidden;
@@ -1085,10 +1095,10 @@ button.btn-default {
         -ms-transform: rotate(0deg);
         transform: rotate(0deg);
 
-        -webkit-transition: all @rotateDuration ease-in-out;
-        -moz-transition: all @rotateDuration ease-in-out;
-        -o-transition: all @rotateDuration ease-in-out;
-        transition: all @rotateDuration ease-in-out;
+        -webkit-transition: transform @rotateDuration ease-in-out;
+        -moz-transition: transform @rotateDuration ease-in-out;
+        -o-transition: transform @rotateDuration ease-in-out;
+        transition: transform @rotateDuration ease-in-out;
     }
 
     .expandedHistogramButton, .expandedFilterButton {
@@ -1098,10 +1108,10 @@ button.btn-default {
         -ms-transform: rotate(90deg);
         transform: rotate(90deg);
 
-        -webkit-transition: all @rotateDuration ease-in-out;
-        -moz-transition: all @rotateDuration ease-in-out;
-        -o-transition: all @rotateDuration ease-in-out;
-        transition: all @rotateDuration ease-in-out;
+        -webkit-transition: transform @rotateDuration ease-in-out;
+        -moz-transition: transform @rotateDuration ease-in-out;
+        -o-transition: transform @rotateDuration ease-in-out;
+        transition: transform @rotateDuration ease-in-out;
     }
 
     .refreshButton, .expandButton, .closeButton {
