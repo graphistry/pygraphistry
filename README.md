@@ -1,6 +1,6 @@
 # PyGraphistry: Explore Relationships
 
-PyGraphistry is a visual graph analytics library to extract, transform, and load big graphs into [Graphistry's](http://www.graphistry.com) GPU-cloud-accelerated explorer.
+PyGraphistry is a visual graph analytics library to extract, transform, and load big graphs into [Graphistry's](http://www.graphistry.com) cloud-based graph explorer. The client's custom WebGL rendering engine can visualize up to 8MM nodes and edges, though most client GPUs support somewhere between 100K and 1MM elements. The serverside OpenCL analytics engine supports even bigger graphs.
 
 1. [Interactive Demo](#launch-the-demo)
 2. [Graph Gallery](#gallery)
