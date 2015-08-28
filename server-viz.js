@@ -10,8 +10,10 @@ var Q           = require('q');
 var fs          = require('fs');
 var path        = require('path');
 var extend      = require('node.extend');
+var dConf       = require('./js/workbook.config.js');
 var rConf       = require('./js/renderer.config.js');
 var lConf       = require('./js/layout.config.js');
+var wbLoader    = require('./js/workbook.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var persistor   = require('./js/persist.js');
@@ -181,6 +183,14 @@ function init(app, socket) {
         log.addUserInfo({tag: decodeURIComponent(query.usertag)});
     }
 
+    var workbookDoc = {};
+    if (query.workbook) {
+        logger.debug('Loading workbook', query.workbook);
+        workbookDoc = _.extend(workbookDoc, wbLoader.loadDocument(decodeURIComponent(query.workbook)));
+    } else {
+        workbookDoc = _.extend(workbookDoc, _.pick(query, dConf.URLParamsWhitelist));
+    }
+
     var colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
     var img =
@@ -220,7 +230,7 @@ function init(app, socket) {
 
     app.get('/vbo', function (req, res) {
         logger.info('VBOs: HTTP GET %s', req.originalUrl);
-        // perfmonitor here?
+        // perf monitor here?
         // profiling.debug('VBO request');
 
         try {
@@ -234,11 +244,11 @@ function init(app, socket) {
                 res.send(lastCompressedVBOs[id][bufferName]);
             }
             res.send();
+
+            finishBufferTransfers[id](bufferName);
         } catch (e) {
             log.makeQErrorHandler(logger, 'bad /vbo request')(e);
         }
-
-        finishBufferTransfers[id](bufferName);
     });
 
     app.get('/texture', function (req, res) {
@@ -268,7 +278,7 @@ function init(app, socket) {
     });
 
     // Get the dataset name from the socket query param, sent by Central
-    var qDataset = loader.downloadDataset(query);
+    var qDataset = loader.downloadDataset(workbookDoc);
 
     var qRenderConfig = qDataset.then(function (dataset) {
         var metadata = dataset.metadata;
