@@ -77,7 +77,7 @@ function check() {
 }
 
 function checkDeps() {
-    MISMATCH=$(tools/setup/setup.js --versions 2>&1)
+    MISMATCH=$($ROOT/deploy/tools/setup/setup.js --versions 2>&1)
     if [[ -n $MISMATCH ]]; then
         echo "${RED}There are version mismatch in dependencies${RESET}"
         echo "$MISMATCH"
