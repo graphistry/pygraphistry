@@ -462,18 +462,29 @@ class Plotter(object):
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
         nodeid = self._node or Plotter._defaultNodeId
         elist = edges.reset_index(drop=True)
-        bind(elist, 'edgeColor', '_edge_color')
-        bind(elist, 'edgeLabel', '_edge_label')
-        bind(elist, 'edgeTitle', '_edge_title')
-        bind(elist, 'edgeWeight', '_edge_weight')
         if nodes is None:
             nodes = pandas.DataFrame()
             nodes[nodeid] = pandas.concat([edges[self._source], edges[self._destination]],
                                            ignore_index=True).drop_duplicates()
         else:
             self._check_bound_attribs(nodes, ['node'], 'Vertex')
-
         nlist = nodes.reset_index(drop=True)
+
+        edge_count = len(elist.index)
+        node_count = len(nlist.index)
+        graph_size = edge_count + node_count
+        if edge_count > 8e6:
+            util.error('Maximum number of edges (8M) exceeded: %d.' % edge_count)
+        if node_count > 8e6:
+            util.error('Maximum number of nodes (8M) exceeded: %d.' % node_count)
+        if graph_size > 1e6:
+            util.warn('Large graph: |nodes| + |edges| = %d. Layout/rendering might be slow.' % graph_size)
+
+
+        bind(elist, 'edgeColor', '_edge_color')
+        bind(elist, 'edgeLabel', '_edge_label')
+        bind(elist, 'edgeTitle', '_edge_title')
+        bind(elist, 'edgeWeight', '_edge_weight')
         bind(nlist, 'pointColor', '_point_color')
         bind(nlist, 'pointLabel', '_point_label')
         bind(nlist, 'pointTitle', '_point_title', nodeid)
