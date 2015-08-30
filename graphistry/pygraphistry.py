@@ -24,7 +24,7 @@ class PyGraphistry(object):
     _hostname = 'localhost:3000'
 
     @staticmethod
-    def register(key, server='proxy-labs.graphistry.com'):
+    def register(key, server='labs'):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -150,13 +150,9 @@ class PyGraphistry(object):
         elif size > 50 * 1024:
             util.error('Dataset is too large (%d kB)!' % size)
 
-        try:
-            response = requests.post(PyGraphistry._etl_url(), out_file.getvalue(),
-                                     headers=headers, params=params)
-        except requests.exceptions.ConnectionError as e:
-            raise ValueError('Connection Error:', e.message)
-        except requests.exceptions.HTTPError as e:
-            raise ValueError('HTTP Error:', e.message)
+        response = requests.post(PyGraphistry._etl_url(), out_file.getvalue(),
+                                 headers=headers, params=params)
+        response.raise_for_status()
 
         jres = response.json()
         if jres['success'] is not True:
@@ -168,7 +164,9 @@ class PyGraphistry(object):
     def _check_key():
         params = {'text': PyGraphistry.api_key}
         try:
-            response = requests.get(PyGraphistry._check_url(), params=params)
+            response = requests.get(PyGraphistry._check_url(), params=params,
+                                    timeout=(2,1))
+            response.raise_for_status()
             jres = response.json()
             if jres['success'] is not True:
                 util.warn(jres['error'])
