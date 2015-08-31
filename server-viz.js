@@ -181,8 +181,8 @@ function init(app, socket) {
         log.addUserInfo({tag: decodeURIComponent(query.usertag)});
     }
 
-    if (query.token) {
-        log.addUserInfo({token: decodeURIComponent(query.token)});
+    if (query.viztoken) {
+        log.addUserInfo({viztoken: decodeURIComponent(query.viztoken)});
     }
 
     var colorTexture = new Rx.ReplaySubject(1);
