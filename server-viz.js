@@ -181,6 +181,10 @@ function init(app, socket) {
         log.addUserInfo({tag: decodeURIComponent(query.usertag)});
     }
 
+    if (query.token) {
+        log.addUserInfo({token: decodeURIComponent(query.token)});
+    }
+
     var colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
     var img =
