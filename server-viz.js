@@ -178,9 +178,13 @@ function init(app, socket) {
     logger.info('Client connected', socket.id);
     var query = socket.handshake.query;
 
-    if (query.usertag !== 'undefined' && query.usertag !== '') {
+    if (query.usertag && query.usertag !== 'undefined') {
         logger.debug('Tagging client with', query.usertag);
         log.addUserInfo({tag: decodeURIComponent(query.usertag)});
+    }
+
+    if (query.viztoken) {
+        log.addUserInfo({viztoken: decodeURIComponent(query.viztoken)});
     }
 
     var workbookDoc = {};
