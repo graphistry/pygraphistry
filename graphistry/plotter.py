@@ -301,8 +301,9 @@ class Plotter(object):
         if dataset is None:
             util.error('Expected Pandas dataframe(s) or Igraph/NetworkX graph.')
 
-        dataset_name = pygraphistry.PyGraphistry._etl(dataset)
-        viz_url = pygraphistry.PyGraphistry._viz_url(dataset_name, self._url_params)
+        PyG = pygraphistry.PyGraphistry
+        dataset = PyG._etl(dataset)
+        viz_url = PyG._viz_url(dataset['name'], dataset['viztoken'], self._url_params)
 
         if util.in_ipython() is True:
             from IPython.core.display import HTML

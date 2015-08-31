@@ -118,12 +118,12 @@ class PyGraphistry(object):
         return 'http://%s/api/check' % PyGraphistry._hostname
 
     @staticmethod
-    def _viz_url(dataset_name, url_params):
+    def _viz_url(dataset_name, token, url_params):
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = '&'.join([ k + '=' + str(v) for k,v in list(url_params.items())])
-        pattern = 'http://%s/graph/graph.html?dataset=%s&usertag=%s&key=%s&splashAfter=%s&%s'
+        pattern = 'http://%s/graph/graph.html?dataset=%s&usertag=%s&viztoken=%s&splashAfter=%s&%s'
         return pattern % (PyGraphistry._hostname, dataset_name, PyGraphistry._tag,
-                          PyGraphistry.api_key, splash_time, extra)
+                          token, splash_time, extra)
 
     @staticmethod
     def _etl(dataset):
@@ -158,7 +158,7 @@ class PyGraphistry(object):
         if jres['success'] is not True:
             raise ValueError('Server reported error:', jres['msg'])
         else:
-            return jres['dataset']
+            return {'name': jres['dataset'], 'viztoken': jres['viztoken']}
 
     @staticmethod
     def _check_key():

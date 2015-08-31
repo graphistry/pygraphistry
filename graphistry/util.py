@@ -14,7 +14,6 @@ def fingerprint():
     md5.update(''.join(data).encode('utf8'))
     return "%s-pygraphistry-%s" % (md5.hexdigest()[:8], sys.modules['graphistry'].__version__)
 
-
 def in_ipython():
         try:
             __IPYTHON__
