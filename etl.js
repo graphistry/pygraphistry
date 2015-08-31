@@ -2,6 +2,7 @@
 
 var urllib   = require('url');
 var zlib     = require('zlib');
+var crypto   = require('crypto');
 var _        = require('underscore');
 var Q        = require('q');
 var bodyParser  = require('body-parser');
@@ -191,6 +192,14 @@ function makeFailHandler(res) {
 }
 
 
+function makeVizToken(key, datasetName) {
+    var sha1 = crypto.createHash('sha1');
+    sha1.update(key);
+    sha1.update(datasetName);
+    return sha1.digest('hex');
+}
+
+
 // Handler for ETL requests on central/etl
 function jsonEtl(k, req, res) {
     var params = parseQueryParams(req);
@@ -199,7 +208,10 @@ function jsonEtl(k, req, res) {
             etl(JSON.parse(data), params)
                 .then(function (name) {
                     logger.info('ETL successful, dataset name is', name);
-                    res.send({ success: true, dataset: name });
+                    res.send({
+                        success: true, dataset: name,
+                        viztoken: makeVizToken(params.key, name)
+                    });
                     k();
                 }, makeFailHandler(res));
         } catch (err) {
