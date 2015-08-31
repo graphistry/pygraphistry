@@ -15,6 +15,7 @@ attribute vec4 edgeColor;
 varying vec4 eColor;
 
 uniform float edgeOpacity;
+uniform float isOpaque; //map non-transparent to 1.0
 
 void main(void) {
     vec4 pos = mvp * vec4(curPos.x, 1.0 * curPos.y, Z_VAL, W_VAL);
@@ -27,9 +28,9 @@ void main(void) {
     float furthestE = max(abs(ePos.x), abs(ePos.y));
     float remappedE = clamp(M * furthestE + B, 0.0, 1.0);
 
-    float alpha = (remappedS + remappedE) / 2.0;
-    pos.z = 1.0 - alpha;
+    float alpha = (remappedS * remappedS + remappedE * remappedE) / 2.0;
 
-    eColor = vec4(edgeColor.xyz, edgeOpacity * alpha);
+    pos.z = 1.0 - alpha;
+    eColor = isOpaque > 0.5 ? (alpha > 0.10 ? vec4(edgeColor.g, edgeColor.b, edgeColor.a, 1.0) : vec4(0.0,0.0,0.0,0.0)) : vec4(edgeColor.xyz, edgeOpacity * alpha);
     gl_Position = pos;
 }
