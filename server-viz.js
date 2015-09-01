@@ -174,16 +174,6 @@ function tickGraph () {
 
 function init(app, socket) {
     logger.info('Client connected', socket.id);
-    var query = socket.handshake.query;
-
-    if (query.usertag && query.usertag !== 'undefined') {
-        logger.debug('Tagging client with', query.usertag);
-        log.addUserInfo({tag: decodeURIComponent(query.usertag)});
-    }
-
-    if (query.viztoken) {
-        log.addUserInfo({viztoken: decodeURIComponent(query.viztoken)});
-    }
 
     var colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
@@ -272,6 +262,7 @@ function init(app, socket) {
     });
 
     // Get the dataset name from the socket query param, sent by Central
+    var query = socket.handshake.query;
     var qDataset = loader.downloadDataset(query);
 
     var qRenderConfig = qDataset.then(function (dataset) {
