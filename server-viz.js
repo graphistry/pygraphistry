@@ -99,10 +99,12 @@ function vboSizeMB(vbos) {
 function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending) {
     if (sort_by !== undefined) {
 
-        // TODO: Speed this up / cache sorting. Alternatively, put this into dataframe itself.
+        // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
+        // Only using permutation out here because this should be pushed into dataframe.
         var sortCol = dataFrame.getColumn(sort_by, type);
+        var sortToUnsortedIdx = dataFrame.getHostBuffer('forwardsEdges').edgePermutationInverseTyped;
         var taggedSortCol = _.map(indices, function (idx) {
-            return [sortCol[idx], idx];
+            return [sortCol[sortToUnsortedIdx[idx]], idx];
         });
 
         var sortedTags = taggedSortCol.sort(function (val1, val2) {
