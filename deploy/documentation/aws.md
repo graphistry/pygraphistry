@@ -37,7 +37,7 @@
 ## Deploying
 
 1. Commit and push your git changes for all your Graphistry repos first.
-2. Run `./staging-deploy.sh` or `./prod-deploy.sh` from this repo's directory
+2. Run `./stage-deploy.sh` or `./prod-deploy.sh` from this repo's directory
 
 *Not Reccomended:* If you want to bypass the `check.sh` script to deploy with outstanding commits, you can run Ansible directly: `ansible-playbook site.yml -i <inventory file> --tags deploy`.
 
