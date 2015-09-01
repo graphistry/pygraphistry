@@ -95,8 +95,30 @@ function vboSizeMB(vbos) {
     return (vboSizeBytes / (1024 * 1024)).toFixed(1);
 }
 
-// Sort and then subset the dataFrame. Used for pageing selection.
-function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending) {
+// Sort and then subset the dataFrame. Used for paging selection.
+// TODO: Dataframe doesn't currently support sorted/filtered views, so we just do
+// a shitty job and manage it directly out here, which is slow + error prone.
+// We need to extend dataframe to allow us to have views.
+function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending, searchFilter) {
+
+    if (searchFilter) {
+        searchFilter = searchFilter.toLowerCase();
+        var newIndices = [];
+        _.each(indices, function (idx) {
+            var row = dataFrame.getRowAt(idx, type);
+            var keep = false;
+            _.each(row, function (val, key) {
+                if (String(val).toLowerCase().indexOf(searchFilter) > -1) {
+                    keep = true;
+                }
+            });
+            if (keep) {
+                newIndices.push(idx);
+            }
+        });
+        indices = newIndices;
+    }
+
     if (sort_by !== undefined) {
 
         // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
@@ -149,7 +171,7 @@ function read_selection(type, query, res) {
             var start = (page - 1) * per_page;
             var end = start + per_page;
             var data = sliceSelection(graph.dataframe, type, lastSelectionIndices[type], start, end,
-                                        query.sort_by, query.order === 'asc');
+                                        query.sort_by, query.order === 'asc', query.search);
             res.send(data);
         }).fail(log.makeQErrorHandler(logger, 'read_selection qLastSelectionIndices'));
 
