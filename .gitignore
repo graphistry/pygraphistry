@@ -56,3 +56,7 @@ docs/_build/
 # PyBuilder
 target/
 .DS_Store
+
+demos/.ipynb_checkpoints/
+demos/data/BIOGRID-ALL-3.3.123.tab2.txt
+demos/data/BIOGRID-IDENTIFIERS-3.3.123.tab.txt
