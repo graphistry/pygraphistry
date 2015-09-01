@@ -309,7 +309,7 @@ class Plotter(object):
             from IPython.core.display import HTML
             return HTML(self._iframe(viz_url))
         else:
-            print('Url: ', viz_url)
+            print('Url: http://%s' % viz_url)
             import webbrowser
             webbrowser.open(viz_url)
             return self
