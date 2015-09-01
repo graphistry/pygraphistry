@@ -101,10 +101,12 @@ function vboSizeMB(vbos) {
 function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending) {
     if (sort_by !== undefined) {
 
-        // TODO: Speed this up / cache sorting. Alternatively, put this into dataframe itself.
+        // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
+        // Only using permutation out here because this should be pushed into dataframe.
         var sortCol = dataFrame.getColumn(sort_by, type);
+        var sortToUnsortedIdx = dataFrame.getHostBuffer('forwardsEdges').edgePermutationInverseTyped;
         var taggedSortCol = _.map(indices, function (idx) {
-            return [sortCol[idx], idx];
+            return [sortCol[sortToUnsortedIdx[idx]], idx];
         });
 
         var sortedTags = taggedSortCol.sort(function (val1, val2) {
@@ -176,18 +178,9 @@ function tickGraph () {
 
 function init(app, socket) {
     logger.info('Client connected', socket.id);
-    var query = socket.handshake.query;
-
-    if (query.usertag && query.usertag !== 'undefined') {
-        logger.debug('Tagging client with', query.usertag);
-        log.addUserInfo({tag: decodeURIComponent(query.usertag)});
-    }
-
-    if (query.viztoken) {
-        log.addUserInfo({viztoken: decodeURIComponent(query.viztoken)});
-    }
 
     var workbookDoc = {};
+    var query = socket.handshake.query;
     if (query.workbook) {
         logger.debug('Loading workbook', query.workbook);
         workbookDoc = _.extend(workbookDoc, wbLoader.loadDocument(decodeURIComponent(query.workbook)));
@@ -657,17 +650,6 @@ function stream(socket, renderConfig, colorTexture) {
         var dim = query.dim;
 
         graph.take(1)
-            .do(function (graph) {
-                // If edge, convert from sorted to unsorted index
-                if (dim === 2) {
-                    var permutation = graph.simulator.dataframe.getHostBuffer('forwardsEdges').edgePermutationInverseTyped;
-                    var newIndices = _.map(indices, function (idx) {
-                        return permutation[idx];
-                    });
-
-                    indices = newIndices;
-                }
-            })
             .map(function (graph) {
                 return labeler.getLabels(graph, indices, dim);
             })
