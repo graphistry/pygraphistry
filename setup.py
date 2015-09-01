@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 long_description = """
 **PyGraphistry** is a visual graph analytics library to extract, transform, and
-load big graphs into `Graphistry's<http://www.graphistry.com>`_ GPU-cloud-accelerated
+load big graphs into `Graphistry's <http://www.graphistry.com>`_ GPU-cloud-accelerated
 explorer.
 
 PyGraphistry is...
@@ -29,7 +29,7 @@ Try It Out!
 -----------
 
 Tutorial and API docs are on
-`https://github.com/graphistry/pygraphistry<https://github.com/graphistry/pygraphistry>`_
+`https://github.com/graphistry/pygraphistry <https://github.com/graphistry/pygraphistry>`_
 """
 
 setup(
