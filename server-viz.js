@@ -97,7 +97,7 @@ function vboSizeMB(vbos) {
     return (vboSizeBytes / (1024 * 1024)).toFixed(1);
 }
 
-// Sort and then subset the dataFrame. Used for pageing selection.
+// Sort and then subset the dataFrame. Used for paging selection.
 function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending) {
     if (sort_by !== undefined) {
 
@@ -181,11 +181,12 @@ function init(app, socket) {
 
     var workbookConfig = {};
     var query = socket.handshake.query;
+    var whiteListedQueryParams = _.pick(query, dConf.URLParamsWhitelist);
     if (query.workbook) {
         logger.debug('Loading workbook', query.workbook);
         workbookConfig = _.extend(workbookConfig, wbLoader.loadDocument(decodeURIComponent(query.workbook)));
     } else {
-        workbookConfig = _.extend(workbookConfig, _.pick(query, dConf.URLParamsWhitelist));
+        workbookConfig = _.extend(workbookConfig, whiteListedQueryParams);
     }
 
     var colorTexture = new Rx.ReplaySubject(1);
