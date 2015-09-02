@@ -176,6 +176,39 @@ function tickGraph () {
     );
 }
 
+// Should this be a graph method?
+function filterGraphByMaskList(graph, maskList, cb) {
+    var masks = graph.dataframe.composeMasks(maskList);
+
+    logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
+
+    // TODO: Deal with case of empty selection better:
+    // if (masks.point.length === 0) {
+    //     logger.debug('Empty Selection. Point length: ' + masks.point.length +
+    //             ', Edge length: ' + masks.edge.length);
+    //     cb({success: false, error: 'empty selection'});
+    //     return;
+    // }
+
+    // Promise
+    var simulator = graph.simulator;
+    graph.dataframe.filter(masks, simulator)
+        .then(function () {
+            simulator.layoutAlgorithms
+                .map(function (alg) {
+                    return alg.updateDataframeBuffers(simulator);
+                });
+        }).then(function () {
+            simulator.tickBuffers([
+                'curPoints', 'pointSizes', 'pointColors',
+                'edgeColors', 'logicalEdges', 'springsPos'
+            ]);
+
+            tickGraph();
+            cb({success: true});
+        }).done(_.identity, log.makeQErrorHandler(logger, 'dataframe filter'));
+}
+
 function init(app, socket) {
     logger.info('Client connected', socket.id);
 
@@ -352,7 +385,6 @@ function init(app, socket) {
         viewConfig.filters = newValues;
 
         graph.take(1).do(function (graph) {
-            var simulator = graph.simulator;
             var dataframe = graph.dataframe;
             var maskList = [];
             var errors = [];
@@ -373,6 +405,8 @@ function init(app, socket) {
                 }
                 maskList.push(masks);
             });
+
+            filterGraphByMaskList(graph, maskList, cb);
         });
 
         cb({success: true, filters: viewConfig.filters});
@@ -446,7 +480,6 @@ function init(app, socket) {
         logger.info('Got filter', query);
         graph.take(1).do(function (graph) {
 
-            var simulator = graph.simulator;
             var maskList = [];
 
             _.each(query, function (data, attribute) {
@@ -463,36 +496,7 @@ function init(app, socket) {
                 }
                 maskList.push(masks);
             });
-
-
-            var masks = graph.dataframe.composeMasks(maskList);
-
-            logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
-
-            // TODO: Deal with case of empty selection better:
-            // if (masks.point.length === 0) {
-            //     logger.debug('Empty Selection. Point length: ' + masks.point.length +
-            //             ', Edge length: ' + masks.edge.length);
-            //     cb({success: false, error: 'empty selection'});
-            //     return;
-            // }
-
-            // Promise
-            graph.dataframe.filter(masks, graph.simulator)
-                .then(function () {
-                    simulator.layoutAlgorithms
-                        .map(function (alg) {
-                            return alg.updateDataframeBuffers(simulator);
-                        });
-                }).then(function () {
-                    simulator.tickBuffers([
-                        'curPoints', 'pointSizes', 'pointColors',
-                        'edgeColors', 'logicalEdges', 'springsPos'
-                    ]);
-
-                    tickGraph();
-                    cb({success: true});
-                }).done(_.identity, log.makeQErrorHandler(logger, 'dataframe filter'));
+            filterGraphByMaskList(graph, maskList, cb);
         }).subscribe(
             _.identity,
             function (err) {
