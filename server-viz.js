@@ -181,16 +181,21 @@ function init(app, socket) {
 
     var workbookConfig = {};
     var query = socket.handshake.query;
-    var whiteListedQueryParams = _.pick(query, dConf.URLParamsWhitelist);
     if (query.workbook) {
         logger.debug('Loading workbook', query.workbook);
         workbookConfig = _.extend(workbookConfig, wbLoader.loadDocument(decodeURIComponent(query.workbook)));
     } else {
         // Create a new workbook here with a default view:
         workbookConfig = _.extend(workbookConfig, {views: {default: {}}});
-        // Apply approved URL parameters to that view concretely since we're creating it now:
-        _.extend(workbookConfig.views.default, whiteListedQueryParams);
     }
+
+    // Pick the default view or the current view or any view:
+    var viewConfig = workbookConfig.views.default ||
+        _.find(workbookConfig.views[workbookConfig.currentview]) ||
+        _.find(workbookConfig.views);
+
+    // Apply approved URL parameters to that view concretely since we're creating it now:
+    _.extend(viewConfig, _.pick(query, dConf.URLParamsThatPersist));
 
     var colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
@@ -278,8 +283,8 @@ function init(app, socket) {
         read_selection('edges', req.query, res);
     });
 
-    // Get the dataset name from the socket query param, sent by Central
-    var qDataset = loader.downloadDataset(workbookConfig);
+    // Get the dataset name from the view config (may be set in URL)
+    var qDataset = loader.downloadDataset(viewConfig);
 
     var qRenderConfig = qDataset.then(function (dataset) {
         var metadata = dataset.metadata;
