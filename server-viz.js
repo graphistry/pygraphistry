@@ -427,13 +427,7 @@ function init(app, socket) {
             if (maskList.length > 0) {
                 masks = graph.dataframe.composeMasks(maskList);
             } else {
-                // TODO: Don't get these directly -- add function to get these values
-                var edgeMask = _.range(graph.dataframe.numEdges());
-                var pointMask = _.range(graph.dataframe.numPoints());
-                masks = {
-                    edge: edgeMask,
-                    point: pointMask
-                };
+                masks = graph.dataframe.fullMaskSet();
             }
 
             logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
