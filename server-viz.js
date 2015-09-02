@@ -186,7 +186,10 @@ function init(app, socket) {
         logger.debug('Loading workbook', query.workbook);
         workbookConfig = _.extend(workbookConfig, wbLoader.loadDocument(decodeURIComponent(query.workbook)));
     } else {
-        workbookConfig = _.extend(workbookConfig, whiteListedQueryParams);
+        // Create a new workbook here with a default view:
+        workbookConfig = _.extend(workbookConfig, {views: {default: {}}});
+        // Apply approved URL parameters to that view concretely since we're creating it now:
+        _.extend(workbookConfig.views.default, whiteListedQueryParams);
     }
 
     var colorTexture = new Rx.ReplaySubject(1);
