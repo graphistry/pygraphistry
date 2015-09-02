@@ -12,6 +12,7 @@
     "backbone.paginator": "~2.0.0",
     "backgrid": "~0.3.0",
     "backgrid-paginator": "graphistry/backgrid-paginator",
+    "backgrid-filter": "wyuenho/backgrid-filter",
     "bootstrap-slider": "~4.3.0",
     "brace": "~0.5.1",
     "brfs": "~1.4.0",
