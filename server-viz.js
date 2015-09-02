@@ -384,7 +384,7 @@ function init(app, socket) {
             var metadata = _.extend({}, dataframeColumnsByType);
             cb({success: true,
                 metadata: metadata});
-        }).fail(function (err) {
+        }).fail(function (/*err*/) {
             cb({success: false, error: 'Namespace metadata error'});
             log.makeQErrorHandler(logger, 'sending namespace metadata');
         });
@@ -717,7 +717,7 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('persist_upload_png_export', function(pngDataURL, contentKey, imageName, cb) {
         imageName = imageName || 'preview.png';
         graph.take(1)
-            .do(function (graph) {
+            .do(function (/*graph*/) {
                 var cleanContentKey = encodeURIComponent(contentKey),
                     cleanImageName = encodeURIComponent(imageName),
                     base64Data = pngDataURL.replace(/^data:image\/png;base64,/,""),
@@ -825,7 +825,7 @@ function stream(socket, renderConfig, colorTexture) {
                     }
                 };
 
-                var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
+                // var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
 
                 //notify of buffer/texture metadata
                 //FIXME make more generic and account in buffer notification status
@@ -953,8 +953,8 @@ if (require.main === module) {
         var to = 'http://localhost:' + config.HTTP_LISTEN_PORT;
         logger.info('setting up proxy', from, '->', to);
         app.use(from, proxy(to, {
-            forwardPath: function(req, res) {
-                return url.parse(req.url).path.replace(RegExp('worker/' + config.HTTP_LISTEN_PORT + '/'),'/');
+            forwardPath: function(req/*, res*/) {
+                return url.parse(req.url).path.replace(new RegExp('worker/' + config.HTTP_LISTEN_PORT + '/'),'/');
             }
         }));
 
@@ -969,5 +969,5 @@ if (require.main === module) {
 
 
 module.exports = {
-    init: init,
-}
+    init: init
+};
