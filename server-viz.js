@@ -179,13 +179,13 @@ function tickGraph () {
 function init(app, socket) {
     logger.info('Client connected', socket.id);
 
-    var workbookDoc = {};
+    var workbookConfig = {};
     var query = socket.handshake.query;
     if (query.workbook) {
         logger.debug('Loading workbook', query.workbook);
-        workbookDoc = _.extend(workbookDoc, wbLoader.loadDocument(decodeURIComponent(query.workbook)));
+        workbookConfig = _.extend(workbookConfig, wbLoader.loadDocument(decodeURIComponent(query.workbook)));
     } else {
-        workbookDoc = _.extend(workbookDoc, _.pick(query, dConf.URLParamsWhitelist));
+        workbookConfig = _.extend(workbookConfig, _.pick(query, dConf.URLParamsWhitelist));
     }
 
     var colorTexture = new Rx.ReplaySubject(1);
@@ -275,7 +275,7 @@ function init(app, socket) {
     });
 
     // Get the dataset name from the socket query param, sent by Central
-    var qDataset = loader.downloadDataset(workbookDoc);
+    var qDataset = loader.downloadDataset(workbookConfig);
 
     var qRenderConfig = qDataset.then(function (dataset) {
         var metadata = dataset.metadata;
