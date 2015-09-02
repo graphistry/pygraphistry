@@ -194,6 +194,11 @@ function init(app, socket) {
         _.find(workbookConfig.views[workbookConfig.currentview]) ||
         _.find(workbookConfig.views);
 
+    if (!viewConfig.filters) {
+        // TODO: initialize filters with nodes/edges limited per client render.
+        viewConfig.filters = [];
+    }
+
     // Apply approved URL parameters to that view concretely since we're creating it now:
     _.extend(query, _.pick(viewConfig, dConf.URLParamsThatPersist));
 
@@ -333,6 +338,44 @@ function init(app, socket) {
             cb({success: false, error: 'Render config update error'});
             log.makeQErrorHandler(logger, 'updating render_config')(err);
         });
+    });
+
+    socket.on('get_filters', function (ignored, cb) {
+        logger.trace('sending current filters to client');
+        cb({success: true, filters: viewConfig.filters});
+    });
+
+    socket.on('update_filters', function (newValues, cb) {
+        logger.info('filters [before]', viewConfig.filters);
+        logger.trace('updating filters from client values');
+        // Maybe direct assignment isn't safe, but it'll do for now.
+        viewConfig.filters = newValues;
+
+        graph.take(1).do(function (graph) {
+            var simulator = graph.simulator;
+            var dataframe = graph.dataframe;
+            var maskList = [];
+            var errors = [];
+
+            _.each(viewConfig.filters, function (filter) {
+                /** @type ClientQuery */
+                var filterQuery = filter.query;
+                var masks;
+                if (filterQuery.type === 'point') {
+                    var pointMask = dataframe.getPointAttributeMask(filterQuery.attribute, filterQuery);
+                    masks = dataframe.masksFromPoints(pointMask);
+                } else if (filterQuery.type === 'edge') {
+                    var edgeMask = dataframe.getEdgeAttributeMask(filterQuery.attribute, filterQuery);
+                    masks = dataframe.masksFromEdges(edgeMask);
+                } else {
+                    errors.push('Unknown frame element type');
+                    return;
+                }
+                maskList.push(masks);
+            });
+        });
+
+        cb({success: true, filters: viewConfig.filters});
     });
 
     socket.on('layout_controls', function(_, cb) {
