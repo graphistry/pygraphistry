@@ -195,7 +195,7 @@ function init(app, socket) {
         _.find(workbookConfig.views);
 
     // Apply approved URL parameters to that view concretely since we're creating it now:
-    _.extend(viewConfig, _.pick(query, dConf.URLParamsThatPersist));
+    _.extend(query, _.pick(viewConfig, dConf.URLParamsThatPersist));
 
     var colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
@@ -283,8 +283,8 @@ function init(app, socket) {
         read_selection('edges', req.query, res);
     });
 
-    // Get the dataset name from the view config (may be set in URL)
-    var qDataset = loader.downloadDataset(viewConfig);
+    // Get the dataset name from the query parameters, may have been loaded from view:
+    var qDataset = loader.downloadDataset(query);
 
     var qRenderConfig = qDataset.then(function (dataset) {
         var metadata = dataset.metadata;
