@@ -1,6 +1,6 @@
 'use strict';
 
-module.exports = function(grunt) {
+module.exports = function (grunt) {
     grunt.initConfig({
         pkg: grunt.file.readJSON('package.json'),
 
@@ -20,13 +20,13 @@ module.exports = function(grunt) {
                     browserifyOptions: { debug: true },
                     watch: true,
                     keepAlive: false,
-                    postBundleCB: function(err, src, next) {
+                    postBundleCB: function (err, src, next) {
                         global['browserifyDidRun'] = true;
                         next(err, src);
                     },
-                    preBundleCB: function(browserifyInstance) {
+                    preBundleCB: function (browserifyInstance) {
                         // On "update", limit jshint to checking only updated files
-                        if(!global['browserifyDidSetWatchers']) {
+                        if (!global['browserifyDidSetWatchers']) {
                             global['browserifyDidSetWatchers'] = true;
                             browserifyInstance.on('update', function(files) {
                                 grunt.config.set("jshint.main", files);
@@ -80,7 +80,7 @@ module.exports = function(grunt) {
     grunt.registerTask('live', ['default', 'watch']);
 
     grunt.registerTask('maybeExorcise', 'Run Exorcise as long as browserify has run first', function() {
-        if(global['browserifyDidRun']) {
+        if (global['browserifyDidRun']) {
             grunt.log.oklns("Running exorcise because browserify has run before");
             grunt.task.run('exorcise:Main');
 
@@ -89,4 +89,4 @@ module.exports = function(grunt) {
             grunt.log.errorlns("Not running exorcise because browserify did NOT run before");
         }
     });
-}
+};
