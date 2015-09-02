@@ -465,13 +465,7 @@ function init(app, socket) {
             });
 
 
-            /** @type MaskSet */
-            var masks;
-            if (maskList.length > 0) {
-                masks = graph.dataframe.composeMasks(maskList);
-            } else {
-                masks = graph.dataframe.fullMaskSet();
-            }
+            var masks = graph.dataframe.composeMasks(maskList);
 
             logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
 
