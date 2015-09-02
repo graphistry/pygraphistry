@@ -422,6 +422,7 @@ function init(app, socket) {
             });
 
 
+            /** @type MaskSet */
             var masks;
             if (maskList.length > 0) {
                 masks = graph.dataframe.composeMasks(maskList);
