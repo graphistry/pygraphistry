@@ -307,7 +307,7 @@ class Plotter(object):
 
         if util.in_ipython() is True:
             from IPython.core.display import HTML
-            return HTML(self._iframe(viz_url))
+            return HTML(util.make_iframe(viz_url, self._height))
         else:
             print('Url: http://%s' % viz_url)
             import webbrowser
@@ -504,7 +504,3 @@ class Plotter(object):
             ndict = nlist.where((pandas.notnull(nlist)), None).to_dict(orient='records')
             dataset['labels'] = ndict
         return dataset
-
-    def _iframe(self, url):
-        tag = '<iframe src="%s" style="width:100%%; height:%dpx; border: 1px solid #DDD"></iframe>'
-        return tag % (url, self._height)

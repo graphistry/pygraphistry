@@ -6,6 +6,16 @@ import platform as p
 import uuid
 import hashlib
 
+def make_iframe(raw_url, height):
+    id = uuid.uuid4()
+    script = '''<script>var p = document.location.protocol;
+                        if(p === "file:") {p = "http:";}
+                        $("#%s").attr("src", p + "%s").show();
+                </script>''' % (id, raw_url)
+    iframe = '''<iframe id="%s"
+                        style="display:none; width:100%%; height:%dpx; border: 1px solid #DDD">
+                </iframe>''' % (id, height)
+    return iframe + script
 
 def fingerprint():
     md5 = hashlib.md5()
