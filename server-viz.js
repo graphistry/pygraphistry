@@ -452,19 +452,36 @@ function init(app, socket) {
         );
     });
 
+    function getNamespaceFromGraph(graph) {
+        var dataframeColumnsByType = graph.dataframe.getColumnsByType();
+        // TODO add special names that can be used in calculation references.
+        // TODO handle multiple datasources.
+        var metadata = _.extend({}, dataframeColumnsByType);
+        return metadata;
+    }
+
     /** Implements/gets a namespace comprehension, for calculation references and metadata. */
-    socket.on('namespace_metadata', function (_, cb) {
+    socket.on('get_namespace_metadata', function (_, cb) {
         logger.trace('Sending Namespace metadata to client');
         graph.take(1).do(function (graph) {
-            var dataframeColumnsByType = graph.dataframe.getColumnsByType();
-            // TODO add special names that can be used in calculation references.
-            // TODO handle multiple datasources.
-            var metadata = _.extend({}, dataframeColumnsByType);
+            var metadata = getNamespaceFromGraph(graph);
             cb({success: true,
                 metadata: metadata});
         }).fail(function (/*err*/) {
             cb({success: false, error: 'Namespace metadata error'});
             log.makeQErrorHandler(logger, 'sending namespace metadata');
+        });
+    });
+
+    socket.on('update_namespace_metadata', function (updates, cb) {
+        logger.trace('Updating Namespace metadata from client');
+        graph.take(1).do(function (graph) {
+            var metadata = getNamespaceFromGraph(graph);
+            // set success to true when we support update and it succeeds:
+            cb({success: false, metadata: metadata});
+        }).fail(function (/*err*/) {
+            cb({success: false, error: 'Namespace metadata update error'});
+            log.makeQErrorHandler(logger, 'updating namespace metadata');
         });
     });
 
