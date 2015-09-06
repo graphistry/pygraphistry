@@ -4,17 +4,17 @@ PyGraphistry is a visual graph analytics library to extract, transform, and load
 
 It supports unusually large graphs for interactive visualization. The client's custom WebGL rendering engine renders up to 8MM nodes and edges at atime, with most client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside OpenCL analytics engine supports even bigger graphs.
 
-1. [Interactive Demo](#launch-the-demo)
+1. [Interactive Demo](#demo-of-friendship-communities-on-facebook)
 2. [Graph Gallery](#gallery)
 3. [Installation](#installation)
 4. [Tutorial](#tutorial-les-misérables)
 5. [API Reference](#api-reference)
 
-### Launch The Demo:
+### Demo of Friendship Communities on Facebook
 
 <table style="width:100%;">
   <tr valign="top">
-    <td align="center"><b>Friendship Communities on Facebook.</b> Click to open interactive version! <a href="http://proxy-labs.graphistry.com/graph/graph.html?dataset=PyGraphistry/NY0D72L2UW&usertag=github&info=true&static=true&contentKey=Facebook_Github_Demo&play=0&center=false&menu=false&goLive=false&left=-2.02e+4&right=1.51e+4&top=-1.07e+4&bottom=9.15e+3&legend={%22nodes%22:%20%22People%20(Names%20are%20fake).%3Cbr/%3E%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%20%22edges%22:%20%22Friendships%22,%20%22subtitle%22:%20%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%20%22title%22:%20%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22}"><img src="http://i.imgur.com/Ows4rK4.png" title="Click to open."></a>
+    <td align="center">Click to open interactive version! <em>(For server-backed interactive analytics, use an API key)</em><a href="http://proxy-labs.graphistry.com/graph/graph.html?dataset=PyGraphistry/NY0D72L2UW&usertag=github&info=true&static=true&contentKey=Facebook_Github_Demo&play=0&center=false&menu=false&goLive=false&left=-2.02e+4&right=1.51e+4&top=-1.07e+4&bottom=9.15e+3&legend={%22nodes%22:%20%22People%20(Names%20are%20fake).%3Cbr/%3E%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%20%22edges%22:%20%22Friendships%22,%20%22subtitle%22:%20%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%20%22title%22:%20%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22}"><img src="http://i.imgur.com/Ows4rK4.png" title="Click to open."></a>
     <em>Source data: <a href="http://snap.stanford.edu">SNAP</a></em>
 	</td>
   </tr>
@@ -86,6 +86,13 @@ The simplest way to install PyGraphistry is with Python's pip package manager:
 - Pandas only: `pip install graphistry`
 - Pandas, IGraph, and NetworkX: `pip install "graphistry[all]"`
 
+##### IPython (Jupyter) Notebook Integration
+
+We recommend [IPython](http://ipython.org) notebooks to interleave code and visualizations.
+
+- Install IPython:`pip install "ipython[notebook]"`
+- Launch notebook server: `ipython notebook`
+
 ##### API Key
 An API key gives each visualization access to our GPU cluster. We currently ask for API keys to make sure our servers are not melting :) To get your own, email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com). Set your key after the `import graphistry` statement and you are good to go:
 
@@ -93,13 +100,6 @@ An API key gives each visualization access to our GPU cluster. We currently ask 
 import graphistry
 graphistry.register(key='Your key')
 ```
-
-##### IPython (Jupyter) Notebook Integration
-
-We recommend [IPython](http://ipython.org) notebooks to interleave code and visualizations.
-
-- Install IPython:`pip install "ipython[notebook]"`
-- Launch notebook server: `ipython notebook`
 
 ## Tutorial: Les Misérables
 
