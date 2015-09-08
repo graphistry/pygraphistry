@@ -467,10 +467,13 @@ function init(app, socket) {
             var metadata = getNamespaceFromGraph(graph);
             cb({success: true,
                 metadata: metadata});
-        }).fail(function (/*err*/) {
-            cb({success: false, error: 'Namespace metadata error'});
-            log.makeQErrorHandler(logger, 'sending namespace metadata');
-        });
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, error: 'Namespace metadata error'});
+                log.makeQErrorHandler(logger, 'sending namespace metadata')(err);
+            }
+        );
     });
 
     socket.on('update_namespace_metadata', function (updates, cb) {
