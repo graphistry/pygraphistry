@@ -35,7 +35,10 @@ var lastCompressedVBOs;
 var lastRenderConfig;
 var lastMetadata;
 var finishBufferTransfers;
-var qLastSelectionIndices;
+var qLastSelectionIndices = Q({
+    'point': [],
+    'edge': []
+});
 
 
 // ----- ANIMATION ------------------------------------
@@ -178,7 +181,6 @@ function read_selection(type, query, res) {
     }).subscribe(
         _.identity,
         function (err) {
-            cb({success: false, error: 'read_selection error'});
             log.makeRxErrorHandler(logger, 'read_selection handler')(err);
         }
     );
@@ -380,6 +382,10 @@ function init(app, socket) {
                 header: {
                     nodes: graph.dataframe.getAttributeKeys('point'),
                     edges: graph.dataframe.getAttributeKeys('edge')
+                },
+                urns: {
+                    nodes: 'read_node_selection',
+                    edges: 'read_edge_selection'
                 }
             });
         }).subscribe(
