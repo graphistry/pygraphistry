@@ -137,32 +137,14 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
         }
     };
 
-    var warnsLeftDuplicated = 100;
-    var warnsLeftBi = 100;
-    var warnsLeftNull = 100;
-    var warnsLeftSelf = 100;
     // 'a * 'a -> bool
     // return true if dupe
+    var warnsLeftNull = 100;
     var isBadEdge = function (src, dst) {
-
-        var dsts = edgeMap[src] || {};
-        if (dst in dsts) {
-            if (warnsLeftDuplicated-- > 0) {
-                console.log('Edge %s -> %s is duplicated', src, dst);
-            }
-            return true;
-        }
 
         if (src === undefined || dst === undefined || src === null || dst === null) {
             if (warnsLeftNull-- > 0) {
-                console.log('Edge %s <-> %s has null field', src, dst);
-            }
-            return true;
-        }
-
-        if (src === dst) {
-            if (warnsLeftSelf-- > 0) {
-                console.log('Edge %s <-> %s is a self-edge', src, dst);
+                logger.info('Edge %s <-> %s has null field', src, dst);
             }
             return true;
         }
