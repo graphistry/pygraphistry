@@ -59,7 +59,7 @@ function makeVector(name, type, target) {
 function getAttributeVectors(header, target) {
     var map = _.map(header, function (info, key) {
         if (info.type === 'empty') {
-            console.log('Skipping attribute', key, 'because it has no data.');
+            logger.info('Skipping attribute', key, 'because it has no data.');
             return [];
         }
         var vec = makeVector(key, info.type, target);
@@ -181,26 +181,26 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
     logger.trace('Infering schema...');
 
     var eheader = getHeader(elist);
-    console.log('Edge Table');
+    logger.info('Edge Table');
     _.each(eheader, function (data, key) {
-        console.log(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
+        logger.info(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
     });
     var nheader = getHeader(nlabels);
-    console.log('Node Table');
+    logger.info('Node Table');
     _.each(nheader, function (data, key) {
-        console.log(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
+        logger.info(sprintf('%36s: %3d%% filled    %s', key, Math.floor(data.freq * 100).toFixed(0), data.type));
     });
 
     if (!(srcField in eheader)) {
-        console.warn('Edges have no srcField' , srcField, 'header', eheader);
+        logger.info('Edges have no srcField' , srcField, 'header', eheader);
         return undefined;
     }
     if (!(dstField in eheader)) {
-        console.warn('Edges have no dstField' , dstField);
+        logger.info('Edges have no dstField' , dstField);
         return undefined;
     }
     if (nlabels.length > 0 && !(idField in nheader)) {
-        console.warn('Nodes have no idField' , idField);
+        logger.info('Nodes have no idField' , idField);
         return undefined;
     }
     var evectors = getAttributeVectors(eheader, pb_root.VectorGraph.AttributeTarget.EDGE);
@@ -222,7 +222,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
 
     logger.trace('Loading', nlabels.length, 'labels for', nodeCount, 'nodes');
     if (nodeCount > nlabels.length) {
-        console.log('There are', nodeCount - nlabels.length, 'labels missing');
+        logger.info('There are', nodeCount - nlabels.length, 'labels missing');
     }
 
     var sortedLabels = new Array(nodeCount);
@@ -235,7 +235,7 @@ function fromEdgeList(elist, nlabels, srcField, dstField, idField,  name) {
             sortedLabels[labelIdx] = label;
         } else {
             if (warnsLeftLabel-- > 0) {
-                console.log(sprintf('Skipping label #%6d (nodeId: %10s) which has no matching node. (ID field: %s, label: %s)', i, nodeId, idField, JSON.stringify(label)));
+                logger.info(sprintf('Skipping label #%6d (nodeId: %10s) which has no matching node. (ID field: %s, label: %s)', i, nodeId, idField, JSON.stringify(label)));
             }
         }
     }
