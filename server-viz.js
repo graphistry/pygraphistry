@@ -122,6 +122,8 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
         indices = newIndices;
     }
 
+    var count = indices.length;
+
     if (sort_by !== undefined) {
 
         // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
@@ -150,10 +152,10 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
             return val[1];
         });
 
-        return dataFrame.getRows(slicedIndices, type);
+        return {count: count, values: dataFrame.getRows(slicedIndices, type)};
 
     } else {
-        return dataFrame.getRows(indices.slice(start, end), type);
+        return {count: count, values: dataFrame.getRows(indices.slice(start, end), type)};
     }
 }
 
