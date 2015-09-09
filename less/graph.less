@@ -589,11 +589,13 @@ button.btn-default {
     background: #0fa5c5;
 }
 
+.text-overflow() {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
-.settingsPanel {
-    max-height: 23.2em;
-    overflow: auto;
-
+.sidePanel {
     box-shadow: @floating-box-shadow;
     border-radius: @floating-border-radius;
     background-color: @light-grey-background;
@@ -602,11 +604,31 @@ button.btn-default {
 
     position: absolute;
     display: none;
+}
+
+
+.settingsPanel {
+    max-height: 23.2em;
+    overflow: auto;
+
+    .sidePanel;
     //opacity: 0;
     width: 25em;
 
     left: 5em;
     top: 2.5em;
+}
+
+
+.filterPanel {
+    .sidePanel;
+    width: 25em;
+    left: 5em;
+    top: auto;
+}
+
+.filterPanel .filterName {
+    .text-overflow();
 }
 
 #renderingItems {
