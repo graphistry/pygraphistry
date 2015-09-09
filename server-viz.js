@@ -399,9 +399,14 @@ function init(app, socket) {
             });
 
             filterGraphByMaskList(graph, maskList, cb);
-        });
-
-        cb({success: true, filters: viewConfig.filters});
+            cb({success: true, errors: errors, filters: viewConfig.filters});
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, errors: [err], filters: viewConfig.filters});
+                log.makeRxErrorHandler(logger, 'update_filters handler')(err);
+            }
+        );
     });
 
     socket.on('layout_controls', function(_, cb) {
