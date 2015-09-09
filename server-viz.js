@@ -461,7 +461,7 @@ function init(app, socket) {
     }
 
     /** Implements/gets a namespace comprehension, for calculation references and metadata. */
-    socket.on('get_namespace_metadata', function (_, cb) {
+    socket.on('get_namespace_metadata', function (nothing, cb) {
         logger.trace('Sending Namespace metadata to client');
         graph.take(1).do(function (graph) {
             var metadata = getNamespaceFromGraph(graph);
