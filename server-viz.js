@@ -10,8 +10,10 @@ var Q           = require('q');
 var fs          = require('fs');
 var path        = require('path');
 var extend      = require('node.extend');
+var dConf       = require('./js/workbook.config.js');
 var rConf       = require('./js/renderer.config.js');
 var lConf       = require('./js/layout.config.js');
+var wbLoader    = require('./js/workbook.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var persistor   = require('./js/persist.js');
@@ -95,13 +97,13 @@ function vboSizeMB(vbos) {
     return (vboSizeBytes / (1024 * 1024)).toFixed(1);
 }
 
-// Sort and then subset the dataFrame. Used for pageing selection.
+// Sort and then subset the dataFrame. Used for paging selection.
 function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending) {
     if (sort_by !== undefined) {
 
         // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
         // Only using permutation out here because this should be pushed into dataframe.
-        var sortCol = dataFrame.getColumn(sort_by, type);
+        var sortCol = dataFrame.getColumnValues(sort_by, type);
         var sortToUnsortedIdx = dataFrame.getHostBuffer('forwardsEdges').edgePermutationInverseTyped;
         var taggedSortCol = _.map(indices, function (idx) {
             return [sortCol[sortToUnsortedIdx[idx]], idx];
@@ -174,8 +176,65 @@ function tickGraph () {
     );
 }
 
+// Should this be a graph method?
+function filterGraphByMaskList(graph, maskList, errors, filters, cb) {
+    var masks = graph.dataframe.composeMasks(maskList);
+
+    logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
+
+    // Promise
+    var simulator = graph.simulator;
+    graph.dataframe.filter(masks, simulator)
+        .then(function () {
+            simulator.layoutAlgorithms
+                .map(function (alg) {
+                    return alg.updateDataframeBuffers(simulator);
+                });
+        }).then(function () {
+            simulator.tickBuffers([
+                'curPoints', 'pointSizes', 'pointColors',
+                'edgeColors', 'logicalEdges', 'springsPos'
+            ]);
+
+            tickGraph();
+            var response = {success: true, filters: filters};
+            if (errors) {
+                response.errors = errors;
+            }
+            cb(response);
+        }).done(_.identity, function(err) {
+            errors.push(err);
+            var response = {success: false, errors: errors, filters: filters};
+            cb(response);
+            log.makeQErrorHandler(logger, 'dataframe filter');
+        });
+}
+
 function init(app, socket) {
     logger.info('Client connected', socket.id);
+
+    var workbookConfig = {};
+    var query = socket.handshake.query;
+    if (query.workbook) {
+        logger.debug('Loading workbook', query.workbook);
+        workbookConfig = _.extend(workbookConfig, wbLoader.loadDocument(decodeURIComponent(query.workbook)));
+    } else {
+        // Create a new workbook here with a default view:
+        workbookConfig = _.extend(workbookConfig, {views: {default: {}}});
+    }
+
+    // Pick the default view or the current view or any view:
+    var viewConfig = workbookConfig.views.default ||
+        _.find(workbookConfig.views[workbookConfig.currentview]) ||
+        _.find(workbookConfig.views);
+
+    if (!viewConfig.filters) {
+        // TODO: initialize filters with nodes/edges limited per client render.
+        viewConfig.filters = [];
+    }
+
+    // Apply approved URL parameters to that view concretely since we're creating it now:
+    _.extend(query, _.pick(viewConfig, dConf.URLParamsThatPersist));
 
     var colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
@@ -216,7 +275,7 @@ function init(app, socket) {
 
     app.get('/vbo', function (req, res) {
         logger.info('VBOs: HTTP GET %s', req.originalUrl);
-        // perfmonitor here?
+        // perf monitor here?
         // profiling.debug('VBO request');
 
         try {
@@ -230,11 +289,11 @@ function init(app, socket) {
                 res.send(lastCompressedVBOs[id][bufferName]);
             }
             res.send();
+
+            finishBufferTransfers[id](bufferName);
         } catch (e) {
             log.makeQErrorHandler(logger, 'bad /vbo request')(e);
         }
-
-        finishBufferTransfers[id](bufferName);
     });
 
     app.get('/texture', function (req, res) {
@@ -263,8 +322,7 @@ function init(app, socket) {
         read_selection('edges', req.query, res);
     });
 
-    // Get the dataset name from the socket query param, sent by Central
-    var query = socket.handshake.query;
+    // Get the dataset name from the query parameters, may have been loaded from view:
     var qDataset = loader.downloadDataset(query);
 
     var qRenderConfig = qDataset.then(function (dataset) {
@@ -316,6 +374,51 @@ function init(app, socket) {
         });
     });
 
+    socket.on('get_filters', function (ignored, cb) {
+        logger.trace('sending current filters to client');
+        cb({success: true, filters: viewConfig.filters});
+    });
+
+    socket.on('update_filters', function (newValues, cb) {
+        logger.info('filters [before]', viewConfig.filters);
+        logger.trace('updating filters from client values');
+        // Maybe direct assignment isn't safe, but it'll do for now.
+        viewConfig.filters = newValues;
+
+        graph.take(1).do(function (graph) {
+            var dataframe = graph.dataframe;
+            var maskList = [];
+            var errors = [];
+
+            _.each(viewConfig.filters, function (filter) {
+                if (filter.enabled === false) {
+                    return;
+                }
+                /** @type ClientQuery */
+                var filterQuery = filter.query;
+                var masks;
+                if (filterQuery.type === 'point') {
+                    var pointMask = dataframe.getPointAttributeMask(filterQuery.attribute, filterQuery);
+                    masks = dataframe.masksFromPoints(pointMask);
+                } else if (filterQuery.type === 'edge') {
+                    var edgeMask = dataframe.getEdgeAttributeMask(filterQuery.attribute, filterQuery);
+                    masks = dataframe.masksFromEdges(edgeMask);
+                } else {
+                    errors.push('Unknown frame element type');
+                    return;
+                }
+                maskList.push(masks);
+            });
+
+            filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, cb);
+        }).subscribe(
+            _.identity,
+            function (err) {
+                log.makeRxErrorHandler(logger, 'update_filters handler')(err);
+            }
+        );
+    });
+
     socket.on('layout_controls', function(_, cb) {
         logger.info('Sending layout controls to client');
 
@@ -364,19 +467,39 @@ function init(app, socket) {
         );
     });
 
+    function getNamespaceFromGraph(graph) {
+        var dataframeColumnsByType = graph.dataframe.getColumnsByType();
+        // TODO add special names that can be used in calculation references.
+        // TODO handle multiple datasources.
+        var metadata = _.extend({}, dataframeColumnsByType);
+        return metadata;
+    }
+
     /** Implements/gets a namespace comprehension, for calculation references and metadata. */
-    socket.on('namespace_metadata', function (_, cb) {
+    socket.on('get_namespace_metadata', function (nothing, cb) {
         logger.trace('Sending Namespace metadata to client');
         graph.take(1).do(function (graph) {
-            var dataframeColumnsByType = graph.dataframe.getColumnsByType();
-            // TODO add special names that can be used in calculation references.
-            // TODO handle multiple datasources.
-            var metadata = _.extend({}, dataframeColumnsByType);
+            var metadata = getNamespaceFromGraph(graph);
             cb({success: true,
                 metadata: metadata});
-        }).fail(function (err) {
-            cb({success: false, error: 'Namespace metadata error'});
-            log.makeQErrorHandler(logger, 'sending namespace metadata');
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, error: 'Namespace metadata error'});
+                log.makeQErrorHandler(logger, 'sending namespace metadata')(err);
+            }
+        );
+    });
+
+    socket.on('update_namespace_metadata', function (updates, cb) {
+        logger.trace('Updating Namespace metadata from client');
+        graph.take(1).do(function (graph) {
+            var metadata = getNamespaceFromGraph(graph);
+            // set success to true when we support update and it succeeds:
+            cb({success: false, metadata: metadata});
+        }).fail(function (/*err*/) {
+            cb({success: false, error: 'Namespace metadata update error'});
+            log.makeQErrorHandler(logger, 'updating namespace metadata');
         });
     });
 
@@ -384,7 +507,6 @@ function init(app, socket) {
         logger.info('Got filter', query);
         graph.take(1).do(function (graph) {
 
-            var simulator = graph.simulator;
             var maskList = [];
 
             _.each(query, function (data, attribute) {
@@ -401,51 +523,10 @@ function init(app, socket) {
                 }
                 maskList.push(masks);
             });
-
-
-            var masks;
-            if (maskList.length > 0) {
-                masks = graph.dataframe.composeMasks(maskList);
-            } else {
-                // TODO: Don't get these directly -- add function to get these values
-                var edgeMask = _.range(graph.dataframe.numEdges());
-                var pointMask = _.range(graph.dataframe.numPoints());
-                masks = {
-                    edge: edgeMask,
-                    point: pointMask
-                };
-            }
-
-            logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
-
-            // TODO: Deal with case of empty selection better:
-            // if (masks.point.length === 0) {
-            //     logger.debug('Empty Selection. Point length: ' + masks.point.length +
-            //             ', Edge length: ' + masks.edge.length);
-            //     cb({success: false, error: 'empty selection'});
-            //     return;
-            // }
-
-            // Promise
-            graph.dataframe.filter(masks, graph.simulator)
-                .then(function () {
-                    simulator.layoutAlgorithms
-                        .map(function (alg) {
-                            return alg.updateDataframeBuffers(simulator);
-                        });
-                }).then(function () {
-                    simulator.tickBuffers([
-                        'curPoints', 'pointSizes', 'pointColors',
-                        'edgeColors', 'logicalEdges', 'springsPos'
-                    ]);
-
-                    tickGraph();
-                    cb({success: true});
-                }).done(_.identity, log.makeQErrorHandler(logger, 'dataframe filter'));
+            filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, cb);
         }).subscribe(
             _.identity,
             function (err) {
-                cb({success: false, error: 'aggregate error'});
                 log.makeRxErrorHandler(logger, 'aggregate handler')(err);
             }
         );
@@ -707,7 +788,7 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('persist_upload_png_export', function(pngDataURL, contentKey, imageName, cb) {
         imageName = imageName || 'preview.png';
         graph.take(1)
-            .do(function (graph) {
+            .do(function (/*graph*/) {
                 var cleanContentKey = encodeURIComponent(contentKey),
                     cleanImageName = encodeURIComponent(imageName),
                     base64Data = pngDataURL.replace(/^data:image\/png;base64,/,""),
@@ -815,7 +896,7 @@ function stream(socket, renderConfig, colorTexture) {
                     }
                 };
 
-                var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
+                // var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
 
                 //notify of buffer/texture metadata
                 //FIXME make more generic and account in buffer notification status
@@ -943,8 +1024,8 @@ if (require.main === module) {
         var to = 'http://localhost:' + config.HTTP_LISTEN_PORT;
         logger.info('setting up proxy', from, '->', to);
         app.use(from, proxy(to, {
-            forwardPath: function(req, res) {
-                return url.parse(req.url).path.replace(RegExp('worker/' + config.HTTP_LISTEN_PORT + '/'),'/');
+            forwardPath: function(req/*, res*/) {
+                return url.parse(req.url).path.replace(new RegExp('worker/' + config.HTTP_LISTEN_PORT + '/'),'/');
             }
         }));
 
@@ -959,5 +1040,5 @@ if (require.main === module) {
 
 
 module.exports = {
-    init: init,
-}
+    init: init
+};

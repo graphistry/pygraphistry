@@ -589,11 +589,13 @@ button.btn-default {
     background: #0fa5c5;
 }
 
+.text-overflow() {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
-.settingsPanel {
-    max-height: 23.2em;
-    overflow: auto;
-
+.sidePanel {
     box-shadow: @floating-box-shadow;
     border-radius: @floating-border-radius;
     background-color: @light-grey-background;
@@ -602,11 +604,36 @@ button.btn-default {
 
     position: absolute;
     display: none;
+}
+
+
+.settingsPanel {
+    max-height: 23.2em;
+    overflow: auto;
+
+    .sidePanel;
     //opacity: 0;
     width: 25em;
 
     left: 5em;
     top: 2.5em;
+}
+
+
+.filterPanel {
+    .sidePanel;
+    width: 25em;
+    left: 5em;
+    top: auto;
+}
+
+.filterPanel #filters {
+    padding-left: 1em;
+    padding-right: 1em;
+}
+
+.filterPanel .filterName {
+    .text-overflow();
 }
 
 #renderingItems {
@@ -1079,12 +1106,12 @@ button.btn-default {
     }
 
 
-    .expandHistogramButton, .expandedHistogramButton {
+    .expandHistogramButton, .expandedHistogramButton, .expandFilterButton, .expandedFilterButton {
         font-size: 1.3em;
     }
 
     @rotateDuration: 0.1s;
-    .expandHistogramButton {
+    .expandHistogramButton, .expandFilterButton {
         -webkit-transform: rotate(0deg);
         -moz-transform: rotate(0deg);
         -o-transform: rotate(0deg);
@@ -1097,7 +1124,7 @@ button.btn-default {
         transition: transform @rotateDuration ease-in-out;
     }
 
-    .expandedHistogramButton {
+    .expandedHistogramButton, .expandedFilterButton {
         -webkit-transform: rotate(90deg);
         -moz-transform: rotate(90deg);
         -o-transform: rotate(90deg);
