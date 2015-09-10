@@ -177,7 +177,7 @@ function tickGraph () {
 }
 
 // Should this be a graph method?
-function filterGraphByMaskList(graph, maskList, cb) {
+function filterGraphByMaskList(graph, maskList, errors, filters, cb) {
     var masks = graph.dataframe.composeMasks(maskList);
 
     logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
@@ -197,8 +197,17 @@ function filterGraphByMaskList(graph, maskList, cb) {
             ]);
 
             tickGraph();
-            cb({success: true});
-        }).done(_.identity, log.makeQErrorHandler(logger, 'dataframe filter'));
+            var response = {success: true, filters: filters};
+            if (errors) {
+                response.errors = errors;
+            }
+            cb(response);
+        }).done(_.identity, function(err) {
+            errors.push(err);
+            var response = {success: false, errors: errors, filters: filters};
+            cb(response);
+            log.makeQErrorHandler(logger, 'dataframe filter');
+        });
 }
 
 function init(app, socket) {
@@ -401,12 +410,10 @@ function init(app, socket) {
                 maskList.push(masks);
             });
 
-            filterGraphByMaskList(graph, maskList, cb);
-            cb({success: true, errors: errors, filters: viewConfig.filters});
+            filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, cb);
         }).subscribe(
             _.identity,
             function (err) {
-                cb({success: false, errors: [err], filters: viewConfig.filters});
                 log.makeRxErrorHandler(logger, 'update_filters handler')(err);
             }
         );
@@ -516,11 +523,10 @@ function init(app, socket) {
                 }
                 maskList.push(masks);
             });
-            filterGraphByMaskList(graph, maskList, cb);
+            filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, cb);
         }).subscribe(
             _.identity,
             function (err) {
-                cb({success: false, error: 'aggregate error'});
                 log.makeRxErrorHandler(logger, 'aggregate handler')(err);
             }
         );
