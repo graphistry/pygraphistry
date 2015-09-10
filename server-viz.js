@@ -177,7 +177,9 @@ function read_selection(type, query, res) {
             var end = start + per_page;
             var data = sliceSelection(graph.dataframe, type, lastSelectionIndices[type], start, end,
                                         query.sort_by, query.order === 'asc', query.search);
-            res.send(data);
+            res.send(_.extend(data, {
+                page: page
+            }));
         }).fail(log.makeQErrorHandler(logger, 'read_selection qLastSelectionIndices'));
 
     }).subscribe(
