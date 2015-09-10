@@ -291,8 +291,8 @@ function init(app, socket) {
 
             lastRenderConfig = renderConfig;
         }).fail(function (err) {
-            cb({success: false, error: 'Render config read error'});
             log.makeQErrorHandler(logger, 'sending render_config')(err);
+            cb({success: false, error: 'Render config read error'});
         });
     });
 
@@ -331,9 +331,12 @@ function init(app, socket) {
         });
     });
 
-    socket.on('begin_streaming', function() {
+    socket.on('begin_streaming', function(_, cb) {
         qRenderConfig.then(function (renderConfig) {
             stream(socket, renderConfig, colorTexture);
+            if (cb) {
+                cb({success: true});
+            }
         }).fail(log.makeQErrorHandler(logger, 'streaming'));
     });
 
@@ -688,6 +691,7 @@ function stream(socket, renderConfig, colorTexture) {
 
     });
 
+    //FIXME signal error to client on fail
     socket.on('persist_current_vbo', function(contentKey, cb) {
         graph.take(1)
             .do(function (graph) {
