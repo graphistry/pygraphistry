@@ -382,6 +382,9 @@ function init(app, socket) {
             var errors = [];
 
             _.each(viewConfig.filters, function (filter) {
+                if (filter.enabled === false) {
+                    return;
+                }
                 /** @type ClientQuery */
                 var filterQuery = filter.query;
                 var masks;
