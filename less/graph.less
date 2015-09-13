@@ -880,6 +880,105 @@ button.btn-default {
     }
 
 
+    .form-search {
+
+        &:hover {
+            .search {
+                &:before {
+                    border-color: @dark-grey;
+                }
+                &:after {
+                    background-color: @dark-grey;
+                }
+            }
+        }
+
+        //the q icon as an o + l
+        .search {
+            width: 10px;
+            height: 20px;
+            &:before {
+                position:absolute;
+                -webkit-box-sizing: content-box;
+                -moz-box-sizing: content-box;
+                box-sizing: content-box;
+                width: 6px;
+                height: 6px;
+                content: "";
+                top: 0.5em;
+                left: 0.5em;
+
+                border: 3px solid @medium-grey;
+                -webkit-border-radius: 12px;
+                -moz-border-radius: 12px;
+                border-radius: 12px;
+            }
+            &:after {
+                position:absolute;
+                width: 3px;
+                height: 7px;
+                top: 1.0em;
+                left: 1.2em;
+                content: "";
+                -webkit-transform: rotate(-45deg);
+                -moz-transform: rotate(-45deg);
+                -ms-transform: rotate(-45deg);
+                -o-transform: rotate(-45deg);
+                transform: rotate(-45deg);
+
+                background-color: @medium-grey;
+            }
+        }
+
+        .clear {
+
+            color: transparent;
+
+            &:before {
+                position: absolute;
+                content: "";
+                border-radius: 10px;
+                border: 0px;
+                background-color: @light-grey-background;
+                width: 1em;
+                height: 1em;
+                top: 0.4em;
+                margin-left: 0.1em;
+            }
+            &:after {
+                position: absolute;
+                margin-left: -0.1em;
+                top: 0.2em;
+                content: "×";
+                color: @medium-grey;
+            }
+
+
+            &:hover {
+                &:before {
+                    background-color: @dark-grey;
+                }
+                &:after {
+                    color: @light-grey-background;
+                }
+            }
+
+        }
+
+        input {
+            border-radius: 0.75em;
+            margin: 0.2em;
+            padding: 0.2em;
+            padding-left: 1.5em;
+            border: 1px solid #DDD;
+            font-size: 12px;
+
+            //normal width grown by typing
+            min-width: 3em;
+            max-width: 40em;
+        }
+    }
+
 
     .backgrid {
         width: 100%;
