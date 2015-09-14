@@ -22,9 +22,10 @@ class PyGraphistry(object):
     _tag = util.fingerprint()
     _dataset_prefix = 'PyGraphistry/'
     _hostname = 'localhost:3000'
+    _protocol = None
 
     @staticmethod
-    def register(key, server='labs'):
+    def register(key, server='labs', protocol=None):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -33,6 +34,8 @@ class PyGraphistry(object):
         :type key: String.
         :param server: URL of the visualization server.
         :type server: Optional string.
+        :param protocol: Protocol used to contact visualization server
+        :type protocol: Optional string.
         :returns: None.
         :rtype: None.
 
@@ -47,8 +50,7 @@ class PyGraphistry(object):
                 ::
 
                     import graphistry
-                    graphistry.register('my api key', 'staging')
-
+                    graphistry.register('my api key', 'staging', 'https')
 
         """
 
@@ -60,6 +62,7 @@ class PyGraphistry(object):
         else:
             PyGraphistry._hostname = server
         PyGraphistry.api_key = key.strip()
+        PyGraphistry._protocol = protocol
         PyGraphistry._check_key()
 
     @staticmethod

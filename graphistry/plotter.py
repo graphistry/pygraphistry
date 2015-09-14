@@ -307,7 +307,7 @@ class Plotter(object):
 
         if util.in_ipython() is True:
             from IPython.core.display import HTML
-            return HTML(util.make_iframe(viz_url, self._height))
+            return HTML(util.make_iframe(viz_url, self._height, PyG._protocol))
         else:
             print('Url: http://%s' % viz_url)
             import webbrowser
