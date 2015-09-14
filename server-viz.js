@@ -132,7 +132,12 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
         var sortCol = dataFrame.getColumnValues(sort_by, type);
         var sortToUnsortedIdx = dataFrame.getHostBuffer('forwardsEdges').edgePermutationInverseTyped;
         var taggedSortCol = _.map(indices, function (idx) {
-            return [sortCol[sortToUnsortedIdx[idx]], idx];
+            if (type === 'edge') {
+                return [sortCol[sortToUnsortedIdx[idx]], idx];
+            } else {
+                return [sortCol[idx], idx];
+            }
+
         });
 
         var sortedTags = taggedSortCol.sort(function (val1, val2) {
