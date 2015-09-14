@@ -99,12 +99,21 @@ function getPkgInfo(roots, repo) {
 }
 
 // Clone a repo, fail if the directory already exists.
-// Return promise contaning the repo name when cloning has terminated
+// Return promise containing the repo name when cloning has terminated
 // String -> Promise[]
 function clone(repo) {
+    var repoURL = repo;
+    if (repo.match(/^[-A-z_]+$/)) {
+        repoURL = 'git@github.com:graphistry/' + repo + '.git';
+    } else {
+        // Repo was the full path; extract the last path element:
+        repo = repoURL.split('/').pop();
+        // Remove suffix .git:
+        repo = repo.split('.')[0];
+    }
     var clone_path = path.resolve(wd, repo);
     var cmd = 'git';
-    var clone_args = ['clone', 'git@github.com:graphistry/' + repo + '.git'];
+    var clone_args = ['clone', repoURL];
     var pull_args = ['pull', '--ff-only', '--quiet'];
 
     // console.error('Cloning/updating repo "%s" (clone path: %s)', repo, clone_path);
@@ -124,7 +133,7 @@ function clone(repo) {
                         friendly_error.friendly_headline =
                             util.format('Repo "%s": could not do a fast-forward only pull', repo);
                         friendly_error.friendly_explanation =
-                            ["You likeley have uncommited changes in that repo, or the merge with",
+                            ["You likely have uncommitted changes in that repo, or the merge with",
                              "the remote was more complicated than a fast-forward merge",
                              "(this tool will only allow fast-forward merges for safety reasons;",
                              "you should perform more complicated merges by hand.)"].join(' ');
