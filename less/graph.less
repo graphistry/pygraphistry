@@ -1003,25 +1003,29 @@ button.btn-default {
                 color: @graphistry-lightblue;
             }
 
-            border: 1px #DDD solid;
+            border: 1px solid #DDD;
             margin-left: -1px;
+            margin-top: -1px;
             margin-bottom: -1px;
+        }
+
+        tr {
+            &:hover {
+                background-color: @light-grey-background-2;
+            }
+            &.row-selected {
+                color: @graphistry-lightblue;
+            }
         }
 
         .integer-cell, .string-cell {
             &:hover {
-              //position: absolute;
-
-              background-color: white;
-
               max-height: none;
               height: auto;
               white-space: normal;
               word-break: break-word;
-              border: 1px solid #777;
               min-width: 2em;
               margin-top: -1px;
-
             }
         }
 
