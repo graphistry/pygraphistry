@@ -35,7 +35,9 @@
     "sprintf-js": "~1.0.0",
     "underscore": "~1.8.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "pegjs": "~0.8.0"
+  },
   "main": "./index.js",
   "browser": "./src/main.js"
 }
