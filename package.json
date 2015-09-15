@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "install": "grunt depbuild",
+    "pegjs": "pegjs -o size src/graphVizApp/expression.pegjs",
     "test": "echo \"No tests available.\""
   },
   "dependencies": {
