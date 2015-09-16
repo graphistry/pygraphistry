@@ -38,6 +38,18 @@ module.exports = function (grunt) {
             }
         },
 
+        peg: {
+            options: { trackLineAndColumn: true },
+            Main : {
+                src: 'src/graphVizApp/expression.pegjs',
+                dest: 'src/graphVizApp/expression.js',
+                options: {
+                    optimize: 'size',
+                    cache: true
+                }
+            }
+        },
+
         exorcise: {
             Main: {
                 files: {
@@ -73,6 +85,7 @@ module.exports = function (grunt) {
     grunt.loadNpmTasks('grunt-contrib-clean');
     grunt.loadNpmTasks('grunt-contrib-watch');
     grunt.loadNpmTasks('grunt-exorcise');
+    grunt.loadNpmTasks('grunt-peg');
 
     grunt.registerTask('default', ['jshint', 'browserify', 'exorcise']);
     // This target is used to just build the static StreamGL.js, when StreamGL is used a dependency

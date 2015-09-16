@@ -5,7 +5,6 @@
   "private": true,
   "scripts": {
     "install": "grunt depbuild",
-    "pegjs": "pegjs -o size src/graphVizApp/expression.pegjs",
     "test": "echo \"No tests available.\""
   },
   "dependencies": {
@@ -38,7 +37,8 @@
     "underscore": "~1.8.0"
   },
   "devDependencies": {
-    "pegjs": "~0.8.0"
+    "grunt-peg": "^1.5.0",
+    "pegjs": "~0.8.0",
   },
   "main": "./index.js",
   "browser": "./src/main.js"
