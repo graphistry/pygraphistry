@@ -7,12 +7,18 @@ import uuid
 import hashlib
 
 def make_iframe(raw_url, height, protocol=None):
-    if protocol:
-        return '''<iframe src="%s"
-                          style="width:100%%; height:%dpx; border: 1px solid #DDD">
-                </iframe>''' % (protocol + ':' + raw_url, height)
-
     id = uuid.uuid4()
+    scrollbug_workaround='''<script>
+            $("#%s").bind('mousewheel', function(e) {
+                e.preventDefault();
+            });
+        </script>''' % id
+
+    if protocol:
+        return '''<iframe id="%s" src="%s"
+                          style="width:100%%; height:%dpx; border: 1px solid #DDD">
+                </iframe>''' % (id, protocol + ':' + raw_url, height) + scrollbug_workaround
+
     script = '''<script>var p = document.location.protocol;
                         if(p === "file:") {p = "http:";}
                         $("#%s").attr("src", p + "%s").show();
@@ -20,7 +26,7 @@ def make_iframe(raw_url, height, protocol=None):
     iframe = '''<iframe id="%s"
                         style="display:none; width:100%%; height:%dpx; border: 1px solid #DDD">
                 </iframe>''' % (id, height)
-    return iframe + script
+    return iframe + script + scrollbug_workaround
 
 def fingerprint():
     md5 = hashlib.md5()
