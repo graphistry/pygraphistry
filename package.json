@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "install": "grunt depbuild",
-    "test": "echo \"No tests available.\""
+    "test": "jasmine-node spec"
   },
   "dependencies": {
     "backbone": "~1.1.0",
@@ -38,6 +38,7 @@
   },
   "devDependencies": {
     "grunt-peg": "^1.5.0",
+    "jasmine-node": "^1.14.5",
     "pegjs": "~0.8.0",
   },
   "main": "./index.js",
