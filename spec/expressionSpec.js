@@ -58,6 +58,20 @@ describe ('IN expressions', function () {
     });
 });
 
+describe ('precedence', function () {
+    it('should bind comparisons closer than conjunctions', function () {
+        var clause = parse('a < 4 and b > 5');
+        expect(clause.operator).toBe('and');
+        expect(clause.left.operator).toBe('<');
+        expect(clause.right.operator).toBe('>');
+
+        clause = parse('a <= 4 or b >= 5');
+        expect(clause.operator).toBe('or');
+        expect(clause.left.operator).toBe('<=');
+        expect(clause.right.operator).toBe('>=');
+    });
+});
+
 describe ('Range queries', function () {
     xit('should parse A BETWEEN 2 and 5', function () {
         expect(parse('A BETWEEN 2 AND 5')).toEqual({});
