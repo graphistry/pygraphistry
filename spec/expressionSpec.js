@@ -59,6 +59,18 @@ describe ('IN expressions', function () {
 });
 
 describe ('precedence', function () {
+    it('should bind * closer than +', function() {
+        var clause = parse('3 + 4 * 5');
+        expect(clause.operator).toBe('+');
+        expect(clause.right.operator).toBe('*');
+        var alt = parse('3 + (4 * 5)');
+        expect(alt).toEqual(clause);
+    });
+    it('should use parentheses to override precedence', function () {
+        var clause = parse('(3 + 4) * 5');
+        expect(clause.operator).toBe('*');
+        expect(clause.left.operator).toBe('+');
+    });
     it('should bind comparisons closer than conjunctions', function () {
         var clause = parse('a < 4 and b > 5');
         expect(clause.operator).toBe('and');
