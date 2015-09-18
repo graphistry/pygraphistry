@@ -115,17 +115,31 @@ describe ('NOT expressions', function () {
 });
 
 describe ('IS expressions', function () {
-    it('should parse', function () {
+    it('should parse special NULL tests', function () {
         var clause = parse('x ISNULL');
         expect(clause.type).toBe('UnaryExpression');
         expect(clause.operator).toBe('ISNULL');
 
         expect(parse('x NOTNULL').operator).toBe('NOTNULL');
     });
+    xit('should parse IS keyword comparisons', function () {
+        expect(parse('x IS TRUE')).toEqual({});
+        expect(parse('x IS FALSE')).toEqual({});
+        expect(parse('x IS NULL')).toEqual({});
+        expect(parse('x IS NOT NULL')).toEqual({});
+    });
 });
 
-describe ('Range queries', function () {
-    xit('should parse A BETWEEN 2 and 5', function () {
+describe ('function calls', function () {
+    xit('should parse', function () {
+        var clause = parse('f()');
+        expect(clause).toEqual({type: 'FunctionCall', value: {type: 'Literal', value: 'f', arguments: []}});
+        expect(clause).toEqual(parse('f ()'));
+    });
+});
+
+xdescribe ('Range queries', function () {
+    it('should parse A BETWEEN 2 and 5', function () {
         expect(parse('A BETWEEN 2 AND 5')).toEqual({});
     });
 });
