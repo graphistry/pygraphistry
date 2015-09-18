@@ -92,6 +92,28 @@ describe ('identifiers', function () {
     });
 });
 
+describe ('NOT expressions', function () {
+    it('parses nested', function () {
+        var inner = parse('a');
+        var one = parse('not a');
+        expect(one).toEqual({
+            type: 'UnaryExpression', operator: 'not', fixity: 'prefix', argument: inner
+        });
+        var two = parse('NOT not a');
+        expect(two).toEqual({
+            type: 'UnaryExpression', operator: 'NOT', fixity: 'prefix', argument: one
+        });
+    });
+    it('associates more closely than binary logic', function () {
+        var one = parse('not a and b');
+        expect(one.operator).toBe('and');
+        expect(one.left.operator).toBe('not');
+        var two = parse('a or not b');
+        expect(two.operator).toBe('or');
+        expect(two.right.operator).toBe('not');
+    });
+});
+
 describe ('IS expressions', function () {
     it('should parse', function () {
         var clause = parse('x ISNULL');
