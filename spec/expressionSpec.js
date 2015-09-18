@@ -84,6 +84,14 @@ describe ('precedence', function () {
     });
 });
 
+describe ('identifiers', function () {
+    it('parses alphanumeric', function () {
+        expect(parse('x')).toEqual({type: 'Identifier', name: 'x'});
+        expect(parse('x_y')).toEqual({type: 'Identifier', name: 'x_y'});
+        expect(parse('x_2')).toEqual({type: 'Identifier', name: 'x_2'});
+    });
+});
+
 describe ('IS expressions', function () {
     it('should parse', function () {
         var clause = parse('x ISNULL');
