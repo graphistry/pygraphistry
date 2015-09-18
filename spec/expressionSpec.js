@@ -90,6 +90,12 @@ describe ('identifiers', function () {
         expect(parse('x_y')).toEqual({type: 'Identifier', name: 'x_y'});
         expect(parse('x_2')).toEqual({type: 'Identifier', name: 'x_2'});
     });
+    it('parses colon-separated', function () {
+        expect(parse('x:y')).toEqual({type: 'Identifier', name: 'x:y'});
+    });
+    xit('parses table-scoped', function () {
+        expect(parse('x.y')).toEqual({type: 'Identifier', name: 'x.y'});
+    });
 });
 
 describe ('NOT expressions', function () {
