@@ -34,6 +34,15 @@ describe ('Numerical expressions', function () {
     });
 });
 
+describe ('comparison operators', function () {
+    it('should parse ==', function () {
+        expect(parse('a == 3').operator).toBe('==');
+    });
+    it('should parse <>', function () {
+        expect(parse('a <> 3').operator).toBe('<>');
+    });
+});
+
 describe ('literal lists', function () {
     it('should parse an empty list', function () {
         expect(parse('()')).toEqual({type: 'ListExpression', elements: []});
@@ -47,6 +56,25 @@ describe ('literal lists', function () {
     });
     it('should parse multi-element list', function () {
         expect(parse('(3, 4, 5)')).toEqual({type: 'ListExpression', elements: [{type: 'Literal', value: 3}, {type: 'Literal', value: 4}, {type: 'Literal', value: 5}]});
+    });
+    it('should parse with complex elements', function () {
+        expect(parse('(3 + 4, 5, foo())')).toEqual({
+            type: 'ListExpression',
+            elements: [
+                {
+                    type: 'BinaryExpression',
+                    operator: '+',
+                    left: {type: 'Literal', value: 3},
+                    right: {type: 'Literal', value: 4}
+                },
+                {type: 'Literal', value: 5},
+                {
+                    type: 'FunctionCall',
+                    callee: 'foo',
+                    arguments: []
+                }
+            ]
+        });
     });
 });
 
@@ -168,14 +196,16 @@ describe ('IS expressions', function () {
 });
 
 describe ('function calls', function () {
-    it('should parse', function () {
+    it('should work when empty', function () {
         var clause = parse('foobar()');
         expect(clause).toEqual({
             type: 'FunctionCall',
             callee: {type: 'Identifier', name: 'foobar'},
             arguments: []
         });
-        expect(clause).toEqual(parse('foobar ()'));
+    });
+    it('should parse with a space before arguments', function () {
+        expect(parse('foobar ()')).toEqual(parse('foobar()'));
     });
     it('should handle argument lists', function () {
         expect(parse('substr("abcdef", 3, 4)')).toEqual({
@@ -190,11 +220,11 @@ describe ('function calls', function () {
     });
 });
 
-describe ('Range queries', function () {
+describe ('Range predicates', function () {
     it('should parse A BETWEEN 2 and 5', function () {
         var betweenAnd = parse('A BETWEEN 2 AND 5');
         expect(betweenAnd).toEqual({
-            type: 'BetweenAndExpression',
+            type: 'BetweenPredicate',
             value: {type: 'Identifier', name: 'A'},
             start: {type: 'Literal', value: 2},
             stop: {type: 'Literal', value: 5}
@@ -210,7 +240,7 @@ describe ('Range queries', function () {
     });
 });
 
-describe ('LIMIT expressions', function () {
+describe ('LIMIT clauses', function () {
     it('should parse LIMIT N', function () {
         expect(parse('LIMIT 4')).toEqual({type: 'Limit', value: {type: 'Literal', value: 4}});
     });
