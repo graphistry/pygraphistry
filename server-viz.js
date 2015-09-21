@@ -196,7 +196,7 @@ function read_selection(type, query, res) {
     );
 }
 
-function tickGraph () {
+function tickGraph (cb) {
     graph.take(1).do(function (graphContent) {
         updateVboSubject.onNext(graphContent);
     }).subscribe(
@@ -228,7 +228,7 @@ function filterGraphByMaskList(graph, maskList, errors, filters, cb) {
                 'edgeColors', 'logicalEdges', 'springsPos'
             ]);
 
-            tickGraph();
+            tickGraph(cb);
             var response = {success: true, filters: filters};
             if (errors) {
                 response.errors = errors;
@@ -544,6 +544,7 @@ function init(app, socket) {
         graph.take(1).do(function (graph) {
 
             var maskList = [];
+            var errors = [];
 
             _.each(query, function (data, attribute) {
                 var masks;
