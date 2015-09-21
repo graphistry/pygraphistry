@@ -1,5 +1,6 @@
 'use strict';
 
+var _       = require('underscore');
 var PEGUtil = require('pegjs-util');
 var asty    = require('asty');
 var parser  = require('../src/graphVizApp/expression.js');
@@ -55,6 +56,7 @@ describe ('IN expressions', function () {
     it('should parse A in list', function () {
         var clause = parse('A IN (1, 2, 3)');
         expect(clause.operator).toBe('IN');
+        expect(_.pluck(clause.right.elements, 'value')).toEqual([1, 2, 3]);
     });
 });
 
@@ -128,25 +130,62 @@ describe ('IS expressions', function () {
 
         expect(parse('x NOTNULL').operator).toBe('NOTNULL');
     });
-    xit('should parse IS keyword comparisons', function () {
-        expect(parse('x IS TRUE')).toEqual({});
-        expect(parse('x IS FALSE')).toEqual({});
-        expect(parse('x IS NULL')).toEqual({});
+    it('should parse IS keyword comparisons', function () {
+        expect(parse('x IS TRUE')).toEqual({
+            type: 'LogicalExpression',
+            operator: 'IS',
+            left: {type: 'Identifier', name: 'x'},
+            right: {
+                type: 'Literal', value: true
+            }
+        });
+        expect(parse('x IS FALSE')).toEqual({
+            type: 'LogicalExpression',
+            operator: 'IS',
+            left: {type: 'Identifier', name: 'x'},
+            right: {
+                type: 'Literal', value: false
+            }
+        });
+        expect(parse('x IS NULL')).toEqual({
+            type: 'LogicalExpression',
+            operator: 'IS',
+            left: {type: 'Identifier', name: 'x'},
+            right: {
+                type: 'Literal', value: null
+            }
+        });
+    });
+    it('should parse negative IS comparisons', function () {
         expect(parse('x IS NOT NULL')).toEqual({});
     });
 });
 
 describe ('function calls', function () {
-    xit('should parse', function () {
+    it('should parse', function () {
         var clause = parse('f()');
         expect(clause).toEqual({type: 'FunctionCall', value: {type: 'Literal', value: 'f', arguments: []}});
         expect(clause).toEqual(parse('f ()'));
     });
 });
 
-xdescribe ('Range queries', function () {
+describe ('Range queries', function () {
     it('should parse A BETWEEN 2 and 5', function () {
-        expect(parse('A BETWEEN 2 AND 5')).toEqual({});
+        var betweenAnd = parse('A BETWEEN 2 AND 5');
+        expect(betweenAnd).toEqual({
+            type: 'BetweenAndExpression',
+            value: {type: 'Identifier', name: 'A'},
+            start: {type: 'Literal', value: 2},
+            stop: {type: 'Literal', value: 5}
+        });
+    });
+    it('should parse A NOT BETWEEN 2 and 5', function () {
+        var betweenAnd = parse('A BETWEEN 2 AND 5');
+        expect(parse('A NOT BETWEEN 2 AND 5')).toEqual({
+            type: 'UnaryExpression',
+            operator: 'not',
+            value: betweenAnd
+        });
     });
 });
 
