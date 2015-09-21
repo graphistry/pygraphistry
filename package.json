@@ -40,6 +40,7 @@
   "devDependencies": {
     "grunt-peg": "^1.5.0",
     "jasmine-node": "^1.14.5",
+    "karma": "^0.13.10",
     "pegjs": "~0.8.0",
     "pegjs-util": "~1.0.6"
   },
