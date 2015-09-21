@@ -209,8 +209,8 @@ function tickGraph (cb) {
 }
 
 // Should this be a graph method?
-function filterGraphByMaskList(graph, maskList, errors, filters, cb) {
-    var masks = graph.dataframe.composeMasks(maskList);
+function filterGraphByMaskList(graph, maskList, errors, filters, pointLimit, cb) {
+    var masks = graph.dataframe.composeMasks(maskList, pointLimit);
 
     logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
 
@@ -421,6 +421,7 @@ function init(app, socket) {
             var dataframe = graph.dataframe;
             var maskList = [];
             var errors = [];
+            var pointLimit = Infinity;
 
             _.each(viewConfig.filters, function (filter) {
                 if (filter.enabled === false) {
@@ -429,6 +430,12 @@ function init(app, socket) {
                 /** @type ClientQuery */
                 var filterQuery = filter.query;
                 var masks;
+                var ast = filterQuery.ast;
+                if (ast !== undefined) {
+                    if (ast.limit !== undefined && Number.isSafeInteger(ast.value)) {
+                        pointLimit = Number.parseInt(ast.value, 10);
+                    }
+                }
                 if (filterQuery.type === 'point') {
                     var pointMask = dataframe.getPointAttributeMask(filterQuery.attribute, filterQuery);
                     masks = dataframe.masksFromPoints(pointMask);
@@ -442,7 +449,7 @@ function init(app, socket) {
                 maskList.push(masks);
             });
 
-            filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, cb);
+            filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, pointLimit, cb);
         }).subscribe(
             _.identity,
             function (err) {
@@ -560,7 +567,7 @@ function init(app, socket) {
                 }
                 maskList.push(masks);
             });
-            filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, cb);
+            filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, Infinity, cb);
         }).subscribe(
             _.identity,
             function (err) {
