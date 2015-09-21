@@ -39,7 +39,8 @@ describe ('literal lists', function () {
         expect(parse('()')).toEqual({type: 'ListExpression', elements: []});
     });
     it('should parse single-element list', function () {
-        expect(parse('(3)')).toEqual({type: 'ListExpression', elements: [{type: 'Literal', value: 3}]});
+        expect(parse('(3)')).toEqual({type: 'Literal', value: 3});
+        expect(parse('(3,)')).toEqual({type: 'ListExpression', elements: [{type: 'Literal', value: 3}]});
     });
     it('should parse double-element list', function () {
         expect(parse('(3, 4)')).toEqual({type: 'ListExpression', elements: [{type: 'Literal', value: 3}, {type: 'Literal', value: 4}]});
