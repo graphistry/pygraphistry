@@ -261,8 +261,10 @@ function init(app, socket) {
         _.find(workbookConfig.views);
 
     if (!viewConfig.filters) {
-        // TODO: initialize filters with nodes/edges limited per client render.
-        viewConfig.filters = [];
+        viewConfig.filters = [
+            // nodes/edges limited per client render estimate:
+            {query: {type: 'point', ast: {limit: 800000}}}
+        ];
     }
 
     // Apply approved URL parameters to that view concretely since we're creating it now:
