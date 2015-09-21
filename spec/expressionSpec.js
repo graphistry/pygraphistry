@@ -163,9 +163,24 @@ describe ('IS expressions', function () {
 
 describe ('function calls', function () {
     it('should parse', function () {
-        var clause = parse('f()');
-        expect(clause).toEqual({type: 'FunctionCall', value: {type: 'Literal', value: 'f', arguments: []}});
-        expect(clause).toEqual(parse('f ()'));
+        var clause = parse('foobar()');
+        expect(clause).toEqual({
+            type: 'FunctionCall',
+            callee: {type: 'Identifier', name: 'foobar'},
+            arguments: []
+        });
+        expect(clause).toEqual(parse('foobar ()'));
+    });
+    it('should handle argument lists', function () {
+        expect(parse('substr("abcdef", 3, 4)')).toEqual({
+            type: 'FunctionCall',
+            callee: {type: 'Identifier', name: 'substr'},
+            arguments: [
+                {type: 'Literal', value: 'abcdef'},
+                {type: 'Literal', value: 3},
+                {type: 'Literal', value: 4}
+            ]
+        });
     });
 });
 
