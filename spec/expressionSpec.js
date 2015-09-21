@@ -157,7 +157,12 @@ describe ('IS expressions', function () {
         });
     });
     it('should parse negative IS comparisons', function () {
-        expect(parse('x IS NOT NULL')).toEqual({});
+        expect(parse('x IS NOT NULL')).toEqual({
+            type: 'LogicalExpression',
+            operator: 'IS',
+            left: {type: 'Identifier', name: 'x'},
+            right: {type: 'NotExpression', operator: 'NOT', value: {type: 'Literal', value: null}}
+        });
     });
 });
 
