@@ -195,6 +195,41 @@ describe ('IS expressions', function () {
     });
 });
 
+describe ('member access', function () {
+    it('should parse after identifiers', function() {
+        expect(parse('a[4]')).toEqual({
+            type: 'MemberAccess',
+            object: {type: 'Identifier', name: 'a'},
+            name: {type: 'Literal', value: 4}
+        });
+    });
+    it('should parse with whitespace', function() {
+        expect(parse('a [4]')).toEqual(parse('a[4]'));
+    });
+    it('should nest', function () {
+        expect(parse('a[b[4]]')).toEqual({
+            type: 'MemberAccess',
+            object: {type: 'Identifier', name: 'a'},
+            name: {
+                type: 'MemberAccess',
+                object: {type: 'Identifier', name: 'b'},
+                name: {type: 'Literal', value: 4}
+            }
+        });
+    });
+    it('should chain', function () {
+        expect(parse('a[3][4]')).toEqual({
+            type: 'MemberAccess',
+            object: {
+                type: 'MemberAccess',
+                object: {type: 'Identifier', name: 'a' },
+                name: {type: 'Literal', value: 3 }
+            },
+            name: {type: 'Literal', value: 4 }
+        });
+    });
+});
+
 describe ('function calls', function () {
     it('should work when empty', function () {
         var clause = parse('foobar()');
