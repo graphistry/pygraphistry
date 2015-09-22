@@ -448,6 +448,8 @@ function init(app, socket) {
                     errors.push('Unknown frame element type');
                     return;
                 }
+                // Record the size of the filtered set for UI feedback:
+                filter.maskSizes = {point: masks.point.length, edge: masks.edge.length};
                 maskList.push(masks);
             });
 
