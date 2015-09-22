@@ -58,7 +58,7 @@ describe ('literal lists', function () {
         expect(parse('(3, 4, 5)')).toEqual({type: 'ListExpression', elements: [{type: 'Literal', value: 3}, {type: 'Literal', value: 4}, {type: 'Literal', value: 5}]});
     });
     it('should parse with complex elements', function () {
-        expect(parse('(3 + 4, 5, foo())')).toEqual({
+        expect(parse('(3 + 4, 5, foo(4))')).toEqual({
             type: 'ListExpression',
             elements: [
                 {
@@ -71,7 +71,7 @@ describe ('literal lists', function () {
                 {
                     type: 'FunctionCall',
                     callee: 'foo',
-                    arguments: []
+                    arguments: [{type: 'Literal', value: 4}]
                 }
             ]
         });
@@ -228,19 +228,32 @@ describe ('member access', function () {
             name: {type: 'Literal', value: 4 }
         });
     });
+    it('should handle empty', function () {
+        expect(parse('a[]')).toEqual({
+            type: 'MemberAccess',
+            object: {type: 'Identifier', name: 'a'},
+            name: {type: 'Literal', value: null}
+        });
+    });
 });
 
 describe ('function calls', function () {
-    it('should work when empty', function () {
-        var clause = parse('foobar()');
-        expect(clause).toEqual({
+    it('should work with one argument', function () {
+        expect(parse('substr(1)')).toEqual({
+            type: 'FunctionCall',
+            callee: {type: 'Identifier', name: 'substr'},
+            arguments: [{type: 'Literal', value: 1}]
+        });
+    });
+    it('should parse with a space before arguments', function () {
+        expect(parse('substr (1)')).toEqual(parse('substr(1)'));
+    });
+    it('should handle empty', function () {
+        expect(parse('substr()')).toEqual({
             type: 'FunctionCall',
             callee: {type: 'Identifier', name: 'foobar'},
             arguments: []
         });
-    });
-    it('should parse with a space before arguments', function () {
-        expect(parse('foobar ()')).toEqual(parse('foobar()'));
     });
     it('should handle argument lists', function () {
         expect(parse('substr("abcdef", 3, 4)')).toEqual({
