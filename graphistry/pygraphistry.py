@@ -113,8 +113,11 @@ class PyGraphistry(object):
         return plotter.Plotter().settings(height, url_params)
 
     @staticmethod
-    def _etl_url():
-        return 'http://%s/etl' % PyGraphistry._hostname
+    def _etl_url(datatype):
+        if datatype == 'json':
+            return 'http://%s/etl' % PyGraphistry._hostname
+        elif datatype == 'vgraph':
+            return 'http://%s/etlvgraph' % PyGraphistry._hostname
 
     @staticmethod
     def _check_url():
@@ -129,31 +132,46 @@ class PyGraphistry(object):
                           token, splash_time, extra)
 
     @staticmethod
-    def _etl(dataset):
+    def _get_data_file(dataset, mode):
+        out_file = io.BytesIO()
+        if mode == 'json':
+            json_dataset = json.dumps(dataset, ensure_ascii=False, cls=NumpyJSONEncoder)
+            with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
+                if sys.version_info < (3,0) and isinstance(json_dataset, str):
+                    f.write(json_dataset)
+                else:
+                    f.write(json_dataset.encode('utf8'))
+        elif mode == 'vgraph':
+            bin_dataset = dataset.SerializeToString()
+
+            with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
+                f.write(bin_dataset)
+        else:
+            raise ValueError('Unknown mode:', mode)
+
+        return out_file
+
+    @staticmethod
+    def _etl(dataset, mode):
         if PyGraphistry.api_key is None:
             raise ValueError('API key required')
 
-        json_dataset = json.dumps(dataset, ensure_ascii=False, cls=NumpyJSONEncoder)
         headers = {'Content-Encoding': 'gzip', 'Content-Type': 'application/json'}
         params = {'usertag': PyGraphistry._tag, 'agent': 'pygraphistry', 'apiversion' : '1',
                   'agentversion': sys.modules['graphistry'].__version__,
                   'key': PyGraphistry.api_key}
 
-        out_file = io.BytesIO()
-        with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
-            if sys.version_info < (3,0) and isinstance(json_dataset, str):
-                f.write(json_dataset)
-            else:
-                f.write(json_dataset.encode('utf8'))
 
+        out_file = PyGraphistry._get_data_file(dataset, mode)
         size = len(out_file.getvalue()) / 1024
+
         if size >= 5 * 1024:
             print('Uploading %d kB. This may take a while...' % size)
             sys.stdout.flush()
         elif size > 50 * 1024:
             util.error('Dataset is too large (%d kB)!' % size)
 
-        response = requests.post(PyGraphistry._etl_url(), out_file.getvalue(),
+        response = requests.post(PyGraphistry._etl_url(mode), out_file.getvalue(),
                                  headers=headers, params=params)
         response.raise_for_status()
 

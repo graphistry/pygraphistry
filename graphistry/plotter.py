@@ -254,7 +254,7 @@ class Plotter(object):
         res._url_params = dict(self._url_params, **url_params)
         return res
 
-    def plot(self, graph=None, nodes=None):
+    def plot(self, graph=None, nodes=None, mode='json'):
         """Upload data to the Graphistry server and show as an iframe of it.
 
         Uses the currently bound schema structure and visual encodings. Optional parameters override the current bindings.
@@ -297,12 +297,12 @@ class Plotter(object):
         n = self._nodes if nodes is None else nodes
 
         self._check_mandatory_bindings(not isinstance(n, type(None)))
-        dataset = self._plot_dispatch(g, n)
+        dataset = self._plot_dispatch(g, n, mode)
         if dataset is None:
             util.error('Expected Pandas dataframe(s) or Igraph/NetworkX graph.')
 
         PyG = pygraphistry.PyGraphistry
-        dataset = PyG._etl(dataset)
+        dataset = PyG._etl(dataset, mode)
         viz_url = PyG._viz_url(dataset['name'], dataset['viztoken'], self._url_params)
 
         if util.in_ipython() is True:
@@ -424,15 +424,15 @@ class Plotter(object):
             if b not in cols:
                 util.error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
-    def _plot_dispatch(self, graph, nodes):
+    def _plot_dispatch(self, graph, nodes, mode='json'):
         if isinstance(graph, pandas.core.frame.DataFrame):
-            return self._pandas2dataset(graph, nodes)
+            return self._make_dataset(graph, nodes, mode)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
                 (e, n) = self.igraph2pandas(graph)
-                return self._pandas2dataset(e, n)
+                return self._make_dataset(e, n, mode)
         except ImportError:
             pass
 
@@ -443,7 +443,7 @@ class Plotter(object):
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
                 (e, n) = self.networkx2pandas(graph)
-                return self._pandas2dataset(e, n)
+                return self._make_dataset(e, n, mode)
         except ImportError:
             pass
 
@@ -490,9 +490,19 @@ class Plotter(object):
         bind(nlist, 'pointLabel', '_point_label')
         bind(nlist, 'pointTitle', '_point_title', nodeid)
         bind(nlist, 'pointSize', '_point_size')
-        return self._make_dataset(elist, nlist)
+        return (elist, nlist)
 
-    def _make_dataset(self, elist, nlist=None):
+    def _make_dataset(self, edges, nodes, mode):
+        if mode == 'json':
+            return self._make_json_dataset(edges, nodes)
+        elif mode == 'vgraph':
+            return self._make_vgraph_dataset(edges, nodes)
+        else:
+            raise ValueError('Unknown mode: ' + mode)
+
+    def _make_json_dataset(self, edges, nodes):
+        (elist, nlist) = self._pandas2dataset(edges, nodes)
+
         edict = elist.where((pandas.notnull(elist)), None).to_dict(orient='records')
         name = ''.join(random.choice(string.ascii_uppercase +
                                      string.digits) for _ in range(10))
@@ -504,3 +514,76 @@ class Plotter(object):
             ndict = nlist.where((pandas.notnull(nlist)), None).to_dict(orient='records')
             dataset['labels'] = ndict
         return dataset
+
+    def _make_vgraph_dataset(self, edges, nodes):
+        from graph_vector_pb2 import VectorGraph
+
+        def storeEdgeAttributes(df):
+            coltypes = df.columns.to_series().groupby(df.dtypes)
+            for dtype, cols in coltypes.groups.items():
+                for col in cols:
+                    if col == self._source or col == self._destination:
+                        continue
+                    if dtype.name == 'object':
+                        df[col].where(pandas.notnull(df[col]), '', inplace=True)
+                        df[col] = df[col].map(lambda x: x.decode('utf8'))
+                    vec = typemap[dtype.name].add()
+                    vec.name = col
+                    vec.type = VectorGraph.EDGE
+                    for val in df[col]:
+                        vec.values.append(val)
+
+        def storeNodeAttributes(df, nodeid, node_map):
+            ordercol = '__order__'
+            df[ordercol] = df[nodeid].map(lambda n: node_map[n])
+            sdf = df.sort(ordercol)
+            coltypes = df.columns.to_series().groupby(df.dtypes)
+            for dtype, cols in coltypes.groups.items():
+                for col in cols:
+                    if col == nodeid or col == ordercol:
+                        continue
+                    if dtype.name == 'object':
+                        df[col].where(pandas.notnull(df[col]), '', inplace=True)
+                        df[col] = df[col].map(lambda x: x.decode('utf8'))
+                    vec = typemap[dtype.name].add()
+                    vec.name = col
+                    vec.type = VectorGraph.VERTEX
+                    for val in df[col]:
+                        vec.values.append(val)
+
+        (elist, nlist) = self._pandas2dataset(edges, nodes)
+        nodeid = self._node or Plotter._defaultNodeId
+
+        vg = VectorGraph()
+        typemap = {
+            'object': vg.string_vectors,
+            'int32': vg.int32_vectors,
+            'int64': vg.int32_vectors,
+            'float32': vg.double_vectors,
+            'float64': vg.double_vectors
+        }
+
+        sources = elist[self._source]
+        dests = elist[self._destination]
+
+        lnodes = pandas.concat([sources, dests], ignore_index=True).unique()
+        lnodes_df = pandas.DataFrame(lnodes, columns=[nodeid])
+        filtered_nlist = pandas.merge(lnodes_df, nlist, on=nodeid, how='left')
+        node_map = dict([(v, i) for i, v in enumerate(lnodes.tolist())])
+
+        vg.version = 0
+        vg.type = VectorGraph.DIRECTED
+        vg.nvertices = len(node_map)
+        vg.nedges = len(elist)
+        vg.name = ''.join(random.choice(string.ascii_uppercase +
+                                        string.digits) for _ in range(10))
+
+        for s, d in zip(sources.tolist(), dests.tolist()):
+            e = vg.edges.add()
+            e.src = node_map[s]
+            e.dst = node_map[d]
+
+        storeEdgeAttributes(elist)
+        storeNodeAttributes(filtered_nlist, nodeid, node_map)
+
+        return vg
