@@ -446,6 +446,15 @@ function init(app, socket) {
                     errors.push('Unknown frame element');
                     return;
                 }
+                // Auto-correct:
+                if (filterQuery.type === undefined) {
+                    var attributes = dataframe.rawdata.attributes;
+                    if (attributes.point.hasOwnProperty(attribute)) {
+                        filterQuery.type = 'point';
+                    } else if (attributes.edge.hasOwnProperty(attribute)) {
+                        filterQuery.type = 'edge';
+                    }
+                }
                 if (filterQuery.type === undefined || filterQuery.type === 'point') {
                     var pointMask = dataframe.getPointAttributeMask(attribute, filterQuery);
                     masks = dataframe.masksFromPoints(pointMask);
