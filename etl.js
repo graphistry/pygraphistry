@@ -94,7 +94,7 @@ function etl(msg, params) {
 
 // VGraph * String -> Promise[String]
 function publish(vg, name) {
-    var metadata = {name: name || vg.name};
+    var metadata = {name: name};
     var binData = vg.encode().toBuffer();
 
     function cacheLocally() {
@@ -222,12 +222,22 @@ function jsonEtl(k, req, res) {
 
 
 function vgraphEtl(k, req, res) {
+    var params = parseQueryParams(req);
     req2data(req, params).then(function (data) {
         try {
             var buffer = new Buffer(data);
             var vg = vgraph.decodeVGraph(buffer);
-            publish(vg);
-            k();
+
+            Q.all([
+                publish(vg, vg.name),
+                slackNotify(vg.name, params, vg.nvertices, vg.nedges)
+            ]).spread(function () {
+                res.send({
+                    success: true, dataset: vg.name,
+                    viztoken: makeVizToken(params.key, vg.name)
+                });
+                k();
+            });
         } catch (err) {
             makeFailHandler(res)(err)
         }
