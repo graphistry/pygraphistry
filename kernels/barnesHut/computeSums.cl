@@ -106,7 +106,6 @@ __kernel void compute_sums(
                 // poll for missing child
 
                 child = missing_children[(num_children_missing - 1)*local_size+get_local_id(0)];
-
                 m = mass[child];
                 if (m >= 0.0f) {
                     // Child has been touched
@@ -135,5 +134,7 @@ __kernel void compute_sums(
             mass[k] = cm;
             k += inc;
         }
+        // make sure the change to `mass` is visable before the next iteration
+        mem_fence(CLK_GLOBAL_MEM_FENCE);
     }
 }
