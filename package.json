@@ -29,7 +29,7 @@
     "grunt-contrib-jshint": "~0.11.2",
     "grunt-contrib-watch": "~0.6.0",
     "grunt-exorcise": "~1.0.1",
-    "grunt-peg": "^1.5.0",
+    "grunt-peg": "~1.5.0",
     "handlebars": "~3.0.1",
     "immutable": "~2.0.0",
     "numeric": "~1.2.6",
@@ -40,8 +40,8 @@
     "underscore": "~1.8.0"
   },
   "devDependencies": {
-    "jasmine-node": "^1.14.5",
-    "karma": "^0.13.10",
+    "jasmine-node": "~1.14.5",
+    "karma": "~0.13.10",
     "pegjs": "~0.8.0"
   },
   "main": "./index.js",
