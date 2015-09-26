@@ -101,7 +101,7 @@
         display: none;
     }
 
-    &.clicked {
+    &.clicked, &:hover {
 
         margin-top: -2px;
         margin-left: -2px;
@@ -111,12 +111,22 @@
             background-color: white;
             border-width: 3px;
 
+        }
+    }
+
+
+    &.clicked {
+
+        .graph-label-container {
+
             .graph-label-title .fa-thumb-tack {
                 display: inline-block;
                 color: rgba(31, 31, 51, 1.0);
             }
         }
     }
+
+
 
     &, & table {
         color: rgb(31, 31, 51);
