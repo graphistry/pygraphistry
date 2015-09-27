@@ -214,6 +214,14 @@ function filterGraphByMaskList(graph, maskList, errors, filters, pointLimit, cb)
 
     logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
 
+    // Guards against lower-level drawing errors from clearing the graph:
+    if (masks.point.length === 0) {
+        errors.push(Error('Combined filters exclude all points'));
+        var response = {success: false, errors: errors, filters: filters};
+        cb(response);
+        return;
+    }
+
     // Promise
     var simulator = graph.simulator;
     graph.dataframe.filter(masks, simulator)
