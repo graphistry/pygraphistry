@@ -20,10 +20,10 @@ function parseWithUtil (inputString) {
 
 describe ('Numerical expressions', function () {
     it('should parse numerals', function () {
-        expect(parse('3')).toEqual({type: 'Literal', value: 3});
+        expect(parse('3')).toEqual({type: 'Literal', dataType: 'integer', value: 3});
     });
     it('should parse large numerals', function () {
-        expect(parse('345679801')).toEqual({type: 'Literal', value: 345679801});
+        expect(parse('345679801')).toEqual({type: 'Literal', dataType: 'integer', value: 345679801});
     });
     it('should parse sums', function () {
         var sum = parse('3 + 4');
@@ -48,14 +48,21 @@ describe ('literal lists', function () {
         expect(parse('()')).toEqual({type: 'ListExpression', elements: []});
     });
     it('should parse single-element list', function () {
-        expect(parse('(3)')).toEqual({type: 'Literal', value: 3});
-        expect(parse('(3,)')).toEqual({type: 'ListExpression', elements: [{type: 'Literal', value: 3}]});
+        expect(parse('(3)')).toEqual(
+            {type: 'Literal', dataType: 'integer', value: 3});
+        expect(parse('(3,)')).toEqual({type: 'ListExpression', elements: [
+            {type: 'Literal', dataType: 'integer', value: 3}]});
     });
     it('should parse double-element list', function () {
-        expect(parse('(3, 4)')).toEqual({type: 'ListExpression', elements: [{type: 'Literal', value: 3}, {type: 'Literal', value: 4}]});
+        expect(parse('(3, 4)')).toEqual({type: 'ListExpression', elements: [
+            {type: 'Literal', dataType: 'integer', value: 3},
+            {type: 'Literal', dataType: 'integer', value: 4}]});
     });
     it('should parse multi-element list', function () {
-        expect(parse('(3, 4, 5)')).toEqual({type: 'ListExpression', elements: [{type: 'Literal', value: 3}, {type: 'Literal', value: 4}, {type: 'Literal', value: 5}]});
+        expect(parse('(3, 4, 5)')).toEqual({type: 'ListExpression', elements: [
+            {type: 'Literal', dataType: 'integer', value: 3},
+            {type: 'Literal', dataType: 'integer', value: 4},
+            {type: 'Literal', dataType: 'integer', value: 5}]});
     });
     it('should parse with complex elements', function () {
         expect(parse('(3 + 4, 5, foo(4))')).toEqual({
@@ -64,14 +71,14 @@ describe ('literal lists', function () {
                 {
                     type: 'BinaryExpression',
                     operator: '+',
-                    left: {type: 'Literal', value: 3},
-                    right: {type: 'Literal', value: 4}
+                    left: {type: 'Literal', dataType: 'integer', value: 3},
+                    right: {type: 'Literal', dataType: 'integer', value: 4}
                 },
-                {type: 'Literal', value: 5},
+                {type: 'Literal', dataType: 'integer', value: 5},
                 {
                     type: 'FunctionCall',
                     callee: 'foo',
-                    arguments: [{type: 'Literal', value: 4}]
+                    arguments: [{type: 'Literal', dataType: 'integer', value: 4}]
                 }
             ]
         });
@@ -165,7 +172,7 @@ describe ('IS expressions', function () {
             operator: 'IS',
             left: {type: 'Identifier', name: 'x'},
             right: {
-                type: 'Literal', value: true
+                type: 'Literal', dataType: 'boolean', value: true
             }
         });
         expect(parse('x IS FALSE')).toEqual({
@@ -173,7 +180,7 @@ describe ('IS expressions', function () {
             operator: 'IS',
             left: {type: 'Identifier', name: 'x'},
             right: {
-                type: 'Literal', value: false
+                type: 'Literal', dataType: 'boolean', value: false
             }
         });
         expect(parse('x IS NULL')).toEqual({
@@ -181,7 +188,7 @@ describe ('IS expressions', function () {
             operator: 'IS',
             left: {type: 'Identifier', name: 'x'},
             right: {
-                type: 'Literal', value: null
+                type: 'Literal', dataType: 'null', value: null
             }
         });
     });
@@ -190,7 +197,7 @@ describe ('IS expressions', function () {
             type: 'LogicalExpression',
             operator: 'IS',
             left: {type: 'Identifier', name: 'x'},
-            right: {type: 'NotExpression', operator: 'NOT', value: {type: 'Literal', value: null}}
+            right: {type: 'NotExpression', operator: 'NOT', value: {type: 'Literal', dataType: 'null', value: null}}
         });
     });
 });
@@ -200,7 +207,7 @@ describe ('member access', function () {
         expect(parse('a[4]')).toEqual({
             type: 'MemberAccess',
             object: {type: 'Identifier', name: 'a'},
-            name: {type: 'Literal', value: 4}
+            name: {type: 'Literal', dataType: 'integer', value: 4}
         });
     });
     it('should parse with whitespace', function() {
@@ -213,7 +220,7 @@ describe ('member access', function () {
             name: {
                 type: 'MemberAccess',
                 object: {type: 'Identifier', name: 'b'},
-                name: {type: 'Literal', value: 4}
+                name: {type: 'Literal', dataType: 'integer', value: 4}
             }
         });
     });
@@ -223,16 +230,16 @@ describe ('member access', function () {
             object: {
                 type: 'MemberAccess',
                 object: {type: 'Identifier', name: 'a' },
-                name: {type: 'Literal', value: 3 }
+                name: {type: 'Literal', dataType: 'integer', value: 3}
             },
-            name: {type: 'Literal', value: 4 }
+            name: {type: 'Literal', dataType: 'integer', value: 4}
         });
     });
     xit('should handle empty', function () {
         expect(parse('a[]')).toEqual({
             type: 'MemberAccess',
             object: {type: 'Identifier', name: 'a'},
-            name: {type: 'Literal', value: null}
+            name: {type: 'Literal', dataType: 'null', value: null}
         });
     });
 });
@@ -242,7 +249,7 @@ describe ('function calls', function () {
         expect(parse('substr(1)')).toEqual({
             type: 'FunctionCall',
             callee: {type: 'Identifier', name: 'substr'},
-            arguments: [{type: 'Literal', value: 1}]
+            arguments: [{type: 'Literal', dataType: 'integer', value: 1}]
         });
     });
     it('should parse with a space before arguments', function () {
@@ -260,10 +267,21 @@ describe ('function calls', function () {
             type: 'FunctionCall',
             callee: {type: 'Identifier', name: 'substr'},
             arguments: [
-                {type: 'Literal', value: 'abcdef'},
-                {type: 'Literal', value: 3},
-                {type: 'Literal', value: 4}
+                {type: 'Literal', dataType: 'string', value: 'abcdef'},
+                {type: 'Literal', dataType: 'integer', value: 3},
+                {type: 'Literal', dataType: 'integer', value: 4}
             ]
+        });
+    });
+    it('should nest', function () {
+        expect(parse('length(substring("abcdef")')).toEqual({
+            type: 'FunctionCall',
+            callee: {type: 'Identifier', name: 'length'},
+            arguments: [{
+                type: 'FunctionCall',
+                callee: {type: 'Identifier', name: 'substr'},
+                arguments: [{type: 'Literal', dataType: 'string', value: 'abcdef'}]
+                }]
         });
     });
 });
@@ -274,8 +292,8 @@ describe ('Range predicates', function () {
         expect(betweenAnd).toEqual({
             type: 'BetweenPredicate',
             value: {type: 'Identifier', name: 'A'},
-            start: {type: 'Literal', value: 2},
-            stop: {type: 'Literal', value: 5}
+            start: {type: 'Literal', dataType: 'integer', value: 2},
+            stop: {type: 'Literal', dataType: 'integer', value: 5}
         });
     });
     xit('should parse A NOT BETWEEN 2 and 5', function () {
@@ -290,7 +308,7 @@ describe ('Range predicates', function () {
 
 describe ('LIMIT clauses', function () {
     it('should parse LIMIT N', function () {
-        expect(parse('LIMIT 4')).toEqual({type: 'Limit', value: {type: 'Literal', value: 4}});
+        expect(parse('LIMIT 4')).toEqual({type: 'Limit', value: {type: 'Literal', dataType: 'integer', value: 4}});
     });
     it('should not parse LIMIT N + 1', function () {
         //expect(parse('LIMIT 4 + 3')).toThrow();
