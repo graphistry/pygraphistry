@@ -514,6 +514,19 @@ html.nomenu #menus, html.nomenu #sliders {
     }
 }
 
+.refreshButton, .expandButton, .closeButton, .disableButton i.fa, .deleteButton i.fa, i.closeHistogramButton.fa {
+    margin-top: 4px;
+
+    &.fa, .fa {
+        color: @medium-grey;
+        font-size: 12px;
+    }
+
+    &.fa:hover, .fa:hover {
+        color: @graphistry-lightblue;
+    }
+}
+
 .ace_editor.ace_autocomplete.ace-chrome {
     z-index: @modal-z + 1;
 }
@@ -591,6 +604,42 @@ button.btn-default {
     //color: white;
 }
 
+
+.attributeName {
+    text-align: left;
+//    margin-left: 4px;
+    padding-left: 4px;
+    margin-top: 6px;
+    z-index: @histogram-name-z;
+    color: @dark-grey;
+    font-size: 0.85em;
+
+    &::first-letter {
+        text-transform: uppercase;
+    }
+}
+
+.dropdown {
+
+    button {
+        background-color: white;
+        border: 1px solid @medium-grey;
+        color: @dark-grey;
+
+        font-weight: bold;
+        font-size: 0.75em;
+
+        &:hover {
+            border-color: @graphistry-lightblue;
+            color: @graphistry-lightblue;
+        }
+
+    }
+}
+
+
+
+
 .slider {
     .slider-track {
         background-image: linear-gradient(to bottom, #C9C9C9 0%, #C3C3C3 100%);
@@ -655,6 +704,40 @@ button.btn-default {
 
 .filterPanel .filterName {
     .text-overflow();
+}
+
+.filterPanel {
+
+    background-color: @light-grey-background-2;
+
+    .filterInspector {
+        background-color: white;
+        border-bottom: 1px solid @medium-grey;
+        margin-bottom: 0.5em;
+    }
+
+    *[title="Data Type"] {
+        text-align: left;
+        font-size: 0.9em;
+        color: @dark-grey;
+        font-size: 0.85em;
+        margin-left: 2.5em;
+        font-style: italic;
+
+        .control-label {
+            display: none;
+        }
+
+    }
+
+    *[title="Control Type"],
+    *[title="Expression"] > label.control-label {
+        display: none;
+    }
+
+    .filter-about {
+        float: right;
+    }
 }
 
 #renderingItems {
@@ -1194,28 +1277,6 @@ button.btn-default {
         }
     }
 
-    #addHistogram {
-
-        .dropdown {
-            text-align: center;
-        }
-
-        #addHistogramButton {
-            background-color: white;
-            border: 1px solid @medium-grey;
-            color: @dark-grey;
-            margin: 10px;
-
-            font-weight: bold;
-            font-size: 0.75em;
-        }
-
-        #addHistogramButton:hover {
-            border-color: @graphistry-lightblue;
-            color: @graphistry-lightblue;
-        }
-    }
-
     #filterButton.iconBadge:after{
         content:attr(data-count);
         position: absolute;
@@ -1276,18 +1337,6 @@ button.btn-default {
         transition: transform @rotateDuration ease-in-out;
     }
 
-    .refreshButton, .expandButton, .closeButton {
-        margin-top: 4px;
-        font-size: 0.7em;
-        .fa {
-            color: @medium-grey;
-
-        }
-        .fa:hover {
-            color: @graphistry-lightblue;
-        }
-    }
-
     .refreshButton {
         display: none;
     }
@@ -1307,20 +1356,6 @@ button.btn-default {
         text-align: center;
         font-weight: bold;
         font-size: 0.8em;
-
-        &::first-letter {
-            text-transform: uppercase;
-        }
-    }
-
-    .attributeName {
-        text-align: left;
-        margin-left: 4px;
-        padding-left: 4px;
-        margin-top: 6px;
-        z-index: @histogram-name-z;
-        color: @dark-grey;
-        font-size: 0.85em;
 
         &::first-letter {
             text-transform: uppercase;
@@ -1380,6 +1415,11 @@ button.btn-default {
         // border-bottom-width: 1px;
         // border-bottom-color: #B2B2B2;
 
+    }
+
+    #addHistogram {
+        text-align: center;
+        margin: 10px;
     }
 
 }
