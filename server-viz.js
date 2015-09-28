@@ -37,10 +37,6 @@ var lastCompressedVBOs;
 var lastRenderConfig;
 var lastMetadata;
 var finishBufferTransfers;
-var qLastSelectionIndices = Q({
-    'point': [],
-    'edge': []
-});
 
 
 // ----- ANIMATION ------------------------------------
@@ -167,16 +163,13 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
 
 function read_selection(type, query, res) {
     graph.take(1).do(function (graph) {
-        qLastSelectionIndices.then(function (lastSelectionIndices) {
-            // TODO: Change these on the client side.
-            if (type === 'nodes') type = 'point';
-            if (type === 'edges') type = 'edge';
-
-            if (!lastSelectionIndices || !lastSelectionIndices[type]) {
-                log.error('Client tried to read non-existent selection');
-                res.send();
-            }
-
+        graph.simulator.selectNodes(query.sel).then(function (nodeIndices) {
+            var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
+            return {
+                'point': nodeIndices,
+                'edge': edgeIndices
+            };
+        }).then(function (lastSelectionIndices) {
             var page = parseInt(query.page);
             var per_page = parseInt(query.per_page);
             var start = (page - 1) * per_page;
@@ -356,12 +349,12 @@ function init(app, socket) {
 
     app.get('/read_node_selection', function (req, res) {
         logger.debug('Got read_node_selection', req.query);
-        read_selection('nodes', req.query, res);
+        read_selection('point', req.query, res);
     });
 
     app.get('/read_edge_selection', function (req, res) {
         logger.debug('Got read_edge_selection', req.query);
-        read_selection('edges', req.query, res);
+        read_selection('edge', req.query, res);
     });
 
     // Get the dataset name from the query parameters, may have been loaded from view:
@@ -756,38 +749,6 @@ function stream(socket, renderConfig, colorTexture) {
         // TODO: Find a way to avoid flooding main thread waiting for GPU ticks.
         var defaults = {play: false, layout: false};
         animStep.interact(_.extend(defaults, payload || {}));
-    });
-
-    socket.on('set_selection', function (sel, cb) {
-        logger.trace('Got set_selection');
-        graph.take(1).do(function (graph) {
-            graph.simulator.selectNodes(sel).then(function (nodeIndices) {
-                var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
-                cb({
-                    success: true,
-                    params: {
-                        nodes: {
-                            urn: 'read_node_selection',
-                            count: nodeIndices.length
-                        },
-                        edges: {
-                            urn: 'read_edge_selection',
-                            count: edgeIndices.length
-                        }
-                    }
-                });
-                qLastSelectionIndices = Q({
-                    'point': nodeIndices,
-                    'edge': edgeIndices
-                });
-            }).done(_.identity, log.makeQErrorHandler(logger, 'selectNodes'));
-        }).subscribe(
-            _.identity,
-            function (err) {
-                cb({success: false, error: 'set_selection error'});
-                log.makeRxErrorHandler(logger, 'set_selection handler')(err);
-            }
-        );
     });
 
     socket.on('get_labels', function (query, cb) {
