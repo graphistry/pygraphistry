@@ -18,7 +18,7 @@ __kernel void faIntegrate (
 
     float sqrtPoints = sqrt((float)numPoints);
     float speedFactor = max(SPEED_CONSTANT * sqrtPoints / 1000.0f, 0.1f);
-    float maxSpeedFactor = max(SPEED_CONSTANT * sqrtPoints / 10.0f, 10.0f);
+    float maxSpeedFactor = max(*globalSpeed * SPEED_CONSTANT * sqrtPoints / 10.0f, 10.0f);
 
 
     float normalizedSwing = sqrt( (swings[n1Idx] ) / (sqrtPoints) );
