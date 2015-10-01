@@ -441,6 +441,7 @@ function init(app, socket) {
                     ast.limit !== undefined &&
                     ast.limit.value !== undefined) {
                     pointLimit = parseInt(ast.limit.value, 10);
+                    return;
                 }
                 var attribute = dataframe.normalizeName(filterQuery.attribute);
                 if (attribute === undefined) {
