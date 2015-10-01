@@ -2,7 +2,7 @@
 
 var _       = require('underscore');
 var PEGUtil = require('pegjs-util');
-var asty    = require('asty');
+//var asty    = require('asty');
 var parser  = require('../src/graphVizApp/expression.js');
 
 function parse (inputString) {
@@ -11,10 +11,10 @@ function parse (inputString) {
 
 function parseWithUtil (inputString) {
     return PEGUtil.parse(parser, inputString, {
-        startRule: 'start',
+        startRule: 'start'/*,
         makeAST: function (line, column, offset, args) {
             return asty.create.apply(asty, args).pos(line, column, offset);
-        }
+        }*/
     });
 }
 
