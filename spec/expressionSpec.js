@@ -96,6 +96,25 @@ describe ('IN expressions', function () {
     });
 });
 
+describe('LIKE expressions', function () {
+    it('should handle basic LIKE parsing', function () {
+        expect(parse('A LIKE "%abc%"')).toEqual({
+            type: 'LikePredicate',
+            operator: 'LIKE',
+            left: {type: 'Identifier', name: 'A'},
+            right: {type: 'Literal', dataType: 'string', value: '%abc%'}
+        });
+    });
+    xit ('should handle ILIKE and ESCAPE', function () {
+        expect(parse('A ILIKE "%abc%" ESCAPE "%"')).toEqual({
+            type: 'LikePredicate',
+            operator: 'ILIKE',
+            left: {type: 'Identifier', name: 'A'},
+            right: {type: 'Literal', dataType: 'string', value: '%abc%', escapeChar: '%'}
+        });
+    });
+});
+
 describe ('precedence', function () {
     it('should bind * closer than +', function() {
         var clause = parse('3 + 4 * 5');
