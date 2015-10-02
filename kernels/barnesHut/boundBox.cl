@@ -121,8 +121,10 @@ __kernel void bound_box(
 
             // Compute global speed
             if (step_number > 1) {
-                /**globalSpeed = min(tau * (traction / swing), *globalSpeed * 2);*/
-                *globalSpeed = tau * (traction / swing);
+                // Use (exponential) rolling average of global speed to help smooth movement.
+                *globalSpeed = (0.1 * pow(10, tau) * (traction / swing)) + (0.9 * (*globalSpeed));
+                // Don't use rolling average
+                /**globalSpeed = tau * (traction / swing);*/
             } else {
                 *globalSpeed = 1.0f;
             }
