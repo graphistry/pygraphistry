@@ -210,7 +210,7 @@ function filterGraphByMaskList(graph, maskList, errors, filters, pointLimit, cb)
 
     // Promise
     var simulator = graph.simulator;
-    graph.dataframe.applyMaskSetToFilterInPlace(masks)
+    graph.dataframe.applyMaskSetToFilterInPlace(masks, simulator)
         .then(function () {
             simulator.layoutAlgorithms
                 .map(function (alg) {
