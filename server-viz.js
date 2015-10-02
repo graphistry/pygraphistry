@@ -22,6 +22,7 @@ var vgwriter    = require('./js/libs/VGraphWriter.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
 var util        = require('./js/util.js');
+var ExpressionCodeGenerator = require('./js/expressionCodeGenerator');
 
 var log         = require('common/logger.js');
 var logger      = log.createLogger('graph-viz:driver:viz-server');
@@ -446,9 +447,9 @@ function init(app, socket) {
                 var ast = filterQuery.ast;
                 if (ast !== undefined &&
                     ast.type === 'Limit' &&
-                    ast.value !== undefined &&
-                    ast.value.type === 'Literal') {
-                    pointLimit = parseInt(ast.value.value, 10);
+                    ast.value !== undefined) {
+                    var generator = new ExpressionCodeGenerator('javascript');
+                    pointLimit = generator.evaluateExpressionFree(ast.value);
                     return;
                 }
                 var attribute = dataframe.normalizeName(filterQuery.attribute);
