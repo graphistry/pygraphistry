@@ -46,7 +46,7 @@ var animStep;
 //multicast of current animation's ticks
 var ticksMulti;
 
-//Signal to Send New VBOs
+//Signal to Explicitly Send New VBOs
 var updateVboSubject;
 
 //most recent tick
@@ -69,7 +69,7 @@ function resetState(dataset) {
     lastMetadata = {};
     finishBufferTransfers = {};
 
-    updateVboSubject = new Rx.Subject();
+    updateVboSubject = new Rx.ReplaySubject(1);
 
     animStep = driver.create(dataset);
     ticksMulti = animStep.ticks.publish();
@@ -972,8 +972,17 @@ function stream(socket, renderConfig, colorTexture) {
             })
             .flatMap(function () {
                 logger.trace('7. Wait for next anim step', socket.id, ticker);
-                return ticksMulti.merge(updateVboSubject)
+
+                var filteredUpdateVbo = updateVboSubject.filter(function (data) {
+                    return data;
+                });
+
+                return ticksMulti.merge(filteredUpdateVbo)
                     .take(1)
+                    .do(function (data) {
+                        // Mark that we don't need to send vbos independently of ticks anymore.
+                        updateVboSubject.onNext(false);
+                    })
                     .do(function () { logger.trace('8. next ready!', socket.id, ticker); });
             })
             .map(_.constant(graph));
