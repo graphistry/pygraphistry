@@ -462,14 +462,14 @@ class Plotter(object):
 
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
         nodeid = self._node or Plotter._defaultNodeId
-        elist = edges.reset_index(drop=True)
+        elist = edges.reset_index(drop=True).dropna(subset=[self._source, self._destination])
         if nodes is None:
             nodes = pandas.DataFrame()
             nodes[nodeid] = pandas.concat([edges[self._source], edges[self._destination]],
                                            ignore_index=True).drop_duplicates()
         else:
             self._check_bound_attribs(nodes, ['node'], 'Vertex')
-        nlist = nodes.reset_index(drop=True)
+        nlist = nodes.reset_index(drop=True).dropna(subset=[nodeid])
 
         edge_count = len(elist.index)
         node_count = len(nlist.index)
