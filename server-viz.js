@@ -256,7 +256,22 @@ function init(app, socket) {
     if (!viewConfig.filters) {
         viewConfig.filters = [
             // nodes/edges limited per client render estimate:
-            {query: {type: 'point', ast: {limit: 800000}}}
+            {
+                title: 'Point Limit',
+                attribute: undefined,
+                query: {
+                    type: 'point',
+                    ast: {
+                        type: 'Limit',
+                        value: {
+                            type: 'Literal',
+                            dataType: 'integer',
+                            value: 8e5
+                        }
+                    },
+                    inputString: 'LIMIT 800000'
+                }
+            }
         ];
     }
 
@@ -430,9 +445,10 @@ function init(app, socket) {
                 }
                 var ast = filterQuery.ast;
                 if (ast !== undefined &&
-                    ast.limit !== undefined &&
-                    ast.limit.value !== undefined) {
-                    pointLimit = parseInt(ast.limit.value, 10);
+                    ast.type === 'Limit' &&
+                    ast.value !== undefined &&
+                    ast.value.type === 'Literal') {
+                    pointLimit = parseInt(ast.value.value, 10);
                     return;
                 }
                 var attribute = dataframe.normalizeName(filterQuery.attribute);
