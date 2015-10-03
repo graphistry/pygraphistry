@@ -1,0 +1,49 @@
+{
+  "name": "StreamGL",
+  "version": "0.2.0",
+  "description": "Stream WebGL buffers into the browser from a remote server",
+  "private": true,
+  "scripts": {
+    "install": "grunt depbuild",
+    "test": "jasmine-node spec"
+  },
+  "dependencies": {
+    "asty": "~1.3.4",
+    "backbone": "~1.1.0",
+    "backbone.paginator": "~2.0.0",
+    "backgrid": "~0.3.0",
+    "backgrid-paginator": "graphistry/backgrid-paginator",
+    "backgrid-filter": "wyuenho/backgrid-filter",
+    "bootstrap-slider": "~4.3.0",
+    "brace": "~0.5.1",
+    "brfs": "~1.4.0",
+    "color": "~0.10.1",
+    "d3": "~3.5.5",
+    "debug": "~2.1.3",
+    "esprima-fb": "7001.1.0-dev-harmony-fb",
+    "gl-matrix": "~2.2.0",
+    "grunt": "~0.4.5",
+    "grunt-browserify": "~3.7.0",
+    "grunt-cli": "~0.1.0",
+    "grunt-contrib-clean": "~0.6.0",
+    "grunt-contrib-jshint": "~0.11.2",
+    "grunt-contrib-watch": "~0.6.0",
+    "grunt-exorcise": "~1.0.1",
+    "grunt-peg": "~1.5.0",
+    "handlebars": "~3.0.1",
+    "immutable": "~2.0.0",
+    "numeric": "~1.2.6",
+    "pegjs-util": "~1.0.6",
+    "rx": "~3.1.2",
+    "socket.io-client": "~1.3.5",
+    "sprintf-js": "~1.0.0",
+    "underscore": "~1.8.0"
+  },
+  "devDependencies": {
+    "jasmine-node": "~1.14.5",
+    "karma": "~0.13.10",
+    "pegjs": "~0.8.0"
+  },
+  "main": "./index.js",
+  "browser": "./src/main.js"
+}
