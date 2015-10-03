@@ -210,30 +210,37 @@ function filterGraphByMaskList(graph, maskList, errors, filters, pointLimit, cb)
 
     // Promise
     var simulator = graph.simulator;
-    graph.dataframe.applyMaskSetToFilterInPlace(masks, simulator)
-        .then(function () {
-            simulator.layoutAlgorithms
-                .map(function (alg) {
-                    return alg.updateDataframeBuffers(simulator);
-                });
-        }).then(function () {
-            simulator.tickBuffers([
-                'curPoints', 'pointSizes', 'pointColors',
-                'edgeColors', 'logicalEdges', 'springsPos'
-            ]);
+    try {
+        graph.dataframe.applyMaskSetToFilterInPlace(masks, simulator)
+            .then(function () {
+                simulator.layoutAlgorithms
+                    .map(function (alg) {
+                        return alg.updateDataframeBuffers(simulator);
+                    });
+            }).then(function () {
+                simulator.tickBuffers([
+                    'curPoints', 'pointSizes', 'pointColors',
+                    'edgeColors', 'logicalEdges', 'springsPos'
+                ]);
 
-            tickGraph(cb);
-            var response = {success: true, filters: filters};
-            if (errors) {
-                response.errors = errors;
-            }
-            cb(response);
-        }).done(_.identity, function(err) {
-            errors.push(err);
-            var response = {success: false, errors: errors, filters: filters};
-            cb(response);
-            log.makeQErrorHandler(logger, 'dataframe filter');
-        });
+                tickGraph(cb);
+                var response = {success: true, filters: filters};
+                if (errors) {
+                    response.errors = errors;
+                }
+                cb(response);
+            }).done(_.identity, function (err) {
+                log.makeQErrorHandler(logger, 'dataframe filter')(err);
+                errors.push(err);
+                var response = {success: false, errors: errors, filters: filters};
+                cb(response);
+            });
+    } catch (err) {
+        log.makeQErrorHandler(logger, 'dataframe filter')(err);
+        errors.push(err);
+        var response = {success: false, errors: errors, filters: filters};
+        cb(response);
+    }
 }
 
 function init(app, socket) {
@@ -477,7 +484,7 @@ function init(app, socket) {
                     return;
                 }
                 // Record the size of the filtered set for UI feedback:
-                filter.maskSizes = {point: masks.point.length, edge: masks.edge.length};
+                filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
                 maskList.push(masks);
             });
 
