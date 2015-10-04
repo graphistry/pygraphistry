@@ -634,12 +634,19 @@ button.btn-default {
         font-size: 0.75em;
 
         &:hover {
+            background-color: white;
             border-color: @graphistry-lightblue;
             color: @graphistry-lightblue;
         }
+    }
 
+    &.open button.btn.dropdown-toggle {
+        background-color: @graphistry-lightblue;
+        color: white;
     }
 }
+
+
 
 
 
@@ -740,6 +747,9 @@ button.btn-default {
             .filterExpression {
                 background-color: inherit;
             }
+            &.ace_editor {
+                border-style: dashed;
+            }
             .disableButton, .deleteButton {
                 visibility: hidden;
             }
@@ -792,6 +802,17 @@ button.btn-default {
 
     .filter-about {
         float: right;
+    }
+
+    .ace_identifier {
+        background-color: #666;
+        color: #EEE;
+        border-radius: 3px;
+        padding-left: 0.5em;
+        padding-right: 0.5em;
+        color: white;
+        font-weight: bold;
+
     }
 }
 
