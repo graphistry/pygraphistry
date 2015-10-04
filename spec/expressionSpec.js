@@ -5,17 +5,21 @@ var PEGUtil = require('pegjs-util');
 //var asty    = require('asty');
 var parser  = require('../src/graphVizApp/expression.js');
 
-function parse (inputString) {
+function parseRaw (inputString) {
     return parser.parse(inputString);
 }
 
-function parseWithUtil (inputString) {
-    return PEGUtil.parse(parser, inputString, {
+function parse (inputString) {
+    var result = PEGUtil.parse(parser, inputString, {
         startRule: 'start'/*,
         makeAST: function (line, column, offset, args) {
             return asty.create.apply(asty, args).pos(line, column, offset);
         }*/
     });
+    if (result.error !== null) {
+        throw Error(PEGUtil.errorMessage(result.error));
+    }
+    return result.ast;
 }
 
 describe ('Numerical expressions', function () {
