@@ -694,30 +694,63 @@ button.btn-default {
 }
 
 
+
 .filterPanel {
-    .sidePanel;
+
     width: 25em;
     left: 5em;
     top: auto;
-}
-
-.filterPanel #filters {
-    padding-left: 1em;
-    padding-right: 1em;
-}
-
-.filterPanel .filterName {
-    .text-overflow();
-}
-
-.filterPanel {
+    position: absolute;
+    padding-top: 0.5em;
+    padding-bottom: 0.5em;
+    border-radius: 3px;
 
     background-color: @light-grey-background-2;
 
+    #filters {
+        margin: 0;
+        padding: 0;
+    }
+
+    #addFilter {
+        margin-top: 0.5em;
+    }
+
     .filterInspector {
         background-color: white;
-        border-bottom: 1px solid @medium-grey;
-        margin-bottom: 0.5em;
+        &.disabled {
+            background-color: #EEE;
+            .disableButton, .deleteButton {
+                visibility: hidden;
+            }
+            .ace_content {
+                cursor: not-allowed;
+                background-color: #EBEBEB;
+            }
+        }
+
+        & + .filterInspector {
+            border-top: 1px solid @medium-grey;
+            padding-top: 0.5em;
+        }
+
+        .topMenu.row {
+            margin: 0em;
+            & > * {
+                padding: 0;
+                margin: 0;
+            }
+        }
+
+        .row.form-group {
+            margin: 0;
+            padding: 0.5em;
+        }
+    }
+
+    .filterName {
+        .text-overflow();
+        padding-left: 1em !important;
     }
 
     *[title="Data Type"] {
