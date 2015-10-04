@@ -297,14 +297,19 @@ describe ('function calls', function () {
         });
     });
     it('should nest', function () {
+        expect(parse('length(substring)')).toEqual({
+            type: 'FunctionCall',
+            callee: {type: 'Identifier', name: 'length'},
+            arguments: [{type: 'Identifier', name: 'substring'}]
+        });
         expect(parse('length(substring("abcdef")')).toEqual({
             type: 'FunctionCall',
             callee: {type: 'Identifier', name: 'length'},
             arguments: [{
                 type: 'FunctionCall',
-                callee: {type: 'Identifier', name: 'substr'},
+                callee: {type: 'Identifier', name: 'substring'},
                 arguments: [{type: 'Literal', dataType: 'string', value: 'abcdef'}]
-                }]
+            }]
         });
     });
 });
