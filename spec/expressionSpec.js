@@ -154,6 +154,11 @@ describe ('identifiers', function () {
     it('parses colon-separated', function () {
         expect(parse('x:y')).toEqual({type: 'Identifier', name: 'x:y'});
     });
+    it('parses identifiers that look like keywords', function () {
+        expect(parse('endswith')).toEqual({
+            type: 'Identifier', name: 'endswith'
+        });
+    });
     xit('parses table-scoped', function () {
         expect(parse('x.y')).toEqual({type: 'Identifier', name: 'x.y'});
     });
