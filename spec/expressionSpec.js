@@ -81,7 +81,7 @@ describe ('literal lists', function () {
                 {type: 'Literal', dataType: 'integer', value: 5},
                 {
                     type: 'FunctionCall',
-                    callee: 'foo',
+                    callee: {type: 'Identifier', name: 'foo'},
                     arguments: [{type: 'Literal', dataType: 'integer', value: 4}]
                 }
             ]
