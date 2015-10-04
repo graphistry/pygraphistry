@@ -311,7 +311,7 @@ describe ('function calls', function () {
                 arguments: []
             }]
         });
-        expect(parse('length(substring("abcdef")')).toEqual({
+        expect(parse('length(substring("abcdef"))')).toEqual({
             type: 'FunctionCall',
             callee: {type: 'Identifier', name: 'length'},
             arguments: [{
