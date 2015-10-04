@@ -703,9 +703,22 @@ button.btn-default {
     position: absolute;
     padding-top: 0.5em;
     padding-bottom: 0.5em;
+    padding-left: 0;
+    padding-right: 0;
     border-radius: 3px;
 
     background-color: @light-grey-background-2;
+
+
+    #filtersPanelHeader {
+        background-color: inherit;
+        color: #646464;
+        font-weight: bold;
+        font-size: 13px;
+        padding-bottom: 0.5em;
+        border-bottom: 1px solid #C8C8C8;
+        margin-bottom: 0px;
+    }
 
     #filters {
         margin: 0;
@@ -717,21 +730,26 @@ button.btn-default {
     }
 
     .filterInspector {
+
         background-color: white;
+        border-bottom: 1px solid @medium-grey;
+        padding-top: 0.5em;
+
         &.disabled {
             background-color: #EEE;
+            .filterExpression {
+                background-color: inherit;
+            }
             .disableButton, .deleteButton {
                 visibility: hidden;
             }
             .ace_content {
                 cursor: not-allowed;
-                background-color: #EBEBEB;
+                background-color: #EEEEEE;
             }
-        }
-
-        & + .filterInspector {
-            border-top: 1px solid @medium-grey;
-            padding-top: 0.5em;
+            .ace_active-line {
+                background: inherit !important;
+            }
         }
 
         .topMenu.row {
