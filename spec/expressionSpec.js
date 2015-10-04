@@ -302,6 +302,15 @@ describe ('function calls', function () {
             callee: {type: 'Identifier', name: 'length'},
             arguments: [{type: 'Identifier', name: 'substring'}]
         });
+        expect(parse('length(substring())')).toEqual({
+            type: 'FunctionCall',
+            callee: {type: 'Identifier', name: 'length'},
+            arguments: [{
+                type: 'FunctionCall',
+                callee: {type: 'Identifier', name: 'substring'},
+                arguments: []
+            }]
+        });
         expect(parse('length(substring("abcdef")')).toEqual({
             type: 'FunctionCall',
             callee: {type: 'Identifier', name: 'length'},
