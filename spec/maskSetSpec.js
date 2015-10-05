@@ -1,5 +1,7 @@
 'use strict';
 
+var _ = require('underscore');
+
 var MaskSet = require('../js/MaskSet');
 //var Dataframe = require('../js/Dataframe');
 
@@ -27,11 +29,19 @@ describe('intersection', function () {
         expect(MaskSet.intersectionOfTwoMasks([4], [3])).toEqual([]);
         expect(MaskSet.intersectionOfTwoMasks([3], [3])).toEqual([3]);
     });
+    it('handles disjoint masks', function () {
+        expect(MaskSet.intersectionOfTwoMasks([3, 7], [2, 5])).toEqual([]);
+        expect(MaskSet.intersectionOfTwoMasks([], [2, 5])).toEqual([]);
+    });
 });
 
-describe('complement', function () {
-    var universe;
-    beforeEach(function () {
-        universe = jasmine.createSpy('universe', 'getPoints');
+xdescribe('complement', function () {
+    it('handles empty masks', function () {
+        expect(MaskSet.complementOfMask([], 100)).toEqual(_.range(100));
+    });
+    it('handles singletons', function () {
+        expect(MaskSet.complementOfMask([3], 5)).toEqual([0,1,2,4]);
+        expect(MaskSet.complementOfMask([0], 5)).toEqual([1,2,3,4]);
+        expect(MaskSet.complementOfMask([5], 5)).toEqual([0,1,2,3,4]);
     });
 });
