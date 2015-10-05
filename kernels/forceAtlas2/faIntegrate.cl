@@ -14,20 +14,13 @@ __kernel void faIntegrate (
     const unsigned int n1Idx = (unsigned int) get_global_id(0);
     const unsigned int numPoints = (unsigned int) get_global_size(0);
 
-    #define SPEED_CONSTANT 5.0f
+    const float speedFactor = 0.1f;
+    const float maxSpeedFactor = 10.0f;
 
-    float sqrtPoints = sqrt((float)numPoints);
-    float speedFactor = max(SPEED_CONSTANT * sqrtPoints / 1000.0f, 0.1f);
-    float maxSpeedFactor = max(*globalSpeed * SPEED_CONSTANT * sqrtPoints / 10.0f, 10.0f);
-
-
-    float normalizedSwing = sqrt( (swings[n1Idx] ) / (sqrtPoints) );
-    float speed = speedFactor * (*globalSpeed) / (1.0f + (*globalSpeed) * normalizedSwing);
+    float speed = speedFactor / (0.001f + sqrt(swings[n1Idx]));
     float maxSpeed = maxSpeedFactor / length(curForces[n1Idx]);
 
-
-    float2 delta = min(speed, maxSpeed) * curForces[n1Idx];
-
+    float2 delta = *globalSpeed * min(maxSpeed, speed) * curForces[n1Idx];
     debug4("Speed (%d) %f max: %f\n", n1Idx, speed, maxSpeed);
     debug4("Delta (%d) %f\t%f\n", n1Idx, delta.x, delta.y);
 

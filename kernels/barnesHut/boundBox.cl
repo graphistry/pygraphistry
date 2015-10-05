@@ -16,6 +16,8 @@ __kernel void bound_box(
         __global float* global_x_maxs,
         __global float* global_y_mins,
         __global float* global_y_maxs,
+        __global float* global_swings,
+        __global float* global_tractions,
         __global float* swings,
         __global float* tractions,
         __global int* count,
@@ -102,8 +104,8 @@ __kernel void bound_box(
 
         // We use swings/tractions as buffer here, even though it's waaay larger than
         // necessary for this purpose.
-        swings[gid] = swing;
-        tractions[gid] = traction;
+        global_swings[gid] = swing;
+        global_tractions[gid] = traction;
 
         inc = (global_dim_size / dim) - 1;
         if (inc == atomic_inc(blocked)) {
@@ -115,18 +117,18 @@ __kernel void bound_box(
                 maxx = max(maxx, global_x_maxs[j]);
                 miny = min(miny, global_y_mins[j]);
                 maxy = max(maxy, global_y_maxs[j]);
-                swing = swing + swings[j];
-                traction = traction + tractions[j];
+                swing = swing + global_swings[j];
+                traction = traction + global_tractions[j];
             }
 
             // Compute global speed
             if (step_number > 1) {
                 // Use (exponential) rolling average of global speed to help smooth movement.
-                *globalSpeed = (0.1 * pow(10, tau) * (traction / swing)) + (0.9 * (*globalSpeed));
+                /**globalSpeed = (0.1 * pow(10, tau) * (traction / swing)) + (0.9 * (*globalSpeed));*/
                 // Don't use rolling average
-                /**globalSpeed = tau * (traction / swing);*/
+                *globalSpeed = pow(10, tau) * (traction / swing);
             } else {
-                *globalSpeed = 1.0f;
+                *globalSpeed = 1.00f;
             }
 
 
