@@ -39,6 +39,7 @@ For python use, we recommend also installing `pyspark`, `pandas`, `networkx`, an
 ## Operating System
 
 **Required** A Linux-based server with OpenCL 1.2+ .
+
 **Recommended** Ubuntu 14.04 LTR "Trusty"  (AWS: HVM as the AMI)
 
 Installation from a non-graphistry base image may require root access when setting up Nvidia GPU drivers and nginx.
