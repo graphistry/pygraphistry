@@ -35,7 +35,7 @@ describe('intersection', function () {
     });
 });
 
-xdescribe('complement', function () {
+describe('complement', function () {
     it('handles empty masks', function () {
         expect(MaskSet.complementOfMask([], 100)).toEqual(_.range(100));
     });
