@@ -430,10 +430,10 @@ function init(app, socket) {
     });
 
     socket.on('update_filters', function (newValues, cb) {
-        logger.info('filters [before]', viewConfig.filters);
         logger.trace('updating filters from client values');
         // Maybe direct assignment isn't safe, but it'll do for now.
         viewConfig.filters = newValues;
+        logger.info('filters', viewConfig.filters);
 
         graph.take(1).do(function (graph) {
             var dataframe = graph.dataframe;
@@ -459,24 +459,20 @@ function init(app, socket) {
                     pointLimit = generator.evaluateExpressionFree(ast.value);
                     return;
                 }
-                var attribute = dataframe.normalizeName(filterQuery.attribute);
-                if (attribute === undefined) {
+                var type = filter.type || filterQuery.type;
+                var attribute = filter.attribute || filterQuery.attribute;
+                var normalization = dataframe.normalizeAttributeName(filterQuery.attribute, type);
+                if (normalization === undefined) {
                     errors.push('Unknown frame element');
                     return;
+                } else {
+                    type = normalization.type;
+                    attribute = normalization.attribute;
                 }
-                // Auto-correct:
-                if (filterQuery.type === undefined) {
-                    var attributes = dataframe.rawdata.attributes;
-                    if (attributes.point.hasOwnProperty(attribute)) {
-                        filterQuery.type = 'point';
-                    } else if (attributes.edge.hasOwnProperty(attribute)) {
-                        filterQuery.type = 'edge';
-                    }
-                }
-                if (filterQuery.type === undefined || filterQuery.type === 'point') {
+                if (type === 'point') {
                     var pointMask = dataframe.getPointAttributeMask(attribute, filterQuery);
                     masks = dataframe.masksFromPoints(pointMask);
-                } else if (filterQuery.type === 'edge') {
+                } else if (type === 'edge') {
                     var edgeMask = dataframe.getEdgeAttributeMask(attribute, filterQuery);
                     masks = dataframe.masksFromEdges(edgeMask);
                 } else {
@@ -595,15 +591,25 @@ function init(app, socket) {
             var dataframe = graph.dataframe;
             _.each(query, function (data, attribute) {
                 var masks;
-                var normalizedAttribute = dataframe.normalizeName(attribute);
-                if (data.type === 'point') {
-                    var pointMask = dataframe.getPointAttributeMask(normalizedAttribute, data);
+                var type = data.type;
+                var normalization = dataframe.normalizeAttributeName(attribute, type);
+                if (normalization === undefined) {
+                    errors.push(Error('No attribute found for: ' + attribute + ',' + type));
+                    cb({success: false, errors: errors});
+                    return;
+                } else {
+                    type = normalization.type;
+                    attribute = normalization.attribute;
+                }
+                if (type === 'point') {
+                    var pointMask = dataframe.getPointAttributeMask(attribute, data);
                     masks = dataframe.masksFromPoints(pointMask);
-                } else if (data.type === 'edge') {
-                    var edgeMask = dataframe.getEdgeAttributeMask(normalizedAttribute, data);
+                } else if (type === 'edge') {
+                    var edgeMask = dataframe.getEdgeAttributeMask(attribute, data);
                     masks = dataframe.masksFromEdges(edgeMask);
                 } else {
-                    cb({success: false});
+                    errors.push('Unrecognized type: ' + type);
+                    cb({success: false, errors: errors});
                     return;
                 }
                 maskList.push(masks);
