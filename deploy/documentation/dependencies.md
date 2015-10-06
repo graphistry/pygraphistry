@@ -12,9 +12,13 @@ Test your client hardware with demos of different sizes at github.com/graphistry
 
 We use internally:
 
-* Discrete: 2012 MacBook Pro, 2.6GHz Intel Core i7, 8GB RAM, Nvidia GeForce GT 650M with 1GB RAM
+* **Discrete**: MacBook Pro (Retina 2012)
+  * 2.6 GHz "Ivy Bridge" Intel Core i7-3720QM, 8GB RAM
+  * Nvidia GeForce GT 650M with 1GB RAM
 
-* Integrated: 2014 MacBook Pro, 3 GHz Intel Core i7 8 GB, Intel Iris 1536 MB
+* **Integrated**: MacBook Pro (Retina, Mid 2014)
+  *  3 GHz "Haswell" Intel Core i7-4578U, 8 GB Ram
+  *  Intel Iris Graphics 5100 1536 MB`
 
 ### Even thinner clients
 
