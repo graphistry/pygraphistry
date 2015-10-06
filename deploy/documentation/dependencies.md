@@ -1,3 +1,9 @@
+# Table of Contents
+1. Client
+2. Notebook Integration
+3. Server: Cloud Option
+4. Server: On-Premise Option
+
 # Client
 
 The client requires no installation beyond a modern browser: it is a standards-compliant web app.
@@ -24,7 +30,7 @@ Test your client hardware with demos of different sizes at github.com/graphistry
 Server offloading allows the possibility of thinner clients, including dropping the WebGL requirement. Please contact for discussion of timelines and impact on serverside multitenancy.
 
 
-## Notebooks
+# Notebook Integration
 
 We actively support IPython/Juypter, including Hub for team settings. Prototypes successfully ran in other notebooks such as Databricks, Zeppelin, and Wakari (Continuum). If needed, further notebook environments can be added to the official support set.
 
@@ -33,6 +39,7 @@ For python use, we recommend also installing `pyspark`, `pandas`, `networkx`, an
 
 # Server: Cloud Option
 
+* We support AWS (including GovCloud)
 * We can host a shared or private instance
 * Contact about launching and maintaining an AMI (or multiple AMIs) in your system. Depending on cluster size, we recommend one or more G2 instances, and potentially, a dedicated bastion proxy instance.
 
