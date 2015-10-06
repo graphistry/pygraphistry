@@ -81,7 +81,7 @@ describe ('literal lists', function () {
                 {type: 'Literal', dataType: 'integer', value: 5},
                 {
                     type: 'FunctionCall',
-                    callee: {type: 'Identifier', name: 'foo'},
+                    callee: {type: 'FunctionIdentifier', name: 'foo'},
                     arguments: [{type: 'Literal', dataType: 'integer', value: 4}]
                 }
             ]
@@ -276,7 +276,7 @@ describe ('function calls', function () {
     it('should work with one argument', function () {
         expect(parse('substr(1)')).toEqual({
             type: 'FunctionCall',
-            callee: {type: 'Identifier', name: 'substr'},
+            callee: {type: 'FunctionIdentifier', name: 'substr'},
             arguments: [{type: 'Literal', dataType: 'integer', value: 1}]
         });
     });
@@ -286,14 +286,14 @@ describe ('function calls', function () {
     it('should handle empty', function () {
         expect(parse('substr()')).toEqual({
             type: 'FunctionCall',
-            callee: {type: 'Identifier', name: 'substr'},
+            callee: {type: 'FunctionIdentifier', name: 'substr'},
             arguments: []
         });
     });
     it('should handle argument lists', function () {
         expect(parse('substr("abcdef", 3, 4)')).toEqual({
             type: 'FunctionCall',
-            callee: {type: 'Identifier', name: 'substr'},
+            callee: {type: 'FunctionIdentifier', name: 'substr'},
             arguments: [
                 {type: 'Literal', dataType: 'string', value: 'abcdef'},
                 {type: 'Literal', dataType: 'integer', value: 3},
@@ -304,24 +304,24 @@ describe ('function calls', function () {
     it('should nest', function () {
         expect(parse('length(substring)')).toEqual({
             type: 'FunctionCall',
-            callee: {type: 'Identifier', name: 'length'},
+            callee: {type: 'FunctionIdentifier', name: 'length'},
             arguments: [{type: 'Identifier', name: 'substring'}]
         });
         expect(parse('length(substring())')).toEqual({
             type: 'FunctionCall',
-            callee: {type: 'Identifier', name: 'length'},
+            callee: {type: 'FunctionIdentifier', name: 'length'},
             arguments: [{
                 type: 'FunctionCall',
-                callee: {type: 'Identifier', name: 'substring'},
+                callee: {type: 'FunctionIdentifier', name: 'substring'},
                 arguments: []
             }]
         });
         expect(parse('length(substring("abcdef"))')).toEqual({
             type: 'FunctionCall',
-            callee: {type: 'Identifier', name: 'length'},
+            callee: {type: 'FunctionIdentifier', name: 'length'},
             arguments: [{
                 type: 'FunctionCall',
-                callee: {type: 'Identifier', name: 'substring'},
+                callee: {type: 'FunctionIdentifier', name: 'substring'},
                 arguments: [{type: 'Literal', dataType: 'string', value: 'abcdef'}]
             }]
         });
