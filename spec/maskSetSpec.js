@@ -44,4 +44,8 @@ describe('complement', function () {
         expect(MaskSet.complementOfMask([0], 5)).toEqual([1,2,3,4]);
         expect(MaskSet.complementOfMask([5], 5)).toEqual([0,1,2,3,4]);
     });
+    it('ignores elements outside the universe', function () {
+        expect(MaskSet.complementOfMask([6], 5)).toEqual([0,1,2,3,4]);
+        //expect(MaskSet.complementOfMask([-1], 5)).toEqual([0,1,2,3,4]);
+    });
 });
