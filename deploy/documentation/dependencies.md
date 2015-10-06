@@ -6,7 +6,7 @@
 
 # Client
 
-The client requires no installation beyond a modern browser: it is a standards-compliant web app.
+The client requires no installation beyond a modern browser: it is a standards-compliant web app. All modern operating systems with modern graphics drivers are supported (Windows, OS X, Linux).
 
 ## Web Browser
 * Software: Chrome/Firefox/IE with WebGL and websockets
