@@ -64,9 +64,15 @@ Installation from a non-graphistry base image may require root access when setti
 We use an ansible script (and apt, npm) to install the following:
 
 ### System
+
+We can provide current version numbers at time of installation.
+
 ansible, glfw, AntTweakBar, mongo
 
 ### apt
+
+We can provide current version numbers at time of installation.
+
 
     supervisor, nginx,
 
@@ -83,7 +89,8 @@ ansible, glfw, AntTweakBar, mongo
     pigz
 
 ### npm
-(our repos are private on github, can retarget)
+
+We can provide current version numbers at time of installation.
 
 **normal dependencies**
 
