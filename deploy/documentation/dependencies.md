@@ -1,24 +1,21 @@
 # Client
 
 ## Web Browser
-
 * Software: Chrome/Firefox/IE with WebGL and websockets
 * CPU: 8GB+ RAM (3GB+ free), recommended multicore
 * GPU: discrete, such as Nvidia GeForce, with 1GB+ GPU RAM
 
 Test your client hardware with demos of different sizes at github.com/graphistry/pygraphistry
 
-### Sample successful configurations:
-
-We use internally:
+### Sample successful configuration we use internally
 
 * **Discrete**: MacBook Pro (Retina 2012)
-  * 2.6 GHz "Ivy Bridge" Intel Core i7-3720QM, 8GB RAM
+  * 2.6 GHz "Ivy Bridge" Intel Core i7-3720QM, 8 GB Ram
   * Nvidia GeForce GT 650M with 1GB RAM
 
 * **Integrated**: MacBook Pro (Retina, Mid 2014)
   *  3 GHz "Haswell" Intel Core i7-4578U, 8 GB Ram
-  *  Intel Iris Graphics 5100 1536 MB`
+  *  Intel Iris Graphics 5100 1536 MB
 
 ### Even thinner clients
 
