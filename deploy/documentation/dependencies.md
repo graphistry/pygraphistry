@@ -1,9 +1,11 @@
 # Client
 
+The client requires no installation beyond a modern browser: it is a standards-compliant web app.
+
 ## Web Browser
 * Software: Chrome/Firefox/IE with WebGL and websockets
+* GPU: most discrete cards from 2012+, such as Nvidia GeForce, with 1GB+ GPU RAM, or a high-quality integrated card
 * CPU: 8GB+ RAM (3GB+ free), recommended multicore
-* GPU: discrete, such as Nvidia GeForce, with 1GB+ GPU RAM
 
 Test your client hardware with demos of different sizes at github.com/graphistry/pygraphistry
 
@@ -29,11 +31,16 @@ We actively support IPython/Juypter, including Hub for team settings. Prototypes
 For python use, we recommend also installing `pyspark`, `pandas`, `networkx`, and `igraph`. See github.com/graphistry/pygraphistry for more information.
 
 
-# Server
+# Server: Cloud Option
+
+* We can host a shared or private instance
+* Contact about launching and maintaining an AMI (or multiple AMIs) in your system. Depending on cluster size, we recommend one or more G2 instances, and potentially, a dedicated bastion proxy instance.
+
+# Server: On-Premise Option
 
 ## Hardware: one or more OpenCL servers
 
-**Required** A Linux-based server with OpenCL 1.2+ . Contact before using non-Nvidia GPUs, or if purely multicore/SIMD is mandatory. On AWS, G2/G8 instances.
+**Required** A Linux-based server with OpenCL 1.2+ . Contact before using non-Nvidia GPUs, or if purely multicore/SIMD is mandatory.
 
 **Recommended** Discrete Nvidia GPU (K40/K80), with multicore.
 
@@ -46,6 +53,8 @@ For python use, we recommend also installing `pyspark`, `pandas`, `networkx`, an
 Installation from a non-graphistry base image may require root access when setting up Nvidia GPU drivers and nginx.
 
 ## User-Level Packages
+
+We use an ansible script (and apt, npm) to install the following:
 
 ### System
 ansible, glfw, AntTweakBar, mongo
