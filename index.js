@@ -9,6 +9,7 @@ var Log         = require('common/logger.js');
 var slack       = require('common/slack.js');
 var apiKey      = require('common/api.js');
 var etl1        = require('./src/etl1.js');
+var etl2        = require('./src/etl2.js');
 var logger      = Log.createLogger('etlworker:index');
 
 
@@ -101,7 +102,7 @@ function dispatcher(tearDown, req, res) {
     var handlers = {
         '0': etl1.process,
         '1': etl1.process,
-        '2': function() {}
+        '2': etl2.process
     }
 
     var apiVersion = params.apiVersion || 0;
