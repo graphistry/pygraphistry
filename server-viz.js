@@ -250,7 +250,12 @@ function init(app, socket) {
     var query = socket.handshake.query;
     if (query.workbook) {
         logger.debug('Loading workbook', query.workbook);
-        workbookConfig = _.extend(workbookConfig, wbLoader.loadDocument(decodeURIComponent(query.workbook)));
+        var observableLoad = wbLoader.loadDocument(decodeURIComponent(query.workbook));
+        observableLoad.do(function (workbookDoc) {
+            workbookConfig = _.extend(workbookConfig, workbookDoc);
+        }).subscribe(_.identity, function (error) {
+            util.makeRxErrorHandler('Loading Workbook');
+        });
     } else {
         // Create a new workbook here with a default view:
         workbookConfig = _.extend(workbookConfig, {views: {default: {}}});
