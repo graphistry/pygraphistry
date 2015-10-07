@@ -3,7 +3,7 @@
 var _       = require('underscore');
 var PEGUtil = require('pegjs-util');
 //var asty    = require('asty');
-var parser  = require('../src/graphVizApp/expression.js');
+var parser  = require('../src/graphVizApp/expressionParser.js');
 
 function parseRaw (inputString) {
     return parser.parse(inputString);

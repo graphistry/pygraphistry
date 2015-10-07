@@ -5,7 +5,7 @@ module.exports = function (grunt) {
         pkg: grunt.file.readJSON('package.json'),
 
         jshint: {
-            main: ['src/**/*.js', '!src/**/expression.js'],
+            main: ['src/**/*.js', '!src/**/expressionParser.js'],
             options: {
                 jshintrc: '.jshintrc',
                 force: true
@@ -42,7 +42,7 @@ module.exports = function (grunt) {
             options: { trackLineAndColumn: true },
             Main : {
                 src: 'src/graphVizApp/expression.pegjs',
-                dest: 'src/graphVizApp/expression.js',
+                dest: 'src/graphVizApp/expressionParser.js',
                 options: {
                     optimize: 'size',
                     cache: true
