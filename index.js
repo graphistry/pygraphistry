@@ -135,8 +135,8 @@ function tearDown(socket, exitCode) {
 function init(app, socket) {
     logger.debug('Client connected', socket.id);
 
-    app.post('/etl', bodyParser.json({type: '*', limit: '128mb'}),
-             dispatcher.bind('', tearDown.bind('', socket)));
+    var JSONParser = bodyParser.json({limit: '128mb'});
+    app.post('/etl', JSONParser, dispatcher.bind('', tearDown.bind('', socket)));
 }
 
 
