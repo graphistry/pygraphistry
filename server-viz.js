@@ -836,10 +836,10 @@ function stream(socket, renderConfig, colorTexture) {
     socket.on('persist_current_vbo', function(contentKey, cb) {
         graph.take(1)
             .do(function (graph) {
-                var vbos = lastCompressedVBOs[socket.id];
+                var VBOs = lastCompressedVBOs[socket.id];
                 var metadata = lastMetadata[socket.id];
                 var cleanContentKey = encodeURIComponent(contentKey);
-                persistor.publishStaticContents(cleanContentKey, vbos, metadata, graph.dataframe, renderConfig).then(function() {
+                persistor.publishStaticContents(cleanContentKey, VBOs, metadata, graph.dataframe, renderConfig).then(function() {
                     cb({success: true, name: cleanContentKey});
                 }).done(
                     _.identity,
