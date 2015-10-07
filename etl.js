@@ -6,17 +6,16 @@ var crypto   = require('crypto');
 var _        = require('underscore');
 var Q        = require('q');
 var bodyParser  = require('body-parser');
-var slack    = require('slack-write');
+var sprintf  = require('sprintf-js').sprintf;
 
 var config   = require('config')();
-
 var vgraph   = require('./vgraph.js');
 var Cache    = require('common/cache.js');
 var s3       = require('common/s3.js');
 var apiKey   = require('common/api.js');
-
-var Log         = require('common/logger.js');
-var logger      = Log.createLogger('etlworker:etl');
+var slack    = require('common/slack.js');
+var Log      = require('common/logger.js');
+var logger   = Log.createLogger('etlworker:etl');
 
 var tmpCache = new Cache(config.LOCAL_CACHE_DIR, config.LOCAL_CACHE);
 
@@ -27,41 +26,52 @@ function slackNotify(name, params, nnodes, nedges) {
                '/graph/graph.html?info=true&dataset=' + name +
                '|' + server + '>';
     }
+    function isInternal(key) {
+        var suffix = 'graphistry.com';
+        return key.slice(-suffix.length) === suffix
+    }
 
-    var slackConf = {
-        token: config.SLACK_BOT_ETL_TOKEN,
-        channel: '#datasets',
-        username: 'etl'
-    };
-
-    var user = params.usertag.split('-')[0];
-    var part1 = 'New dataset *' + name + '* by user `' + user + '`\n' +
-                'Nodes: ' + nnodes + ',    Edges: ' + nedges + '\n';
-    var part2 = '_Agent_: ' + params.agent + ',    ' +
-                '_AgentVersion_: ' + params.agentVersion + ',    ' +
-                '_API_: ' + params.apiVersion + '\n';
-    var part3 = 'View on ' + makeUrl('labs') + ' or ' + makeUrl('staging') + '\n';
-
-    var part4 = 'Key: ';
+    var key = '';
     if (params.key) {
         try {
-            part4 += apiKey.decrypt(params.key);
+            key += apiKey.decrypt(params.key);
         } catch (err) {
             logger.error('Could not decrypt key', err);
-            part4 += ' COULD NOT DECRYPT';
+            key += ' COULD NOT DECRYPT';
         }
     } else {
-        part4 = 'Key: n/a';
+        key = 'n/a';
     }
 
-    if (slackConf.token == undefined) {
-        return Q();
-    } else {
-        return Q.denodeify(slack.write)(part1 + part2 + part3 + part4, slackConf)
-            .fail(function (err) {
-                logger.error('Error posting on slack', err);
-            });
-    }
+
+    var links = sprintf('View on %s or %s', makeUrl('labs'), makeUrl('staging'));
+    var title = sprintf('*New dataset:* `%s`', name);
+    var tag = sprintf('`%s`', params.usertag.split('-')[0]);
+
+    var msg = {
+        channel: '#datasets',
+        username: key,
+        text: '',
+        attachments: JSON.stringify([{
+            fallback: 'New dataset: ' + name,
+            text: title + '\n' + links,
+            color: isInternal(key) ? 'good' : 'bad',
+            fields: [
+                { title: 'Nodes', value: nnodes, short: true },
+                { title: 'Edges', value: nedges, short: true },
+                { title: 'API', value: params.apiVersion, short: true },
+                { title: 'Machine Tag', value: tag, short: true },
+                { title: 'Agent', value: params.agent, short: true },
+                { title: 'Version', value: params.agentVersion, short: true },
+            ],
+            mrkdwn_in: ['text', 'pretext', 'fields']
+        }])
+    };
+
+    return Q.denodeify(slack.post)(msg)
+        .fail(function (err) {
+            logger.error('Error posting on slack', err);
+        });
 }
 
 
