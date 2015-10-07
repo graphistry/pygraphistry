@@ -30,6 +30,7 @@
     "mongodb": "~2.0.25",
     "node-opencl": "mikeseven/node-opencl",
     "node-pigz": "graphistry/node-pigz",
+    "node-s3-url-encode": "0.0.4",
     "node.extend": "~1.1.5",
     "protobufjs": "~3.8.0",
     "q": "~1.1.0",
