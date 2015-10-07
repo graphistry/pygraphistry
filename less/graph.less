@@ -507,7 +507,7 @@ html.nomenu #menus, html.nomenu #sliders {
     }
 }
 
-#filtersPanel {
+#filtersPanel, #setsPanel {
     z-index: @menus-z;
     display: none; // Initial state meant to toggle.
     &:hover {
@@ -701,14 +701,7 @@ button.btn-default {
     top: 2.5em;
 }
 
-
-
-.filtersPanel {
-
-    width: 25em;
-    left: 5em;
-    top: auto;
-    position: absolute;
+.overlayPanel {
     padding-top: 0.5em;
     padding-bottom: 0.5em;
     padding-left: 0;
@@ -716,7 +709,25 @@ button.btn-default {
     border-radius: 3px;
 
     background-color: @light-grey-background-2;
+}
 
+.setsPanel {
+    width: 25em;
+    left: 5em;
+    top: auto;
+    position: absolute;
+
+    .overlayPanel;
+}
+
+.filtersPanel {
+
+    width: 25em;
+    left: 5em;
+    top: auto;
+    position: absolute;
+
+    .overlayPanel;
 
     #filtersPanelHeader {
         background-color: inherit;
