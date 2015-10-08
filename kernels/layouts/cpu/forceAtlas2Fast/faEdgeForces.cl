@@ -1,34 +1,5 @@
 #include "common.h"
-#include "layouts/cpu/forceAtlas2Fast/forceAtlas2FastCommon.h"
-
-
-float attractionForce(const float2 distVec, const float n1Size, const float n2Size,
-                      const uint n1Degree, const float weight, const bool noOverlap,
-                      const uint edgeInfluence, const bool linLog, const bool dissuadeHubs) {
-
-    const float weightMultiplier = edgeInfluence == 0 ? 1.0f
-                                 : edgeInfluence == 1 ? weight
-                                                      : pown(weight, edgeInfluence);
-
-    const float dOffset = noOverlap ? n1Size + n2Size : 0.0f;
-    const float dist = length(distVec) - dOffset;
-
-    float aForce;
-    if (noOverlap && dist < EPSILON) {
-        aForce = 0.0f;
-    } else {
-        const float distFactor = (linLog ? log(1.0f + dist) : dist);
-        const float n1Deg = (dissuadeHubs ? n1Degree + 1.0f : 1.0f);
-        aForce = weightMultiplier * distFactor / n1Deg;
-    }
-
-#ifndef NOATTRACTION
-    return aForce;
-#else
-    return 0.0f;
-#endif
-}
-
+#include "layouts/forceAtlas2Common.h"
 
 __kernel void faEdgeForces(
     //input
