@@ -1,7 +1,9 @@
 'use strict';
 
-module.exports = require('./server-viz.js');
+var VizServer = require('./server-viz.js');
 
-module.exports.staticFilePath = function() {
+VizServer.staticFilePath = function() {
     return __dirname;
 };
+
+module.exports = VizServer;

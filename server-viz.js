@@ -30,28 +30,6 @@ var perf        = require('common/perfStats.js').createPerfMonitor();
 
 /**** GLOBALS ****************************************************/
 
-// ----- BUFFERS (multiplexed over clients) ----------
-//Serve most recent compressed binary buffers
-//TODO reuse across users
-//{socketID -> {buffer...}
-var lastCompressedVBOs;
-var lastRenderConfig;
-var lastMetadata;
-var finishBufferTransfers;
-
-
-// ----- ANIMATION ------------------------------------
-//current animation
-var animationStep;
-
-//multicast of current animation's ticks
-var ticksMulti;
-
-//Signal to Explicitly Send New VBOs
-var updateVboSubject;
-
-//most recent tick
-var graph;
 
 var saveAtEachStep = false;
 var defaultSnapshotName = 'snapshot';
@@ -61,27 +39,38 @@ var defaultSnapshotName = 'snapshot';
 
 //Do more innocuous initialization inline (famous last words..)
 
-function resetState(dataset) {
+VizServer.prototype.resetState = function (dataset) {
     logger.info('RESETTING APP STATE');
 
     //FIXME explicitly destroy last graph if it exists?
 
-    lastCompressedVBOs = {};
-    lastMetadata = {};
-    finishBufferTransfers = {};
+    // ----- BUFFERS (multiplexed over clients) ----------
+    //Serve most recent compressed binary buffers
+    //TODO reuse across users
+    //{socketID -> {buffer...}
+    this.lastCompressedVBOs = {};
+    this.lastMetadata = {};
+    this.finishBufferTransfers = {};
 
-    updateVboSubject = new Rx.ReplaySubject(1);
+    this.lastRenderConfig = undefined;
 
-    animationStep = driver.create(dataset);
-    ticksMulti = animationStep.ticks.publish();
-    ticksMulti.connect();
+    //Signal to Explicitly Send New VBOs
+    this.updateVboSubject = new Rx.ReplaySubject(1);
 
+    // ----- ANIMATION ------------------------------------
+    //current animation
+    this.animationStep = driver.create(dataset);
+    //multicast of current animation's ticks
+    this.ticksMulti = this.animationStep.ticks.publish();
+    this.ticksMulti.connect();
+
+    //most recent tick
+    this.graph = new Rx.ReplaySubject(1);
     //make available to all clients
-    graph = new Rx.ReplaySubject(1);
-    ticksMulti.take(1).subscribe(graph, log.makeRxErrorHandler(logger, logger, 'ticksMulti failure'));
+    this.ticksMulti.take(1).subscribe(this.graph, log.makeRxErrorHandler(logger, logger, 'ticksMulti failure'));
 
     logger.trace('RESET APP STATE.');
-}
+};
 
 
 /**** END GLOBALS ****************************************************/
@@ -191,20 +180,20 @@ function read_selection(type, query, res) {
     );
 }
 
-function tickGraph (cb) {
-    graph.take(1).do(function (graphContent) {
-        updateVboSubject.onNext(graphContent);
-    }).subscribe(
+VizServer.prototype.tickGraph = function (cb) {
+    this.graph.take(1).do(function (graphContent) {
+        this.updateVboSubject.onNext(graphContent);
+    }.bind(this)).subscribe(
         _.identity,
         function (err) {
             cb({success: false, error: 'aggregate error'});
             log.makeRxErrorHandler(logger, 'aggregate handler')(err);
         }
     );
-}
+};
 
-// Should this be a graph method?
-function filterGraphByMaskList(graph, maskList, errors, filters, pointLimit, cb) {
+// TODO Extract a graph method and manage graph contexts by filter data operation.
+VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, filters, pointLimit, cb) {
     var masks = graph.dataframe.composeMasks(maskList, pointLimit);
 
     logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
@@ -224,13 +213,13 @@ function filterGraphByMaskList(graph, maskList, errors, filters, pointLimit, cb)
                     'edgeColors', 'logicalEdges', 'springsPos'
                 ]);
 
-                tickGraph(cb);
+                this.tickGraph(cb);
                 var response = {success: true, filters: filters};
                 if (errors) {
                     response.errors = errors;
                 }
                 cb(response);
-            }).done(_.identity, function (err) {
+            }.bind(this)).done(_.identity, function (err) {
                 log.makeQErrorHandler(logger, 'dataframe filter')(err);
                 errors.push(err);
                 var response = {success: false, errors: errors, filters: filters};
@@ -242,7 +231,7 @@ function filterGraphByMaskList(graph, maskList, errors, filters, pointLimit, cb)
         var response = {success: false, errors: errors, filters: filters};
         cb(response);
     }
-}
+};
 
 function getNamespaceFromGraph(graph) {
     var dataframeColumnsByType = graph.dataframe.getColumnsByType();
@@ -354,17 +343,17 @@ function VizServer(app, socket) {
             var id = req.query.id;
 
             res.set('Content-Encoding', 'gzip');
-            var VBOs = lastCompressedVBOs[id];
+            var VBOs = this.lastCompressedVBOs[id];
             if (VBOs) {
-                res.send(lastCompressedVBOs[id][bufferName]);
+                res.send(this.lastCompressedVBOs[id][bufferName]);
             }
             res.send();
 
-            finishBufferTransfers[id](bufferName);
+            this.finishBufferTransfers[id](bufferName);
         } catch (e) {
             log.makeQErrorHandler(logger, 'bad /vbo request')(e);
         }
-    });
+    }.bind(this));
 
     app.get('/texture', function (req, res) {
         logger.debug('got texture req', req.originalUrl, req.query);
@@ -403,9 +392,9 @@ function VizServer(app, socket) {
             metadata.scene = 'default';
         }
 
-        resetState(dataset);
+        this.resetState(dataset);
         return rConf.scenes[metadata.scene];
-    }).fail(log.makeQErrorHandler(logger, 'resetting state'));
+    }.bind(this)).fail(log.makeQErrorHandler(logger, 'resetting state'));
 
     socket.on('render_config', function(_, cb) {
         this.qRenderConfig.then(function (renderConfig) {
@@ -417,7 +406,7 @@ function VizServer(app, socket) {
                 persistor.saveConfig(defaultSnapshotName, renderConfig);
             }
 
-            lastRenderConfig = renderConfig;
+            this.lastRenderConfig = renderConfig;
         }.bind(this)).fail(function (err) {
             cb({success: false, error: 'Render config read error'});
             log.makeQErrorHandler(logger, 'sending render_config')(err);
@@ -437,7 +426,7 @@ function VizServer(app, socket) {
                 persistor.saveConfig(defaultSnapshotName, renderConfig);
             }
 
-            lastRenderConfig = renderConfig;
+            this.lastRenderConfig = renderConfig;
         }.bind(this)).fail(function (err) {
             cb({success: false, error: 'Render config update error'});
             log.makeQErrorHandler(logger, 'updating render_config')(err);
@@ -455,7 +444,7 @@ function VizServer(app, socket) {
         viewConfig.filters = newValues;
         logger.info('filters', viewConfig.filters);
 
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
             var dataframe = graph.dataframe;
             var maskList = [];
             var errors = [];
@@ -504,19 +493,19 @@ function VizServer(app, socket) {
                 maskList.push(masks);
             });
 
-            filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, pointLimit, cb);
-        }).subscribe(
+            this.filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, pointLimit, cb);
+        }.bind(this)).subscribe(
             _.identity,
             function (err) {
                 log.makeRxErrorHandler(logger, 'update_filters handler')(err);
             }
         );
-    });
+    }.bind(this));
 
     socket.on('layout_controls', function(_, cb) {
         logger.info('Sending layout controls to client');
 
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
             logger.info('Got layout controls');
             var controls = graph.simulator.controls;
             cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
@@ -526,7 +515,7 @@ function VizServer(app, socket) {
             cb({success: false, error: 'Server error when fetching controls'});
             throw err;
         });
-    });
+    }.bind(this));
 
     socket.on('begin_streaming', function() {
         this.qRenderConfig.then(function (renderConfig) {
@@ -537,14 +526,14 @@ function VizServer(app, socket) {
     socket.on('reset_graph', function (_, cb) {
         logger.info('reset_graph command');
         this.qDataset.then(function (dataset) {
-            resetState(dataset);
+            this.resetState(dataset);
             cb();
-        }).fail(log.makeQErrorHandler(logger, 'reset graph request'));
+        }.bind(this)).fail(log.makeQErrorHandler(logger, 'reset graph request'));
     }.bind(this));
 
     socket.on('inspect_header', function (nothing, cb) {
         logger.info('inspect header');
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
             cb({
                 success: true,
                 header: {
@@ -563,12 +552,12 @@ function VizServer(app, socket) {
                 log.makeRxErrorHandler(logger, 'inspect_header handler')(err);
             }
         );
-    });
+    }.bind(this));
 
     /** Implements/gets a namespace comprehension, for calculation references and metadata. */
     socket.on('get_namespace_metadata', function (nothing, cb) {
         logger.trace('Sending Namespace metadata to client');
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
             var metadata = getNamespaceFromGraph(graph);
             cb({success: true,
                 metadata: metadata});
@@ -579,11 +568,11 @@ function VizServer(app, socket) {
                 log.makeQErrorHandler(logger, 'sending namespace metadata')(err);
             }
         );
-    });
+    }.bind(this));
 
     socket.on('update_namespace_metadata', function (updates, cb) {
         logger.trace('Updating Namespace metadata from client');
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
             var metadata = getNamespaceFromGraph(graph);
             // set success to true when we support update and it succeeds:
             cb({success: false, metadata: metadata});
@@ -591,11 +580,11 @@ function VizServer(app, socket) {
             cb({success: false, error: 'Namespace metadata update error'});
             log.makeQErrorHandler(logger, 'updating namespace metadata');
         });
-    });
+    }.bind(this));
 
     socket.on('filter', function (query, cb) {
         logger.info('Got filter', query);
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
 
             var maskList = [];
             var errors = [];
@@ -626,14 +615,14 @@ function VizServer(app, socket) {
                 }
                 maskList.push(masks);
             });
-            filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, Infinity, cb);
-        }).subscribe(
+            this.filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, Infinity, cb);
+        }.bind(this)).subscribe(
             _.identity,
             function (err) {
                 log.makeRxErrorHandler(logger, 'aggregate handler')(err);
             }
         );
-    });
+    }.bind(this));
 
     var aggregateRequests = new Rx.Subject().controlled(); // Use pull model.
 
@@ -642,7 +631,7 @@ function VizServer(app, socket) {
     socket.on('aggregate', function (query, cb) {
         logger.info('Got aggregate', query);
 
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
             logger.trace('Selecting Indices');
             var qIndices;
 
@@ -669,7 +658,7 @@ function VizServer(app, socket) {
                 log.makeRxErrorHandler(logger, 'aggregate socket handler')(err);
             }
         );
-    });
+    }.bind(this));
 
     var processAggregateIndices = function (request, nodeIndices) {
         var graph = request.graph;
@@ -732,10 +721,11 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
     // ========== BASIC COMMANDS
 
-    lastCompressedVBOs[this.socket.id] = {};
+    this.lastCompressedVBOs[this.socket.id] = {};
     this.socket.on('disconnect', function () {
-        logger.info('disconnecting', this.socket.id);
-        delete lastCompressedVBOs[this.socket.id];
+        var socketID = this.socket.id;
+        logger.info('disconnecting', socketID);
+        delete this.lastCompressedVBOs[socketID];
     }, this);
 
     //Used for tracking what needs to be sent
@@ -771,6 +761,8 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
     logger.debug('active buffers/textures/programs', activeBuffers, activeTextures, activePrograms);
 
+    var graph = this.graph;
+    var animationStep = this.animationStep;
 
     this.socket.on('interaction', function (payload) {
         // performance monitor here?
@@ -852,8 +844,8 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     this.socket.on('persist_current_vbo', function(contentKey, cb) {
         graph.take(1)
             .do(function (graph) {
-                var VBOs = lastCompressedVBOs[this.socket.id];
-                var metadata = lastMetadata[this.socket.id];
+                var VBOs = this.lastCompressedVBOs[this.socket.id];
+                var metadata = this.lastMetadata[this.socket.id];
                 var cleanContentKey = encodeURIComponent(contentKey);
                 persistor.publishStaticContents(cleanContentKey, VBOs, metadata, graph.dataframe, renderConfig).then(function() {
                     cb({success: true, name: cleanContentKey});
@@ -922,13 +914,11 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     var step = 0;
     var lastVersions = null;
 
-    var socket = this.socket;
-    var socketID = socket.id;
-
     graph.expand(function (graph) {
         step++;
 
         var ticker = {step: step};
+        var socketID = this.socket.id;
 
         logger.trace('0. Prefetch VBOs', socketID, activeBuffers, ticker);
 
@@ -938,17 +928,17 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 logger.trace('1. prefetched VBOs for xhr2: ' + sizeInMBOfVBOs(VBOs.compressed) + 'MB', ticker);
 
                 //tell XHR2 sender about it
-                if (!lastCompressedVBOs[socketID]) {
-                    lastCompressedVBOs[socketID] = VBOs.compressed;
+                if (!this.lastCompressedVBOs[socketID]) {
+                    this.lastCompressedVBOs[socketID] = VBOs.compressed;
                 } else {
-                    _.extend(lastCompressedVBOs[socketID], VBOs.compressed);
+                    _.extend(this.lastCompressedVBOs[socketID], VBOs.compressed);
                 }
-                lastMetadata[socketID] = {elements: VBOs.elements, bufferByteLengths: VBOs.bufferByteLengths};
+                this.lastMetadata[socketID] = {elements: VBOs.elements, bufferByteLengths: VBOs.bufferByteLengths};
 
                 if (saveAtEachStep) {
                     persistor.saveVBOs(defaultSnapshotName, VBOs, step);
                 }
-            })
+            }.bind(this))
             .flatMap(function (VBOs) {
                 logger.trace('2. Waiting for client to finish previous', socketID, ticker);
                 return clientReady
@@ -967,12 +957,12 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 var clientAckStartTime;
                 var clientElapsed;
                 var transferredBuffers = [];
-                finishBufferTransfers[socket.id] = function (bufferName) {
-                    logger.trace('5a ?. sending a buffer', bufferName, socket.id, ticker);
+                this.finishBufferTransfers[socketID] = function (bufferName) {
+                    logger.trace('5a ?. sending a buffer', bufferName, socketID, ticker);
                     transferredBuffers.push(bufferName);
                     //console.log("Length", transferredBuffers.length, requestedBuffers.length);
                     if (transferredBuffers.length === requestedBuffers.length) {
-                        logger.trace('5b. started sending all', socket.id, ticker);
+                        logger.trace('5b. started sending all', socketID, ticker);
                         logger.trace('Socket', '...client ping ' + clientElapsed + 'ms');
                         logger.trace('Socket', '...client asked for all buffers',
                             Date.now() - clientAckStartTime, 'ms');
@@ -1013,10 +1003,10 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     //});
                     //var observableCallback = Rx.Observable.fromNodeCallback(emitter);
                     //return observableCallback;
-                    return Rx.Observable.fromCallback(socket.emit.bind(socket))('vbo_update', metadata);
+                    return Rx.Observable.fromCallback(this.socket.emit.bind(this.socket))('vbo_update', metadata);
                     //return emitFnWrapper('vbo_update', metadata);
 
-                }).do(
+                }.bind(this)).do(
                     function (clientElapsedMsg) {
                         logger.trace('6. client all received', socketID, ticker);
                         clientElapsed = clientElapsedMsg;
@@ -1024,27 +1014,28 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     });
 
                 return receivedAll;
-            })
+            }.bind(this))
             .flatMap(function () {
-                logger.trace('7. Wait for next anim step', socketID, ticker);
+                logger.trace('7. Wait for next animation step', socketID, ticker);
 
-                var filteredUpdateVbo = updateVboSubject.filter(function (data) {
+                var filteredUpdateVbo = this.updateVboSubject.filter(function (data) {
                     return data;
                 });
 
-                return ticksMulti.merge(filteredUpdateVbo)
+                return this.ticksMulti.merge(filteredUpdateVbo)
                     .take(1)
                     .do(function (data) {
                         // Mark that we don't need to send VBOs independently of ticks anymore.
-                        updateVboSubject.onNext(false);
-                    })
+                        this.updateVboSubject.onNext(false);
+                    }.bind(this))
                     .do(function () { logger.trace('8. next ready!', socketID, ticker); });
-            })
+            }.bind(this))
             .map(_.constant(graph));
-    })
+    }.bind(this))
     .subscribe(function () {
-        logger.trace('9. LOOP ITERATED', socketID);
-    }, log.makeRxErrorHandler(logger, 'Main loop failure'));
+            logger.trace('9. LOOP ITERATED', this.socket.id);
+        }.bind(this),
+        log.makeRxErrorHandler(logger, 'Main loop failure'));
 };
 
 
