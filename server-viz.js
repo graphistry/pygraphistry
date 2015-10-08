@@ -152,8 +152,8 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
     }
 }
 
-function read_selection(type, query, res) {
-    graph.take(1).do(function (graph) {
+VizServer.prototype.readSelection = function (type, query, res) {
+    this.graph.take(1).do(function (graph) {
         graph.simulator.selectNodes(query.sel).then(function (nodeIndices) {
             var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
             return {
@@ -373,12 +373,12 @@ function VizServer(app, socket) {
 
     app.get('/read_node_selection', function (req, res) {
         logger.debug('Got read_node_selection', req.query);
-        read_selection('point', req.query, res);
+        this.readSelection('point', req.query, res);
     });
 
     app.get('/read_edge_selection', function (req, res) {
         logger.debug('Got read_edge_selection', req.query);
-        read_selection('edge', req.query, res);
+        this.readSelection('edge', req.query, res);
     });
 
     // Get the dataset name from the query parameters, may have been loaded from view:
