@@ -1,5 +1,5 @@
 #include "common.h"
-#include "forceAtlas2Fast/forceAtlas2FastCommon.h"
+#include "layouts/cpu/forceAtlas2Fast/forceAtlas2FastCommon.h"
 
 
 float attractionForce(const float2 distVec, const float n1Size, const float n2Size,

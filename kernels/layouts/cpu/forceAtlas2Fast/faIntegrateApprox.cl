@@ -1,5 +1,5 @@
 #include "common.h"
-#include "forceAtlas2Fast/forceAtlas2FastCommon.h"
+#include "layouts/cpu/forceAtlas2Fast/forceAtlas2FastCommon.h"
 
 __kernel void faIntegrateApprox (
     //input
