@@ -1,5 +1,5 @@
 #include "common.h"
-#include "forceAtlas2/forceAtlas2Common.h"
+#include "layouts/cpu/forceAtlas2/forceAtlas2Common.h"
 
 float repulsionForce(const float2 distVec, const uint n1Degree, const uint n2Degree,
                      const float scalingRatio, const bool preventOverlap) {
