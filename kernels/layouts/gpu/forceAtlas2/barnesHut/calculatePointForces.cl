@@ -1,6 +1,6 @@
 #include "common.h"
 #include "layouts/gpu/forceAtlas2/barnesHut/barnesHutCommon.h"
-#include "layouts/gpu/forceAtlas2/forceAtlas2Common.h"
+#include "layouts/forceAtlas2Common.h"
 
 #define HALF_WARP (WARPSIZE / 2)
 
