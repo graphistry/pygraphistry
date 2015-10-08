@@ -75,55 +75,6 @@ inline int reduction_thread_vote(__local int* const buffer, const float distSqua
     return (buffer[offset] == WARPSIZE);
 }
 
-
-
-
-inline float repulsionForce(const float distSquared, const uint n1DegreePlusOne, const uint n2DegreePlusOne,
-                            const float scalingRatio, const bool preventOverlap) {
-    const int degreeProd = (n1DegreePlusOne * n2DegreePlusOne);
-    float force;
-
-    if (preventOverlap) {
-        //FIXME include in prefetch etc, use actual sizes
-        float n1Size = DEFAULT_NODE_SIZE;
-        float n2Size = DEFAULT_NODE_SIZE;
-        float distB2B = distSquared - n1Size - n2Size; //border-to-border
-
-        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / distSquared)
-            : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
-            : 0.0f;
-    } else {
-        // We use dist squared instead of dist because we want to normalize the
-        // distance vector as well
-        force = scalingRatio * degreeProd / distSquared;
-    }
-
-#ifndef NOREPULSION
-    // Assuming always positive.
-    // return clamp(force, 0.0f, 1000000.0f);
-    return min(force, 1000000.0f);
-#else
-    return 0.0f;
-#endif
-}
-
-
-inline float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
-                          const bool strong) {
-
-    float gForce = gravity * (n1Degree + 1.0f);
-    if (strong) {
-        gForce *= fast_length(centerVec);
-    }
-
-#ifndef NOGRAVITY
-    return gForce;
-#else
-    return 0.0f;
-#endif
-}
-
-
 __kernel void calculate_forces(
         //graph params
         const float scalingRatio, const float gravity, const unsigned int edgeWeightInfluence, const unsigned int flags,
