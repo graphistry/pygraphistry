@@ -1,5 +1,6 @@
 #include "common.h"
-#include "barnesHut/barnesHutCommon.h"
+#include "gsCommon.cl"
+#include "layouts/gpu/edgeBundling/kdTree/kdTreeCommon.h"
 
 #define HALF_WARP (WARPSIZE / 2)
 
@@ -74,86 +75,24 @@ inline int reduction_thread_vote(__local int* const buffer, const float distSqua
     return (buffer[offset] == WARPSIZE);
 }
 
-
-
-
-inline float repulsionForce(const float distSquared, const uint n1DegreePlusOne, const uint n2DegreePlusOne,
-                            const float scalingRatio, const bool preventOverlap) {
-    const int degreeProd = (n1DegreePlusOne * n2DegreePlusOne);
-    float force;
-
-    if (preventOverlap) {
-        //FIXME include in prefetch etc, use actual sizes
-        float n1Size = DEFAULT_NODE_SIZE;
-        float n2Size = DEFAULT_NODE_SIZE;
-        float distB2B = distSquared - n1Size - n2Size; //border-to-border
-
-        force = distB2B > EPSILON  ? (scalingRatio * degreeProd / distSquared)
-            : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
-            : 0.0f;
-    } else {
-        // We use dist squared instead of dist because we want to normalize the
-        // distance vector as well
-        force = scalingRatio * degreeProd / distSquared;
-    }
-
-#ifndef NOREPULSION
-    // Assuming always positive.
-    // return clamp(force, 0.0f, 1000000.0f);
-    return min(force, 1000000.0f);
-#else
-    return 0.0f;
-#endif
-}
-
-
-inline float gravityForce(const float gravity, const uint n1Degree, const float2 centerVec,
-                          const bool strong) {
-
-    float gForce = gravity * (n1Degree + 1.0f);
-    if (strong) {
-        gForce *= fast_length(centerVec);
-    }
-
-#ifndef NOGRAVITY
-    return gForce;
-#else
-    return 0.0f;
-#endif
-}
-
-
 __kernel void calculate_forces(
-        //graph params
-        const float scalingRatio, const float gravity, const unsigned int edgeWeightInfluence, const unsigned int flags,
         __global float *x_cords,
         __global float *y_cords,
-        __global float *accx,
-        __global float * accy,
+        __global float* edgeDirectionX,
+        __global float* edgeDirectionY,
+        __global float* edgeLengths,
         __global int* children,
-        __global float* mass,
-        __global int* start,
         __global int* sort,
-        __global float* global_x_mins,
-        __global float* global_x_maxs,
-        __global float* global_y_mins,
-        __global float* global_y_maxs,
-        __global float* swings,
-        __global float* tractions,
-        __global int* count,
         __global int* blocked,
-        __global int* step,
-        __global int* bottom,
         __global int* maxdepth,
         __global float* radiusd,
-        __global volatile float* globalSpeed,
         unsigned int step_number,
-        float width,
-        float height,
         const int num_bodies,
         const int num_nodes,
         __global float2* pointForces,
-        float tau
+        float charge,
+        const uint midpoint_stride,
+        const uint midpoints_per_edge
 ){
 
     debugonce("calculate forces\n");
@@ -162,29 +101,45 @@ __kernel void calculate_forces(
     const int local_size = get_local_size(0);
     const int global_size = get_global_size(0);
     const int local_id = get_local_id(0);
+    /*const float alpha = max(0.1f * pown(0.99f, floor(convert_float(step_number) / (float) TILES_PER_ITERATION)), 0.005f);*/
+    const float alpha = max(1.0f * pown(0.85f, step_number), 0.004f);
+    if (idx == 0) {
+        debug2("Alpha in forces: %f \n", alpha);
+    }
+
+
+    /*const float alpha = (float) TILES_PER_ITERATION;*/
     int k, index, i;
     float force;
 
-    float forceX, forceY, distX, distY, repForce;
+    //float forceX, forceY;
     float2 forceVector;
     float2 distVector;
-    const float2 halfDimensions = ((float2) (width, height))/2.0f;
 
+    // Edge compatability variables
+    float edgeLengthOtherPoint;
+    float edgeAngleCompat;
+    float averageLength;
+    /*float maxLength;*/
+    /*float minLength;*/
+    float edgeScaleCompat;
+    float positCompat;
+    float2 projectionVector;
+    float midEdgeLength;
+    float alignmentCompat;
 
-
-    float px, py, temp, distSquared;
+    float px, py, ax, ay, dx, dy, temp;
     int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
 
     // THREADS1/WARPSIZE is number of warps
     __local volatile int child_index[MAXDEPTH * THREADS_FORCES/WARPSIZE], parent_index[MAXDEPTH * THREADS_FORCES/WARPSIZE];
     __local volatile float dq[MAXDEPTH * THREADS_FORCES/WARPSIZE];
 
-    __local volatile int shared_step, shared_maxdepth;
+    __local volatile int shared_maxdepth;
     __local volatile int votingBuffer[THREADS_FORCES/WARPSIZE];
 
     if (local_id == 0) {
         int itolsqd = 1.0f / (0.5f*0.5f);
-        shared_step = *step; // local
         shared_maxdepth = *maxdepth; // local
         temp = *radiusd; // local
 
@@ -238,13 +193,16 @@ __kernel void calculate_forces(
         // Iterate through bodies this thread is responsible for.
         for (k = idx; k < num_bodies; k+=global_size) {
             index = sort[k];
+            if ((index < 0) || (index > num_bodies)) {
+                continue;
+            }
             px = x_cords[index];
             py = y_cords[index];
-
-            // forceVector = (float2) (0.0f, 0.0f);
-            forceX = 0.0f;
-            forceY = 0.0f;
-
+            float2 normalizedPos = (float2) (px, py) / *radiusd;
+            float edgeLength = edgeLengths[index];
+            float edgeDirX = edgeDirectionX[index];
+            float edgeDirY = edgeDirectionY[index];
+            forceVector = (float2) (0.0f, 0.0f);
             depth = shared_mem_offset; // We use this to both keep track of depth and index into dq.
 
             // initialize iteration stack, i.e., push root node onto stack
@@ -273,30 +231,42 @@ __kernel void calculate_forces(
                     if (child > NULLPOINTER) {
 
                         // Compute distances
-                        distX = px - x_cords[child];
-                        distY = py - y_cords[child];
+                        dx = px - x_cords[child];
+                        dy = py - y_cords[child];
+                        distVector = (float2) (dx, dy);
+                        float dist = length(distVector);
+                        temp = dx*dx + (dy*dy + 0.00000000001);
 
-                        // distVector = (float2) (px - x_cords[child], py - y_cords[child]);
-                        distSquared = distX*distX + distY*distY + 0.000000000001f;
+                        // Edgebundling currently only uses the quadtree in order to test which points are close enough
+                        // to compute forces on. It does not compute forces with any of the summarized nodes.
+                        if ((child < num_bodies)) {
+                            if (true || dist > FLT_EPSILON * 100.0f) {
+                            const float2 otherPoint = (float2) (x_cords[child], y_cords[child]) / *radiusd;
+                            edgeLengthOtherPoint = edgeLengths[child];
+                            // TODO It would be interesting to to having edges of opposite
+                            // direction repel instead of attract each other.
+                            // TODO optimized registers.
 
-                        if ((child < num_bodies) || warpCellVote(votingBuffer, distSquared, dq[depth], warp_id)) {
-
-                            // check if ALL threads agree that cell is far enough away (or is a body)
-
-                            // TODO: Determine how often we diverge when a few threads see a body, and the
-                            // rest fail because of insufficient distance.
-
-                            // Adding all forces
-                            repForce = repulsionForce(distSquared, 2.0f,
-                                            mass[child] + 1.0f, scalingRatio, IS_PREVENT_OVERLAP(flags));
-                            forceX += distX * repForce;
-                            forceY += distY * repForce;
-
-
-                            // forceVector += distVector * repulsionForce(distSquared, 2.0f,
-                            //                 mass[child] + 1.0f, scalingRatio, IS_PREVENT_OVERLAP(flags));
-
-                        } else {
+                            edgeAngleCompat = pown((fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/2, 3);
+                            edgeAngleCompat = (edgeAngleCompat > 0.10f) ? edgeAngleCompat : 0.0f;
+                            /*edgeAngleCompat = (fmax((edgeDirectionX[child] * edgeDirX), 0) + fmax((edgeDirectionY[child] * edgeDirY), 0))/ 2.0f;*/
+                            averageLength = (edgeLength + edgeLengthOtherPoint) / 2.0f;
+                            /*averageLength = (averageLength > 0.05f) ? averageLength : 0.0f;*/
+                            edgeScaleCompat = 2.0f / ((max(edgeLength, edgeLengthOtherPoint) / averageLength) + (min(edgeLength, edgeLengthOtherPoint) / averageLength));
+                            edgeScaleCompat = (edgeScaleCompat > 0.15f) ? edgeScaleCompat : 0.0f;
+                            positCompat = averageLength / (averageLength + fast_length(distVector));
+                            positCompat = (positCompat > 0.15f) ? positCompat : 0.0f;
+                            projectionVector = dot(distVector, (float2) (edgeDirX, edgeDirY)) * (float2) (edgeDirX, edgeDirY);
+                            projectionVector = (projectionVector > 0.15f) ? projectionVector : 0.0f;
+                            midEdgeLength = edgeLength / midpoints_per_edge;
+                            alignmentCompat = 1.0f / (1 + (fast_length(projectionVector)) / (midEdgeLength));
+                            alignmentCompat = (alignmentCompat > 0.15f) ? alignmentCompat : 0.0f;
+                            forceVector += /*pow((edgeLength / *radiusd), 1.0f) **/ edgeLength * alignmentCompat * edgeScaleCompat * edgeAngleCompat *  positCompat * (pointForce(normalizedPos, otherPoint, charge * alpha) * -1.0f);
+                            }
+                      // If all threads agree that cell is too far away, move on.
+                        /*} else if (!(warpCellVote(votingBuffer, 100.0f * pow((dist - (edgeLength / 2.0f)), 2.0f), dq[depth], warp_id))) {*/
+                        } else if (!(warpCellVote(votingBuffer, pow(dist , 2.0f), /*(edgeLength / *radiusd) **/ dq[depth],  warp_id))) {
+                        /*} else if (!(warpCellVote(votingBuffer, (edgeLength / *radiusd) * pow(dist , 2.0f), dq[depth] / 4000.0f, warp_id))) {*/
                             // Push this cell onto the stack.
                             depth++;
                             if (starting_warp_thread_id == local_id) {
@@ -313,13 +283,10 @@ __kernel void calculate_forces(
                 }
                 depth--; // Finished this level
             }
-
-            // Assigning force for force atlas.
-            forceVector = (float2) (forceX, forceY);
-            float2 n1Pos = (float2) (px, py);
-            const float2 centerVec = halfDimensions - n1Pos;
-            const float gForce = gravityForce(gravity, mass[index], centerVec, IS_STRONG_GRAVITY(flags));
-            pointForces[index] = fast_normalize(centerVec) * gForce + forceVector * mass[index];
+            pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector;
+            /*pointForces[(index * midpoints_per_edge) + midpoint_stride] = (float2) (1.0f, 1.0f);*/
+            /*pointForces[(index * midpoints_per_edge) + midpoint_stride] = forceVector + (pow((edgeLength / (*radiusd / 4)), 1.5f) * -500.0f * normalize((float2) (edgeDirY, -edgeDirX)));*/
+            debug6("Force in calculate midpoints x (%u) %.9g, y %.9g Result x %.9g y %.9g\n", (index * midpoints_per_edge) + midpoint_stride, forceVector.x, forceVector.y, result.x, result.y);
 
         }
     }

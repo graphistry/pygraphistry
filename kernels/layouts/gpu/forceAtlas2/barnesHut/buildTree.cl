@@ -1,5 +1,5 @@
 #include "common.h"
-#include "barnesHut/barnesHutCommon.h"
+#include "layouts/gpu/forceAtlas2/barnesHut/barnesHutCommon.h"
 
 #ifdef INLINEPTX
 #define threadfenceWrapper() asm("{\n\t membar.gl;\n\t }\n\t")

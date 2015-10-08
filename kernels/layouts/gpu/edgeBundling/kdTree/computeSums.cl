@@ -1,37 +1,17 @@
 #include "common.h"
-#include "barnesHut/barnesHutCommon.h"
+#include "layouts/gpu/edgeBundling/kdTree/kdTreeCommon.h"
 
 __kernel void compute_sums(
-        //graph params
-        float scalingRatio, float gravity, unsigned int edgeWeightInfluence, unsigned int flags,
         __global volatile float *x_cords,
         __global float *y_cords,
-        __global float* accx,
-        __global float* accy,
         __global volatile int* children,
         __global float* mass,
-        __global int* start,
-        __global int* sort,
-        __global float* global_x_mins,
-        __global float* global_x_maxs,
-        __global float* global_y_mins,
-        __global float* global_y_maxs,
-        __global float* swings,
-        __global float* tractions,
         __global int* count,
-        __global volatile int* blocked,
         __global volatile int* step,
         __global volatile int* bottom,
-        __global volatile int* maxdepth,
-        __global volatile float* radiusd,
-        __global volatile float* globalSpeed,
         unsigned int step_number,
-        float width,
-        float height,
         const int num_bodies,
-        const int num_nodes,
-        __global float2* pointForces,
-        float tau
+        const int num_nodes
 ){
 
     debugonce("compute sums\n");
@@ -106,6 +86,7 @@ __kernel void compute_sums(
                 // poll for missing child
 
                 child = missing_children[(num_children_missing - 1)*local_size+get_local_id(0)];
+
                 m = mass[child];
                 if (m >= 0.0f) {
                     // Child has been touched
@@ -134,7 +115,5 @@ __kernel void compute_sums(
             mass[k] = cm;
             k += inc;
         }
-        // make sure the change to `mass` is visable before the next iteration
-        mem_fence(CLK_GLOBAL_MEM_FENCE);
     }
 }

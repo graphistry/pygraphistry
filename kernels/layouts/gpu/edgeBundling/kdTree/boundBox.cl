@@ -1,6 +1,6 @@
 #define DEBUG
 #include "common.h"
-#include "barnesHut/barnesHutCommon.h"
+#include "layouts/gpu/edgeBundling/kdTree/kdTreeCommon.h"
 
 __kernel void bound_box(
         __global float *x_cords,

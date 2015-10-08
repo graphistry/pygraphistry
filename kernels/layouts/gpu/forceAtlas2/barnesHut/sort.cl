@@ -1,5 +1,5 @@
 #include "common.h"
-#include "barnesHut/barnesHutCommon.h"
+#include "layouts/gpu/forceAtlas2/barnesHut/barnesHutCommon.h"
 
 // Sort bodies in in-order traversal order
 __kernel void sort(

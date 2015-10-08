@@ -1,5 +1,5 @@
 #include "common.h"
-#include "barnesHut/barnesHutCommon.h"
+#include "layouts/gpu/forceAtlas2/barnesHut/barnesHutCommon.h"
 
 __kernel void from_barnes_layout(
         //GRAPH_PARAMS
