@@ -1,5 +1,4 @@
 #include "common.h"
-#include "forceAtlas2/forceAtlas2Common.h"
 
 __kernel void faIntegrate (
     //input

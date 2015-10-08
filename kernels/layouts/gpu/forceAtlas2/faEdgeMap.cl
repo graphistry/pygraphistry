@@ -1,5 +1,5 @@
 #include "common.h"
-#include "forceAtlas2/forceAtlas2Common.h"
+#include "layouts/gpu/forceAtlas2/forceAtlas2Common.h"
 
 //attract edges and apply forces
 __kernel void faEdgeMap(
