@@ -1,8 +1,17 @@
 #include "common.h"
-#include "gsCommon.cl"
 #include "layouts/gpu/edgeBundling/kdTree/kdTreeCommon.h"
 
 #define HALF_WARP (WARPSIZE / 2)
+
+float2 pointForce(float2 a, float2 b, float force) {
+    const float2 d = (float2) ((b.x - a.x), (b.y - a.y));
+    // k = force / distance^2
+    const float k = force / max((d.x * d.x) + (d.y * d.y), FLT_EPSILON);
+    const float2 norm = normalize(d);
+
+    /*return (float2) (norm.x * k, norm.y * k);*/
+    return (float2) (d.x * k, d.y * k);
+}
 
 inline int thread_vote(__local int* allBlock, int warpId, int cond)
 {
