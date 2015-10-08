@@ -241,6 +241,52 @@ function getNamespaceFromGraph(graph) {
     return metadata;
 }
 
+function processAggregateIndices (request, nodeIndices) {
+    var graph = request.graph;
+    var cb = request.cb;
+    var query = request.query;
+
+    logger.debug('Done selecting indices');
+    try {
+        var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
+        var indices = {
+            point: nodeIndices,
+            edge: edgeIndices
+        };
+        var data;
+
+        // Initial case of getting global Stats
+        // TODO: Make this match the same structure, not the current approach in StreamGL
+        if (query.type) {
+            data = [function () {return graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type);}];
+        } else {
+            var types = ['point', 'edge'];
+            data = _.map(types, function (type) {
+                var filteredAttributes = _.filter(query.attributes, function (attr) {
+                    return (attr.type === type);
+                });
+                var attributeNames = _.pluck(filteredAttributes, 'name');
+                return function () {
+                    return graph.dataframe.aggregate(graph.simulator, indices[type], attributeNames, query.binning, query.mode, type);
+                };
+            });
+        }
+
+        return util.chainQAll(data).spread(function () {
+            var returnData = {};
+            _.each(arguments, function (partialData) {
+                _.extend(returnData, partialData);
+            });
+            logger.debug('Sending back aggregate data');
+            cb({success: true, data: returnData});
+        });
+
+    } catch (err) {
+        cb({success: false, error: err.message, stack: err.stack});
+        log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
+    }
+}
+
 function VizServer(app, socket) {
     logger.info('Client connected', socket.id);
 
@@ -659,53 +705,6 @@ function VizServer(app, socket) {
             }
         );
     }.bind(this));
-
-    var processAggregateIndices = function (request, nodeIndices) {
-        var graph = request.graph;
-        var cb = request.cb;
-        var query = request.query;
-
-        logger.debug('Done selecting indices');
-        try {
-            var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
-            var indices = {
-                point: nodeIndices,
-                edge: edgeIndices
-            };
-            var data;
-
-            // Initial case of getting global Stats
-            // TODO: Make this match the same structure, not the current approach in StreamGL
-            if (query.type) {
-                data = [function () {return graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type);}];
-            } else {
-                var types = ['point', 'edge'];
-                data = _.map(types, function (type) {
-                    var filteredAttributes = _.filter(query.attributes, function (attr) {
-                        return (attr.type === type);
-                    });
-                    var attributeNames = _.pluck(filteredAttributes, 'name');
-                    var func = function () {
-                        return graph.dataframe.aggregate(graph.simulator, indices[type], attributeNames, query.binning, query.mode, type);
-                    };
-                    return func;
-                });
-            }
-
-            return util.chainQAll(data).spread(function () {
-                var returnData = {};
-                _.each(arguments, function (partialData) {
-                    _.extend(returnData, partialData);
-                });
-                logger.debug('Sending back aggregate data');
-                cb({success: true, data: returnData});
-            });
-
-        } catch (err) {
-            cb({success: false, error: err.message, stack: err.stack});
-            log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
-        }
-    };
 
     // Handle aggregate requests. Fully handle one before moving on to the next.
     aggregateRequests.do(function (request) {
