@@ -89,10 +89,10 @@ function resetState(dataset) {
 
 
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
-function vboSizeMB(vbos) {
+function sizeInMBOfVBOs(VBOs) {
     var vboSizeBytes =
         _.reduce(
-            _.pluck(_.values(vbos.buffers), 'byteLength'),
+            _.pluck(_.values(VBOs.buffers), 'byteLength'),
             function(acc, v) { return acc + v; }, 0);
     return (vboSizeBytes / (1024 * 1024)).toFixed(1);
 }
@@ -108,7 +108,7 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
         _.each(indices, function (idx) {
             var row = dataFrame.getRowAt(idx, type);
             var keep = false;
-            _.each(row, function (val, key) {
+            _.each(row, function (val/*, key*/) {
                 if (String(val).toLowerCase().indexOf(searchFilter) > -1) {
                     keep = true;
                 }
@@ -140,14 +140,15 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
         var sortedTags = taggedSortCol.sort(function (val1, val2) {
             var a = val1[0];
             var b = val2[0];
-            if (typeof a === 'string' && typeof b === 'string')
+            if (typeof a === 'string' && typeof b === 'string') {
                 return (ascending ? a.localeCompare(b) : b.localeCompare(a));
-            else if (isNaN(a) || a < b)
+            } else if (isNaN(a) || a < b) {
                 return ascending ? -1 : 1;
-            else if (isNaN(b) || a > b)
+            } else if (isNaN(b) || a > b) {
                 return ascending ? 1 : -1;
-            else
+            } else {
                 return 0;
+            }
         });
 
         var slicedTags = sortedTags.slice(start, end);
@@ -247,6 +248,7 @@ function init(app, socket) {
     logger.info('Client connected', socket.id);
 
     var workbookConfig = {};
+    /** @type GraphistryURLParams */
     var query = socket.handshake.query;
     if (query.workbook) {
         logger.debug('Loading workbook', query.workbook);
@@ -254,7 +256,8 @@ function init(app, socket) {
         observableLoad.do(function (workbookDoc) {
             workbookConfig = _.extend(workbookConfig, workbookDoc);
         }).subscribe(_.identity, function (error) {
-            util.makeRxErrorHandler('Loading Workbook');
+            util.makeRxErrorHandler('Loading Workbook')(error);
+            // TODO report to user if authenticated and can know of this workbook's existence.
         });
     } else {
         // Create a new workbook here with a default view:
@@ -330,7 +333,7 @@ function init(app, socket) {
 
     app.get('/vbo', function (req, res) {
         logger.info('VBOs: HTTP GET %s', req.originalUrl);
-        // perf monitor here?
+        // performance monitor here?
         // profiling.debug('VBO request');
 
         try {
@@ -339,8 +342,8 @@ function init(app, socket) {
             var id = req.query.id;
 
             res.set('Content-Encoding', 'gzip');
-            var vbos = lastCompressedVBOs[id];
-            if (vbos) {
+            var VBOs = lastCompressedVBOs[id];
+            if (VBOs) {
                 res.send(lastCompressedVBOs[id][bufferName]);
             }
             res.send();
@@ -553,7 +556,7 @@ function init(app, socket) {
     function getNamespaceFromGraph(graph) {
         var dataframeColumnsByType = graph.dataframe.getColumnsByType();
         // TODO add special names that can be used in calculation references.
-        // TODO handle multiple datasources.
+        // TODO handle multiple sources.
         var metadata = _.extend({}, dataframeColumnsByType);
         return metadata;
     }
@@ -679,18 +682,18 @@ function init(app, socket) {
             var data;
 
             // Initial case of getting global Stats
-            // TODO: Make this match the same structure, not the current hacky approach in streamGL
+            // TODO: Make this match the same structure, not the current approach in StreamGL
             if (query.type) {
                 data = [function () {return graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type);}];
             } else {
                 var types = ['point', 'edge'];
                 data = _.map(types, function (type) {
-                    var filteredAttrs = _.filter(query.attributes, function (attr) {
+                    var filteredAttributes = _.filter(query.attributes, function (attr) {
                         return (attr.type === type);
                     });
-                    var attrNames = _.pluck(filteredAttrs, 'name');
+                    var attributeNames = _.pluck(filteredAttributes, 'name');
                     var func = function () {
-                        return graph.dataframe.aggregate(graph.simulator, indices[type], attrNames, query.binning, query.mode, type);
+                        return graph.dataframe.aggregate(graph.simulator, indices[type], attributeNames, query.binning, query.mode, type);
                     };
                     return func;
                 });
@@ -740,7 +743,7 @@ function stream(socket, renderConfig, colorTexture) {
     //Starts as all active, and as client caches, whittles down
     var activeBuffers = _.chain(renderConfig.models).pairs().filter(function (pair) {
         var model = pair[1];
-        return rConf.isBufServerSide(model)
+        return rConf.isBufServerSide(model);
     }).map(function (pair) {
         return pair[0];
     }).value();
@@ -771,7 +774,7 @@ function stream(socket, renderConfig, colorTexture) {
 
 
     socket.on('interaction', function (payload) {
-        //perfmonitor here?
+        // performance monitor here?
         // profiling.trace('Got Interaction');
         logger.trace('Got interaction:', payload);
         // TODO: Find a way to avoid flooding main thread waiting for GPU ticks.
@@ -916,7 +919,7 @@ function stream(socket, renderConfig, colorTexture) {
         return driver.fetchData(graph, renderConfig, compress,
                                 activeBuffers, lastVersions, activePrograms)
             .do(function (vbos) {
-                logger.trace('1. prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB', ticker);
+                logger.trace('1. prefetched VBOs for xhr2: ' + sizeInMBOfVBOs(vbos.compressed) + 'MB', ticker);
 
                 //tell XHR2 sender about it
                 if (!lastCompressedVBOs[socket.id]) {
