@@ -725,7 +725,9 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     this.socket.on('disconnect', function () {
         var socketID = this.socket.id;
         logger.info('disconnecting', socketID);
-        delete this.lastCompressedVBOs[socketID];
+        if (this.lastCompressedVBOs !== undefined && this.lastCompressedVBOs[socketID] !== undefined) {
+            delete this.lastCompressedVBOs[socketID];
+        }
     }, this);
 
     //Used for tracking what needs to be sent
@@ -918,56 +920,55 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
         step++;
 
         var ticker = {step: step};
-        var socketID = this.socket.id;
 
-        logger.trace('0. Prefetch VBOs', socketID, activeBuffers, ticker);
+        logger.trace('0. Prefetch VBOs', this.socket.id, activeBuffers, ticker);
 
         return driver.fetchData(graph, renderConfig, compress,
                                 activeBuffers, lastVersions, activePrograms)
             .do(function (VBOs) {
-                logger.trace('1. prefetched VBOs for xhr2: ' + sizeInMBOfVBOs(VBOs.compressed) + 'MB', ticker);
+                logger.trace('1. pre-fetched VBOs for xhr2: ' + sizeInMBOfVBOs(VBOs.compressed) + 'MB', ticker);
 
                 //tell XHR2 sender about it
-                if (!this.lastCompressedVBOs[socketID]) {
-                    this.lastCompressedVBOs[socketID] = VBOs.compressed;
+                if (!this.lastCompressedVBOs[this.socket.id]) {
+                    this.lastCompressedVBOs[this.socket.id] = VBOs.compressed;
                 } else {
-                    _.extend(this.lastCompressedVBOs[socketID], VBOs.compressed);
+                    _.extend(this.lastCompressedVBOs[this.socket.id], VBOs.compressed);
                 }
-                this.lastMetadata[socketID] = {elements: VBOs.elements, bufferByteLengths: VBOs.bufferByteLengths};
+                this.lastMetadata[this.socket.id] = {elements: VBOs.elements, bufferByteLengths: VBOs.bufferByteLengths};
 
                 if (saveAtEachStep) {
                     persistor.saveVBOs(defaultSnapshotName, VBOs, step);
                 }
             }.bind(this))
             .flatMap(function (VBOs) {
-                logger.trace('2. Waiting for client to finish previous', socketID, ticker);
+                logger.trace('2. Waiting for client to finish previous', this.socket.id, ticker);
                 return clientReady
                     .filter(_.identity)
                     .take(1)
                     .do(function () {
-                        logger.trace('2b. Client ready, proceed and mark as processing.', socketID, ticker);
+                        logger.trace('2b. Client ready, proceed and mark as processing.', this.socket.id, ticker);
                         clientReady.onNext(false);
-                    })
+                    }.bind(this))
                     .map(_.constant(VBOs));
-            })
+            }.bind(this))
             .flatMap(function (VBOs) {
-                logger.trace('3. tell client about availability', socketID, ticker);
+                logger.trace('3. tell client about availability', this.socket.id, ticker);
 
                 //for each buffer transfer
                 var clientAckStartTime;
                 var clientElapsed;
                 var transferredBuffers = [];
-                this.finishBufferTransfers[socketID] = function (bufferName) {
-                    logger.trace('5a ?. sending a buffer', bufferName, socketID, ticker);
+                this.finishBufferTransfers[this.socket.id] = function (bufferName) {
+                    logger.trace('5a ?. sending a buffer', bufferName, this.socket.id, ticker);
                     transferredBuffers.push(bufferName);
                     //console.log("Length", transferredBuffers.length, requestedBuffers.length);
                     if (transferredBuffers.length === requestedBuffers.length) {
-                        logger.trace('5b. started sending all', socketID, ticker);
+                        logger.trace('5b. started sending all', this.socket.id, ticker);
                         logger.trace('Socket', '...client ping ' + clientElapsed + 'ms');
                         logger.trace('Socket', '...client asked for all buffers',
                             Date.now() - clientAckStartTime, 'ms');
                     }
-                };
+                }.bind(this);
 
                 // var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
 
@@ -1008,15 +1009,15 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
                 }.bind(this)).do(
                     function (clientElapsedMsg) {
-                        logger.trace('6. client all received', socketID, ticker);
+                        logger.trace('6. client all received', this.socket.id, ticker);
                         clientElapsed = clientElapsedMsg;
                         clientAckStartTime = Date.now();
-                    });
+                    }.bind(this));
 
                 return receivedAll;
             }.bind(this))
             .flatMap(function () {
-                logger.trace('7. Wait for next animation step', socketID, ticker);
+                logger.trace('7. Wait for next animation step', this.socket.id, ticker);
 
                 var filteredUpdateVbo = this.updateVboSubject.filter(function (data) {
                     return data;
@@ -1024,11 +1025,11 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
                 return this.ticksMulti.merge(filteredUpdateVbo)
                     .take(1)
-                    .do(function (data) {
+                    .do(function (/*data*/) {
                         // Mark that we don't need to send VBOs independently of ticks anymore.
                         this.updateVboSubject.onNext(false);
                     }.bind(this))
-                    .do(function () { logger.trace('8. next ready!', socketID, ticker); });
+                    .do(function () { logger.trace('8. next ready!', this.socket.id, ticker); }.bind(this));
             }.bind(this))
             .map(_.constant(graph));
     }.bind(this))
