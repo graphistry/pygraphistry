@@ -1,24 +1,3 @@
-#define REPULSION_OVERLAP 0.00000001f
-#define EPSILON 1.0f
-#define IS_PREVENT_OVERLAP(flags) (flags & 1)
-#define IS_STRONG_GRAVITY(flags) (flags & 2)
-#define IS_DISSUADE_HUBS(flags) (flags & 4)
-#define IS_LIN_LOG(flags) (flags & 8)
-
-#define DEFAULT_NODE_SIZE 0.000001f
-
-// The length of the 'randValues' array
-#define RAND_LENGTH 73
-
-// block count = factor * #SMs
-#define FACTOR1 3
-#define FACTOR2 1
-#define FACTOR3 1  /* must all be resident at the same time */
-#define FACTOR4 1  /* must all be resident at the same time */
-#define FACTOR5 5
-#define FACTOR6 3
-#define EPSILON2 0.01f
-
 // In theory this should be set dynamically, or the code should be rewritten to be
 // warp agnostic (as is proper in OpenCL)
 // Should be gotten by CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE parameter in the clGetKernelWorkGroupInfo().
