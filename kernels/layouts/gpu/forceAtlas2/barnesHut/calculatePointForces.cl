@@ -175,7 +175,7 @@ __kernel void calculate_forces(
     float px, py, temp, distSquared;
     int warp_id, starting_warp_thread_id, shared_mem_offset, difference, depth, child;
 
-    // THREADS1/WARPSIZE is number of warps
+    // THREADS_FORCES/WARPSIZE is number of warps
     __local volatile int child_index[MAXDEPTH * THREADS_FORCES/WARPSIZE], parent_index[MAXDEPTH * THREADS_FORCES/WARPSIZE];
     __local volatile float dq[MAXDEPTH * THREADS_FORCES/WARPSIZE];
 
@@ -206,7 +206,7 @@ __kernel void calculate_forces(
             // return;
         }
         //TODO: Do we haaave to do this?
-        // for (i = 0; i < THREADS1/WARPSIZE; i++) {
+        // for (i = 0; i < THREADS_FORCES/WARPSIZE; i++) {
         //     allBlocks[i] = 0;
         // }
     }

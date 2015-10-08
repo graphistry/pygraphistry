@@ -10,15 +10,6 @@
 // The length of the 'randValues' array
 #define RAND_LENGTH 73
 
-// BARNES HUT defintions.
-// TODO We don't need all these
-#define THREADS1 256    /* must be a power of 2 */ // Used for setting local buffer sizes.
-#define THREADS2 1024
-#define THREADS3 1024
-#define THREADS4 256
-#define THREADS5 256
-#define THREADS6 512
-
 // block count = factor * #SMs
 #define FACTOR1 3
 #define FACTOR2 1
