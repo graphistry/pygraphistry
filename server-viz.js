@@ -35,46 +35,7 @@ var saveAtEachStep = false;
 var defaultSnapshotName = 'snapshot';
 
 
-// ----- INITIALIZATION ------------------------------------
-
-//Do more innocuous initialization inline (famous last words..)
-
-VizServer.prototype.resetState = function (dataset) {
-    logger.info('RESETTING APP STATE');
-
-    //FIXME explicitly destroy last graph if it exists?
-
-    // ----- BUFFERS (multiplexed over clients) ----------
-    //Serve most recent compressed binary buffers
-    //TODO reuse across users
-    //{socketID -> {buffer...}
-    this.lastCompressedVBOs = {};
-    this.lastMetadata = {};
-    this.finishBufferTransfers = {};
-
-    this.lastRenderConfig = undefined;
-
-    //Signal to Explicitly Send New VBOs
-    this.updateVboSubject = new Rx.ReplaySubject(1);
-
-    // ----- ANIMATION ------------------------------------
-    //current animation
-    this.animationStep = driver.create(dataset);
-    //multicast of current animation's ticks
-    this.ticksMulti = this.animationStep.ticks.publish();
-    this.ticksMulti.connect();
-
-    //most recent tick
-    this.graph = new Rx.ReplaySubject(1);
-    //make available to all clients
-    this.ticksMulti.take(1).subscribe(this.graph, log.makeRxErrorHandler(logger, logger, 'ticksMulti failure'));
-
-    logger.trace('RESET APP STATE.');
-};
-
-
 /**** END GLOBALS ****************************************************/
-
 
 
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
@@ -152,6 +113,39 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
     }
 }
 
+VizServer.prototype.resetState = function (dataset) {
+    logger.info('RESETTING APP STATE');
+
+    //FIXME explicitly destroy last graph if it exists?
+
+    // ----- BUFFERS (multiplexed over clients) ----------
+    //Serve most recent compressed binary buffers
+    //TODO reuse across users
+    this.lastCompressedVBOs = undefined;
+    this.lastMetadata = undefined;
+    /** @type {Object.<String,Function>} **/
+    this.bufferTransferFinisher;
+
+    this.lastRenderConfig = undefined;
+
+    //Signal to Explicitly Send New VBOs
+    this.updateVboSubject = new Rx.ReplaySubject(1);
+
+    // ----- ANIMATION ------------------------------------
+    //current animation
+    this.animationStep = driver.create(dataset);
+    //multicast of current animation's ticks
+    this.ticksMulti = this.animationStep.ticks.publish();
+    this.ticksMulti.connect();
+
+    //most recent tick
+    this.graph = new Rx.ReplaySubject(1);
+    //make available to all clients
+    this.ticksMulti.take(1).subscribe(this.graph, log.makeRxErrorHandler(logger, logger, 'ticksMulti failure'));
+
+    logger.trace('RESET APP STATE.');
+};
+
 VizServer.prototype.readSelection = function (type, query, res) {
     this.graph.take(1).do(function (graph) {
         graph.simulator.selectNodes(query.sel).then(function (nodeIndices) {
@@ -178,7 +172,7 @@ VizServer.prototype.readSelection = function (type, query, res) {
             log.makeRxErrorHandler(logger, 'read_selection handler')(err);
         }
     );
-}
+};
 
 VizServer.prototype.tickGraph = function (cb) {
     this.graph.take(1).do(function (graphContent) {
@@ -287,148 +281,19 @@ function processAggregateIndices (request, nodeIndices) {
     }
 }
 
-function VizServer(app, socket) {
+function VizServer(app, socket, cachedVBOs) {
     logger.info('Client connected', socket.id);
 
-    this.app = app;
+    this.isActive = true;
+    this.defineRoutesInApp(app);
     this.socket = socket;
     this.workbookConfig = {};
+    this.cachedVBOs = cachedVBOs;
     /** @type {GraphistryURLParams} */
-    var query = socket.handshake.query;
-    if (query.workbook) {
-        logger.debug('Loading workbook', query.workbook);
-        var observableLoad = wbLoader.loadDocument(decodeURIComponent(query.workbook));
-        observableLoad.do(function (workbookDoc) {
-            this.workbookConfig = _.extend(this.workbookConfig, workbookDoc);
-        }.bind(this)).subscribe(_.identity, function (error) {
-            util.makeRxErrorHandler('Loading Workbook')(error);
-            // TODO report to user if authenticated and can know of this workbook's existence.
-        });
-    } else {
-        // Create a new workbook here with a default view:
-        this.workbookConfig = _.extend(this.workbookConfig,
-            {
-                views: {default: {}},
-                currentView: 'default'
-            });
-    }
+    var query = this.socket.handshake.query;
+    var viewConfig = this.loadSessionDataForURLQuery(query);
 
-    // Pick the default view or the current view or any view:
-    var viewConfig = this.workbookConfig.views.default ||
-        _.find(this.workbookConfig.views[this.workbookConfig.currentview]) ||
-        _.find(this.workbookConfig.views);
-
-    if (!viewConfig.filters) {
-        viewConfig.filters = [
-            // nodes/edges limited per client render estimate:
-            {
-                title: 'Point Limit',
-                attribute: undefined,
-                query: {
-                    type: 'point',
-                    ast: {
-                        type: 'Limit',
-                        value: {
-                            type: 'Literal',
-                            dataType: 'integer',
-                            value: 8e5
-                        }
-                    },
-                    inputString: 'LIMIT 800000'
-                }
-            }
-        ];
-    }
-
-    // Apply approved URL parameters to that view concretely since we're creating it now:
-    _.extend(query, _.pick(viewConfig, dConf.URLParamsThatPersist));
-
-    var colorTexture = new Rx.ReplaySubject(1);
-    var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
-    var img =
-        Rx.Observable.fromNodeCallback(fs.readFile)(imgPath)
-        .flatMap(function (buffer) {
-            logger.trace('Loaded raw colorTexture', buffer.length);
-            return Rx.Observable.fromNodeCallback(compress.deflate)(
-                    buffer,//binary,
-                    {output: new Buffer(
-                        Math.max(1024, Math.round(buffer.length * 1.5)))})
-                .map(function (compressed) {
-                    return {
-                        raw: buffer,
-                        compressed: compressed
-                    };
-                });
-        })
-        .do(function () { logger.trace('Compressed color texture'); })
-        .map(function (pair) {
-            logger.trace('colorMap bytes', pair.raw.length);
-            return {
-                buffer: pair.compressed[0],
-                bytes: pair.raw.length,
-                width: 512,
-                height: 512
-            };
-        });
-
-    img.take(1)
-        .do(colorTexture)
-        .subscribe(_.identity, log.makeRxErrorHandler(logger, 'img/texture'));
-    colorTexture
-        .do(function() { logger.trace('HAS COLOR TEXTURE'); })
-        .subscribe(_.identity, log.makeRxErrorHandler(logger, 'colorTexture'));
-
-    app.get('/vbo', function (req, res) {
-        logger.info('VBOs: HTTP GET %s', req.originalUrl);
-        // performance monitor here?
-        // profiling.debug('VBO request');
-
-        try {
-            // TODO: check that query parameters are present, and that given id, buffer exist
-            var bufferName = req.query.buffer;
-            var id = req.query.id;
-
-            res.set('Content-Encoding', 'gzip');
-            var VBOs = this.lastCompressedVBOs[id];
-            if (VBOs) {
-                res.send(this.lastCompressedVBOs[id][bufferName]);
-            }
-            res.send();
-
-            this.finishBufferTransfers[id](bufferName);
-        } catch (e) {
-            log.makeQErrorHandler(logger, 'bad /vbo request')(e);
-        }
-    }.bind(this));
-
-    app.get('/texture', function (req, res) {
-        logger.debug('got texture req', req.originalUrl, req.query);
-        try {
-            colorTexture.pluck('buffer').do(
-                function (data) {
-                    res.set('Content-Encoding', 'gzip');
-                    res.send(data);
-                })
-                .subscribe(_.identity, log.makeRxErrorHandler(logger, 'colorTexture pluck'));
-
-        } catch (e) {
-            log.makeQErrorHandler(logger, 'bad /texture request')(e);
-        }
-    });
-
-
-    app.get('/read_node_selection', function (req, res) {
-        logger.debug('Got read_node_selection', req.query);
-        this.readSelection('point', req.query, res);
-    }.bind(this));
-
-    app.get('/read_edge_selection', function (req, res) {
-        logger.debug('Got read_edge_selection', req.query);
-        this.readSelection('edge', req.query, res);
-    }.bind(this));
-
-    // Get the dataset name from the query parameters, may have been loaded from view:
-    this.qDataset = loader.downloadDataset(query);
+    this.setupColorTexture();
 
     this.qRenderConfig = this.qDataset.then(function (dataset) {
         var metadata = dataset.metadata;
@@ -442,7 +307,7 @@ function VizServer(app, socket) {
         return rConf.scenes[metadata.scene];
     }.bind(this)).fail(log.makeQErrorHandler(logger, 'resetting state'));
 
-    socket.on('render_config', function(_, cb) {
+    this.socket.on('render_config', function(_, cb) {
         this.qRenderConfig.then(function (renderConfig) {
             logger.info('renderConfig', renderConfig);
             logger.trace('Sending render-config to client');
@@ -459,7 +324,7 @@ function VizServer(app, socket) {
         });
     }.bind(this));
 
-    socket.on('update_render_config', function(newValues, cb) {
+    this.socket.on('update_render_config', function(newValues, cb) {
         this.qRenderConfig.then(function (renderConfig) {
             logger.info('renderConfig [before]', renderConfig);
             logger.trace('Updating render-config from client values');
@@ -479,12 +344,12 @@ function VizServer(app, socket) {
         });
     }.bind(this));
 
-    socket.on('get_filters', function (ignored, cb) {
+    this.socket.on('get_filters', function (ignored, cb) {
         logger.trace('sending current filters to client');
         cb({success: true, filters: viewConfig.filters});
     });
 
-    socket.on('update_filters', function (newValues, cb) {
+    this.socket.on('update_filters', function (newValues, cb) {
         logger.trace('updating filters from client values');
         // Maybe direct assignment isn't safe, but it'll do for now.
         viewConfig.filters = newValues;
@@ -548,7 +413,7 @@ function VizServer(app, socket) {
         );
     }.bind(this));
 
-    socket.on('layout_controls', function(_, cb) {
+    this.socket.on('layout_controls', function(_, cb) {
         logger.info('Sending layout controls to client');
 
         this.graph.take(1).do(function (graph) {
@@ -563,21 +428,21 @@ function VizServer(app, socket) {
         });
     }.bind(this));
 
-    socket.on('begin_streaming', function() {
+    this.socket.on('begin_streaming', function() {
         this.qRenderConfig.then(function (renderConfig) {
-            this.beginStreaming(renderConfig, colorTexture);
-        }.bind(this)).fail(log.makeQErrorHandler(logger, 'streaming'));
+            this.beginStreaming(renderConfig, this.colorTexture);
+        }.bind(this)).fail(log.makeQErrorHandler(logger, 'begin_streaming'));
     }.bind(this));
 
-    socket.on('reset_graph', function (_, cb) {
+    this.socket.on('reset_graph', function (_, cb) {
         logger.info('reset_graph command');
         this.qDataset.then(function (dataset) {
             this.resetState(dataset);
             cb();
-        }.bind(this)).fail(log.makeQErrorHandler(logger, 'reset graph request'));
+        }.bind(this)).fail(log.makeQErrorHandler(logger, 'reset_graph request'));
     }.bind(this));
 
-    socket.on('inspect_header', function (nothing, cb) {
+    this.socket.on('inspect_header', function (nothing, cb) {
         logger.info('inspect header');
         this.graph.take(1).do(function (graph) {
             cb({
@@ -601,7 +466,7 @@ function VizServer(app, socket) {
     }.bind(this));
 
     /** Implements/gets a namespace comprehension, for calculation references and metadata. */
-    socket.on('get_namespace_metadata', function (nothing, cb) {
+    this.socket.on('get_namespace_metadata', function (nothing, cb) {
         logger.trace('Sending Namespace metadata to client');
         this.graph.take(1).do(function (graph) {
             var metadata = getNamespaceFromGraph(graph);
@@ -616,7 +481,7 @@ function VizServer(app, socket) {
         );
     }.bind(this));
 
-    socket.on('update_namespace_metadata', function (updates, cb) {
+    this.socket.on('update_namespace_metadata', function (updates, cb) {
         logger.trace('Updating Namespace metadata from client');
         this.graph.take(1).do(function (graph) {
             var metadata = getNamespaceFromGraph(graph);
@@ -628,7 +493,7 @@ function VizServer(app, socket) {
         });
     }.bind(this));
 
-    socket.on('filter', function (query, cb) {
+    this.socket.on('filter', function (query, cb) {
         logger.info('Got filter', query);
         this.graph.take(1).do(function (graph) {
 
@@ -670,11 +535,108 @@ function VizServer(app, socket) {
         );
     }.bind(this));
 
+    this.setupAggregationRequestHandling();
+
+    this.socket.on('viz', function (msg, cb) { cb({success: true}); });
+}
+
+VizServer.prototype.loadSessionDataForURLQuery = function (query) {
+    if (query.workbook) {
+        logger.debug('Loading workbook', query.workbook);
+        var observableLoad = wbLoader.loadDocument(decodeURIComponent(query.workbook));
+        observableLoad.do(function (workbookDoc) {
+            this.workbookConfig = _.extend(this.workbookConfig, workbookDoc);
+        }.bind(this)).subscribe(_.identity, function (error) {
+            util.makeRxErrorHandler('Loading Workbook')(error);
+            // TODO report to user if authenticated and can know of this workbook's existence.
+        });
+    } else {
+        // Create a new workbook here with a default view:
+        this.workbookConfig = _.extend(this.workbookConfig,
+            {
+                views: {default: {}},
+                currentView: 'default'
+            });
+    }
+
+    // Pick the default view or the current view or any view:
+    var viewConfig = this.workbookConfig.views.default ||
+        (this.workbookConfig.currentView ?
+            this.workbookConfig.views[this.workbookConfig.currentview] : _.find(this.workbookConfig.views));
+
+    if (!viewConfig.filters) {
+        viewConfig.filters = [
+            // nodes/edges limited per client render estimate:
+            {
+                title: 'Point Limit',
+                attribute: undefined,
+                query: {
+                    type: 'point',
+                    ast: {
+                        type: 'Limit',
+                        value: {
+                            type: 'Literal',
+                            dataType: 'integer',
+                            value: 8e5
+                        }
+                    },
+                    inputString: 'LIMIT 800000'
+                }
+            }
+        ];
+    }
+
+    // Apply approved URL parameters to that view concretely since we're creating it now:
+    _.extend(query, _.pick(viewConfig, dConf.URLParamsThatPersist));
+
+    // Get the dataset name from the query parameters, may have been loaded from view:
+    this.qDataset = loader.downloadDataset(query);
+    return viewConfig;
+};
+
+VizServer.prototype.setupColorTexture = function () {
+    this.colorTexture = new Rx.ReplaySubject(1);
+    var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
+    var img =
+        Rx.Observable.fromNodeCallback(fs.readFile)(imgPath)
+            .flatMap(function (buffer) {
+                logger.trace('Loaded raw colorTexture', buffer.length);
+                return Rx.Observable.fromNodeCallback(compress.deflate)(
+                    buffer,//binary,
+                    {output: new Buffer(
+                        Math.max(1024, Math.round(buffer.length * 1.5)))})
+                    .map(function (compressed) {
+                        return {
+                            raw: buffer,
+                            compressed: compressed
+                        };
+                    });
+            })
+            .do(function () { logger.trace('Compressed color texture'); })
+            .map(function (pair) {
+                logger.trace('colorMap bytes', pair.raw.length);
+                return {
+                    buffer: pair.compressed[0],
+                    bytes: pair.raw.length,
+                    width: 512,
+                    height: 512
+                };
+            });
+
+    img.take(1)
+        .do(this.colorTexture)
+        .subscribe(_.identity, log.makeRxErrorHandler(logger, 'img/texture'));
+    this.colorTexture
+        .do(function() { logger.trace('HAS COLOR TEXTURE'); })
+        .subscribe(_.identity, log.makeRxErrorHandler(logger, 'colorTexture'));
+};
+
+VizServer.prototype.setupAggregationRequestHandling = function () {
     var aggregateRequests = new Rx.Subject().controlled(); // Use pull model.
 
     //query :: {attributes: ??, binning: ??, mode: ??, type: 'point' + 'edge'}
     // -> {success: false} + {success: true, data: ??}
-    socket.on('aggregate', function (query, cb) {
+    this.socket.on('aggregate', function (query, cb) {
         logger.info('Got aggregate', query);
 
         this.graph.take(1).do(function (graph) {
@@ -714,20 +676,75 @@ function VizServer(app, socket) {
             }).done(_.identity, log.makeQErrorHandler(logger, 'AggregateIndices Q'));
     }).subscribe(_.identity, log.makeRxErrorHandler(logger, 'aggregate request loop'));
     aggregateRequests.request(1); // Always request first.
-}
+};
+
+VizServer.prototype.defineRoutesInApp = function (app) {
+    this.app = app;
+
+    this.app.get('/vbo', function (req, res) {
+        logger.info('VBOs: HTTP GET %s', req.originalUrl);
+        // performance monitor here?
+        // profiling.debug('VBO request');
+
+        try {
+            // TODO: check that query parameters are present, and that given id, buffer exist
+            var bufferName = req.query.buffer;
+            var id = req.query.id;
+
+            res.set('Content-Encoding', 'gzip');
+            var VBOs = (id === this.socket.id ? this.lastCompressedVBOs : this.cachedVBOs[id]);
+            if (VBOs) {
+                res.send(VBOs[bufferName]);
+            }
+            res.send();
+
+            var bufferTransferFinisher = this.bufferTransferFinisher;
+            if (bufferTransferFinisher) {
+                bufferTransferFinisher(bufferName);
+            }
+        } catch (e) {
+            log.makeQErrorHandler(logger, 'bad /vbo request')(e);
+        }
+    }.bind(this));
+
+    this.app.get('/texture', function (req, res) {
+        logger.debug('got texture req', req.originalUrl, req.query);
+        try {
+            this.colorTexture.pluck('buffer').do(
+                function (data) {
+                    res.set('Content-Encoding', 'gzip');
+                    res.send(data);
+                })
+                .subscribe(_.identity, log.makeRxErrorHandler(logger, 'colorTexture pluck'));
+
+        } catch (e) {
+            log.makeQErrorHandler(logger, 'bad /texture request')(e);
+        }
+    }.bind(this));
+
+    this.app.get('/read_node_selection', function (req, res) {
+        logger.debug('Got read_node_selection', req.query);
+        this.readSelection('point', req.query, res);
+    }.bind(this));
+
+    this.app.get('/read_edge_selection', function (req, res) {
+        logger.debug('Got read_edge_selection', req.query);
+        this.readSelection('edge', req.query, res);
+    }.bind(this));
+};
+
+VizServer.prototype.rememberVBOs = function (VBOs) {
+    this.lastCompressedVBOs = VBOs;
+    this.cachedVBOs[this.socket.id] = this.lastCompressedVBOs;
+};
 
 VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
     // ========== BASIC COMMANDS
-
-    this.lastCompressedVBOs[this.socket.id] = {};
+    this.rememberVBOs({});
     this.socket.on('disconnect', function () {
-        var socketID = this.socket.id;
-        logger.info('disconnecting', socketID);
-        if (this.lastCompressedVBOs !== undefined && this.lastCompressedVBOs[socketID] !== undefined) {
-            delete this.lastCompressedVBOs[socketID];
-        }
-    }, this);
+        this.dispose();
+    }.bind(this));
 
     //Used for tracking what needs to be sent
     //Starts as all active, and as client caches, whittles down
@@ -845,10 +862,10 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     this.socket.on('persist_current_vbo', function(contentKey, cb) {
         graph.take(1)
             .do(function (graph) {
-                var VBOs = this.lastCompressedVBOs[this.socket.id];
-                var metadata = this.lastMetadata[this.socket.id];
                 var cleanContentKey = encodeURIComponent(contentKey);
-                persistor.publishStaticContents(cleanContentKey, VBOs, metadata, graph.dataframe, renderConfig).then(function() {
+                persistor.publishStaticContents(
+                    cleanContentKey, this.lastCompressedVBOs,
+                    this.lastMetadata, graph.dataframe, renderConfig).then(function() {
                     cb({success: true, name: cleanContentKey});
                 }).done(
                     _.identity,
@@ -928,12 +945,12 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 logger.trace('1. pre-fetched VBOs for xhr2: ' + sizeInMBOfVBOs(VBOs.compressed) + 'MB', ticker);
 
                 //tell XHR2 sender about it
-                if (!this.lastCompressedVBOs[this.socket.id]) {
-                    this.lastCompressedVBOs[this.socket.id] = VBOs.compressed;
+                if (this.lastCompressedVBOs) {
+                    _.extend(this.lastCompressedVBOs, VBOs.compressed);
                 } else {
-                    _.extend(this.lastCompressedVBOs[this.socket.id], VBOs.compressed);
+                    this.rememberVBOs(VBOs.compressed);
                 }
-                this.lastMetadata[this.socket.id] = {elements: VBOs.elements, bufferByteLengths: VBOs.bufferByteLengths};
+                this.lastMetadata = {elements: VBOs.elements, bufferByteLengths: VBOs.bufferByteLengths};
 
                 if (saveAtEachStep) {
                     persistor.saveVBOs(defaultSnapshotName, VBOs, step);
@@ -957,7 +974,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 var clientAckStartTime;
                 var clientElapsed;
                 var transferredBuffers = [];
-                this.finishBufferTransfers[this.socket.id] = function (bufferName) {
+                this.bufferTransferFinisher = function (bufferName) {
                     logger.trace('5a ?. sending a buffer', bufferName, this.socket.id, ticker);
                     transferredBuffers.push(bufferName);
                     //console.log("Length", transferredBuffers.length, requestedBuffers.length);
@@ -1039,6 +1056,15 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 };
 
 
+VizServer.prototype.dispose = function () {
+    logger.info('disconnecting', this.socket.id);
+    delete this.lastCompressedVBOs;
+    delete this.bufferTransferFinisher;
+    delete this.cachedVBOs[this.socket.id];
+    this.isActive = false;
+};
+
+
 if (require.main === module) {
 
     var url     = require('url');
@@ -1092,9 +1118,12 @@ if (require.main === module) {
         });
     });
 
+    // Both keyed by socket ID:
+    var servers = {};
+    var cachedVBOs = {};
+
     io.on('connection', function (socket) {
-        var server = new VizServer(app, socket);
-        socket.on('viz', function (msg, cb) { cb({success: true}); });
+        servers[socket.id] = new VizServer(app, socket, cachedVBOs);
     });
 
     logger.info('Binding', config.HTTP_LISTEN_ADDRESS, config.HTTP_LISTEN_PORT);
