@@ -42,7 +42,7 @@ var finishBufferTransfers;
 
 // ----- ANIMATION ------------------------------------
 //current animation
-var animStep;
+var animationStep;
 
 //multicast of current animation's ticks
 var ticksMulti;
@@ -72,8 +72,8 @@ function resetState(dataset) {
 
     updateVboSubject = new Rx.ReplaySubject(1);
 
-    animStep = driver.create(dataset);
-    ticksMulti = animStep.ticks.publish();
+    animationStep = driver.create(dataset);
+    ticksMulti = animationStep.ticks.publish();
     ticksMulti.connect();
 
     //make available to all clients
@@ -778,7 +778,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
         logger.trace('Got interaction:', payload);
         // TODO: Find a way to avoid flooding main thread waiting for GPU ticks.
         var defaults = {play: false, layout: false};
-        animStep.interact(_.extend(defaults, payload || {}));
+        animationStep.interact(_.extend(defaults, payload || {}));
     });
 
     this.socket.on('get_labels', function (query, cb) {
@@ -805,7 +805,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
         graph.take(1)
             .do(function (graph) {
                 graph.simulator.highlightShortestPaths(pair);
-                animStep.interact({play: true, layout: true});
+                animationStep.interact({play: true, layout: true});
             })
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'shortest_path'));
     });
@@ -814,7 +814,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
         graph.take(1)
             .do(function (graph) {
                 graph.simulator.setColor(color);
-                animStep.interact({play: true, layout: false});
+                animationStep.interact({play: true, layout: false});
             })
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'set_colors'));
     });
@@ -829,7 +829,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 });
                 graph.simulator.tickBuffers(['pointColors']);
 
-                animStep.interact({play: true, layout: true});
+                animationStep.interact({play: true, layout: true});
             })
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'highlighted_points'));
 
