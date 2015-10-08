@@ -374,12 +374,12 @@ function VizServer(app, socket) {
     app.get('/read_node_selection', function (req, res) {
         logger.debug('Got read_node_selection', req.query);
         this.readSelection('point', req.query, res);
-    });
+    }.bind(this));
 
     app.get('/read_edge_selection', function (req, res) {
         logger.debug('Got read_edge_selection', req.query);
         this.readSelection('edge', req.query, res);
-    });
+    }.bind(this));
 
     // Get the dataset name from the query parameters, may have been loaded from view:
     this.qDataset = loader.downloadDataset(query);
