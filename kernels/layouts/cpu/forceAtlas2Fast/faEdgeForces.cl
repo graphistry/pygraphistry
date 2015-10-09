@@ -1,5 +1,5 @@
 #include "common.h"
-#include "layouts/forceAtlas2Common.h"
+#include "layouts/gpu/forceAtlas2/forceAtlas2Common.h"
 
 __kernel void faEdgeForces(
     //input
