@@ -254,7 +254,7 @@ class Plotter(object):
         res._url_params = dict(self._url_params, **url_params)
         return res
 
-    def plot(self, graph=None, nodes=None, mode='json'):
+    def plot(self, graph=None, nodes=None):
         """Upload data to the Graphistry server and show as an iframe of it.
 
         Uses the currently bound schema structure and visual encodings. Optional parameters override the current bindings.
@@ -297,13 +297,16 @@ class Plotter(object):
         n = self._nodes if nodes is None else nodes
 
         self._check_mandatory_bindings(not isinstance(n, type(None)))
-        dataset = self._plot_dispatch(g, n, mode)
-        if dataset is None:
-            util.error('Expected Pandas dataframe(s) or Igraph/NetworkX graph.')
-
         PyG = pygraphistry.PyGraphistry
-        dataset = PyG._etl(dataset, mode)
-        viz_url = PyG._viz_url(dataset['name'], dataset['viztoken'], self._url_params)
+
+        if (PyG.api == 1):
+            dataset = self._plot_dispatch(g, n, 'json')
+            info = PyG._etl1(dataset)
+        elif (PyG.api == 2):
+            dataset = self._plot_dispatch(g, n, 'vgraph')
+            info = PyG._etl2(dataset['encodings'], dataset['vgraph'])
+
+        viz_url = PyG._viz_url(info['name'], info['viztoken'], self._url_params)
 
         if util.in_ipython() is True:
             from IPython.core.display import HTML
@@ -391,7 +394,6 @@ class Plotter(object):
         return (edges, nodes)
 
     def networkx2pandas(self, g):
-
         def get_nodelist(g):
             for n in g.nodes(data=True):
                 yield dict({self._node: n[0]}, **n[1])
@@ -447,21 +449,10 @@ class Plotter(object):
         except ImportError:
             pass
 
-        return None
+        util.error('Expected Pandas dataframe(s) or Igraph/NetworkX graph.')
 
-    def _pandas2dataset(self, edges, nodes):
-        def bind(df, pbname, attrib, default=None):
-            bound = getattr(self, attrib)
-            if bound:
-                if bound in df.columns.tolist():
-                    df[pbname] = df[bound]
-                else:
-                    util.warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
-            elif default:
-                df[pbname] = df[default]
-
+    def _sanitize_dataset(self, edges, nodes, nodeid):
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
-        nodeid = self._node or Plotter._defaultNodeId
         elist = edges.reset_index(drop=True).dropna(subset=[self._source, self._destination])
         if nodes is None:
             nodes = pandas.DataFrame()
@@ -470,7 +461,9 @@ class Plotter(object):
         else:
             self._check_bound_attribs(nodes, ['node'], 'Vertex')
         nlist = nodes.reset_index(drop=True).dropna(subset=[nodeid])
+        return (elist, nlist)
 
+    def _check_dataset_size(self, elist, nlist):
         edge_count = len(elist.index)
         node_count = len(nlist.index)
         graph_size = edge_count + node_count
@@ -481,6 +474,21 @@ class Plotter(object):
         if graph_size > 1e6:
             util.warn('Large graph: |nodes| + |edges| = %d. Layout/rendering might be slow.' % graph_size)
 
+    def _bind_attributes_v1(self, edges, nodes):
+        def bind(df, pbname, attrib, default=None):
+            bound = getattr(self, attrib)
+            if bound:
+                if bound in df.columns.tolist():
+                    df[pbname] = df[bound]
+                else:
+                    util.warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
+            elif default:
+                df[pbname] = df[default]
+
+
+        nodeid = self._node or Plotter._defaultNodeId
+        (elist, nlist) = self._sanitize_dataset(edges, nodes, nodeid)
+        self._check_dataset_size(elist, nlist)
 
         bind(elist, 'edgeColor', '_edge_color')
         bind(elist, 'edgeLabel', '_edge_label')
@@ -492,6 +500,36 @@ class Plotter(object):
         bind(nlist, 'pointSize', '_point_size')
         return (elist, nlist)
 
+    def _bind_attributes_v2(self, edges, nodes):
+        def bind(enc, df, pbname, attrib, default=None):
+            bound = getattr(self, attrib)
+            if bound:
+                if bound in df.columns.tolist():
+                    enc[pbname] = bound
+                else:
+                    util.warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
+            elif default:
+                enc[pbname] = default
+
+        nodeid = self._node or Plotter._defaultNodeId
+        (elist, nlist) = self._sanitize_dataset(edges, nodes, nodeid)
+        self._check_dataset_size(elist, nlist)
+
+        encodings = {
+            'source': self._source,
+            'destination': self._destination,
+            'nodeId': self._node
+        }
+        bind(encodings, elist, 'edgeColor', '_edge_color')
+        bind(encodings, elist, 'edgeLabel', '_edge_label')
+        bind(encodings, elist, 'edgeTitle', '_edge_title')
+        bind(encodings, elist, 'edgeWeight', '_edge_weight')
+        bind(encodings, nlist, 'pointColor', '_point_color')
+        bind(encodings, nlist, 'pointLabel', '_point_label')
+        bind(encodings, nlist, 'pointTitle', '_point_title', nodeid)
+        bind(encodings, nlist, 'pointSize', '_point_size')
+        return (elist, nlist, encodings)
+
     def _make_dataset(self, edges, nodes, mode):
         if mode == 'json':
             return self._make_json_dataset(edges, nodes)
@@ -501,7 +539,7 @@ class Plotter(object):
             raise ValueError('Unknown mode: ' + mode)
 
     def _make_json_dataset(self, edges, nodes):
-        (elist, nlist) = self._pandas2dataset(edges, nodes)
+        (elist, nlist) = self._bind_attributes_v1(edges, nodes)
 
         edict = elist.where((pandas.notnull(elist)), None).to_dict(orient='records')
         name = ''.join(random.choice(string.ascii_uppercase +
@@ -551,7 +589,7 @@ class Plotter(object):
                     for val in df[col]:
                         vec.values.append(val)
 
-        (elist, nlist) = self._pandas2dataset(edges, nodes)
+        (elist, nlist, enc) = self._bind_attributes_v2(edges, nodes)
         nodeid = self._node or Plotter._defaultNodeId
 
         vg = VectorGraph()
@@ -575,8 +613,8 @@ class Plotter(object):
         vg.type = VectorGraph.DIRECTED
         vg.nvertices = len(node_map)
         vg.nedges = len(elist)
-        vg.name = ''.join(random.choice(string.ascii_uppercase +
-                                        string.digits) for _ in range(10))
+        name = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
+        vg.name = pygraphistry.PyGraphistry._dataset_prefix + name
 
         for s, d in zip(sources.tolist(), dests.tolist()):
             e = vg.edges.add()
@@ -586,4 +624,4 @@ class Plotter(object):
         storeEdgeAttributes(elist)
         storeNodeAttributes(filtered_nlist, nodeid, node_map)
 
-        return vg
+        return {'vgraph': vg, 'encodings': enc}

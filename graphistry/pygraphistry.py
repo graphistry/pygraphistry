@@ -18,6 +18,7 @@ from . import util
 
 
 class PyGraphistry(object):
+    api = 1
     api_key = None
     _tag = util.fingerprint()
     _dataset_prefix = 'PyGraphistry/'
@@ -25,7 +26,7 @@ class PyGraphistry(object):
     _protocol = None
 
     @staticmethod
-    def register(key, server='labs', protocol=None):
+    def register(key, server='labs', protocol=None, api=1):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -62,6 +63,7 @@ class PyGraphistry(object):
         else:
             PyGraphistry._hostname = server
         PyGraphistry.api_key = key.strip()
+        PyGraphistry.api = api
         PyGraphistry._protocol = protocol
         PyGraphistry._check_key()
 
@@ -143,16 +145,22 @@ class PyGraphistry(object):
                     f.write(json_dataset.encode('utf8'))
         elif mode == 'vgraph':
             bin_dataset = dataset.SerializeToString()
-
             with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
                 f.write(bin_dataset)
         else:
             raise ValueError('Unknown mode:', mode)
 
+        size = len(out_file.getvalue()) / 1024
+        if size >= 5 * 1024:
+            print('Uploading %d kB. This may take a while...' % size)
+            sys.stdout.flush()
+        elif size > 50 * 1024:
+            util.error('Dataset is too large (%d kB)!' % size)
+
         return out_file
 
     @staticmethod
-    def _etl(dataset, mode):
+    def _etl1(dataset):
         if PyGraphistry.api_key is None:
             raise ValueError('API key required')
 
@@ -161,23 +169,47 @@ class PyGraphistry(object):
                   'agentversion': sys.modules['graphistry'].__version__,
                   'key': PyGraphistry.api_key}
 
-
-        out_file = PyGraphistry._get_data_file(dataset, mode)
-        size = len(out_file.getvalue()) / 1024
-
-        if size >= 5 * 1024:
-            print('Uploading %d kB. This may take a while...' % size)
-            sys.stdout.flush()
-        elif size > 50 * 1024:
-            util.error('Dataset is too large (%d kB)!' % size)
-
-        response = requests.post(PyGraphistry._etl_url(mode), out_file.getvalue(),
+        out_file = PyGraphistry._get_data_file(dataset, 'json')
+        response = requests.post(PyGraphistry._etl_url('json'), out_file.getvalue(),
                                  headers=headers, params=params)
         response.raise_for_status()
 
         jres = response.json()
         if jres['success'] is not True:
             raise ValueError('Server reported error:', jres['msg'])
+        else:
+            return {'name': jres['dataset'], 'viztoken': jres['viztoken']}
+
+    @staticmethod
+    def _etl2(encodings, vgraph):
+        if PyGraphistry.api_key is None:
+            raise ValueError('API key required')
+
+        metadata = {
+            'datasources': [
+                {'type': 'vgraph', 'url': 'data0'}
+            ],
+            'view': {
+                'encodings': encodings
+            },
+            'types': {}
+        }
+
+        out_file = PyGraphistry._get_data_file(vgraph, 'vgraph')
+        parts = {
+            'metadata': ('metadata', json.dumps(metadata, ensure_ascii=False), 'application/json'),
+            'data0': ('data0', out_file.getvalue(), 'application/octet-stream')
+        }
+
+        params = {'usertag': PyGraphistry._tag, 'agent': 'pygraphistry', 'apiversion' : '2',
+                  'agentversion': sys.modules['graphistry'].__version__,
+                  'key': PyGraphistry.api_key}
+        response = requests.post(PyGraphistry._etl_url('json'), files=parts, params=params)
+        response.raise_for_status()
+
+        jres = response.json()
+        if jres['success'] is not True:
+            raise ValueError('Server reported error:', jres['msg'] if 'msg' in jres else 'No Message')
         else:
             return {'name': jres['dataset'], 'viztoken': jres['viztoken']}
 
