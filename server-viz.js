@@ -590,11 +590,35 @@ VizServer.prototype.loadSessionDataForURLQuery = function (query) {
     _.extend(query, _.pick(viewConfig, workbook.URLParamsThatPersist));
 
     // Get the dataset name from the query parameters, may have been loaded from view:
-    var datasetURL = loader.datasetURLFromQuery(query),
-        datasetURLString = datasetURL.format(),
-        datasetConfig = loader.datasetConfigFromQuery(query);
-    this.workbookDoc.datasetReferences[datasetURLString] = _.extend(datasetConfig, {name: datasetURLString, url: datasetURLString});
-    this.qDataset = loader.downloadDataset(datasetURL, datasetConfig);
+    var queryDatasetURL = loader.datasetURLFromQuery(query),
+        queryDatasetConfig = loader.datasetConfigFromQuery(query);
+    var datasetURLString, datasetConfig;
+    // Pick any dataset in the workbook if not requested in the URL:
+    if (queryDatasetURL === undefined) {
+        datasetConfig = _.find(this.workbookDoc.datasetReferences);
+        datasetURLString = datasetConfig.url;
+    } else {
+        // Using the URL parameter, make a config from the URL:
+        datasetURLString = queryDatasetURL.format();
+        _.extend(queryDatasetConfig, {
+            name: datasetURLString,
+            url: datasetURLString
+        });
+    }
+    // Auto-create a config for the URL:
+    if (!this.workbookDoc.datasetReferences.hasOwnProperty(datasetURLString)) {
+        this.workbookDoc.datasetReferences[datasetURLString] = {};
+    }
+    // Select the config and update it from the query unless the URL mismatches:
+    datasetConfig = this.workbookDoc.datasetReferences[datasetURLString];
+    if (datasetConfig.url === undefined ||
+        queryDatasetURL === undefined ||
+        datasetConfig.url === datasetURLString) {
+        _.extend(datasetConfig, queryDatasetConfig);
+    }
+
+    // Now load the dataset via the config:
+    this.qDataset = loader.downloadDataset(datasetConfig);
 
     return viewConfig;
 };
