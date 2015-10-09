@@ -1,8 +1,10 @@
 'use strict';
 
 var Q           = require('q');
+var _           = require('underscore');
 var sprintf     = require('sprintf-js').sprintf;
 var bodyParser  = require('body-parser');
+var multer      = require('multer');
 
 var config      = require('config')();
 var Log         = require('common/logger.js');
@@ -108,12 +110,16 @@ function dispatcher(tearDown, req, res) {
     var apiVersion = params.apiVersion || 0;
     var handler = handlers[apiVersion];
     if (handler !== undefined) {
-        handler(req, res, params)
-            .then(function (info) {
-                return slackNotify(info.name, info.nnodes, info.nedges, params);
-            }).then(function() {
-                tearDown(0);
-            }).fail(makeFailHandler(res, tearDown));
+        try {
+            handler(req, res, params)
+                .then(function (info) {
+                    return slackNotify(info.name, info.nnodes, info.nedges, params);
+                }).then(function() {
+                    tearDown(0);
+                }).fail(makeFailHandler(res, tearDown));
+        } catch (err) {
+            makeFailHandler(res, tearDown)(err);
+        }
     } else {
         res.send({ success: false, msg: 'Unsupported API version:' + apiVersion });
         tearDown(1);
@@ -136,7 +142,15 @@ function init(app, socket) {
     logger.debug('Client connected', socket.id);
 
     var JSONParser = bodyParser.json({limit: '128mb'});
-    app.post('/etl', JSONParser, dispatcher.bind('', tearDown.bind('', socket)));
+
+    var fields = _.map(_.range(16), function (n) {
+        return { name: 'data' + n, maxCount: 1 }
+    }).concat([{ name: 'metadata', maxCount: 1 }]);
+
+    var formParser = multer({ storage: multer.memoryStorage() }).fields(fields);
+
+    var apiDispatcher = dispatcher.bind('', tearDown.bind('', socket));
+    app.post('/etl', JSONParser, formParser, apiDispatcher);
 }
 
 
