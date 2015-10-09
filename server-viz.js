@@ -884,9 +884,9 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     function (rejectedResult) {
                         return cb({success: false, error: rejectedResult});
                     });
-            })
+            }.bind(this))
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'persist_current_workbook'));
-    });
+    }.bind(this));
 
     this.socket.on('persist_current_vbo', function(contentKey, cb) {
         graph.take(1)
