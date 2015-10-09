@@ -16,8 +16,7 @@ var logger      = Log.createLogger('etlworker:index');
 
 
 
-
-// String * String -> ()
+// String * String * Sting * Object -> ()
 function slackNotify(name, nnodes, nedges, params) {
     function makeUrl(server) {
         return '<http://proxy-' + server + '.graphistry.com' +
@@ -72,6 +71,7 @@ function slackNotify(name, nnodes, nedges, params) {
 }
 
 
+// Request -> Object
 function parseQueryParams(req) {
     var res = [];
 
@@ -85,6 +85,7 @@ function parseQueryParams(req) {
 }
 
 
+// Response * (Int -> ()) -> ()
 function makeFailHandler(res, tearDown) {
     return function (err) {
         logger.error(err, 'ETL post fail');
@@ -98,6 +99,7 @@ function makeFailHandler(res, tearDown) {
 }
 
 
+// (Int -> ()) * Request * Response -> ()
 function dispatcher(tearDown, req, res) {
     var params = parseQueryParams(req);
 
@@ -127,6 +129,7 @@ function dispatcher(tearDown, req, res) {
 }
 
 
+// Socket * Int -> ()
 function tearDown(socket, exitCode) {
     logger.debug('Worker finished, exiting');
     if (config.ENVIRONMENT === 'production' || config.ENVIRONMENT === 'staging') {
@@ -138,6 +141,7 @@ function tearDown(socket, exitCode) {
 }
 
 
+// Express.App * Socket -> ()
 function init(app, socket) {
     logger.debug('Client connected', socket.id);
 
