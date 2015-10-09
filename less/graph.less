@@ -47,8 +47,7 @@
 @status-bar-z:                 99999;
 
 @tooltip-z:                  1000001;
-@forker-z:                   1001000;
-@persistor-z:                1001000;
+@persist-z:                  1001000;
 
 @modal-z:                    2000000;
 @colorpicker-z:              2002000;
@@ -848,15 +847,15 @@ button.btn-default {
 
 
 .forker {
-    z-index: @forker-z;
+    z-index: @persist-z;
 
     .modal-body {
         word-wrap: break-word
     }
 }
 
-.persistor {
-    z-index: @persistor-z;
+.persistLayout {
+    z-index: @persist-z;
 
     .modal-body {
         word-wrap: break-word

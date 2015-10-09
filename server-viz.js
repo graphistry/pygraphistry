@@ -10,12 +10,12 @@ var Q           = require('q');
 var fs          = require('fs');
 var path        = require('path');
 var extend      = require('node.extend');
-var dConf       = require('./js/workbook.config.js');
 var rConf       = require('./js/renderer.config.js');
 var lConf       = require('./js/layout.config.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
-var persistor   = require('./js/persist.js');
+var persist     = require('./js/persist.js');
+var workbook    = require('./js/workbook.js');
 var labeler     = require('./js/labeler.js');
 var vgwriter    = require('./js/libs/VGraphWriter.js');
 var compress    = require('node-pigz');
@@ -286,7 +286,7 @@ function VizServer(app, socket, cachedVBOs) {
     this.isActive = true;
     this.defineRoutesInApp(app);
     this.socket = socket;
-    this.workbookConfig = {};
+    this.workbookDoc = {};
     this.cachedVBOs = cachedVBOs;
     /** @type {GraphistryURLParams} */
     var query = this.socket.handshake.query;
@@ -313,7 +313,7 @@ function VizServer(app, socket, cachedVBOs) {
             cb({success: true, renderConfig: renderConfig});
 
             if (saveAtEachStep) {
-                persistor.saveConfig(defaultSnapshotName, renderConfig);
+                persist.saveConfig(defaultSnapshotName, renderConfig);
             }
 
             this.lastRenderConfig = renderConfig;
@@ -333,7 +333,7 @@ function VizServer(app, socket, cachedVBOs) {
             cb({success: true, renderConfig: renderConfig});
 
             if (saveAtEachStep) {
-                persistor.saveConfig(defaultSnapshotName, renderConfig);
+                persist.saveConfig(defaultSnapshotName, renderConfig);
             }
 
             this.lastRenderConfig = renderConfig;
@@ -542,26 +542,27 @@ function VizServer(app, socket, cachedVBOs) {
 VizServer.prototype.loadSessionDataForURLQuery = function (query) {
     if (query.workbook) {
         logger.debug('Loading workbook', query.workbook);
-        var observableLoad = dConf.loadDocument(decodeURIComponent(query.workbook));
+        var observableLoad = workbook.loadDocument(decodeURIComponent(query.workbook));
         observableLoad.do(function (workbookDoc) {
-            this.workbookConfig = _.extend(this.workbookConfig, workbookDoc);
+            this.workbookDoc = _.extend(this.workbookDoc, workbookDoc);
         }.bind(this)).subscribe(_.identity, function (error) {
             util.makeRxErrorHandler('Loading Workbook')(error);
             // TODO report to user if authenticated and can know of this workbook's existence.
         });
     } else {
         // Create a new workbook here with a default view:
-        this.workbookConfig = _.extend(this.workbookConfig,
+        this.workbookDoc = _.extend(this.workbookDoc,
             {
+                datasetReferences: {},
                 views: {default: {}},
                 currentView: 'default'
             });
     }
 
     // Pick the default view or the current view or any view:
-    var viewConfig = this.workbookConfig.views.default ||
-        (this.workbookConfig.currentView ?
-            this.workbookConfig.views[this.workbookConfig.currentview] : _.find(this.workbookConfig.views));
+    var viewConfig = this.workbookDoc.views.default ||
+        (this.workbookDoc.currentView ?
+            this.workbookDoc.views[this.workbookDoc.currentview] : _.find(this.workbookDoc.views));
 
     if (!viewConfig.filters) {
         viewConfig.filters = [
@@ -586,10 +587,39 @@ VizServer.prototype.loadSessionDataForURLQuery = function (query) {
     }
 
     // Apply approved URL parameters to that view concretely since we're creating it now:
-    _.extend(query, _.pick(viewConfig, dConf.URLParamsThatPersist));
+    _.extend(query, _.pick(viewConfig, workbook.URLParamsThatPersist));
 
     // Get the dataset name from the query parameters, may have been loaded from view:
-    this.qDataset = loader.downloadDataset(query);
+    var queryDatasetURL = loader.datasetURLFromQuery(query),
+        queryDatasetConfig = loader.datasetConfigFromQuery(query);
+    var datasetURLString, datasetConfig;
+    // Pick any dataset in the workbook if not requested in the URL:
+    if (queryDatasetURL === undefined) {
+        datasetConfig = _.find(this.workbookDoc.datasetReferences);
+        datasetURLString = datasetConfig.url;
+    } else {
+        // Using the URL parameter, make a config from the URL:
+        datasetURLString = queryDatasetURL.format();
+        _.extend(queryDatasetConfig, {
+            name: datasetURLString,
+            url: datasetURLString
+        });
+    }
+    // Auto-create a config for the URL:
+    if (!this.workbookDoc.datasetReferences.hasOwnProperty(datasetURLString)) {
+        this.workbookDoc.datasetReferences[datasetURLString] = {};
+    }
+    // Select the config and update it from the query unless the URL mismatches:
+    datasetConfig = this.workbookDoc.datasetReferences[datasetURLString];
+    if (datasetConfig.url === undefined ||
+        queryDatasetURL === undefined ||
+        datasetConfig.url === datasetURLString) {
+        _.extend(datasetConfig, queryDatasetConfig);
+    }
+
+    // Now load the dataset via the config:
+    this.qDataset = loader.downloadDataset(datasetConfig);
+
     return viewConfig;
 };
 
@@ -847,7 +877,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     this.socket.on('persist_current_workbook', function(workbookName, cb) {
         graph.take(1)
             .do(function (/*graph*/) {
-                dConf.saveDocument(workbookName, this.workbookConfig).then(
+                workbook.saveDocument(workbookName, this.workbookDoc).then(
                     function (result) {
                         return cb({success: true, data: result});
                     },
@@ -862,7 +892,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
         graph.take(1)
             .do(function (graph) {
                 var cleanContentKey = encodeURIComponent(contentKey);
-                persistor.publishStaticContents(
+                persist.publishStaticContents(
                     cleanContentKey, this.lastCompressedVBOs,
                     this.lastMetadata, graph.dataframe, renderConfig).then(function() {
                     cb({success: true, name: cleanContentKey});
@@ -882,7 +912,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     cleanImageName = encodeURIComponent(imageName),
                     base64Data = pngDataURL.replace(/^data:image\/png;base64,/,""),
                     binaryData = new Buffer(base64Data, 'base64');
-                persistor.publishPNGToStaticContents(cleanContentKey, cleanImageName, binaryData).then(function() {
+                persist.publishPNGToStaticContents(cleanContentKey, cleanImageName, binaryData).then(function() {
                     cb({success: true, name: cleanContentKey});
                 }).done(
                     _.identity,
@@ -952,7 +982,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 this.lastMetadata = {elements: VBOs.elements, bufferByteLengths: VBOs.bufferByteLengths};
 
                 if (saveAtEachStep) {
-                    persistor.saveVBOs(defaultSnapshotName, VBOs, step);
+                    persist.saveVBOs(defaultSnapshotName, VBOs, step);
                 }
             }.bind(this))
             .flatMap(function (VBOs) {
