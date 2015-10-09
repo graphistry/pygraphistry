@@ -13,7 +13,6 @@ var extend      = require('node.extend');
 var dConf       = require('./js/workbook.config.js');
 var rConf       = require('./js/renderer.config.js');
 var lConf       = require('./js/layout.config.js');
-var wbLoader    = require('./js/workbook.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var persistor   = require('./js/persist.js');
@@ -543,7 +542,7 @@ function VizServer(app, socket, cachedVBOs) {
 VizServer.prototype.loadSessionDataForURLQuery = function (query) {
     if (query.workbook) {
         logger.debug('Loading workbook', query.workbook);
-        var observableLoad = wbLoader.loadDocument(decodeURIComponent(query.workbook));
+        var observableLoad = dConf.loadDocument(decodeURIComponent(query.workbook));
         observableLoad.do(function (workbookDoc) {
             this.workbookConfig = _.extend(this.workbookConfig, workbookDoc);
         }.bind(this)).subscribe(_.identity, function (error) {
@@ -848,7 +847,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     this.socket.on('persist_current_workbook', function(workbookName, cb) {
         graph.take(1)
             .do(function (/*graph*/) {
-                wbLoader.saveDocument(workbookName, this.workbookConfig).then(
+                dConf.saveDocument(workbookName, this.workbookConfig).then(
                     function (result) {
                         return cb({success: true, data: result});
                     },
