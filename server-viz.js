@@ -553,6 +553,7 @@ VizServer.prototype.loadSessionDataForURLQuery = function (query) {
         // Create a new workbook here with a default view:
         this.workbookDoc = _.extend(this.workbookDoc,
             {
+                datasetReferences: {},
                 views: {default: {}},
                 currentView: 'default'
             });
@@ -589,7 +590,12 @@ VizServer.prototype.loadSessionDataForURLQuery = function (query) {
     _.extend(query, _.pick(viewConfig, workbook.URLParamsThatPersist));
 
     // Get the dataset name from the query parameters, may have been loaded from view:
-    this.qDataset = loader.downloadDataset(query);
+    var datasetURL = loader.datasetURLFromQuery(query),
+        datasetURLString = datasetURL.format(),
+        datasetConfig = loader.datasetConfigFromQuery(query);
+    this.workbookDoc.datasetReferences[datasetURLString] = _.extend(datasetConfig, {name: datasetURLString, url: datasetURLString});
+    this.qDataset = loader.downloadDataset(datasetURL, datasetConfig);
+
     return viewConfig;
 };
 
