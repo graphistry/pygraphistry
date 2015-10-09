@@ -1,5 +1,9 @@
-exports.staticFilePath = function() {
+'use strict';
+
+var VizServer = require('./server-viz.js');
+
+VizServer.staticFilePath = function() {
     return __dirname;
 };
 
-exports.init = require('./server-viz.js').init;
+module.exports = VizServer;
