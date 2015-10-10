@@ -641,6 +641,8 @@ VizServer.prototype.workbookForQuery = function (observableResult, query) {
     } else {
         // Create a new workbook here with a default view:
         observableResult.onNext({
+            title: undefined,
+            contentName: undefined,
             datasetReferences: {},
             views: {default: {}},
             currentView: 'default'
@@ -901,6 +903,8 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
     this.socket.on('persist_current_workbook', function(workbookName, cb) {
         Rx.Observable.combineLatest(graph, this.workbookDoc, function (graph, workbookDoc) {
+            workbookDoc.title = workbookName;
+            workbookDoc.contentName = workbookName;
             workbook.saveDocument(workbookName, workbookDoc).then(
                 function (result) {
                     return cb({success: true, data: result});
