@@ -123,7 +123,7 @@ VizServer.prototype.resetState = function (dataset) {
     this.lastCompressedVBOs = undefined;
     this.lastMetadata = undefined;
     /** @type {Object.<String,Function>} **/
-    this.bufferTransferFinisher;
+    this.bufferTransferFinisher = undefined;
 
     this.lastRenderConfig = undefined;
 
@@ -286,25 +286,34 @@ function VizServer(app, socket, cachedVBOs) {
     this.isActive = true;
     this.defineRoutesInApp(app);
     this.socket = socket;
-    this.workbookDoc = {};
     this.cachedVBOs = cachedVBOs;
     /** @type {GraphistryURLParams} */
     var query = this.socket.handshake.query;
-    var viewConfig = this.loadSessionDataForURLQuery(query);
+    this.viewConfig = new Rx.ReplaySubject(1);
+    this.workbookDoc = new Rx.ReplaySubject(1);
+    this.workbookForQuery(this.workbookDoc, query);
+    this.workbookDoc.subscribe(function (workbookDoc) {
+        this.viewConfig.onNext(this.getViewToLoad(workbookDoc, query));
+    }.bind(this), log.makeRxErrorHandler(logger, 'Getting View from Workbook'));
 
     this.setupColorTexture();
 
-    this.qRenderConfig = this.qDataset.then(function (dataset) {
-        var metadata = dataset.metadata;
+    var renderConfigDeferred = Q.defer();
+    this.qRenderConfig = renderConfigDeferred.promise;
+    this.workbookDoc.take(1).do(function (workbookDoc) {
+        this.qDataset = this.setupDataset(workbookDoc, query);
+        this.qDataset.then(function (dataset) {
+            var metadata = dataset.metadata;
 
-        if (!(metadata.scene in rConf.scenes)) {
-            logger.warn('WARNING Unknown scene "%s", using default', metadata.scene);
-            metadata.scene = 'default';
-        }
+            if (!(metadata.scene in rConf.scenes)) {
+                logger.warn('WARNING Unknown scene "%s", using default', metadata.scene);
+                metadata.scene = 'default';
+            }
 
-        this.resetState(dataset);
-        return rConf.scenes[metadata.scene];
-    }.bind(this)).fail(log.makeQErrorHandler(logger, 'resetting state'));
+            this.resetState(dataset);
+            renderConfigDeferred.resolve(rConf.scenes[metadata.scene]);
+        }.bind(this)).fail(log.makeQErrorHandler(logger, 'resetting state'));
+    }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(logger, 'Get render config'));
 
     this.socket.on('render_config', function(_, cb) {
         this.qRenderConfig.then(function (renderConfig) {
@@ -345,71 +354,78 @@ function VizServer(app, socket, cachedVBOs) {
 
     this.socket.on('get_filters', function (ignored, cb) {
         logger.trace('sending current filters to client');
-        cb({success: true, filters: viewConfig.filters});
-    });
+        this.viewConfig.take(1).do(function (viewConfig) {
+            cb({success: true, filters: viewConfig.filters});
+        }).subscribe(_.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
+    }.bind(this));
 
     this.socket.on('update_filters', function (newValues, cb) {
         logger.trace('updating filters from client values');
         // Maybe direct assignment isn't safe, but it'll do for now.
-        viewConfig.filters = newValues;
-        logger.info('filters', viewConfig.filters);
-
-        this.graph.take(1).do(function (graph) {
-            var dataframe = graph.dataframe;
-            var maskList = [];
-            var errors = [];
-            var pointLimit = Infinity;
-
-            _.each(viewConfig.filters, function (filter) {
-                if (filter.enabled === false) {
-                    return;
-                }
-                /** @type ClientQuery */
-                var filterQuery = filter.query;
-                var masks;
-                if (filterQuery === undefined) {
-                    return;
-                }
-                var ast = filterQuery.ast;
-                if (ast !== undefined &&
-                    ast.type === 'Limit' &&
-                    ast.value !== undefined) {
-                    var generator = new ExpressionCodeGenerator('javascript');
-                    pointLimit = generator.evaluateExpressionFree(ast.value);
-                    return;
-                }
-                var type = filter.type || filterQuery.type;
-                var attribute = filter.attribute || filterQuery.attribute;
-                var normalization = dataframe.normalizeAttributeName(filterQuery.attribute, type);
-                if (normalization === undefined) {
-                    errors.push('Unknown frame element');
-                    return;
-                } else {
-                    type = normalization.type;
-                    attribute = normalization.attribute;
-                }
-                if (type === 'point') {
-                    var pointMask = dataframe.getPointAttributeMask(attribute, filterQuery);
-                    masks = dataframe.masksFromPoints(pointMask);
-                } else if (type === 'edge') {
-                    var edgeMask = dataframe.getEdgeAttributeMask(attribute, filterQuery);
-                    masks = dataframe.masksFromEdges(edgeMask);
-                } else {
-                    errors.push('Unknown frame element type');
-                    return;
-                }
-                // Record the size of the filtered set for UI feedback:
-                filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
-                maskList.push(masks);
-            });
-
-            this.filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, pointLimit, cb);
-        }.bind(this)).subscribe(
-            _.identity,
-            function (err) {
-                log.makeRxErrorHandler(logger, 'update_filters handler')(err);
+        this.viewConfig.take(1).do(function (viewConfig) {
+            if (!_.isEqual(newValues, viewConfig.filters)) {
+                viewConfig.filters = newValues;
+                this.viewConfig.onNext(viewConfig);
             }
-        );
+            logger.info('updated filters', viewConfig.filters);
+
+            this.graph.take(1).do(function (graph) {
+                var dataframe = graph.dataframe;
+                var maskList = [];
+                var errors = [];
+                var pointLimit = Infinity;
+
+                _.each(viewConfig.filters, function (filter) {
+                    if (filter.enabled === false) {
+                        return;
+                    }
+                    /** @type ClientQuery */
+                    var filterQuery = filter.query;
+                    var masks;
+                    if (filterQuery === undefined) {
+                        return;
+                    }
+                    var ast = filterQuery.ast;
+                    if (ast !== undefined &&
+                        ast.type === 'Limit' &&
+                        ast.value !== undefined) {
+                        var generator = new ExpressionCodeGenerator('javascript');
+                        pointLimit = generator.evaluateExpressionFree(ast.value);
+                        return;
+                    }
+                    var type = filter.type || filterQuery.type;
+                    var attribute = filter.attribute || filterQuery.attribute;
+                    var normalization = dataframe.normalizeAttributeName(filterQuery.attribute, type);
+                    if (normalization === undefined) {
+                        errors.push('Unknown frame element');
+                        return;
+                    } else {
+                        type = normalization.type;
+                        attribute = normalization.attribute;
+                    }
+                    if (type === 'point') {
+                        var pointMask = dataframe.getPointAttributeMask(attribute, filterQuery);
+                        masks = dataframe.masksFromPoints(pointMask);
+                    } else if (type === 'edge') {
+                        var edgeMask = dataframe.getEdgeAttributeMask(attribute, filterQuery);
+                        masks = dataframe.masksFromEdges(edgeMask);
+                    } else {
+                        errors.push('Unknown frame element type');
+                        return;
+                    }
+                    // Record the size of the filtered set for UI feedback:
+                    filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
+                    maskList.push(masks);
+                });
+
+                this.filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, pointLimit, cb);
+            }.bind(this)).subscribe(
+                _.identity,
+                function (err) {
+                    log.makeRxErrorHandler(logger, 'update_filters handler')(err);
+                }
+            );
+        }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
 
     this.socket.on('layout_controls', function(_, cb) {
@@ -539,30 +555,15 @@ function VizServer(app, socket, cachedVBOs) {
     this.socket.on('viz', function (msg, cb) { cb({success: true}); });
 }
 
-VizServer.prototype.loadSessionDataForURLQuery = function (query) {
-    if (query.workbook) {
-        logger.debug('Loading workbook', query.workbook);
-        var observableLoad = workbook.loadDocument(decodeURIComponent(query.workbook));
-        observableLoad.do(function (workbookDoc) {
-            this.workbookDoc = _.extend(this.workbookDoc, workbookDoc);
-        }.bind(this)).subscribe(_.identity, function (error) {
-            util.makeRxErrorHandler('Loading Workbook')(error);
-            // TODO report to user if authenticated and can know of this workbook's existence.
-        });
-    } else {
-        // Create a new workbook here with a default view:
-        this.workbookDoc = _.extend(this.workbookDoc,
-            {
-                datasetReferences: {},
-                views: {default: {}},
-                currentView: 'default'
-            });
-    }
-
-    // Pick the default view or the current view or any view:
-    var viewConfig = this.workbookDoc.views.default ||
-        (this.workbookDoc.currentView ?
-            this.workbookDoc.views[this.workbookDoc.currentview] : _.find(this.workbookDoc.views));
+/** Pick the default view or the current view or any view.
+ * @param {Object} workbookDoc
+ * @param {GraphistryURLParams} query
+ * @returns {Object}
+ */
+VizServer.prototype.getViewToLoad = function (workbookDoc, query) {
+    var viewConfig = workbookDoc.views.default ||
+        (workbookDoc.currentView ?
+            workbookDoc.views[workbookDoc.currentview] : _.find(workbookDoc.views));
 
     if (!viewConfig.filters) {
         viewConfig.filters = [
@@ -587,15 +588,22 @@ VizServer.prototype.loadSessionDataForURLQuery = function (query) {
     }
 
     // Apply approved URL parameters to that view concretely since we're creating it now:
-    _.extend(query, _.pick(viewConfig, workbook.URLParamsThatPersist));
+    _.extend(viewConfig, _.pick(query, workbook.URLParamsThatPersist));
+    return viewConfig;
+};
 
-    // Get the dataset name from the query parameters, may have been loaded from view:
+/** Get the dataset name from the query parameters, may have been loaded from view:
+ * @param {Object} workbookDoc
+ * @param {GraphistryURLParams} query
+ * @returns {Promise}
+ */
+VizServer.prototype.setupDataset = function (workbookDoc, query) {
     var queryDatasetURL = loader.datasetURLFromQuery(query),
         queryDatasetConfig = loader.datasetConfigFromQuery(query);
     var datasetURLString, datasetConfig;
     // Pick any dataset in the workbook if not requested in the URL:
     if (queryDatasetURL === undefined) {
-        datasetConfig = _.find(this.workbookDoc.datasetReferences);
+        datasetConfig = _.find(workbookDoc.datasetReferences);
         datasetURLString = datasetConfig.url;
     } else {
         // Using the URL parameter, make a config from the URL:
@@ -606,21 +614,38 @@ VizServer.prototype.loadSessionDataForURLQuery = function (query) {
         });
     }
     // Auto-create a config for the URL:
-    if (!this.workbookDoc.datasetReferences.hasOwnProperty(datasetURLString)) {
-        this.workbookDoc.datasetReferences[datasetURLString] = {};
+    if (!workbookDoc.datasetReferences.hasOwnProperty(datasetURLString)) {
+        workbookDoc.datasetReferences[datasetURLString] = {};
     }
     // Select the config and update it from the query unless the URL mismatches:
-    datasetConfig = this.workbookDoc.datasetReferences[datasetURLString];
+    datasetConfig = workbookDoc.datasetReferences[datasetURLString];
     if (datasetConfig.url === undefined ||
         queryDatasetURL === undefined ||
         datasetConfig.url === datasetURLString) {
         _.extend(datasetConfig, queryDatasetConfig);
     }
 
-    // Now load the dataset via the config:
-    this.qDataset = loader.downloadDataset(datasetConfig);
+    // Pass the config on:
+    return loader.downloadDataset(datasetConfig);
+};
 
-    return viewConfig;
+VizServer.prototype.workbookForQuery = function (observableResult, query) {
+    if (query.workbook) {
+        logger.debug('Loading workbook', query.workbook);
+        workbook.loadDocument(decodeURIComponent(query.workbook)).subscribe(function (workbookDoc) {
+            observableResult.onNext(workbookDoc);
+        }, function (error) {
+            log.makeRxErrorHandler(logger, 'Loading Workbook')(error);
+            // TODO report to user if authenticated and can know of this workbook's existence.
+        });
+    } else {
+        // Create a new workbook here with a default view:
+        observableResult.onNext({
+            datasetReferences: {},
+            views: {default: {}},
+            currentView: 'default'
+        });
+    }
 };
 
 VizServer.prototype.setupColorTexture = function () {
@@ -875,17 +900,15 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     });
 
     this.socket.on('persist_current_workbook', function(workbookName, cb) {
-        graph.take(1)
-            .do(function (/*graph*/) {
-                workbook.saveDocument(workbookName, this.workbookDoc).then(
-                    function (result) {
-                        return cb({success: true, data: result});
-                    },
-                    function (rejectedResult) {
-                        return cb({success: false, error: rejectedResult});
-                    });
-            }.bind(this))
-            .subscribe(_.identity, log.makeRxErrorHandler(logger, 'persist_current_workbook'));
+        Rx.Observable.combineLatest(graph, this.workbookDoc, function (graph, workbookDoc) {
+            workbook.saveDocument(workbookName, workbookDoc).then(
+                function (result) {
+                    return cb({success: true, data: result});
+                },
+                function (rejectedResult) {
+                    return cb({success: false, error: rejectedResult});
+                });
+            }).take(1).subscribe(_.identity, log.makeRxErrorHandler(logger, 'persist_current_workbook'));
     }.bind(this));
 
     this.socket.on('persist_current_vbo', function(contentKey, cb) {
