@@ -629,6 +629,14 @@ VizServer.prototype.setupDataset = function (workbookDoc, query) {
     return loader.downloadDataset(datasetConfig);
 };
 
+var blankWorkbookTemplate = {
+    title: undefined,
+    contentName: undefined,
+    datasetReferences: {},
+    views: {default: {}},
+    currentView: 'default'
+};
+
 VizServer.prototype.workbookForQuery = function (observableResult, query) {
     if (query.workbook) {
         logger.debug('Loading workbook', query.workbook);
@@ -640,13 +648,7 @@ VizServer.prototype.workbookForQuery = function (observableResult, query) {
         });
     } else {
         // Create a new workbook here with a default view:
-        observableResult.onNext({
-            title: undefined,
-            contentName: undefined,
-            datasetReferences: {},
-            views: {default: {}},
-            currentView: 'default'
-        });
+        observableResult.onNext(blankWorkbookTemplate);
     }
 };
 
