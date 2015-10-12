@@ -629,11 +629,25 @@ VizServer.prototype.setupDataset = function (workbookDoc, query) {
     return loader.downloadDataset(datasetConfig);
 };
 
+var blankLegendTemplate = {
+    title: undefined,
+    subtitle: undefined,
+    nodes: undefined,
+    edges: undefined
+};
+
+var blankViewTemplate = {
+    title: undefined,
+    filters: [],
+    sets: [],
+    legend: blankLegendTemplate
+};
+
 var blankWorkbookTemplate = {
     title: undefined,
     contentName: undefined,
     datasetReferences: {},
-    views: {default: {}},
+    views: {default: blankViewTemplate},
     currentView: 'default'
 };
 
