@@ -194,7 +194,7 @@ VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, f
     // Promise
     var simulator = graph.simulator;
     try {
-        graph.dataframe.applyMaskSetToFilterInPlace(masks, simulator)
+        graph.dataframe.applyDataframeMaskToFilterInPlace(masks, simulator)
             .then(function () {
                 simulator.layoutAlgorithms
                     .map(function (alg) {
