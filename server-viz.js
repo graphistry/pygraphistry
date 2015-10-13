@@ -71,45 +71,43 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
 
     var count = indices.length;
 
-    if (sort_by !== undefined) {
-
-        // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
-        // Only using permutation out here because this should be pushed into dataframe.
-        var sortCol = dataFrame.getColumnValues(sort_by, type);
-        var sortToUnsortedIdx = dataFrame.getHostBuffer('forwardsEdges').edgePermutationInverseTyped;
-        var taggedSortCol = _.map(indices, function (idx) {
-            if (type === 'edge') {
-                return [sortCol[sortToUnsortedIdx[idx]], idx];
-            } else {
-                return [sortCol[idx], idx];
-            }
-
-        });
-
-        var sortedTags = taggedSortCol.sort(function (val1, val2) {
-            var a = val1[0];
-            var b = val2[0];
-            if (typeof a === 'string' && typeof b === 'string') {
-                return (ascending ? a.localeCompare(b) : b.localeCompare(a));
-            } else if (isNaN(a) || a < b) {
-                return ascending ? -1 : 1;
-            } else if (isNaN(b) || a > b) {
-                return ascending ? 1 : -1;
-            } else {
-                return 0;
-            }
-        });
-
-        var slicedTags = sortedTags.slice(start, end);
-        var slicedIndices = _.map(slicedTags, function (val) {
-            return val[1];
-        });
-
-        return {count: count, values: dataFrame.getRows(slicedIndices, type)};
-
-    } else {
+    if (sort_by === undefined) {
         return {count: count, values: dataFrame.getRows(indices.slice(start, end), type)};
     }
+
+    // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
+    // Only using permutation out here because this should be pushed into dataframe.
+    var sortCol = dataFrame.getColumnValues(sort_by, type);
+    var sortToUnsortedIdx = dataFrame.getHostBuffer('forwardsEdges').edgePermutationInverseTyped;
+    var taggedSortCol = _.map(indices, function (idx) {
+        if (type === 'edge') {
+            return [sortCol[sortToUnsortedIdx[idx]], idx];
+        } else {
+            return [sortCol[idx], idx];
+        }
+
+    });
+
+    var sortedTags = taggedSortCol.sort(function (val1, val2) {
+        var a = val1[0];
+        var b = val2[0];
+        if (typeof a === 'string' && typeof b === 'string') {
+            return (ascending ? a.localeCompare(b) : b.localeCompare(a));
+        } else if (isNaN(a) || a < b) {
+            return ascending ? -1 : 1;
+        } else if (isNaN(b) || a > b) {
+            return ascending ? 1 : -1;
+        } else {
+            return 0;
+        }
+    });
+
+    var slicedTags = sortedTags.slice(start, end);
+    var slicedIndices = _.map(slicedTags, function (val) {
+        return val[1];
+    });
+
+    return {count: count, values: dataFrame.getRows(slicedIndices, type)};
 }
 
 VizServer.prototype.resetState = function (dataset) {
