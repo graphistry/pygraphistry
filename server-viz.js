@@ -189,7 +189,7 @@ VizServer.prototype.tickGraph = function (cb) {
 VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, filters, pointLimit, cb) {
     var masks = graph.dataframe.composeMasks(maskList, pointLimit);
 
-    logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
+    logger.debug('mask lengths: ', masks.numEdges(), masks.numPoints());
 
     // Promise
     var simulator = graph.simulator;
