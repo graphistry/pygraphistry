@@ -1,5 +1,5 @@
 #include "common.h"
-#include "layouts/cpu/forceAtlas2Fast/forceAtlas2Common.h"
+#include "layouts/forceAtlas2Naive/forceAtlas2Common.h"
 
 __kernel void faIntegrateLegacy (
     //input
