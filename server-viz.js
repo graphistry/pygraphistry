@@ -289,7 +289,7 @@ function VizServer(app, socket, cachedVBOs) {
     this.cachedVBOs = cachedVBOs;
     /** @type {GraphistryURLParams} */
     var query = this.socket.handshake.query;
-    this.viewConfig = new Rx.ReplaySubject(1);
+    this.viewConfig = new Rx.BehaviorSubject(workbook.blankViewTemplate);
     this.workbookDoc = new Rx.ReplaySubject(1);
     this.workbookForQuery(this.workbookDoc, query);
     this.workbookDoc.subscribe(function (workbookDoc) {
@@ -353,6 +353,7 @@ function VizServer(app, socket, cachedVBOs) {
     }.bind(this));
 
     function presentVizSet(vizSet) {
+        if (vizSet.masks === undefined) { return vizSet; }
         var maskResponseLimit = 3e3;
         var masksTooLarge = vizSet.masks.numPoints() > maskResponseLimit ||
             vizSet.masks.numEdges() > maskResponseLimit;
@@ -401,12 +402,12 @@ function VizServer(app, socket, cachedVBOs) {
     }.bind(this));
 
     this.socket.on('get_sets', function (cb) {
+        logger.trace('sending current sets to client');
         this.viewConfig.take(1).do(function (viewConfig) {
             cb({success: true, sets: _.map(viewConfig.sets, presentVizSet)});
         }).subscribeOnError(function (err) {
             logger.error(err, 'Error retrieving Sets');
             cb({success: false, error: 'Server error when retrieving all Set definitions'});
-            throw err;
         });
     }.bind(this));
 
