@@ -645,38 +645,16 @@ function VizServer(app, socket, cachedVBOs) {
     this.socket.on('viz', function (msg, cb) { cb({success: true}); });
 }
 
-/** Pick the default view or the current view or any view.
+/** Pick the view to load for this query.
  * @param {Object} workbookDoc
  * @param {GraphistryURLParams} query
  * @returns {Object}
  */
 VizServer.prototype.getViewToLoad = function (workbookDoc, query) {
+    // Pick the default view or the current view or any view.
     var viewConfig = workbookDoc.views.default ||
         (workbookDoc.currentView ?
             workbookDoc.views[workbookDoc.currentview] : _.find(workbookDoc.views));
-
-    if (!viewConfig.filters) {
-        viewConfig.filters = [
-            // nodes/edges limited per client render estimate:
-            {
-                title: 'Point Limit',
-                attribute: undefined,
-                query: {
-                    type: 'point',
-                    ast: {
-                        type: 'Limit',
-                        value: {
-                            type: 'Literal',
-                            dataType: 'integer',
-                            value: 8e5
-                        }
-                    },
-                    inputString: 'LIMIT 800000'
-                }
-            }
-        ];
-    }
-
     // Apply approved URL parameters to that view concretely since we're creating it now:
     _.extend(viewConfig, _.pick(query, workbook.URLParamsThatPersist));
     return viewConfig;
