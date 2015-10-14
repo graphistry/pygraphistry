@@ -9,13 +9,11 @@ __kernel void midspringForces(
     const __global float2* inputForces,          // 4. Forces from point forces
 	const __global float2* inputMidPoints,       // 5: Current midpoint positions (read-only)
 	__global float2* outputMidPoints,      // 6: Point positions after spring forces have been applied (write-only)
-	__global float4* springMidPositions,   // 7: Positions of the springs after forces are applied. Length
 	                                       // len(springs) * 2: one float2 for start, one float2 for
 	                                       // end. (write-only)
-	__global float4* midSpringColorCoords, // 8: The x,y coordinate to read the edges color from
-	float springStrength,                  // 9: The rigidity of the springs
-	float springDistance,                  // 10: The 'at rest' length of a spring
-	unsigned int stepNumber				   // 11:
+	float springStrength,                  // 7: The rigidity of the springs
+	float springDistance,                  // 8: The 'at rest' length of a spring
+	unsigned int stepNumber				   // 9:
 )
 {
 
