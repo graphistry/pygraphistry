@@ -8,7 +8,7 @@ __kernel void midspringForces(
 	const __global float2* inputPoints,          // 3: Current point positions (read-only)
     const __global float2* inputForces,          // 4. Forces from point forces
 	const __global float2* inputMidPoints,       // 5: Current midpoint positions (read-only)
-	__global float2* outputMidPoints,      // 6: Point positions after spring forces have been applied (write-only)
+	__global float2* outputForces,      // 6: Point positions after spring forces have been applied (write-only)
 	                                       // len(springs) * 2: one float2 for start, one float2 for
 	                                       // end. (write-only)
 	float springStrength,                  // 7: The rigidity of the springs
@@ -60,7 +60,7 @@ __kernel void midspringForces(
 			nextForce = (dist > FLT_EPSILON) ?  (nextQP - curQP) * alpha * springStrength * (dist - (thisSpringDist)) / (dist)
         : 0.0f;
       float2 delta = (qp == numSplits - 1 ? 1.0f : 1.0f) * nextForce - (qp == 0 ? 1.0f : 1.0f) * prevForce;
-      outputMidPoints[firstQPIdx + qp] = delta + inputForces[firstQPIdx + qp];
+      outputForces[firstQPIdx + qp] = delta + inputForces[firstQPIdx + qp];
 		}
   }
   return;
