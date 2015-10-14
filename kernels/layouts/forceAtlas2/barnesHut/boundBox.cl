@@ -1,5 +1,5 @@
 #include "common.h"
-#include "layouts/gpu/forceAtlas2/barnesHut/barnesHutCommon.h"
+#include "layouts/forceAtlas2/barnesHut/barnesHutCommon.h"
 
 __kernel void bound_box(
         //graph params
