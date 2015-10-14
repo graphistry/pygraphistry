@@ -17,6 +17,8 @@ var driver      = require('./js/node-driver.js');
 var persist     = require('./js/persist.js');
 var workbook    = require('./js/workbook.js');
 var labeler     = require('./js/labeler.js');
+var DataframeMask = require('./js/DataframeMask.js');
+var TransactionalIdentifier = require('./js/TransactionalIdentifier');
 var vgwriter    = require('./js/libs/VGraphWriter.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
@@ -347,6 +349,96 @@ function VizServer(app, socket, cachedVBOs) {
         }.bind(this)).fail(function (err) {
             cb({success: false, error: 'Render config update error'});
             log.makeQErrorHandler(logger, 'updating render_config')(err);
+        });
+    }.bind(this));
+
+    function presentVizSet(vizSet) {
+        var maskResponseLimit = 3e3;
+        var masksTooLarge = vizSet.masks.numPoints() > maskResponseLimit ||
+            vizSet.masks.numEdges() > maskResponseLimit;
+        return masksTooLarge ? _.omit(vizSet, ['masks']) : vizSet;
+    }
+
+    this.socket.on('create_set_from_special', function (specialName, specification, name, cb) {
+        Rx.Observable.combineLatest(this.graph, this.viewConfig).take(1).do(function (graph, viewConfig) {
+            var qNodeSelection;
+            if (specialName === 'selection' || specialName === undefined) {
+                if (specification.sel !== undefined) {
+                    var selection = specification.sel;
+                    qNodeSelection = graph.simulator.selectNodes(selection);
+                } else if (_.isArray(specification.point_ids)) {
+                    qNodeSelection = Q(specification.point_ids);
+                } else {
+                    throw Error('Selection not specified for creating a Set');
+                }
+                qNodeSelection = qNodeSelection.then(function (pointIndexes) {
+                    var edgeIndexes = graph.simulator.connectedEdges(pointIndexes);
+                    return new DataframeMask(graph.dataframe, pointIndexes, edgeIndexes);
+                });
+            } else if (specialName === 'dataframe') {
+                qNodeSelection = Q(graph.dataframe.fullDataframeMask());
+            } else if (specialName === 'filtered') {
+                qNodeSelection = Q(graph.dataframe.lastMasks);
+            } else {
+                throw Error('Unrecognized special type for creating a Set: ' + specialName);
+            }
+            qNodeSelection.then(function (dataframeMask) {
+                var newSet = {
+                    id: new TransactionalIdentifier().toString(),
+                    name: name,
+                    masks: dataframeMask,
+                    sizes: {point: dataframeMask.numPoints(), edge: dataframeMask.numEdges()}
+                };
+                viewConfig.sets.push(newSet);
+                this.dataframe.masksForVizSets[newSet.id] = dataframeMask;
+                cb({success: true, set: presentVizSet(newSet)});
+            }).fail(log.makeQErrorHandler(logger, 'pin_selection_as_set'));
+        }).subscribeOnError(function (err) {
+            logger.error(err, 'Error creating set from selection');
+            cb({success: false, error: 'Server error when saving the selection as a Set'});
+            throw err;
+        });
+    }.bind(this));
+
+    this.socket.on('get_sets', function (ignored, cb) {
+        Rx.Observable.combineLatest(this.graph, this.viewConfig).take(1).do(function (graph, viewConfig) {
+            cb({success: true, sets: _.map(viewConfig.sets, presentVizSet)});
+        }).subscribeOnError(function (err) {
+            logger.error(err, 'Error retrieving Sets');
+            cb({success: false, error: 'Server error when retrieving all Set definitions'});
+            throw err;
+        });
+    }.bind(this));
+
+    var specialSetKeys = ['dataframe', 'filtered', 'selection'];
+
+    this.socket.on('update_set', function (id, updatedVizSet, cb) {
+        Rx.Observable.combineLatest(this.graph, this.viewConfig).take(1).do(function (graph, viewConfig) {
+            if (_.contains(specialSetKeys, id)) {
+                throw Error('Cannot update the special Sets');
+            }
+            var matchingSetIndex = _.findIndex(viewConfig.sets, function (vizSet) { return vizSet.id === id; });
+            if (matchingSetIndex === -1) {
+                if (updatedVizSet.id === undefined) {
+                    updatedVizSet.id = (id || new TransactionalIdentifier()).toString();
+                }
+                viewConfig.sets.push(updatedVizSet);
+            } else {
+                if (updatedVizSet.id === undefined) {
+                    updatedVizSet.id = id;
+                }
+                // TODO: smart merge
+                if (updatedVizSet === undefined) {
+                    viewConfig.splice(matchingSetIndex, 1);
+                } else {
+                    viewConfig.sets[matchingSetIndex] = updatedVizSet;
+                }
+            }
+            cb({success: true, sets: _.map(viewConfig.sets, presentVizSet)});
+        }).subscribeOnError(function (err) {
+            logger.error(err, 'Error sending layout_controls');
+            cb({success: false, error: 'Server error when updating a Set'});
+            throw err;
         });
     }.bind(this));
 
