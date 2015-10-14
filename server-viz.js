@@ -400,8 +400,8 @@ function VizServer(app, socket, cachedVBOs) {
         });
     }.bind(this));
 
-    this.socket.on('get_sets', function (ignored, cb) {
-        Rx.Observable.combineLatest(this.graph, this.viewConfig).take(1).do(function (graph, viewConfig) {
+    this.socket.on('get_sets', function (cb) {
+        this.viewConfig.take(1).do(function (viewConfig) {
             cb({success: true, sets: _.map(viewConfig.sets, presentVizSet)});
         }).subscribeOnError(function (err) {
             logger.error(err, 'Error retrieving Sets');
@@ -413,7 +413,7 @@ function VizServer(app, socket, cachedVBOs) {
     var specialSetKeys = ['dataframe', 'filtered', 'selection'];
 
     this.socket.on('update_set', function (id, updatedVizSet, cb) {
-        Rx.Observable.combineLatest(this.graph, this.viewConfig).take(1).do(function (graph, viewConfig) {
+        this.viewConfig.take(1).do(function (viewConfig) {
             if (_.contains(specialSetKeys, id)) {
                 throw Error('Cannot update the special Sets');
             }
@@ -442,7 +442,7 @@ function VizServer(app, socket, cachedVBOs) {
         });
     }.bind(this));
 
-    this.socket.on('get_filters', function (ignored, cb) {
+    this.socket.on('get_filters', function (cb) {
         logger.trace('sending current filters to client');
         this.viewConfig.take(1).do(function (viewConfig) {
             cb({success: true, filters: viewConfig.filters});
@@ -571,7 +571,7 @@ function VizServer(app, socket, cachedVBOs) {
     }.bind(this));
 
     /** Implements/gets a namespace comprehension, for calculation references and metadata. */
-    this.socket.on('get_namespace_metadata', function (nothing, cb) {
+    this.socket.on('get_namespace_metadata', function (cb) {
         logger.trace('Sending Namespace metadata to client');
         this.graph.take(1).do(function (graph) {
             var metadata = getNamespaceFromGraph(graph);
