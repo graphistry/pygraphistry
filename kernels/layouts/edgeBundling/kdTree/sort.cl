@@ -1,5 +1,5 @@
 #include "common.h"
-#include "layouts/gpu/edgeBundling/kdTree/kdTreeCommon.h"
+#include "layouts/edgeBundling/kdTree/kdTreeCommon.h"
 
 // Sort bodies in in-order traversal order
 __kernel void sort(

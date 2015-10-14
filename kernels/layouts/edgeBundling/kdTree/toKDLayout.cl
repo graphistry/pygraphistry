@@ -1,7 +1,7 @@
 /*#define DEBUG*/
 #include "common.h"
 #undef DEBUG
-#include "layouts/gpu/edgeBundling/kdTree/kdTreeCommon.h"
+#include "layouts/edgeBundling/kdTree/kdTreeCommon.h"
 
 // transforms buffers for more optimized memory accesses.
 __kernel void to_kd_layout(

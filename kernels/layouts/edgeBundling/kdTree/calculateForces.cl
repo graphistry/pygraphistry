@@ -1,5 +1,5 @@
 #include "common.h"
-#include "layouts/gpu/edgeBundling/kdTree/kdTreeCommon.h"
+#include "layouts/edgeBundling/kdTree/kdTreeCommon.h"
 
 #define HALF_WARP (WARPSIZE / 2)
 

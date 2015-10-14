@@ -1,5 +1,5 @@
 #include "common.h"
-#include "layouts/gpu/edgeBundling/kdTree/kdTreeCommon.h"
+#include "layouts/edgeBundling/kdTree/kdTreeCommon.h"
 
 __kernel void compute_sums(
         __global volatile float *x_cords,

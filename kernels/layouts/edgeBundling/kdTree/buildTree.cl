@@ -1,5 +1,5 @@
 #include "common.h"
-#include "layouts/gpu/edgeBundling/kdTree/kdTreeCommon.h"
+#include "layouts/edgeBundling/kdTree/kdTreeCommon.h"
 
 #ifdef INLINEPTX
 #define threadfenceWrapper() asm("{\n\t membar.gl;\n\t }\n\t")
