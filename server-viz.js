@@ -280,6 +280,37 @@ function processAggregateIndices (request, nodeIndices) {
     }
 }
 
+function presentVizSet(vizSet) {
+    if (vizSet.masks === undefined) { return vizSet; }
+    var maskResponseLimit = 3e3;
+    var masksTooLarge = vizSet.masks.numPoints() > maskResponseLimit ||
+        vizSet.masks.numEdges() > maskResponseLimit;
+    return masksTooLarge ? _.omit(vizSet, ['masks']) : vizSet;
+}
+
+/**
+ * @param {Object} viewConfig
+ * @param {Dataframe} dataframe
+ * @returns {Object[]}
+ */
+function vizSetsToPresentFromViewConfig (viewConfig, dataframe) {
+    var sets = viewConfig.sets;
+    _.each(sets, function (vizSet) {
+        switch (vizSet.id) {
+            case 'dataframe':
+                vizSet.masks = dataframe.fullDataframeMask();
+                break;
+            case 'filtered':
+                vizSet.masks = dataframe.lastMasks;
+                break;
+            case 'selection':
+                // vizSet.masks = ??
+                break;
+        }
+    });
+    return _.map(sets, presentVizSet);
+}
+
 function VizServer(app, socket, cachedVBOs) {
     logger.info('Client connected', socket.id);
 
@@ -352,18 +383,18 @@ function VizServer(app, socket, cachedVBOs) {
         });
     }.bind(this));
 
-    function presentVizSet(vizSet) {
-        if (vizSet.masks === undefined) { return vizSet; }
-        var maskResponseLimit = 3e3;
-        var masksTooLarge = vizSet.masks.numPoints() > maskResponseLimit ||
-            vizSet.masks.numEdges() > maskResponseLimit;
-        return masksTooLarge ? _.omit(vizSet, ['masks']) : vizSet;
-    }
+    /**
+     * @typedef {Object} SetSpecification
+     * @property {String} sourceType one of selection,dataframe,filtered
+     * @property {Object} sel rectangle/etc selection gesture.
+     * @property {Number[]} point_ids list of point IDs.
+     */
 
-    this.socket.on('create_set_from_special', function (specialName, specification, name, cb) {
-        Rx.Observable.combineLatest(this.graph, this.viewConfig).take(1).do(function (graph, viewConfig) {
+    this.socket.on('create_set', function (specification, name, cb) {
+        Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
             var qNodeSelection;
-            if (specialName === 'selection' || specialName === undefined) {
+            var sourceType = specification.sourceType;
+            if (sourceType === 'selection' || sourceType === undefined) {
                 if (specification.sel !== undefined) {
                     var selection = specification.sel;
                     qNodeSelection = graph.simulator.selectNodes(selection);
@@ -376,12 +407,12 @@ function VizServer(app, socket, cachedVBOs) {
                     var edgeIndexes = graph.simulator.connectedEdges(pointIndexes);
                     return new DataframeMask(graph.dataframe, pointIndexes, edgeIndexes);
                 });
-            } else if (specialName === 'dataframe') {
+            } else if (sourceType === 'dataframe') {
                 qNodeSelection = Q(graph.dataframe.fullDataframeMask());
-            } else if (specialName === 'filtered') {
+            } else if (sourceType === 'filtered') {
                 qNodeSelection = Q(graph.dataframe.lastMasks);
             } else {
-                throw Error('Unrecognized special type for creating a Set: ' + specialName);
+                throw Error('Unrecognized special type for creating a Set: ' + sourceType);
             }
             qNodeSelection.then(function (dataframeMask) {
                 var newSet = {
@@ -394,24 +425,25 @@ function VizServer(app, socket, cachedVBOs) {
                 this.dataframe.masksForVizSets[newSet.id] = dataframeMask;
                 cb({success: true, set: presentVizSet(newSet)});
             }).fail(log.makeQErrorHandler(logger, 'pin_selection_as_set'));
-        }).subscribeOnError(function (err) {
+        }).take(1).subscribeOnError(function (err) {
             logger.error(err, 'Error creating set from selection');
             cb({success: false, error: 'Server error when saving the selection as a Set'});
-            throw err;
-        });
-    }.bind(this));
-
-    this.socket.on('get_sets', function (cb) {
-        logger.trace('sending current sets to client');
-        this.viewConfig.take(1).do(function (viewConfig) {
-            cb({success: true, sets: _.map(viewConfig.sets, presentVizSet)});
-        }).subscribeOnError(function (err) {
-            logger.error(err, 'Error retrieving Sets');
-            cb({success: false, error: 'Server error when retrieving all Set definitions'});
         });
     }.bind(this));
 
     var specialSetKeys = ['dataframe', 'filtered', 'selection'];
+
+    this.socket.on('get_sets', function (cb) {
+        logger.trace('sending current sets to client');
+        Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
+            var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
+            cb({success: true, sets: outputSets});
+            this.viewConfig.onNext(viewConfig);
+        }.bind(this)).take(1).subscribeOnError(function (err) {
+            logger.error(err, 'Error retrieving Sets');
+            cb({success: false, error: 'Server error when retrieving all Set definitions'});
+        });
+    }.bind(this));
 
     this.socket.on('update_set', function (id, updatedVizSet, cb) {
         this.viewConfig.take(1).do(function (viewConfig) {
@@ -445,9 +477,14 @@ function VizServer(app, socket, cachedVBOs) {
 
     this.socket.on('get_filters', function (cb) {
         logger.trace('sending current filters to client');
-        this.viewConfig.take(1).do(function (viewConfig) {
-            cb({success: true, filters: viewConfig.filters});
-        }).subscribe(_.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
+        Rx.Observable.combineLatest(this.graph, this.viewConfig).take(1).do(
+            function (args) {
+                var graph = args[0], viewConfig = args[1];
+                var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
+                cb({success: true, filters: viewConfig.filters, sets: outputSets});
+                this.viewConfig.onNext(viewConfig);
+            }.bind(this)).subscribe(
+            _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
 
     this.socket.on('update_filters', function (newValues, cb) {
