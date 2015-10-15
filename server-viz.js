@@ -480,8 +480,8 @@ function VizServer(app, socket, cachedVBOs) {
         Rx.Observable.combineLatest(this.graph, this.viewConfig).take(1).do(
             function (args) {
                 var graph = args[0], viewConfig = args[1];
-                var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
-                cb({success: true, filters: viewConfig.filters, sets: outputSets});
+                //var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
+                cb({success: true, filters: viewConfig.filters/*, sets: outputSets*/});
                 this.viewConfig.onNext(viewConfig);
             }.bind(this)).subscribe(
             _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
