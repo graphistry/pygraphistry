@@ -285,7 +285,12 @@ function presentVizSet(vizSet) {
     var maskResponseLimit = 3e3;
     var masksTooLarge = vizSet.masks.numPoints() > maskResponseLimit ||
         vizSet.masks.numEdges() > maskResponseLimit;
-    return masksTooLarge ? _.omit(vizSet, ['masks']) : vizSet;
+    var response = masksTooLarge ? _.omit(vizSet, ['masks']) : vizSet;
+    // Do NOT serialize the dataframe.
+    if (response.masks.dataframe !== undefined) {
+        response.masks = _.omit(response.masks, 'dataframe');
+    }
+    return response;
 }
 
 /**
@@ -477,13 +482,11 @@ function VizServer(app, socket, cachedVBOs) {
 
     this.socket.on('get_filters', function (cb) {
         logger.trace('sending current filters to client');
-        Rx.Observable.combineLatest(this.graph, this.viewConfig).take(1).do(
-            function (args) {
-                var graph = args[0], viewConfig = args[1];
-                //var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
-                cb({success: true, filters: viewConfig.filters/*, sets: outputSets*/});
-                this.viewConfig.onNext(viewConfig);
-            }.bind(this)).subscribe(
+        Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
+            var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
+            cb({success: true, filters: viewConfig.filters, sets: outputSets});
+            this.viewConfig.onNext(viewConfig);
+        }.bind(this)).subscribe(
             _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
 
