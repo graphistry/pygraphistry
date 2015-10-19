@@ -365,6 +365,7 @@ function VizServer(app, socket, cachedVBOs) {
         }.bind(this)).fail(function (err) {
             cb({success: false, error: 'Render config read error'});
             log.makeQErrorHandler(logger, 'sending render_config')(err);
+            cb({success: false, error: 'Render config read error'});
         });
     }.bind(this));
 
@@ -574,9 +575,12 @@ function VizServer(app, socket, cachedVBOs) {
         });
     }.bind(this));
 
-    this.socket.on('begin_streaming', function() {
+    this.socket.on('begin_streaming', function(_, cb) {
         this.qRenderConfig.then(function (renderConfig) {
             this.beginStreaming(renderConfig, this.colorTexture);
+            if (cb) {
+                cb({success: true});
+            }
         }.bind(this)).fail(log.makeQErrorHandler(logger, 'begin_streaming'));
     }.bind(this));
 
@@ -710,8 +714,8 @@ VizServer.prototype.setupDataset = function (workbookDoc, query) {
     var queryDatasetURL = loader.datasetURLFromQuery(query),
         queryDatasetConfig = loader.datasetConfigFromQuery(query);
     var datasetURLString, datasetConfig;
-    // Pick any dataset in the workbook if not requested in the URL:
     if (queryDatasetURL === undefined) {
+        logger.debug('No dataset in URL; picking random in workbook');
         datasetConfig = _.find(workbookDoc.datasetReferences);
         datasetURLString = datasetConfig.url;
     } else {
