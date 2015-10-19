@@ -81,7 +81,7 @@ function checkDeps() {
     if [[ -n $MISMATCH ]]; then
         echo "${RED}There are version mismatch in dependencies${RESET}"
         echo "$MISMATCH"
-        exit -1
+        # exit -1
     fi
 }
 
