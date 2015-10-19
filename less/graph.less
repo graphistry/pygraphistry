@@ -712,11 +712,32 @@ button.btn-default {
 
 .setsPanel {
     width: 25em;
-    left: 5em;
+    right: 5em;
     top: auto;
     position: absolute;
 
     .overlayPanel;
+
+    #setsPanelHeader {
+        background-color: inherit;
+        color: #646464;
+        font-weight: bold;
+        font-size: 13px;
+        padding-bottom: 0.5em;
+        border-bottom: 1px solid #C8C8C8;
+        margin-bottom: 0px;
+    }
+
+    #sets {
+        margin: 0;
+        padding: 0;
+    }
+
+    .setEntry {
+        background-color: white;
+        border-bottom: 1px solid @medium-grey;
+        padding-top: 0.5em;
+    }
 }
 
 .filtersPanel {
