@@ -444,7 +444,6 @@ function VizServer(app, socket, cachedVBOs) {
         Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
             var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
             cb({success: true, sets: outputSets});
-            this.viewConfig.onNext(viewConfig);
         }.bind(this)).take(1).subscribeOnError(function (err) {
             logger.error(err, 'Error retrieving Sets');
             cb({success: false, error: 'Server error when retrieving all Set definitions'});
@@ -486,7 +485,6 @@ function VizServer(app, socket, cachedVBOs) {
         Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
             var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
             cb({success: true, filters: viewConfig.filters, sets: outputSets});
-            this.viewConfig.onNext(viewConfig);
         }.bind(this)).subscribe(
             _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
