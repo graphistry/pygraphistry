@@ -14,6 +14,7 @@
   },
   "license": "ISC",
   "dependencies": {
+    "ace-builds": "ajaxorg/ace-builds",
     "color": "~0.10.1",
     "colorbrewer": "~0.0.2",
     "common": "graphistry/common",
@@ -27,10 +28,10 @@
     "gl-matrix": "~2.2.0",
     "less": "~2.2.0",
     "mongodb": "~2.0.25",
-    "node.extend": "~1.1.5",
+    "node-opencl": "mikeseven/node-opencl",
     "node-pigz": "graphistry/node-pigz",
-    "node-webcl": "graphistry/node-webcl-old",
-    "node-webgl": "~0.4.0",
+    "node-s3-url-encode": "0.0.4",
+    "node.extend": "~1.1.5",
     "protobufjs": "~3.8.0",
     "q": "~1.1.0",
     "request": "~2.54.0",
@@ -44,7 +45,7 @@
     "xhr2": "~0.1.0"
   },
   "devDependencies": {
-    "jasmine-node": "^1.14.5",
+    "jasmine-node": "~1.14.5",
     "StreamGL": "graphistry/StreamGL"
   }
 }

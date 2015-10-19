@@ -82,7 +82,7 @@ xdescribe ("[SMOKE] Server-viz", function () { //describe is not defined?
             };
             oReq.send();
         });
-    }
+    };
 
     // Setup
     // TODO: Consider having this callable in the server-viz itself

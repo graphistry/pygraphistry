@@ -47,8 +47,7 @@
 @status-bar-z:                 99999;
 
 @tooltip-z:                  1000001;
-@forker-z:                   1001000;
-@persistor-z:                1001000;
+@persist-z:                  1001000;
 
 @modal-z:                    2000000;
 @colorpicker-z:              2002000;
@@ -101,7 +100,7 @@
         display: none;
     }
 
-    &.clicked {
+    &.clicked, &:hover {
 
         margin-top: -2px;
         margin-left: -2px;
@@ -111,12 +110,22 @@
             background-color: white;
             border-width: 3px;
 
+        }
+    }
+
+
+    &.clicked {
+
+        .graph-label-container {
+
             .graph-label-title .fa-thumb-tack {
                 display: inline-block;
                 color: rgba(31, 31, 51, 1.0);
             }
         }
     }
+
+
 
     &, & table {
         color: rgb(31, 31, 51);
@@ -497,6 +506,35 @@ html.nomenu #menus, html.nomenu #sliders {
     }
 }
 
+#filtersPanel {
+    z-index: @menus-z;
+    display: none; // Initial state meant to toggle.
+    &:hover {
+        z-index: @modal-z;
+    }
+}
+
+.refreshButton, .expandButton, .closeButton, .disableButton i.fa, .deleteButton i.fa, i.closeHistogramButton.fa {
+    margin-top: 4px;
+
+    &.fa, .fa {
+        color: @medium-grey;
+        font-size: 15px;
+    }
+
+    &.fa.fa-toggle-on, .fa.fa-toggle-on {
+        color: @graphistry-lightblue;
+    }
+
+    &.fa:hover, .fa:hover {
+        color: @graphistry-lightblue;
+    }
+}
+
+.ace_editor.ace_autocomplete.ace-chrome {
+    z-index: @modal-z + 1;
+}
+
 .settingsPanel {
     z-index: @modal-z;
 }
@@ -570,6 +608,49 @@ button.btn-default {
     //color: white;
 }
 
+
+.attributeName {
+    text-align: left;
+//    margin-left: 4px;
+    padding-left: 4px;
+    margin-top: 6px;
+    z-index: @histogram-name-z;
+    color: @dark-grey;
+    font-size: 0.85em;
+
+    &::first-letter {
+        text-transform: uppercase;
+    }
+}
+
+.dropdown {
+
+    button {
+        background-color: white;
+        border: 1px solid @medium-grey;
+        color: @dark-grey;
+
+        font-weight: bold;
+        font-size: 0.75em;
+
+        &:hover {
+            background-color: white;
+            border-color: @graphistry-lightblue;
+            color: @graphistry-lightblue;
+        }
+    }
+
+    &.open button.btn.dropdown-toggle {
+        background-color: @graphistry-lightblue;
+        color: white;
+    }
+}
+
+
+
+
+
+
 .slider {
     .slider-track {
         background-image: linear-gradient(to bottom, #C9C9C9 0%, #C3C3C3 100%);
@@ -589,11 +670,13 @@ button.btn-default {
     background: #0fa5c5;
 }
 
+.text-overflow() {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
-.settingsPanel {
-    max-height: 23.2em;
-    overflow: auto;
-
+.sidePanel {
     box-shadow: @floating-box-shadow;
     border-radius: @floating-border-radius;
     background-color: @light-grey-background;
@@ -602,11 +685,137 @@ button.btn-default {
 
     position: absolute;
     display: none;
+}
+
+
+.settingsPanel {
+    max-height: 23.2em;
+    overflow: auto;
+
+    .sidePanel;
     //opacity: 0;
     width: 25em;
 
     left: 5em;
     top: 2.5em;
+}
+
+
+
+.filtersPanel {
+
+    width: 25em;
+    left: 5em;
+    top: auto;
+    position: absolute;
+    padding-top: 0.5em;
+    padding-bottom: 0.5em;
+    padding-left: 0;
+    padding-right: 0;
+    border-radius: 3px;
+
+    background-color: @light-grey-background-2;
+
+
+    #filtersPanelHeader {
+        background-color: inherit;
+        color: #646464;
+        font-weight: bold;
+        font-size: 13px;
+        padding-bottom: 0.5em;
+        border-bottom: 1px solid #C8C8C8;
+        margin-bottom: 0px;
+    }
+
+    #filters {
+        margin: 0;
+        padding: 0;
+    }
+
+    #addFilter {
+        margin-top: 0.5em;
+    }
+
+    .filterInspector {
+
+        background-color: white;
+        border-bottom: 1px solid @medium-grey;
+        padding-top: 0.5em;
+
+        &.disabled {
+            background-color: #EEE;
+            .filterExpression {
+                background-color: inherit;
+            }
+            &.ace_editor {
+                border-style: dashed;
+            }
+            .disableButton, .deleteButton {
+                visibility: hidden;
+            }
+            .ace_content {
+                cursor: not-allowed;
+                background-color: #EEEEEE;
+            }
+            .ace_active-line {
+                background: inherit !important;
+            }
+        }
+
+        .topMenu.row {
+            margin: 0em;
+            & > * {
+                padding: 0;
+                margin: 0;
+            }
+        }
+
+        .row.form-group {
+            margin: 0;
+            padding: 0.5em;
+        }
+    }
+
+    .filterName {
+        .text-overflow();
+        padding-left: 1em !important;
+    }
+
+    *[title="Data Type"] {
+        text-align: left;
+        font-size: 0.9em;
+        color: @dark-grey;
+        margin-left: 2.5em;
+        font-style: italic;
+
+        .control-label {
+            display: none;
+        }
+
+    }
+
+    *[title="Control Type"],
+    *[title="Expression"] > label.control-label {
+        display: none;
+    }
+
+    .filter-about {
+        float: right;
+    }
+
+    .ace_content .marker-highlight-error {
+        position: absolute;
+        z-index: @modal-z + 2;
+        border-bottom: solid 1px red;
+        background-color: #F4B9B7;
+        opacity: 0.5;
+    }
+
+    .ace_identifier {
+        background-color: #777;
+        border-radius: 3px;
+        color: white;
+    }
 }
 
 #renderingItems {
@@ -638,15 +847,15 @@ button.btn-default {
 
 
 .forker {
-    z-index: @forker-z;
+    z-index: @persist-z;
 
     .modal-body {
         word-wrap: break-word
     }
 }
 
-.persistor {
-    z-index: @persistor-z;
+.persistLayout {
+    z-index: @persist-z;
 
     .modal-body {
         word-wrap: break-word
@@ -663,6 +872,10 @@ button.btn-default {
     #menuState {
         display: inline-block;
     }
+}
+
+.beta {
+    display: none !important;
 }
 
 #menuState {
@@ -807,8 +1020,8 @@ button.btn-default {
     position: fixed;
     left: 0;
     bottom: 0;
-    width: 85%;
-    height: 16em;
+    width: 100%;
+    height: 17em;
     margin: 0;
     padding: 0;
     background-color: @light-grey-background-2;
@@ -838,7 +1051,7 @@ button.btn-default {
     .inspector {
         cursor: auto !important;
         width: 100%;
-        height: 16em;
+        height: 17em;
         overflow: auto;
         &.panel {
             box-shadow: @floating-box-shadow;
@@ -852,6 +1065,105 @@ button.btn-default {
         margin-bottom: 0.16em;
     }
 
+
+    .form-search {
+
+        &:hover {
+            .search {
+                &:before {
+                    border-color: @graphistry-lightblue;
+                }
+                &:after {
+                    background-color: @graphistry-lightblue;
+                }
+            }
+        }
+
+        //the q icon as an o + l
+        .search {
+            width: 10px;
+            height: 20px;
+            &:before {
+                position:absolute;
+                -webkit-box-sizing: content-box;
+                -moz-box-sizing: content-box;
+                box-sizing: content-box;
+                width: 6px;
+                height: 6px;
+                content: "";
+                top: 0.5em;
+                left: 0.5em;
+
+                border: 3px solid @medium-grey;
+                -webkit-border-radius: 12px;
+                -moz-border-radius: 12px;
+                border-radius: 12px;
+            }
+            &:after {
+                position:absolute;
+                width: 3px;
+                height: 7px;
+                top: 1.0em;
+                left: 1.2em;
+                content: "";
+                -webkit-transform: rotate(-45deg);
+                -moz-transform: rotate(-45deg);
+                -ms-transform: rotate(-45deg);
+                -o-transform: rotate(-45deg);
+                transform: rotate(-45deg);
+
+                background-color: @medium-grey;
+            }
+        }
+
+        .clear {
+
+            color: transparent;
+
+            &:before {
+                position: absolute;
+                content: "";
+                border-radius: 10px;
+                border: 0px;
+                background-color: @light-grey-background;
+                width: 1em;
+                height: 1em;
+                top: 0.4em;
+                margin-left: 0.1em;
+            }
+            &:after {
+                position: absolute;
+                margin-left: -0.1em;
+                top: 0.2em;
+                content: "×";
+                color: @medium-grey;
+            }
+
+
+            &:hover {
+                &:before {
+                    background-color: @graphistry-lightblue;
+                }
+                &:after {
+                    color: @light-grey-background;
+                }
+            }
+
+        }
+
+        input {
+            border-radius: 0.75em;
+            margin: 0.2em;
+            padding: 0.2em;
+            padding-left: 1.5em;
+            border: 1px solid #DDD;
+            font-size: 12px;
+
+            //normal width grown by typing
+            min-width: 3em;
+            max-width: 40em;
+        }
+    }
 
 
     .backgrid {
@@ -877,25 +1189,29 @@ button.btn-default {
                 color: @graphistry-lightblue;
             }
 
-            border: 1px #DDD solid;
+            border: 1px solid #DDD;
             margin-left: -1px;
+            margin-top: -1px;
             margin-bottom: -1px;
+        }
+
+        tr {
+            &:hover {
+                background-color: @light-grey-background-2;
+            }
+            &.row-selected {
+                color: @graphistry-lightblue;
+            }
         }
 
         .integer-cell, .string-cell {
             &:hover {
-              position: absolute;
-
-              background-color: white;
-
               max-height: none;
               height: auto;
               white-space: normal;
               word-break: break-word;
-              border: 1px solid #777;
               min-width: 2em;
               margin-top: -1px;
-
             }
         }
 
@@ -954,7 +1270,7 @@ button.btn-default {
         position: fixed;
         left: 0;
         bottom: 0;
-        width: 85%;
+        width: 100%;
         height: 16em;
         margin: 0;
         visibility: hidden;
@@ -1043,28 +1359,21 @@ button.btn-default {
         }
     }
 
-    #addHistogram {
-
-        .dropdown {
-            text-align: center;
-        }
-
-        #addHistogramButton {
-            background-color: white;
-            border: 1px solid @medium-grey;
-            color: @dark-grey;
-            margin: 10px;
-
-            font-weight: bold;
-            font-size: 0.75em;
-        }
-
-        #addHistogramButton:hover {
-            border-color: @graphistry-lightblue;
-            color: @graphistry-lightblue;
-        }
+    #filterButton.iconBadge:after{
+        content:attr(data-count);
+        position: absolute;
+        background: rgba(0,0,255,1);
+        height:2rem;
+        top:1rem;
+        right:1.5rem;
+        width:2rem;
+        text-align: center;
+        line-height: 2rem;;
+        font-size: 1rem;
+        border-radius: 50%;
+        color:white;
+        border:1px solid blue;
     }
-
 
     .divide-line {
         width: 100%;
@@ -1079,12 +1388,12 @@ button.btn-default {
     }
 
 
-    .expandHistogramButton, .expandedHistogramButton {
+    .expandHistogramButton, .expandedHistogramButton, .expandFilterButton, .expandedFilterButton {
         font-size: 1.3em;
     }
 
     @rotateDuration: 0.1s;
-    .expandHistogramButton {
+    .expandHistogramButton, .expandFilterButton {
         -webkit-transform: rotate(0deg);
         -moz-transform: rotate(0deg);
         -o-transform: rotate(0deg);
@@ -1097,7 +1406,7 @@ button.btn-default {
         transition: transform @rotateDuration ease-in-out;
     }
 
-    .expandedHistogramButton {
+    .expandedHistogramButton, .expandedFilterButton {
         -webkit-transform: rotate(90deg);
         -moz-transform: rotate(90deg);
         -o-transform: rotate(90deg);
@@ -1108,18 +1417,6 @@ button.btn-default {
         -moz-transition: transform @rotateDuration ease-in-out;
         -o-transition: transform @rotateDuration ease-in-out;
         transition: transform @rotateDuration ease-in-out;
-    }
-
-    .refreshButton, .expandButton, .closeButton {
-        margin-top: 4px;
-        font-size: 0.7em;
-        .fa {
-            color: @medium-grey;
-
-        }
-        .fa:hover {
-            color: @graphistry-lightblue;
-        }
     }
 
     .refreshButton {
@@ -1141,20 +1438,6 @@ button.btn-default {
         text-align: center;
         font-weight: bold;
         font-size: 0.8em;
-
-        &::first-letter {
-            text-transform: uppercase;
-        }
-    }
-
-    .attributeName {
-        text-align: left;
-        margin-left: 4px;
-        padding-left: 4px;
-        margin-top: 6px;
-        z-index: @histogram-name-z;
-        color: @dark-grey;
-        font-size: 0.85em;
 
         &::first-letter {
             text-transform: uppercase;
@@ -1214,6 +1497,11 @@ button.btn-default {
         // border-bottom-width: 1px;
         // border-bottom-color: #B2B2B2;
 
+    }
+
+    #addHistogram {
+        text-align: center;
+        margin: 10px;
     }
 
 }

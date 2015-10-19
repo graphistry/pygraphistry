@@ -14,12 +14,14 @@ var rConf       = require('./js/renderer.config.js');
 var lConf       = require('./js/layout.config.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
-var persistor   = require('./js/persist.js');
+var persist     = require('./js/persist.js');
+var workbook    = require('./js/workbook.js');
 var labeler     = require('./js/labeler.js');
 var vgwriter    = require('./js/libs/VGraphWriter.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
 var util        = require('./js/util.js');
+var ExpressionCodeGenerator = require('./js/expressionCodeGenerator');
 
 var log         = require('common/logger.js');
 var logger      = log.createLogger('graph-viz:driver:viz-server');
@@ -27,97 +29,75 @@ var perf        = require('common/perfStats.js').createPerfMonitor();
 
 /**** GLOBALS ****************************************************/
 
-// ----- BUFFERS (multiplexed over clients) ----------
-//Serve most recent compressed binary buffers
-//TODO reuse across users
-//{socketID -> {buffer...}
-var lastCompressedVBOs;
-var lastRenderConfig;
-var lastMetadata;
-var finishBufferTransfers;
-var qLastSelectionIndices;
-
-
-// ----- ANIMATION ------------------------------------
-//current animation
-var animStep;
-
-//multicast of current animation's ticks
-var ticksMulti;
-
-//Signal to Send New VBOs
-var updateVboSubject;
-
-//most recent tick
-var graph;
 
 var saveAtEachStep = false;
 var defaultSnapshotName = 'snapshot';
 
 
-// ----- INITIALIZATION ------------------------------------
-
-//Do more innocuous initialization inline (famous last words..)
-
-function resetState(dataset) {
-    logger.info('RESETTING APP STATE');
-
-    //FIXME explicitly destroy last graph if it exists?
-
-    lastCompressedVBOs = {};
-    lastMetadata = {};
-    finishBufferTransfers = {};
-
-    updateVboSubject = new Rx.Subject();
-
-    animStep = driver.create(dataset);
-    ticksMulti = animStep.ticks.publish();
-    ticksMulti.connect();
-
-    //make available to all clients
-    graph = new Rx.ReplaySubject(1);
-    ticksMulti.take(1).subscribe(graph, log.makeRxErrorHandler(logger, logger, 'ticksMulti failure'));
-
-    logger.trace('RESET APP STATE.');
-}
-
-
 /**** END GLOBALS ****************************************************/
 
 
-
 /** Given an Object with buffers as values, returns the sum size in megabytes of all buffers */
-function vboSizeMB(vbos) {
+function sizeInMBOfVBOs(VBOs) {
     var vboSizeBytes =
         _.reduce(
-            _.pluck(_.values(vbos.buffers), 'byteLength'),
+            _.pluck(_.values(VBOs.buffers), 'byteLength'),
             function(acc, v) { return acc + v; }, 0);
     return (vboSizeBytes / (1024 * 1024)).toFixed(1);
 }
 
-// Sort and then subset the dataFrame. Used for pageing selection.
-function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending) {
+// TODO: Dataframe doesn't currently support sorted/filtered views, so we just do
+// a shitty job and manage it directly out here, which is slow + error prone.
+// We need to extend dataframe to allow us to have views.
+function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending, searchFilter) {
+
+    if (searchFilter) {
+        searchFilter = searchFilter.toLowerCase();
+        var newIndices = [];
+        _.each(indices, function (idx) {
+            var row = dataFrame.getRowAt(idx, type);
+            var keep = false;
+            _.each(row, function (val/*, key*/) {
+                if (String(val).toLowerCase().indexOf(searchFilter) > -1) {
+                    keep = true;
+                }
+            });
+            if (keep) {
+                newIndices.push(idx);
+            }
+        });
+        indices = newIndices;
+    }
+
+    var count = indices.length;
+
     if (sort_by !== undefined) {
 
         // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
         // Only using permutation out here because this should be pushed into dataframe.
-        var sortCol = dataFrame.getColumn(sort_by, type);
+        var sortCol = dataFrame.getColumnValues(sort_by, type);
         var sortToUnsortedIdx = dataFrame.getHostBuffer('forwardsEdges').edgePermutationInverseTyped;
         var taggedSortCol = _.map(indices, function (idx) {
-            return [sortCol[sortToUnsortedIdx[idx]], idx];
+            if (type === 'edge') {
+                return [sortCol[sortToUnsortedIdx[idx]], idx];
+            } else {
+                return [sortCol[idx], idx];
+            }
+
         });
 
         var sortedTags = taggedSortCol.sort(function (val1, val2) {
             var a = val1[0];
             var b = val2[0];
-            if (typeof a === 'string' && typeof b === 'string')
+            if (typeof a === 'string' && typeof b === 'string') {
                 return (ascending ? a.localeCompare(b) : b.localeCompare(a));
-            else if (isNaN(a) || a < b)
+            } else if (isNaN(a) || a < b) {
                 return ascending ? -1 : 1;
-            else if (isNaN(b) || a > b)
+            } else if (isNaN(b) || a > b) {
                 return ascending ? 1 : -1;
-            else
+            } else {
                 return 0;
+            }
         });
 
         var slicedTags = sortedTags.slice(start, end);
@@ -125,179 +105,236 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
             return val[1];
         });
 
-        return dataFrame.getRows(slicedIndices, type);
+        return {count: count, values: dataFrame.getRows(slicedIndices, type)};
 
     } else {
-        return dataFrame.getRows(indices.slice(start, end), type);
+        return {count: count, values: dataFrame.getRows(indices.slice(start, end), type)};
     }
 }
 
-function read_selection(type, query, res) {
-    graph.take(1).do(function (graph) {
-        qLastSelectionIndices.then(function (lastSelectionIndices) {
-            // TODO: Change these on the client side.
-            if (type === 'nodes') type = 'point';
-            if (type === 'edges') type = 'edge';
+VizServer.prototype.resetState = function (dataset) {
+    logger.info('RESETTING APP STATE');
 
-            if (!lastSelectionIndices || !lastSelectionIndices[type]) {
-                log.error('Client tried to read non-existent selection');
-                res.send();
-            }
+    //FIXME explicitly destroy last graph if it exists?
 
+    // ----- BUFFERS (multiplexed over clients) ----------
+    //Serve most recent compressed binary buffers
+    //TODO reuse across users
+    this.lastCompressedVBOs = undefined;
+    this.lastMetadata = undefined;
+    /** @type {Object.<String,Function>} **/
+    this.bufferTransferFinisher = undefined;
+
+    this.lastRenderConfig = undefined;
+
+    //Signal to Explicitly Send New VBOs
+    this.updateVboSubject = new Rx.ReplaySubject(1);
+
+    // ----- ANIMATION ------------------------------------
+    //current animation
+    this.animationStep = driver.create(dataset);
+    //multicast of current animation's ticks
+    this.ticksMulti = this.animationStep.ticks.publish();
+    this.ticksMulti.connect();
+
+    //most recent tick
+    this.graph = new Rx.ReplaySubject(1);
+    //make available to all clients
+    this.ticksMulti.take(1).subscribe(this.graph, log.makeRxErrorHandler(logger, logger, 'ticksMulti failure'));
+
+    logger.trace('RESET APP STATE.');
+};
+
+VizServer.prototype.readSelection = function (type, query, res) {
+    this.graph.take(1).do(function (graph) {
+        graph.simulator.selectNodes(query.sel).then(function (nodeIndices) {
+            var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
+            return {
+                'point': nodeIndices,
+                'edge': edgeIndices
+            };
+        }).then(function (lastSelectionIndices) {
             var page = parseInt(query.page);
             var per_page = parseInt(query.per_page);
             var start = (page - 1) * per_page;
             var end = start + per_page;
             var data = sliceSelection(graph.dataframe, type, lastSelectionIndices[type], start, end,
-                                        query.sort_by, query.order === 'asc');
-            res.send(data);
+                                        query.sort_by, query.order === 'asc', query.search);
+            res.send(_.extend(data, {
+                page: page
+            }));
         }).fail(log.makeQErrorHandler(logger, 'read_selection qLastSelectionIndices'));
 
     }).subscribe(
         _.identity,
         function (err) {
-            cb({success: false, error: 'read_selection error'});
             log.makeRxErrorHandler(logger, 'read_selection handler')(err);
         }
     );
-}
+};
 
-function tickGraph () {
-    graph.take(1).do(function (graphContent) {
-        updateVboSubject.onNext(graphContent);
-    }).subscribe(
+VizServer.prototype.tickGraph = function (cb) {
+    this.graph.take(1).do(function (graphContent) {
+        this.updateVboSubject.onNext(graphContent);
+    }.bind(this)).subscribe(
         _.identity,
         function (err) {
             cb({success: false, error: 'aggregate error'});
             log.makeRxErrorHandler(logger, 'aggregate handler')(err);
         }
     );
+};
+
+// TODO Extract a graph method and manage graph contexts by filter data operation.
+VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, filters, pointLimit, cb) {
+    var masks = graph.dataframe.composeMasks(maskList, pointLimit);
+
+    logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
+
+    // Promise
+    var simulator = graph.simulator;
+    try {
+        graph.dataframe.applyMaskSetToFilterInPlace(masks, simulator)
+            .then(function () {
+                simulator.layoutAlgorithms
+                    .map(function (alg) {
+                        return alg.updateDataframeBuffers(simulator);
+                    });
+            }).then(function () {
+                simulator.tickBuffers([
+                    'curPoints', 'pointSizes', 'pointColors',
+                    'edgeColors', 'logicalEdges', 'springsPos'
+                ]);
+
+                this.tickGraph(cb);
+                var response = {success: true, filters: filters};
+                if (errors) {
+                    response.errors = errors;
+                }
+                cb(response);
+            }.bind(this)).done(_.identity, function (err) {
+                log.makeQErrorHandler(logger, 'dataframe filter')(err);
+                errors.push(err);
+                var response = {success: false, errors: errors, filters: filters};
+                cb(response);
+            });
+    } catch (err) {
+        log.makeQErrorHandler(logger, 'dataframe filter')(err);
+        errors.push(err);
+        var response = {success: false, errors: errors, filters: filters};
+        cb(response);
+    }
+};
+
+function getNamespaceFromGraph(graph) {
+    var dataframeColumnsByType = graph.dataframe.getColumnsByType();
+    // TODO add special names that can be used in calculation references.
+    // TODO handle multiple sources.
+    var metadata = _.extend({}, dataframeColumnsByType);
+    return metadata;
 }
 
-function init(app, socket) {
-    logger.info('Client connected', socket.id);
+function processAggregateIndices (request, nodeIndices) {
+    var graph = request.graph;
+    var cb = request.cb;
+    var query = request.query;
 
-    var colorTexture = new Rx.ReplaySubject(1);
-    var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
-    var img =
-        Rx.Observable.fromNodeCallback(fs.readFile)(imgPath)
-        .flatMap(function (buffer) {
-            logger.trace('Loaded raw colorTexture', buffer.length);
-            return Rx.Observable.fromNodeCallback(compress.deflate)(
-                    buffer,//binary,
-                    {output: new Buffer(
-                        Math.max(1024, Math.round(buffer.length * 1.5)))})
-                .map(function (compressed) {
-                    return {
-                        raw: buffer,
-                        compressed: compressed
-                    };
+    logger.debug('Done selecting indices');
+    try {
+        var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
+        var indices = {
+            point: nodeIndices,
+            edge: edgeIndices
+        };
+        var data;
+
+        // Initial case of getting global Stats
+        // TODO: Make this match the same structure, not the current approach in StreamGL
+        if (query.type) {
+            data = [function () {return graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type);}];
+        } else {
+            var types = ['point', 'edge'];
+            data = _.map(types, function (type) {
+                var filteredAttributes = _.filter(query.attributes, function (attr) {
+                    return (attr.type === type);
                 });
-        })
-        .do(function () { logger.trace('Compressed color texture'); })
-        .map(function (pair) {
-            logger.trace('colorMap bytes', pair.raw.length);
-            return {
-                buffer: pair.compressed[0],
-                bytes: pair.raw.length,
-                width: 512,
-                height: 512
-            };
+                var attributeNames = _.pluck(filteredAttributes, 'name');
+                return function () {
+                    return graph.dataframe.aggregate(graph.simulator, indices[type], attributeNames, query.binning, query.mode, type);
+                };
+            });
+        }
+
+        return util.chainQAll(data).spread(function () {
+            var returnData = {};
+            _.each(arguments, function (partialData) {
+                _.extend(returnData, partialData);
+            });
+            logger.debug('Sending back aggregate data');
+            cb({success: true, data: returnData});
         });
 
-    img.take(1)
-        .do(colorTexture)
-        .subscribe(_.identity, log.makeRxErrorHandler(logger, 'img/texture'));
-    colorTexture
-        .do(function() { logger.trace('HAS COLOR TEXTURE'); })
-        .subscribe(_.identity, log.makeRxErrorHandler(logger, 'colorTexture'));
+    } catch (err) {
+        cb({success: false, error: err.message, stack: err.stack});
+        log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
+    }
+}
 
+function VizServer(app, socket, cachedVBOs) {
+    logger.info('Client connected', socket.id);
 
+    this.isActive = true;
+    this.defineRoutesInApp(app);
+    this.socket = socket;
+    this.cachedVBOs = cachedVBOs;
+    /** @type {GraphistryURLParams} */
+    var query = this.socket.handshake.query;
+    this.viewConfig = new Rx.ReplaySubject(1);
+    this.workbookDoc = new Rx.ReplaySubject(1);
+    this.workbookForQuery(this.workbookDoc, query);
+    this.workbookDoc.subscribe(function (workbookDoc) {
+        this.viewConfig.onNext(this.getViewToLoad(workbookDoc, query));
+    }.bind(this), log.makeRxErrorHandler(logger, 'Getting View from Workbook'));
 
-    app.get('/vbo', function (req, res) {
-        logger.info('VBOs: HTTP GET %s', req.originalUrl);
-        // perfmonitor here?
-        // profiling.debug('VBO request');
+    this.setupColorTexture();
 
-        try {
-            // TODO: check that query parameters are present, and that given id, buffer exist
-            var bufferName = req.query.buffer;
-            var id = req.query.id;
+    var renderConfigDeferred = Q.defer();
+    this.qRenderConfig = renderConfigDeferred.promise;
+    this.workbookDoc.take(1).do(function (workbookDoc) {
+        this.qDataset = this.setupDataset(workbookDoc, query);
+        this.qDataset.then(function (dataset) {
+            var metadata = dataset.metadata;
 
-            res.set('Content-Encoding', 'gzip');
-            var vbos = lastCompressedVBOs[id];
-            if (vbos) {
-                res.send(lastCompressedVBOs[id][bufferName]);
+            if (!(metadata.scene in rConf.scenes)) {
+                logger.warn('WARNING Unknown scene "%s", using default', metadata.scene);
+                metadata.scene = 'default';
             }
-            res.send();
-        } catch (e) {
-            log.makeQErrorHandler(logger, 'bad /vbo request')(e);
-        }
 
-        finishBufferTransfers[id](bufferName);
-    });
+            this.resetState(dataset);
+            renderConfigDeferred.resolve(rConf.scenes[metadata.scene]);
+        }.bind(this)).fail(log.makeQErrorHandler(logger, 'resetting state'));
+    }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(logger, 'Get render config'));
 
-    app.get('/texture', function (req, res) {
-        logger.debug('got texture req', req.originalUrl, req.query);
-        try {
-            colorTexture.pluck('buffer').do(
-                function (data) {
-                    res.set('Content-Encoding', 'gzip');
-                    res.send(data);
-                })
-                .subscribe(_.identity, log.makeRxErrorHandler(logger, 'colorTexture pluck'));
-
-        } catch (e) {
-            log.makeQErrorHandler(logger, 'bad /texture request')(e);
-        }
-    });
-
-
-    app.get('/read_node_selection', function (req, res) {
-        logger.debug('Got read_node_selection', req.query);
-        read_selection('nodes', req.query, res);
-    });
-
-    app.get('/read_edge_selection', function (req, res) {
-        logger.debug('Got read_edge_selection', req.query);
-        read_selection('edges', req.query, res);
-    });
-
-    // Get the dataset name from the socket query param, sent by Central
-    var query = socket.handshake.query;
-    var qDataset = loader.downloadDataset(query);
-
-    var qRenderConfig = qDataset.then(function (dataset) {
-        var metadata = dataset.metadata;
-
-        if (!(metadata.scene in rConf.scenes)) {
-            logger.warn('WARNING Unknown scene "%s", using default', metadata.scene);
-            metadata.scene = 'default';
-        }
-
-        resetState(dataset);
-        return rConf.scenes[metadata.scene];
-    }).fail(log.makeQErrorHandler(logger, 'resetting state'));
-
-    socket.on('render_config', function(_, cb) {
-        qRenderConfig.then(function (renderConfig) {
+    this.socket.on('render_config', function(_, cb) {
+        this.qRenderConfig.then(function (renderConfig) {
             logger.info('renderConfig', renderConfig);
             logger.trace('Sending render-config to client');
             cb({success: true, renderConfig: renderConfig});
 
             if (saveAtEachStep) {
-                persistor.saveConfig(defaultSnapshotName, renderConfig);
+                persist.saveConfig(defaultSnapshotName, renderConfig);
             }
 
-            lastRenderConfig = renderConfig;
-        }).fail(function (err) {
+            this.lastRenderConfig = renderConfig;
+        }.bind(this)).fail(function (err) {
+            cb({success: false, error: 'Render config read error'});
             log.makeQErrorHandler(logger, 'sending render_config')(err);
             cb({success: false, error: 'Render config read error'});
         });
-    });
+    }.bind(this));
 
-    socket.on('update_render_config', function(newValues, cb) {
-        qRenderConfig.then(function (renderConfig) {
+    this.socket.on('update_render_config', function(newValues, cb) {
+        this.qRenderConfig.then(function (renderConfig) {
             logger.info('renderConfig [before]', renderConfig);
             logger.trace('Updating render-config from client values');
 
@@ -306,20 +343,96 @@ function init(app, socket) {
             cb({success: true, renderConfig: renderConfig});
 
             if (saveAtEachStep) {
-                persistor.saveConfig(defaultSnapshotName, renderConfig);
+                persist.saveConfig(defaultSnapshotName, renderConfig);
             }
 
-            lastRenderConfig = renderConfig;
-        }).fail(function (err) {
+            this.lastRenderConfig = renderConfig;
+        }.bind(this)).fail(function (err) {
             cb({success: false, error: 'Render config update error'});
             log.makeQErrorHandler(logger, 'updating render_config')(err);
         });
-    });
+    }.bind(this));
 
-    socket.on('layout_controls', function(_, cb) {
+    this.socket.on('get_filters', function (ignored, cb) {
+        logger.trace('sending current filters to client');
+        this.viewConfig.take(1).do(function (viewConfig) {
+            cb({success: true, filters: viewConfig.filters});
+        }).subscribe(_.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
+    }.bind(this));
+
+    this.socket.on('update_filters', function (newValues, cb) {
+        logger.trace('updating filters from client values');
+        // Maybe direct assignment isn't safe, but it'll do for now.
+        this.viewConfig.take(1).do(function (viewConfig) {
+            if (!_.isEqual(newValues, viewConfig.filters)) {
+                viewConfig.filters = newValues;
+                this.viewConfig.onNext(viewConfig);
+            }
+            logger.info('updated filters', viewConfig.filters);
+
+            this.graph.take(1).do(function (graph) {
+                var dataframe = graph.dataframe;
+                var maskList = [];
+                var errors = [];
+                var pointLimit = Infinity;
+
+                _.each(viewConfig.filters, function (filter) {
+                    if (filter.enabled === false) {
+                        return;
+                    }
+                    /** @type ClientQuery */
+                    var filterQuery = filter.query;
+                    var masks;
+                    if (filterQuery === undefined) {
+                        return;
+                    }
+                    var ast = filterQuery.ast;
+                    if (ast !== undefined &&
+                        ast.type === 'Limit' &&
+                        ast.value !== undefined) {
+                        var generator = new ExpressionCodeGenerator('javascript');
+                        pointLimit = generator.evaluateExpressionFree(ast.value);
+                        return;
+                    }
+                    var type = filter.type || filterQuery.type;
+                    var attribute = filter.attribute || filterQuery.attribute;
+                    var normalization = dataframe.normalizeAttributeName(filterQuery.attribute, type);
+                    if (normalization === undefined) {
+                        errors.push('Unknown frame element');
+                        return;
+                    } else {
+                        type = normalization.type;
+                        attribute = normalization.attribute;
+                    }
+                    if (type === 'point') {
+                        var pointMask = dataframe.getPointAttributeMask(attribute, filterQuery);
+                        masks = dataframe.masksFromPoints(pointMask);
+                    } else if (type === 'edge') {
+                        var edgeMask = dataframe.getEdgeAttributeMask(attribute, filterQuery);
+                        masks = dataframe.masksFromEdges(edgeMask);
+                    } else {
+                        errors.push('Unknown frame element type');
+                        return;
+                    }
+                    // Record the size of the filtered set for UI feedback:
+                    filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
+                    maskList.push(masks);
+                });
+
+                this.filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, pointLimit, cb);
+            }.bind(this)).subscribe(
+                _.identity,
+                function (err) {
+                    log.makeRxErrorHandler(logger, 'update_filters handler')(err);
+                }
+            );
+        }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
+    }.bind(this));
+
+    this.socket.on('layout_controls', function(_, cb) {
         logger.info('Sending layout controls to client');
 
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
             logger.info('Got layout controls');
             var controls = graph.simulator.controls;
             cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
@@ -329,33 +442,37 @@ function init(app, socket) {
             cb({success: false, error: 'Server error when fetching controls'});
             throw err;
         });
-    });
+    }.bind(this));
 
-    socket.on('begin_streaming', function(_, cb) {
-        qRenderConfig.then(function (renderConfig) {
-            stream(socket, renderConfig, colorTexture);
+    this.socket.on('begin_streaming', function(_, cb) {
+        this.qRenderConfig.then(function (renderConfig) {
+            this.beginStreaming(renderConfig, this.colorTexture);
             if (cb) {
                 cb({success: true});
             }
-        }).fail(log.makeQErrorHandler(logger, 'streaming'));
-    });
+        }.bind(this)).fail(log.makeQErrorHandler(logger, 'begin_streaming'));
+    }.bind(this));
 
-    socket.on('reset_graph', function (_, cb) {
+    this.socket.on('reset_graph', function (_, cb) {
         logger.info('reset_graph command');
-        qDataset.then(function (dataset) {
-            resetState(dataset);
+        this.qDataset.then(function (dataset) {
+            this.resetState(dataset);
             cb();
-        }).fail(log.makeQErrorHandler(logger, 'reset graph request'));
-    });
+        }.bind(this)).fail(log.makeQErrorHandler(logger, 'reset_graph request'));
+    }.bind(this));
 
-    socket.on('inspect_header', function (nothing, cb) {
+    this.socket.on('inspect_header', function (nothing, cb) {
         logger.info('inspect header');
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
             cb({
                 success: true,
                 header: {
                     nodes: graph.dataframe.getAttributeKeys('point'),
                     edges: graph.dataframe.getAttributeKeys('edge')
+                },
+                urns: {
+                    nodes: 'read_node_selection',
+                    edges: 'read_edge_selection'
                 }
             });
         }).subscribe(
@@ -365,103 +482,226 @@ function init(app, socket) {
                 log.makeRxErrorHandler(logger, 'inspect_header handler')(err);
             }
         );
-    });
+    }.bind(this));
 
     /** Implements/gets a namespace comprehension, for calculation references and metadata. */
-    socket.on('namespace_metadata', function (_, cb) {
+    this.socket.on('get_namespace_metadata', function (nothing, cb) {
         logger.trace('Sending Namespace metadata to client');
-        graph.take(1).do(function (graph) {
-            var dataframeColumnsByType = graph.dataframe.getColumnsByType();
-            // TODO add special names that can be used in calculation references.
-            // TODO handle multiple datasources.
-            var metadata = _.extend({}, dataframeColumnsByType);
+        this.graph.take(1).do(function (graph) {
+            var metadata = getNamespaceFromGraph(graph);
             cb({success: true,
                 metadata: metadata});
-        }).fail(function (err) {
-            cb({success: false, error: 'Namespace metadata error'});
-            log.makeQErrorHandler(logger, 'sending namespace metadata');
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, error: 'Namespace metadata error'});
+                log.makeQErrorHandler(logger, 'sending namespace metadata')(err);
+            }
+        );
+    }.bind(this));
+
+    this.socket.on('update_namespace_metadata', function (updates, cb) {
+        logger.trace('Updating Namespace metadata from client');
+        this.graph.take(1).do(function (graph) {
+            var metadata = getNamespaceFromGraph(graph);
+            // set success to true when we support update and it succeeds:
+            cb({success: false, metadata: metadata});
+        }).fail(function (/*err*/) {
+            cb({success: false, error: 'Namespace metadata update error'});
+            log.makeQErrorHandler(logger, 'updating namespace metadata');
         });
-    });
+    }.bind(this));
 
-    socket.on('filter', function (query, cb) {
+    this.socket.on('filter', function (query, cb) {
         logger.info('Got filter', query);
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
 
-            var simulator = graph.simulator;
             var maskList = [];
+            var errors = [];
 
+            var dataframe = graph.dataframe;
             _.each(query, function (data, attribute) {
                 var masks;
-                if (data.type === 'point') {
-                    var pointMask = graph.dataframe.getPointAttributeMask(attribute, data);
-                    masks = graph.dataframe.masksFromPoints(pointMask);
-                } else if (data.type === 'edge') {
-                    var edgeMask = graph.dataframe.getEdgeAttributeMask(attribute, data);
-                    masks = graph.dataframe.masksFromEdges(edgeMask);
+                var type = data.type;
+                var normalization = dataframe.normalizeAttributeName(attribute, type);
+                if (normalization === undefined) {
+                    errors.push(Error('No attribute found for: ' + attribute + ',' + type));
+                    cb({success: false, errors: errors});
+                    return;
                 } else {
-                    cb({success: false});
+                    type = normalization.type;
+                    attribute = normalization.attribute;
+                }
+                if (type === 'point') {
+                    var pointMask = dataframe.getPointAttributeMask(attribute, data);
+                    masks = dataframe.masksFromPoints(pointMask);
+                } else if (type === 'edge') {
+                    var edgeMask = dataframe.getEdgeAttributeMask(attribute, data);
+                    masks = dataframe.masksFromEdges(edgeMask);
+                } else {
+                    errors.push('Unrecognized type: ' + type);
+                    cb({success: false, errors: errors});
                     return;
                 }
                 maskList.push(masks);
             });
-
-
-            var masks;
-            if (maskList.length > 0) {
-                masks = graph.dataframe.composeMasks(maskList);
-            } else {
-                // TODO: Don't get these directly -- add function to get these values
-                var edgeMask = _.range(graph.dataframe.numEdges());
-                var pointMask = _.range(graph.dataframe.numPoints());
-                masks = {
-                    edge: edgeMask,
-                    point: pointMask
-                };
-            }
-
-            logger.debug('mask lengths: ', masks.edge.length, masks.point.length);
-
-            // TODO: Deal with case of empty selection better:
-            // if (masks.point.length === 0) {
-            //     logger.debug('Empty Selection. Point length: ' + masks.point.length +
-            //             ', Edge length: ' + masks.edge.length);
-            //     cb({success: false, error: 'empty selection'});
-            //     return;
-            // }
-
-            // Promise
-            graph.dataframe.filter(masks, graph.simulator)
-                .then(function () {
-                    simulator.layoutAlgorithms
-                        .map(function (alg) {
-                            return alg.updateDataframeBuffers(simulator);
-                        });
-                }).then(function () {
-                    simulator.tickBuffers([
-                        'curPoints', 'pointSizes', 'pointColors',
-                        'edgeColors', 'logicalEdges', 'springsPos'
-                    ]);
-
-                    tickGraph();
-                    cb({success: true});
-                }).done(_.identity, log.makeQErrorHandler(logger, 'dataframe filter'));
-        }).subscribe(
+            this.filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, Infinity, cb);
+        }.bind(this)).subscribe(
             _.identity,
             function (err) {
-                cb({success: false, error: 'aggregate error'});
                 log.makeRxErrorHandler(logger, 'aggregate handler')(err);
             }
         );
-    });
+    }.bind(this));
 
+    this.setupAggregationRequestHandling();
+
+    this.socket.on('viz', function (msg, cb) { cb({success: true}); });
+}
+
+/** Pick the default view or the current view or any view.
+ * @param {Object} workbookDoc
+ * @param {GraphistryURLParams} query
+ * @returns {Object}
+ */
+VizServer.prototype.getViewToLoad = function (workbookDoc, query) {
+    var viewConfig = workbookDoc.views.default ||
+        (workbookDoc.currentView ?
+            workbookDoc.views[workbookDoc.currentview] : _.find(workbookDoc.views));
+
+    if (!viewConfig.filters) {
+        viewConfig.filters = [
+            // nodes/edges limited per client render estimate:
+            {
+                title: 'Point Limit',
+                attribute: undefined,
+                query: {
+                    type: 'point',
+                    ast: {
+                        type: 'Limit',
+                        value: {
+                            type: 'Literal',
+                            dataType: 'integer',
+                            value: 8e5
+                        }
+                    },
+                    inputString: 'LIMIT 800000'
+                }
+            }
+        ];
+    }
+
+    // Apply approved URL parameters to that view concretely since we're creating it now:
+    _.extend(viewConfig, _.pick(query, workbook.URLParamsThatPersist));
+    return viewConfig;
+};
+
+/** Get the dataset name from the query parameters, may have been loaded from view:
+ * @param {Object} workbookDoc
+ * @param {GraphistryURLParams} query
+ * @returns {Promise}
+ */
+VizServer.prototype.setupDataset = function (workbookDoc, query) {
+    var queryDatasetURL = loader.datasetURLFromQuery(query),
+        queryDatasetConfig = loader.datasetConfigFromQuery(query);
+    var datasetURLString, datasetConfig;
+    // Pick any dataset in the workbook if not requested in the URL:
+    if (queryDatasetURL === undefined) {
+        datasetConfig = _.find(workbookDoc.datasetReferences);
+        datasetURLString = datasetConfig.url;
+    } else {
+        // Using the URL parameter, make a config from the URL:
+        datasetURLString = queryDatasetURL.format();
+        _.extend(queryDatasetConfig, {
+            name: datasetURLString,
+            url: datasetURLString
+        });
+    }
+    // Auto-create a config for the URL:
+    if (!workbookDoc.datasetReferences.hasOwnProperty(datasetURLString)) {
+        workbookDoc.datasetReferences[datasetURLString] = {};
+    }
+    // Select the config and update it from the query unless the URL mismatches:
+    datasetConfig = workbookDoc.datasetReferences[datasetURLString];
+    if (datasetConfig.url === undefined ||
+        queryDatasetURL === undefined ||
+        datasetConfig.url === datasetURLString) {
+        _.extend(datasetConfig, queryDatasetConfig);
+    }
+
+    // Pass the config on:
+    return loader.downloadDataset(datasetConfig);
+};
+
+var blankWorkbookTemplate = {
+    title: undefined,
+    contentName: undefined,
+    datasetReferences: {},
+    views: {default: {}},
+    currentView: 'default'
+};
+
+VizServer.prototype.workbookForQuery = function (observableResult, query) {
+    if (query.workbook) {
+        logger.debug('Loading workbook', query.workbook);
+        workbook.loadDocument(decodeURIComponent(query.workbook)).subscribe(function (workbookDoc) {
+            observableResult.onNext(workbookDoc);
+        }, function (error) {
+            log.makeRxErrorHandler(logger, 'Loading Workbook')(error);
+            // TODO report to user if authenticated and can know of this workbook's existence.
+        });
+    } else {
+        // Create a new workbook here with a default view:
+        observableResult.onNext(blankWorkbookTemplate);
+    }
+};
+
+VizServer.prototype.setupColorTexture = function () {
+    this.colorTexture = new Rx.ReplaySubject(1);
+    var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
+    var img =
+        Rx.Observable.fromNodeCallback(fs.readFile)(imgPath)
+            .flatMap(function (buffer) {
+                logger.trace('Loaded raw colorTexture', buffer.length);
+                return Rx.Observable.fromNodeCallback(compress.deflate)(
+                    buffer,//binary,
+                    {output: new Buffer(
+                        Math.max(1024, Math.round(buffer.length * 1.5)))})
+                    .map(function (compressed) {
+                        return {
+                            raw: buffer,
+                            compressed: compressed
+                        };
+                    });
+            })
+            .do(function () { logger.trace('Compressed color texture'); })
+            .map(function (pair) {
+                logger.trace('colorMap bytes', pair.raw.length);
+                return {
+                    buffer: pair.compressed[0],
+                    bytes: pair.raw.length,
+                    width: 512,
+                    height: 512
+                };
+            });
+
+    img.take(1)
+        .do(this.colorTexture)
+        .subscribe(_.identity, log.makeRxErrorHandler(logger, 'img/texture'));
+    this.colorTexture
+        .do(function() { logger.trace('HAS COLOR TEXTURE'); })
+        .subscribe(_.identity, log.makeRxErrorHandler(logger, 'colorTexture'));
+};
+
+VizServer.prototype.setupAggregationRequestHandling = function () {
     var aggregateRequests = new Rx.Subject().controlled(); // Use pull model.
 
     //query :: {attributes: ??, binning: ??, mode: ??, type: 'point' + 'edge'}
     // -> {success: false} + {success: true, data: ??}
-    socket.on('aggregate', function (query, cb) {
+    this.socket.on('aggregate', function (query, cb) {
         logger.info('Got aggregate', query);
 
-        graph.take(1).do(function (graph) {
+        this.graph.take(1).do(function (graph) {
             logger.trace('Selecting Indices');
             var qIndices;
 
@@ -488,54 +728,7 @@ function init(app, socket) {
                 log.makeRxErrorHandler(logger, 'aggregate socket handler')(err);
             }
         );
-    });
-
-    var processAggregateIndices = function (request, nodeIndices) {
-        var graph = request.graph;
-        var cb = request.cb;
-        var query = request.query;
-
-        logger.debug('Done selecting indices');
-        try {
-            var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
-            var indices = {
-                point: nodeIndices,
-                edge: edgeIndices
-            };
-            var data;
-
-            // Initial case of getting global Stats
-            // TODO: Make this match the same structure, not the current hacky approach in streamGL
-            if (query.type) {
-                data = [function () {return graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type);}];
-            } else {
-                var types = ['point', 'edge'];
-                data = _.map(types, function (type) {
-                    var filteredAttrs = _.filter(query.attributes, function (attr) {
-                        return (attr.type === type);
-                    });
-                    var attrNames = _.pluck(filteredAttrs, 'name');
-                    var func = function () {
-                        return graph.dataframe.aggregate(graph.simulator, indices[type], attrNames, query.binning, query.mode, type);
-                    };
-                    return func;
-                });
-            }
-
-            return util.chainQAll(data).spread(function () {
-                var returnData = {};
-                _.each(arguments, function (partialData) {
-                    _.extend(returnData, partialData);
-                });
-                logger.debug('Sending back aggregate data');
-                cb({success: true, data: returnData});
-            });
-
-        } catch (err) {
-            cb({success: false, error: err.message, stack: err.stack});
-            log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
-        }
-    };
+    }.bind(this));
 
     // Handle aggregate requests. Fully handle one before moving on to the next.
     aggregateRequests.do(function (request) {
@@ -545,28 +738,81 @@ function init(app, socket) {
             }).done(_.identity, log.makeQErrorHandler(logger, 'AggregateIndices Q'));
     }).subscribe(_.identity, log.makeRxErrorHandler(logger, 'aggregate request loop'));
     aggregateRequests.request(1); // Always request first.
+};
 
+VizServer.prototype.defineRoutesInApp = function (app) {
+    this.app = app;
 
-    return module.exports;
-}
+    this.app.get('/vbo', function (req, res) {
+        logger.info('VBOs: HTTP GET %s', req.originalUrl);
+        // performance monitor here?
+        // profiling.debug('VBO request');
 
-function stream(socket, renderConfig, colorTexture) {
+        try {
+            // TODO: check that query parameters are present, and that given id, buffer exist
+            var bufferName = req.query.buffer;
+            var id = req.query.id;
+
+            res.set('Content-Encoding', 'gzip');
+            var VBOs = (id === this.socket.id ? this.lastCompressedVBOs : this.cachedVBOs[id]);
+            if (VBOs) {
+                res.send(VBOs[bufferName]);
+            }
+            res.send();
+
+            var bufferTransferFinisher = this.bufferTransferFinisher;
+            if (bufferTransferFinisher) {
+                bufferTransferFinisher(bufferName);
+            }
+        } catch (e) {
+            log.makeQErrorHandler(logger, 'bad /vbo request')(e);
+        }
+    }.bind(this));
+
+    this.app.get('/texture', function (req, res) {
+        logger.debug('got texture req', req.originalUrl, req.query);
+        try {
+            this.colorTexture.pluck('buffer').do(
+                function (data) {
+                    res.set('Content-Encoding', 'gzip');
+                    res.send(data);
+                })
+                .subscribe(_.identity, log.makeRxErrorHandler(logger, 'colorTexture pluck'));
+
+        } catch (e) {
+            log.makeQErrorHandler(logger, 'bad /texture request')(e);
+        }
+    }.bind(this));
+
+    this.app.get('/read_node_selection', function (req, res) {
+        logger.debug('Got read_node_selection', req.query);
+        this.readSelection('point', req.query, res);
+    }.bind(this));
+
+    this.app.get('/read_edge_selection', function (req, res) {
+        logger.debug('Got read_edge_selection', req.query);
+        this.readSelection('edge', req.query, res);
+    }.bind(this));
+};
+
+VizServer.prototype.rememberVBOs = function (VBOs) {
+    this.lastCompressedVBOs = VBOs;
+    this.cachedVBOs[this.socket.id] = this.lastCompressedVBOs;
+};
+
+VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
     // ========== BASIC COMMANDS
-
-    lastCompressedVBOs[socket.id] = {};
-    socket.on('disconnect', function () {
-        logger.info('disconnecting', socket.id);
-        delete lastCompressedVBOs[socket.id];
-    });
-
-
+    this.rememberVBOs({});
+    this.socket.on('disconnect', function () {
+        this.dispose();
+    }.bind(this));
 
     //Used for tracking what needs to be sent
     //Starts as all active, and as client caches, whittles down
     var activeBuffers = _.chain(renderConfig.models).pairs().filter(function (pair) {
         var model = pair[1];
-        return rConf.isBufServerSide(model)
+        return rConf.isBufServerSide(model);
     }).map(function (pair) {
         return pair[0];
     }).value();
@@ -586,7 +832,7 @@ function stream(socket, renderConfig, colorTexture) {
         requestedTextures = activeTextures;
 
     //Knowing this helps overlap communication and computations
-    socket.on('planned_binary_requests', function (request) {
+    this.socket.on('planned_binary_requests', function (request) {
         logger.debug('CLIENT SETTING PLANNED REQUESTS', request.buffers, request.textures);
         requestedBuffers = request.buffers;
         requestedTextures = request.textures;
@@ -595,49 +841,19 @@ function stream(socket, renderConfig, colorTexture) {
 
     logger.debug('active buffers/textures/programs', activeBuffers, activeTextures, activePrograms);
 
+    var graph = this.graph;
+    var animationStep = this.animationStep;
 
-    socket.on('interaction', function (payload) {
-        //perfmonitor here?
+    this.socket.on('interaction', function (payload) {
+        // performance monitor here?
         // profiling.trace('Got Interaction');
         logger.trace('Got interaction:', payload);
         // TODO: Find a way to avoid flooding main thread waiting for GPU ticks.
         var defaults = {play: false, layout: false};
-        animStep.interact(_.extend(defaults, payload || {}));
+        animationStep.interact(_.extend(defaults, payload || {}));
     });
 
-    socket.on('set_selection', function (sel, cb) {
-        logger.trace('Got set_selection');
-        graph.take(1).do(function (graph) {
-            graph.simulator.selectNodes(sel).then(function (nodeIndices) {
-                var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
-                cb({
-                    success: true,
-                    params: {
-                        nodes: {
-                            urn: 'read_node_selection',
-                            count: nodeIndices.length
-                        },
-                        edges: {
-                            urn: 'read_edge_selection',
-                            count: edgeIndices.length
-                        }
-                    }
-                });
-                qLastSelectionIndices = Q({
-                    'point': nodeIndices,
-                    'edge': edgeIndices
-                });
-            }).done(_.identity, log.makeQErrorHandler(logger, 'selectNodes'));
-        }).subscribe(
-            _.identity,
-            function (err) {
-                cb({success: false, error: 'set_selection error'});
-                log.makeRxErrorHandler(logger, 'set_selection handler')(err);
-            }
-        );
-    });
-
-    socket.on('get_labels', function (query, cb) {
+    this.socket.on('get_labels', function (query, cb) {
 
         var indices = query.indices;
         var dim = query.dim;
@@ -657,25 +873,25 @@ function stream(socket, renderConfig, colorTexture) {
                 });
     });
 
-    socket.on('shortest_path', function (pair) {
+    this.socket.on('shortest_path', function (pair) {
         graph.take(1)
             .do(function (graph) {
                 graph.simulator.highlightShortestPaths(pair);
-                animStep.interact({play: true, layout: true});
+                animationStep.interact({play: true, layout: true});
             })
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'shortest_path'));
     });
 
-    socket.on('set_colors', function (color) {
+    this.socket.on('set_colors', function (color) {
         graph.take(1)
             .do(function (graph) {
                 graph.simulator.setColor(color);
-                animStep.interact({play: true, layout: false});
+                animationStep.interact({play: true, layout: false});
             })
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'set_colors'));
     });
 
-    socket.on('highlight_points', function (points) {
+    this.socket.on('highlight_points', function (points) {
         graph.take(1)
             .do(function (graph) {
 
@@ -685,38 +901,51 @@ function stream(socket, renderConfig, colorTexture) {
                 });
                 graph.simulator.tickBuffers(['pointColors']);
 
-                animStep.interact({play: true, layout: true});
+                animationStep.interact({play: true, layout: true});
             })
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'highlighted_points'));
 
     });
 
-    //FIXME signal error to client on fail
-    socket.on('persist_current_vbo', function(contentKey, cb) {
+    this.socket.on('persist_current_workbook', function(workbookName, cb) {
+        Rx.Observable.combineLatest(graph, this.workbookDoc, function (graph, workbookDoc) {
+            workbookDoc.title = workbookName;
+            workbookDoc.contentName = workbookName;
+            workbook.saveDocument(workbookName, workbookDoc).then(
+                function (result) {
+                    return cb({success: true, data: result});
+                },
+                function (rejectedResult) {
+                    return cb({success: false, error: rejectedResult});
+                });
+            }).take(1).subscribe(_.identity, log.makeRxErrorHandler(logger, 'persist_current_workbook'));
+    }.bind(this));
+
+    this.socket.on('persist_current_vbo', function(contentKey, cb) {
         graph.take(1)
             .do(function (graph) {
-                var vbos = lastCompressedVBOs[socket.id];
-                var metadata = lastMetadata[socket.id];
                 var cleanContentKey = encodeURIComponent(contentKey);
-                persistor.publishStaticContents(cleanContentKey, vbos, metadata, graph.dataframe, renderConfig).then(function() {
+                persist.publishStaticContents(
+                    cleanContentKey, this.lastCompressedVBOs,
+                    this.lastMetadata, graph.dataframe, renderConfig).then(function() {
                     cb({success: true, name: cleanContentKey});
                 }).done(
                     _.identity,
                     log.makeQErrorHandler(logger, 'persist_current_vbo')
                 );
-            })
+            }.bind(this))
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'persist_current_vbo'));
-    });
+    }.bind(this));
 
-    socket.on('persist_upload_png_export', function(pngDataURL, contentKey, imageName, cb) {
+    this.socket.on('persist_upload_png_export', function(pngDataURL, contentKey, imageName, cb) {
         imageName = imageName || 'preview.png';
         graph.take(1)
-            .do(function (graph) {
+            .do(function (/*graph*/) {
                 var cleanContentKey = encodeURIComponent(contentKey),
                     cleanImageName = encodeURIComponent(imageName),
                     base64Data = pngDataURL.replace(/^data:image\/png;base64,/,""),
                     binaryData = new Buffer(base64Data, 'base64');
-                persistor.publishPNGToStaticContents(cleanContentKey, cleanImageName, binaryData).then(function() {
+                persist.publishPNGToStaticContents(cleanContentKey, cleanImageName, binaryData).then(function() {
                     cb({success: true, name: cleanContentKey});
                 }).done(
                     _.identity,
@@ -726,7 +955,7 @@ function stream(socket, renderConfig, colorTexture) {
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'persist_upload_png_export'));
     });
 
-    socket.on('fork_vgraph', function (name, cb) {
+    this.socket.on('fork_vgraph', function (name, cb) {
         graph.take(1)
             .do(function (graph) {
                 var vgName = 'Users/' + encodeURIComponent(name);
@@ -750,10 +979,10 @@ function stream(socket, renderConfig, colorTexture) {
 
     // ============= EVENT LOOP
 
-    //starts true, set to false whenever transfer starts, true again when ack'd
+    //starts true, set to false whenever transfer starts, true again when acknowledged.
     var clientReady = new Rx.ReplaySubject(1);
     clientReady.onNext(true);
-    socket.on('received_buffers', function (time) {
+    this.socket.on('received_buffers', function (time) {
         perf.gauge('graph-viz:driver:viz-server, client end-to-end time', time);
         logger.trace('Client end-to-end time', time);
         clientReady.onNext(true);
@@ -770,112 +999,132 @@ function stream(socket, renderConfig, colorTexture) {
 
         var ticker = {step: step};
 
-        logger.trace('0. Prefetch VBOs', socket.id, activeBuffers, ticker);
+        logger.trace('0. Prefetch VBOs', this.socket.id, activeBuffers, ticker);
 
         return driver.fetchData(graph, renderConfig, compress,
                                 activeBuffers, lastVersions, activePrograms)
-            .do(function (vbos) {
-                logger.trace('1. prefetched VBOs for xhr2: ' + vboSizeMB(vbos.compressed) + 'MB', ticker);
+            .do(function (VBOs) {
+                logger.trace('1. pre-fetched VBOs for xhr2: ' + sizeInMBOfVBOs(VBOs.compressed) + 'MB', ticker);
 
                 //tell XHR2 sender about it
-                if (!lastCompressedVBOs[socket.id]) {
-                    lastCompressedVBOs[socket.id] = vbos.compressed;
+                if (this.lastCompressedVBOs) {
+                    _.extend(this.lastCompressedVBOs, VBOs.compressed);
                 } else {
-                    _.extend(lastCompressedVBOs[socket.id], vbos.compressed);
+                    this.rememberVBOs(VBOs.compressed);
                 }
-                lastMetadata[socket.id] = {elements: vbos.elements, bufferByteLengths: vbos.bufferByteLengths};
+                this.lastMetadata = {elements: VBOs.elements, bufferByteLengths: VBOs.bufferByteLengths};
 
                 if (saveAtEachStep) {
-                    persistor.saveVBOs(defaultSnapshotName, vbos, step);
+                    persist.saveVBOs(defaultSnapshotName, VBOs, step);
                 }
-            })
-            .flatMap(function (vbos) {
-                logger.trace('2. Waiting for client to finish previous', socket.id, ticker);
+            }.bind(this))
+            .flatMap(function (VBOs) {
+                logger.trace('2. Waiting for client to finish previous', this.socket.id, ticker);
                 return clientReady
                     .filter(_.identity)
                     .take(1)
                     .do(function () {
-                        logger.trace('2b. Client ready, proceed and mark as processing.', socket.id, ticker);
+                        logger.trace('2b. Client ready, proceed and mark as processing.', this.socket.id, ticker);
                         clientReady.onNext(false);
-                    })
-                    .map(_.constant(vbos));
-            })
-            .flatMap(function (vbos) {
-                logger.trace('3. tell client about availablity', socket.id, ticker);
+                    }.bind(this))
+                    .map(_.constant(VBOs));
+            }.bind(this))
+            .flatMap(function (VBOs) {
+                logger.trace('3. tell client about availability', this.socket.id, ticker);
 
                 //for each buffer transfer
                 var clientAckStartTime;
                 var clientElapsed;
                 var transferredBuffers = [];
-                finishBufferTransfers[socket.id] = function (bufferName) {
-                    logger.trace('5a ?. sending a buffer', bufferName, socket.id, ticker);
+                this.bufferTransferFinisher = function (bufferName) {
+                    logger.trace('5a ?. sending a buffer', bufferName, this.socket.id, ticker);
                     transferredBuffers.push(bufferName);
                     //console.log("Length", transferredBuffers.length, requestedBuffers.length);
                     if (transferredBuffers.length === requestedBuffers.length) {
-                        logger.trace('5b. started sending all', socket.id, ticker);
+                        logger.trace('5b. started sending all', this.socket.id, ticker);
                         logger.trace('Socket', '...client ping ' + clientElapsed + 'ms');
                         logger.trace('Socket', '...client asked for all buffers',
                             Date.now() - clientAckStartTime, 'ms');
                     }
-                };
+                }.bind(this);
 
-                var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
+                // var emitFnWrapper = Rx.Observable.fromCallback(socket.emit, socket);
 
                 //notify of buffer/texture metadata
                 //FIXME make more generic and account in buffer notification status
                 var receivedAll = colorTexture.flatMap(function (colorTexture) {
-                        logger.trace('4a. unwrapped texture meta', ticker);
+                    logger.trace('4a. unwrapped texture meta', ticker);
 
-                        var textures = {
-                            colorMap: _.pick(colorTexture, ['width', 'height', 'bytes'])
-                        };
+                    var textures = {
+                        colorMap: _.pick(colorTexture, ['width', 'height', 'bytes'])
+                    };
 
-                        //FIXME: should show all active VBOs, not those based on prev req
-                        var metadata =
-                            _.extend(
-                                _.pick(vbos, ['bufferByteLengths', 'elements']),
-                                {
-                                    textures: textures,
-                                    versions: {
-                                        buffers: vbos.versions,
-                                        textures: {colorMap: 1}},
-                                    step: step
-                                });
-                        lastVersions = vbos.versions;
+                    //FIXME: should show all active VBOs, not those based on prev req
+                    var metadata =
+                        _.extend(
+                            _.pick(VBOs, ['bufferByteLengths', 'elements']),
+                            {
+                                textures: textures,
+                                versions: {
+                                    buffers: VBOs.versions,
+                                    textures: {colorMap: 1}
+                                },
+                                step: step
+                            });
+                    lastVersions = VBOs.versions;
 
-                        logger.trace('4b. notifying client of buffer metadata', metadata, ticker);
-                        //perfmonitor here?
-                        // profiling.trace('===Sending VBO Update===');
+                    logger.trace('4b. notifying client of buffer metadata', metadata, ticker);
+                    //performance monitor here?
+                    // profiling.trace('===Sending VBO Update===');
 
-                        //var emitter = socket.emit('vbo_update', metadata, function (time) {
-                            //return time;
-                        //});
-                        //var observableCallback = Rx.Observable.fromNodeCallback(emitter);
-                        //return oberservableCallback;
-                        return Rx.Observable.fromCallback(socket.emit.bind(socket))('vbo_update', metadata);
-                        //return emitFnWrapper('vbo_update', metadata);
+                    //var emitter = socket.emit('vbo_update', metadata, function (time) {
+                    //return time;
+                    //});
+                    //var observableCallback = Rx.Observable.fromNodeCallback(emitter);
+                    //return observableCallback;
+                    return Rx.Observable.fromCallback(this.socket.emit.bind(this.socket))('vbo_update', metadata);
+                    //return emitFnWrapper('vbo_update', metadata);
 
-                    }).do(
-                        function (clientElapsedMsg) {
-                            logger.trace('6. client all received', socket.id, ticker);
-                            clientElapsed = clientElapsedMsg;
-                            clientAckStartTime = Date.now();
-                        });
+                }.bind(this)).do(
+                    function (clientElapsedMsg) {
+                        logger.trace('6. client all received', this.socket.id, ticker);
+                        clientElapsed = clientElapsedMsg;
+                        clientAckStartTime = Date.now();
+                    }.bind(this));
 
                 return receivedAll;
-            })
+            }.bind(this))
             .flatMap(function () {
-                logger.trace('7. Wait for next anim step', socket.id, ticker);
-                return ticksMulti.merge(updateVboSubject)
+                logger.trace('7. Wait for next animation step', this.socket.id, ticker);
+
+                var filteredUpdateVbo = this.updateVboSubject.filter(function (data) {
+                    return data;
+                });
+
+                return this.ticksMulti.merge(filteredUpdateVbo)
                     .take(1)
-                    .do(function () { logger.trace('8. next ready!', socket.id, ticker); });
-            })
+                    .do(function (/*data*/) {
+                        // Mark that we don't need to send VBOs independently of ticks anymore.
+                        this.updateVboSubject.onNext(false);
+                    }.bind(this))
+                    .do(function () { logger.trace('8. next ready!', this.socket.id, ticker); }.bind(this));
+            }.bind(this))
             .map(_.constant(graph));
-    })
+    }.bind(this))
     .subscribe(function () {
-        logger.trace('9. LOOP ITERATED', socket.id);
-    }, log.makeRxErrorHandler(logger, 'Main loop failure'));
-}
+            logger.trace('9. LOOP ITERATED', this.socket.id);
+        }.bind(this),
+        log.makeRxErrorHandler(logger, 'Main loop failure'));
+};
+
+
+VizServer.prototype.dispose = function () {
+    logger.info('disconnecting', this.socket.id);
+    delete this.lastCompressedVBOs;
+    delete this.bufferTransferFinisher;
+    delete this.cachedVBOs[this.socket.id];
+    this.isActive = false;
+};
 
 
 if (require.main === module) {
@@ -931,9 +1180,12 @@ if (require.main === module) {
         });
     });
 
+    // Both keyed by socket ID:
+    var servers = {};
+    var cachedVBOs = {};
+
     io.on('connection', function (socket) {
-        init(app, socket);
-        socket.on('viz', function (msg, cb) { cb({success: true}); });
+        servers[socket.id] = new VizServer(app, socket, cachedVBOs);
     });
 
     logger.info('Binding', config.HTTP_LISTEN_ADDRESS, config.HTTP_LISTEN_PORT);
@@ -947,8 +1199,8 @@ if (require.main === module) {
         var to = 'http://localhost:' + config.HTTP_LISTEN_PORT;
         logger.info('setting up proxy', from, '->', to);
         app.use(from, proxy(to, {
-            forwardPath: function(req, res) {
-                return url.parse(req.url).path.replace(RegExp('worker/' + config.HTTP_LISTEN_PORT + '/'),'/');
+            forwardPath: function(req/*, res*/) {
+                return url.parse(req.url).path.replace(new RegExp('worker/' + config.HTTP_LISTEN_PORT + '/'),'/');
             }
         }));
 
@@ -962,6 +1214,4 @@ if (require.main === module) {
 }
 
 
-module.exports = {
-    init: init,
-}
+module.exports = VizServer;
