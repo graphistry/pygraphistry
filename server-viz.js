@@ -605,8 +605,8 @@ VizServer.prototype.setupDataset = function (workbookDoc, query) {
     var queryDatasetURL = loader.datasetURLFromQuery(query),
         queryDatasetConfig = loader.datasetConfigFromQuery(query);
     var datasetURLString, datasetConfig;
-    // Pick any dataset in the workbook if not requested in the URL:
     if (queryDatasetURL === undefined) {
+        logger.debug('No dataset in URL; picking random in workbook');
         datasetConfig = _.find(workbookDoc.datasetReferences);
         datasetURLString = datasetConfig.url;
     } else {
