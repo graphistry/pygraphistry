@@ -474,7 +474,7 @@ function VizServer(app, socket, cachedVBOs) {
             }
             cb({success: true, sets: _.map(viewConfig.sets, presentVizSet)});
         }).subscribeOnError(function (err) {
-            logger.error(err, 'Error sending layout_controls');
+            logger.error(err, 'Error sending update_set');
             cb({success: false, error: 'Server error when updating a Set'});
             throw err;
         });
