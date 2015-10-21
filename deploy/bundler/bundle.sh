@@ -57,6 +57,8 @@ touch $LOGS/common.helpers.error
 touch $LOGS/common.helpers.log
 touch $LOGS/config.error
 touch $LOGS/config.log
+touch $LOGS/graph.error
+touch $LOGS/graph.log
 
 ### 
 echo "====== DOWNLOAD SOURCES ======"
@@ -99,7 +101,11 @@ echo "------ COPY STREAMGL/CONFIG ------"
 cp -r ../StreamGL/ node_modules/StreamGL
 rm -rf node_modules/config
 cp -r ../config-public node_modules/config
-cd ../..
+echo "------ GENERATING CSS ------"
+cd node_modules/graph-viz
+npm run less
+cd ../../../..
+
 
 ###
 echo "====== INSTALL VIZ-SERVER ======"
