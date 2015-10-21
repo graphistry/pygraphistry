@@ -454,25 +454,34 @@ function VizServer(app, socket, cachedVBOs) {
             });
     }.bind(this));
 
+    /**
+     * This handles creates (set given with no id), updates (id and set given), and deletes (id with no set).
+     */
     this.socket.on('update_set', function (id, updatedVizSet, cb) {
         this.viewConfig.take(1).do(function (viewConfig) {
             if (_.contains(specialSetKeys, id)) {
                 throw Error('Cannot update the special Sets');
             }
-            var matchingSetIndex = _.findIndex(viewConfig.sets, function (vizSet) { return vizSet.id === id; });
+             var matchingSetIndex = _.findIndex(viewConfig.sets, function (vizSet) { return vizSet.id === id; });
             if (matchingSetIndex === -1) {
+                // Auto-create:
+                if (updatedVizSet === undefined) {
+                    updatedVizSet = {};
+                }
+                // Auto-create an ID:
                 if (updatedVizSet.id === undefined) {
                     updatedVizSet.id = (id || new TransactionalIdentifier()).toString();
                 }
                 viewConfig.sets.push(updatedVizSet);
             } else {
-                if (updatedVizSet.id === undefined) {
-                    updatedVizSet.id = id;
-                }
-                // TODO: smart merge
+                // Delete as un-define:
                 if (updatedVizSet === undefined) {
                     viewConfig.splice(matchingSetIndex, 1);
                 } else {
+                    if (updatedVizSet.id === undefined) {
+                        updatedVizSet.id = id;
+                    }
+                    // TODO: smart merge
                     viewConfig.sets[matchingSetIndex] = updatedVizSet;
                 }
             }
