@@ -51,6 +51,12 @@ touch $LOGS/viz.helpers.error
 touch $LOGS/viz.helpers.log
 touch $LOGS/viz.error
 touch $LOGS/viz.log
+touch $LOGS/common.error
+touch $LOGS/common.log
+touch $LOGS/common.helpers.error
+touch $LOGS/common.helpers.log
+touch $LOGS/config.error
+touch $LOGS/config.log
 
 ### 
 echo "====== DOWNLOAD SOURCES ======"
@@ -62,9 +68,19 @@ git clone https://github.com/graphistry/config-public.git $OUT/config-public 2> 
 git clone https://github.com/graphistry/common.git $OUT/common 2> $LOGS/git.common.error 1> $LOGS/git.common.log
 
 ###
-echo "====== INSTAL CONFIG-PUBLIC ======"
+echo "====== INSTALL CONFIG-PUBLIC ======"
 cd $OUT/config-public
-npm install
+npm install 2> ../../$LOGS/config.error 1> ../../$LOGS/config.log
+cd ../..
+
+###
+echo "====== COMMON ======"
+cd $OUT/common
+npm install 2> ../../$LOGS/common.error 1> ../../$LOGS/common.log
+npm install bunyan 2> ../../$LOGS/common.helpers.error 1> ../../$LOGS/common.helpers.log
+echo "------ COPY CONFIG ------"
+rm -rf node_modules/config
+cp -r ../config-public node_modules/config
 cd ../..
 
 
