@@ -3,7 +3,7 @@
 # Start Central and MAX workers using the local dev setup
 
 MAX=10
-WORKERS=`seq -separator=, 10000 $((10000 + $MAX))`
+WORKERS=`seq -s, 10000 $((10000 + $MAX))`
 
 CENTRAL_CONFIG="{\"HTTP_LISTEN_ADDRESS\": \"0.0.0.0\", \"VIZ_LISTEN_PORTS\": [$WORKERS]}"
 declare -a WORKER_CONFIG
