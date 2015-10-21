@@ -186,7 +186,8 @@ VizServer.prototype.tickGraph = function (cb) {
 };
 
 // TODO Extract a graph method and manage graph contexts by filter data operation.
-VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, filters, pointLimit, cb) {
+VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, viewConfig, pointLimit, cb) {
+    var filters = viewConfig.filters;
     var masks = graph.dataframe.composeMasks(maskList, pointLimit);
 
     logger.debug('mask lengths: ', masks.numEdges(), masks.numPoints());
@@ -207,7 +208,8 @@ VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, f
                 ]);
 
                 this.tickGraph(cb);
-                var response = {success: true, filters: filters};
+                var sets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
+                var response = {success: true, filters: filters, sets: sets};
                 if (errors) {
                     response.errors = errors;
                 }
@@ -485,10 +487,9 @@ function VizServer(app, socket, cachedVBOs) {
 
     this.socket.on('get_filters', function (cb) {
         logger.trace('sending current filters to client');
-        Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
-            var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
-            cb({success: true, filters: viewConfig.filters, sets: outputSets});
-        }.bind(this)).subscribe(
+        this.viewConfig.take(1).do(function (viewConfig) {
+            cb({success: true, filters: viewConfig.filters});
+        }).subscribe(
             _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
 
@@ -551,7 +552,7 @@ function VizServer(app, socket, cachedVBOs) {
                     maskList.push(masks);
                 });
 
-                this.filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, pointLimit, cb);
+                this.filterGraphByMaskList(graph, maskList, errors, viewConfig, pointLimit, cb);
             }.bind(this)).subscribe(
                 _.identity,
                 function (err) {
@@ -646,7 +647,7 @@ function VizServer(app, socket, cachedVBOs) {
 
     this.socket.on('filter', function (query, cb) {
         logger.info('Got filter', query);
-        this.graph.take(1).do(function (graph) {
+        Rx.Observable.combineLatest(this.viewConfig, this.graph, function (viewConfig, graph) {
 
             var maskList = [];
             var errors = [];
@@ -677,8 +678,8 @@ function VizServer(app, socket, cachedVBOs) {
                 }
                 maskList.push(masks);
             });
-            this.filterGraphByMaskList(graph, maskList, errors, viewConfig.filters, Infinity, cb);
-        }.bind(this)).subscribe(
+            this.filterGraphByMaskList(graph, maskList, errors, viewConfig, Infinity, cb);
+        }.bind(this)).take(1).subscribe(
             _.identity,
             function (err) {
                 log.makeRxErrorHandler(logger, 'aggregate handler')(err);
