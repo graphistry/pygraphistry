@@ -431,10 +431,11 @@ function VizServer(app, socket, cachedVBOs) {
                 this.dataframe.masksForVizSets[newSet.id] = dataframeMask;
                 cb({success: true, set: presentVizSet(newSet)});
             }).fail(log.makeQErrorHandler(logger, 'pin_selection_as_set'));
-        }).take(1).subscribeOnError(function (err) {
-            logger.error(err, 'Error creating set from selection');
-            cb({success: false, error: 'Server error when saving the selection as a Set'});
-        });
+        }).take(1).subscribe(_.identity,
+            function (err) {
+                logger.error(err, 'Error creating set from selection');
+                cb({success: false, error: 'Server error when saving the selection as a Set'});
+            });
     }.bind(this));
 
     var specialSetKeys = ['dataframe', 'filtered', 'selection'];
@@ -444,10 +445,11 @@ function VizServer(app, socket, cachedVBOs) {
         Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
             var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
             cb({success: true, sets: outputSets});
-        }.bind(this)).take(1).subscribeOnError(function (err) {
-            logger.error(err, 'Error retrieving Sets');
-            cb({success: false, error: 'Server error when retrieving all Set definitions'});
-        });
+        }.bind(this)).take(1).subscribe(_.identity,
+            function (err) {
+                logger.error(err, 'Error retrieving Sets');
+                cb({success: false, error: 'Server error when retrieving all Set definitions'});
+            });
     }.bind(this));
 
     this.socket.on('update_set', function (id, updatedVizSet, cb) {
@@ -473,11 +475,12 @@ function VizServer(app, socket, cachedVBOs) {
                 }
             }
             cb({success: true, sets: _.map(viewConfig.sets, presentVizSet)});
-        }).subscribeOnError(function (err) {
-            logger.error(err, 'Error sending update_set');
-            cb({success: false, error: 'Server error when updating a Set'});
-            throw err;
-        });
+        }).subscribe(_.identity,
+            function (err) {
+                logger.error(err, 'Error sending update_set');
+                cb({success: false, error: 'Server error when updating a Set'});
+                throw err;
+            });
     }.bind(this));
 
     this.socket.on('get_filters', function (cb) {
