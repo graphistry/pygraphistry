@@ -289,7 +289,7 @@ function presentVizSet(vizSet) {
         vizSet.masks.numEdges() > maskResponseLimit;
     var response = masksTooLarge ? _.omit(vizSet, ['masks']) : vizSet;
     // Do NOT serialize the dataframe.
-    if (response.masks.dataframe !== undefined) {
+    if (response.masks && response.masks.dataframe !== undefined) {
         response.masks = _.omit(response.masks, 'dataframe');
     }
     return response;
