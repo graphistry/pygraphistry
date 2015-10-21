@@ -455,7 +455,7 @@ function VizServer(app, socket, cachedVBOs) {
     }.bind(this));
 
     this.socket.on('update_set', function (id, updatedVizSet, cb) {
-        Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
+        this.viewConfig.take(1).do(function (viewConfig) {
             if (_.contains(specialSetKeys, id)) {
                 throw Error('Cannot update the special Sets');
             }
@@ -477,7 +477,7 @@ function VizServer(app, socket, cachedVBOs) {
                 }
             }
             cb({success: true, set: presentVizSet(updatedVizSet)});
-        }).take(1).subscribe(_.identity,
+        }).subscribe(_.identity,
             function (err) {
                 logger.error(err, 'Error sending update_set');
                 cb({success: false, error: 'Server error when updating a Set'});
