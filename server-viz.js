@@ -879,7 +879,7 @@ VizServer.prototype.defineRoutesInApp = function (app) {
             }
             res.send();
 
-            var bufferTransferFinisher = this.bufferTransferFinisher;
+            var bufferTransferFinisher = appRouteResponder.bufferTransferFinisher;
             if (bufferTransferFinisher) {
                 bufferTransferFinisher(bufferName);
             }
