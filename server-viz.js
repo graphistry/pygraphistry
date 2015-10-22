@@ -852,8 +852,15 @@ VizServer.prototype.setupAggregationRequestHandling = function () {
     aggregateRequests.request(1); // Always request first.
 };
 
+// FIXME: ExpressJS routing does not support re-targeting. So we set a global for now!
+var appRouteResponder;
+
 VizServer.prototype.defineRoutesInApp = function (app) {
     this.app = app;
+
+    var routesAlreadyBound = (appRouteResponder !== undefined);
+    appRouteResponder = this;
+    if (routesAlreadyBound) { return; }
 
     this.app.get('/vbo', function (req, res) {
         logger.info('VBOs: HTTP GET %s', req.originalUrl);
@@ -866,7 +873,7 @@ VizServer.prototype.defineRoutesInApp = function (app) {
             var id = req.query.id;
 
             res.set('Content-Encoding', 'gzip');
-            var VBOs = (id === this.socket.id ? this.lastCompressedVBOs : this.cachedVBOs[id]);
+            var VBOs = (id === appRouteResponder.socket.id ? appRouteResponder.lastCompressedVBOs : appRouteResponder.cachedVBOs[id]);
             if (VBOs) {
                 res.send(VBOs[bufferName]);
             }
@@ -879,12 +886,12 @@ VizServer.prototype.defineRoutesInApp = function (app) {
         } catch (e) {
             log.makeQErrorHandler(logger, 'bad /vbo request')(e);
         }
-    }.bind(this));
+    });
 
     this.app.get('/texture', function (req, res) {
         logger.debug('got texture req', req.originalUrl, req.query);
         try {
-            this.colorTexture.pluck('buffer').do(
+            appRouteResponder.colorTexture.pluck('buffer').do(
                 function (data) {
                     res.set('Content-Encoding', 'gzip');
                     res.send(data);
@@ -894,17 +901,17 @@ VizServer.prototype.defineRoutesInApp = function (app) {
         } catch (e) {
             log.makeQErrorHandler(logger, 'bad /texture request')(e);
         }
-    }.bind(this));
+    });
 
     this.app.get('/read_node_selection', function (req, res) {
         logger.debug('Got read_node_selection', req.query);
-        this.readSelection('point', req.query, res);
-    }.bind(this));
+        appRouteResponder.readSelection('point', req.query, res);
+    });
 
     this.app.get('/read_edge_selection', function (req, res) {
         logger.debug('Got read_edge_selection', req.query);
-        this.readSelection('edge', req.query, res);
-    }.bind(this));
+        appRouteResponder.readSelection('edge', req.query, res);
+    });
 };
 
 VizServer.prototype.rememberVBOs = function (VBOs) {
