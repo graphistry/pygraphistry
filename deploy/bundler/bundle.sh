@@ -124,6 +124,23 @@ rm -rf $OUT/StreamGL
 rm -rf $OUT/config-public
 
 ###
+echo "===== TRIM ========="
+rm -rf $OUT/central/node_modules/graph-viz/assets/libs/ace/src
+rm -rf $OUT/central/node_modules/graph-viz/assets/libs/ace/src-min
+rm -rf $OUT/central/node_modules/graph-viz/assets/libs/ace/src-min-noconflict
+rm -rf $OUT/central/node_modules/node-opencl/build
+rm -rf $OUT/central/node_modules/uber-viz/screenshots
+rm -rf $OUT/central/node_modules/uber-viz/uber_gps_tsv
+rm -rf $OUT/central/node_modules/StreamGL/node_modules
+rm -rf $OUT/viz-server/node_modules/graph-viz/assets/libs/ace/src
+rm -rf $OUT/viz-server/node_modules/graph-viz/assets/libs/ace/src-min
+rm -rf $OUT/viz-server/node_modules/graph-viz/assets/libs/ace/src-min-noconflict
+rm -rf $OUT/viz-server/node_modules/node-opencl/build
+rm -rf $OUT/viz-server/node_modules/uber-viz/screenshots
+rm -rf $OUT/viz-server/node_modules/uber-viz/uber_gps_tsv
+rm -rf $OUT/viz-server/node_modules/StreamGL/node_modules
+
+###
 echo "====== COPY STATIC SOURCES ======"
 cp static/* $OUT 
 
