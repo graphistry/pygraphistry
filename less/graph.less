@@ -506,7 +506,7 @@ html.nomenu #menus, html.nomenu #sliders {
     }
 }
 
-#filtersPanel {
+#filtersPanel, #setsPanel {
     z-index: @menus-z;
     display: none; // Initial state meant to toggle.
     &:hover {
@@ -700,14 +700,7 @@ button.btn-default {
     top: 2.5em;
 }
 
-
-
-.filtersPanel {
-
-    width: 25em;
-    left: 5em;
-    top: auto;
-    position: absolute;
+.overlayPanel {
     padding-top: 0.5em;
     padding-bottom: 0.5em;
     padding-left: 0;
@@ -715,17 +708,60 @@ button.btn-default {
     border-radius: 3px;
 
     background-color: @light-grey-background-2;
+}
 
+.panelHeader {
+    background-color: inherit;
+    color: #646464;
+    font-weight: bold;
+    font-size: 13px;
+    padding-bottom: 0.5em;
+    border-bottom: 1px solid #C8C8C8;
+    margin-bottom: 0px;
+}
 
-    #filtersPanelHeader {
-        background-color: inherit;
-        color: #646464;
-        font-weight: bold;
-        font-size: 13px;
-        padding-bottom: 0.5em;
-        border-bottom: 1px solid #C8C8C8;
-        margin-bottom: 0px;
+.setsPanel {
+    width: 25em;
+    right: 5em;
+    top: auto;
+    position: absolute;
+
+    .overlayPanel;
+
+    #sets {
+        margin: 0;
+        padding: 0;
     }
+
+    .row {
+        margin: 0;
+    }
+
+    .setEntry {
+        background-color: white;
+        border-bottom: 1px solid @medium-grey;
+        padding-top: 0.5em;
+    }
+}
+
+.badged {
+    position: relative;
+}
+
+.badged .badge {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+}
+
+.filtersPanel {
+
+    width: 25em;
+    left: 5em;
+    top: auto;
+    position: absolute;
+
+    .overlayPanel;
 
     #filters {
         margin: 0;
@@ -855,6 +891,15 @@ button.btn-default {
 }
 
 .persistLayout {
+    z-index: @persist-z;
+
+    .modal-body {
+        word-wrap: break-word
+    }
+}
+
+
+.tagSet {
     z-index: @persist-z;
 
     .modal-body {
