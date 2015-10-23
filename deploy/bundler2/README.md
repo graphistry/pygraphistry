@@ -9,11 +9,11 @@ In contrast, the production environment is cleaner and more flexible, supporting
 Tested with:
    ubuntu@14.04.03
    node@0.10.40
-   npm@3.3.9
+   npm@2.14.4
 
 ## Dependencies
 
-1. Ensure GPU driver, CUDA, OpenCL, and OpenCL headers are already installed: http://vasir.net/blog/opencl/installing-cuda-opencl-pyopencl-on-aws-ec2
+1. Ensure GPU driver, CUDA, OpenCL, and OpenCL headers are already installed: [http://vasir.net/blog/opencl/installing-cuda-opencl-pyopencl-on-aws-ec2](http://vasir.net/blog/opencl/installing-cuda-opencl-pyopencl-on-aws-ec2)
 
   Note: in the above script, the python dependencies are unnecessary (half of step 3.0 and all of step 4.0)
 
@@ -50,8 +50,22 @@ killall node
 
 See folder /central/assets/datasets for sample visualization names. Plug into a URL like:
 
-http://54.149.52.47:3000/graph/graph.html?dataset=http://localhost:3000/datasets/lesmiserables.vgraph.gz&scene=default&info=true&play=10000
+[http://54.149.52.47:3000/graph/graph.html?dataset=http://localhost:3000/datasets/lesmiserables.vgraph.gz&scene=default&info=true&play=10000](http://54.149.52.47:3000/graph/graph.html?dataset=http://localhost:3000/datasets/lesmiserables.vgraph.gz&scene=default&info=true&play=10000)
 
 ## Test Notebook
+
+Install IPython/Jupyter and PyGraphistry using instructions from [https://github.com/graphistry/pygraphistry](https://github.com/graphistry/pygraphistry).
+
+- Warning: the notebook must be open using HTTP, not HTTPS. For instance, `http://localhost:8888`.
+
+To link the notebook to the visualization server, use the following `register` call at the beginning of each notebook.
+
+```python
+import graphistry
+graphistry.register('nokey', 'localhost:3000', protocol='http')
+```
+
+If the IPython and the visualization server run on different machines, replace `localhost` by the ip of the visualization server.
+
 
 
