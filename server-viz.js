@@ -905,11 +905,33 @@ VizServer.prototype.defineRoutesInApp = function (app) {
 
     this.app.get('/read_node_selection', function (req, res) {
         logger.debug('Got read_node_selection', req.query);
+
+        // HACK because we're sending numbers across a URL string parameter.
+        // This should be sent in a type aware manner
+        if (req.query.sel.br) {
+            var sel = req.query.sel;
+            sel.br.x = +sel.br.x;
+            sel.br.y = +sel.br.y;
+            sel.tl.x = +sel.tl.x;
+            sel.tl.y = +sel.tl.y;
+        }
+
         appRouteResponder.readSelection('point', req.query, res);
     });
 
     this.app.get('/read_edge_selection', function (req, res) {
         logger.debug('Got read_edge_selection', req.query);
+
+        // HACK because we're sending numbers across a URL string parameter.
+        // This should be sent in a type aware manner
+        if (req.query.sel.br) {
+            var sel = req.query.sel;
+            sel.br.x = +sel.br.x;
+            sel.br.y = +sel.br.y;
+            sel.tl.x = +sel.tl.x;
+            sel.tl.y = +sel.tl.y;
+        }
+
         appRouteResponder.readSelection('edge', req.query, res);
     });
 };
