@@ -22,7 +22,7 @@ Tested with:
 ## Install
 
 ```
-tar -xfhj graphistry-2015-10-23.ubuntu14.04.x86-64.tar.bz2 
+tar -xhvfj graphistry-2015-10-23.ubuntu14.04.x86-64.tar.bz2 
 ```
 
 Note the "h" option to preserve symbolic link structure.
@@ -39,6 +39,25 @@ Starts the main server and several workers.
 cd bin
 ./start.sh
 ```
+
+Expected output:
+
+```
+bin$ ./start.sh 
+{"HTTP_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORTS": [10001,10002,10003,10004,10005,10006,10007,10008,10009,10010]}
+{"VIZ_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORT": 10001}
+{"VIZ_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORT": 10002}
+{"VIZ_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORT": 10003}
+{"VIZ_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORT": 10004}
+{"VIZ_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORT": 10005}
+{"VIZ_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORT": 10006}
+{"VIZ_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORT": 10007}
+{"VIZ_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORT": 10008}
+{"VIZ_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORT": 10009}
+{"VIZ_LISTEN_ADDRESS": "0.0.0.0", "VIZ_LISTEN_PORT": 10010}
+node: no process found
+```
+
 
 ## Stop Server
 
