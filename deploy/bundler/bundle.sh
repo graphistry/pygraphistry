@@ -27,7 +27,7 @@ cp ../duck-tape-prod.sh $OUT/deploy/duck-tape-prod.sh
 
 
 ###
-echo "===== INIT LOGS ======"
+echo "====== INIT LOGS ======"
 mkdir -p $LOGS
 touch $LOGS/git.central.error
 touch $LOGS/git.central.log

@@ -15,20 +15,24 @@ touch $LOGS/worker.log
 echo "====== PREBUILD NATIVES ======"
 cd natives
 
-npm install --prefix . -only=prod node_modules/segfault-handler
+#npm install --prefix . -only=prod node_modules/segfault-handler
 cd node_modules/segfault-handler
 npm link
 cd ../..
 
-npm install --prefix . -only=prod node_modules/node-opencl
+#private repo
+#npm cache add node_modules/node-opencl
+#npm install --prefix . -only=prod node_modules/node-opencl
 cd node_modules/node-opencl
 npm link
-cd ..
+cd ../..
 
-npm install --prefix . -only=prod node_modules/node-pigz
+#private repo
+#npm cache add node_modules/node-pigz
+#npm install --prefix . -only=prod node_modules/node-pigz
 cd node_modules/node-pigz
 npm link 
-cd ..
+cd ../..
 
 cd ..
 
