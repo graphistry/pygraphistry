@@ -59,6 +59,12 @@ touch $LOGS/config.error
 touch $LOGS/config.log
 touch $LOGS/graph.error
 touch $LOGS/graph.log
+touch $LOGS/natives.seg.error
+touch $LOGS/natives.seg.log
+touch $LOGS/natives.cl.error
+touch $LOGS/natives.cl.log
+touch $LOGS/natives.pigz.error
+touch $LOGS/natives.pigz.log
 
 ### 
 echo "====== DOWNLOAD SOURCES ======"
@@ -68,6 +74,15 @@ git clone https://github.com/graphistry/viz-server.git $OUT/viz-server 2> $LOGS/
 git clone https://github.com/graphistry/StreamGl.git $OUT/StreamGL 2> $LOGS/git.streamgl.error 1> $LOGS/git.streamgl.log
 git clone https://github.com/graphistry/config-public.git $OUT/config-public 2> $LOGS/git.config.error 1> $LOGS/git.config.log
 git clone https://github.com/graphistry/common.git $OUT/common 2> $LOGS/git.common.error 1> $LOGS/git.common.log
+
+###
+echo "====== ISOLATE AND INSTALL NATIVE DEPS ======"
+mkdir -p $OUT/natives
+cd $OUT/natives
+npm install --prefix . -only=prod segfault-handler 2> ../../$LOGS/natives.seg.error 1> ../../$LOGS/natives.seg.log
+npm install --prefix . -only=prod git+https://github.com/mikeseven/node-opencl.git  2> ../../$LOGS/natives.cl.error 1> ../../$LOGS/natives.cl.log 
+npm install --prefix . -only=prod git+https://github.com/graphistry/node-pigz.git  2> ../../$LOGS/natives.pigz.error 1> ../../$LOGS/natives.pigz.log 
+cd ../..
 
 ###
 echo "====== INSTALL CONFIG-PUBLIC ======"
@@ -102,9 +117,12 @@ cp -r ../StreamGL/ node_modules/StreamGL
 rm -rf node_modules/config
 cp -r ../config-public node_modules/config
 echo "------ GENERATING CSS ------"
+
 cd node_modules/graph-viz
 npm run less
-cd ../../../..
+cd ../..
+
+cd ../..
 
 
 ###
