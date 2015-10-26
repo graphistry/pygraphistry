@@ -284,7 +284,7 @@ function processAggregateIndices (request, nodeIndices) {
 
 function presentVizSet(vizSet) {
     if (vizSet.masks === undefined) { return vizSet; }
-    var maskResponseLimit = 3e3;
+    var maskResponseLimit = 3e4;
     var masksTooLarge = vizSet.masks.numPoints() > maskResponseLimit ||
         vizSet.masks.numEdges() > maskResponseLimit;
     var response = masksTooLarge ? _.omit(vizSet, ['masks']) : _.clone(vizSet);
@@ -463,7 +463,7 @@ function VizServer(app, socket, cachedVBOs) {
             if (_.contains(specialSetKeys, id)) {
                 throw Error('Cannot update the special Sets');
             }
-             var matchingSetIndex = _.findIndex(viewConfig.sets, function (vizSet) { return vizSet.id === id; });
+            var matchingSetIndex = _.findIndex(viewConfig.sets, function (vizSet) { return vizSet.id === id; });
             if (matchingSetIndex === -1) {
                 // Auto-create:
                 if (updatedVizSet === undefined) {
