@@ -16,6 +16,7 @@
 @graphistry-lightblue: #0fa5c5;
 @graphistry-darkblue: #0C1134;
 
+@graphistry-background: #333339;
 
 //////////////////////////////////////////////////////////////////////////////
 // z-index order
@@ -420,7 +421,7 @@
 
 .graphistry-body {
     visibility: hidden;
-    background-color: #333339 !important;
+    background-color: @graphistry-background !important;
     height: 100%;
     overflow:hidden;
 
@@ -473,7 +474,7 @@
 
 
 #main, .accordion {
-    background-color: rgba(204, 204, 204, 0.3);
+    background-color: @graphistry-background; //rgba(204, 204, 204, 0.3);
     color: #EEF;
     padding: 0.5em;
 }
