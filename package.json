@@ -28,7 +28,7 @@
     "gl-matrix": "~2.2.0",
     "less": "~2.2.0",
     "mongodb": "~2.0.25",
-    "node-opencl": "mikeseven/node-opencl",
+    "node-opencl": "mikeseven/node-opencl#69dda1c7f61bc26376013c1e89c687cdd980d373",
     "node-pigz": "graphistry/node-pigz",
     "node-s3-url-encode": "0.0.4",
     "node.extend": "~1.1.5",
