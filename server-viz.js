@@ -392,26 +392,51 @@ function VizServer(app, socket, cachedVBOs) {
         });
     }.bind(this));
 
+    /**
+     * @typedef {Object} SelectionSpecification
+     * @property {String} action add/remove/replace
+     * @property {String} gesture rectangle/circle/masks
+     */
+
     // This represents a single selection action.
     this.socket.on('select', function (specification, cb) {
+        /** @type {SelectionSpecification} specification */
         this.graph.take(1).do(function (graph) {
             var qNodeSelection;
+            var simulator = graph.simulator;
             switch (specification.gesture) {
                 case 'rectangle':
-                    qNodeSelection = graph.simulator.selectNodesInRect({sel: _.pick(specification, ['tl', 'br'])});
+                    qNodeSelection = simulator.selectNodesInRect({sel: _.pick(specification, ['tl', 'br'])});
                     break;
                 case 'circle':
-                    qNodeSelection = graph.simulator.selectNodesInCircle(_.pick(specification, ['center', 'radius']));
+                    qNodeSelection = simulator.selectNodesInCircle(_.pick(specification, ['center', 'radius']));
                     break;
-                case 'mask':
-                    qNodeSelection = Q(specification.mask);
+                case 'masks':
+                    qNodeSelection = Q(specification.masks);
                     break;
                 default:
                     throw Error('Unrecognized selection type: ' + specification.gesture.toString());
             }
             if (qNodeSelection === undefined) { throw Error('No selection made'); }
+            var lastMasks = graph.dataframe.lastSelectionMasks;
+            switch (specification.action) {
+                case 'add':
+                    qNodeSelection = qNodeSelection.then(function (dataframeMask) {
+                        return lastMasks.union(dataframeMask);
+                    });
+                    break;
+                case 'remove':
+                    qNodeSelection = qNodeSelection.then(function (dataframeMask) {
+                        return lastMasks.minus(dataframeMask);
+                    });
+                    break;
+                case 'replace':
+                    break;
+                default:
+                    break;
+            }
             qNodeSelection.then(function (dataframeMask) {
-
+                graph.dataframe.lastSelectionMasks = dataframeMask;
             });
         }).subscribe(_.identity,
             function (err) {
@@ -438,13 +463,17 @@ function VizServer(app, socket, cachedVBOs) {
             var dataframe = graph.dataframe;
             var simulator = graph.simulator;
             if (sourceType === 'selection' || sourceType === undefined) {
-                var clientMask = specification.mask;
+                var clientMaskSet = specification.masks;
                 if (specification.sel !== undefined) {
-                    var selection = specification.sel;
+                    var rect = specification.sel;
                     pointsOnly = true;
-                    qNodeSelection = simulator.selectNodesInRect(selection);
-                } else if (clientMask !== undefined) {
-                    qNodeSelection = Q(new DataframeMask(dataframe, clientMask.point, clientMask.edge));
+                    qNodeSelection = simulator.selectNodesInRect(rect);
+                } else if (specification.circle !== undefined) {
+                    var circle = specification.circle;
+                    pointsOnly = true;
+                    qNodeSelection = simulator.selectNodesInCircle(circle);
+                } else if (clientMaskSet !== undefined) {
+                    qNodeSelection = Q(new DataframeMask(dataframe, clientMaskSet.point, clientMaskSet.edge));
                 } else if (_.isArray(specification.point_ids)) {
                     pointsOnly = true;
                     qNodeSelection = Q(specification.point_ids);
