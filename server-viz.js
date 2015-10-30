@@ -392,30 +392,68 @@ function VizServer(app, socket, cachedVBOs) {
         });
     }.bind(this));
 
+    // This represents a single selection action.
+    this.socket.on('select', function (specification, cb) {
+        this.graph.take(1).do(function (graph) {
+            var qNodeSelection;
+            switch (specification.gesture) {
+                case 'rectangle':
+                    qNodeSelection = graph.simulator.selectNodesInRect({sel: _.pick(specification, ['tl', 'br'])});
+                    break;
+                case 'circle':
+                    qNodeSelection = graph.simulator.selectNodesInCircle(_.pick(specification, ['center', 'radius']));
+                    break;
+                case 'mask':
+                    qNodeSelection = Q(specification.mask);
+                    break;
+                default:
+                    throw Error('Unrecognized selection type: ' + specification.gesture.toString());
+            }
+            if (qNodeSelection === undefined) { throw Error('No selection made'); }
+            qNodeSelection.then(function (dataframeMask) {
+
+            });
+        }).subscribe(_.identity,
+            function (err) {
+                logger.error(err, 'Error creating set from selection');
+                cb({success: false, error: 'Server error when saving the selection as a Set'});
+            });
+    }.bind(this));
+
     /**
      * @typedef {Object} SetSpecification
      * @property {String} sourceType one of selection,dataframe,filtered
      * @property {Object} sel rectangle/etc selection gesture.
      * @property {Number[]} point_ids list of point IDs.
+     * @property {Number[]} edge_ids list of edge IDs.
      */
 
-    this.socket.on('create_set', function (specification, name, cb) {
+    this.socket.on('create_set', function (sourceType, specification, cb) {
+        /**
+         * @type {SetSpecification} specification
+         */
         Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
             var qNodeSelection;
-            var sourceType = specification.sourceType;
+            var pointsOnly = false;
             if (sourceType === 'selection' || sourceType === undefined) {
                 if (specification.sel !== undefined) {
                     var selection = specification.sel;
+                    pointsOnly = true;
                     qNodeSelection = graph.simulator.selectNodesInRect(selection);
+                } else if (specification.mask !== undefined) {
+                    qNodeSelection = Q(specification.mask);
                 } else if (_.isArray(specification.point_ids)) {
+                    pointsOnly = true;
                     qNodeSelection = Q(specification.point_ids);
                 } else {
                     throw Error('Selection not specified for creating a Set');
                 }
-                qNodeSelection = qNodeSelection.then(function (pointIndexes) {
-                    var edgeIndexes = graph.simulator.connectedEdges(pointIndexes);
-                    return new DataframeMask(graph.dataframe, pointIndexes, edgeIndexes);
-                });
+                if (pointsOnly) {
+                    qNodeSelection = qNodeSelection.then(function (pointIndexes) {
+                        var edgeIndexes = graph.simulator.connectedEdges(pointIndexes);
+                        return new DataframeMask(graph.dataframe, pointIndexes, edgeIndexes);
+                    });
+                }
             } else if (sourceType === 'dataframe') {
                 qNodeSelection = Q(graph.dataframe.fullDataframeMask());
             } else if (sourceType === 'filtered') {
@@ -426,7 +464,8 @@ function VizServer(app, socket, cachedVBOs) {
             qNodeSelection.then(function (dataframeMask) {
                 var newSet = {
                     id: new TransactionalIdentifier().toString(),
-                    name: name,
+                    sourceType: sourceType,
+                    specification: specification,
                     masks: dataframeMask,
                     sizes: {point: dataframeMask.numPoints(), edge: dataframeMask.numEdges()}
                 };
