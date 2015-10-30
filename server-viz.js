@@ -290,8 +290,8 @@ function presentVizSet(vizSet) {
     var response = masksTooLarge ? _.omit(vizSet, ['masks']) : _.clone(vizSet);
     response.sizes = {point: vizSet.masks.numPoints(), edge: vizSet.masks.numEdges()};
     // Do NOT serialize the dataframe.
-    if (response.masks && response.masks.dataframe !== undefined) {
-        response.masks = _.omit(response.masks, 'dataframe');
+    if (response.masks) {
+        response.masks = response.masks.toJSON();
     }
     return response;
 }
