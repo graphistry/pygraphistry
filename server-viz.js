@@ -435,13 +435,16 @@ function VizServer(app, socket, cachedVBOs) {
         Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
             var qNodeSelection;
             var pointsOnly = false;
+            var dataframe = graph.dataframe;
+            var simulator = graph.simulator;
             if (sourceType === 'selection' || sourceType === undefined) {
+                var clientMask = specification.mask;
                 if (specification.sel !== undefined) {
                     var selection = specification.sel;
                     pointsOnly = true;
-                    qNodeSelection = graph.simulator.selectNodesInRect(selection);
-                } else if (specification.mask !== undefined) {
-                    qNodeSelection = Q(specification.mask);
+                    qNodeSelection = simulator.selectNodesInRect(selection);
+                } else if (clientMask !== undefined) {
+                    qNodeSelection = Q(new DataframeMask(dataframe, clientMask.point, clientMask.edge));
                 } else if (_.isArray(specification.point_ids)) {
                     pointsOnly = true;
                     qNodeSelection = Q(specification.point_ids);
@@ -450,14 +453,14 @@ function VizServer(app, socket, cachedVBOs) {
                 }
                 if (pointsOnly) {
                     qNodeSelection = qNodeSelection.then(function (pointIndexes) {
-                        var edgeIndexes = graph.simulator.connectedEdges(pointIndexes);
-                        return new DataframeMask(graph.dataframe, pointIndexes, edgeIndexes);
+                        var edgeIndexes = simulator.connectedEdges(pointIndexes);
+                        return new DataframeMask(dataframe, pointIndexes, edgeIndexes);
                     });
                 }
             } else if (sourceType === 'dataframe') {
-                qNodeSelection = Q(graph.dataframe.fullDataframeMask());
+                qNodeSelection = Q(dataframe.fullDataframeMask());
             } else if (sourceType === 'filtered') {
-                qNodeSelection = Q(graph.dataframe.lastMasks);
+                qNodeSelection = Q(dataframe.lastMasks);
             } else {
                 throw Error('Unrecognized special type for creating a Set: ' + sourceType);
             }
@@ -470,7 +473,7 @@ function VizServer(app, socket, cachedVBOs) {
                     sizes: {point: dataframeMask.numPoints(), edge: dataframeMask.numEdges()}
                 };
                 viewConfig.sets.push(newSet);
-                this.dataframe.masksForVizSets[newSet.id] = dataframeMask;
+                dataframe.masksForVizSets[newSet.id] = dataframeMask;
                 cb({success: true, set: presentVizSet(newSet)});
             }).fail(log.makeQErrorHandler(logger, 'pin_selection_as_set'));
         }).take(1).subscribe(_.identity,
