@@ -147,7 +147,7 @@ VizServer.prototype.resetState = function (dataset) {
 
 VizServer.prototype.readSelection = function (type, query, res) {
     this.graph.take(1).do(function (graph) {
-        graph.simulator.selectNodes(query.sel).then(function (nodeIndices) {
+        graph.simulator.selectNodesInRect(query.sel).then(function (nodeIndices) {
             var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
             return {
                 'point': nodeIndices,
@@ -406,7 +406,7 @@ function VizServer(app, socket, cachedVBOs) {
             if (sourceType === 'selection' || sourceType === undefined) {
                 if (specification.sel !== undefined) {
                     var selection = specification.sel;
-                    qNodeSelection = graph.simulator.selectNodes(selection);
+                    qNodeSelection = graph.simulator.selectNodesInRect(selection);
                 } else if (_.isArray(specification.point_ids)) {
                     qNodeSelection = Q(specification.point_ids);
                 } else {
@@ -824,7 +824,7 @@ VizServer.prototype.setupAggregationRequestHandling = function () {
             } else if (!query.sel) {
                 qIndices = Q(new Uint32Array([]));
             } else {
-                qIndices = graph.simulator.selectNodes(query.sel);
+                qIndices = graph.simulator.selectNodesInRect(query.sel);
             }
 
             aggregateRequests.subject.onNext({

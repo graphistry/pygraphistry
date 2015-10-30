@@ -1,7 +1,7 @@
 //#define DEBUG
 #include "common.h"
 
-__kernel void selectNodes (
+__kernel void selectNodesInRect (
     // Selection
     const float top,
     const float left,
