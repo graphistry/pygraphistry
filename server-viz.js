@@ -283,7 +283,7 @@ function processAggregateIndices (request, nodeIndices) {
 }
 
 function presentVizSet(vizSet) {
-    if (vizSet.masks === undefined) { return vizSet; }
+    if (vizSet === undefined || vizSet.masks === undefined) { return vizSet; }
     var maskResponseLimit = 3e4;
     var masksTooLarge = vizSet.masks.numPoints() > maskResponseLimit ||
         vizSet.masks.numEdges() > maskResponseLimit;
@@ -537,7 +537,7 @@ function VizServer(app, socket, cachedVBOs) {
             var matchingSetIndex = _.findIndex(viewConfig.sets, function (vizSet) { return vizSet.id === id; });
             if (matchingSetIndex === -1) {
                 // Auto-create:
-                if (updatedVizSet === undefined) {
+                if (!updatedVizSet) {
                     updatedVizSet = {};
                 }
                 // Auto-create an ID:
@@ -545,17 +545,14 @@ function VizServer(app, socket, cachedVBOs) {
                     updatedVizSet.id = (id || new TransactionalIdentifier()).toString();
                 }
                 viewConfig.sets.push(updatedVizSet);
-            } else {
-                // Delete as un-define:
-                if (updatedVizSet === undefined) {
-                    viewConfig.splice(matchingSetIndex, 1);
-                } else {
-                    if (updatedVizSet.id === undefined) {
-                        updatedVizSet.id = id;
-                    }
-                    // TODO: smart merge
-                    viewConfig.sets[matchingSetIndex] = updatedVizSet;
+            } else if (updatedVizSet) {
+                if (updatedVizSet.id === undefined) {
+                    updatedVizSet.id = id;
                 }
+                // TODO: smart merge
+                viewConfig.sets[matchingSetIndex] = updatedVizSet;
+            } else { // No set given means to delete by id
+                viewConfig.sets.splice(matchingSetIndex, 1);
             }
             cb({success: true, set: presentVizSet(updatedVizSet)});
         }).subscribe(_.identity,
