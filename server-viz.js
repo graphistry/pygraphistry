@@ -526,6 +526,8 @@ function VizServer(app, socket, cachedVBOs) {
             });
     }.bind(this));
 
+    var setPropertyWhiteList = ['title', 'description'];
+
     /**
      * This handles creates (set given with no id), updates (id and set given), and deletes (id with no set).
      */
@@ -549,8 +551,10 @@ function VizServer(app, socket, cachedVBOs) {
                 if (updatedVizSet.id === undefined) {
                     updatedVizSet.id = id;
                 }
-                // TODO: smart merge
-                viewConfig.sets[matchingSetIndex] = updatedVizSet;
+                var matchingSet = viewConfig.sets[matchingSetIndex];
+                _.extend(matchingSet, _.pick(updatedVizSet, setPropertyWhiteList));
+                matchingSet.masks.fromJSON(updatedVizSet.masks);
+                updatedVizSet = matchingSet;
             } else { // No set given means to delete by id
                 viewConfig.sets.splice(matchingSetIndex, 1);
             }
