@@ -283,7 +283,7 @@ function processAggregateIndices (request, nodeIndices) {
 }
 
 function presentVizSet(vizSet) {
-    if (vizSet === undefined || vizSet.masks === undefined) { return vizSet; }
+    if (!vizSet || vizSet.masks === undefined) { return vizSet; }
     var maskResponseLimit = 3e4;
     var masksTooLarge = vizSet.masks.numPoints() > maskResponseLimit ||
         vizSet.masks.numEdges() > maskResponseLimit;
@@ -317,6 +317,13 @@ function vizSetsToPresentFromViewConfig (viewConfig, dataframe) {
         }
     });
     return _.map(sets, presentVizSet);
+}
+
+var setPropertyWhiteList = ['title', 'description'];
+
+function updateVizSetFromClientSet (matchingSet, updatedVizSet) {
+    _.extend(matchingSet, _.pick(updatedVizSet, setPropertyWhiteList));
+    matchingSet.masks.fromJSON(updatedVizSet.masks);
 }
 
 function VizServer(app, socket, cachedVBOs) {
@@ -497,10 +504,11 @@ function VizServer(app, socket, cachedVBOs) {
                 var newSet = {
                     id: new TransactionalIdentifier().toString(),
                     sourceType: sourceType,
-                    specification: specification,
+                    specification: _.omit(specification, setPropertyWhiteList),
                     masks: dataframeMask,
                     sizes: {point: dataframeMask.numPoints(), edge: dataframeMask.numEdges()}
                 };
+                updateVizSetFromClientSet(newSet, specification);
                 viewConfig.sets.push(newSet);
                 dataframe.masksForVizSets[newSet.id] = dataframeMask;
                 cb({success: true, set: presentVizSet(newSet)});
@@ -526,8 +534,6 @@ function VizServer(app, socket, cachedVBOs) {
             });
     }.bind(this));
 
-    var setPropertyWhiteList = ['title', 'description'];
-
     /**
      * This handles creates (set given with no id), updates (id and set given), and deletes (id with no set).
      */
@@ -552,8 +558,7 @@ function VizServer(app, socket, cachedVBOs) {
                     updatedVizSet.id = id;
                 }
                 var matchingSet = viewConfig.sets[matchingSetIndex];
-                _.extend(matchingSet, _.pick(updatedVizSet, setPropertyWhiteList));
-                matchingSet.masks.fromJSON(updatedVizSet.masks);
+                updateVizSetFromClientSet(matchingSet, updatedVizSet);
                 updatedVizSet = matchingSet;
             } else { // No set given means to delete by id
                 viewConfig.sets.splice(matchingSetIndex, 1);
