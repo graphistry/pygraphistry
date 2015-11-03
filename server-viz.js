@@ -453,11 +453,28 @@ function VizServer(app, socket, cachedVBOs) {
     }.bind(this));
 
     /**
+     * @typedef {Object} Point2D
+     * @property {Number} x
+     * @property {Number} y
+     */
+
+    /**
+     * @typedef {Object} Rect
+     * @property {Point} tl top left corner
+     * @property {Point} br bottom right corner
+     */
+
+    /**
+     * @typedef {Object} Circle
+     * @property {Point} center
+     * @property {Number} radius
+     */
+
+    /**
      * @typedef {Object} SetSpecification
      * @property {String} sourceType one of selection,dataframe,filtered
-     * @property {Object} sel rectangle/etc selection gesture.
-     * @property {Number[]} point_ids list of point IDs.
-     * @property {Number[]} edge_ids list of edge IDs.
+     * @property {Rect} sel rectangle/etc selection gesture.
+     * @property {Circle} circle
      */
 
     this.socket.on('create_set', function (sourceType, specification, cb) {
