@@ -560,6 +560,7 @@ function VizServer(app, socket, cachedVBOs) {
                 updatedVizSet = matchingSet;
             } else { // No set given means to delete by id
                 viewConfig.sets.splice(matchingSetIndex, 1);
+                dataframe.masksForVizSets[id] = undefined;
             }
             cb({success: true, set: presentVizSet(updatedVizSet)});
         }).subscribe(_.identity,
