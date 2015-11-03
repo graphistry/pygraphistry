@@ -480,10 +480,8 @@ function VizServer(app, socket, cachedVBOs) {
                     pointsOnly = true;
                     qNodeSelection = simulator.selectNodesInCircle(circle);
                 } else if (clientMaskSet !== undefined) {
-                    qNodeSelection = Q(new DataframeMask(dataframe, clientMaskSet.point, clientMaskSet.edge));
-                } else if (_.isArray(specification.point_ids)) {
-                    pointsOnly = true;
-                    qNodeSelection = Q(specification.point_ids);
+                    // translate client masks to rawdata masks.
+                    qNodeSelection = Q(new DataframeMask(dataframe, clientMaskSet.point, clientMaskSet.edge, true));
                 } else {
                     throw Error('Selection not specified for creating a Set');
                 }
