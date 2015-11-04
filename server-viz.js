@@ -553,7 +553,7 @@ function VizServer(app, socket, cachedVBOs) {
      * This handles creates (set given with no id), updates (id and set given), and deletes (id with no set).
      */
     this.socket.on('update_set', function (id, updatedVizSet, cb) {
-        this.viewConfig.take(1).do(function (viewConfig) {
+        Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
             if (_.contains(specialSetKeys, id)) {
                 throw Error('Cannot update the special Sets');
             }
@@ -577,10 +577,10 @@ function VizServer(app, socket, cachedVBOs) {
                 updatedVizSet = matchingSet;
             } else { // No set given means to delete by id
                 viewConfig.sets.splice(matchingSetIndex, 1);
-                dataframe.masksForVizSets[id] = undefined;
+                graph.dataframe.masksForVizSets[id] = undefined;
             }
             cb({success: true, set: presentVizSet(updatedVizSet)});
-        }).subscribe(_.identity,
+        }).take(1).subscribe(_.identity,
             function (err) {
                 logger.error(err, 'Error sending update_set');
                 cb({success: false, error: 'Server error when updating a Set'});
