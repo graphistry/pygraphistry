@@ -282,20 +282,6 @@ function processAggregateIndices (request, nodeIndices) {
     }
 }
 
-function presentVizSet(vizSet) {
-    if (!vizSet || vizSet.masks === undefined) { return vizSet; }
-    var maskResponseLimit = 3e4;
-    var masksTooLarge = vizSet.masks.numPoints() > maskResponseLimit ||
-        vizSet.masks.numEdges() > maskResponseLimit;
-    var response = masksTooLarge ? _.omit(vizSet, ['masks']) : _.clone(vizSet);
-    response.sizes = {point: vizSet.masks.numPoints(), edge: vizSet.masks.numEdges()};
-    // Do NOT serialize the dataframe.
-    if (response.masks) {
-        response.masks = response.masks.toJSON();
-    }
-    return response;
-}
-
 /**
  * @param {Object} viewConfig
  * @param {Dataframe} dataframe
@@ -316,7 +302,7 @@ function vizSetsToPresentFromViewConfig (viewConfig, dataframe) {
                 break;
         }
     });
-    return _.map(sets, presentVizSet);
+    return _.map(sets, function (vizSet) { return dataframe.presentVizSet(vizSet); });
 }
 
 var setPropertyWhiteList = ['title', 'description'];
@@ -526,7 +512,7 @@ function VizServer(app, socket, cachedVBOs) {
                 updateVizSetFromClientSet(newSet, specification);
                 viewConfig.sets.push(newSet);
                 dataframe.masksForVizSets[newSet.id] = dataframeMask;
-                cb({success: true, set: presentVizSet(newSet)});
+                cb({success: true, set: dataframe.presentVizSet(newSet)});
             }).fail(log.makeQErrorHandler(logger, 'pin_selection_as_set'));
         }).take(1).subscribe(_.identity,
             function (err) {
@@ -579,7 +565,7 @@ function VizServer(app, socket, cachedVBOs) {
                 viewConfig.sets.splice(matchingSetIndex, 1);
                 graph.dataframe.masksForVizSets[id] = undefined;
             }
-            cb({success: true, set: presentVizSet(updatedVizSet)});
+            cb({success: true, set: graph.dataframe.presentVizSet(updatedVizSet)});
         }).take(1).subscribe(_.identity,
             function (err) {
                 logger.error(err, 'Error sending update_set');
