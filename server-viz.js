@@ -1094,6 +1094,19 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 });
     });
 
+    this.socket.on('get_global_ids', function (sel, cb) {
+        graph.take(1).do(function (graph) {
+            var res = _.map(sel, function (ent) {
+                var type = ent.dim === 1 ? 'point' : 'edge';
+                return {
+                    type: type,
+                    index: graph.simulator.dataframe.globalize(ent.idx, type)
+                };
+            });
+            cb({success: true, ids: res});
+        }).subscribe(_.identity, log.makeRxErrorHandler(logger, 'get_global_ids'));
+    });
+
     this.socket.on('shortest_path', function (pair) {
         graph.take(1)
             .do(function (graph) {
