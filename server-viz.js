@@ -394,7 +394,7 @@ function VizServer(app, socket, cachedVBOs) {
     // This represents a single selection action.
     this.socket.on('select', function (specification, cb) {
         /** @type {SelectionSpecification} specification */
-        this.graph.take(1).do(function (graph) {
+        Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
             var qNodeSelection;
             var simulator = graph.simulator;
             switch (specification.gesture) {
@@ -405,7 +405,17 @@ function VizServer(app, socket, cachedVBOs) {
                     qNodeSelection = simulator.selectNodesInCircle(_.pick(specification, ['center', 'radius']));
                     break;
                 case 'masks':
+                    // TODO FIXME translate masks to unfiltered indexes.
                     qNodeSelection = Q(specification.masks);
+                    break;
+                case 'sets':
+                    var matchingSets = _.filter(viewConfig.sets, function (vizSet) {
+                        return specification.set_ids.indexOf(vizSet.id) !== -1;
+                    });
+                    var combinedMasks = _.reduce(matchingSets, function (accum, vizSet) {
+                        return accum.union(vizSet.masks);
+                    }, new DataframeMask(graph.dataframe, [], []));
+                    qNodeSelection = Q(combinedMasks);
                     break;
                 default:
                     throw Error('Unrecognized selection type: ' + specification.gesture.toString());
@@ -431,7 +441,7 @@ function VizServer(app, socket, cachedVBOs) {
             qNodeSelection.then(function (dataframeMask) {
                 graph.dataframe.lastSelectionMasks = dataframeMask;
             });
-        }).subscribe(_.identity,
+        }).take(1).subscribe(_.identity,
             function (err) {
                 logger.error(err, 'Error creating set from selection');
                 cb({success: false, error: 'Server error when saving the selection as a Set'});
