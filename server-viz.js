@@ -298,7 +298,7 @@ function vizSetsToPresentFromViewConfig (viewConfig, dataframe) {
                 vizSet.masks = dataframe.lastMasks;
                 break;
             case 'selection':
-                // vizSet.masks = ??
+                vizSet.masks = dataframe.lastSelectionMasks;
                 break;
         }
     });
@@ -391,6 +391,8 @@ function VizServer(app, socket, cachedVBOs) {
      * @property {String} gesture rectangle/circle/masks
      */
 
+    var animationStep = this.animationStep;
+
     // This represents a single selection action.
     this.socket.on('select', function (specification, cb) {
         /** @type {SelectionSpecification} specification */
@@ -412,8 +414,8 @@ function VizServer(app, socket, cachedVBOs) {
                     var matchingSets = _.filter(viewConfig.sets, function (vizSet) {
                         return specification.set_ids.indexOf(vizSet.id) !== -1;
                     });
-                    var combinedMasks = _.reduce(matchingSets, function (accum, vizSet) {
-                        return DataframeMask.unionOfTwoMasks(accum, vizSet.masks);
+                    var combinedMasks = _.reduce(matchingSets, function (masks, vizSet) {
+                        return masks.union(vizSet.masks);
                     }, new DataframeMask(graph.dataframe, [], []));
                     qNodeSelection = Q(combinedMasks);
                     break;
@@ -440,6 +442,8 @@ function VizServer(app, socket, cachedVBOs) {
             }
             qNodeSelection.then(function (dataframeMask) {
                 graph.dataframe.lastSelectionMasks = dataframeMask;
+                animationStep.interact({play: true, layout: true});
+                cb({success: true});
             });
         }).take(1).subscribe(_.identity,
             function (err) {
@@ -456,13 +460,13 @@ function VizServer(app, socket, cachedVBOs) {
 
     /**
      * @typedef {Object} Rect
-     * @property {Point} tl top left corner
-     * @property {Point} br bottom right corner
+     * @property {Point2D} tl top left corner
+     * @property {Point2D} br bottom right corner
      */
 
     /**
      * @typedef {Object} Circle
-     * @property {Point} center
+     * @property {Point2D} center
      * @property {Number} radius
      */
 
