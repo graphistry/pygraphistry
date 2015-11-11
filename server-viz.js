@@ -413,7 +413,7 @@ function VizServer(app, socket, cachedVBOs) {
                         return specification.set_ids.indexOf(vizSet.id) !== -1;
                     });
                     var combinedMasks = _.reduce(matchingSets, function (accum, vizSet) {
-                        return accum.union(vizSet.masks);
+                        return DataframeMask.unionOfTwoMasks(accum, vizSet.masks);
                     }, new DataframeMask(graph.dataframe, [], []));
                     qNodeSelection = Q(combinedMasks);
                     break;
