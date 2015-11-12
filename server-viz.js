@@ -1163,11 +1163,20 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
             var GREEN = 255 << 8;
             var color = specification.color || GREEN;
             qNodeSelection.then(function (dataframeMask) {
-                dataframeMask.mapPointIndexes(function (pointIndex) {
-                    graph.simulator.dataframe.getLocalBuffer('pointColors')[pointIndex] = color;
-                    // graph.simulator.buffersLocal.pointColors[point.index] = point.color;
-                });
-                graph.simulator.tickBuffers(['pointColors']);
+                var simulator = graph.simulator, dataframe = simulator.dataframe;
+                var bufferName = 'pointColors';
+                if (dataframeMask.isEmpty() && dataframe.canResetLocalBuffer(bufferName)) {
+                    dataframe.resetLocalBuffer(bufferName);
+                } else {
+                    if (!dataframe.canResetLocalBuffer(bufferName)) {
+                        dataframe.snapshotLocalBuffer(bufferName);
+                    }
+                    var pointColorsBuffer = dataframe.getLocalBuffer(bufferName);
+                    dataframeMask.mapPointIndexes(function (pointIndex) {
+                        pointColorsBuffer[pointIndex] = color;
+                    });
+                }
+                simulator.tickBuffers([bufferName]);
 
                 animationStep.interact({play: true, layout: false});
                 cb({success: true});
