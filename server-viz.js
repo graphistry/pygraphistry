@@ -386,73 +386,6 @@ function VizServer(app, socket, cachedVBOs) {
     }.bind(this));
 
     /**
-     * @typedef {Object} SelectionSpecification
-     * @property {String} action add/remove/replace
-     * @property {String} gesture rectangle/circle/masks
-     */
-
-    var animationStep = this.animationStep;
-
-    // This represents a single selection action.
-    this.socket.on('select', function (specification, cb) {
-        /** @type {SelectionSpecification} specification */
-        Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
-            var qNodeSelection;
-            var simulator = graph.simulator;
-            switch (specification.gesture) {
-                case 'rectangle':
-                    qNodeSelection = simulator.selectNodesInRect({sel: _.pick(specification, ['tl', 'br'])});
-                    break;
-                case 'circle':
-                    qNodeSelection = simulator.selectNodesInCircle(_.pick(specification, ['center', 'radius']));
-                    break;
-                case 'masks':
-                    // TODO FIXME translate masks to unfiltered indexes.
-                    qNodeSelection = Q(specification.masks);
-                    break;
-                case 'sets':
-                    var matchingSets = _.filter(viewConfig.sets, function (vizSet) {
-                        return specification.set_ids.indexOf(vizSet.id) !== -1;
-                    });
-                    var combinedMasks = _.reduce(matchingSets, function (masks, vizSet) {
-                        return masks.union(vizSet.masks);
-                    }, new DataframeMask(graph.dataframe, [], []));
-                    qNodeSelection = Q(combinedMasks);
-                    break;
-                default:
-                    throw Error('Unrecognized selection type: ' + specification.gesture.toString());
-            }
-            if (qNodeSelection === undefined) { throw Error('No selection made'); }
-            var lastMasks = graph.dataframe.lastSelectionMasks;
-            switch (specification.action) {
-                case 'add':
-                    qNodeSelection = qNodeSelection.then(function (dataframeMask) {
-                        return lastMasks.union(dataframeMask);
-                    });
-                    break;
-                case 'remove':
-                    qNodeSelection = qNodeSelection.then(function (dataframeMask) {
-                        return lastMasks.minus(dataframeMask);
-                    });
-                    break;
-                case 'replace':
-                    break;
-                default:
-                    break;
-            }
-            qNodeSelection.then(function (dataframeMask) {
-                graph.dataframe.lastSelectionMasks = dataframeMask;
-                animationStep.interact({play: true, layout: true});
-                cb({success: true});
-            });
-        }).take(1).subscribe(_.identity,
-            function (err) {
-                logger.error(err, 'Error creating set from selection');
-                cb({success: false, error: 'Server error when saving the selection as a Set'});
-            });
-    }.bind(this));
-
-    /**
      * @typedef {Object} Point2D
      * @property {Number} x
      * @property {Number} y
@@ -1125,7 +1058,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
         graph.take(1)
             .do(function (graph) {
                 graph.simulator.highlightShortestPaths(pair);
-                animationStep.interact({play: true, layout: true});
+                animationStep.interact({play: true, layout: false});
             })
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'shortest_path'));
     });
@@ -1139,6 +1072,113 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'set_colors'));
     });
 
+    /**
+     * @typedef {Object} SelectionSpecification
+     * @property {String} action add/remove/replace
+     * @property {String} gesture rectangle/circle/masks
+     */
+
+    /** This represents a single selection action.
+     */
+    this.socket.on('select', function (specification, cb) {
+        /** @type {SelectionSpecification} specification */
+        Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
+            var qNodeSelection;
+            var simulator = graph.simulator;
+            switch (specification.gesture) {
+                case 'rectangle':
+                    qNodeSelection = simulator.selectNodesInRect({sel: _.pick(specification, ['tl', 'br'])});
+                    break;
+                case 'circle':
+                    qNodeSelection = simulator.selectNodesInCircle(_.pick(specification, ['center', 'radius']));
+                    break;
+                case 'masks':
+                    // TODO FIXME translate masks to unfiltered indexes.
+                    qNodeSelection = Q(specification.masks);
+                    break;
+                case 'sets':
+                    var matchingSets = _.filter(viewConfig.sets, function (vizSet) {
+                        return specification.set_ids.indexOf(vizSet.id) !== -1;
+                    });
+                    var combinedMasks = _.reduce(matchingSets, function (masks, vizSet) {
+                        return masks.union(vizSet.masks);
+                    }, new DataframeMask(graph.dataframe, [], []));
+                    qNodeSelection = Q(combinedMasks);
+                    break;
+                default:
+                    throw Error('Unrecognized selection gesture: ' + specification.gesture.toString());
+            }
+            if (qNodeSelection === undefined) { throw Error('No selection made'); }
+            var lastMasks = graph.dataframe.lastSelectionMasks;
+            switch (specification.action) {
+                case 'add':
+                    qNodeSelection = qNodeSelection.then(function (dataframeMask) {
+                        return lastMasks.union(dataframeMask);
+                    });
+                    break;
+                case 'remove':
+                    qNodeSelection = qNodeSelection.then(function (dataframeMask) {
+                        return lastMasks.minus(dataframeMask);
+                    });
+                    break;
+                case 'replace':
+                    break;
+                default:
+                    break;
+            }
+            qNodeSelection.then(function (dataframeMask) {
+                graph.dataframe.lastSelectionMasks = dataframeMask;
+                graph.simulator.tickBuffers(['selectedPointIndexes', 'selectedEdgeIndexes']);
+                animationStep.interact({play: true, layout: false});
+                cb({success: true});
+            });
+        }).take(1).subscribe(_.identity,
+            function (err) {
+                logger.error(err, 'Error modifying the selection');
+                cb({success: false, error: 'Server error when modifying the selection'});
+            });
+    }.bind(this));
+
+    this.socket.on('highlight', function (specification, cb) {
+        /** @type {SelectionSpecification} specification */
+        Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
+            var qNodeSelection;
+            switch (specification.gesture) {
+                case 'masks':
+                    // TODO FIXME translate masks to unfiltered indexes.
+                    qNodeSelection = Q(specification.masks);
+                    break;
+                case 'sets':
+                    var matchingSets = _.filter(viewConfig.sets, function (vizSet) {
+                        return specification.set_ids.indexOf(vizSet.id) !== -1;
+                    });
+                    var combinedMasks = _.reduce(matchingSets, function (masks, vizSet) {
+                        return masks.union(vizSet.masks);
+                    }, new DataframeMask(graph.dataframe, [], []));
+                    qNodeSelection = Q(combinedMasks);
+                    break;
+                default:
+                    throw Error('Unrecognized highlight gesture: ' + specification.gesture.toString());
+            }
+            var GREEN = 255 << 8;
+            var color = specification.color || GREEN;
+            qNodeSelection.then(function (dataframeMask) {
+                dataframeMask.mapPointIndexes(function (pointIndex) {
+                    graph.simulator.dataframe.getLocalBuffer('pointColors')[pointIndex] = color;
+                    // graph.simulator.buffersLocal.pointColors[point.index] = point.color;
+                });
+                graph.simulator.tickBuffers(['pointColors']);
+
+                animationStep.interact({play: true, layout: false});
+                cb({success: true});
+            });
+        }).take(1).subscribe(_.identity,
+            function (err) {
+                logger.error(err, 'Error performing a highlight');
+                cb({success: false, error: 'Server error when performing a highlight'});
+            });
+    }.bind(this));
+
     this.socket.on('highlight_points', function (points) {
         graph.take(1)
             .do(function (graph) {
@@ -1149,7 +1189,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 });
                 graph.simulator.tickBuffers(['pointColors']);
 
-                animationStep.interact({play: true, layout: true});
+                animationStep.interact({play: true, layout: false});
             })
             .subscribe(_.identity, log.makeRxErrorHandler(logger, 'highlighted_points'));
 
