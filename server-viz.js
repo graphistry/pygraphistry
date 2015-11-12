@@ -1021,7 +1021,8 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 var type = ent.dim === 1 ? 'point' : 'edge';
                 return {
                     type: type,
-                    index: graph.simulator.dataframe.globalize(ent.idx, type)
+                    dataIdx: graph.simulator.dataframe.globalize(ent.idx, type),
+                    viewIdx: ent.idx
                 };
             });
             cb({success: true, ids: res});
