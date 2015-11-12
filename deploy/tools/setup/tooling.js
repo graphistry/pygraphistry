@@ -281,7 +281,7 @@ function distinctExternals(externals, checkVersionMismatch) {
     var mismatchs = {};
     var distinctExternals = _.reduce(externals, function (acc, dep) {
         var modifier = dep.version[0];
-        if (modifier !== '~' && isNaN(modifier) && dep.version.indexOf('git') !== 0) {
+        if (modifier !== '~' && isNaN(modifier) && dep.version.indexOf('/') === -1) {
             console.warn('In %s, dependency %s is not set to bugfixes only (~): %s',
                          dep.source, dep.name, dep.version);
         }
