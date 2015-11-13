@@ -102,7 +102,7 @@ Arguments:
 	
 * edge_color = None : <em>Integer</em>
 
-	Attribute overriding edge's color. See [palette definitions](graphistry.com/palette.html) for values. Based on Color Brewer.
+	Attribute overriding edge's color. See [palette definitions](http://graphistry.com/palette.html) for values. Based on Color Brewer.
 	
 
 ### About ###
