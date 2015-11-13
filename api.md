@@ -86,7 +86,7 @@ Arguments:
 
 * point_color = None : <em>Integer</em>
 
-	Attribute overriding node's color. See [palette definitions](graphistry.com/palette.html) for values. Based on Color Brewer.
+	Attribute overriding node's color. See [palette definitions](http://graphistry.com/palette.html) for values. Based on Color Brewer.
 
 * edge_weight = None : <em>Integer</em>
 
