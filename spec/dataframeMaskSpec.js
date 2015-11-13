@@ -55,3 +55,25 @@ describe('complement', function () {
         //expect(DataframeMask.complementOfMask([-1], 5)).toEqual([0,1,2,3,4]);
     });
 });
+
+describe('minus', function () {
+    it('handles empty masks', function () {
+        expect(DataframeMask.minusMask([], [])).toEqual([]);
+        expect(DataframeMask.minusMask(_.range(5), [])).toEqual(_.range(5));
+    });
+    it('handles singletons', function () {
+        expect(DataframeMask.minusMask([1], [1])).toEqual([]);
+        expect(DataframeMask.minusMask([1], [3])).toEqual([1]);
+        expect(DataframeMask.minusMask([1], [6])).toEqual([1]);
+        expect(DataframeMask.minusMask([1], [5])).toEqual([1]);
+    });
+    it('handles complex patterns', function () {
+        expect(DataframeMask.minusMask([0,1,2,3,4], [])).toEqual([0,1,2,3,4]);
+        expect(DataframeMask.minusMask([0,1], [2,3,4])).toEqual([0,1]);
+        expect(DataframeMask.minusMask([0,4], [1,2,3])).toEqual([0,4]);
+    });
+    it('handles some intersection', function () {
+        expect(DataframeMask.minusMask([0,1,2,3,4], [1])).toEqual([0,2,3,4]);
+        expect(DataframeMask.minusMask([0,1,2,3,4], [2,3])).toEqual([0,1,4]);
+    });
+});
