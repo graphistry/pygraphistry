@@ -84,7 +84,7 @@ class Plotter(object):
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
         :type edge_label: HtmlString.
 
-        :param edge_color: Attribute overriding edge's color. `See palette definitions <https://github.com/graphistry/pygraphistry/blob/master/graphistry.com/palette.html>`_ for values. Based on Color Brewer.
+        :param edge_color: Attribute overriding edge's color. `See palette definitions <http://graphistry.com/api/api0.9.2.html#extendedpalette>`_ for values. Based on Color Brewer.
         :type edge_color: String.
 
         :param edge_weight: Attribute overriding edge weight. Default is 1. Advanced layout controls will relayout edges based on this value.
@@ -96,7 +96,7 @@ class Plotter(object):
         :param point_label: Attribute overriding node's expanded label text. By default, scrollable list of attribute/value mappings.
         :type point_label: HtmlString.
 
-        :param point_color: Attribute overriding node's color. `See palette definitions <https://github.com/graphistry/pygraphistry/blob/master/graphistry.com/palette.html>`_ for values. Based on Color Brewer.
+        :param point_color: Attribute overriding node's color. `See palette definitions <http://graphistry.com/api/api0.9.2.html#extendedpalette>`_ for values. Based on Color Brewer.
         :type point_color: Integer.
 
         :param point_size: Attribute overriding node's size. By default, uses the node degree. The visualization will normalize point sizes and adjust dynamically using semantic zoom.
