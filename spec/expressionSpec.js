@@ -196,7 +196,7 @@ describe ('IS expressions', function () {
     });
     it('should parse IS keyword comparisons', function () {
         expect(parse('x IS TRUE')).toEqual({
-            type: 'LogicalExpression',
+            type: 'BinaryPredicate',
             operator: 'IS',
             left: {type: 'Identifier', name: 'x'},
             right: {
@@ -204,7 +204,7 @@ describe ('IS expressions', function () {
             }
         });
         expect(parse('x IS FALSE')).toEqual({
-            type: 'LogicalExpression',
+            type: 'BinaryPredicate',
             operator: 'IS',
             left: {type: 'Identifier', name: 'x'},
             right: {
@@ -212,7 +212,7 @@ describe ('IS expressions', function () {
             }
         });
         expect(parse('x IS NULL')).toEqual({
-            type: 'LogicalExpression',
+            type: 'BinaryPredicate',
             operator: 'IS',
             left: {type: 'Identifier', name: 'x'},
             right: {
@@ -222,7 +222,7 @@ describe ('IS expressions', function () {
     });
     it('should parse negative IS comparisons', function () {
         expect(parse('x IS NOT NULL')).toEqual({
-            type: 'LogicalExpression',
+            type: 'BinaryPredicate',
             operator: 'IS',
             left: {type: 'Identifier', name: 'x'},
             right: {type: 'NotExpression', operator: 'NOT', value: {type: 'Literal', dataType: 'null', value: null}}
