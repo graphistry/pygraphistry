@@ -544,6 +544,7 @@ function VizServer(app, socket, cachedVBOs) {
                 var maskList = [];
                 var errors = [];
                 var pointLimit = Infinity;
+                var generator = new ExpressionCodeGenerator('javascript');
 
                 _.each(viewConfig.filters, function (filter) {
                     if (filter.enabled === false) {
@@ -558,7 +559,6 @@ function VizServer(app, socket, cachedVBOs) {
                     if (ast !== undefined &&
                         ast.type === 'Limit' &&
                         ast.value !== undefined) {
-                        var generator = new ExpressionCodeGenerator('javascript');
                         pointLimit = generator.evaluateExpressionFree(ast.value);
                         return;
                     }
@@ -573,7 +573,8 @@ function VizServer(app, socket, cachedVBOs) {
                         attribute = normalization.attribute;
                     }
                     try {
-                        var masks = dataframe.getAttributeMask(type, attribute, filterQuery);
+                        var filterFunc = dataframe.filterFuncForQueryObject(filterQuery);
+                        var masks = dataframe.getAttributeMask(type, attribute, filterFunc);
                         // Record the size of the filtered set for UI feedback:
                         filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
                         maskList.push(masks);
@@ -695,7 +696,8 @@ function VizServer(app, socket, cachedVBOs) {
                     attribute = normalization.attribute;
                 }
                 try {
-                    var masks = dataframe.getAttributeMask(type, attribute, data);
+                    var filterFunc = dataframe.filterFuncForQueryObject(data);
+                    var masks = dataframe.getAttributeMask(type, attribute, filterFunc);
                     // Record the size of the filtered set for UI feedback:
                     filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
                     maskList.push(masks);
