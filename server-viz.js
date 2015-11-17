@@ -551,7 +551,6 @@ function VizServer(app, socket, cachedVBOs) {
                     }
                     /** @type ClientQuery */
                     var filterQuery = filter.query;
-                    var masks;
                     if (filterQuery === undefined) {
                         return;
                     }
@@ -573,19 +572,14 @@ function VizServer(app, socket, cachedVBOs) {
                         type = normalization.type;
                         attribute = normalization.attribute;
                     }
-                    if (type === 'point') {
-                        var pointMask = dataframe.getPointAttributeMask(attribute, filterQuery);
-                        masks = dataframe.masksFromPoints(pointMask);
-                    } else if (type === 'edge') {
-                        var edgeMask = dataframe.getEdgeAttributeMask(attribute, filterQuery);
-                        masks = dataframe.masksFromEdges(edgeMask);
-                    } else {
-                        errors.push('Unknown frame element type');
-                        return;
+                    try {
+                        var masks = dataframe.getAttributeMask(type, attribute, filterQuery);
+                        // Record the size of the filtered set for UI feedback:
+                        filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
+                        maskList.push(masks);
+                    } catch (e) {
+                        errors.push(e.message);
                     }
-                    // Record the size of the filtered set for UI feedback:
-                    filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
-                    maskList.push(masks);
                 });
 
                 this.filterGraphByMaskList(graph, maskList, errors, viewConfig, pointLimit, cb);
@@ -690,7 +684,6 @@ function VizServer(app, socket, cachedVBOs) {
 
             var dataframe = graph.dataframe;
             _.each(query, function (data, attribute) {
-                var masks;
                 var type = data.type;
                 var normalization = dataframe.normalizeAttributeName(attribute, type);
                 if (normalization === undefined) {
@@ -701,24 +694,20 @@ function VizServer(app, socket, cachedVBOs) {
                     type = normalization.type;
                     attribute = normalization.attribute;
                 }
-                if (type === 'point') {
-                    var pointMask = dataframe.getPointAttributeMask(attribute, data);
-                    masks = dataframe.masksFromPoints(pointMask);
-                } else if (type === 'edge') {
-                    var edgeMask = dataframe.getEdgeAttributeMask(attribute, data);
-                    masks = dataframe.masksFromEdges(edgeMask);
-                } else {
-                    errors.push('Unrecognized type: ' + type);
-                    cb({success: false, errors: errors});
-                    return;
+                try {
+                    var masks = dataframe.getAttributeMask(type, attribute, data);
+                    // Record the size of the filtered set for UI feedback:
+                    filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
+                    maskList.push(masks);
+                } catch (e) {
+                    errors.push(e.message);
                 }
-                maskList.push(masks);
             });
             this.filterGraphByMaskList(graph, maskList, errors, viewConfig, Infinity, cb);
         }.bind(this)).take(1).subscribe(
             _.identity,
             function (err) {
-                log.makeRxErrorHandler(logger, 'aggregate handler')(err);
+                log.makeRxErrorHandler(logger, 'filter handler')(err);
             }
         );
     }.bind(this));
