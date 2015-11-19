@@ -17,7 +17,7 @@ var logger      = Log.createLogger('etlworker:index');
 
 
 // String * String * Sting * Object -> ()
-function slackNotify(name, nnodes, nedges, params) {
+function notifySlack(name, nnodes, nedges, params) {
     function makeUrl(server) {
         return '<http://proxy-' + server + '.graphistry.com' +
                '/graph/graph.html?info=true&dataset=' + name +
@@ -115,7 +115,7 @@ function dispatcher(tearDown, req, res) {
         try {
             handler(req, res, params)
                 .then(function (info) {
-                    return slackNotify(info.name, info.nnodes, info.nedges, params);
+                    return notifySlack(info.name, info.nnodes, info.nedges, params);
                 }).then(function() {
                     tearDown(0);
                 }).fail(makeFailHandler(res, tearDown));
