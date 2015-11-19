@@ -18,7 +18,7 @@ _sym_db = _symbol_database.Default()
 DESCRIPTOR = _descriptor.FileDescriptor(
   name='graph_vector.proto',
   package='',
-  serialized_pb=_b('\n\x12graph_vector.proto\"\xaf\x06\n\x0bVectorGraph\x12\x0f\n\x07version\x18\x01 \x02(\r\x12\x0c\n\x04name\x18\x02 \x01(\t\x12$\n\x04type\x18\x03 \x02(\x0e\x32\x16.VectorGraph.GraphType\x12\x11\n\tnvertices\x18\x04 \x02(\r\x12\x0e\n\x06nedges\x18\x05 \x02(\r\x12 \n\x05\x65\x64ges\x18\x06 \x03(\x0b\x32\x11.VectorGraph.Edge\x12\x38\n\rint32_vectors\x18\x07 \x03(\x0b\x32!.VectorGraph.Int32AttributeVector\x12:\n\x0e\x64ouble_vectors\x18\x08 \x03(\x0b\x32\".VectorGraph.DoubleAttributeVector\x12:\n\x0estring_vectors\x18\t \x03(\x0b\x32\".VectorGraph.StringAttributeVector\x1a \n\x04\x45\x64ge\x12\x0b\n\x03src\x18\x01 \x02(\r\x12\x0b\n\x03\x64st\x18\x02 \x02(\r\x1a\x66\n\x14Int32AttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12,\n\x06target\x18\x02 \x02(\x0e\x32\x1c.VectorGraph.AttributeTarget\x12\x12\n\x06values\x18\x03 \x03(\rB\x02\x10\x01\x1a\x38\n\x14\x46loatAttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12\x12\n\x06values\x18\x02 \x03(\x02\x42\x02\x10\x01\x1ag\n\x15\x44oubleAttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12,\n\x06target\x18\x02 \x02(\x0e\x32\x1c.VectorGraph.AttributeTarget\x12\x12\n\x06values\x18\x03 \x03(\x01\x42\x02\x10\x01\x1a\x63\n\x15StringAttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12,\n\x06target\x18\x02 \x02(\x0e\x32\x1c.VectorGraph.AttributeTarget\x12\x0e\n\x06values\x18\x03 \x03(\t\")\n\tGraphType\x12\x0e\n\nUNDIRECTED\x10\x00\x12\x0c\n\x08\x44IRECTED\x10\x01\"\'\n\x0f\x41ttributeTarget\x12\n\n\x06VERTEX\x10\x00\x12\x08\n\x04\x45\x44GE\x10\x01')
+  serialized_pb=_b('\n\x12graph_vector.proto\"\xfd\n\n\x0bVectorGraph\x12\x0f\n\x07version\x18\x01 \x02(\r\x12\x0c\n\x04name\x18\x02 \x01(\t\x12$\n\x04type\x18\x03 \x02(\x0e\x32\x16.VectorGraph.GraphType\x12\x11\n\tnvertices\x18\x04 \x02(\r\x12\x0e\n\x06nedges\x18\x05 \x02(\r\x12 \n\x05\x65\x64ges\x18\x06 \x03(\x0b\x32\x11.VectorGraph.Edge\x12:\n\x0euint32_vectors\x18\x07 \x03(\x0b\x32\".VectorGraph.UInt32AttributeVector\x12:\n\x0e\x64ouble_vectors\x18\x08 \x03(\x0b\x32\".VectorGraph.DoubleAttributeVector\x12:\n\x0estring_vectors\x18\t \x03(\x0b\x32\".VectorGraph.StringAttributeVector\x12\x38\n\rint32_vectors\x18\n \x03(\x0b\x32!.VectorGraph.Int32AttributeVector\x12\x38\n\rint64_vectors\x18\x0b \x03(\x0b\x32!.VectorGraph.Int64AttributeVector\x12\x38\n\rfloat_vectors\x18\x0c \x03(\x0b\x32!.VectorGraph.FloatAttributeVector\x12\x36\n\x0c\x62ool_vectors\x18\r \x03(\x0b\x32 .VectorGraph.BoolAttributeVector\x1a \n\x04\x45\x64ge\x12\x0b\n\x03src\x18\x01 \x02(\r\x12\x0b\n\x03\x64st\x18\x02 \x02(\r\x1ag\n\x15UInt32AttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12,\n\x06target\x18\x02 \x02(\x0e\x32\x1c.VectorGraph.AttributeTarget\x12\x12\n\x06values\x18\x03 \x03(\rB\x02\x10\x01\x1a\x66\n\x14Int32AttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12,\n\x06target\x18\x02 \x02(\x0e\x32\x1c.VectorGraph.AttributeTarget\x12\x12\n\x06values\x18\x03 \x03(\x05\x42\x02\x10\x01\x1a\x66\n\x14Int64AttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12,\n\x06target\x18\x02 \x02(\x0e\x32\x1c.VectorGraph.AttributeTarget\x12\x12\n\x06values\x18\x03 \x03(\x03\x42\x02\x10\x01\x1a\x66\n\x14\x46loatAttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12,\n\x06target\x18\x02 \x02(\x0e\x32\x1c.VectorGraph.AttributeTarget\x12\x12\n\x06values\x18\x03 \x03(\x02\x42\x02\x10\x01\x1ag\n\x15\x44oubleAttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12,\n\x06target\x18\x02 \x02(\x0e\x32\x1c.VectorGraph.AttributeTarget\x12\x12\n\x06values\x18\x03 \x03(\x01\x42\x02\x10\x01\x1a\x63\n\x15StringAttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12,\n\x06target\x18\x02 \x02(\x0e\x32\x1c.VectorGraph.AttributeTarget\x12\x0e\n\x06values\x18\x03 \x03(\t\x1a\x65\n\x13\x42oolAttributeVector\x12\x0c\n\x04name\x18\x01 \x02(\t\x12,\n\x06target\x18\x02 \x02(\x0e\x32\x1c.VectorGraph.AttributeTarget\x12\x12\n\x06values\x18\x03 \x03(\x08\x42\x02\x10\x01\")\n\tGraphType\x12\x0e\n\nUNDIRECTED\x10\x00\x12\x0c\n\x08\x44IRECTED\x10\x01\"\'\n\x0f\x41ttributeTarget\x12\n\n\x06VERTEX\x10\x00\x12\x08\n\x04\x45\x44GE\x10\x01')
 )
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
@@ -41,8 +41,8 @@ _VECTORGRAPH_GRAPHTYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   options=None,
-  serialized_start=756,
-  serialized_end=797,
+  serialized_start=1346,
+  serialized_end=1387,
 )
 _sym_db.RegisterEnumDescriptor(_VECTORGRAPH_GRAPHTYPE)
 
@@ -63,8 +63,8 @@ _VECTORGRAPH_ATTRIBUTETARGET = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   options=None,
-  serialized_start=799,
-  serialized_end=838,
+  serialized_start=1389,
+  serialized_end=1428,
 )
 _sym_db.RegisterEnumDescriptor(_VECTORGRAPH_ATTRIBUTETARGET)
 
@@ -101,8 +101,51 @@ _VECTORGRAPH_EDGE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=354,
-  serialized_end=386,
+  serialized_start=586,
+  serialized_end=618,
+)
+
+_VECTORGRAPH_UINT32ATTRIBUTEVECTOR = _descriptor.Descriptor(
+  name='UInt32AttributeVector',
+  full_name='VectorGraph.UInt32AttributeVector',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='name', full_name='VectorGraph.UInt32AttributeVector.name', index=0,
+      number=1, type=9, cpp_type=9, label=2,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='target', full_name='VectorGraph.UInt32AttributeVector.target', index=1,
+      number=2, type=14, cpp_type=8, label=2,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='values', full_name='VectorGraph.UInt32AttributeVector.values', index=2,
+      number=3, type=13, cpp_type=3, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=_descriptor._ParseOptions(descriptor_pb2.FieldOptions(), _b('\020\001'))),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=620,
+  serialized_end=723,
 )
 
 _VECTORGRAPH_INT32ATTRIBUTEVECTOR = _descriptor.Descriptor(
@@ -128,7 +171,7 @@ _VECTORGRAPH_INT32ATTRIBUTEVECTOR = _descriptor.Descriptor(
       options=None),
     _descriptor.FieldDescriptor(
       name='values', full_name='VectorGraph.Int32AttributeVector.values', index=2,
-      number=3, type=13, cpp_type=3, label=3,
+      number=3, type=5, cpp_type=1, label=3,
       has_default_value=False, default_value=[],
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
@@ -144,8 +187,51 @@ _VECTORGRAPH_INT32ATTRIBUTEVECTOR = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=388,
-  serialized_end=490,
+  serialized_start=725,
+  serialized_end=827,
+)
+
+_VECTORGRAPH_INT64ATTRIBUTEVECTOR = _descriptor.Descriptor(
+  name='Int64AttributeVector',
+  full_name='VectorGraph.Int64AttributeVector',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='name', full_name='VectorGraph.Int64AttributeVector.name', index=0,
+      number=1, type=9, cpp_type=9, label=2,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='target', full_name='VectorGraph.Int64AttributeVector.target', index=1,
+      number=2, type=14, cpp_type=8, label=2,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='values', full_name='VectorGraph.Int64AttributeVector.values', index=2,
+      number=3, type=3, cpp_type=2, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=_descriptor._ParseOptions(descriptor_pb2.FieldOptions(), _b('\020\001'))),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=829,
+  serialized_end=931,
 )
 
 _VECTORGRAPH_FLOATATTRIBUTEVECTOR = _descriptor.Descriptor(
@@ -163,8 +249,15 @@ _VECTORGRAPH_FLOATATTRIBUTEVECTOR = _descriptor.Descriptor(
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='values', full_name='VectorGraph.FloatAttributeVector.values', index=1,
-      number=2, type=2, cpp_type=6, label=3,
+      name='target', full_name='VectorGraph.FloatAttributeVector.target', index=1,
+      number=2, type=14, cpp_type=8, label=2,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='values', full_name='VectorGraph.FloatAttributeVector.values', index=2,
+      number=3, type=2, cpp_type=6, label=3,
       has_default_value=False, default_value=[],
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
@@ -180,8 +273,8 @@ _VECTORGRAPH_FLOATATTRIBUTEVECTOR = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=492,
-  serialized_end=548,
+  serialized_start=933,
+  serialized_end=1035,
 )
 
 _VECTORGRAPH_DOUBLEATTRIBUTEVECTOR = _descriptor.Descriptor(
@@ -223,8 +316,8 @@ _VECTORGRAPH_DOUBLEATTRIBUTEVECTOR = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=550,
-  serialized_end=653,
+  serialized_start=1037,
+  serialized_end=1140,
 )
 
 _VECTORGRAPH_STRINGATTRIBUTEVECTOR = _descriptor.Descriptor(
@@ -266,8 +359,51 @@ _VECTORGRAPH_STRINGATTRIBUTEVECTOR = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=655,
-  serialized_end=754,
+  serialized_start=1142,
+  serialized_end=1241,
+)
+
+_VECTORGRAPH_BOOLATTRIBUTEVECTOR = _descriptor.Descriptor(
+  name='BoolAttributeVector',
+  full_name='VectorGraph.BoolAttributeVector',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='name', full_name='VectorGraph.BoolAttributeVector.name', index=0,
+      number=1, type=9, cpp_type=9, label=2,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='target', full_name='VectorGraph.BoolAttributeVector.target', index=1,
+      number=2, type=14, cpp_type=8, label=2,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='values', full_name='VectorGraph.BoolAttributeVector.values', index=2,
+      number=3, type=8, cpp_type=7, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=_descriptor._ParseOptions(descriptor_pb2.FieldOptions(), _b('\020\001'))),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1243,
+  serialized_end=1344,
 )
 
 _VECTORGRAPH = _descriptor.Descriptor(
@@ -320,7 +456,7 @@ _VECTORGRAPH = _descriptor.Descriptor(
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='int32_vectors', full_name='VectorGraph.int32_vectors', index=6,
+      name='uint32_vectors', full_name='VectorGraph.uint32_vectors', index=6,
       number=7, type=11, cpp_type=10, label=3,
       has_default_value=False, default_value=[],
       message_type=None, enum_type=None, containing_type=None,
@@ -340,10 +476,38 @@ _VECTORGRAPH = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
+    _descriptor.FieldDescriptor(
+      name='int32_vectors', full_name='VectorGraph.int32_vectors', index=9,
+      number=10, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='int64_vectors', full_name='VectorGraph.int64_vectors', index=10,
+      number=11, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='float_vectors', full_name='VectorGraph.float_vectors', index=11,
+      number=12, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='bool_vectors', full_name='VectorGraph.bool_vectors', index=12,
+      number=13, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
   ],
   extensions=[
   ],
-  nested_types=[_VECTORGRAPH_EDGE, _VECTORGRAPH_INT32ATTRIBUTEVECTOR, _VECTORGRAPH_FLOATATTRIBUTEVECTOR, _VECTORGRAPH_DOUBLEATTRIBUTEVECTOR, _VECTORGRAPH_STRINGATTRIBUTEVECTOR, ],
+  nested_types=[_VECTORGRAPH_EDGE, _VECTORGRAPH_UINT32ATTRIBUTEVECTOR, _VECTORGRAPH_INT32ATTRIBUTEVECTOR, _VECTORGRAPH_INT64ATTRIBUTEVECTOR, _VECTORGRAPH_FLOATATTRIBUTEVECTOR, _VECTORGRAPH_DOUBLEATTRIBUTEVECTOR, _VECTORGRAPH_STRINGATTRIBUTEVECTOR, _VECTORGRAPH_BOOLATTRIBUTEVECTOR, ],
   enum_types=[
     _VECTORGRAPH_GRAPHTYPE,
     _VECTORGRAPH_ATTRIBUTETARGET,
@@ -354,22 +518,33 @@ _VECTORGRAPH = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=23,
-  serialized_end=838,
+  serialized_end=1428,
 )
 
 _VECTORGRAPH_EDGE.containing_type = _VECTORGRAPH
+_VECTORGRAPH_UINT32ATTRIBUTEVECTOR.fields_by_name['target'].enum_type = _VECTORGRAPH_ATTRIBUTETARGET
+_VECTORGRAPH_UINT32ATTRIBUTEVECTOR.containing_type = _VECTORGRAPH
 _VECTORGRAPH_INT32ATTRIBUTEVECTOR.fields_by_name['target'].enum_type = _VECTORGRAPH_ATTRIBUTETARGET
 _VECTORGRAPH_INT32ATTRIBUTEVECTOR.containing_type = _VECTORGRAPH
+_VECTORGRAPH_INT64ATTRIBUTEVECTOR.fields_by_name['target'].enum_type = _VECTORGRAPH_ATTRIBUTETARGET
+_VECTORGRAPH_INT64ATTRIBUTEVECTOR.containing_type = _VECTORGRAPH
+_VECTORGRAPH_FLOATATTRIBUTEVECTOR.fields_by_name['target'].enum_type = _VECTORGRAPH_ATTRIBUTETARGET
 _VECTORGRAPH_FLOATATTRIBUTEVECTOR.containing_type = _VECTORGRAPH
 _VECTORGRAPH_DOUBLEATTRIBUTEVECTOR.fields_by_name['target'].enum_type = _VECTORGRAPH_ATTRIBUTETARGET
 _VECTORGRAPH_DOUBLEATTRIBUTEVECTOR.containing_type = _VECTORGRAPH
 _VECTORGRAPH_STRINGATTRIBUTEVECTOR.fields_by_name['target'].enum_type = _VECTORGRAPH_ATTRIBUTETARGET
 _VECTORGRAPH_STRINGATTRIBUTEVECTOR.containing_type = _VECTORGRAPH
+_VECTORGRAPH_BOOLATTRIBUTEVECTOR.fields_by_name['target'].enum_type = _VECTORGRAPH_ATTRIBUTETARGET
+_VECTORGRAPH_BOOLATTRIBUTEVECTOR.containing_type = _VECTORGRAPH
 _VECTORGRAPH.fields_by_name['type'].enum_type = _VECTORGRAPH_GRAPHTYPE
 _VECTORGRAPH.fields_by_name['edges'].message_type = _VECTORGRAPH_EDGE
-_VECTORGRAPH.fields_by_name['int32_vectors'].message_type = _VECTORGRAPH_INT32ATTRIBUTEVECTOR
+_VECTORGRAPH.fields_by_name['uint32_vectors'].message_type = _VECTORGRAPH_UINT32ATTRIBUTEVECTOR
 _VECTORGRAPH.fields_by_name['double_vectors'].message_type = _VECTORGRAPH_DOUBLEATTRIBUTEVECTOR
 _VECTORGRAPH.fields_by_name['string_vectors'].message_type = _VECTORGRAPH_STRINGATTRIBUTEVECTOR
+_VECTORGRAPH.fields_by_name['int32_vectors'].message_type = _VECTORGRAPH_INT32ATTRIBUTEVECTOR
+_VECTORGRAPH.fields_by_name['int64_vectors'].message_type = _VECTORGRAPH_INT64ATTRIBUTEVECTOR
+_VECTORGRAPH.fields_by_name['float_vectors'].message_type = _VECTORGRAPH_FLOATATTRIBUTEVECTOR
+_VECTORGRAPH.fields_by_name['bool_vectors'].message_type = _VECTORGRAPH_BOOLATTRIBUTEVECTOR
 _VECTORGRAPH_GRAPHTYPE.containing_type = _VECTORGRAPH
 _VECTORGRAPH_ATTRIBUTETARGET.containing_type = _VECTORGRAPH
 DESCRIPTOR.message_types_by_name['VectorGraph'] = _VECTORGRAPH
@@ -383,10 +558,24 @@ VectorGraph = _reflection.GeneratedProtocolMessageType('VectorGraph', (_message.
     ))
   ,
 
+  UInt32AttributeVector = _reflection.GeneratedProtocolMessageType('UInt32AttributeVector', (_message.Message,), dict(
+    DESCRIPTOR = _VECTORGRAPH_UINT32ATTRIBUTEVECTOR,
+    __module__ = 'graph_vector_pb2'
+    # @@protoc_insertion_point(class_scope:VectorGraph.UInt32AttributeVector)
+    ))
+  ,
+
   Int32AttributeVector = _reflection.GeneratedProtocolMessageType('Int32AttributeVector', (_message.Message,), dict(
     DESCRIPTOR = _VECTORGRAPH_INT32ATTRIBUTEVECTOR,
     __module__ = 'graph_vector_pb2'
     # @@protoc_insertion_point(class_scope:VectorGraph.Int32AttributeVector)
+    ))
+  ,
+
+  Int64AttributeVector = _reflection.GeneratedProtocolMessageType('Int64AttributeVector', (_message.Message,), dict(
+    DESCRIPTOR = _VECTORGRAPH_INT64ATTRIBUTEVECTOR,
+    __module__ = 'graph_vector_pb2'
+    # @@protoc_insertion_point(class_scope:VectorGraph.Int64AttributeVector)
     ))
   ,
 
@@ -410,22 +599,38 @@ VectorGraph = _reflection.GeneratedProtocolMessageType('VectorGraph', (_message.
     # @@protoc_insertion_point(class_scope:VectorGraph.StringAttributeVector)
     ))
   ,
+
+  BoolAttributeVector = _reflection.GeneratedProtocolMessageType('BoolAttributeVector', (_message.Message,), dict(
+    DESCRIPTOR = _VECTORGRAPH_BOOLATTRIBUTEVECTOR,
+    __module__ = 'graph_vector_pb2'
+    # @@protoc_insertion_point(class_scope:VectorGraph.BoolAttributeVector)
+    ))
+  ,
   DESCRIPTOR = _VECTORGRAPH,
   __module__ = 'graph_vector_pb2'
   # @@protoc_insertion_point(class_scope:VectorGraph)
   ))
 _sym_db.RegisterMessage(VectorGraph)
 _sym_db.RegisterMessage(VectorGraph.Edge)
+_sym_db.RegisterMessage(VectorGraph.UInt32AttributeVector)
 _sym_db.RegisterMessage(VectorGraph.Int32AttributeVector)
+_sym_db.RegisterMessage(VectorGraph.Int64AttributeVector)
 _sym_db.RegisterMessage(VectorGraph.FloatAttributeVector)
 _sym_db.RegisterMessage(VectorGraph.DoubleAttributeVector)
 _sym_db.RegisterMessage(VectorGraph.StringAttributeVector)
+_sym_db.RegisterMessage(VectorGraph.BoolAttributeVector)
 
 
+_VECTORGRAPH_UINT32ATTRIBUTEVECTOR.fields_by_name['values'].has_options = True
+_VECTORGRAPH_UINT32ATTRIBUTEVECTOR.fields_by_name['values']._options = _descriptor._ParseOptions(descriptor_pb2.FieldOptions(), _b('\020\001'))
 _VECTORGRAPH_INT32ATTRIBUTEVECTOR.fields_by_name['values'].has_options = True
 _VECTORGRAPH_INT32ATTRIBUTEVECTOR.fields_by_name['values']._options = _descriptor._ParseOptions(descriptor_pb2.FieldOptions(), _b('\020\001'))
+_VECTORGRAPH_INT64ATTRIBUTEVECTOR.fields_by_name['values'].has_options = True
+_VECTORGRAPH_INT64ATTRIBUTEVECTOR.fields_by_name['values']._options = _descriptor._ParseOptions(descriptor_pb2.FieldOptions(), _b('\020\001'))
 _VECTORGRAPH_FLOATATTRIBUTEVECTOR.fields_by_name['values'].has_options = True
 _VECTORGRAPH_FLOATATTRIBUTEVECTOR.fields_by_name['values']._options = _descriptor._ParseOptions(descriptor_pb2.FieldOptions(), _b('\020\001'))
 _VECTORGRAPH_DOUBLEATTRIBUTEVECTOR.fields_by_name['values'].has_options = True
 _VECTORGRAPH_DOUBLEATTRIBUTEVECTOR.fields_by_name['values']._options = _descriptor._ParseOptions(descriptor_pb2.FieldOptions(), _b('\020\001'))
+_VECTORGRAPH_BOOLATTRIBUTEVECTOR.fields_by_name['values'].has_options = True
+_VECTORGRAPH_BOOLATTRIBUTEVECTOR.fields_by_name['values']._options = _descriptor._ParseOptions(descriptor_pb2.FieldOptions(), _b('\020\001'))
 # @@protoc_insertion_point(module_scope)

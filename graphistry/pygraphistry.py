@@ -181,21 +181,24 @@ class PyGraphistry(object):
             return {'name': jres['dataset'], 'viztoken': jres['viztoken']}
 
     @staticmethod
-    def _etl2(encodings, vgraph):
+    def _etl2(dataset):
         if PyGraphistry.api_key is None:
             raise ValueError('API key required')
 
+        vg = dataset['vgraph']
         metadata = {
             'datasources': [
                 {'type': 'vgraph', 'url': 'data0'}
             ],
             'view': {
-                'encodings': encodings
+                'encodings': dataset['encodings']
             },
-            'types': {}
+            'types': dataset['types'],
+            'nvertices': vg.nvertices,
+            'nedges': vg.nedges
         }
 
-        out_file = PyGraphistry._get_data_file(vgraph, 'vgraph')
+        out_file = PyGraphistry._get_data_file(vg, 'vgraph')
         parts = {
             'metadata': ('metadata', json.dumps(metadata, ensure_ascii=False), 'application/json'),
             'data0': ('data0', out_file.getvalue(), 'application/octet-stream')
