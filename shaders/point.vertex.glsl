@@ -16,7 +16,7 @@ uniform float textureScalingFactor;
 uniform float maxPointSize;
 
 void main(void) {
-    gl_PointSize = clamp(zoomScalingFactor * pointSize * textureScalingFactor, 5.0, maxPointSize);
+    gl_PointSize = clamp(zoomScalingFactor * pointSize * textureScalingFactor, max(5.0 * textureScalingFactor, 1.0), maxPointSize);
 
     vec4 pos = vec4(curPos.x, curPos.y, Z_VAL, W_VAL);
     gl_Position = mvp * pos;
