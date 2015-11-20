@@ -573,8 +573,14 @@ function VizServer(app, socket, cachedVBOs) {
                         attribute = normalization.attribute;
                     }
                     try {
-                        var filterFunc = dataframe.filterFuncForQueryObject(filterQuery);
-                        var masks = dataframe.getAttributeMask(type, attribute, filterFunc);
+                        var plan = dataframe.planForQueryObject(filterQuery);
+                        var masks;
+                        if (plan !== undefined) {
+                            masks = plan.execute();
+                        } else {
+                            var filterFunc = dataframe.filterFuncForQueryObject(filterQuery);
+                            masks = dataframe.getAttributeMask(type, attribute, filterFunc);
+                        }
                         // Record the size of the filtered set for UI feedback:
                         filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
                         maskList.push(masks);
