@@ -1096,7 +1096,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     break;
                 case 'sets':
                     var matchingSets = _.filter(viewConfig.sets, function (vizSet) {
-                        return specification.set_ids.indexOf(vizSet.id) !== -1;
+                        return specification.setIDs.indexOf(vizSet.id) !== -1;
                     });
                     var combinedMasks = _.reduce(matchingSets, function (masks, vizSet) {
                         return masks.union(vizSet.masks);
@@ -1148,7 +1148,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     break;
                 case 'sets':
                     var matchingSets = _.filter(viewConfig.sets, function (vizSet) {
-                        return specification.set_ids.indexOf(vizSet.id) !== -1;
+                        return specification.setIDs.indexOf(vizSet.id) !== -1;
                     });
                     var combinedMasks = _.reduce(matchingSets, function (masks, vizSet) {
                         return masks.union(vizSet.masks);
