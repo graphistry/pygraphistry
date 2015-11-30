@@ -1222,8 +1222,11 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 var cleanContentKey = encodeURIComponent(contentKey);
                 persist.publishStaticContents(
                     cleanContentKey, this.lastCompressedVBOs,
-                    this.lastMetadata, graph.dataframe, renderConfig).then(function() {
+                    this.lastMetadata, graph.dataframe, renderConfig
+                ).then(function() {
                     cb({success: true, name: cleanContentKey});
+                }).catch(function (error) {
+                    cb({success: false, name: cleanContentKey});
                 }).done(
                     _.identity,
                     log.makeQErrorHandler(logger, 'persist_current_vbo')
