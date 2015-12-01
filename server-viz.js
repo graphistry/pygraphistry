@@ -188,7 +188,10 @@ VizServer.prototype.tickGraph = function (cb) {
 // TODO Extract a graph method and manage graph contexts by filter data operation.
 VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, viewConfig, pointLimit, cb) {
     var filters = viewConfig.filters;
-    var masks = graph.dataframe.composeMasks(maskList, pointLimit);
+
+    var unprunedMasks = graph.dataframe.composeMasks(maskList, pointLimit);
+    // Prune out dangling edges.
+    var masks = graph.dataframe.pruneMaskEdges(unprunedMasks);
 
     logger.debug('mask lengths: ', masks.numEdges(), masks.numPoints());
 
