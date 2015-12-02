@@ -306,7 +306,7 @@ class Plotter(object):
             dataset = self._plot_dispatch(g, n, 'vgraph')
             info = PyG._etl2(dataset)
 
-        viz_url = PyG._viz_url(info['name'], info['viztoken'], self._url_params)
+        viz_url = PyG._viz_url(info, self._url_params)
 
         if util.in_ipython() is True:
             from IPython.core.display import HTML
@@ -571,6 +571,4 @@ class Plotter(object):
 
         dataset = vgraph.create(elist, filtered_nlist, sources, dests, nodeid, node_map)
         dataset['encodings'] = encodings
-        print (dataset)
-        print(dataset['vgraph'])
         return dataset

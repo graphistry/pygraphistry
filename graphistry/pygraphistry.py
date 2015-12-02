@@ -126,12 +126,12 @@ class PyGraphistry(object):
         return 'http://%s/api/check' % PyGraphistry._hostname
 
     @staticmethod
-    def _viz_url(dataset_name, token, url_params):
+    def _viz_url(info, url_params):
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = '&'.join([ k + '=' + str(v) for k,v in list(url_params.items())])
-        pattern = '//%s/graph/graph.html?dataset=%s&usertag=%s&viztoken=%s&splashAfter=%s&%s'
-        return pattern % (PyGraphistry._hostname, dataset_name, PyGraphistry._tag,
-                          token, splash_time, extra)
+        pattern = '//%s/graph/graph.html?dataset=%s&type=%s&viztoken=%s&usertag=%s&splashAfter=%s&%s'
+        return pattern % (PyGraphistry._hostname, info['name'], info['type'],
+                          info['viztoken'], PyGraphistry._tag, splash_time, extra)
 
     @staticmethod
     def _get_data_file(dataset, mode):
@@ -178,7 +178,7 @@ class PyGraphistry(object):
         if jres['success'] is not True:
             raise ValueError('Server reported error:', jres['msg'])
         else:
-            return {'name': jres['dataset'], 'viztoken': jres['viztoken']}
+            return {'name': jres['dataset'], 'viztoken': jres['viztoken'], 'type': 'vgraph'}
 
     @staticmethod
     def _etl2(dataset):
@@ -214,7 +214,7 @@ class PyGraphistry(object):
         if jres['success'] is not True:
             raise ValueError('Server reported error:', jres['msg'] if 'msg' in jres else 'No Message')
         else:
-            return {'name': jres['dataset'], 'viztoken': jres['viztoken']}
+            return {'name': jres['dataset'], 'viztoken': jres['viztoken'], 'type': 'jsonMeta'}
 
     @staticmethod
     def _check_key():
