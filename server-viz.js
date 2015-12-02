@@ -193,6 +193,14 @@ VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, v
     // Prune out dangling edges.
     var masks = graph.dataframe.pruneMaskEdges(unprunedMasks);
 
+    // Return early if mask is same as graph's active mask.
+    if (masks.equals(graph.dataframe.lastMasks)) {
+        var sets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
+        var response = {success: true, filters: filters, sets:sets};
+        cb(response);
+        return;
+    }
+
     logger.debug('mask lengths: ', masks.numEdges(), masks.numPoints());
 
     // Promise
