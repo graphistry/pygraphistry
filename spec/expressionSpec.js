@@ -162,6 +162,23 @@ describe ('identifiers', function () {
     xit('parses table-scoped', function () {
         expect(parse('x.y')).toEqual({type: 'Identifier', name: 'x.y'});
     });
+    it('parses multiple identifiers', function () {
+        expect(parse('x - y > 0')).toEqual({
+            type: 'BinaryPredicate',
+            operator: '>',
+            left: {
+                type: 'BinaryExpression',
+                operator: '-',
+                left: {type: 'Identifier', name: 'x'},
+                right: {type: 'Identifier', name: 'y'}
+            },
+            right: {
+                type: 'Literal',
+                dataType: 'integer',
+                value: 0
+            }
+        });
+    });
 });
 
 describe ('NOT expressions', function () {
