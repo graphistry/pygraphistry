@@ -7,10 +7,15 @@
 
 	./setup.py develop --uninstall
 
-#Package & Upload:
-1. Get ~/.pypirc file from the powers that be.
-2. Bump version in setup.py.
-3. Run `./setup.py sdist upload -r pypi`
+#Release Procedure
+1. Bump version number to X.X.X in setup.py
+2. git commit
+3. git tag X.X.X
+4. git push --folow-tags
+
+###Package & Upload:
+5. Get ~/.pypirc file from the powers that be.
+6. Run `./setup.py sdist upload -r pypi`
 
 
 
