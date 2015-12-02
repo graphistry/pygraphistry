@@ -62,6 +62,6 @@ export PROMPT_COMMAND="${PROMPT_COMMAND:-:} ; _npm_bin_path"
 
 ## EC2 Server Login
 
-We run all of our SSH deamons on port 61630. You should have a user account with your SSH key installed already. If not, talk to Matt. Also make sure to turn on SSH authentication forwarding when you login (`-A`) to make GitHub cloning work.
+We run all of our SSH daemons on port 61630. You should have a user account with your SSH key installed already. If not, talk to Matt. Also make sure to turn on SSH authentication forwarding when you login (`-A`) to make GitHub cloning work.
 
 For example, your SSH command to connect to staging may be `ssh -A -p 61630 mtorok@staging.graphistry.com`.
