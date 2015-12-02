@@ -6,10 +6,10 @@ from builtins import object
 import random
 import string
 import copy
-import types
 import pandas
 
 from . import pygraphistry
+from . import vgraph
 from . import util
 
 
@@ -304,9 +304,9 @@ class Plotter(object):
             info = PyG._etl1(dataset)
         elif (PyG.api == 2):
             dataset = self._plot_dispatch(g, n, 'vgraph')
-            info = PyG._etl2(dataset['encodings'], dataset['vgraph'])
+            info = PyG._etl2(dataset)
 
-        viz_url = PyG._viz_url(info['name'], info['viztoken'], self._url_params)
+        viz_url = PyG._viz_url(info, self._url_params)
 
         if util.in_ipython() is True:
             from IPython.core.display import HTML
@@ -453,14 +453,16 @@ class Plotter(object):
 
     def _sanitize_dataset(self, edges, nodes, nodeid):
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
-        elist = edges.reset_index(drop=True).dropna(subset=[self._source, self._destination])
+        elist = edges.reset_index(drop=True).dropna(subset=[self._source, self._destination]) \
+                     .convert_objects(convert_dates=True, convert_numeric=True)
         if nodes is None:
             nodes = pandas.DataFrame()
             nodes[nodeid] = pandas.concat([edges[self._source], edges[self._destination]],
                                            ignore_index=True).drop_duplicates()
         else:
             self._check_bound_attribs(nodes, ['node'], 'Vertex')
-        nlist = nodes.reset_index(drop=True).dropna(subset=[nodeid])
+        nlist = nodes.reset_index(drop=True).dropna(subset=[nodeid]) \
+                     .convert_objects(convert_dates=True, convert_numeric=True)
         return (elist, nlist)
 
     def _check_dataset_size(self, elist, nlist):
@@ -518,7 +520,7 @@ class Plotter(object):
         encodings = {
             'source': self._source,
             'destination': self._destination,
-            'nodeId': self._node
+            'nodeId': self._node or self._defaultNodeId
         }
         bind(encodings, elist, 'edgeColor', '_edge_color')
         bind(encodings, elist, 'edgeLabel', '_edge_label')
@@ -529,6 +531,7 @@ class Plotter(object):
         bind(encodings, nlist, 'pointTitle', '_point_title', nodeid)
         bind(encodings, nlist, 'pointSize', '_point_size')
         return (elist, nlist, encodings)
+
 
     def _make_dataset(self, edges, nodes, mode):
         if mode == 'json':
@@ -554,74 +557,18 @@ class Plotter(object):
         return dataset
 
     def _make_vgraph_dataset(self, edges, nodes):
-        from graph_vector_pb2 import VectorGraph
-
-        def storeEdgeAttributes(df):
-            coltypes = df.columns.to_series().groupby(df.dtypes)
-            for dtype, cols in coltypes.groups.items():
-                for col in cols:
-                    if col == self._source or col == self._destination:
-                        continue
-                    if dtype.name == 'object':
-                        df[col].where(pandas.notnull(df[col]), '', inplace=True)
-                        df[col] = df[col].map(lambda x: x.decode('utf8'))
-                    vec = typemap[dtype.name].add()
-                    vec.name = col
-                    vec.type = VectorGraph.EDGE
-                    for val in df[col]:
-                        vec.values.append(val)
-
-        def storeNodeAttributes(df, nodeid, node_map):
-            ordercol = '__order__'
-            df[ordercol] = df[nodeid].map(lambda n: node_map[n])
-            sdf = df.sort(ordercol)
-            coltypes = df.columns.to_series().groupby(df.dtypes)
-            for dtype, cols in coltypes.groups.items():
-                for col in cols:
-                    if col == nodeid or col == ordercol:
-                        continue
-                    if dtype.name == 'object':
-                        df[col].where(pandas.notnull(df[col]), '', inplace=True)
-                        df[col] = df[col].map(lambda x: x.decode('utf8'))
-                    vec = typemap[dtype.name].add()
-                    vec.name = col
-                    vec.type = VectorGraph.VERTEX
-                    for val in df[col]:
-                        vec.values.append(val)
-
-        (elist, nlist, enc) = self._bind_attributes_v2(edges, nodes)
+        (elist, nlist, encodings) = self._bind_attributes_v2(edges, nodes)
         nodeid = self._node or Plotter._defaultNodeId
-
-        vg = VectorGraph()
-        typemap = {
-            'object': vg.string_vectors,
-            'int32': vg.int32_vectors,
-            'int64': vg.int32_vectors,
-            'float32': vg.double_vectors,
-            'float64': vg.double_vectors
-        }
 
         sources = elist[self._source]
         dests = elist[self._destination]
+        elist.drop([self._source, self._destination], axis=1, inplace=True)
 
         lnodes = pandas.concat([sources, dests], ignore_index=True).unique()
         lnodes_df = pandas.DataFrame(lnodes, columns=[nodeid])
         filtered_nlist = pandas.merge(lnodes_df, nlist, on=nodeid, how='left')
         node_map = dict([(v, i) for i, v in enumerate(lnodes.tolist())])
 
-        vg.version = 0
-        vg.type = VectorGraph.DIRECTED
-        vg.nvertices = len(node_map)
-        vg.nedges = len(elist)
-        name = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
-        vg.name = pygraphistry.PyGraphistry._dataset_prefix + name
-
-        for s, d in zip(sources.tolist(), dests.tolist()):
-            e = vg.edges.add()
-            e.src = node_map[s]
-            e.dst = node_map[d]
-
-        storeEdgeAttributes(elist)
-        storeNodeAttributes(filtered_nlist, nodeid, node_map)
-
-        return {'vgraph': vg, 'encodings': enc}
+        dataset = vgraph.create(elist, filtered_nlist, sources, dests, nodeid, node_map)
+        dataset['encodings'] = encodings
+        return dataset
