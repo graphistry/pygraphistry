@@ -1,4 +1,8 @@
 from __future__ import print_function
+from __future__ import absolute_import
+from __future__ import division
+from builtins import zip
+from builtins import next
 from builtins import str
 
 import random
@@ -8,7 +12,7 @@ import pandas
 from . import pygraphistry
 from . import util
 from . import graph_vector_pb2
-from graph_vector_pb2 import VectorGraph
+from .graph_vector_pb2 import VectorGraph
 
 
 EDGE = graph_vector_pb2.VectorGraph.EDGE
@@ -46,7 +50,7 @@ def storeEdgeAttributes(vg, df):
     node_types = {}
 
     coltypes = df.columns.to_series().groupby(df.dtypes)
-    for dtype, cols in coltypes.groups.items():
+    for dtype, cols in list(coltypes.groups.items()):
         for col in cols:
             enc_type = storeValueVector(vg, df, col, dtype, EDGE)
             node_types[col] = enc_type
@@ -63,7 +67,7 @@ def storeNodeAttributes(vg, df, nodeid, node_map):
     df.drop(ordercol, axis=1, inplace=True)
     coltypes = df.columns.to_series().groupby(df.dtypes)
 
-    for dtype, cols in coltypes.groups.items():
+    for dtype, cols in list(coltypes.groups.items()):
         for col in cols:
             enc_type = storeValueVector(vg, df, col, dtype, VERTEX)
             edge_types[col] = enc_type
@@ -103,7 +107,7 @@ def numericEncoder(vg, series, dtype):
     def getBestRep(series, candidate_types):
         min = series.min()
         max = series.max()
-        tinfo = map(lambda t: numpy.iinfo(t), candidate_types)
+        tinfo = [numpy.iinfo(t) for t in candidate_types]
         return next(i.dtype for i in tinfo if min >= i.min and max <= i.max)
 
     typemap = {
