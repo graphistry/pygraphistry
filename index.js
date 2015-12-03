@@ -19,9 +19,10 @@ var logger      = Log.createLogger('etlworker:index');
 // String * String * Sting * Object -> ()
 function notifySlack(name, nnodes, nedges, params) {
     function makeUrl(server) {
-        return '<http://proxy-' + server + '.graphistry.com' +
-               '/graph/graph.html?info=true&dataset=' + name +
-               '|' + server + '>';
+        var type = params.apiVersion == 2 ? 'jsonMeta' : 'vgraph';
+        var url = sprintf('http://proxy-%s.graphistry.com/graph/graph.html?type=%s&dataset=%s&info=true',
+                          server, type, name);
+        return sprintf('<%s|%s>', url, server);
     }
     function isInternal(key) {
         var suffix = 'graphistry.com';
