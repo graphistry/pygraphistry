@@ -1,7 +1,9 @@
 #Install Git Checkout:
 
-	./setup.py develop
-
+1. Remove any version installed with pip
+    `pip uninstall graphistry`
+2. Install local git checkout
+	`./setup.py develop`
 
 #Uninstall Checkout:
 
