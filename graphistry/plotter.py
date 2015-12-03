@@ -571,4 +571,5 @@ class Plotter(object):
 
         dataset = vgraph.create(elist, filtered_nlist, sources, dests, nodeid, node_map)
         dataset['encodings'] = encodings
+
         return dataset

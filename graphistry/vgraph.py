@@ -100,6 +100,12 @@ def objectEncoder(vg, series, dtype):
 
 
 def numericEncoder(vg, series, dtype):
+    def getBestRep(series, candidate_types):
+        min = series.min()
+        max = series.max()
+        tinfo = map(lambda t: numpy.iinfo(t), candidate_types)
+        return next(i.dtype for i in tinfo if min >= i.min and max <= i.max)
+
     typemap = {
         'bool': vg.bool_vectors,
         'int8': vg.int32_vectors,
@@ -110,10 +116,17 @@ def numericEncoder(vg, series, dtype):
         'float32': vg.float_vectors,
         'float64': vg.double_vectors
     }
-    vec = typemap[dtype.name].add()
+
+    if dtype.name.startswith('int'):
+        candidate_types = [numpy.int8, numpy.int16, numpy.int32, numpy.int64]
+        rep_type = getBestRep(series, candidate_types)
+    else:
+        rep_type = dtype
+
+    vec = typemap[rep_type.name].add()
     for val in series:
         vec.values.append(val)
-    return (vec, {'ctype': dtype.name})
+    return (vec, {'ctype': rep_type.name, 'original_type': dtype.name})
 
 
 def datetimeEncoder(vg, series, dtype):
@@ -122,5 +135,5 @@ def datetimeEncoder(vg, series, dtype):
     series32 = series.astype('int64').map(lambda x: x / 1e9).astype(numpy.int32)
     for val in series32:
         vec.values.append(val.item())
-    return (vec, {'ctype': 'datetime32[s]', 'utype': 'datetime'})
+    return (vec, {'ctype': 'datetime32[s]', 'user_type': 'datetime'})
 
