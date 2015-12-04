@@ -25,6 +25,7 @@ class PyGraphistry(object):
     _hostname = 'localhost:3000'
     _protocol = None
 
+
     @staticmethod
     def register(key, server='labs', protocol=None, api=1):
         """API key registration and server selection
@@ -65,7 +66,8 @@ class PyGraphistry(object):
         PyGraphistry.api_key = key.strip()
         PyGraphistry.api = api
         PyGraphistry._protocol = protocol
-        PyGraphistry._check_key()
+        PyGraphistry._check_key_and_version()
+
 
     @staticmethod
     def bind(node=None, source=None, destination=None,
@@ -94,25 +96,30 @@ class PyGraphistry(object):
                               edge_title, edge_label, edge_color, edge_weight, \
                               point_title, point_label, point_color, point_size)
 
+
     @staticmethod
     def nodes(nodes):
         from . import plotter
         return plotter.Plotter().nodes(nodes)
+
 
     @staticmethod
     def edges(edges):
         from . import plotter
         return plotter.Plotter().edges(edges)
 
+
     @staticmethod
     def graph(ig):
         from . import plotter
         return plotter.Plotter().graph(ig)
 
+
     @staticmethod
     def settings(height=None, url_params={}):
         from . import plotter
         return plotter.Plotter().settings(height, url_params)
+
 
     @staticmethod
     def _etl_url(datatype):
@@ -121,9 +128,11 @@ class PyGraphistry(object):
         elif datatype == 'vgraph':
             return 'http://%s/etlvgraph' % PyGraphistry._hostname
 
+
     @staticmethod
     def _check_url():
         return 'http://%s/api/check' % PyGraphistry._hostname
+
 
     @staticmethod
     def _viz_url(info, url_params):
@@ -132,6 +141,7 @@ class PyGraphistry(object):
         pattern = '//%s/graph/graph.html?dataset=%s&type=%s&viztoken=%s&usertag=%s&splashAfter=%s&%s'
         return pattern % (PyGraphistry._hostname, info['name'], info['type'],
                           info['viztoken'], PyGraphistry._tag, splash_time, extra)
+
 
     @staticmethod
     def _get_data_file(dataset, mode):
@@ -159,6 +169,7 @@ class PyGraphistry(object):
 
         return out_file
 
+
     @staticmethod
     def _etl1(dataset):
         if PyGraphistry.api_key is None:
@@ -179,6 +190,7 @@ class PyGraphistry(object):
             raise ValueError('Server reported error:', jres['msg'])
         else:
             return {'name': jres['dataset'], 'viztoken': jres['viztoken'], 'type': 'vgraph'}
+
 
     @staticmethod
     def _etl2(dataset):
@@ -216,18 +228,30 @@ class PyGraphistry(object):
         else:
             return {'name': jres['dataset'], 'viztoken': jres['viztoken'], 'type': 'jsonMeta'}
 
+
     @staticmethod
-    def _check_key():
+    def _check_key_and_version():
         params = {'text': PyGraphistry.api_key}
         try:
             response = requests.get(PyGraphistry._check_url(), params=params,
                                     timeout=(2,1))
             response.raise_for_status()
             jres = response.json()
+
+            cver = sys.modules['graphistry'].__version__
+            if  'pygraphistry' in jres and 'minVersion' in jres['pygraphistry'] and 'latestVersion' in jres['pygraphistry']:
+                mver = jres['pygraphistry']['minVersion']
+                lver = jres['pygraphistry']['latestVersion']
+                if util.compare_versions(mver, cver) > 0:
+                    util.warn('Your version of PyGraphistry is no longer supported (installed=%s latest=%s). Please upgrade!' % (cver, lver))
+                elif util.compare_versions(lver, cver) > 0:
+                    print('A new version of PyGraphistry is available (installed=%s latest=%s).' % (cver, lver))
+
             if jres['success'] is not True:
                 util.warn(jres['error'])
         except Exception as e:
             pass
+
 
 register = PyGraphistry.register
 bind = PyGraphistry.bind
