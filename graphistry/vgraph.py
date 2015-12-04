@@ -5,6 +5,7 @@ from builtins import zip
 from builtins import next
 from builtins import str
 
+import sys
 import random
 import numpy
 import pandas
@@ -98,7 +99,7 @@ def storeValueVector(vg, df, col, dtype, target):
 def objectEncoder(vg, series, dtype):
     series.where(pandas.notnull(series), '', inplace=True)
     vec = vg.string_vectors.add()
-    for val in series.map(lambda x: x.decode('utf8')):
+    for val in series.map(lambda x: str(x)):
         vec.values.append(val)
     return (vec, {'ctype': 'utf8'})
 
@@ -128,8 +129,12 @@ def numericEncoder(vg, series, dtype):
         rep_type = dtype
 
     vec = typemap[rep_type.name].add()
-    for val in series:
-        vec.values.append(val)
+    if sys.version_info < (3,):
+        for val in series:
+            vec.values.append(val)
+    else:
+        for val in series:
+            vec.values.append(val.item()) # Cast to Python native int? Loss of precision?
     return (vec, {'ctype': rep_type.name, 'original_type': dtype.name})
 
 
