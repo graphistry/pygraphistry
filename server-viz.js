@@ -646,6 +646,28 @@ function VizServer(app, socket, cachedVBOs) {
         }.bind(this)).fail(log.makeQErrorHandler(logger, 'reset_graph request'));
     }.bind(this));
 
+    this.socket.on('get_sizes_for_memory_allocation', function (cb) {
+        var MAX_SIZE_TO_ALLOCATE = 2000000;
+        logger.debug('Client requested initial sizes for memory preallocation');
+        this.graph.take(1).do(function (graph) {
+            Q.all([graph.originalNumPoints.promise, graph.originalNumEdges.promise])
+                .spread(function (numPoints, numEdges) {
+                    cb({success: true,
+                        numElements: {
+                            point: Math.min(numPoints, MAX_SIZE_TO_ALLOCATE),
+                            edge: Math.min(numEdges, MAX_SIZE_TO_ALLOCATE)
+                        }
+                    });
+                }).done(_.identity, log.makeQErrorHandler(logger, 'get_sizes_for_memory_allocation Q'));
+        }).subscribe(
+            _.identity,
+            function (err) {
+                cb({success: false, error: 'get_sizes_for_memory_allocation error'});
+                log.makeRxErrorHandler(logger, 'get_sizes_for_memory_allocation handler')(err);
+            }
+        );
+    }.bind(this));
+
     this.socket.on('inspect_header', function (nothing, cb) {
         logger.info('inspect header');
         this.graph.take(1).do(function (graph) {
