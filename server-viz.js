@@ -586,15 +586,19 @@ function VizServer(app, socket, cachedVBOs) {
                     try {
                         var plan = dataframe.planForQueryObject(filterQuery);
                         var masks;
-                        if (plan !== undefined) {
-                            masks = plan.execute();
-                        } else {
+                        if (plan === undefined) {
                             var filterFunc = dataframe.filterFuncForQueryObject(filterQuery);
                             masks = dataframe.getAttributeMask(type, attribute, filterFunc);
+                        } else {
+                            masks = plan.execute();
                         }
-                        // Record the size of the filtered set for UI feedback:
-                        filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
-                        maskList.push(masks);
+                        if (masks === undefined) {
+                            throw new Error('Unable to execute the query');
+                        } else {
+                            // Record the size of the filtered set for UI feedback:
+                            filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
+                            maskList.push(masks);
+                        }
                     } catch (e) {
                         errors.push(e.message);
                     }
