@@ -112,7 +112,7 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
     return {count: count, values: dataFrame.getRows(slicedIndices, type)};
 }
 
-VizServer.prototype.resetState = function (dataset) {
+VizServer.prototype.resetState = function (dataset, socket) {
     logger.info('RESETTING APP STATE');
 
     //FIXME explicitly destroy last graph if it exists?
@@ -132,7 +132,7 @@ VizServer.prototype.resetState = function (dataset) {
 
     // ----- ANIMATION ------------------------------------
     //current animation
-    this.animationStep = driver.create(dataset);
+    this.animationStep = driver.create(dataset, socket);
     //multicast of current animation's ticks
     this.ticksMulti = this.animationStep.ticks.publish();
     this.ticksMulti.connect();
@@ -353,7 +353,7 @@ function VizServer(app, socket, cachedVBOs) {
                 metadata.scene = 'default';
             }
 
-            this.resetState(dataset);
+            this.resetState(dataset, socket);
             renderConfigDeferred.resolve(rConf.scenes[metadata.scene]);
         }.bind(this)).fail(log.makeQErrorHandler(logger, 'resetting state'));
     }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(logger, 'Get render config'));
@@ -641,31 +641,9 @@ function VizServer(app, socket, cachedVBOs) {
     this.socket.on('reset_graph', function (_, cb) {
         logger.info('reset_graph command');
         this.qDataset.then(function (dataset) {
-            this.resetState(dataset);
+            this.resetState(dataset, this.socket);
             cb();
         }.bind(this)).fail(log.makeQErrorHandler(logger, 'reset_graph request'));
-    }.bind(this));
-
-    this.socket.on('get_sizes_for_memory_allocation', function (cb) {
-        var MAX_SIZE_TO_ALLOCATE = 2000000;
-        logger.debug('Client requested initial sizes for memory preallocation');
-        this.graph.take(1).do(function (graph) {
-            Q.all([graph.originalNumPoints.promise, graph.originalNumEdges.promise])
-                .spread(function (numPoints, numEdges) {
-                    cb({success: true,
-                        numElements: {
-                            point: Math.min(numPoints, MAX_SIZE_TO_ALLOCATE),
-                            edge: Math.min(numEdges, MAX_SIZE_TO_ALLOCATE)
-                        }
-                    });
-                }).done(_.identity, log.makeQErrorHandler(logger, 'get_sizes_for_memory_allocation Q'));
-        }).subscribe(
-            _.identity,
-            function (err) {
-                cb({success: false, error: 'get_sizes_for_memory_allocation error'});
-                log.makeRxErrorHandler(logger, 'get_sizes_for_memory_allocation handler')(err);
-            }
-        );
     }.bind(this));
 
     this.socket.on('inspect_header', function (nothing, cb) {
