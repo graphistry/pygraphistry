@@ -769,13 +769,17 @@ function VizServer(app, socket, cachedVBOs) {
                 return;
             }
             var bufferName = encoding.bufferName;
-            var sourceValues = dataframe.getColumnValues(attributeName, type);
-            var encodedColumnValues = _.map(sourceValues, encoding.scaling);
-            var encodedAttributeName = bufferName + '_' + attributeName;
-            dataframe.overlayLocalBuffer(bufferName, encodedAttributeName, encodedColumnValues);
+            if (query.reset) {
+                dataframe.resetLocalBuffer(bufferName);
+            } else {
+                var sourceValues = dataframe.getColumnValues(attributeName, type);
+                var encodedAttributeName = bufferName + '_' + attributeName;
+                var encodedColumnValues = _.map(sourceValues, encoding.scaling);
+                dataframe.overlayLocalBuffer(bufferName, encodedAttributeName, encodedColumnValues);
+            }
             graph.simulator.tickBuffers([bufferName]);
             this.animationStep.interact({play: true, layout: false});
-            cb({success: true});
+            cb(_.extend({success: true, enabled: !query.reset}, _.omit(encoding, ['scaling'])));
         }.bind(this)).subscribe(
             _.identity,
             function (err) {
