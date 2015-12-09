@@ -6,7 +6,7 @@
  * Region: us-west-1 (N. California)
  * AMI: Ubuntu 14.04 LTR "Trusty" with HVM as the AMI
  * Instance type: g2.2xlarge
- * Network: vpc-8045a9ef
+ * Network: vpc-8045a9e5
  * Subnet: subnet-b71428f1
  * Placement group: graphistry-dev
  * IAM role: either 'central-server', 'viz-worker' or 'central-worker-combined-server', depending on what this instance will run
