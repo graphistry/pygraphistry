@@ -17,6 +17,7 @@ var driver      = require('./js/node-driver.js');
 var persist     = require('./js/persist.js');
 var workbook    = require('./js/workbook.js');
 var labeler     = require('./js/labeler.js');
+var encodings   = require('./js/encodings.js');
 var DataframeMask = require('./js/DataframeMask.js');
 var TransactionalIdentifier = require('./js/TransactionalIdentifier');
 var vgwriter    = require('./js/libs/VGraphWriter.js');
@@ -735,6 +736,54 @@ function VizServer(app, socket, cachedVBOs) {
         );
     }.bind(this));
 
+    this.socket.on('encode_by_column', function (query, cb) {
+        this.graph.take(1).do(function (graph) {
+            var dataframe = graph.dataframe,
+                normalization = dataframe.normalizeAttributeName(query.attribute, query.type),
+                encodingType = query.encodingType;
+            if (normalization === undefined) {
+                cb({
+                    success: false,
+                    errors: [new Error('No attribute found for: ' + query.attribute + ',' + query.type)]
+                });
+                return;
+            }
+            var attributeName = normalization.attribute,
+                type = normalization.type;
+            if (encodingType && encodingType.indexOf(type) !== 0) {
+                cb({
+                    success: false,
+                    errors: [new Error('Attribute type does not match encoding type requested.')]
+                });
+                return;
+            }
+            var encoding;
+            try {
+                encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType);
+            } catch (e) {
+                cb({success: false, errors: [e]});
+                return;
+            }
+            if (encoding === undefined || encoding.scaling === undefined) {
+                cb({success: false, errors: [new Error('No scaling inferred for: ' + encodingType)]});
+                return;
+            }
+            var bufferName = encoding.bufferName;
+            var sourceValues = dataframe.getColumnValues(attributeName, type);
+            var encodedColumnValues = _.map(sourceValues, encoding.scaling);
+            var encodedAttributeName = bufferName + '_' + attributeName;
+            dataframe.overlayLocalBuffer(bufferName, encodedAttributeName, encodedColumnValues);
+            graph.simulator.tickBuffers([bufferName]);
+            this.animationStep.interact({play: true, layout: false});
+            cb({success: true});
+        }.bind(this)).subscribe(
+            _.identity,
+            function (err) {
+                log.makeRxErrorHandler(logger, 'recolor by column handler')(err);
+            }
+        );
+    }.bind(this));
+
     this.setupAggregationRequestHandling();
 
     this.socket.on('viz', function (msg, cb) { cb({success: true}); });
@@ -1181,12 +1230,10 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 if (dataframeMask.isEmpty() && dataframe.canResetLocalBuffer(bufferName)) {
                     dataframe.resetLocalBuffer(bufferName);
                 } else {
-                    if (!dataframe.canResetLocalBuffer(bufferName)) {
-                        dataframe.snapshotLocalBuffer(bufferName);
-                    }
                     var pointColorsBuffer = dataframe.getLocalBuffer(bufferName);
+                    var highlightedPointColorsBuffer = _.clone(pointColorsBuffer);
                     dataframeMask.mapPointIndexes(function (pointIndex) {
-                        pointColorsBuffer[pointIndex] = color;
+                        highlightedPointColorsBuffer[pointIndex] = color;
                     });
                 }
                 simulator.tickBuffers([bufferName]);
