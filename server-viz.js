@@ -740,7 +740,8 @@ function VizServer(app, socket, cachedVBOs) {
         this.graph.take(1).do(function (graph) {
             var dataframe = graph.dataframe,
                 normalization = dataframe.normalizeAttributeName(query.attribute, query.type),
-                encodingType = query.encodingType;
+                encodingType = query.encodingType,
+                binning = query.binning;
             if (normalization === undefined) {
                 cb({
                     success: false,
@@ -759,7 +760,7 @@ function VizServer(app, socket, cachedVBOs) {
             }
             var encoding;
             try {
-                encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType);
+                encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType, binning);
             } catch (e) {
                 cb({success: false, errors: [e]});
                 return;
