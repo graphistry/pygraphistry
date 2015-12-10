@@ -775,6 +775,7 @@ function VizServer(app, socket, cachedVBOs) {
                 return;
             }
             var bufferName = encoding.bufferName;
+            var enabled = false;
             if (query.reset) {
                 dataframe.resetLocalBuffer(bufferName);
             } else {
@@ -782,10 +783,11 @@ function VizServer(app, socket, cachedVBOs) {
                 var encodedAttributeName = bufferName + '_' + attributeName;
                 var encodedColumnValues = _.map(sourceValues, encoding.scaling);
                 dataframe.overlayLocalBuffer(bufferName, encodedAttributeName, encodedColumnValues);
+                enabled = true;
             }
             graph.simulator.tickBuffers([bufferName]);
             this.animationStep.interact({play: true, layout: false});
-            cb(_.extend({success: true, enabled: !query.reset}, _.omit(encoding, ['scaling'])));
+            cb(_.extend({success: true, enabled: enabled}, _.omit(encoding, ['scaling'])));
         }.bind(this)).subscribe(
             _.identity,
             function (err) {
