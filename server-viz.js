@@ -751,12 +751,17 @@ function VizServer(app, socket, cachedVBOs) {
             }
             var attributeName = normalization.attribute,
                 type = normalization.type;
-            if (encodingType && encodingType.indexOf(type) !== 0) {
-                cb({
-                    success: false,
-                    errors: [new Error('Attribute type does not match encoding type requested.')]
-                });
-                return;
+            if (encodingType) {
+                if (encodingType === 'color' || encodingType === 'size' || encodingType === 'opacity') {
+                    encodingType = type + encodingType.charAt(0).toLocaleUpperCase() + encodingType.slice(1);
+                }
+                if (encodingType.indexOf(type) !== 0) {
+                    cb({
+                        success: false,
+                        errors: [new Error('Attribute type does not match encoding type requested.')]
+                    });
+                    return;
+                }
             }
             var encoding;
             try {
