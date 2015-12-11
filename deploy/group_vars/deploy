@@ -20,8 +20,11 @@ users:
     # Only a member of the 'www' group
     groups:
       - sshauthsock
+  # Kevin should no longer have access to the box, but don't delete his account yet because there
+  # may currently be prototype-quality Jenkins code that is set up to use his account. So we just
+  # change the SSH pubkey for his account to Matt's key for now.
   - username: kevin
-    pubkey: "{{ pubkey_base }}/kevin.pub"
+    pubkey: "{{ pubkey_base }}/mtorok.pub"
   - username: ubuntu
     pubkey: "{{ pubkey_base }}/mtorok.pub"
     groups:
