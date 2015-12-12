@@ -9,11 +9,11 @@
   sudo_user: root
 
 - name: "Download CUDA repo .deb package"
-  get_url: "dest={{ ansible_files }}/cuda-repo-ubuntu1404_7.0-28_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_7.0-28_amd64.deb"
+  get_url: "dest={{ ansible_files }}/cuda-repo-ubuntu1404_7.5-18_amd64.deb url=http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1404/x86_64/cuda-repo-ubuntu1404_7.5-18_amd64.deb"
   sudo: yes
 
 - name: Install CUDA repo .deb package
-  apt: "deb={{ ansible_files }}/cuda-repo-ubuntu1404_7.0-28_amd64.deb state=present"
+  apt: "deb={{ ansible_files }}/cuda-repo-ubuntu1404_7.5-18_amd64.deb state=present"
   sudo: yes
   register: cuda_repo_installed
 
@@ -25,8 +25,18 @@
 # Force handlers to run, which will cause a reboot here if one is to be performed
 - meta: flush_handlers
 
-- name: Install CUDA 7.0 (includes NVIDIA drivers)
+- name: Remove CUDA 7.0
   apt: pkg=cuda-7-0
+       state=absent
+       update_cache=yes
+       cache_valid_time=600
+  notify:
+      - Reboot server
+      - Wait for server to restart
+  sudo: yes
+
+- name: Install CUDA 7.5 (includes NVIDIA drivers)
+  apt: pkg=cuda-7-5
        state=present
        update_cache=yes
        cache_valid_time=600
