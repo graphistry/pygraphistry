@@ -6,6 +6,12 @@
 - name: Checking if we should remount /tmp
   set_fact: remount_tmp=True
   when: '"/mnt" in ansible_mounts|map(attribute="mount")'
+  notify:
+      - Reboot server
+      - Wait for server to restart
+
+# Force handlers to run, which will cause a reboot here if one is to be performed
+# - meta: flush_handlers
 
 - name: Change permissions of /mnt so that /tmp has right permissions on mount
   file: path=/mnt
