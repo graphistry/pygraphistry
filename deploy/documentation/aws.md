@@ -12,7 +12,7 @@
  * IAM role: either 'central-server', 'viz-worker' or 'central-worker-combined-server', depending on what this instance will run
  * Storage: 20 GB SSD
  * Name: cluster-name/hostname (e.g., "production/labs")
- * Security groups: "Select an existing security group" and select sure default, default-ssh, Unique_SSH, central-server and/or worker (depending on the role of the machine.)
+ * Security groups: "Select an existing security group" and select sure default, default-ssh, Unique_SSH, central-server and/or StreamGL (depending on the role of the machine.)
  * After you hit "Launch", for SSH key pair, select "Choose an existing key pair", and the "ansible\_id\_rsa" key
 2. After launch, assign the inastance an Elastic IP (provision a new one if needed, or re-assign an existing one if replacing an existing instance.)
 3. Note both the public (Elastic) IP and the private IP in the ec2 console.
