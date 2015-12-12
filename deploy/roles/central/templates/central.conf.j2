@@ -2,7 +2,7 @@
 
 [program:central]
 
-command=npm start "{\"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ inventory_hostname }}\", \"HTTP_LISTEN_ADDRESS\": \"0.0.0.0\" }"
+command=npm start "{\"ENVIRONMENT\": \"{{ cluster }}\", \"HOSTNAME\": \"{{ inventory_hostname }}\", \"HTTP_LISTEN_ADDRESS\": \"0.0.0.0\", \"MONGO_USERNAME\": \"{{ mongo_username }}\", \"MONGO_PASSWORD\": \"{{ mongo_password }}\", \"VIZ_LISTEN_ADDRESS\": \"0.0.0.0\", \"LOG_FILE\": \"/var/log/graphistry-json/%(program_name)s.log\", \"LOG_LEVEL\": \"INFO\", \"MONGO_HOSTS\": [\"{{ mongo_host }}\"], \"ALLOW_MULTIPLE_VIZ_CONNECTIONS\": false, \"PINGER_ENABLED\": true, \"CLUSTER\": \"{{ cluster }}\", \"DATABASE\": \"{{ mongo_name }}\", \"MONGO_DATABASE\": \"{{ mongo_name }}\"}"
 directory={{ graphistry_install_path }}/central
 environment=
 
