@@ -265,7 +265,12 @@ function processAggregateIndices (request, nodeIndices) {
         // Initial case of getting global Stats
         // TODO: Make this match the same structure, not the current approach in StreamGL
         if (query.type) {
-            data = [function () {return graph.dataframe.aggregate(graph.simulator, indices[query.type], query.attributes, query.binning, query.mode, query.type);}];
+            data = [
+                function () {
+                    return graph.dataframe.aggregate(
+                        indices[query.type],
+                        query.attributes, query.binning, query.mode, query.type);
+                }];
         } else {
             var types = ['point', 'edge'];
             data = _.map(types, function (type) {
@@ -274,7 +279,10 @@ function processAggregateIndices (request, nodeIndices) {
                 });
                 var attributeNames = _.pluck(filteredAttributes, 'name');
                 return function () {
-                    return graph.dataframe.aggregate(graph.simulator, indices[type], attributeNames, query.binning, query.mode, type);
+                    return graph.dataframe.aggregate(
+                        indices[type],
+                        attributeNames,
+                        query.binning, query.mode, type);
                 };
             });
         }
