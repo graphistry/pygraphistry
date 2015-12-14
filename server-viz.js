@@ -753,7 +753,7 @@ function VizServer(app, socket, cachedVBOs) {
             if (normalization === undefined) {
                 cb({
                     success: false,
-                    errors: [new Error('No attribute found for: ' + query.attribute + ',' + query.type)]
+                    errors: ['No attribute found for: ' + query.attribute + ',' + query.type]
                 });
                 return;
             }
@@ -766,7 +766,7 @@ function VizServer(app, socket, cachedVBOs) {
                 if (encodingType.indexOf(type) !== 0) {
                     cb({
                         success: false,
-                        errors: [new Error('Attribute type does not match encoding type requested.')]
+                        errors: ['Attribute type does not match encoding type requested.']
                     });
                     return;
                 }
@@ -775,11 +775,11 @@ function VizServer(app, socket, cachedVBOs) {
             try {
                 encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType, binning);
             } catch (e) {
-                cb({success: false, errors: [e]});
+                cb({success: false, errors: [e.message]});
                 return;
             }
             if (encoding === undefined || encoding.scaling === undefined) {
-                cb({success: false, errors: [new Error('No scaling inferred for: ' + encodingType)]});
+                cb({success: false, errors: ['No scaling inferred for: ' + encodingType]});
                 return;
             }
             var bufferName = encoding.bufferName;
