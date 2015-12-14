@@ -9,3 +9,5 @@ Additionally, it contains documentation pertaining to our overall application st
 * [Local Development](https://github.com/graphistry/deploy/blob/master/documentation/local-dev.md): How to download and install the Graphistry application stack so that you can do local development.
 * [AWS](https://github.com/graphistry/deploy/blob/master/documentation/aws.md): How to deploy the Graphistry stack to Amazon Web Services for both staging and production.
 * [Troubleshooting](https://github.com/graphistry/deploy/blob/master/documentation/troubleshooting.md): What to do if the server stops working.
+* [Manual Testing](https://docs.google.com/document/d/1J7UgXXXs5LujC6Nl6st0ooavfzRAZKI1ZSzl6n_Z90c/edit#heading=h.z8ufwwipb9wm): Demos and tasks to try before prod deploys.
+
