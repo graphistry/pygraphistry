@@ -1,5 +1,9 @@
 # EC2
 
+## Testing
+
+See https://docs.google.com/document/d/1J7UgXXXs5LujC6Nl6st0ooavfzRAZKI1ZSzl6n_Z90c/edit#heading=h.z8ufwwipb9wm
+
 ## Provisioning
 
 1. Create new EC2 instance with the following settings:
