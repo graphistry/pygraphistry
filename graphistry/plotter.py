@@ -28,6 +28,7 @@ class Plotter(object):
 
     _defaultNodeId = '__nodeid__'
 
+
     def __init__(self):
         # Bindings
         self._edges = None
@@ -47,6 +48,7 @@ class Plotter(object):
         self._height = 500
         self._url_params = {'info': 'true'}
 
+
     def __repr__(self):
         bnds = ['edges', 'nodes', 'source', 'destination', 'node', 'edge_title',
                 'edge_label', 'edge_color', 'edge_weight', 'point_title',
@@ -60,6 +62,7 @@ class Plotter(object):
             return pretty(rep)
         else:
             return str(rep)
+
 
     def bind(self, source=None, destination=None, node=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
@@ -164,6 +167,7 @@ class Plotter(object):
         res._point_size = point_size or self._point_size
         return res
 
+
     def nodes(self, nodes):
         """Specify the set of nodes and associated data.
 
@@ -197,6 +201,7 @@ class Plotter(object):
         res._nodes = nodes
         return res
 
+
     def edges(self, edges):
         """Specify edge list data and associated edge attribute values.
 
@@ -222,6 +227,7 @@ class Plotter(object):
         res._edges = edges
         return res
 
+
     def graph(self, ig):
         """Specify the node and edge data.
 
@@ -236,6 +242,7 @@ class Plotter(object):
         res._edges = ig
         res._nodes = None
         return res
+
 
     def settings(self, height=None, url_params={}):
         """Specify iframe height and add URL parameter dictionary.
@@ -253,6 +260,7 @@ class Plotter(object):
         res._height = height or self._height
         res._url_params = dict(self._url_params, **url_params)
         return res
+
 
     def plot(self, graph=None, nodes=None):
         """Upload data to the Graphistry server and show as an iframe of it.
@@ -317,6 +325,7 @@ class Plotter(object):
             webbrowser.open(viz_url)
             return self
 
+
     def pandas2igraph(self, edges, directed=True):
         """Convert a pandas edge dataframe to an IGraph graph.
 
@@ -351,6 +360,7 @@ class Plotter(object):
         etuples = [tuple(x) for x in edges[cols].values]
         return igraph.Graph.TupleList(etuples, directed=directed, edge_attrs=eattribs,
                                       vertex_name_attr=self._node)
+
 
     def igraph2pandas(self, ig):
         """Under current bindings, transform an IGraph into a pandas edges dataframe and a nodes dataframe.
@@ -393,6 +403,7 @@ class Plotter(object):
         edges = pandas.DataFrame(edata, columns=cols)
         return (edges, nodes)
 
+
     def networkx2pandas(self, g):
         def get_nodelist(g):
             for n in g.nodes(data=True):
@@ -413,11 +424,13 @@ class Plotter(object):
         edges = pandas.DataFrame(get_edgelist(g))
         return (edges, nodes)
 
+
     def _check_mandatory_bindings(self, node_required):
         if self._source is None or self._destination is None:
             util.error('Both "source" and "destination" must be bound before plotting.')
         if node_required and self._node is None:
             util.error('Node identifier must be bound when using node dataframe.')
+
 
     def _check_bound_attribs(self, df, attribs, typ):
         cols = df.columns.values.tolist()
@@ -425,6 +438,7 @@ class Plotter(object):
             b = getattr(self, '_' + a)
             if b not in cols:
                 util.error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
+
 
     def _plot_dispatch(self, graph, nodes, mode='json'):
         if isinstance(graph, pandas.core.frame.DataFrame):
@@ -451,6 +465,7 @@ class Plotter(object):
 
         util.error('Expected Pandas dataframe(s) or Igraph/NetworkX graph.')
 
+
     def _sanitize_dataset(self, edges, nodes, nodeid):
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
         elist = edges.reset_index(drop=True).dropna(subset=[self._source, self._destination]) \
@@ -465,6 +480,7 @@ class Plotter(object):
                      .convert_objects(convert_dates=True, convert_numeric=True)
         return (elist, nlist)
 
+
     def _check_dataset_size(self, elist, nlist):
         edge_count = len(elist.index)
         node_count = len(nlist.index)
@@ -475,6 +491,7 @@ class Plotter(object):
             util.error('Maximum number of nodes (8M) exceeded: %d.' % node_count)
         if graph_size > 1e6:
             util.warn('Large graph: |nodes| + |edges| = %d. Layout/rendering might be slow.' % graph_size)
+
 
     def _bind_attributes_v1(self, edges, nodes):
         def bind(df, pbname, attrib, default=None):
@@ -501,6 +518,7 @@ class Plotter(object):
         bind(nlist, 'pointTitle', '_point_title', nodeid)
         bind(nlist, 'pointSize', '_point_size')
         return (elist, nlist)
+
 
     def _bind_attributes_v2(self, edges, nodes):
         def bind(enc, df, pbname, attrib, default=None):
@@ -541,6 +559,7 @@ class Plotter(object):
         else:
             raise ValueError('Unknown mode: ' + mode)
 
+
     def _make_json_dataset(self, edges, nodes):
         (elist, nlist) = self._bind_attributes_v1(edges, nodes)
 
@@ -555,6 +574,7 @@ class Plotter(object):
             ndict = nlist.where((pandas.notnull(nlist)), None).to_dict(orient='records')
             dataset['labels'] = ndict
         return dataset
+
 
     def _make_vgraph_dataset(self, edges, nodes):
         (elist, nlist, encodings) = self._bind_attributes_v2(edges, nodes)
@@ -571,5 +591,4 @@ class Plotter(object):
 
         dataset = vgraph.create(elist, filtered_nlist, sources, dests, nodeid, node_map)
         dataset['encodings'] = encodings
-
         return dataset
