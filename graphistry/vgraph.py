@@ -79,7 +79,7 @@ def storeNodeAttributes(vg, df, nodeid, node_map):
 def storeValueVector(vg, df, col, dtype, target):
     encoders = {
         'object': objectEncoder,
-        'bool': numericEncoder,
+        'bool': boolEncoder,
         'int8': numericEncoder,
         'int16': numericEncoder,
         'int32': numericEncoder,
@@ -112,7 +112,6 @@ def numericEncoder(vg, series, dtype):
         return next(i.dtype for i in tinfo if min >= i.min and max <= i.max)
 
     typemap = {
-        'bool': vg.bool_vectors,
         'int8': vg.int32_vectors,
         'int16': vg.int32_vectors,
         'int32': vg.int32_vectors,
@@ -136,6 +135,13 @@ def numericEncoder(vg, series, dtype):
         for val in series:
             vec.values.append(val.item()) # Cast to Python native int? Loss of precision?
     return (vec, {'ctype': rep_type.name, 'original_type': dtype.name})
+
+
+def boolEncoder(vg, series, dtype):
+    vec = vg.bool_vectors.add()
+    for val in series:
+        vec.values.append(val.item())
+    return (vec, {'ctype': 'bool'})
 
 
 def datetimeEncoder(vg, series, dtype):
