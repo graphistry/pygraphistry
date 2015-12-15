@@ -7,7 +7,6 @@ import copy
 import pandas
 
 from . import pygraphistry
-from . import vgraph
 from . import util
 
 
@@ -576,6 +575,8 @@ class Plotter(object):
 
 
     def _make_vgraph_dataset(self, edges, nodes, name):
+        from . import vgraph
+
         (elist, nlist, encodings) = self._bind_attributes_v2(edges, nodes)
         nodeid = self._node or Plotter._defaultNodeId
 
