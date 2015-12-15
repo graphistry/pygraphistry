@@ -34,7 +34,7 @@ Tutorial and API docs are on
 
 setup(
     name='graphistry',
-    version='0.9.13',
+    version='0.9.14',
     packages = ['graphistry'],
     platforms='any',
     description = 'Visualize node-link graphs using Graphistry\'s cloud',
