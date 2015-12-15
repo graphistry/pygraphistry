@@ -235,7 +235,7 @@ class PyGraphistry(object):
         params = {'text': PyGraphistry.api_key}
         try:
             response = requests.get(PyGraphistry._check_url(), params=params,
-                                    timeout=(2,1))
+                                    timeout=(2,2))
             response.raise_for_status()
             jres = response.json()
 
@@ -251,7 +251,7 @@ class PyGraphistry(object):
             if jres['success'] is not True:
                 util.warn(jres['error'])
         except Exception as e:
-            pass
+            util.warn('Could not contact %s. Are you connected to the Internet?' % PyGraphistry._hostname)
 
 
 register = PyGraphistry.register
