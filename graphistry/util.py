@@ -6,6 +6,8 @@ import sys
 import platform as p
 import uuid
 import hashlib
+import random
+import string
 from distutils.version import LooseVersion, StrictVersion
 
 
@@ -38,6 +40,11 @@ def fingerprint():
     data = [p.node(), p.system(), p.machine(), str(uuid.getnode())]
     md5.update(''.join(data).encode('utf8'))
     return "%s-pygraphistry-%s" % (md5.hexdigest()[:8], sys.modules['graphistry'].__version__)
+
+
+def random_string(length):
+    gibberish = [random.choice(string.ascii_uppercase + string.digits) for _ in range(length)]
+    return ''.join(gibberish)
 
 
 def compare_versions(v1, v2):

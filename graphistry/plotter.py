@@ -3,8 +3,6 @@ from __future__ import absolute_import
 from builtins import str
 from builtins import range
 from builtins import object
-import random
-import string
 import copy
 import pandas
 
@@ -262,10 +260,11 @@ class Plotter(object):
         return res
 
 
-    def plot(self, graph=None, nodes=None):
+    def plot(self, graph=None, nodes=None, name=None):
         """Upload data to the Graphistry server and show as an iframe of it.
 
-        Uses the currently bound schema structure and visual encodings. Optional parameters override the current bindings.
+        name, Uses the currently bound schema structure and visual encodings.
+        Optional parameters override the current bindings.
 
         When used in a notebook environment, will also show an iframe of the visualization.
 
@@ -294,8 +293,8 @@ class Plotter(object):
                     .bind(source='src', destination='dst')
                     .plot(es)
 
-
         """
+
         if graph is None:
             if self._edges is None:
                 util.error('Graph/edges must be specified.')
@@ -303,15 +302,16 @@ class Plotter(object):
         else:
             g = graph
         n = self._nodes if nodes is None else nodes
+        name = name or util.random_string(10)
 
         self._check_mandatory_bindings(not isinstance(n, type(None)))
         PyG = pygraphistry.PyGraphistry
 
         if (PyG.api == 1):
-            dataset = self._plot_dispatch(g, n, 'json')
+            dataset = self._plot_dispatch(g, n, name, 'json')
             info = PyG._etl1(dataset)
         elif (PyG.api == 2):
-            dataset = self._plot_dispatch(g, n, 'vgraph')
+            dataset = self._plot_dispatch(g, n, name, 'vgraph')
             info = PyG._etl2(dataset)
 
         viz_url = PyG._viz_url(info, self._url_params)
@@ -440,15 +440,15 @@ class Plotter(object):
                 util.error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
 
-    def _plot_dispatch(self, graph, nodes, mode='json'):
+    def _plot_dispatch(self, graph, nodes, name, mode='json'):
         if isinstance(graph, pandas.core.frame.DataFrame):
-            return self._make_dataset(graph, nodes, mode)
+            return self._make_dataset(graph, nodes, name, mode)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
                 (e, n) = self.igraph2pandas(graph)
-                return self._make_dataset(e, n, mode)
+                return self._make_dataset(e, n, name, mode)
         except ImportError:
             pass
 
@@ -459,7 +459,7 @@ class Plotter(object):
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
                 (e, n) = self.networkx2pandas(graph)
-                return self._make_dataset(e, n, mode)
+                return self._make_dataset(e, n, name, mode)
         except ImportError:
             pass
 
@@ -551,32 +551,31 @@ class Plotter(object):
         return (elist, nlist, encodings)
 
 
-    def _make_dataset(self, edges, nodes, mode):
+    def _make_dataset(self, edges, nodes, name, mode):
         if mode == 'json':
-            return self._make_json_dataset(edges, nodes)
+            return self._make_json_dataset(edges, nodes, name)
         elif mode == 'vgraph':
-            return self._make_vgraph_dataset(edges, nodes)
+            return self._make_vgraph_dataset(edges, nodes, name)
         else:
             raise ValueError('Unknown mode: ' + mode)
 
 
-    def _make_json_dataset(self, edges, nodes):
+    def _make_json_dataset(self, edges, nodes, name):
         (elist, nlist) = self._bind_attributes_v1(edges, nodes)
-
         edict = elist.where((pandas.notnull(elist)), None).to_dict(orient='records')
-        name = ''.join(random.choice(string.ascii_uppercase +
-                                     string.digits) for _ in range(10))
+
         bindings = {'idField': self._node or Plotter._defaultNodeId,
                     'destinationField': self._destination, 'sourceField': self._source}
         dataset = {'name': pygraphistry.PyGraphistry._dataset_prefix + name,
                    'bindings': bindings, 'type': 'edgelist', 'graph': edict}
+
         if nlist is not None:
             ndict = nlist.where((pandas.notnull(nlist)), None).to_dict(orient='records')
             dataset['labels'] = ndict
         return dataset
 
 
-    def _make_vgraph_dataset(self, edges, nodes):
+    def _make_vgraph_dataset(self, edges, nodes, name):
         (elist, nlist, encodings) = self._bind_attributes_v2(edges, nodes)
         nodeid = self._node or Plotter._defaultNodeId
 
@@ -589,6 +588,6 @@ class Plotter(object):
         filtered_nlist = pandas.merge(lnodes_df, nlist, on=nodeid, how='left')
         node_map = dict([(v, i) for i, v in enumerate(lnodes.tolist())])
 
-        dataset = vgraph.create(elist, filtered_nlist, sources, dests, nodeid, node_map)
+        dataset = vgraph.create(elist, filtered_nlist, sources, dests, nodeid, node_map, name)
         dataset['encodings'] = encodings
         return dataset

@@ -20,18 +20,21 @@ EDGE = graph_vector_pb2.VectorGraph.EDGE
 VERTEX = graph_vector_pb2.VectorGraph.VERTEX
 
 
-def create(edge_df, node_df, sources, dests, nodeid, node_map):
+def create(edge_df, node_df, sources, dests, nodeid, node_map, name):
     vg = graph_vector_pb2.VectorGraph()
     vg.version = 1
     vg.type = VectorGraph.DIRECTED
     vg.nvertices = len(node_map)
     vg.nedges = len(edge_df)
+    if name is not None:
+        vg.name = name
 
     addEdges(vg, sources, dests, node_map)
     edge_types = storeEdgeAttributes(vg, edge_df)
     node_types = storeNodeAttributes(vg, node_df, nodeid, node_map)
 
     return  {
+        'name': name,
         'vgraph': vg,
         'types': {
             'node': node_types,

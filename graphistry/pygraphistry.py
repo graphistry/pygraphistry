@@ -199,6 +199,7 @@ class PyGraphistry(object):
 
         vg = dataset['vgraph']
         metadata = {
+            'name': dataset['name'],
             'datasources': [
                 {'type': 'vgraph', 'url': 'data0'}
             ],
