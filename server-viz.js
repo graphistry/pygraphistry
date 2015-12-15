@@ -789,7 +789,18 @@ function VizServer(app, socket, cachedVBOs) {
             } else {
                 var sourceValues = dataframe.getColumnValues(attributeName, type);
                 var encodedAttributeName = bufferName + '_' + attributeName;
-                var encodedColumnValues = _.map(sourceValues, encoding.scaling);
+                var encodedColumnValues;
+                // TODO fix how we map to and recolor edges.
+                if (bufferName === 'edgeColors') {
+                    encodedColumnValues = new Array(sourceValues.length * 2);
+                    for (var i=0; i<sourceValues.length; i++) {
+                        var value = sourceValues[i];
+                        encodedColumnValues[2*i] = encoding.scaling(value);
+                        encodedColumnValues[2*i+1] = encoding.scaling(value);
+                    }
+                } else {
+                    encodedColumnValues = _.map(sourceValues, encoding.scaling);
+                }
                 dataframe.overlayLocalBuffer(bufferName, encodedAttributeName, encodedColumnValues);
                 enabled = true;
             }
