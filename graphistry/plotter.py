@@ -467,16 +467,21 @@ class Plotter(object):
 
     def _sanitize_dataset(self, edges, nodes, nodeid):
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
-        elist = edges.reset_index(drop=True).dropna(subset=[self._source, self._destination]) \
-                     .convert_objects(convert_dates=True, convert_numeric=True)
+        elist = edges.reset_index(drop=True) \
+                     .apply(pandas.to_numeric, errors='ignore') \
+                     .dropna(subset=[self._source, self._destination])
+
         if nodes is None:
             nodes = pandas.DataFrame()
             nodes[nodeid] = pandas.concat([edges[self._source], edges[self._destination]],
                                            ignore_index=True).drop_duplicates()
         else:
             self._check_bound_attribs(nodes, ['node'], 'Vertex')
-        nlist = nodes.reset_index(drop=True).dropna(subset=[nodeid]) \
-                     .convert_objects(convert_dates=True, convert_numeric=True)
+
+        nlist = nodes.reset_index(drop=True) \
+                     .apply(pandas.to_numeric, errors='ignore') \
+                     .dropna(subset=[nodeid])
+
         return (elist, nlist)
 
 
