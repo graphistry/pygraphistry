@@ -67,7 +67,7 @@ def storeNodeAttributes(vg, df, nodeid, node_map):
     edge_types = {}
 
     df[ordercol] = df[nodeid].map(lambda n: node_map[n])
-    df.sort(ordercol, inplace=True)
+    df.sort_values(ordercol, inplace=True)
     df.drop(ordercol, axis=1, inplace=True)
     coltypes = df.columns.to_series().groupby(df.dtypes)
 
