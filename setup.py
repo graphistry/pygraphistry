@@ -44,7 +44,7 @@ setup(
     author='The Graphistry Team',
     author_email='pygraphistry@graphistry.com',
     setup_requires=['numpy'],
-    install_requires=['numpy', 'pandas >= 0.16.0', 'requests', 'future >= 0.15.0', 'protobuf >= 2.6.0'],
+    install_requires=['numpy', 'pandas >= 0.17.0', 'requests', 'future >= 0.15.0', 'protobuf >= 2.6.0'],
     extras_require={
         'igraph': ['python-igraph'],
         'networkx': ['networkx'],
