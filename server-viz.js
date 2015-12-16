@@ -180,7 +180,7 @@ VizServer.prototype.tickGraph = function (cb) {
     }.bind(this)).subscribe(
         _.identity,
         function (err) {
-            cb({success: false, error: 'aggregate error'});
+            failWithMessage(cb, 'aggregate error');
             log.makeRxErrorHandler(logger, 'aggregate handler')(err);
         }
     );
@@ -225,16 +225,19 @@ VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, v
                 if (errors) {
                     response.errors = errors;
                 }
+                _.each(errors, logger.debug.bind(logger));
                 cb(response);
             }.bind(this)).done(_.identity, function (err) {
                 log.makeQErrorHandler(logger, 'dataframe filter')(err);
                 errors.push(err);
+                _.each(errors, logger.debug.bind(logger));
                 var response = {success: false, errors: errors, filters: filters};
                 cb(response);
             });
     } catch (err) {
         log.makeQErrorHandler(logger, 'dataframe filter')(err);
         errors.push(err);
+        _.each(errors, logger.debug.bind(logger));
         var response = {success: false, errors: errors, filters: filters};
         cb(response);
     }
@@ -332,6 +335,10 @@ function updateVizSetFromClientSet (matchingSet, updatedVizSet) {
     matchingSet.masks.fromJSON(updatedVizSet.masks);
 }
 
+function failWithMessage (cb, message) {
+    cb({success: false, error: message});
+}
+
 function VizServer(app, socket, cachedVBOs) {
     logger.info('Client connected', socket.id);
 
@@ -379,9 +386,8 @@ function VizServer(app, socket, cachedVBOs) {
 
             this.lastRenderConfig = renderConfig;
         }.bind(this)).fail(function (err) {
-            cb({success: false, error: 'Render config read error'});
+            failWithMessage(cb, 'Render config read error');
             log.makeQErrorHandler(logger, 'sending render_config')(err);
-            cb({success: false, error: 'Render config read error'});
         });
     }.bind(this));
 
@@ -400,7 +406,7 @@ function VizServer(app, socket, cachedVBOs) {
 
             this.lastRenderConfig = renderConfig;
         }.bind(this)).fail(function (err) {
-            cb({success: false, error: 'Render config update error'});
+            failWithMessage(cb, 'Render config update error');
             log.makeQErrorHandler(logger, 'updating render_config')(err);
         });
     }.bind(this));
@@ -484,7 +490,7 @@ function VizServer(app, socket, cachedVBOs) {
         }).take(1).subscribe(_.identity,
             function (err) {
                 logger.error(err, 'Error creating set from selection');
-                cb({success: false, error: 'Server error when saving the selection as a Set'});
+                failWithMessage(cb, 'Server error when saving the selection as a Set');
             });
     }.bind(this));
 
@@ -498,7 +504,7 @@ function VizServer(app, socket, cachedVBOs) {
         }.bind(this)).take(1).subscribe(_.identity,
             function (err) {
                 logger.error(err, 'Error retrieving Sets');
-                cb({success: false, error: 'Server error when retrieving all Set definitions'});
+                failWithMessage(cb, 'Server error when retrieving all Set definitions');
             });
     }.bind(this));
 
@@ -536,7 +542,7 @@ function VizServer(app, socket, cachedVBOs) {
         }).take(1).subscribe(_.identity,
             function (err) {
                 logger.error(err, 'Error sending update_set');
-                cb({success: false, error: 'Server error when updating a Set'});
+                failWithMessage(cb, 'Server error when updating a Set');
                 throw err;
             });
     }.bind(this));
@@ -601,7 +607,7 @@ function VizServer(app, socket, cachedVBOs) {
                         } else {
                             masks = plan.execute();
                         }
-                        if (masks === undefined) {
+                        if (masks === undefined || _.isArray(masks)) {
                             throw new Error('Unable to execute the query');
                         } else {
                             // Record the size of the filtered set for UI feedback:
@@ -633,7 +639,7 @@ function VizServer(app, socket, cachedVBOs) {
         })
         .subscribeOnError(function (err) {
             logger.error(err, 'Error sending layout_controls');
-            cb({success: false, error: 'Server error when fetching controls'});
+            failWithMessage(cb, 'Server error when fetching controls');
             throw err;
         });
     }.bind(this));
@@ -672,7 +678,7 @@ function VizServer(app, socket, cachedVBOs) {
         }).subscribe(
             _.identity,
             function (err) {
-                cb({success: false, error: 'inspect_header error'});
+                failWithMessage(cb, 'inspect_header error');
                 log.makeRxErrorHandler(logger, 'inspect_header handler')(err);
             }
         );
@@ -688,7 +694,7 @@ function VizServer(app, socket, cachedVBOs) {
         }).subscribe(
             _.identity,
             function (err) {
-                cb({success: false, error: 'Namespace metadata error'});
+                failWithMessage(cb, 'Namespace metadata error');
                 log.makeQErrorHandler(logger, 'sending namespace metadata')(err);
             }
         );
@@ -701,7 +707,7 @@ function VizServer(app, socket, cachedVBOs) {
             // set success to true when we support update and it succeeds:
             cb({success: false, metadata: metadata});
         }).fail(function (/*err*/) {
-            cb({success: false, error: 'Namespace metadata update error'});
+            failWithMessage(cb, 'Namespace metadata update error');
             log.makeQErrorHandler(logger, 'updating namespace metadata');
         });
     }.bind(this));
@@ -751,10 +757,7 @@ function VizServer(app, socket, cachedVBOs) {
                 encodingType = query.encodingType,
                 binning = query.binning;
             if (normalization === undefined) {
-                cb({
-                    success: false,
-                    errors: ['No attribute found for: ' + query.attribute + ',' + query.type]
-                });
+                failWithMessage(cb, 'No attribute found for: ' + query.attribute + ',' + query.type);
                 return;
             }
             var attributeName = normalization.attribute,
@@ -764,10 +767,7 @@ function VizServer(app, socket, cachedVBOs) {
                     encodingType = type + encodingType.charAt(0).toLocaleUpperCase() + encodingType.slice(1);
                 }
                 if (encodingType.indexOf(type) !== 0) {
-                    cb({
-                        success: false,
-                        errors: ['Attribute type does not match encoding type requested.']
-                    });
+                    failWithMessage(cb, 'Attribute type does not match encoding type requested.');
                     return;
                 }
             }
@@ -775,11 +775,11 @@ function VizServer(app, socket, cachedVBOs) {
             try {
                 encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType, binning);
             } catch (e) {
-                cb({success: false, errors: [e.message]});
+                failWithMessage(cb, e.message);
                 return;
             }
             if (encoding === undefined || encoding.scaling === undefined) {
-                cb({success: false, errors: ['No scaling inferred for: ' + encodingType]});
+                failWithMessage(cb, 'No scaling inferred for: ' + encodingType);
                 return;
             }
             var bufferName = encoding.bufferName;
@@ -955,7 +955,7 @@ VizServer.prototype.setupAggregationRequestHandling = function () {
         }).subscribe(
             _.identity,
             function (err) {
-                cb({success: false, error: 'aggregate socket error'});
+                failWithMessage(cb, 'aggregate socket error');
                 log.makeRxErrorHandler(logger, 'aggregate socket handler')(err);
             }
         );
@@ -1228,7 +1228,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
         }).take(1).subscribe(_.identity,
             function (err) {
                 logger.error(err, 'Error modifying the selection');
-                cb({success: false, error: 'Server error when modifying the selection'});
+                failWithMessage(cb, 'Server error when modifying the selection');
             });
     }.bind(this));
 
@@ -1275,7 +1275,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
         }).take(1).subscribe(_.identity,
             function (err) {
                 logger.error(err, 'Error performing a highlight');
-                cb({success: false, error: 'Server error when performing a highlight'});
+                failWithMessage(cb, 'Server error when performing a highlight');
             });
     }.bind(this));
 
@@ -1304,7 +1304,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     return cb({success: true, data: result});
                 },
                 function (rejectedResult) {
-                    return cb({success: false, error: rejectedResult});
+                    return failWithMessage(cb, rejectedResult);
                 });
             }).take(1).subscribe(_.identity, log.makeRxErrorHandler(logger, 'persist_current_workbook'));
     }.bind(this));
@@ -1358,7 +1358,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 );
             })
             .subscribe(_.identity, function (err) {
-                cb({success: false, error: 'fork_vgraph error'});
+                failWithMessage(cb, 'fork_vgraph error');
                 log.makeRxErrorHandler(logger, 'fork_vgraph error')(err);
             });
     });
