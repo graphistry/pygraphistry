@@ -3,6 +3,7 @@
 ## Run from deploy folder to rollback repos in parent folder
 ## to that of a provided date.
 ## Meant for use with duct tape prod
+## Example $1: 5.days.ago
 
 BRANCH="master"
 REPOS=()
