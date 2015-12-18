@@ -548,9 +548,9 @@ function VizServer(app, socket, cachedVBOs) {
     }.bind(this));
 
     this.socket.on('get_filters', function (cb) {
-        logger.trace('sending current filters to client');
+        logger.trace('sending current filters and exclusions to client');
         this.viewConfig.take(1).do(function (viewConfig) {
-            cb({success: true, filters: viewConfig.filters});
+            cb({success: true, filters: viewConfig.filters, exclusions: viewConfig.exclusions});
         }).subscribe(
             _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
@@ -571,51 +571,66 @@ function VizServer(app, socket, cachedVBOs) {
                 var errors = [];
                 var pointLimit = Infinity;
                 var generator = new ExpressionCodeGenerator('javascript');
+                var query;
+
+                /** @type {DataframeMask} */
+                var exclusionMask;
+                _.each(viewConfig.exclusions, function (exclusion) {
+                    if (exclusion.enabled === false) {
+                        return;
+                    }
+                    /** @type ClientQuery */
+                    query = exclusion.query;
+                    if (query === undefined) {
+                        return;
+                    }
+                    if (!query.type) {
+                        query.type = exclusion.type;
+                    }
+                    if (!query.attribute) {
+                        query.attribute = exclusion.attribute;
+                    }
+                    var masks = dataframe.getMasksForQuery(query, errors);
+                    if (masks !== undefined) {
+                        if (exclusionMask === undefined) {
+                            exclusionMask = masks;
+                        } else {
+                            exclusionMask = exclusionMask.union(masks);
+                        }
+                    }
+                });
+
+                if (exclusionMask !== undefined) {
+                    maskList.push(exclusionMask.complement());
+                }
 
                 _.each(viewConfig.filters, function (filter) {
                     if (filter.enabled === false) {
                         return;
                     }
                     /** @type ClientQuery */
-                    var filterQuery = filter.query;
-                    if (filterQuery === undefined) {
+                    query = filter.query;
+                    if (query === undefined) {
                         return;
                     }
-                    var ast = filterQuery.ast;
+                    var ast = query.ast;
                     if (ast !== undefined &&
                         ast.type === 'Limit' &&
                         ast.value !== undefined) {
                         pointLimit = generator.evaluateExpressionFree(ast.value);
                         return;
                     }
-                    var type = filter.type || filterQuery.type;
-                    var attribute = filter.attribute || filterQuery.attribute;
-                    var normalization = dataframe.normalizeAttributeName(filterQuery.attribute, type);
-                    if (normalization === undefined) {
-                        errors.push('Unknown frame element');
-                        return;
-                    } else {
-                        type = normalization.type;
-                        attribute = normalization.attribute;
+                    if (!query.type) {
+                        query.type = filter.type;
                     }
-                    try {
-                        var plan = dataframe.planForQueryObject(filterQuery);
-                        var masks;
-                        if (plan === undefined) {
-                            var filterFunc = dataframe.filterFuncForQueryObject(filterQuery);
-                            masks = dataframe.getAttributeMask(type, attribute, filterFunc);
-                        } else {
-                            masks = plan.execute();
-                        }
-                        if (masks === undefined || _.isArray(masks)) {
-                            throw new Error('Unable to execute the query');
-                        } else {
-                            // Record the size of the filtered set for UI feedback:
-                            filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
-                            maskList.push(masks);
-                        }
-                    } catch (e) {
-                        errors.push(e.message);
+                    if (!query.attribute) {
+                        query.attribute = filter.attribute;
+                    }
+                    var masks = dataframe.getMasksForQuery(query, errors);
+                    if (masks !== undefined) {
+                        // Record the size of the filtered set for UI feedback:
+                        filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
+                        maskList.push(masks);
                     }
                 });
 
