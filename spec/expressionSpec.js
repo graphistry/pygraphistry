@@ -109,6 +109,14 @@ describe('LIKE expressions', function () {
             right: {type: 'Literal', dataType: 'string', value: '%abc%'}
         });
     });
+    it('should handle NOT LIKE', function () {
+        expect(parse('A NOT LIKE "%abc%"')).toEqual({
+            type: 'LikePredicate',
+            operator: 'NOT LIKE',
+            left: {type: 'Identifier', name: 'A'},
+            right: {type: 'Literal', dataType: 'string', value: '%abc%'}
+        });
+    });
     xit ('should handle ILIKE and ESCAPE', function () {
         expect(parse('A ILIKE "%abc%" ESCAPE "%"')).toEqual({
             type: 'LikePredicate',
@@ -239,10 +247,14 @@ describe ('IS expressions', function () {
     });
     it('should parse negative IS comparisons', function () {
         expect(parse('x IS NOT NULL')).toEqual({
-            type: 'BinaryPredicate',
-            operator: 'IS',
-            left: {type: 'Identifier', name: 'x'},
-            right: {type: 'NotExpression', operator: 'NOT', value: {type: 'Literal', dataType: 'null', value: null}}
+            type: 'NotExpression',
+            operator: 'NOT',
+            value: {
+                type: 'BinaryPredicate',
+                operator: 'IS',
+                left: {type: 'Identifier', name: 'x'},
+                right: {type: 'Literal', dataType: 'null', value: null}
+            }
         });
     });
 });
@@ -355,11 +367,11 @@ describe ('Range predicates', function () {
             stop: {type: 'Literal', dataType: 'integer', value: 5}
         });
     });
-    xit('should parse A NOT BETWEEN 2 and 5', function () {
+    it('should parse A NOT BETWEEN 2 and 5', function () {
         var betweenAnd = parse('A BETWEEN 2 AND 5');
         expect(parse('A NOT BETWEEN 2 AND 5')).toEqual({
-            type: 'UnaryExpression',
-            operator: 'not',
+            type: 'NotExpression',
+            operator: 'NOT',
             value: betweenAnd
         });
     });
