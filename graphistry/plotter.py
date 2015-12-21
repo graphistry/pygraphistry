@@ -4,6 +4,7 @@ from builtins import str
 from builtins import range
 from builtins import object
 import copy
+import numpy
 import pandas
 
 from . import pygraphistry
@@ -468,8 +469,10 @@ class Plotter(object):
     def _sanitize_dataset(self, edges, nodes, nodeid):
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
         elist = edges.reset_index(drop=True) \
-                     .apply(pandas.to_numeric, errors='ignore') \
                      .dropna(subset=[self._source, self._destination])
+
+        obj_df = elist.select_dtypes(include=[numpy.object_])
+        elist[obj_df.columns] = obj_df.apply(pandas.to_numeric, errors='ignore')
 
         if nodes is None:
             nodes = pandas.DataFrame()
@@ -479,8 +482,10 @@ class Plotter(object):
             self._check_bound_attribs(nodes, ['node'], 'Vertex')
 
         nlist = nodes.reset_index(drop=True) \
-                     .apply(pandas.to_numeric, errors='ignore') \
                      .dropna(subset=[nodeid])
+
+        obj_df = nlist.select_dtypes(include=[numpy.object_])
+        nlist[obj_df.columns] = obj_df.apply(pandas.to_numeric, errors='ignore')
 
         return (elist, nlist)
 
@@ -529,29 +534,36 @@ class Plotter(object):
             bound = getattr(self, attrib)
             if bound:
                 if bound in df.columns.tolist():
-                    enc[pbname] = bound
+                    enc[pbname] = {'attributes' : [bound]}
                 else:
                     util.warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
             elif default:
-                enc[pbname] = default
+                enc[pbname] = {'attributes': [default]}
 
         nodeid = self._node or Plotter._defaultNodeId
         (elist, nlist) = self._sanitize_dataset(edges, nodes, nodeid)
         self._check_dataset_size(elist, nlist)
 
-        encodings = {
-            'source': self._source,
-            'destination': self._destination,
-            'nodeId': self._node or self._defaultNodeId
+        edge_encodings = {
+            'source': {'attributes' : [self._source]},
+            'destination': {'attributes': [self._destination]},
         }
-        bind(encodings, elist, 'edgeColor', '_edge_color')
-        bind(encodings, elist, 'edgeLabel', '_edge_label')
-        bind(encodings, elist, 'edgeTitle', '_edge_title')
-        bind(encodings, elist, 'edgeWeight', '_edge_weight')
-        bind(encodings, nlist, 'pointColor', '_point_color')
-        bind(encodings, nlist, 'pointLabel', '_point_label')
-        bind(encodings, nlist, 'pointTitle', '_point_title', nodeid)
-        bind(encodings, nlist, 'pointSize', '_point_size')
+        node_encodings = {
+            'nodeId': {'attributes': [nodeid]}
+        }
+        bind(edge_encodings, elist, 'edgeColor', '_edge_color')
+        bind(edge_encodings, elist, 'edgeLabel', '_edge_label')
+        bind(edge_encodings, elist, 'edgeTitle', '_edge_title')
+        bind(edge_encodings, elist, 'edgeWeight', '_edge_weight')
+        bind(node_encodings, nlist, 'pointColor', '_point_color')
+        bind(node_encodings, nlist, 'pointLabel', '_point_label')
+        bind(node_encodings, nlist, 'pointTitle', '_point_title', nodeid)
+        bind(node_encodings, nlist, 'pointSize', '_point_size')
+
+        encodings = {
+            'nodes': node_encodings,
+            'edges': edge_encodings
+        }
         return (elist, nlist, encodings)
 
 

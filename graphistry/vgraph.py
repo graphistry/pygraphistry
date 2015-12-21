@@ -36,9 +36,9 @@ def create(edge_df, node_df, sources, dests, nodeid, node_map, name):
     return  {
         'name': name,
         'vgraph': vg,
-        'types': {
-            'node': node_types,
-            'edge': edge_types
+        'attributes': {
+            'nodes': node_types,
+            'edges': edge_types
         },
     }
 
@@ -93,10 +93,18 @@ def storeValueVector(vg, df, col, dtype, target):
         'datetime64[ns]': datetimeEncoder,
         '<M8[D]': datetimeEncoder
     }
-    (vec, enc_type) = encoders[dtype.name](vg, df[col], dtype)
+    (vec, info) = encoders[dtype.name](vg, df[col], dtype)
     vec.name = col
     vec.target = target
-    return enc_type
+
+    if 'distinct' not in info:
+        info['distinct'] = df[col].nunique()
+    if 'min' not in info:
+        info['min'] = df[col].min()
+    if 'max' not in info:
+        info['max'] = df[col].max()
+
+    return info
 
 
 def objectEncoder(vg, series, dtype):
@@ -137,7 +145,14 @@ def numericEncoder(vg, series, dtype):
     else:
         for val in series:
             vec.values.append(val.item()) # Cast to Python native int? Loss of precision?
-    return (vec, {'ctype': rep_type.name, 'original_type': dtype.name})
+
+    info = {
+        'ctype': rep_type.name,
+        'originalType': dtype.name,
+        'mean': series.mean(),
+        'stddev': series.std()
+    }
+    return (vec, info)
 
 
 def boolEncoder(vg, series, dtype):
@@ -153,5 +168,13 @@ def datetimeEncoder(vg, series, dtype):
     series32 = series.astype('int64').map(lambda x: x / 1e9).astype(numpy.int32)
     for val in series32:
         vec.values.append(val.item())
-    return (vec, {'ctype': 'datetime32[s]', 'user_type': 'datetime'})
+
+    info = {
+        'ctype': 'datetime32[s]',
+        'userType': 'datetime',
+        'min': series32.min(),
+        'max': series32.max(),
+        'distinct': series32.nunique()
+    }
+    return (vec, info)
 

@@ -198,19 +198,34 @@ class PyGraphistry(object):
             raise ValueError('API key required')
 
         vg = dataset['vgraph']
+        encodings = dataset['encodings']
+        attributes = dataset['attributes']
         metadata = {
             'name': dataset['name'],
             'datasources': [
-                {'type': 'vgraph', 'url': 'data0'}
+                {
+                    'type': 'vgraph',
+                    'url': 'data0'
+                }
             ],
-            'view': {
-                'encodings': dataset['encodings']
-            },
-            'types': dataset['types'],
-            'nvertices': vg.nvertices,
-            'nedges': vg.nedges
+            'nodes': [
+                {
+                    'count': vg.nvertices,
+                    'encodings': encodings['nodes'],
+                    'attributes': attributes['nodes']
+                }
+            ],
+            'edges': [
+                {
+                    'count': vg.nedges,
+                    'encodings': encodings['edges'],
+                    'attributes': attributes['edges']
+                }
+            ]
         }
 
+        print(metadata)
+        raise ValueError('Stopping here')
         out_file = PyGraphistry._get_data_file(vg, 'vgraph')
         parts = {
             'metadata': ('metadata', json.dumps(metadata, ensure_ascii=False), 'application/json'),
