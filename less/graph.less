@@ -1483,6 +1483,40 @@ button:disabled {
         }
     }
 
+    //interactive elements only appear on hover
+    .histogramDiv {
+
+        //controls
+        & .interactive {
+            visibility: hidden;
+        }
+        &:hover .interactive {
+            visibility: visible;
+        }
+
+        //top line
+        &:hover {
+            margin-top: -1px;
+            border-top: 1px solid #DDD;
+        }
+        //bottom line
+        .divide-line {
+            visibility: hidden;
+        }
+        &:hover .divide-line {
+            visibility: visible;
+        }
+
+
+    }
+    #addHistogram {
+        visibility: hidden;
+    }
+    &:hover #addHistogram {
+        visibility: visible;
+    }
+
+
     .histogramDiv {
         width: 100%;
         background-color: @light-grey-background;
