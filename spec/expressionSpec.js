@@ -186,11 +186,11 @@ describe ('NOT expressions', function () {
         var inner = parse('a');
         var one = parse('not a');
         expect(one).toEqual({
-            type: 'UnaryExpression', operator: 'not', fixity: 'prefix', argument: inner
+            type: 'NotExpression', operator: 'not', value: inner
         });
         var two = parse('NOT not a');
         expect(two).toEqual({
-            type: 'UnaryExpression', operator: 'NOT', fixity: 'prefix', argument: one
+            type: 'NotExpression', operator: 'NOT', value: one
         });
     });
     it('associates more closely than binary logic', function () {
