@@ -9,9 +9,18 @@ function parseRaw (inputString) {
     return parser.parse(inputString);
 }
 
-function parse (inputString) {
+function parse (inputString, trace) {
+    var tracer;
+    if (trace) {
+        tracer = {
+            trace: function (info) {
+                console.debug(info.type, info.rule, info.location);
+            }
+        };
+    }
     var result = PEGUtil.parse(parser, inputString, {
-        startRule: 'start'/*,
+        startRule: 'start',
+        tracer: tracer/*,
         makeAST: function (line, column, offset, args) {
             return asty.create.apply(asty, args).pos(line, column, offset);
         }*/
