@@ -382,6 +382,14 @@ describe ('LIMIT clauses', function () {
         expect(parse('LIMIT 4')).toEqual({type: 'Limit', value: {type: 'Literal', dataType: 'integer', value: 4}});
     });
     it('should not parse LIMIT N + 1', function () {
-        //expect(parse('LIMIT 4 + 3')).toThrow();
+        expect(parse('LIMIT 4 + 3')).toEqual({
+            type: 'Limit',
+            value: {
+                type: 'BinaryExpression',
+                operator: '+',
+                left: {type: 'Literal', dataType: 'integer', value: 4},
+                right: {type: 'Literal', dataType: 'integer', value: 3}
+            }
+        });
     });
 });
