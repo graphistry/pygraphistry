@@ -402,3 +402,107 @@ describe ('LIMIT clauses', function () {
         });
     });
 });
+
+describe ('IF/THEN/ELSE expressions', function () {
+    it('should parse IF/THEN/END', function () {
+        expect(parse('IF true THEN false END', true)).toEqual({
+            type: 'ConditionalExpression',
+            cases: [
+                {
+                    type: 'CaseBranch',
+                    condition: {type: 'Literal', dataType: 'boolean', value: true},
+                    result: {type: 'Literal', dataType: 'boolean', value: false}
+                }
+            ], elseClause: undefined
+        });
+    });
+    it('should parse IF/THEN/ELSE/END', function () {
+        expect(parse('IF true THEN false ELSE true END', true)).toEqual({
+            type: 'ConditionalExpression',
+            cases: [
+                {
+                    type: 'CaseBranch',
+                    condition: {type: 'Literal', dataType: 'boolean', value: true},
+                    result: {type: 'Literal', dataType: 'boolean', value: false}
+                }
+            ], elseClause: {type: 'Literal', dataType: 'boolean', value: true}
+        });
+    });
+    it('should parse chained IF clauses', function () {
+        expect(parse('IF true THEN 1 ELSE IF FALSE THEN 2 END', true)).toEqual({
+            type: 'ConditionalExpression',
+            cases: [
+                {
+                    type: 'CaseBranch',
+                    condition: {type: 'Literal', dataType: 'boolean', value: true},
+                    result: {type: 'Literal', dataType: 'integer', value: 1}
+                },
+                {
+                    type: 'CaseBranch',
+                    condition: {type: 'Literal', dataType: 'boolean', value: false},
+                    result: {type: 'Literal', dataType: 'integer', value: 2}
+                }
+            ], elseClause: undefined
+        });
+        expect(parse('IF true THEN 1 ELSE IF FALSE THEN 2 ELSE 3 END', true)).toEqual({
+            type: 'ConditionalExpression',
+            cases: [
+                {
+                    type: 'CaseBranch',
+                    condition: {type: 'Literal', dataType: 'boolean', value: true},
+                    result: {type: 'Literal', dataType: 'integer', value: 1}
+                },
+                {
+                    type: 'CaseBranch',
+                    condition: {type: 'Literal', dataType: 'boolean', value: false},
+                    result: {type: 'Literal', dataType: 'integer', value: 2}
+                }
+            ], elseClause: {type: 'Literal', dataType: 'integer', value: 3}
+        });
+    });
+});
+
+describe ('CASE expressions', function () {
+    it('should parse with one rule', function () {
+        expect(parse('CASE WHEN true THEN false ELSE true END')).toEqual({
+            type: 'CaseExpression',
+            value: undefined,
+            cases: [{
+                type: 'CaseBranch',
+                condition: {type: 'Literal', dataType: 'boolean', value: true},
+                result: {type: 'Literal', dataType: 'boolean', value: false}}],
+            elseClause: {type: 'Literal', dataType: 'boolean', value: true}
+        });
+    });
+    it('should parse with one rule on a variable', function () {
+        expect(parse('CASE x WHEN true THEN 1 END')).toEqual({
+            type: 'CaseExpression',
+            value: {type: 'Identifier', name: 'x'},
+            cases: [{
+                type: 'CaseBranch',
+                condition: {type: 'Literal', dataType: 'boolean', value: true},
+                result: {type: 'Literal', dataType: 'integer', value: 1}
+            }],
+            elseClause: undefined
+        });
+    });
+    it('should parse with more rules', function () {
+        expect(parse('CASE WHEN true THEN 1 WHEN false THEN 2 ELSE 3 END')).toEqual({
+            type: 'CaseExpression',
+            value: undefined,
+            cases: [
+                {
+                    type: 'CaseBranch',
+                    condition: {type: 'Literal', dataType: 'boolean', value: true},
+                    result: {type: 'Literal', dataType: 'integer', value: 1}
+                },
+                {
+                    type: 'CaseBranch',
+                    condition: {type: 'Literal', dataType: 'boolean', value: false},
+                    result: {type: 'Literal', dataType: 'integer', value: 2}
+                }
+            ],
+            elseClause: {type: 'Literal', dataType: 'integer', value: 3}
+        });
+    });
+});
