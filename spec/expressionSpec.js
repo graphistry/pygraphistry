@@ -120,10 +120,14 @@ describe('LIKE expressions', function () {
     });
     it('should handle NOT LIKE', function () {
         expect(parse('A NOT LIKE "%abc%"')).toEqual({
-            type: 'LikePredicate',
-            operator: 'NOT LIKE',
-            left: {type: 'Identifier', name: 'A'},
-            right: {type: 'Literal', dataType: 'string', value: '%abc%'}
+            type: 'NotExpression',
+            operator: 'NOT',
+            value: {
+                type: 'LikePredicate',
+                operator: 'LIKE',
+                left: {type: 'Identifier', name: 'A'},
+                right: {type: 'Literal', dataType: 'string', value: '%abc%'}
+            }
         });
     });
     xit ('should handle ILIKE and ESCAPE', function () {
@@ -132,6 +136,35 @@ describe('LIKE expressions', function () {
             operator: 'ILIKE',
             left: {type: 'Identifier', name: 'A'},
             right: {type: 'Literal', dataType: 'string', value: '%abc%', escapeChar: '%'}
+        });
+    });
+});
+
+describe('REGEXP/SIMILAR TO expressions', function () {
+    it('should parse REGEXP', function () {
+        expect(parse('A REGEXP "a.*b"')).toEqual({
+            type: 'RegexPredicate',
+            operator: 'REGEXP',
+            left: {type: 'Identifier', name: 'A'},
+            right: {type: 'Literal', dataType: 'string', value: 'a.*b'}
+        });
+        expect(parse('A NOT REGEXP "a.*b"')).toEqual({
+            type: 'NotExpression',
+            operator: 'NOT',
+            value: {
+                type: 'RegexPredicate',
+                operator: 'REGEXP',
+                left: {type: 'Identifier', name: 'A'},
+                right: {type: 'Literal', dataType: 'string', value: 'a.*b'}
+            }
+        });
+    });
+    it('should parse SIMILAR TO', function () {
+        expect(parse('A SIMILAR TO "a.*b"')).toEqual({
+            type: 'RegexPredicate',
+            operator: 'SIMILAR TO',
+            left: {type: 'Identifier', name: 'A'},
+            right: {type: 'Literal', dataType: 'string', value: 'a.*b'}
         });
     });
 });
