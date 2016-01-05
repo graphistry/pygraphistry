@@ -135,12 +135,13 @@ describe('LIKE expressions', function () {
             }
         });
     });
-    xit ('should handle ILIKE and ESCAPE', function () {
+    it ('should handle ESCAPE option', function () {
         expect(parse('A ILIKE "%abc%" ESCAPE "%"')).toEqual({
             type: 'LikePredicate',
             operator: 'ILIKE',
             left: {type: 'Identifier', name: 'A'},
-            right: {type: 'Literal', dataType: 'string', value: '%abc%', escapeChar: '%'}
+            right: {type: 'Literal', dataType: 'string', value: '%abc%'},
+            escapeChar: {type: 'Literal', dataType: 'string', value: '%'}
         });
     });
 });
@@ -437,6 +438,21 @@ describe ('LIMIT clauses', function () {
                 left: {type: 'Literal', dataType: 'integer', value: 4},
                 right: {type: 'Literal', dataType: 'integer', value: 3}
             }
+        });
+    });
+});
+
+describe('IN/MEMBEROF expressions', function () {
+    it('should parse IN', function () {
+        expect(parse('IN foo')).toEqual({
+            type: 'MemberOfExpression',
+            value: {type: 'Identifier', name: 'foo'}
+        });
+    });
+    it('should parse IN', function () {
+        expect(parse('MEMBEROF foo')).toEqual({
+            type: 'MemberOfExpression',
+            value: {type: 'Identifier', name: 'foo'}
         });
     });
 });
