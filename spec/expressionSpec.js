@@ -102,6 +102,11 @@ describe ('IN expressions', function () {
     it('should parse A IN B', function () {
         expect(parse('A IN B').operator).toEqual('IN');
     });
+    it('should parse A NOT IN B', function () {
+        var notInParse = parse('A NOT IN B');
+        expect(notInParse.operator).toEqual('NOT');
+        expect(notInParse.value).toEqual(parse('A IN B'));
+    });
     it('should parse A in list', function () {
         var clause = parse('A IN (1, 2, 3)');
         expect(clause.operator).toBe('IN');
