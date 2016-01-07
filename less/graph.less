@@ -507,7 +507,7 @@ html.nomenu #menus, html.nomenu #sliders {
     }
 }
 
-#filtersPanel, #setsPanel {
+#filtersPanel, #setsPanel, #exclusionsPanel {
     z-index: @menus-z;
     display: none; // Initial state meant to toggle.
     &:hover {
@@ -761,7 +761,7 @@ button:disabled {
     bottom: 0;
 }
 
-.filtersPanel {
+.filtersPanel, .exclusionsPanel {
 
     width: 25em;
     left: 5em;
@@ -770,16 +770,16 @@ button:disabled {
 
     .overlayPanel;
 
-    #filters {
+    #filters, #exclusions {
         margin: 0;
         padding: 0;
     }
 
-    #addFilter {
+    #addFilter, #addExclusion {
         margin-top: 0.5em;
     }
 
-    .filterInspector {
+    .filterInspector, .exclusionInspector {
 
         background-color: white;
         border-bottom: 1px solid @medium-grey;
@@ -787,7 +787,7 @@ button:disabled {
 
         &.disabled {
             background-color: #EEE;
-            .filterExpression {
+            .filterExpression, .exclusionExpression {
                 background-color: inherit;
             }
             &.ace_editor {
