@@ -1399,7 +1399,9 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     logger.trace('SETTING UP CLIENT EVENT LOOP ===================================================================');
     var step = 0;
     var lastVersions = null;
+    var lastTick = 0;
 
+    var graphObservable = graph;
     graph.expand(function (graph) {
         step++;
 
@@ -1478,6 +1480,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                                 step: step
                             });
                     lastVersions = VBOs.versions;
+                    lastTick = VBOs.tick;
 
                     logger.trace('4b. notifying client of buffer metadata', metadata, ticker);
                     //performance monitor here?
@@ -1501,13 +1504,17 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 return receivedAll;
             }.bind(this))
             .flatMap(function () {
-                logger.trace('7. Wait for next animation step', this.socket.id, ticker);
+                logger.trace('7. Wait for next animation step, updateVboSubject, or if we are behind on ticks', this.socket.id, ticker);
 
                 var filteredUpdateVbo = this.updateVboSubject.filter(function (data) {
                     return data;
                 });
 
-                return this.ticksMulti.merge(filteredUpdateVbo)
+                var behindOnTicks = graphObservable.take(1).filter(function (graph) {
+                    return graph.simulator.versions.tick > lastTick;
+                });
+
+                return Rx.Observable.merge(this.ticksMulti, filteredUpdateVbo, behindOnTicks)
                     .take(1)
                     .do(function (/*data*/) {
                         // Mark that we don't need to send VBOs independently of ticks anymore.
