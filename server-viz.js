@@ -188,7 +188,8 @@ VizServer.prototype.tickGraph = function (cb) {
 
 // TODO Extract a graph method and manage graph contexts by filter data operation.
 VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, viewConfig, pointLimit, cb) {
-    var filters = viewConfig.filters;
+    var filters = viewConfig.filters,
+        exclusions = viewConfig.exclusions;
 
     var unprunedMasks = graph.dataframe.composeMasks(maskList, pointLimit);
     // Prune out dangling edges.
@@ -221,7 +222,7 @@ VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, v
 
                 this.tickGraph(cb);
                 var sets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
-                var response = {success: true, filters: filters, sets: sets};
+                var response = {success: true, filters: filters, exclusions: exclusions, sets: sets};
                 if (errors) {
                     response.errors = errors;
                 }
@@ -231,14 +232,14 @@ VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, v
                 log.makeQErrorHandler(logger, 'dataframe filter')(err);
                 errors.push(err);
                 _.each(errors, logger.debug.bind(logger));
-                var response = {success: false, errors: errors, filters: filters};
+                var response = {success: false, errors: errors, filters: filters, exclusions: exclusions};
                 cb(response);
             });
     } catch (err) {
         log.makeQErrorHandler(logger, 'dataframe filter')(err);
         errors.push(err);
         _.each(errors, logger.debug.bind(logger));
-        var response = {success: false, errors: errors, filters: filters};
+        var response = {success: false, errors: errors, filters: filters, exclusions: exclusions};
         cb(response);
     }
 };
@@ -555,12 +556,23 @@ function VizServer(app, socket, cachedVBOs) {
             _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
 
-    this.socket.on('update_filters', function (newValues, cb) {
+    this.socket.on('update_filters', function (definition, cb) {
         logger.trace('updating filters from client values');
         // Maybe direct assignment isn't safe, but it'll do for now.
         this.viewConfig.take(1).do(function (viewConfig) {
-            if (!_.isEqual(newValues, viewConfig.filters)) {
-                viewConfig.filters = newValues;
+
+            // Update exclusions:
+            if (definition.exclusions !== undefined &&
+                !_.isEqual(definition.exclusions, viewConfig.exclusions)) {
+                viewConfig.exclusions = definition.exclusions;
+                this.viewConfig.onNext(viewConfig);
+            }
+            logger.info('updated exclusions', viewConfig.exclusions);
+
+            // Update filters:
+            if (definition.filters !== undefined &&
+                !_.isEqual(definition.filters, viewConfig.filters)) {
+                viewConfig.filters = definition.filters;
                 this.viewConfig.onNext(viewConfig);
             }
             logger.info('updated filters', viewConfig.filters);
