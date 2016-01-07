@@ -604,6 +604,7 @@ function VizServer(app, socket, cachedVBOs) {
                     }
                     var masks = dataframe.getMasksForQuery(query, errors);
                     if (masks !== undefined) {
+                        exclusion.maskSizes = masks.maskSize();
                         if (exclusionMask === undefined) {
                             exclusionMask = masks;
                         } else {
@@ -641,7 +642,7 @@ function VizServer(app, socket, cachedVBOs) {
                     var masks = dataframe.getMasksForQuery(query, errors);
                     if (masks !== undefined) {
                         // Record the size of the filtered set for UI feedback:
-                        filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
+                        filter.maskSizes = masks.maskSize();
                         maskList.push(masks);
                     }
                 });
