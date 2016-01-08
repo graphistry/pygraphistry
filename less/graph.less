@@ -275,6 +275,13 @@
         .graph-label-value-wrapper {
             max-height: 5em;
             overflow: auto;
+            .exclude-by-key-value {
+                visibility: hidden;
+                font-size: 0.8em;
+            }
+            &:hover .exclude-by-key-value {
+                visibility: visible;
+            }
         }
     }
 
