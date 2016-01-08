@@ -39,6 +39,9 @@ describe('complement', function () {
     it('handles empty masks', function () {
         expect(DataframeMask.complementOfMask([], 100)).toEqual(_.range(100));
     });
+    it('handles undefined masks', function () {
+        expect(DataframeMask.complementOfMask(undefined, 5)).toEqual([]);
+    });
     it('handles singletons', function () {
         expect(DataframeMask.complementOfMask([3], 5)).toEqual([0,1,2,4]);
         expect(DataframeMask.complementOfMask([0], 5)).toEqual([1,2,3,4]);
