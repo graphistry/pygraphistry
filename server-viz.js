@@ -235,7 +235,7 @@ VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, v
         log.makeQErrorHandler(logger, 'dataframe filter')(err);
         errors.push(err);
         _.each(errors, logger.debug.bind(logger));
-        _.extend(response, {success: false, errors: errors};
+        _.extend(response, {success: false, errors: errors});
         cb(response);
     }
 };
