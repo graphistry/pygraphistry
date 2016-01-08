@@ -736,6 +736,7 @@ function VizServer(app, socket, cachedVBOs) {
         });
     }.bind(this));
 
+    // Legacy method for timeslider.js only; refactor that to work with newer code and kill this.
     this.socket.on('filter', function (query, cb) {
         logger.info('Got filter', query);
         Rx.Observable.combineLatest(this.viewConfig, this.graph, function (viewConfig, graph) {
@@ -759,7 +760,7 @@ function VizServer(app, socket, cachedVBOs) {
                     var filterFunc = dataframe.filterFuncForQueryObject(data);
                     var masks = dataframe.getAttributeMask(type, attribute, filterFunc);
                     // Record the size of the filtered set for UI feedback:
-                    filter.maskSizes = {point: masks.numPoints(), edge: masks.numEdges()};
+                    filter.maskSizes = masks.maskSize();
                     maskList.push(masks);
                 } catch (e) {
                     errors.push(e.message);
