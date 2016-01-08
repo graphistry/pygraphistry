@@ -188,8 +188,7 @@ VizServer.prototype.tickGraph = function (cb) {
 
 // TODO Extract a graph method and manage graph contexts by filter data operation.
 VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, viewConfig, pointLimit, cb) {
-    var filters = viewConfig.filters,
-        exclusions = viewConfig.exclusions;
+    var response = {filters: viewConfig.filters, exclusions: viewConfig.exclusions};
 
     var unprunedMasks = graph.dataframe.composeMasks(maskList, pointLimit);
     // Prune out dangling edges.
@@ -198,7 +197,7 @@ VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, v
     // Return early if mask is same as graph's active mask.
     if (masks.equals(graph.dataframe.lastMasks)) {
         var sets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
-        var response = {success: true, filters: filters, sets:sets};
+        _.extend(response, {success: true, sets:sets});
         cb(response);
         return;
     }
@@ -222,24 +221,21 @@ VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, v
 
                 this.tickGraph(cb);
                 var sets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
-                var response = {success: true, filters: filters, exclusions: exclusions, sets: sets};
-                if (errors) {
-                    response.errors = errors;
-                }
+                _.extend(response, {success: true, sets: sets, errors: errors});
                 _.each(errors, logger.debug.bind(logger));
                 cb(response);
             }.bind(this)).done(_.identity, function (err) {
                 log.makeQErrorHandler(logger, 'dataframe filter')(err);
                 errors.push(err);
                 _.each(errors, logger.debug.bind(logger));
-                var response = {success: false, errors: errors, filters: filters, exclusions: exclusions};
+                _.extend(response, {success: false, errors: errors});
                 cb(response);
             });
     } catch (err) {
         log.makeQErrorHandler(logger, 'dataframe filter')(err);
         errors.push(err);
         _.each(errors, logger.debug.bind(logger));
-        var response = {success: false, errors: errors, filters: filters, exclusions: exclusions};
+        _.extend(response, {success: false, errors: errors};
         cb(response);
     }
 };
