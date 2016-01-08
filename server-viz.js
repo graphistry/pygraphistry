@@ -556,12 +556,13 @@ function VizServer(app, socket, cachedVBOs) {
         logger.trace('updating filters from client values');
         // Maybe direct assignment isn't safe, but it'll do for now.
         this.viewConfig.take(1).do(function (viewConfig) {
+            var bumpViewConfig = false;
 
             // Update exclusions:
             if (definition.exclusions !== undefined &&
                 !_.isEqual(definition.exclusions, viewConfig.exclusions)) {
                 viewConfig.exclusions = definition.exclusions;
-                this.viewConfig.onNext(viewConfig);
+                bumpViewConfig = true;
             }
             logger.info('updated exclusions', viewConfig.exclusions);
 
@@ -569,9 +570,11 @@ function VizServer(app, socket, cachedVBOs) {
             if (definition.filters !== undefined &&
                 !_.isEqual(definition.filters, viewConfig.filters)) {
                 viewConfig.filters = definition.filters;
-                this.viewConfig.onNext(viewConfig);
+                bumpViewConfig = true;
             }
             logger.info('updated filters', viewConfig.filters);
+
+            if (bumpViewConfig) { this.viewConfig.onNext(viewConfig); }
 
             this.graph.take(1).do(function (graph) {
                 var dataframe = graph.dataframe;
