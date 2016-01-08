@@ -600,6 +600,7 @@ function VizServer(app, socket, cachedVBOs) {
                     }
                     var masks = dataframe.getMasksForQuery(query, errors);
                     if (masks !== undefined) {
+                        masks.setExclusive(true);
                         exclusion.maskSizes = masks.maskSize();
                         if (exclusionMask === undefined) {
                             exclusionMask = masks;
