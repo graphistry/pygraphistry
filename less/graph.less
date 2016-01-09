@@ -43,6 +43,7 @@
 @inspector-z:                  41100;
 @inspector-tabs-z:             41200;
 @inspector-overlay-z:          41300;
+@timeexplorer-z:               42100;
 
 //what is this?
 @status-bar-z:                 99999;
@@ -1600,6 +1601,22 @@ button:disabled {
         margin: 10px;
     }
 
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Time Explorer
+//////////////////////////////////////////////////////////////////////////////
+
+#timeExplorer {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 17em;
+    margin: 0;
+    padding: 0;
+    background-color: @light-grey-background-2;
+    z-index: @timeexplorer-z;
 }
 
 //////////////////////////////////////////////////////////////////////////////
