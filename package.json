@@ -31,6 +31,7 @@
     "grunt-peg": "~1.5.0",
     "handlebars": "~3.0.1",
     "immutable": "~2.0.0",
+    "moment": "~2.11.0",
     "numeric": "~1.2.6",
     "pegjs-util": "~1.0.6",
     "rx": "~3.1.2",
