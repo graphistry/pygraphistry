@@ -275,7 +275,7 @@
         .graph-label-value-wrapper {
             max-height: 5em;
             overflow: auto;
-            .exclude-by-key-value {
+            .exclude-by-key-value, .filter-by-key-value {
                 visibility: hidden;
                 font-size: 0.8em;
                 color: @medium-grey;
@@ -285,7 +285,7 @@
                 }
             }
         }
-        &:hover .exclude-by-key-value {
+        &:hover .exclude-by-key-value, &:hover .filter-by-key-value {
             visibility: visible;
         }
     }
