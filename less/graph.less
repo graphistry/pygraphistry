@@ -278,10 +278,15 @@
             .exclude-by-key-value {
                 visibility: hidden;
                 font-size: 0.8em;
+                color: @medium-grey;
+                &:hover {
+                    color: @graphistry-lightblue;
+                    cursor: pointer;
+                }
             }
-            &:hover .exclude-by-key-value {
-                visibility: visible;
-            }
+        }
+        &:hover .exclude-by-key-value {
+            visibility: visible;
         }
     }
 
