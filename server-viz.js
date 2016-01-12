@@ -187,10 +187,10 @@ VizServer.prototype.tickGraph = function (cb) {
 };
 
 // TODO Extract a graph method and manage graph contexts by filter data operation.
-VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, viewConfig, pointLimit, cb) {
+VizServer.prototype.filterGraphByMaskList = function (graph, maskList, exclusionMask, errors, viewConfig, pointLimit, cb) {
     var response = {filters: viewConfig.filters, exclusions: viewConfig.exclusions};
 
-    var unprunedMasks = graph.dataframe.composeMasks(maskList, pointLimit);
+    var unprunedMasks = graph.dataframe.composeMasks(maskList, exclusionMask, pointLimit);
     // Prune out dangling edges.
     var masks = graph.dataframe.pruneMaskEdges(unprunedMasks);
 
@@ -578,7 +578,7 @@ function VizServer(app, socket, cachedVBOs) {
 
             this.graph.take(1).do(function (graph) {
                 var dataframe = graph.dataframe;
-                var maskList = [];
+                var selectionMasks = [];
                 var errors = [];
                 var pointLimit = Infinity;
                 var generator = new ExpressionCodeGenerator('javascript');
@@ -613,10 +613,6 @@ function VizServer(app, socket, cachedVBOs) {
                     }
                 });
 
-                if (exclusionMask !== undefined) {
-                    maskList.push(exclusionMask.complement());
-                }
-
                 _.each(viewConfig.filters, function (filter) {
                     if (filter.enabled === false) {
                         return;
@@ -643,11 +639,11 @@ function VizServer(app, socket, cachedVBOs) {
                     if (masks !== undefined) {
                         // Record the size of the filtered set for UI feedback:
                         filter.maskSizes = masks.maskSize();
-                        maskList.push(masks);
+                        selectionMasks.push(masks);
                     }
                 });
 
-                this.filterGraphByMaskList(graph, maskList, errors, viewConfig, pointLimit, cb);
+                this.filterGraphByMaskList(graph, selectionMasks, exclusionMask, errors, viewConfig, pointLimit, cb);
             }.bind(this)).subscribe(
                 _.identity,
                 function (err) {
@@ -770,7 +766,7 @@ function VizServer(app, socket, cachedVBOs) {
                     errors.push(e.message);
                 }
             });
-            this.filterGraphByMaskList(graph, maskList, errors, viewConfig, Infinity, cb);
+            this.filterGraphByMaskList(graph, maskList, undefined, errors, viewConfig, Infinity, cb);
         }.bind(this)).take(1).subscribe(
             _.identity,
             function (err) {
