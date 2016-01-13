@@ -1557,6 +1557,32 @@ button:disabled {
                 margin: 3px;
             }
 
+            .encode-attribute {
+                color: @medium-grey;
+                font-size: 1em;
+                &:hover {
+                    cursor: pointer;
+                }
+            }
+            .encode-size {
+                &:hover {
+                    color: @graphistry-lightblue;
+                }
+            }
+            .encode-color-quantitative {
+                background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0, white), color-stop(0.3, lightblue), color-stop(1, blue));
+                //-webkit-background-clip: text;
+                background-image: gradient( linear, left top, left bottom, color-stop(0, white), color-stop(0.3, lightblue), color-stop(1, blue));
+                //background-clip: text;
+                color: transparent;
+            }
+            .encode-color-categorical {
+                background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0, red), color-stop(0.2, orange), color-stop(0.5, yellow), color-stop(0.7, green), color-stop(1, blue));
+                //-webkit-background-clip: text;
+                background-image: gradient( linear, left top, left bottom, color-stop(0, red), color-stop(0.2, orange), color-stop(0.5, yellow), color-stop(0.7, green), color-stop(1, blue));
+                //background-clip: text;
+                color: transparent;
+            }
         }
 
         .axis {
