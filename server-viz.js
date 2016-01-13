@@ -776,6 +776,7 @@ function VizServer(app, socket, cachedVBOs) {
             var dataframe = graph.dataframe,
                 normalization = dataframe.normalizeAttributeName(query.attribute, query.type),
                 encodingType = query.encodingType,
+                variation = query.variation,
                 binning = query.binning;
             if (normalization === undefined) {
                 failWithMessage(cb, 'No attribute found for: ' + query.attribute + ',' + query.type);
@@ -794,7 +795,7 @@ function VizServer(app, socket, cachedVBOs) {
             }
             var encoding;
             try {
-                encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType, binning);
+                encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType, variation, binning);
             } catch (e) {
                 failWithMessage(cb, e.message);
                 return;
