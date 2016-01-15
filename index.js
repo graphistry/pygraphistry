@@ -26,7 +26,7 @@ function notifySlack(name, nnodes, nedges, params) {
     }
     function isInternal(key) {
         var suffix = 'graphistry.com';
-        return key.slice(-suffix.length) === suffix
+        return key.slice(-suffix.length) === suffix;
     }
 
     var key = '';
@@ -59,7 +59,7 @@ function notifySlack(name, nnodes, nedges, params) {
                 { title: 'API', value: params.apiVersion, short: true },
                 { title: 'Machine Tag', value: tag, short: true },
                 { title: 'Agent', value: params.agent, short: true },
-                { title: 'Version', value: params.agentVersion, short: true },
+                { title: 'Version', value: params.agentVersion, short: true }
             ],
             mrkdwn_in: ['text', 'pretext', 'fields']
         }])
@@ -108,7 +108,7 @@ function dispatcher(tearDown, req, res) {
         '0': etl1.process,
         '1': etl1.process,
         '2': etl2.process
-    }
+    };
 
     var apiVersion = params.apiVersion || 0;
     var handler = handlers[apiVersion];
@@ -149,7 +149,7 @@ function init(app, socket) {
     var JSONParser = bodyParser.json({limit: '128mb'});
 
     var fields = _.map(_.range(16), function (n) {
-        return { name: 'data' + n, maxCount: 1 }
+        return { name: 'data' + n, maxCount: 1 };
     }).concat([{ name: 'metadata', maxCount: 1 }]);
 
     var formParser = multer({ storage: multer.memoryStorage() }).fields(fields);
@@ -162,4 +162,4 @@ function init(app, socket) {
 module.exports = {
     staticFilePath: function() { return __dirname; },
     init: init
-}
+};
