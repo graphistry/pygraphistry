@@ -20,8 +20,22 @@ var logger      = Log.createLogger('etlworker:index');
 function notifySlack(name, nnodes, nedges, params) {
     function makeUrl(server) {
         var type = params.apiVersion == 2 ? 'jsonMeta' : 'vgraph';
-        var url = sprintf('http://proxy-%s.graphistry.com/graph/graph.html?type=%s&dataset=%s&info=true',
-                          server, type, name);
+        var domain;
+        switch (server) {
+            case 'staging':
+                domain = 'https://staging-secure.graphistry.com';
+                break;
+            case 'labs':
+                domain = 'http://labs-proxy.graphistry.com';
+                break;
+            case 'localhost':
+                domain = 'http://localhost:3000';
+                break;
+            default:
+                domain = 'http://proxy-%s.graphistry.com';
+        }
+        var url = sprintf('%s/graph/graph.html?type=%s&dataset=%s&info=true',
+                          domain, type, name);
         return sprintf('<%s|%s>', url, server);
     }
     function isInternal(key) {
@@ -41,7 +55,7 @@ function notifySlack(name, nnodes, nedges, params) {
         key = 'n/a';
     }
 
-    var links = sprintf('View on %s or %s', makeUrl('labs'), makeUrl('staging'));
+    var links = sprintf('View on %s or %s or %s', makeUrl('labs'), makeUrl('staging'), makeUrl('localhost'));
     var title = sprintf('*New dataset:* `%s`', name);
     var tag = sprintf('`%s`', params.usertag.split('-')[0]);
 
