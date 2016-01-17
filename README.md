@@ -79,7 +79,7 @@ It supports unusually large graphs for interactive visualization. The client's c
 ## Installation
 
 ### Dependencies
-[Python](https://www.python.org) 2.7 or 3.4. 
+[Python](https://www.python.org) 2.7 or 3.4 (experimental). 
 
 The simplest way to install PyGraphistry is with Python's pip package manager:
 
