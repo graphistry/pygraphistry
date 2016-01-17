@@ -187,10 +187,10 @@ VizServer.prototype.tickGraph = function (cb) {
 };
 
 // TODO Extract a graph method and manage graph contexts by filter data operation.
-VizServer.prototype.filterGraphByMaskList = function (graph, selectionMasks, exclusionMasks, errors, viewConfig, pointLimit, cb) {
+VizServer.prototype.filterGraphByMaskList = function (graph, selectionMasks, exclusionMasks, errors, viewConfig, limits, cb) {
     var response = {filters: viewConfig.filters, exclusions: viewConfig.exclusions};
 
-    var unprunedMasks = graph.dataframe.composeMasks(selectionMasks, exclusionMasks, pointLimit);
+    var unprunedMasks = graph.dataframe.composeMasks(selectionMasks, exclusionMasks, limits);
     // Prune out dangling edges.
     var masks = graph.dataframe.pruneMaskEdges(unprunedMasks);
 
@@ -574,13 +574,17 @@ function VizServer(app, socket, cachedVBOs) {
             }
             logger.info('updated filters', viewConfig.filters);
 
+            if (viewConfig.limits === undefined) {
+                viewConfig.limits = {point: Infinity, edge: Infinity};
+            }
+
             if (bumpViewConfig) { this.viewConfig.onNext(viewConfig); }
 
             this.graph.take(1).do(function (graph) {
                 var dataframe = graph.dataframe;
                 var selectionMasks = [];
                 var errors = [];
-                var pointLimit = Infinity;
+                var limits = viewConfig.limits;
                 var generator = new ExpressionCodeGenerator('javascript');
                 var query;
 
@@ -622,7 +626,8 @@ function VizServer(app, socket, cachedVBOs) {
                     if (ast !== undefined &&
                         ast.type === 'Limit' &&
                         ast.value !== undefined) {
-                        pointLimit = generator.evaluateExpressionFree(ast.value);
+                        limits.point = generator.evaluateExpressionFree(ast.value);
+                        limits.edge = limits.point;
                         return;
                     }
                     if (!query.type) {
@@ -639,7 +644,7 @@ function VizServer(app, socket, cachedVBOs) {
                     }
                 });
 
-                this.filterGraphByMaskList(graph, selectionMasks, exclusionMasks, errors, viewConfig, pointLimit, cb);
+                this.filterGraphByMaskList(graph, selectionMasks, exclusionMasks, errors, viewConfig, limits, cb);
             }.bind(this)).subscribe(
                 _.identity,
                 function (err) {
@@ -762,7 +767,7 @@ function VizServer(app, socket, cachedVBOs) {
                     errors.push(e.message);
                 }
             });
-            this.filterGraphByMaskList(graph, selectionMasks, undefined, errors, viewConfig, Infinity, cb);
+            this.filterGraphByMaskList(graph, selectionMasks, undefined, errors, viewConfig, viewConfig.limits, cb);
         }.bind(this)).take(1).subscribe(
             _.identity,
             function (err) {
