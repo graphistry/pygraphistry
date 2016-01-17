@@ -788,7 +788,7 @@ button:disabled {
 
     width: 25em;
     left: 5em;
-    top: auto;
+    top: 2.5em;
     position: absolute;
 
     .overlayPanel;
@@ -813,6 +813,11 @@ button:disabled {
         padding-top: 0.5em;
 
         &.disabled {
+
+            .topMenu.row > *:not(:first-child) {
+                display: none;
+            }
+
             background-color: #EEE;
             .filterExpression, .exclusionExpression {
                 background-color: inherit;
@@ -829,14 +834,6 @@ button:disabled {
             }
             .ace_active-line {
                 background: inherit !important;
-            }
-        }
-
-        .topMenu.row {
-            margin: 0em;
-            & > * {
-                padding: 0;
-                margin: 0;
             }
         }
 
@@ -1554,8 +1551,6 @@ button:disabled {
 
         .topMenu {
             height: 30px;
-            padding-left: 4px;
-            padding-bottom: 0px;
 
             .dropdown {
                 margin: 3px;
