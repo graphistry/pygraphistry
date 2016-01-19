@@ -187,10 +187,10 @@ VizServer.prototype.tickGraph = function (cb) {
 };
 
 // TODO Extract a graph method and manage graph contexts by filter data operation.
-VizServer.prototype.filterGraphByMaskList = function (graph, maskList, errors, viewConfig, pointLimit, cb) {
+VizServer.prototype.filterGraphByMaskList = function (graph, selectionMasks, exclusionMasks, errors, viewConfig, cb) {
     var response = {filters: viewConfig.filters, exclusions: viewConfig.exclusions};
 
-    var unprunedMasks = graph.dataframe.composeMasks(maskList, pointLimit);
+    var unprunedMasks = graph.dataframe.composeMasks(selectionMasks, exclusionMasks, viewConfig.limits);
     // Prune out dangling edges.
     var masks = graph.dataframe.pruneMaskEdges(unprunedMasks);
 
@@ -574,18 +574,21 @@ function VizServer(app, socket, cachedVBOs) {
             }
             logger.info('updated filters', viewConfig.filters);
 
+            if (viewConfig.limits === undefined) {
+                viewConfig.limits = {point: Infinity, edge: Infinity};
+            }
+
             if (bumpViewConfig) { this.viewConfig.onNext(viewConfig); }
 
             this.graph.take(1).do(function (graph) {
                 var dataframe = graph.dataframe;
-                var maskList = [];
+                var selectionMasks = [];
                 var errors = [];
-                var pointLimit = Infinity;
                 var generator = new ExpressionCodeGenerator('javascript');
                 var query;
 
-                /** @type {DataframeMask} */
-                var exclusionMask;
+                /** @type {DataframeMask[]} */
+                var exclusionMasks = [];
                 _.each(viewConfig.exclusions, function (exclusion) {
                     if (exclusion.enabled === false) {
                         return;
@@ -605,17 +608,9 @@ function VizServer(app, socket, cachedVBOs) {
                     if (masks !== undefined) {
                         masks.setExclusive(true);
                         exclusion.maskSizes = masks.maskSize();
-                        if (exclusionMask === undefined) {
-                            exclusionMask = masks;
-                        } else {
-                            exclusionMask = exclusionMask.union(masks);
-                        }
+                        exclusionMasks.push(masks);
                     }
                 });
-
-                if (exclusionMask !== undefined) {
-                    maskList.push(exclusionMask.complement());
-                }
 
                 _.each(viewConfig.filters, function (filter) {
                     if (filter.enabled === false) {
@@ -630,7 +625,8 @@ function VizServer(app, socket, cachedVBOs) {
                     if (ast !== undefined &&
                         ast.type === 'Limit' &&
                         ast.value !== undefined) {
-                        pointLimit = generator.evaluateExpressionFree(ast.value);
+                        viewConfig.limits.point = generator.evaluateExpressionFree(ast.value);
+                        viewConfig.limits.edge = viewConfig.limits.point;
                         return;
                     }
                     if (!query.type) {
@@ -643,11 +639,11 @@ function VizServer(app, socket, cachedVBOs) {
                     if (masks !== undefined) {
                         // Record the size of the filtered set for UI feedback:
                         filter.maskSizes = masks.maskSize();
-                        maskList.push(masks);
+                        selectionMasks.push(masks);
                     }
                 });
 
-                this.filterGraphByMaskList(graph, maskList, errors, viewConfig, pointLimit, cb);
+                this.filterGraphByMaskList(graph, selectionMasks, exclusionMasks, errors, viewConfig, cb);
             }.bind(this)).subscribe(
                 _.identity,
                 function (err) {
@@ -745,7 +741,7 @@ function VizServer(app, socket, cachedVBOs) {
         logger.info('Got filter', query);
         Rx.Observable.combineLatest(this.viewConfig, this.graph, function (viewConfig, graph) {
 
-            var maskList = [];
+            var selectionMasks = [];
             var errors = [];
 
             var dataframe = graph.dataframe;
@@ -765,12 +761,12 @@ function VizServer(app, socket, cachedVBOs) {
                     var masks = dataframe.getAttributeMask(type, attribute, filterFunc);
                     // Record the size of the filtered set for UI feedback:
                     filter.maskSizes = masks.maskSize();
-                    maskList.push(masks);
+                    selectionMasks.push(masks);
                 } catch (e) {
                     errors.push(e.message);
                 }
             });
-            this.filterGraphByMaskList(graph, maskList, errors, viewConfig, Infinity, cb);
+            this.filterGraphByMaskList(graph, selectionMasks, undefined, errors, viewConfig, cb);
         }.bind(this)).take(1).subscribe(
             _.identity,
             function (err) {
@@ -784,6 +780,7 @@ function VizServer(app, socket, cachedVBOs) {
             var dataframe = graph.dataframe,
                 normalization = dataframe.normalizeAttributeName(query.attribute, query.type),
                 encodingType = query.encodingType,
+                variation = query.variation,
                 binning = query.binning;
             if (normalization === undefined) {
                 failWithMessage(cb, 'No attribute found for: ' + query.attribute + ',' + query.type);
@@ -802,7 +799,7 @@ function VizServer(app, socket, cachedVBOs) {
             }
             var encoding;
             try {
-                encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType, binning);
+                encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType, variation, binning);
             } catch (e) {
                 failWithMessage(cb, e.message);
                 return;

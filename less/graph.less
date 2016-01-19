@@ -10,11 +10,13 @@
 @light-grey-background-2: #F9F9F9;
 @medium-grey: rgba(200,200,200,1.0);
 @dark-grey: rgba(100,100,100,1.0);
-@floating-box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+@floating-box-shadow: 0 1.2em 1.2em rgba(0,0,0,0.7);
 @floating-border-radius: 3px;
 
-@graphistry-lightblue: #0fa5c5;
-@graphistry-darkblue: #0C1134;
+@graphistry-lightblue: rgb(15, 165, 197);
+@graphistry-lightblue-faded: rgb(135, 210, 226); //mix above with 50% white
+
+@graphistry-darkblue: rgb(31, 31, 51);
 
 @graphistry-background: #333339;
 
@@ -29,9 +31,10 @@
 
 
 //menu & labels
-@graph-label-hover-z:           3300;
-@graph-label-z:                 3400;
-@graph-label-clicked-z:         3500;
+@graph-label-z:                 3300;
+@graph-label-clicked-z:         3400;
+@graph-label-hover-z:           3450;
+@graph-label-hover-clicked-z:   3500;
 @menu-z:                        3600;
 @menus-z:                       3700;
 @legend-z:                      3800;
@@ -84,6 +87,10 @@
         z-index: @graph-label-hover-z;
     }
 
+    &.clicked:hover {
+        z-index: @graph-label-hover-clicked-z;
+    }
+
 
     //scrollbar
     &::-webkit-scrollbar,
@@ -124,7 +131,7 @@
 
             .graph-label-title .fa-thumb-tack {
                 display: inline-block;
-                color: rgba(31, 31, 51, 1.0);
+                color: @graphistry-darkblue;
             }
         }
     }
@@ -132,7 +139,7 @@
 
 
     &, & table {
-        color: rgb(31, 31, 51);
+        color: @graphistry-darkblue;
     }
 
 
@@ -228,12 +235,10 @@
 
     .graph-label-contents {
         margin-top: 0.5em;
-        padding-top: 0.5em;
         border-top: 1px solid rgb(51,51,102);
 
         table {
             font-size: 1.1em;
-            margin-right: 0.8em;
 
             td,
             .graph-label-value-wrapper {
@@ -258,13 +263,74 @@
     .graph-label-title {
         font-weight: bold;
     }
-    .graph-label-pair:nth-child(odd) {
-        background-color: rgba(51,51,102,0.1);
+
+    //Hover icons, including with scroll
+    .graph-label-contents {
+        position: relative;
+        background-color: #eee;
+        padding-bottom: 2.5em;
+        .graph-label-pair:hover .graph-label-icons  {
+            visibility: visible;
+        }
+        .graph-label-icons {
+            position: absolute;
+            visibility: hidden;
+
+            max-width: none;
+            white-space: nowrap;
+
+            margin-left: -2em;
+            border-radius: 4px;
+            border-top-left-radius: 0;
+            border-top-right-radius: 0;
+            padding: 0.3em;
+            background-color: @graphistry-darkblue;
+
+            & > a {
+                padding-top: 5px;
+            }
+
+            //* may be a tooltip
+            & > * + a {
+                margin-left: 0.3em;
+            }
+        }
     }
+
     .graph-label-pair {
         font-size: 1.1em;
+
+
+        &:nth-child(odd) {
+            background-color: rgba(51,51,102,0.1);
+        }
+        &:nth-child(even) {
+            background-color: #fff;
+        }
+
+        &:last-child, &:hover:last-child {
+            &:nth-child(odd) {
+                border-bottom: 1px solid #fff;
+            }
+            &:nth-child(even) {
+                border-bottom: 1px solid @graphistry-darkblue;
+            }
+        }
+
+
+        border-bottom: 1px solid transparent;
+        &:hover, &:hover:nth-child(odd), &:hover:nth-child(even) {
+            border-bottom: 1px solid @graphistry-darkblue;
+            background-color: @graphistry-darkblue;
+            color: white;
+        }
+
+        .tooltip {
+            max-width: none;
+            white-space: nowrap;
+        }
+
         .graph-label-key, .graph-label-value {
-            padding-top: 0.3em;
             vertical-align: top;
         }
         .graph-label-key {
@@ -278,25 +344,21 @@
         .graph-label-value-wrapper {
             max-height: 5em;
             overflow: auto;
-            .exclude-by-key-value, .filter-by-key-value {
-                visibility: hidden;
+            .graph-label-icons > a {
                 font-size: 0.8em;
-                color: @medium-grey;
-                position: absolute;
+                color: @graphistry-darkblue;
+                background-color: #fff;
+                border-radius: 5px;
+                border-top-left-radius: 0;
+                border-top-right-radius: 0;
+                padding: 3px;
+                padding-left: 5px;
+                padding-right: 5px;
                 &:hover {
                     color: @graphistry-lightblue;
                     cursor: pointer;
                 }
             }
-            .exclude-by-key-value {
-                right: 3em;
-            }
-            .filter-by-key-value {
-                right: 1.6em;
-            }
-        }
-        &:hover .exclude-by-key-value, &:hover .filter-by-key-value {
-            visibility: visible;
         }
     }
 
@@ -495,12 +557,15 @@
 //////////////////////////////////////////////////////////////////////////////
 
 
-#main, .accordion {
+#main {
     background-color: @graphistry-background; //rgba(204, 204, 204, 0.3);
     color: #EEF;
     padding: 0.5em;
 }
 
+.accordion {
+    padding: 0.5em;
+}
 
 #menuState{
     border: 1px solid rgba(0, 0, 0, 0.3);
@@ -715,7 +780,8 @@ button:disabled {
 
 .settingsPanel {
     max-height: 23.2em;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
 
     .sidePanel;
     //opacity: 0;
@@ -787,7 +853,7 @@ button:disabled {
 
     width: 25em;
     left: 5em;
-    top: auto;
+    top: 2.5em;
     position: absolute;
 
     .overlayPanel;
@@ -812,6 +878,11 @@ button:disabled {
         padding-top: 0.5em;
 
         &.disabled {
+
+            .topMenu.row > *:not(:first-child) {
+                display: none;
+            }
+
             background-color: #EEE;
             .filterExpression, .exclusionExpression {
                 background-color: inherit;
@@ -828,14 +899,6 @@ button:disabled {
             }
             .ace_active-line {
                 background: inherit !important;
-            }
-        }
-
-        .topMenu.row {
-            margin: 0em;
-            & > * {
-                padding: 0;
-                margin: 0;
             }
         }
 
@@ -1553,13 +1616,37 @@ button:disabled {
 
         .topMenu {
             height: 30px;
-            padding-left: 4px;
-            padding-bottom: 0px;
 
             .dropdown {
                 margin: 3px;
             }
 
+            .encode-attribute {
+                color: @medium-grey;
+                font-size: 1em;
+                &:hover {
+                    cursor: pointer;
+                }
+            }
+            .encode-size {
+                &:hover {
+                    color: @graphistry-lightblue;
+                }
+            }
+            .encode-color-quantitative {
+                background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0, white), color-stop(0.3, lightblue), color-stop(1, blue));
+                //-webkit-background-clip: text;
+                background-image: gradient( linear, left top, left bottom, color-stop(0, white), color-stop(0.3, lightblue), color-stop(1, blue));
+                //background-clip: text;
+                color: transparent;
+            }
+            .encode-color-categorical {
+                background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0, red), color-stop(0.2, orange), color-stop(0.5, yellow), color-stop(0.7, green), color-stop(1, blue));
+                //-webkit-background-clip: text;
+                background-image: gradient( linear, left top, left bottom, color-stop(0, red), color-stop(0.2, orange), color-stop(0.5, yellow), color-stop(0.7, green), color-stop(1, blue));
+                //background-clip: text;
+                color: transparent;
+            }
         }
 
         .axis {
