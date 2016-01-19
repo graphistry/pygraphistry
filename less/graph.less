@@ -232,12 +232,10 @@
 
     .graph-label-contents {
         margin-top: 0.5em;
-        padding-top: 0.5em;
         border-top: 1px solid rgb(51,51,102);
 
         table {
             font-size: 1.1em;
-            margin-right: 0.8em;
 
             td,
             .graph-label-value-wrapper {
@@ -262,13 +260,74 @@
     .graph-label-title {
         font-weight: bold;
     }
-    .graph-label-pair:nth-child(odd) {
-        background-color: rgba(51,51,102,0.1);
+
+    //Hover icons, including with scroll
+    .graph-label-contents {
+        position: relative;
+        background-color: #eee;
+        padding-bottom: 2.5em;
+        .graph-label-pair:hover .graph-label-icons  {
+            visibility: visible;
+        }
+        .graph-label-icons {
+            position: absolute;
+            visibility: hidden;
+
+            max-width: none;
+            white-space: nowrap;
+
+            margin-left: -2em;
+            border-radius: 4px;
+            border-top-left-radius: 0;
+            border-top-right-radius: 0;
+            padding: 0.3em;
+            background-color: @graphistry-darkblue;
+
+            & > a {
+                padding-top: 5px;
+            }
+
+            //* may be a tooltip
+            & > * + a {
+                margin-left: 0.3em;
+            }
+        }
     }
+
     .graph-label-pair {
         font-size: 1.1em;
+
+
+        &:nth-child(odd) {
+            background-color: rgba(51,51,102,0.1);
+        }
+        &:nth-child(even) {
+            background-color: #fff;
+        }
+
+        &:last-child, &:hover:last-child {
+            &:nth-child(odd) {
+                border-bottom: 1px solid #fff;
+            }
+            &:nth-child(even) {
+                border-bottom: 1px solid @graphistry-darkblue;
+            }
+        }
+
+
+        border-bottom: 1px solid transparent;
+        &:hover, &:hover:nth-child(odd), &:hover:nth-child(even) {
+            border-bottom: 1px solid @graphistry-darkblue;
+            background-color: @graphistry-darkblue;
+            color: white;
+        }
+
+        .tooltip {
+            max-width: none;
+            white-space: nowrap;
+        }
+
         .graph-label-key, .graph-label-value {
-            padding-top: 0.3em;
             vertical-align: top;
         }
         .graph-label-key {
@@ -282,31 +341,21 @@
         .graph-label-value-wrapper {
             max-height: 5em;
             overflow: auto;
-            .exclude-by-key-value, .filter-by-key-value {
-                visibility: hidden;
+            .graph-label-icons > a {
                 font-size: 0.8em;
                 color: @graphistry-darkblue;
                 background-color: #fff;
                 border-radius: 5px;
+                border-top-left-radius: 0;
+                border-top-right-radius: 0;
                 padding: 3px;
                 padding-left: 5px;
                 padding-right: 5px;
-                border: 1px solid rgb(51,51,102);
-                position: absolute;
                 &:hover {
                     color: @graphistry-lightblue;
                     cursor: pointer;
                 }
             }
-            .exclude-by-key-value {
-                right: -2.5em;
-            }
-            .filter-by-key-value {
-                right: -0.2em;
-            }
-        }
-        &:hover .exclude-by-key-value, &:hover .filter-by-key-value {
-            visibility: visible;
         }
     }
 
