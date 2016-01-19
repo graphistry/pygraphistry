@@ -193,6 +193,10 @@ VizServer.prototype.filterGraphByMaskList = function (graph, selectionMasks, exc
     var unprunedMasks = graph.dataframe.composeMasks(selectionMasks, exclusionMasks, viewConfig.limits);
     // Prune out dangling edges.
     var masks = graph.dataframe.pruneMaskEdges(unprunedMasks);
+    // Prune out orphans if configured that way:
+    if (viewConfig.pruneOrphans === true) {
+        masks = graph.dataframe.pruneOrphans(masks);
+    }
 
     // Return early if mask is same as graph's active mask.
     if (masks.equals(graph.dataframe.lastMasks)) {
