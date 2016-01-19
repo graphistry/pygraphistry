@@ -31,9 +31,10 @@
 
 
 //menu & labels
-@graph-label-hover-z:           3300;
-@graph-label-z:                 3400;
-@graph-label-clicked-z:         3500;
+@graph-label-z:                 3300;
+@graph-label-clicked-z:         3400;
+@graph-label-hover-z:           3450;
+@graph-label-hover-clicked-z:   3500;
 @menu-z:                        3600;
 @menus-z:                       3700;
 @legend-z:                      3800;
@@ -81,6 +82,10 @@
     }
     &.on:not(.clicked) {
         z-index: @graph-label-hover-z;
+    }
+
+    &.clicked:hover {
+        z-index: @graph-label-hover-clicked-z;
     }
 
 
