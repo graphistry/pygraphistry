@@ -13,8 +13,10 @@
 @floating-box-shadow: 0 1.2em 1.2em rgba(0,0,0,0.7);
 @floating-border-radius: 3px;
 
-@graphistry-lightblue: #0fa5c5;
-@graphistry-darkblue: #0C1134;
+@graphistry-lightblue: rgb(15, 165, 197);
+@graphistry-lightblue-faded: rgb(135, 210, 226); //mix above with 50% white
+
+@graphistry-darkblue: rgb(31, 31, 51);
 
 @graphistry-background: #333339;
 
@@ -121,7 +123,7 @@
 
             .graph-label-title .fa-thumb-tack {
                 display: inline-block;
-                color: rgba(31, 31, 51, 1.0);
+                color: @graphistry-darkblue;
             }
         }
     }
@@ -129,7 +131,7 @@
 
 
     &, & table {
-        color: rgb(31, 31, 51);
+        color: @graphistry-darkblue;
     }
 
 
@@ -278,7 +280,7 @@
             .exclude-by-key-value, .filter-by-key-value {
                 visibility: hidden;
                 font-size: 0.8em;
-                color: @medium-grey;
+                color: @graphistry-darkblue;
                 background-color: #fff;
                 border-radius: 5px;
                 padding: 3px;
