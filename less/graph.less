@@ -44,6 +44,8 @@
 @inspector-tabs-z:             41200;
 @inspector-overlay-z:          41300;
 @timeexplorer-z:               42100;
+@timeexplorer-main-z:          42200;
+@timeexplorer-line-z:          42500;
 
 //what is this?
 @status-bar-z:                 99999;
@@ -1607,8 +1609,12 @@ button:disabled {
 // Time Explorer
 //////////////////////////////////////////////////////////////////////////////
 
+@histogram-z:                  40100;
+@timeExplorerMainHeight: 75px;
+@timeExplorerAxisHeight: 20px;
+
 #timeExplorer {
-    position: fixed;
+    position: absolute;
     left: 0;
     bottom: 0;
     width: 100%;
@@ -1617,6 +1623,59 @@ button:disabled {
     padding: 0;
     background-color: @light-grey-background-2;
     z-index: @timeexplorer-z;
+
+    #timeExplorerAxisContainer {
+        position: absolute;
+        width: 100%;
+        bottom: 0px;
+    }
+
+    #timeExplorerBody {
+        position: absolute;
+        width: 100%;
+        top: 0px;
+        bottom: @timeExplorerAxisHeight + @timeExplorerMainHeight;
+        overflow: scroll;
+    }
+
+    #timeExplorerMain {
+        position: absolute;
+        width: 100%;
+        bottom: @timeExplorerAxisHeight;
+        z-index: @timeexplorer-main-z;
+        box-shadow: 0px -2px 2px @medium-grey;
+    }
+
+    .timeBarDiv {
+        position: relative;
+        width: 100%;
+        background-color: @light-grey-background;
+    }
+
+    .verticalLine {
+        position: absolute;
+        left: 0px;
+        height: 100%;
+        width: 0px;
+        border-right: 1px solid #000000;
+        display: none;
+        z-index: @timeexplorer-line-z;
+        pointer-events: none;
+    }
+
+    .axis {
+        text {
+            font: 10px sans-serif;
+            fill: @dark-grey;
+
+        }
+        path, line {
+            fill: none;
+            stroke: @dark-grey;
+            shape-rendering: crispEdges;
+        }
+    }
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
