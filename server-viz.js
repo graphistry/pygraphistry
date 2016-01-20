@@ -377,13 +377,13 @@ function VizServer(app, socket, cachedVBOs) {
 
     this.socket.on('update_view_parameter', function (spec, cb) {
         this.viewConfig.take(1).do(function (viewConfig) {
-            this.viewConfig.parameters[spec.name] = spec.value;
+            viewConfig.parameters[spec.name] = spec.value;
             cb({success: true});
         }).subscribe(_.identity, function (err) {
             cb({success: false, errors: [err.message]});
             log.makeRxErrorHandler(logger, 'Update view parameter')(err);
         });
-    });
+    }.bind(this));
 
     this.socket.on('render_config', function(_, cb) {
         this.qRenderConfig.then(function (renderConfig) {
