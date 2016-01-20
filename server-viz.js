@@ -552,6 +552,50 @@ function VizServer(app, socket, cachedVBOs) {
             _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
 
+
+    this.socket.on('timeAggregation', function (data, cb) {
+        this.graph.take(1).do(function (graph) {
+            var dataframe = graph.dataframe;
+            var allMasks = [];
+            var errors = [];
+
+            _.each(data.filters, function (filter) {
+
+                var query = filter.query;
+                if (!query.type) {
+                    query.type = filter.type;
+                }
+                if (!query.attribute) {
+                    query.attribute = filter.attribute;
+                }
+                var masks = dataframe.getMasksForQuery(query, errors);
+                if (masks !== undefined) {
+                    // Record the size of the filtered set for UI feedback:
+                    filter.maskSizes = masks.maskSize();
+                    allMasks.push(masks);
+                }
+            });
+
+            var combinedMask = allMasks[0];
+            if (allMasks.length > 1) {
+                for (var i = 1; i < allMasks.length; i++) {
+                    combinedMask = combinedMask.intersection(allMasks[i]);
+                }
+            }
+
+            var agg = dataframe.timeBasedHistogram(combinedMask, data.timeType, data.timeAttr, data.start, data.stop, data.timeAggregation);
+            cb(agg);
+
+        }.bind(this))
+        .subscribe(
+            _.identity,
+            function (err) {
+                log.makeRxErrorHandler(logger, 'timeAggregation handler')(err);
+            }
+        );
+    }.bind(this));
+
+
     this.socket.on('update_filters', function (definition, cb) {
         logger.trace('updating filters from client values');
         // Maybe direct assignment isn't safe, but it'll do for now.
@@ -613,6 +657,12 @@ function VizServer(app, socket, cachedVBOs) {
                 });
 
                 _.each(viewConfig.filters, function (filter) {
+
+                    console.log('==================================\n');
+                    console.log('filter: ', filter);
+                    console.log('==================================\n');
+
+
                     if (filter.enabled === false) {
                         return;
                     }
