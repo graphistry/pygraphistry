@@ -376,6 +376,26 @@ function VizServer(app, socket, cachedVBOs) {
         }.bind(this)).fail(log.makeQErrorHandler(logger, 'resetting state'));
     }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(logger, 'Get render config'));
 
+    this.socket.on('get_view_config', function (ignore, cb) {
+        this.viewConfig.take(1).do(function (viewConfig) {
+            logger.info('viewConfig', viewConfig);
+            cb({success: true, viewConfig: viewConfig});
+        }).subscribe(_.identity, function (err) {
+            cb({success: false, errors: [err.message]});
+            log.makeRxErrorHandler(logger, 'Get view config')(err);
+        });
+    }.bind(this));
+
+    this.socket.on('update_view_config', function (newValues, cb) {
+        this.viewConfig.take(1).do(function (viewConfig) {
+            extend(true, viewConfig, newValues);
+            cb({success: true, viewConfig: viewConfig});
+        }).subscribe(_.identity, function (err) {
+            cb({success: false, errors: [err.message]});
+            log.makeRxErrorHandler(logger, 'Update view config')(err);
+        });
+    }.bind(this));
+
     this.socket.on('update_view_parameter', function (spec, cb) {
         this.viewConfig.take(1).do(function (viewConfig) {
             viewConfig.parameters[spec.name] = spec.value;
