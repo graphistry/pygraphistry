@@ -190,17 +190,18 @@ VizServer.prototype.tickGraph = function (cb) {
 VizServer.prototype.filterGraphByMaskList = function (graph, selectionMasks, exclusionMasks, errors, viewConfig, cb) {
     var response = {filters: viewConfig.filters, exclusions: viewConfig.exclusions};
 
-    var unprunedMasks = graph.dataframe.composeMasks(selectionMasks, exclusionMasks, viewConfig.limits);
+    var dataframe = graph.dataframe;
+    var unprunedMasks = dataframe.composeMasks(selectionMasks, exclusionMasks, viewConfig.limits);
     // Prune out dangling edges.
-    var masks = graph.dataframe.pruneMaskEdges(unprunedMasks);
+    var masks = dataframe.pruneMaskEdges(unprunedMasks);
     // Prune out orphans if configured that way:
     if (viewConfig.parameters.pruneOrphans === true) {
-        masks = graph.dataframe.pruneOrphans(masks);
+        masks = dataframe.pruneOrphans(masks);
     }
 
     // Return early if mask is same as graph's active mask.
-    if (masks.equals(graph.dataframe.lastMasks)) {
-        var sets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
+    if (masks.equals(dataframe.lastMasks)) {
+        var sets = vizSetsToPresentFromViewConfig(viewConfig, dataframe);
         _.extend(response, {success: true, sets:sets});
         cb(response);
         return;
@@ -211,7 +212,7 @@ VizServer.prototype.filterGraphByMaskList = function (graph, selectionMasks, exc
     // Promise
     var simulator = graph.simulator;
     try {
-        graph.dataframe.applyDataframeMaskToFilterInPlace(masks, simulator)
+        dataframe.applyDataframeMaskToFilterInPlace(masks, simulator)
             .then(function () {
                 simulator.layoutAlgorithms
                     .map(function (alg) {
