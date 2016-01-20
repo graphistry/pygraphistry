@@ -11,6 +11,7 @@
 @medium-grey: rgba(200,200,200,1.0);
 @dark-grey: rgba(100,100,100,1.0);
 @floating-box-shadow: 0 1.2em 1.2em rgba(0,0,0,0.7);
+@floating-box-shadow-bottom: -0.3em 0em 0.3em rgba(0,0,0,0.2);
 @floating-border-radius: 3px;
 
 @graphistry-lightblue: rgb(15, 165, 197);
@@ -1139,19 +1140,31 @@ button:disabled {
 // Data Inspector
 //////////////////////////////////////////////////////////////////////////////
 
+//resize & control shadow based on whether histogram on right
+#inspector, #inspector-overlay {
+
+    &.with-histograms {
+        width: 85%;
+    }
+    &:not(.with-histograms) {
+        width: 100%;
+    }
+
+}
+
 #inspector {
     visibility: hidden;
     z-index: @inspector-z;
     position: fixed;
     left: 0;
     bottom: 0;
-    width: 100%;
+
     height: 17em;
     margin: 0;
     padding: 0;
     background-color: @light-grey-background-2;
 
-    .inspector-tabs {
+   .inspector-tabs {
         position: relative;
         float: left;
         width: 2.8em;
@@ -1179,8 +1192,9 @@ button:disabled {
         height: 17em;
         overflow: auto;
         &.panel {
-            box-shadow: @floating-box-shadow;
+            box-shadow: @floating-box-shadow-bottom;
             background-color: @light-grey-background-2;
+            border-right: 1px solid #DDD;
         }
     }
 
@@ -1471,6 +1485,7 @@ button:disabled {
         box-shadow: @floating-box-shadow;
         border-radius: @floating-border-radius;
         overflow-y:scroll;
+        overflow-x:hidden;
 
         // Scrollbars are hidden on mac, so we force it to show
         &::-webkit-scrollbar {
