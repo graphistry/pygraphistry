@@ -552,6 +552,38 @@ function VizServer(app, socket, cachedVBOs) {
             _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
 
+    this.socket.on('getTimeBoundaries', function (data, cb) {
+        this.graph.take(1).do(function (graph) {
+            var values = graph.dataframe.getColumnValues(data.timeAttr, data.timeType);
+            var minTime = new Date(values[0]);
+            var maxTime = new Date(values[0]);
+
+            _.each(values, function (val) {
+                var date = new Date(val);
+                if (date < minTime) {
+                    minTime = date;
+                }
+                if (date > maxTime) {
+                    maxTime = date;
+                }
+            });
+
+            var resp = {
+                success: true,
+                max: maxTime,
+                min: minTime
+            }
+
+            cb(resp);
+
+        }.bind(this))
+        .subscribe(
+            _.identity,
+            function (err) {
+                log.makeRxErrorHandler(logger, 'timeAggregation handler')(err);
+            }
+        );
+    }.bind(this));
 
     this.socket.on('timeAggregation', function (data, cb) {
         this.graph.take(1).do(function (graph) {
@@ -584,7 +616,10 @@ function VizServer(app, socket, cachedVBOs) {
             }
 
             var agg = dataframe.timeBasedHistogram(combinedMask, data.timeType, data.timeAttr, data.start, data.stop, data.timeAggregation);
-            cb(agg);
+            cb({
+                success: true,
+                data: agg
+            });
 
         }.bind(this))
         .subscribe(
