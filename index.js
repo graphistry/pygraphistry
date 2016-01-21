@@ -26,7 +26,7 @@ function notifySlack(name, nnodes, nedges, params) {
                 domain = 'https://staging-secure.graphistry.com';
                 break;
             case 'labs':
-                domain = 'http://labs-proxy.graphistry.com';
+                domain = 'http://proxy-labs.graphistry.com';
                 break;
             case 'localhost':
                 domain = 'http://localhost:3000';
