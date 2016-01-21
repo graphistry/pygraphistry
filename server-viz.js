@@ -688,6 +688,24 @@ function VizServer(app, socket, cachedVBOs) {
         }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
 
+    this.socket.on('move_nodes', function (data, cb) {
+        this.graph.take(1).do(function (graph) {
+
+            if (data.marquee) {
+                graph.simulator.moveNodes(data.marquee)
+                    .then(function () {
+                        this.tickGraph(cb);
+                    }.bind(this));
+            }
+
+        }.bind(this)).subscribe(
+            _.identity,
+            function (err) {
+                log.makeRxErrorHandler(logger, 'move nodes handler')(err);
+            }
+        );
+    }.bind(this));
+
     this.socket.on('layout_controls', function(_, cb) {
         logger.info('Sending layout controls to client');
 
