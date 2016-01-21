@@ -1699,7 +1699,7 @@ button:disabled {
 //////////////////////////////////////////////////////////////////////////////
 
 @histogram-z:                  40100;
-@timeExplorerMainHeight: 75px;
+@timeExplorerMainHeight: 60px;
 @timeExplorerAxisHeight: 20px;
 @timeExplorerTotalHeight: 272px; // 17em
 
@@ -1713,6 +1713,10 @@ button:disabled {
     padding: 0;
     background-color: @light-grey-background-2;
     z-index: @timeexplorer-z;
+
+    #timeExplorerSideInput {
+        overflow: scroll;
+    }
 
     #timeExplorerAxisContainer {
         position: absolute;
