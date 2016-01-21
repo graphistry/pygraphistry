@@ -194,37 +194,37 @@ VizServer.prototype.filterGraphByMaskList = function (graph, selectionMasks, exc
     var unprunedMasks = dataframe.composeMasks(selectionMasks, exclusionMasks, viewConfig.limits);
     // Prune out dangling edges.
     var masks = dataframe.pruneMaskEdges(unprunedMasks);
-    // Prune out orphans if configured that way:
-    if (viewConfig.parameters.pruneOrphans === true) {
-        masks = dataframe.pruneOrphans(masks);
-    }
-
-    // Return early if mask is same as graph's active mask.
-    if (masks.equals(dataframe.lastMasks)) {
-        var sets = vizSetsToPresentFromViewConfig(viewConfig, dataframe);
-        _.extend(response, {success: true, sets:sets});
-        cb(response);
-        return;
-    }
 
     logger.debug('mask lengths: ', masks.numEdges(), masks.numPoints());
 
-    // Promise
     var simulator = graph.simulator;
     try {
-        dataframe.applyDataframeMaskToFilterInPlace(masks, simulator)
-            .then(function () {
-                simulator.layoutAlgorithms
-                    .map(function (alg) {
-                        return alg.updateDataframeBuffers(simulator);
-                    });
-            }).then(function () {
-                simulator.tickBuffers([
-                    'curPoints', 'pointSizes', 'pointColors',
-                    'edgeColors', 'logicalEdges', 'springsPos'
-                ]);
+        var filterPromise = dataframe.applyDataframeMaskToFilterInPlace(masks, simulator);
+        // Prune out orphans if configured that way:
+        if (viewConfig.parameters.pruneOrphans === true) {
+            filterPromise = filterPromise.then(function () {
+                var orphanPrunedMasks = dataframe.pruneOrphans(masks);
+                return dataframe.applyDataframeMaskToFilterInPlace(orphanPrunedMasks, simulator);
+            });
+        }
+        filterPromise
+            .then(function (updatedBuffers) {
+                if (updatedBuffers !== false) {
+                    simulator.layoutAlgorithms
+                        .map(function (alg) {
+                            return alg.updateDataframeBuffers(simulator);
+                        });
+                }
+                return updatedBuffers;
+            }).then(function (updatedBuffers) {
+                if (updatedBuffers !== false) {
+                    simulator.tickBuffers([
+                        'curPoints', 'pointSizes', 'pointColors',
+                        'edgeColors', 'logicalEdges', 'springsPos'
+                    ]);
 
-                this.tickGraph(cb);
+                    this.tickGraph(cb);
+                }
                 var sets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
                 _.extend(response, {success: true, sets: sets, errors: errors});
                 _.each(errors, logger.debug.bind(logger));
