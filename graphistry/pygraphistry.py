@@ -224,11 +224,10 @@ class PyGraphistry(object):
             ]
         }
 
-        print(metadata)
-        raise ValueError('Stopping here')
         out_file = PyGraphistry._get_data_file(vg, 'vgraph')
+        metadata_json = json.dumps(metadata, ensure_ascii=False, cls=NumpyJSONEncoder)
         parts = {
-            'metadata': ('metadata', json.dumps(metadata, ensure_ascii=False), 'application/json'),
+            'metadata': ('metadata', metadata_json, 'application/json'),
             'data0': ('data0', out_file.getvalue(), 'application/octet-stream')
         }
 
