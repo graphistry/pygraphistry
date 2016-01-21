@@ -103,7 +103,7 @@ function getPkgInfo(roots, repo) {
 // String -> Promise[]
 function clone(repo) {
     var repoURL = repo;
-    if (repo.match(/^[-A-z_]+$/)) {
+    if (repo.match(/^[-A-z0-9_]+$/)) {
         repoURL = 'git@github.com:graphistry/' + repo + '.git';
     } else {
         // Repo was the full path; extract the last path element:
