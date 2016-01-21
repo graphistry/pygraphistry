@@ -48,7 +48,9 @@
 @inspector-overlay-z:          41300;
 @timeexplorer-z:               42100;
 @timeexplorer-main-z:          42200;
+@timeexplorer-box-z:           42300;
 @timeexplorer-line-z:          42500;
+
 
 //what is this?
 @status-bar-z:                 99999;
@@ -1747,6 +1749,17 @@ button:disabled {
         border-right: 1px solid #000000;
         display: none;
         z-index: @timeexplorer-line-z;
+        pointer-events: none;
+    }
+
+    .dragBox {
+        position: absolute;
+        left: 0;
+        height: 100%;
+        opacity: 0.25;
+        background-color: @graphistry-lightblue;
+        display: none;
+        z-index: @timeexplorer-box-z;
         pointer-events: none;
     }
 
