@@ -920,6 +920,7 @@ VizServer.prototype.getViewToLoad = function (workbookDoc, query) {
  * @returns {Promise}
  */
 VizServer.prototype.setupDataset = function (workbookDoc, query) {
+    this.datasetName = query.dataset;
     var queryDatasetURL = loader.datasetURLFromQuery(query),
         queryDatasetConfig = loader.datasetConfigFromQuery(query);
     var datasetURLString, datasetConfig;
@@ -1141,7 +1142,10 @@ VizServer.prototype.defineRoutesInApp = function (app) {
             var content = graph.dataframe.formatAsCsv(type)
                 .then(function (formattedCsv) {
 
-                    res.setHeader('Content-Disposition', 'attachment; filename=graphistryExport.csv;');
+                    var datasetName = appRouteResponder.datasetName || 'graphistry';
+                    var filenameSuffix = (type === 'point') ? 'Points' : 'Edges';
+                    var filename = datasetName + filenameSuffix + '.csv';
+                    res.setHeader('Content-Disposition', 'attachment; filename=' + filename + ';');
                     res.setHeader('Content-Type', 'text/plain');
                     res.charset = 'UTF-8';
                     res.write(formattedCsv);
