@@ -1132,6 +1132,29 @@ VizServer.prototype.defineRoutesInApp = function (app) {
 
         appRouteResponder.readSelection('edge', req.query, res);
     });
+
+    this.app.get('/export_csv', function (req, res) {
+        logger.debug('Got export CSV request: ', req.query);
+        var type = req.query.type;
+
+        appRouteResponder.graph.take(1).do(function (graph) {
+            var content = graph.dataframe.formatAsCsv(type)
+                .then(function (formattedCsv) {
+
+                    res.setHeader('Content-Disposition', 'attachment; filename=graphistryExport.csv;');
+                    res.setHeader('Content-Type', 'text/plain');
+                    res.charset = 'UTF-8';
+                    res.write(formattedCsv);
+                    res.send();
+
+                });
+        }).subscribe(
+            _.identity,
+            function (err) {
+                log.makeRxErrorHandler(logger, 'export csv handler')(err);
+            }
+        );
+    });
 };
 
 VizServer.prototype.rememberVBOs = function (VBOs) {
