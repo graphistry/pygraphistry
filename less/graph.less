@@ -1701,13 +1701,14 @@ button:disabled {
 @histogram-z:                  40100;
 @timeExplorerMainHeight: 75px;
 @timeExplorerAxisHeight: 20px;
+@timeExplorerTotalHeight: 272px; // 17em
 
 #timeExplorer {
     position: absolute;
     left: 0;
     bottom: 0;
     width: 100%;
-    height: 17em;
+    height: @timeExplorerTotalHeight;
     margin: 0;
     padding: 0;
     background-color: @light-grey-background-2;
@@ -1723,21 +1724,27 @@ button:disabled {
         position: absolute;
         width: 100%;
         top: 0px;
-        bottom: @timeExplorerAxisHeight + @timeExplorerMainHeight;
+        bottom: @timeExplorerMainHeight;
         overflow: scroll;
     }
 
     #timeExplorerMain {
         position: absolute;
         width: 100%;
-        bottom: @timeExplorerAxisHeight;
+        bottom: 0px;
         z-index: @timeexplorer-main-z;
         box-shadow: 0px -2px 2px @medium-grey;
     }
 
     .timeBarDiv {
-        position: relative;
         width: 100%;
+        position: relative;
+        background-color: @light-grey-background;
+    }
+
+    .bottomAxisDiv {
+        width: 100%;
+        position: relative;
         background-color: @light-grey-background;
     }
 
@@ -1774,6 +1781,22 @@ button:disabled {
             stroke: @dark-grey;
             shape-rendering: crispEdges;
         }
+    }
+
+    .timeExplorerFixedHeight {
+        height: @timeExplorerTotalHeight - @timeExplorerAxisHeight;
+    }
+
+    .timeExplorerFixedHeightAxis {
+        height: @timeExplorerAxisHeight;
+    }
+
+    .timeExplorerBodyRow {
+
+    }
+
+    .noPadding {
+        padding: 0px;
     }
 
 }
