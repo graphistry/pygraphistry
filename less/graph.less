@@ -730,9 +730,9 @@ button.btn-default {
     font-size: 0.75em;
 }
 
-.dropdown {
+.dropdown, .form-search {
 
-    button {
+    button, .csvExportButton {
         background-color: white;
         border: 1px solid @medium-grey;
         color: @dark-grey;
@@ -744,6 +744,10 @@ button.btn-default {
             background-color: white;
             border-color: @graphistry-lightblue;
             color: @graphistry-lightblue;
+        }
+
+        .glyphicon-cloud-download {
+            margin: 3px;
         }
     }
 
@@ -1328,6 +1332,9 @@ button:disabled {
         }
     }
 
+    .csvExportButton {
+        margin: 3px;
+    }
 
     .backgrid {
         width: 100%;
