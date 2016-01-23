@@ -1,4 +1,17 @@
 ---
+- name: Install official nginx apt repo signing key
+  sudo: yes
+  apt_key: url=http://nginx.org/keys/nginx_signing.key state=present
+
+# 'Mainline' nginx branch is considered to be 'newest and mostly stable', and reccomended
+- name: Add official nginx apt repo
+  sudo: yes
+  apt_repository: "repo='deb http://nginx.org/packages/mainline/ubuntu/ {{ ansible_lsb.codename }} nginx' state=present update_cache=yes"
+
+- name: Add official nginx apt source repo
+  sudo: yes
+  apt_repository: "repo='deb-src http://nginx.org/packages/mainline/ubuntu/ {{ ansible_lsb.codename }} nginx' state=present update_cache=yes"
+
 - name: Install nginx
   apt: pkg=nginx
        state=latest
