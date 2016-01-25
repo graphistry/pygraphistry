@@ -839,6 +839,7 @@ function VizServer(app, socket, cachedVBOs) {
                 failWithMessage(cb, 'No attribute found for: ' + query.attribute + ',' + query.type);
                 return;
             }
+
             var attributeName = normalization.attribute,
                 type = normalization.type;
             if (encodingType) {
@@ -857,6 +858,7 @@ function VizServer(app, socket, cachedVBOs) {
                 failWithMessage(cb, e.message);
                 return;
             }
+
             if (encoding === undefined || encoding.scaling === undefined) {
                 failWithMessage(cb, 'No scaling inferred for: ' + encodingType);
                 return;
@@ -866,7 +868,7 @@ function VizServer(app, socket, cachedVBOs) {
             if (query.reset) {
                 dataframe.resetLocalBuffer(bufferName);
             } else {
-                var sourceValues = dataframe.getColumnValues(attributeName, type);
+                var sourceValues = dataframe.getUnfilteredColumnValues(type, attributeName);
                 var encodedAttributeName = bufferName + '_' + attributeName;
                 var encodedColumnValues;
                 // TODO fix how we map to and recolor edges.
@@ -880,11 +882,11 @@ function VizServer(app, socket, cachedVBOs) {
                 } else {
                     encodedColumnValues = _.map(sourceValues, encoding.scaling);
                 }
-                dataframe.overlayLocalBuffer(bufferName, encodedAttributeName, encodedColumnValues);
+                dataframe.overlayLocalBuffer(type, bufferName, encodedAttributeName, encodedColumnValues);
                 enabled = true;
             }
             graph.simulator.tickBuffers([bufferName]);
-            this.animationStep.interact({play: true, layout: false});
+            this.tickGraph(cb);
             cb(_.extend({success: true, enabled: enabled}, _.omit(encoding, ['scaling'])));
         }.bind(this)).subscribe(
             _.identity,
