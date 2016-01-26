@@ -196,7 +196,8 @@ html.poiIsDisabled .graph-label-container {
     &.on {
         & .graph-label-title {
             max-height: none;
-            max-width: none;
+            max-width: 20em;
+            word-wrap: break-word;
             height: auto;
         }
         & .graph-label-contents {
@@ -249,6 +250,7 @@ html.poiIsDisabled .graph-label-container {
 
         table {
             font-size: 1.1em;
+            width: 100%;
 
             td,
             .graph-label-value-wrapper {
