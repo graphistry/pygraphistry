@@ -49,10 +49,22 @@ function sizeInMBOfVBOs(VBOs) {
     return (vboSizeBytes / (1024 * 1024)).toFixed(1);
 }
 
+function getDatatypesFromValues(values, type, dataframe) {
+    var dataTypes = {};
+    if (values.length > 0) {
+        _.each(_.keys(values[0]), function (columnName) {
+            dataTypes[columnName] = dataframe.getDataType(columnName, type);
+        });
+    }
+    return dataTypes;
+}
+
 // TODO: Dataframe doesn't currently support sorted/filtered views, so we just do
 // a shitty job and manage it directly out here, which is slow + error prone.
 // We need to extend dataframe to allow us to have views.
 function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending, searchFilter) {
+    var values;
+    var dataTypes;
 
     if (searchFilter) {
         searchFilter = searchFilter.toLowerCase();
@@ -75,7 +87,9 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
     var count = indices.length;
 
     if (sort_by === undefined) {
-        return {count: count, values: dataFrame.getRows(indices.slice(start, end), type)};
+        values = dataFrame.getRows(indices.slice(start, end), type);
+        dataTypes = getDatatypesFromValues(values, type, dataFrame);
+        return {count: count, values: values, dataTypes: dataTypes};
     }
 
     // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
@@ -110,7 +124,10 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
         return val[1];
     });
 
-    return {count: count, values: dataFrame.getRows(slicedIndices, type)};
+    values = dataFrame.getRows(slicedIndices, type);
+    dataTypes = getDatatypesFromValues(values, type, dataFrame);
+
+    return {count: count, values: values, dataTypes: dataTypes};
 }
 
 VizServer.prototype.resetState = function (dataset, socket) {
@@ -161,9 +178,11 @@ VizServer.prototype.readSelection = function (type, query, res) {
             var end = start + per_page;
             var data = sliceSelection(graph.dataframe, type, lastSelectionIndices[type], start, end,
                                         query.sort_by, query.order === 'asc', query.search);
-            res.send(_.extend(data, {
+            _.extend(data, {
                 page: page
-            }));
+            });
+
+            res.send(data);
         }).fail(log.makeQErrorHandler(logger, 'read_selection qLastSelectionIndices'));
 
     }).subscribe(
