@@ -108,7 +108,7 @@ def storeValueVector(vg, df, col, dtype, target):
 
 
 def objectEncoder(vg, series, dtype):
-    series.where(pandas.notnull(series), '', inplace=True)
+    series.where(pandas.notnull(series), '\0', inplace=True)
     vec = vg.string_vectors.add()
     for val in series.map(lambda x: str(x)):
         vec.values.append(val)
