@@ -120,7 +120,7 @@ function clone(repo) {
 
     return Q.nfcall(fs.stat, clone_path)
         .then(
-            function(stats) {
+            function(/*stats*/) {
                 console.error('Pulling repo "%s" (in %s)', repo, clone_path);
 
                 return exec(cmd, pull_args, clone_path)
@@ -143,7 +143,7 @@ function clone(repo) {
             },
             function(err) {
                 console.error('Cloning repo "%s" (in %s)', repo, wd);
-                return exec(cmd, clone_args, wd)
+                return exec(cmd, clone_args, wd);
             }
         )
         .thenResolve(repo);
@@ -152,7 +152,7 @@ function clone(repo) {
 
 // Starts a `ssh` master connection to git@github.com. This will effectively pre-connect to GitHub,
 // then allow subsequent connection (e.g. from `git {clone,pull}`) to tunnel over it without having
-// to renegotiate a new SSH session eeach time, which may speed up cloning/pulling a bunch of repos.
+// to renegotiate a new SSH session each time, which may speed up cloning/pulling a bunch of repos.
 function startSshControlMaster(socketPath) {
     socketPath = socketPath || defaultSshControlPath;
 
@@ -260,7 +260,7 @@ function topoSort(node) {
         _.each(innerSort, function (i) { // Because _.union does not work with objects
             if (!_.find(sort, function (i2) { return i2.name === i.name }))
                 sort.push(i);
-        })
+        });
         return sort;
     }, []);
     sort.push(makeModule(node));
@@ -336,12 +336,12 @@ function link(module, linkExternals) {
                         console.log("  ...linking dependency \"%s\" (already installed, but not as a link)", dependency);
                         return true;
                     }
-                } catch(e) {
+                } catch(ignore) {
                     console.log("  ...linking dependency \"%s\"", dependency);
                     return true;
                 }
             })
-            .map(function linkDepndency(dependency) {
+            .map(function linkDependency(dependency) {
                 return exec(cmd, ['link', dependency], cwd);
             })
             .value())
@@ -375,4 +375,4 @@ module.exports = {
     distinctExternals: distinctExternals,
     link: link,
     installGlobally: installGlobally
-}
+};

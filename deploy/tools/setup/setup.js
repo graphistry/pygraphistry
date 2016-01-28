@@ -31,7 +31,7 @@ var argv = require('yargs')
 
     .default('shared', false)
     .alias('shared', 's')
-    .describe('shared', 'install external dependencies globally, enambing cross repos sharing')
+    .describe('shared', 'install external dependencies globally, enabling cross repos sharing')
 
     .default('versions', false)
     .alias('versions', 'v')
