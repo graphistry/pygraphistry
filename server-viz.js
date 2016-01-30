@@ -49,10 +49,22 @@ function sizeInMBOfVBOs(VBOs) {
     return (vboSizeBytes / (1024 * 1024)).toFixed(1);
 }
 
+function getDatatypesFromValues(values, type, dataframe) {
+    var dataTypes = {};
+    if (values.length > 0) {
+        _.each(_.keys(values[0]), function (columnName) {
+            dataTypes[columnName] = dataframe.getDataType(columnName, type);
+        });
+    }
+    return dataTypes;
+}
+
 // TODO: Dataframe doesn't currently support sorted/filtered views, so we just do
 // a shitty job and manage it directly out here, which is slow + error prone.
 // We need to extend dataframe to allow us to have views.
 function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending, searchFilter) {
+    var values;
+    var dataTypes;
 
     if (searchFilter) {
         searchFilter = searchFilter.toLowerCase();
@@ -75,7 +87,9 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
     var count = indices.length;
 
     if (sort_by === undefined) {
-        return {count: count, values: dataFrame.getRows(indices.slice(start, end), type)};
+        values = dataFrame.getRows(indices.slice(start, end), type);
+        dataTypes = getDatatypesFromValues(values, type, dataFrame);
+        return {count: count, values: values, dataTypes: dataTypes};
     }
 
     // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
@@ -110,7 +124,10 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
         return val[1];
     });
 
-    return {count: count, values: dataFrame.getRows(slicedIndices, type)};
+    values = dataFrame.getRows(slicedIndices, type);
+    dataTypes = getDatatypesFromValues(values, type, dataFrame);
+
+    return {count: count, values: values, dataTypes: dataTypes};
 }
 
 VizServer.prototype.resetState = function (dataset, socket) {
@@ -161,9 +178,11 @@ VizServer.prototype.readSelection = function (type, query, res) {
             var end = start + per_page;
             var data = sliceSelection(graph.dataframe, type, lastSelectionIndices[type], start, end,
                                         query.sort_by, query.order === 'asc', query.search);
-            res.send(_.extend(data, {
+            _.extend(data, {
                 page: page
-            }));
+            });
+
+            res.send(data);
         }).fail(log.makeQErrorHandler(logger, 'read_selection qLastSelectionIndices'));
 
     }).subscribe(
@@ -190,36 +209,41 @@ VizServer.prototype.tickGraph = function (cb) {
 VizServer.prototype.filterGraphByMaskList = function (graph, selectionMasks, exclusionMasks, errors, viewConfig, cb) {
     var response = {filters: viewConfig.filters, exclusions: viewConfig.exclusions};
 
-    var unprunedMasks = graph.dataframe.composeMasks(selectionMasks, exclusionMasks, viewConfig.limits);
+    var dataframe = graph.dataframe;
+    var unprunedMasks = dataframe.composeMasks(selectionMasks, exclusionMasks, viewConfig.limits);
     // Prune out dangling edges.
-    var masks = graph.dataframe.pruneMaskEdges(unprunedMasks);
-
-    // Return early if mask is same as graph's active mask.
-    if (masks.equals(graph.dataframe.lastMasks)) {
-        var sets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
-        _.extend(response, {success: true, sets:sets});
-        cb(response);
-        return;
-    }
+    var masks = dataframe.pruneMaskEdges(unprunedMasks);
 
     logger.debug('mask lengths: ', masks.numEdges(), masks.numPoints());
 
-    // Promise
     var simulator = graph.simulator;
     try {
-        graph.dataframe.applyDataframeMaskToFilterInPlace(masks, simulator)
-            .then(function () {
-                simulator.layoutAlgorithms
-                    .map(function (alg) {
-                        return alg.updateDataframeBuffers(simulator);
-                    });
-            }).then(function () {
-                simulator.tickBuffers([
-                    'curPoints', 'pointSizes', 'pointColors',
-                    'edgeColors', 'logicalEdges', 'springsPos'
-                ]);
+        var filterPromise = dataframe.applyDataframeMaskToFilterInPlace(masks, simulator);
+        // Prune out orphans if configured that way:
+        if (viewConfig.parameters.pruneOrphans === true) {
+            filterPromise = filterPromise.then(function () {
+                var orphanPrunedMasks = dataframe.pruneOrphans(masks);
+                return dataframe.applyDataframeMaskToFilterInPlace(orphanPrunedMasks, simulator);
+            });
+        }
+        filterPromise
+            .then(function (updatedBuffers) {
+                if (updatedBuffers !== false) {
+                    simulator.layoutAlgorithms
+                        .map(function (alg) {
+                            return alg.updateDataframeBuffers(simulator);
+                        });
+                }
+                return updatedBuffers;
+            }).then(function (updatedBuffers) {
+                if (updatedBuffers !== false) {
+                    simulator.tickBuffers([
+                        'curPoints', 'pointSizes', 'pointColors',
+                        'edgeColors', 'logicalEdges', 'springsPos'
+                    ]);
 
-                this.tickGraph(cb);
+                    this.tickGraph(cb);
+                }
                 var sets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
                 _.extend(response, {success: true, sets: sets, errors: errors});
                 _.each(errors, logger.debug.bind(logger));
@@ -370,6 +394,36 @@ function VizServer(app, socket, cachedVBOs) {
             renderConfigDeferred.resolve(rConf.scenes[metadata.scene]);
         }.bind(this)).fail(log.makeQErrorHandler(logger, 'resetting state'));
     }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(logger, 'Get render config'));
+
+    this.socket.on('get_view_config', function (ignore, cb) {
+        this.viewConfig.take(1).do(function (viewConfig) {
+            logger.info('viewConfig', viewConfig);
+            cb({success: true, viewConfig: viewConfig});
+        }).subscribe(_.identity, function (err) {
+            cb({success: false, errors: [err.message]});
+            log.makeRxErrorHandler(logger, 'Get view config')(err);
+        });
+    }.bind(this));
+
+    this.socket.on('update_view_config', function (newValues, cb) {
+        this.viewConfig.take(1).do(function (viewConfig) {
+            extend(true, viewConfig, newValues);
+            cb({success: true, viewConfig: viewConfig});
+        }).subscribe(_.identity, function (err) {
+            cb({success: false, errors: [err.message]});
+            log.makeRxErrorHandler(logger, 'Update view config')(err);
+        });
+    }.bind(this));
+
+    this.socket.on('update_view_parameter', function (spec, cb) {
+        this.viewConfig.take(1).do(function (viewConfig) {
+            viewConfig.parameters[spec.name] = spec.value;
+            cb({success: true});
+        }).subscribe(_.identity, function (err) {
+            cb({success: false, errors: [err.message]});
+            log.makeRxErrorHandler(logger, 'Update view parameter')(err);
+        });
+    }.bind(this));
 
     this.socket.on('render_config', function(_, cb) {
         this.qRenderConfig.then(function (renderConfig) {
@@ -738,6 +792,24 @@ function VizServer(app, socket, cachedVBOs) {
         }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
 
+    this.socket.on('move_nodes', function (data, cb) {
+        this.graph.take(1).do(function (graph) {
+
+            if (data.marquee) {
+                graph.simulator.moveNodes(data.marquee)
+                    .then(function () {
+                        this.tickGraph(cb);
+                    }.bind(this));
+            }
+
+        }.bind(this)).subscribe(
+            _.identity,
+            function (err) {
+                log.makeRxErrorHandler(logger, 'move nodes handler')(err);
+            }
+        );
+    }.bind(this));
+
     this.socket.on('layout_controls', function(_, cb) {
         logger.info('Sending layout controls to client');
 
@@ -871,6 +943,7 @@ function VizServer(app, socket, cachedVBOs) {
                 failWithMessage(cb, 'No attribute found for: ' + query.attribute + ',' + query.type);
                 return;
             }
+
             var attributeName = normalization.attribute,
                 type = normalization.type;
             if (encodingType) {
@@ -889,6 +962,7 @@ function VizServer(app, socket, cachedVBOs) {
                 failWithMessage(cb, e.message);
                 return;
             }
+
             if (encoding === undefined || encoding.scaling === undefined) {
                 failWithMessage(cb, 'No scaling inferred for: ' + encodingType);
                 return;
@@ -898,7 +972,7 @@ function VizServer(app, socket, cachedVBOs) {
             if (query.reset) {
                 dataframe.resetLocalBuffer(bufferName);
             } else {
-                var sourceValues = dataframe.getColumnValues(attributeName, type);
+                var sourceValues = dataframe.getUnfilteredColumnValues(type, attributeName);
                 var encodedAttributeName = bufferName + '_' + attributeName;
                 var encodedColumnValues;
                 // TODO fix how we map to and recolor edges.
@@ -912,11 +986,11 @@ function VizServer(app, socket, cachedVBOs) {
                 } else {
                     encodedColumnValues = _.map(sourceValues, encoding.scaling);
                 }
-                dataframe.overlayLocalBuffer(bufferName, encodedAttributeName, encodedColumnValues);
+                dataframe.overlayLocalBuffer(type, bufferName, encodedAttributeName, encodedColumnValues);
                 enabled = true;
             }
             graph.simulator.tickBuffers([bufferName]);
-            this.animationStep.interact({play: true, layout: false});
+            this.tickGraph(cb);
             cb(_.extend({success: true, enabled: enabled}, _.omit(encoding, ['scaling'])));
         }.bind(this)).subscribe(
             _.identity,
@@ -952,6 +1026,7 @@ VizServer.prototype.getViewToLoad = function (workbookDoc, query) {
  * @returns {Promise}
  */
 VizServer.prototype.setupDataset = function (workbookDoc, query) {
+    this.datasetName = query.dataset;
     var queryDatasetURL = loader.datasetURLFromQuery(query),
         queryDatasetConfig = loader.datasetConfigFromQuery(query);
     var datasetURLString, datasetConfig;
@@ -1163,6 +1238,32 @@ VizServer.prototype.defineRoutesInApp = function (app) {
         }
 
         appRouteResponder.readSelection('edge', req.query, res);
+    });
+
+    this.app.get('/export_csv', function (req, res) {
+        logger.debug('Got export CSV request: ', req.query);
+        var type = req.query.type;
+
+        appRouteResponder.graph.take(1).do(function (graph) {
+            var content = graph.dataframe.formatAsCsv(type)
+                .then(function (formattedCsv) {
+
+                    var datasetName = appRouteResponder.datasetName || 'graphistry';
+                    var filenameSuffix = (type === 'point') ? 'Points' : 'Edges';
+                    var filename = datasetName + filenameSuffix + '.csv';
+                    res.setHeader('Content-Disposition', 'attachment; filename=' + filename + ';');
+                    res.setHeader('Content-Type', 'text/plain');
+                    res.charset = 'UTF-8';
+                    res.write(formattedCsv);
+                    res.send();
+
+                });
+        }).subscribe(
+            _.identity,
+            function (err) {
+                log.makeRxErrorHandler(logger, 'export csv handler')(err);
+            }
+        );
     });
 };
 

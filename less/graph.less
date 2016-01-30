@@ -11,6 +11,7 @@
 @medium-grey: rgba(200,200,200,1.0);
 @dark-grey: rgba(100,100,100,1.0);
 @floating-box-shadow: 0 1.2em 1.2em rgba(0,0,0,0.7);
+@floating-box-shadow-bottom: -0.3em 0em 0.3em rgba(0,0,0,0.2);
 @floating-border-radius: 3px;
 
 @graphistry-lightblue: rgb(15, 165, 197);
@@ -35,6 +36,7 @@
 @graph-label-clicked-z:         3400;
 @graph-label-hover-z:           3450;
 @graph-label-hover-clicked-z:   3500;
+@graph-label-modal-z:           3550;
 @menu-z:                        3600;
 @menus-z:                       3700;
 @legend-z:                      3800;
@@ -74,6 +76,12 @@
     &.off .graph-label {
         display: none;
     }
+}
+
+
+
+html.poiIsDisabled .graph-label-container {
+    display: none;
 }
 
 
@@ -178,6 +186,7 @@
         display: inline-block;
         overflow:hidden;
         pointer-events: none;
+        vertical-align: middle;
     }
 
     .label-type {
@@ -192,7 +201,8 @@
     &.on {
         & .graph-label-title {
             max-height: none;
-            max-width: none;
+            max-width: 20em;
+            word-wrap: break-word;
             height: auto;
         }
         & .graph-label-contents {
@@ -204,6 +214,10 @@
             overflow-y: auto;
             overflow-x: hidden;
 
+        }
+
+        .graph-label-container .label-type:after {
+            margin-left: 1em;
         }
 
         .graph-label-container.graph-label-point .graph-label-title .label-type:after {
@@ -241,11 +255,12 @@
 
         table {
             font-size: 1.1em;
+            width: 100%;
 
             td,
             .graph-label-value-wrapper {
                 max-width: 15em;
-                overflow: hidden;
+                min-width: 2.2em; //fit icons
                 text-overflow: ellipsis;
                 white-space: nowrap;
 
@@ -267,26 +282,48 @@
     }
 
     //Hover icons, including with scroll
+    .graph-label-value {
+        position: relative; //anchoring so icons can be placed above
+    }
     .graph-label-contents {
-        position: relative;
         background-color: #eee;
-        padding-bottom: 2.5em;
+
         .graph-label-pair:hover .graph-label-icons  {
-            visibility: visible;
+            display: block;
+            z-index: @graph-label-modal-z;
         }
+
+        //singleton
+        .graph-label-pair:first-child:last-child .graph-label-icons {
+            top: 0;
+            bottom: auto;
+        }
+
+        .graph-label-pair:not(:last-child) .graph-label-icons {
+            border-top-left-radius: 0;
+            border-top-right-radius: 0;
+            bottom: -2em;
+        }
+        .graph-label-pair:last-child .graph-label-icons {
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+            top: -2.1em;
+        }
+
         .graph-label-icons {
-            position: absolute;
-            visibility: hidden;
+
+            position: absolute; //relative to graph-label-value-wrapper
+            display: none;
 
             max-width: none;
             white-space: nowrap;
 
             margin-left: -2em;
             border-radius: 4px;
-            border-top-left-radius: 0;
-            border-top-right-radius: 0;
             padding: 0.3em;
             background-color: @graphistry-darkblue;
+
+            font-size: 0.75em; //fit on next row
 
             & > a {
                 padding-top: 5px;
@@ -309,16 +346,6 @@
         &:nth-child(even) {
             background-color: #fff;
         }
-
-        &:last-child, &:hover:last-child {
-            &:nth-child(odd) {
-                border-bottom: 1px solid #fff;
-            }
-            &:nth-child(even) {
-                border-bottom: 1px solid @graphistry-darkblue;
-            }
-        }
-
 
         border-bottom: 1px solid transparent;
         &:hover, &:hover:nth-child(odd), &:hover:nth-child(even) {
@@ -343,16 +370,23 @@
         .graph-label-key:after {
             content: ": "
         }
+
+        &:last-child .graph-label-icons > a {
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+
+        }
+        &:not(:last-child) .graph-label-icons > a {
+            border-top-left-radius: 0;
+            border-top-right-radius: 0;
+        }
         .graph-label-value-wrapper {
             max-height: 5em;
-            overflow: auto;
             .graph-label-icons > a {
                 font-size: 0.8em;
                 color: @graphistry-darkblue;
                 background-color: #fff;
                 border-radius: 5px;
-                border-top-left-radius: 0;
-                border-top-right-radius: 0;
                 padding: 3px;
                 padding-left: 5px;
                 padding-right: 5px;
@@ -472,9 +506,8 @@
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background-color: rgba(255,255,255,0.3);
-    box-shadow: 0 0 10px rgba(255,255,255,0.75);
-    border: 1px dashed rgba(51,51,153, 0.75);
+    background-color: rgba(255,255,255,0.25);
+    border: 1px dashed rgba(255,255,255,0.25);
 }
 
 .selection.off {
@@ -487,10 +520,8 @@
 }
 
 .draggable, .dragging {
-    border-width: 3px;
-    border-color: rgba(51, 51, 102, 1);
-    border-radius: 10px;
-
+    border-width: 1px;
+    border-color: rgba(255,255,255,0.75);
 }
 
 .draggable {
@@ -710,9 +741,9 @@ button.btn-default {
     font-size: 0.75em;
 }
 
-.dropdown {
+.dropdown, .form-search {
 
-    button {
+    button, .csvExportButton {
         background-color: white;
         border: 1px solid @medium-grey;
         color: @dark-grey;
@@ -724,6 +755,10 @@ button.btn-default {
             background-color: white;
             border-color: @graphistry-lightblue;
             color: @graphistry-lightblue;
+        }
+
+        .glyphicon-cloud-download {
+            margin: 3px;
         }
     }
 
@@ -1144,19 +1179,31 @@ button:disabled {
 // Data Inspector
 //////////////////////////////////////////////////////////////////////////////
 
+//resize & control shadow based on whether histogram on right
+#inspector, #inspector-overlay {
+
+    &.with-histograms {
+        width: 85%;
+    }
+    &:not(.with-histograms) {
+        width: 100%;
+    }
+
+}
+
 #inspector {
     visibility: hidden;
     z-index: @inspector-z;
     position: fixed;
     left: 0;
     bottom: 0;
-    width: 100%;
+
     height: 17em;
     margin: 0;
     padding: 0;
     background-color: @light-grey-background-2;
 
-    .inspector-tabs {
+   .inspector-tabs {
         position: relative;
         float: left;
         width: 2.8em;
@@ -1184,8 +1231,9 @@ button:disabled {
         height: 17em;
         overflow: auto;
         &.panel {
-            box-shadow: @floating-box-shadow;
+            box-shadow: @floating-box-shadow-bottom;
             background-color: @light-grey-background-2;
+            border-right: 1px solid #DDD;
         }
     }
 
@@ -1295,6 +1343,9 @@ button:disabled {
         }
     }
 
+    .csvExportButton {
+        margin: 3px;
+    }
 
     .backgrid {
         width: 100%;
@@ -1476,6 +1527,7 @@ button:disabled {
         box-shadow: @floating-box-shadow;
         border-radius: @floating-border-radius;
         overflow-y:scroll;
+        overflow-x:hidden;
 
         // Scrollbars are hidden on mac, so we force it to show
         &::-webkit-scrollbar {

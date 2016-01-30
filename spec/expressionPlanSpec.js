@@ -9,6 +9,9 @@ describe('Plans for multi-column expressions', function () {
     var dataframe;
     beforeEach(function () {
         dataframe = new Dataframe();
+        spyOn(dataframe, 'getDataType').andCallFake(function (/*attributeName, type*/) {
+            return 'number';
+        });
         spyOn(dataframe, 'normalizeAttributeName').andCallFake(function (attributeName) {
             return {type: 'point', attribute: attributeName};
         });
