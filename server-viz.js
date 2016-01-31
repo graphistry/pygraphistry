@@ -1372,9 +1372,11 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     var matchingSets = _.filter(viewConfig.sets, function (vizSet) {
                         return specification.setIDs.indexOf(vizSet.id) !== -1;
                     });
-                    var combinedMasks = _.reduce(matchingSets, function (masks, vizSet) {
-                        return masks.union(vizSet.masks);
-                    }, new DataframeMask(graph.dataframe, [], []));
+                    var combinedMasks = _.reduce(_.map(matchingSets, function (vizSet) {
+                        return vizSet.masks;
+                    }), function (eachMask, accumMask) {
+                        return accumMask.union(eachMask);
+                    });
                     qNodeSelection = Q(combinedMasks);
                     break;
                 default:
