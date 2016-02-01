@@ -624,8 +624,8 @@ function VizServer(app, socket, cachedVBOs) {
 
             var resp = {
                 success: true,
-                max: maxTime,
-                min: minTime
+                max: maxTime.getTime(),
+                min: minTime.getTime()
             }
 
             cb(resp);
