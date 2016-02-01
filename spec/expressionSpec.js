@@ -31,6 +31,13 @@ function parse (inputString, trace) {
     return result.ast;
 }
 
+describe ('Reserved literals', function () {
+    it('should parse special numeric literals as string names', function () {
+        expect(parse('NaN')).toEqual({type: 'Literal', dataType: 'number', value: 'NaN'});
+        expect(parse('Infinity')).toEqual({type: 'Literal', dataType: 'number', value: 'Infinity'});
+    });
+});
+
 describe ('Numerical expressions', function () {
     it('should parse numerals', function () {
         expect(parse('3')).toEqual({type: 'Literal', dataType: 'integer', value: 3});
