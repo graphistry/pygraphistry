@@ -18,6 +18,7 @@ var persist     = require('./js/persist.js');
 var workbook    = require('./js/workbook.js');
 var labeler     = require('./js/labeler.js');
 var encodings   = require('./js/encodings.js');
+var palettes    = require('./js/palettes.js');
 var DataframeMask = require('./js/DataframeMask.js');
 var TransactionalIdentifier = require('./js/TransactionalIdentifier');
 var vgwriter    = require('./js/libs/VGraphWriter.js');
@@ -907,6 +908,26 @@ function VizServer(app, socket, cachedVBOs) {
                     }
                 } else {
                     encodedColumnValues = _.map(sourceValues, guardedScaling);
+                }
+                // Auto-detect when a buffer is filled with our ETL-defined color space and map that directly:
+                // TODO don't have ETL magically encode the color space; it doesn't save space, time, code, or style.
+                if (bufferName === 'pointColors' || bufferName === 'edgeColors') {
+                    var aggregations = dataframe.getColumnAggregations(attributeName, type, true),
+                        dataType = aggregations.getAggregationByType('dataType');
+                    if (dataType === 'integer') {
+                        var distinctValues = _.keys(aggregations.getAggregationByType('distinctValues'));
+                        if (_.isEmpty(distinctValues)) {
+                            distinctValues = [aggregations.getAggregationByType('minValue'), aggregations.getAggregationByType('maxValue')];
+                        }
+                        if (palettes.valuesFitOnePaletteCategory(distinctValues)) {
+                            for (var i = 0; i < encodedColumnValues.length; i++) {
+                                encodedColumnValues[i] = palettes.bindings[encodedColumnValues[i]];
+                            }
+                            encoding.palette = _.map(encoding.palette, function (sourceValue) {
+                                return palettes.intToHex(palettes.bindings[sourceValue]);
+                            });
+                        }
+                    }
                 }
                 dataframe.overlayLocalBuffer(type, bufferName, encodedAttributeName, encodedColumnValues);
                 enabled = true;
