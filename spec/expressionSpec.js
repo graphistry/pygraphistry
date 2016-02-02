@@ -35,6 +35,13 @@ describe ('Reserved literals', function () {
     it('should parse special numeric literals as string names', function () {
         expect(parse('NaN')).toEqual({type: 'Literal', dataType: 'number', value: 'NaN'});
         expect(parse('Infinity')).toEqual({type: 'Literal', dataType: 'number', value: 'Infinity'});
+        expect(parse('TrUe')).toEqual({type: 'Literal', dataType: 'boolean', value: true});
+        expect(parse('false')).toEqual({type: 'Literal', dataType: 'boolean', value: false});
+        expect(parse('null')).toEqual({type: 'Literal', dataType: 'null', value: null});
+    });
+    it('should parse identifiers that start with common keywords as prefixes', function () {
+        expect(parse('Indigo')).toEqual({type: 'Identifier', name: 'Indigo'});
+        expect(parse('Ishtar')).toEqual({type: 'Identifier', name: 'Ishtar'});
     });
 });
 
