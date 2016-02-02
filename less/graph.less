@@ -329,7 +329,7 @@ html.poiIsDisabled .graph-label-container {
                 padding-top: 5px;
             }
 
-            //* may be a tooltip
+            // may be a tooltip
             & > * + a {
                 margin-left: 0.3em;
             }
@@ -1781,7 +1781,19 @@ button:disabled {
         width: 100%;
         top: 0px;
         bottom: @timeExplorerMainHeight;
-        overflow: scroll;
+        overflow-y: scroll;
+        overflow-x: hidden;
+
+        // Scrollbars are hidden on mac, so we force it to show
+        &::-webkit-scrollbar {
+            -webkit-appearance: none;
+            width: 7px;
+        }
+        &::-webkit-scrollbar-thumb {
+            border-radius: 4px;
+            background-color: rgba(0,0,0,.5);
+            -webkit-box-shadow: 0 0 1px rgba(255,255,255,.5);
+        }
     }
 
     #timeExplorerMain {
