@@ -884,6 +884,13 @@ function VizServer(app, socket, cachedVBOs) {
             }
             var bufferName = encoding.bufferName;
             var enabled = false;
+            // Protect against encoding undefined values by letting them fall past the scaling.
+            var guardedScaling = function (sourceValue) {
+                if (dataframe.valueSignifiesUndefined(sourceValue)) {
+                    return undefined;
+                }
+                return encoding.scaling(sourceValue);
+            };
             if (query.reset) {
                 dataframe.resetLocalBuffer(bufferName);
             } else {
@@ -895,11 +902,11 @@ function VizServer(app, socket, cachedVBOs) {
                     encodedColumnValues = new Array(sourceValues.length * 2);
                     for (var i=0; i<sourceValues.length; i++) {
                         var value = sourceValues[i];
-                        encodedColumnValues[2*i] = encoding.scaling(value);
-                        encodedColumnValues[2*i+1] = encoding.scaling(value);
+                        encodedColumnValues[2*i] = guardedScaling(value);
+                        encodedColumnValues[2*i+1] = guardedScaling(value);
                     }
                 } else {
-                    encodedColumnValues = _.map(sourceValues, encoding.scaling);
+                    encodedColumnValues = _.map(sourceValues, guardedScaling);
                 }
                 dataframe.overlayLocalBuffer(type, bufferName, encodedAttributeName, encodedColumnValues);
                 enabled = true;
