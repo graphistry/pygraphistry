@@ -453,12 +453,14 @@ describe('IN/MEMBEROF expressions', function () {
     it('should parse IN', function () {
         expect(parse('IN foo')).toEqual({
             type: 'MemberOfExpression',
+            operator: 'IN',
             value: {type: 'Identifier', name: 'foo'}
         });
     });
     it('should parse IN', function () {
         expect(parse('MEMBEROF foo')).toEqual({
             type: 'MemberOfExpression',
+            operator: 'MEMBEROF',
             value: {type: 'Identifier', name: 'foo'}
         });
     });
