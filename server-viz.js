@@ -934,7 +934,7 @@ function VizServer(app, socket, cachedVBOs) {
             }
             // TODO fix how we map to and recolor edges.
             if (bufferName === 'edgeColors') {
-                encodedColumnValues = sourceValues.constructor(sourceValues.length * 2);
+                encodedColumnValues = new sourceValues.constructor(sourceValues.length * 2);
                 _.each(sourceValues, function (value, i) {
                     // Protect against encoding undefined values by letting them fall past the scaling.
                     if (!dataframe.valueSignifiesUndefined(value)) {
@@ -944,7 +944,7 @@ function VizServer(app, socket, cachedVBOs) {
                     }
                 });
             } else {
-                encodedColumnValues = sourceValues.constructor(sourceValues.length);
+                encodedColumnValues = new sourceValues.constructor(sourceValues.length);
                 _.each(sourceValues, function (value, i) {
                     // Protect against encoding undefined values by letting them fall past the scaling.
                     if (!dataframe.valueSignifiesUndefined(value)) {
