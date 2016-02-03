@@ -951,6 +951,7 @@ function VizServer(app, socket, cachedVBOs) {
                         encodedColumnValues[i] = wrappedScaling(value);
                     }
                 });
+                // TODO Compute edge color blends from point colors if no edge color otherwise specified.
             }
             dataframe.overlayLocalBuffer(type, bufferName, encodedAttributeName, encodedColumnValues);
             graph.simulator.tickBuffers([bufferName]);
