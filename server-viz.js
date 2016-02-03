@@ -923,7 +923,7 @@ function VizServer(app, socket, cachedVBOs) {
                             for (var i = 0; i < encodedColumnValues.length; i++) {
                                 encodedColumnValues[i] = palettes.bindings[encodedColumnValues[i]];
                             }
-                            encoding.palette = _.map(encoding.palette, function (sourceValue) {
+                            encoding.legend = _.map(encoding.legend, function (sourceValue) {
                                 return palettes.intToHex(palettes.bindings[sourceValue]);
                             });
                         }
