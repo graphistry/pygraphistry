@@ -20,7 +20,7 @@
     "common": "graphistry/common",
     "config": "graphistry/config",
     "csv": "~0.4.6",
-    "d3-interpolate": "^0.5.2",
+    "d3-interpolate": "~0.5.2",
     "d3-scale": "~0.4.0",
     "dateformat": "~1.0.11",
     "debug": "~2.1.3",
