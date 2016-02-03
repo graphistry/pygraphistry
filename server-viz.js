@@ -911,7 +911,7 @@ function VizServer(app, socket, cachedVBOs) {
                 }
                 // Auto-detect when a buffer is filled with our ETL-defined color space and map that directly:
                 // TODO don't have ETL magically encode the color space; it doesn't save space, time, code, or style.
-                if (bufferName === 'pointColors' || bufferName === 'edgeColors') {
+                if (bufferName.match(/Colors$/) && attributeName.match(/Color/i)) {
                     var aggregations = dataframe.getColumnAggregations(attributeName, type, true),
                         dataType = aggregations.getAggregationByType('dataType');
                     if (dataType === 'integer') {
