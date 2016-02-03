@@ -56,8 +56,8 @@
 - name: Create directory for client logs
   file: path=/var/log/clients
         state=directory
-        owner=root
-        group=www
+        owner=www
+        group=graphistry-dev
         mode=0775
   sudo: yes
   sudo_user: root
