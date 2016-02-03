@@ -871,8 +871,26 @@ function VizServer(app, socket, cachedVBOs) {
                     return;
                 }
             }
-            var encoding;
+            var encoding, bufferName;
             try {
+                if (!encodingType) {
+                    encodingType = encodings.inferEncodingType(dataframe, type, attributeName);
+                }
+                bufferName = encodings.bufferNameForEncodingType(encodingType);
+                if (query.reset) {
+                    if (bufferName) {
+                        dataframe.resetLocalBuffer(bufferName);
+                        graph.simulator.tickBuffers([bufferName]);
+                    }
+                    this.tickGraph(cb);
+                    cb({
+                        success: true,
+                        enabled: false,
+                        encodingType: encodingType,
+                        bufferName: bufferName
+                    });
+                    return;
+                }
                 encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType, variation, binning);
             } catch (e) {
                 failWithMessage(cb, e.message);
@@ -880,61 +898,70 @@ function VizServer(app, socket, cachedVBOs) {
             }
 
             if (encoding === undefined || encoding.scaling === undefined) {
-                failWithMessage(cb, 'No scaling inferred for: ' + encodingType);
+                failWithMessage(cb, 'No scaling inferred for: ' + encodingType + ' on ' + attributeName);
                 return;
             }
-            var bufferName = encoding.bufferName;
-            var enabled = false;
-            // Protect against encoding undefined values by letting them fall past the scaling.
-            var guardedScaling = function (sourceValue) {
-                if (dataframe.valueSignifiesUndefined(sourceValue)) {
-                    return undefined;
-                }
-                return encoding.scaling(sourceValue);
-            };
-            if (query.reset) {
-                dataframe.resetLocalBuffer(bufferName);
-            } else {
-                var sourceValues = dataframe.getUnfilteredColumnValues(type, attributeName);
-                var encodedAttributeName = bufferName + '_' + attributeName;
-                var encodedColumnValues;
-                // TODO fix how we map to and recolor edges.
-                if (bufferName === 'edgeColors') {
-                    encodedColumnValues = new Array(sourceValues.length * 2);
-                    for (var i=0; i<sourceValues.length; i++) {
-                        var value = sourceValues[i];
-                        encodedColumnValues[2*i] = guardedScaling(value);
-                        encodedColumnValues[2*i+1] = guardedScaling(value);
-                    }
-                } else {
-                    encodedColumnValues = _.map(sourceValues, guardedScaling);
-                }
+            var sourceValues = dataframe.getUnfilteredColumnValues(type, attributeName);
+            var encodedAttributeName = bufferName + '_' + attributeName;
+            var encodedColumnValues;
+            var wrappedScaling = encoding.scaling;
+            if (encodingType.match(/Color$/)) {
+                var impliesPaletteMap = false;
                 // Auto-detect when a buffer is filled with our ETL-defined color space and map that directly:
                 // TODO don't have ETL magically encode the color space; it doesn't save space, time, code, or style.
-                if (bufferName.match(/Colors$/) && attributeName.match(/Color/i)) {
+                if (attributeName.match(/Color/i)) {
                     var aggregations = dataframe.getColumnAggregations(attributeName, type, true),
                         dataType = aggregations.getAggregationByType('dataType');
                     if (dataType === 'integer') {
                         var distinctValues = _.keys(aggregations.getAggregationByType('distinctValues'));
                         if (_.isEmpty(distinctValues)) {
-                            distinctValues = [aggregations.getAggregationByType('minValue'), aggregations.getAggregationByType('maxValue')];
+                            distinctValues = [aggregations.getAggregationByType('minValue'),
+                                aggregations.getAggregationByType('maxValue')];
                         }
                         if (palettes.valuesFitOnePaletteCategory(distinctValues)) {
-                            for (var i = 0; i < encodedColumnValues.length; i++) {
-                                encodedColumnValues[i] = palettes.bindings[encodedColumnValues[i]];
-                            }
-                            encoding.legend = _.map(encoding.legend, function (sourceValue) {
-                                return palettes.intToHex(palettes.bindings[sourceValue]);
-                            });
+                            impliesPaletteMap = true;
                         }
                     }
                 }
-                dataframe.overlayLocalBuffer(type, bufferName, encodedAttributeName, encodedColumnValues);
-                enabled = true;
+                if (impliesPaletteMap) {
+                    wrappedScaling = function (x) { return palettes.bindings[x]; };
+                    encoding.legend = _.map(encoding.legend, function (sourceValue) {
+                        return palettes.intToHex(palettes.bindings[sourceValue]);
+                    });
+                } else {
+                    wrappedScaling = function (x) { return palettes.hexToABGR(encoding.scaling(x)); };
+                }
             }
+            // TODO fix how we map to and recolor edges.
+            if (bufferName === 'edgeColors') {
+                encodedColumnValues = sourceValues.constructor(sourceValues.length * 2);
+                _.each(sourceValues, function (value, i) {
+                    // Protect against encoding undefined values by letting them fall past the scaling.
+                    if (!dataframe.valueSignifiesUndefined(value)) {
+                        var scaledValue = wrappedScaling(value);
+                        encodedColumnValues[2 * i] = scaledValue;
+                        encodedColumnValues[2 * i + 1] = scaledValue;
+                    }
+                });
+            } else {
+                encodedColumnValues = sourceValues.constructor(sourceValues.length);
+                _.each(sourceValues, function (value, i) {
+                    // Protect against encoding undefined values by letting them fall past the scaling.
+                    if (!dataframe.valueSignifiesUndefined(value)) {
+                        encodedColumnValues[i] = wrappedScaling(value);
+                    }
+                });
+            }
+            dataframe.overlayLocalBuffer(type, bufferName, encodedAttributeName, encodedColumnValues);
             graph.simulator.tickBuffers([bufferName]);
             this.tickGraph(cb);
-            cb(_.extend({success: true, enabled: enabled}, _.omit(encoding, ['scaling'])));
+            cb({
+                success: true,
+                enabled: true,
+                encodingType: encodingType,
+                bufferName: bufferName,
+                legend: encoding.legend
+            });
         }.bind(this)).subscribe(
             _.identity,
             function (err) {
