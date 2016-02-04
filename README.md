@@ -5,9 +5,10 @@ Stream WebGL buffers into the browser from a remote server
 
 ## Build
 
-Requires Node 0.12.x.
+Requires (at least) node 0.10.41.
 
-Run `npm build`. or `npm dev`.
+`npm run dev` compiles for dev and starts a file watcher (but no live-reload).
+`npm run build` compiles for prodduction (and doesn't start a file-watcher).
 
 ## Test Datasets
 
