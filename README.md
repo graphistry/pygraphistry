@@ -5,7 +5,9 @@ Stream WebGL buffers into the browser from a remote server
 
 ## Build
 
-Run `grunt` or `grunt watch`.
+Requires Node 0.12.x.
+
+Run `npm build`. or `npm dev`.
 
 ## Test Datasets
 
