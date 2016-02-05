@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test": "jasmine-node spec",
+    "jshint": "jshint src --exclude src/graphVizApp/expressionParser.js",
     "postinstall": "npm run build",
     "dev": "npm run clean && webpack --watch --config ./webpack/webpack.dev.config.js",
     "build": "npm run clean && webpack --config ./webpack/webpack.prod.config.js",
