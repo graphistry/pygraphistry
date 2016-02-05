@@ -11,6 +11,32 @@
     "bundle": "npm run build && npm shrinkwrap && tar -cvjf bundle.tar.bz2 npm-shrinkwrap.json dist",
     "clean": "rm -rf dist"
   },
+  "jshintConfig": {
+    "camelcase": true,
+    "curly": true,
+    "eqeqeq": true,
+    "freeze": true,
+    "immed": true,
+    "indent": 4,
+    "latedef": "nofunc",
+    "newcap": true,
+    "noarg": true,
+    "nonbsp": true,
+    "quotmark": "single",
+    "undef": true,
+    "unused": true,
+    "strict": true,
+    "trailing": true,
+    "maxparams": 10,
+    "maxdepth": 3,
+    "maxcomplexity": 11,
+
+    "debug": true,
+    "devel": true,
+
+    "browser": true,
+    "node": true
+  },
   "dependencies": {
     "backbone": "~1.1.0",
     "backbone.paginator": "~2.0.0",
