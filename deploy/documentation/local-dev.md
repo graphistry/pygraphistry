@@ -1,6 +1,19 @@
 # Local Development
 
-## Setup
+## :warning: ANSIBLE WARNING! (2/4/16) :warning:
+
+Currently, our Ansible playbooks are *only* compatible with **Ansible 1.9.x**. Other version (namely 1.8 and 2.0) are currently *incompatible*, and you will not be unable to run a deploy using them.
+
+**Mac OS X**: Unfortunately, the Homebrew formula `ansible` has already been changed to v2.0.0, so *upgrades will leave you with the wrong version!* Run the following commands to install the proper version:
+
+    brew uninstall ansible; brew tap homebrew/versions; brew install homebrew/versions/ansible19
+
+ **Ubuntu**: Since the official Trusty apt repo is too old, and the official Ansible PPA repo is too new, you need to install Ansible via `pip`. Uninstall the ansible apt package if you already have it, and then run this command to install the proper version:
+
+    sudo apt-get install python-pip; sudo pip install ansible==1.9.4 jinja2
+
+
+## Install
 
 ### Mac
 
