@@ -991,24 +991,9 @@ function VizServer(app, socket, cachedVBOs) {
             var encodedColumnValues;
             var wrappedScaling = encoding.scaling;
             if (encodingType.match(/Color$/)) {
-                var impliesPaletteMap = false;
                 // Auto-detect when a buffer is filled with our ETL-defined color space and map that directly:
                 // TODO don't have ETL magically encode the color space; it doesn't save space, time, code, or style.
-                if (attributeName.match(/Color/i)) {
-                    var aggregations = dataframe.getColumnAggregations(attributeName, type, true),
-                        dataType = aggregations.getAggregationByType('dataType');
-                    if (dataType === 'integer') {
-                        var distinctValues = _.keys(aggregations.getAggregationByType('distinctValues'));
-                        if (_.isEmpty(distinctValues)) {
-                            distinctValues = [aggregations.getAggregationByType('minValue'),
-                                aggregations.getAggregationByType('maxValue')];
-                        }
-                        if (palettes.valuesFitOnePaletteCategory(distinctValues)) {
-                            impliesPaletteMap = true;
-                        }
-                    }
-                }
-                if (impliesPaletteMap) {
+                if (dataframe.doesColumnRepresentColorPaletteMap(type, attributeName)) {
                     wrappedScaling = function (x) { return palettes.bindings[x]; };
                     encoding.legend = _.map(encoding.legend, function (sourceValue) {
                         return palettes.intToHex(palettes.bindings[sourceValue]);
