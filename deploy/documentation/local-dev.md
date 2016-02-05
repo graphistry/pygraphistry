@@ -17,63 +17,39 @@ Currently, our Ansible playbooks are *only* compatible with **Ansible 1.9.x**. O
 
 ### Mac
 
-Mac sure you've installed [Homebrew](https://github.com/Homebrew/homebrew), then install our dependencies with the below commands.
-
-If you have issues with including header files during the install, try `brew unlink && brew link`. If you're still having issues, try reinstalling the XCode command line tools.
-
-**Note**: make sure you *don't* install the `node` package (or `brew uninstall node` if you have it installed.) Homebrew now only includes Node.js v0.12.x, and some of our modules only work with v0.10.x. We will use `n` to install Node.js instead.
-
-```bash
-brew install n git ansible pigz
-# Use this command to find the latest 0.10.x version of Node
-n ls
-# Assuming "0.10.36" is the latest 0.10.x version found above...
-n 0.10.36
-```
+1. Install [Xcode from the App Store](https://itunes.apple.com/us/app/xcode/id497799835?mt=12), and **launch it at least once** to agree to its SDK, and let it auto-install the command line build tools.
+2. Install [Homebrew](https://github.com/Homebrew/homebrew):
+        /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+3. Install required software via Homebrew:
+        brew tap homebrew/versions
+       brew install n git homebrew/versions/ansible19 pigz
+4. Use `n` to install Node.js. First run `n ls` to find the latest `0.10.x` release, then run this (replace `<version>` with the correct version number):
+        n <version>
+5. Install a compatible version of `npm` (2.x.x):
+        npm install -g npm@latest-2
+6. Make sure your computer's SSH public key is [authorized on your GitHub account](https://github.com/settings/ssh). Instructions for doing so can be found [here](https://help.github.com/articles/generating-an-ssh-key/).
+7. Create a new directory somewhere to download all of our Graphistry code to, and `cd` into it.
+8. Clone the deploy repo (aka this repo):
+        git clone git@github.com:graphistry/deploy.git
+9. Use our handy script to clone and install all of our important repos:
+        ./deploy/tools/setup/setup.js --clone --link
+10. You can deploy the latest code to the servers by running `./deploy/stage-deploy.sh` and `./deploy/prod-deploy.sh`, to deploy to staging or production, respectively. *Note: the HEAD of the `master` branch of each repo is what is deployed; it is not currently possible to deploy other branches/commits.*
 
 
 ### Ubuntu
 
-It is reccomended to use the [NodeSource Node.js distribution](https://github.com/nodesource/distributions) for Node.js rather than the default Ubuntu one. This is what the EC2 servers use, so it will most closely mathc our production environment.
+*Warning: Ubuntu documentation is a work in progress, and is currently incomplete.*
+
+It is reccomended to use the [NodeSource Node.js distribution](https://github.com/nodesource/distributions) for Node.js rather than the default Ubuntu one. This is what the EC2 servers use, so it will most closely match our production environment.
 
 ```bash
-sudo apt-get install git ansible
+sudo apt-get install python-pip; sudo pip install ansible==1.9.4 jinja2
 curl -sL https://deb.nodesource.com/setup | sudo bash -
 sudo apt-get install -y nodejs
 ```
 
-### Common
 
-Install the `grunt` command:
-
-```bash
-npm install --global grunt-cli
-```
-
-Life will also be easier if you add the local packages npm binaries to your path. However, these change based on your current directory. I accomplish this by adding the following to my `.bash_profile`:
-
-```bash
-_npm_bin_path() {
-    # Remove old npm bin paths from $PATH
-    local npm_PATH="$(printf '%s' "$PATH" | sed -E -e 's|(:)?[^:]*/node_modules/\.bin||g')"
-    # Ask npm for the local bin path. npm just guesses though, so we also verify it exists before adding it to $PATH
-    [[ -d "$(npm bin)" ]] && npm_PATH="$npm_PATH:$(npm bin)"
-    export PATH="$npm_PATH"
-}
-export PROMPT_COMMAND="${PROMPT_COMMAND:-:} ; _npm_bin_path"
-```
-
-
-## The Graphistry Stack
-
-1. Create a new empty directory (WD/ in this example).
-2. Clone this repository inside WD: `git clone git@github.com:graphistry/deploy.git`. You know have WD/deploy.
-3. Run NPM install the setup script: `cd deploy/tools/setup && npm install`.
-4. Run setup.js from `WD/deploy` to clone and link all remaining repositories: `cd deploy && ./tools/setup/setup.js --clone --link`. You can add the `--shared` flag to install all external (non-graphistry) dependencies globally, thus avoiding having multiple copies of the same libraries, one in each repository.
-5. Run `./tools/check.sh` (still in deploy) to run all tests.
-
-
-## EC2 Server Login
+## Server Login
 
 We run all of our SSH daemons on port 61630. You should have a user account with your SSH key installed already. If not, talk to Matt. Also make sure to turn on SSH authentication forwarding when you login (`-A`) to make GitHub cloning work.
 
