@@ -1,5 +1,7 @@
+'use strict';
+
 var path = require('path');
-var webpack = require('webpack')
+var webpack = require('webpack');
 
 var AssetsPlugin = require('assets-webpack-plugin');
 var StringReplacePlugin = require('string-replace-webpack-plugin');
@@ -7,7 +9,7 @@ var WriteFileWebpackPlugin = require('write-file-webpack-plugin');
 
 var preLoaders = [{
     test: /\.js$/,
-    loader: "source-map-loader"
+    loader: 'source-map-loader'
 }];
 
 var loaders = [{
@@ -22,13 +24,13 @@ var loaders = [{
         presets: [
             require.resolve('babel-preset-react'),
             require.resolve('babel-preset-es2015'),
-            require.resolve('babel-preset-stage-0'),
+            require.resolve('babel-preset-stage-0')
         ],
         plugins: [
             require.resolve('babel-plugin-transform-runtime')
         ],
-        cacheDirectory: true, // cache into OS temp folder by default
-    },
+        cacheDirectory: true // cache into OS temp folder by default
+    }
 },
 { test: /\.(png|jpg|jpeg|gif|mp3)$/, loader: 'url?limit=10000&name=[name]_[hash:6].[ext]' },
 { test: /\.txt$/, loader: 'raw' },
@@ -40,7 +42,7 @@ var loaders = [{
     loader: StringReplacePlugin.replace({ // from the 'string-replace-webpack-plugin'
         replacements: [{
             pattern: /typeof define\.amd !== (\"|\')undefined(\"|\')/ig,
-            replacement: function(match, p1, offset, string) {
+            replacement: function(/*match, p1, offset, string*/) {
                 return false;
             }
         }]
