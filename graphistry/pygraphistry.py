@@ -18,17 +18,71 @@ import numpy
 from . import util
 
 
-ApiKeyEnvVar = 'GRAPHISTRY_API_KEY'
+EnvVarNames = {
+    'api_key': 'GRAPHISTRY_API_KEY',
+    'api_version': 'GRAPHISTRY_API_VERSION',
+    'dataset_prefix': 'GRAPHISTRY_DATASET_PREFIX',
+    'hostname': 'GRAPHISTRY_HOSTNAME',
+    'protocol': 'GRAPHISTRY_PROTOCOL'
+}
 
 
 class PyGraphistry(object):
-    api = 1
-    api_key = None
+    _api_version = 1
+    _api_key = os.environ.get(EnvVarNames['api_key'], None)
     _tag = util.fingerprint()
-    _dataset_prefix = 'PyGraphistry/'
-    _hostname = 'localhost:3000'
-    _protocol = None
+    _dataset_prefix = os.environ.get(EnvVarNames['dataset_prefix'], 'PyGraphistry/')
+    _hostname = os.environ.get(EnvVarNames['hostname'], 'localhost:3000')
+    _protocol = os.environ.get(EnvVarNames['protocol'], None)
 
+    _is_authenticated = False
+
+    @staticmethod
+    def authenticate():
+        key = PyGraphistry.api_key()
+        if key is None:
+            raise RuntimeError('API key not set explicitly or available at ' + ApiKeyEnvVar)
+        if not PyGraphistry._is_authenticated:
+            PyGraphistry._check_key_and_version()
+            PyGraphistry._is_authenticated = True
+
+    @staticmethod
+    def server(value=None):
+        if value is None:
+            return PyGraphistry._hostname
+
+        # setter
+        shortcuts = {'localhost': 'localhost:3000',
+                     'staging': 'proxy-staging.graphistry.com',
+                     'labs': 'proxy-labs.graphistry.com'}
+        if value in shortcuts:
+            PyGraphistry._hostname = shortcuts[value]
+        else:
+            PyGraphistry._hostname = value
+
+    @staticmethod
+    def api_key(value=None):
+        if value is None:
+            return PyGraphistry._api_key
+
+        # setter
+        if value is not PyGraphistry._api_key:
+            PyGraphistry._api_key = value.strip()
+            PyGraphistry._is_authenticated = False
+
+    @staticmethod
+    def protocol(value=None):
+        if value is None:
+            return PyGraphistry._protocol
+        # setter
+        PyGraphistry._protocol = value
+
+    @staticmethod
+    def api_version(value=None):
+        if value is None:
+            return PyGraphistry._api_version
+        # setter
+        PyGraphistry._api_version = value
 
     @staticmethod
     def register(key=None, server='labs', protocol=None, api=1):
@@ -66,22 +120,11 @@ class PyGraphistry(object):
                     import graphistry
                     graphistry.register()
         """
-
-        shortcuts = {'localhost': 'localhost:3000',
-                     'staging': 'proxy-staging.graphistry.com',
-                     'labs': 'proxy-labs.graphistry.com'}
-        if server in shortcuts:
-            PyGraphistry._hostname = shortcuts[server]
-        else:
-            PyGraphistry._hostname = server
-        if key is None:
-            key = os.environ.get(ApiKeyEnvVar)
-        if key is None:
-            raise RuntimeError('API key not passed explicitly or available at ' + ApiKeyEnvVar)
-        PyGraphistry.api_key = key.strip()
-        PyGraphistry.api = api
-        PyGraphistry._protocol = protocol
-        PyGraphistry._check_key_and_version()
+        PyGraphistry.api_key(key)
+        PyGraphistry.server(server)
+        PyGraphistry.api_version(api)
+        PyGraphistry.protocol(protocol)
+        PyGraphistry.authenticate()
 
 
     @staticmethod
@@ -187,13 +230,12 @@ class PyGraphistry(object):
 
     @staticmethod
     def _etl1(dataset):
-        if PyGraphistry.api_key is None:
-            raise ValueError('API key required')
+        PyGraphistry.authenticate()
 
         headers = {'Content-Encoding': 'gzip', 'Content-Type': 'application/json'}
         params = {'usertag': PyGraphistry._tag, 'agent': 'pygraphistry', 'apiversion' : '1',
                   'agentversion': sys.modules['graphistry'].__version__,
-                  'key': PyGraphistry.api_key}
+                  'key': PyGraphistry.api_key()}
 
         out_file = PyGraphistry._get_data_file(dataset, 'json')
         response = requests.post(PyGraphistry._etl_url('json'), out_file.getvalue(),
@@ -209,8 +251,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def _etl2(dataset):
-        if PyGraphistry.api_key is None:
-            raise ValueError('API key required')
+        PyGraphistry.authenticate()
 
         vg = dataset['vgraph']
         encodings = dataset['encodings']
@@ -258,10 +299,9 @@ class PyGraphistry(object):
         else:
             return {'name': jres['dataset'], 'viztoken': jres['viztoken'], 'type': 'jsonMeta'}
 
-
     @staticmethod
     def _check_key_and_version():
-        params = {'text': PyGraphistry.api_key}
+        params = {'text': PyGraphistry.api_key()}
         try:
             response = requests.get(PyGraphistry._check_url(), params=params,
                                     timeout=(2,2))
@@ -283,6 +323,11 @@ class PyGraphistry(object):
             util.warn('Could not contact %s. Are you connected to the Internet?' % PyGraphistry._hostname)
 
 
+server = PyGraphistry.server
+protocol = PyGraphistry.protocol
+api_key = PyGraphistry.api_key
+api_version = PyGraphistry.api_version
+authenticate = PyGraphistry.authenticate
 register = PyGraphistry.register
 bind = PyGraphistry.bind
 edges = PyGraphistry.edges

@@ -307,10 +307,11 @@ class Plotter(object):
         self._check_mandatory_bindings(not isinstance(n, type(None)))
         PyG = pygraphistry.PyGraphistry
 
-        if (PyG.api == 1):
+        api_version = PyG.api_version()
+        if (api_version == 1):
             dataset = self._plot_dispatch(g, n, name, 'json')
             info = PyG._etl1(dataset)
-        elif (PyG.api == 2):
+        elif (api_version == 2):
             dataset = self._plot_dispatch(g, n, name, 'vgraph')
             info = PyG._etl2(dataset)
 

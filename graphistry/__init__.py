@@ -5,4 +5,4 @@ try:
 except DistributionNotFound:
     __version__ = '0.0.0'
 
-from graphistry.pygraphistry import register, bind, edges, nodes, graph, settings
+from graphistry.pygraphistry import server, protocol, api_key, api_version, authenticate, register, bind, edges, nodes, graph, settings
