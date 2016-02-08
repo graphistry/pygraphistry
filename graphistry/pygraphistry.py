@@ -41,7 +41,7 @@ class PyGraphistry(object):
     def authenticate():
         key = PyGraphistry.api_key()
         if key is None:
-            raise RuntimeError('API key not set explicitly or available at ' + ApiKeyEnvVar)
+            raise RuntimeError('API key not set explicitly or available at ' + EnvVarNames['api_key'])
         if not PyGraphistry._is_authenticated:
             PyGraphistry._check_key_and_version()
             PyGraphistry._is_authenticated = True

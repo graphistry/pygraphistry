@@ -91,7 +91,6 @@ def storeValueVector(vg, df, col, dtype, target):
         'float32': numericEncoder,
         'float64': numericEncoder,
         'datetime64[ns]': datetimeEncoder,
-        '<M8[D]': datetimeEncoder
     }
     (vec, info) = encoders[dtype.name](vg, df[col], dtype)
     vec.name = col
