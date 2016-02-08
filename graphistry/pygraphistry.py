@@ -5,6 +5,7 @@ from __future__ import print_function
 from future import standard_library
 standard_library.install_aliases()
 from builtins import object
+import os
 import sys
 import calendar
 import time
@@ -17,6 +18,9 @@ import numpy
 from . import util
 
 
+ApiKeyEnvVar = 'GRAPHISTRY_API_KEY'
+
+
 class PyGraphistry(object):
     api = 1
     api_key = None
@@ -27,7 +31,7 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def register(key, server='labs', protocol=None, api=1):
+    def register(key=None, server='labs', protocol=None, api=1):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -52,8 +56,15 @@ class PyGraphistry(object):
                 ::
 
                     import graphistry
-                    graphistry.register('my api key', 'staging', 'https')
+                    graphistry.register('my api key', server='staging', protocol='https')
 
+
+        **Example: Through environment variable**
+                ::
+                    export GRAPHISTRY_API_KEY = 'my api key'
+                ::
+                    import graphistry
+                    graphistry.register()
         """
 
         shortcuts = {'localhost': 'localhost:3000',
@@ -63,6 +74,10 @@ class PyGraphistry(object):
             PyGraphistry._hostname = shortcuts[server]
         else:
             PyGraphistry._hostname = server
+        if key is None:
+            key = os.environ.get(ApiKeyEnvVar)
+        if key is None:
+            raise RuntimeError('API key not passed explicitly or available at ' + ApiKeyEnvVar)
         PyGraphistry.api_key = key.strip()
         PyGraphistry.api = api
         PyGraphistry._protocol = protocol

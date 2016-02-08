@@ -26,7 +26,17 @@ graphistry.register(key="my api key")
 
 ```Python
 import graphistry
-graphistry.register('my api key', 'staging')
+graphistry.register(key='my api key', server='staging')
+```
+
+**From Environment**
+```Shell
+export GRAPHISTRY_API_KEY='my api key'
+```
+
+```Python
+import graphistry
+graphistry.register()
 ```
 
 ## `PyGraphistry.bind`
