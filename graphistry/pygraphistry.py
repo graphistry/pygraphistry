@@ -289,7 +289,7 @@ class PyGraphistry(object):
 
         params = {'usertag': PyGraphistry._tag, 'agent': 'pygraphistry', 'apiversion' : '2',
                   'agentversion': sys.modules['graphistry'].__version__,
-                  'key': PyGraphistry.api_key}
+                  'key': PyGraphistry.api_key()}
         response = requests.post(PyGraphistry._etl_url('json'), files=parts, params=params)
         response.raise_for_status()
 
