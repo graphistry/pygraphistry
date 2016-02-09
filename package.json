@@ -13,12 +13,14 @@
     "clean": "rm -rf dist"
   },
   "jshintConfig": {
+    "esversion": 6,
     "camelcase": true,
     "curly": true,
     "eqeqeq": true,
     "freeze": true,
     "immed": true,
     "indent": 4,
+    "jasmine": true,
     "latedef": "nofunc",
     "newcap": true,
     "noarg": true,
