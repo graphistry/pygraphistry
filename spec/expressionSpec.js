@@ -18,7 +18,7 @@ function parse (inputString, trace) {
             }
         };
     }
-    var result = PEGUtil.parse(parser, inputString, {
+    let result = PEGUtil.parse(parser, inputString, {
         startRule: 'start',
         tracer: tracer/*,
         makeAST: function (line, column, offset, args) {
@@ -31,29 +31,29 @@ function parse (inputString, trace) {
     return result.ast;
 }
 
-describe ('Reserved literals', function () {
-    it('should parse special numeric literals as string names', function () {
+describe ('Reserved literals', () => {
+    it('should parse special numeric literals as string names', () => {
         expect(parse('NaN')).toEqual({type: 'Literal', dataType: 'number', value: 'NaN'});
         expect(parse('Infinity')).toEqual({type: 'Literal', dataType: 'number', value: 'Infinity'});
         expect(parse('TrUe')).toEqual({type: 'Literal', dataType: 'boolean', value: true});
         expect(parse('false')).toEqual({type: 'Literal', dataType: 'boolean', value: false});
         expect(parse('null')).toEqual({type: 'Literal', dataType: 'null', value: null});
     });
-    it('should parse identifiers that start with common keywords as prefixes', function () {
+    it('should parse identifiers that start with common keywords as prefixes', () => {
         expect(parse('Indigo')).toEqual({type: 'Identifier', name: 'Indigo'});
         expect(parse('Ishtar')).toEqual({type: 'Identifier', name: 'Ishtar'});
     });
 });
 
-describe ('Numerical expressions', function () {
-    it('should parse numerals', function () {
+describe ('Numerical expressions', () => {
+    it('should parse numerals', () => {
         expect(parse('3')).toEqual({type: 'Literal', dataType: 'integer', value: 3});
     });
-    it('should parse large numerals', function () {
+    it('should parse large numerals', () => {
         expect(parse('345679801')).toEqual({type: 'Literal', dataType: 'integer', value: 345679801});
     });
-    it('should parse sums', function () {
-        var sum = parse('3 + 4');
+    it('should parse sums', () => {
+        let sum = parse('3 + 4');
         expect(sum.type).toEqual('BinaryExpression');
         expect(sum.operator).toEqual('+');
         expect(sum.left.value).toEqual(3);
@@ -61,37 +61,37 @@ describe ('Numerical expressions', function () {
     });
 });
 
-describe ('comparison operators', function () {
-    it('should parse ==', function () {
+describe ('comparison operators', () => {
+    it('should parse ==', () => {
         expect(parse('a == 3').operator).toBe('==');
     });
-    it('should parse <>', function () {
+    it('should parse <>', () => {
         expect(parse('a <> 3').operator).toBe('<>');
     });
 });
 
-describe ('literal lists', function () {
-    it('should parse an empty list', function () {
+describe ('literal lists', () => {
+    it('should parse an empty list', () => {
         expect(parse('()')).toEqual({type: 'ListExpression', elements: []});
     });
-    it('should parse single-element list', function () {
+    it('should parse single-element list', () => {
         expect(parse('(3)')).toEqual(
             {type: 'Literal', dataType: 'integer', value: 3});
         expect(parse('(3,)')).toEqual({type: 'ListExpression', elements: [
             {type: 'Literal', dataType: 'integer', value: 3}]});
     });
-    it('should parse double-element list', function () {
+    it('should parse double-element list', () => {
         expect(parse('(3, 4)')).toEqual({type: 'ListExpression', elements: [
             {type: 'Literal', dataType: 'integer', value: 3},
             {type: 'Literal', dataType: 'integer', value: 4}]});
     });
-    it('should parse multi-element list', function () {
+    it('should parse multi-element list', () => {
         expect(parse('(3, 4, 5)')).toEqual({type: 'ListExpression', elements: [
             {type: 'Literal', dataType: 'integer', value: 3},
             {type: 'Literal', dataType: 'integer', value: 4},
             {type: 'Literal', dataType: 'integer', value: 5}]});
     });
-    it('should parse with complex elements', function () {
+    it('should parse with complex elements', () => {
         expect(parse('(3 + 4, 5, foo(4))')).toEqual({
             type: 'ListExpression',
             elements: [
@@ -112,24 +112,24 @@ describe ('literal lists', function () {
     });
 });
 
-describe ('IN expressions', function () {
-    it('should parse A IN B', function () {
+describe ('IN expressions', () => {
+    it('should parse A IN B', () => {
         expect(parse('A IN B').operator).toEqual('IN');
     });
-    it('should parse A NOT IN B', function () {
-        var notInParse = parse('A NOT IN B');
+    it('should parse A NOT IN B', () => {
+        let notInParse = parse('A NOT IN B');
         expect(notInParse.operator).toEqual('NOT');
         expect(notInParse.value).toEqual(parse('A IN B'));
     });
-    it('should parse A in list', function () {
-        var clause = parse('A IN (1, 2, 3)');
+    it('should parse A in list', () => {
+        let clause = parse('A IN (1, 2, 3)');
         expect(clause.operator).toBe('IN');
         expect(_.pluck(clause.right.elements, 'value')).toEqual([1, 2, 3]);
     });
 });
 
-describe('LIKE expressions', function () {
-    it('should handle basic LIKE parsing', function () {
+describe('LIKE expressions', () => {
+    it('should handle basic LIKE parsing', () => {
         expect(parse('A LIKE "%abc%"')).toEqual({
             type: 'LikePredicate',
             operator: 'LIKE',
@@ -137,7 +137,7 @@ describe('LIKE expressions', function () {
             right: {type: 'Literal', dataType: 'string', value: '%abc%'}
         });
     });
-    it('should handle NOT LIKE', function () {
+    it('should handle NOT LIKE', () => {
         expect(parse('A NOT LIKE "%abc%"')).toEqual({
             type: 'NotExpression',
             operator: 'NOT',
@@ -149,7 +149,7 @@ describe('LIKE expressions', function () {
             }
         });
     });
-    it ('should handle ESCAPE option', function () {
+    it ('should handle ESCAPE option', () => {
         expect(parse('A ILIKE "%abc%" ESCAPE "%"')).toEqual({
             type: 'LikePredicate',
             operator: 'ILIKE',
@@ -160,8 +160,8 @@ describe('LIKE expressions', function () {
     });
 });
 
-describe('REGEXP/SIMILAR TO expressions', function () {
-    it('should parse REGEXP', function () {
+describe('REGEXP/SIMILAR TO expressions', () => {
+    it('should parse REGEXP', () => {
         expect(parse('A REGEXP "a.*b"')).toEqual({
             type: 'RegexPredicate',
             operator: 'REGEXP',
@@ -179,7 +179,7 @@ describe('REGEXP/SIMILAR TO expressions', function () {
             }
         });
     });
-    it('should parse SIMILAR TO', function () {
+    it('should parse SIMILAR TO', () => {
         expect(parse('A SIMILAR TO "a.*b"')).toEqual({
             type: 'RegexPredicate',
             operator: 'SIMILAR TO',
@@ -189,21 +189,21 @@ describe('REGEXP/SIMILAR TO expressions', function () {
     });
 });
 
-describe ('precedence', function () {
+describe ('precedence', () => {
     it('should bind * closer than +', function() {
-        var clause = parse('3 + 4 * 5');
+        let clause = parse('3 + 4 * 5');
         expect(clause.operator).toBe('+');
         expect(clause.right.operator).toBe('*');
-        var alt = parse('3 + (4 * 5)');
+        let alt = parse('3 + (4 * 5)');
         expect(alt).toEqual(clause);
     });
-    it('should use parentheses to override precedence', function () {
-        var clause = parse('(3 + 4) * 5');
+    it('should use parentheses to override precedence', () => {
+        let clause = parse('(3 + 4) * 5');
         expect(clause.operator).toBe('*');
         expect(clause.left.operator).toBe('+');
     });
-    it('should bind comparisons closer than conjunctions', function () {
-        var clause = parse('a < 4 and b > 5');
+    it('should bind comparisons closer than conjunctions', () => {
+        let clause = parse('a < 4 and b > 5');
         expect(clause.operator).toBe('and');
         expect(clause.left.operator).toBe('<');
         expect(clause.right.operator).toBe('>');
@@ -215,24 +215,24 @@ describe ('precedence', function () {
     });
 });
 
-describe ('identifiers', function () {
-    it('parses alphanumeric', function () {
+describe ('identifiers', () => {
+    it('parses alphanumeric', () => {
         expect(parse('x')).toEqual({type: 'Identifier', name: 'x'});
         expect(parse('x_y')).toEqual({type: 'Identifier', name: 'x_y'});
         expect(parse('x_2')).toEqual({type: 'Identifier', name: 'x_2'});
     });
-    it('parses colon-separated', function () {
+    it('parses colon-separated', () => {
         expect(parse('x:y')).toEqual({type: 'Identifier', name: 'x:y'});
     });
-    it('parses identifiers that look like keywords', function () {
+    it('parses identifiers that look like keywords', () => {
         expect(parse('endswith')).toEqual({
             type: 'Identifier', name: 'endswith'
         });
     });
-    xit('parses table-scoped', function () {
+    xit('parses table-scoped', () => {
         expect(parse('x.y')).toEqual({type: 'Identifier', name: 'x.y'});
     });
-    it('parses multiple identifiers', function () {
+    it('parses multiple identifiers', () => {
         expect(parse('x - y > 0')).toEqual({
             type: 'BinaryPredicate',
             operator: '>',
@@ -251,37 +251,37 @@ describe ('identifiers', function () {
     });
 });
 
-describe ('NOT expressions', function () {
-    it('parses nested', function () {
-        var inner = parse('a');
-        var one = parse('not a');
+describe ('NOT expressions', () => {
+    it('parses nested', () => {
+        let inner = parse('a');
+        let one = parse('not a');
         expect(one).toEqual({
             type: 'NotExpression', operator: 'not', value: inner
         });
-        var two = parse('NOT not a');
+        let two = parse('NOT not a');
         expect(two).toEqual({
             type: 'NotExpression', operator: 'NOT', value: one
         });
     });
-    it('associates more closely than binary logic', function () {
-        var one = parse('not a and b');
+    it('associates more closely than binary logic', () => {
+        let one = parse('not a and b');
         expect(one.operator).toBe('and');
         expect(one.left.operator).toBe('not');
-        var two = parse('a or not b');
+        let two = parse('a or not b');
         expect(two.operator).toBe('or');
         expect(two.right.operator).toBe('not');
     });
 });
 
-describe ('IS expressions', function () {
-    it('should parse special NULL tests', function () {
-        var clause = parse('x ISNULL');
+describe ('IS expressions', () => {
+    it('should parse special NULL tests', () => {
+        let clause = parse('x ISNULL');
         expect(clause.type).toBe('UnaryExpression');
         expect(clause.operator).toBe('ISNULL');
 
         expect(parse('x NOTNULL').operator).toBe('NOTNULL');
     });
-    it('should parse IS keyword comparisons', function () {
+    it('should parse IS keyword comparisons', () => {
         expect(parse('x IS TRUE')).toEqual({
             type: 'BinaryPredicate',
             operator: 'IS',
@@ -307,7 +307,7 @@ describe ('IS expressions', function () {
             }
         });
     });
-    it('should parse negative IS comparisons', function () {
+    it('should parse negative IS comparisons', () => {
         expect(parse('x IS NOT NULL')).toEqual({
             type: 'NotExpression',
             operator: 'NOT',
@@ -321,7 +321,7 @@ describe ('IS expressions', function () {
     });
 });
 
-describe ('member access', function () {
+describe ('member access', () => {
     it('should parse after identifiers', function() {
         expect(parse('a[4]')).toEqual({
             type: 'MemberAccess',
@@ -332,7 +332,7 @@ describe ('member access', function () {
     it('should parse with whitespace', function() {
         expect(parse('a [4]')).toEqual(parse('a[4]'));
     });
-    it('should nest', function () {
+    it('should nest', () => {
         expect(parse('a[b[4]]')).toEqual({
             type: 'MemberAccess',
             object: {type: 'Identifier', name: 'a'},
@@ -343,7 +343,7 @@ describe ('member access', function () {
             }
         });
     });
-    it('should chain', function () {
+    it('should chain', () => {
         expect(parse('a[3][4]')).toEqual({
             type: 'MemberAccess',
             object: {
@@ -356,25 +356,25 @@ describe ('member access', function () {
     });
 });
 
-describe ('function calls', function () {
-    it('should work with one argument', function () {
+describe ('function calls', () => {
+    it('should work with one argument', () => {
         expect(parse('substr(1)')).toEqual({
             type: 'FunctionCall',
             callee: {type: 'FunctionIdentifier', name: 'substr'},
             arguments: [{type: 'Literal', dataType: 'integer', value: 1}]
         });
     });
-    it('should parse with a space before arguments', function () {
+    it('should parse with a space before arguments', () => {
         expect(parse('substr (1)')).toEqual(parse('substr(1)'));
     });
-    it('should handle empty', function () {
+    it('should handle empty', () => {
         expect(parse('substr()')).toEqual({
             type: 'FunctionCall',
             callee: {type: 'FunctionIdentifier', name: 'substr'},
             arguments: []
         });
     });
-    it('should handle argument lists', function () {
+    it('should handle argument lists', () => {
         expect(parse('substr("abcdef", 3, 4)')).toEqual({
             type: 'FunctionCall',
             callee: {type: 'FunctionIdentifier', name: 'substr'},
@@ -385,7 +385,7 @@ describe ('function calls', function () {
             ]
         });
     });
-    it('should nest', function () {
+    it('should nest', () => {
         expect(parse('length(substring)')).toEqual({
             type: 'FunctionCall',
             callee: {type: 'FunctionIdentifier', name: 'length'},
@@ -412,9 +412,9 @@ describe ('function calls', function () {
     });
 });
 
-describe ('Range predicates', function () {
-    it('should parse A BETWEEN 2 and 5', function () {
-        var betweenAnd = parse('A BETWEEN 2 AND 5');
+describe ('Range predicates', () => {
+    it('should parse A BETWEEN 2 and 5', () => {
+        let betweenAnd = parse('A BETWEEN 2 AND 5');
         expect(betweenAnd).toEqual({
             type: 'BetweenPredicate',
             value: {type: 'Identifier', name: 'A'},
@@ -422,8 +422,8 @@ describe ('Range predicates', function () {
             stop: {type: 'Literal', dataType: 'integer', value: 5}
         });
     });
-    it('should parse A NOT BETWEEN 2 and 5', function () {
-        var betweenAnd = parse('A BETWEEN 2 AND 5');
+    it('should parse A NOT BETWEEN 2 and 5', () => {
+        let betweenAnd = parse('A BETWEEN 2 AND 5');
         expect(parse('A NOT BETWEEN 2 AND 5')).toEqual({
             type: 'NotExpression',
             operator: 'NOT',
@@ -432,11 +432,11 @@ describe ('Range predicates', function () {
     });
 });
 
-describe ('LIMIT clauses', function () {
-    it('should parse LIMIT N', function () {
+describe ('LIMIT clauses', () => {
+    it('should parse LIMIT N', () => {
         expect(parse('LIMIT 4')).toEqual({type: 'Limit', value: {type: 'Literal', dataType: 'integer', value: 4}});
     });
-    it('should not parse LIMIT N + 1', function () {
+    it('should not parse LIMIT N + 1', () => {
         expect(parse('LIMIT 4 + 3')).toEqual({
             type: 'Limit',
             value: {
@@ -449,15 +449,15 @@ describe ('LIMIT clauses', function () {
     });
 });
 
-describe('IN/MEMBEROF expressions', function () {
-    it('should parse IN', function () {
+describe('IN/MEMBEROF expressions', () => {
+    it('should parse IN', () => {
         expect(parse('IN foo')).toEqual({
             type: 'MemberOfExpression',
             operator: 'IN',
             value: {type: 'Identifier', name: 'foo'}
         });
     });
-    it('should parse IN', function () {
+    it('should parse IN', () => {
         expect(parse('MEMBEROF foo')).toEqual({
             type: 'MemberOfExpression',
             operator: 'MEMBEROF',
@@ -466,8 +466,8 @@ describe('IN/MEMBEROF expressions', function () {
     });
 });
 
-describe ('IF/THEN/ELSE expressions', function () {
-    it('should parse IF/THEN/END', function () {
+describe ('IF/THEN/ELSE expressions', () => {
+    it('should parse IF/THEN/END', () => {
         expect(parse('IF true THEN false END', true)).toEqual({
             type: 'ConditionalExpression',
             cases: [
@@ -479,7 +479,7 @@ describe ('IF/THEN/ELSE expressions', function () {
             ], elseClause: undefined
         });
     });
-    it('should parse IF/THEN/ELSE/END', function () {
+    it('should parse IF/THEN/ELSE/END', () => {
         expect(parse('IF true THEN false ELSE true END', true)).toEqual({
             type: 'ConditionalExpression',
             cases: [
@@ -491,7 +491,7 @@ describe ('IF/THEN/ELSE expressions', function () {
             ], elseClause: {type: 'Literal', dataType: 'boolean', value: true}
         });
     });
-    it('should parse chained IF clauses', function () {
+    it('should parse chained IF clauses', () => {
         expect(parse('IF true THEN 1 ELSE IF FALSE THEN 2 END', true)).toEqual({
             type: 'ConditionalExpression',
             cases: [
@@ -525,8 +525,8 @@ describe ('IF/THEN/ELSE expressions', function () {
     });
 });
 
-describe ('CASE expressions', function () {
-    it('should parse with one rule', function () {
+describe ('CASE expressions', () => {
+    it('should parse with one rule', () => {
         expect(parse('CASE WHEN true THEN false ELSE true END')).toEqual({
             type: 'CaseExpression',
             value: undefined,
@@ -537,7 +537,7 @@ describe ('CASE expressions', function () {
             elseClause: {type: 'Literal', dataType: 'boolean', value: true}
         });
     });
-    it('should parse with one rule on a variable', function () {
+    it('should parse with one rule on a variable', () => {
         expect(parse('CASE x WHEN true THEN 1 END')).toEqual({
             type: 'CaseExpression',
             value: {type: 'Identifier', name: 'x'},
@@ -549,7 +549,7 @@ describe ('CASE expressions', function () {
             elseClause: undefined
         });
     });
-    it('should parse with more rules', function () {
+    it('should parse with more rules', () => {
         expect(parse('CASE WHEN true THEN 1 WHEN false THEN 2 ELSE 3 END')).toEqual({
             type: 'CaseExpression',
             value: undefined,
