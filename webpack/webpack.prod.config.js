@@ -12,17 +12,17 @@ config.plugins.push(
         'process.env.NODE_ENV': '"production"',
     }),
     new ExtractTextPlugin('styles.css', {
-        allChunks: true,
+        allChunks: true
     }),
     new webpack.optimize.DedupePlugin(),
     new webpack.optimize.AggressiveMergingPlugin(),
     new webpack.optimize.UglifyJsPlugin({
         compress: {
-            warnings: false,
+            warnings: false
         },
         // sourceMap: false,
         comments: false,
-        'screw-ie8': true,
+        'screw-ie8': true
     })
 );
 

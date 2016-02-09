@@ -10,7 +10,7 @@ config.module.loaders.push(
 config.plugins.push(
     new webpack.DefinePlugin({
         __DEV__: true,
-        'process.env.NODE_ENV': '"development"',
+        'process.env.NODE_ENV': '"development"'
     }),
     new ExtractTextPlugin('styles.css', { allChunks: true })
 );
