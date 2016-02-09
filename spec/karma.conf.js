@@ -1,65 +1,97 @@
-// Karma configuration
-// Generated on Mon Sep 21 2015 12:02:48 GMT-0700 (PDT)
+var webpack = require('webpack');
+var StringReplacePlugin = require('string-replace-webpack-plugin');
 
 module.exports = function(config) {
-  config.set({
 
-    // base path that will be used to resolve all patterns (eg. files, exclude)
-    basePath: '..',
+    config.set({
 
+        basePath: '..',
 
-    // frameworks to use
-    // available frameworks: https://npmjs.org/browse/keyword/karma-adapter
-    frameworks: ['jasmine', 'requirejs'],
+        browsers: ['PhantomJS'],
 
+        // singleRun: !!process.env.CONTINUOUS_INTEGRATION,
+        singleRun: true,
 
-    // list of files / patterns to load in the browser
-    files: [
-      {pattern: 'spec/*.js', included: false}
-    ],
+        // frameworks: ['mocha'],
+        frameworks: ['jasmine'],
 
+        files: [
+            'spec/*Spec.js'
+        ],
 
-    // list of files to exclude
-    exclude: [
-    ],
+        preprocessors: {
+            'spec/*Spec.js': ['webpack', 'sourcemap']
+        },
 
+        reporters: ['spec'],
 
-    // preprocess matching files before serving them to the browser
-    // available preprocessors: https://npmjs.org/browse/keyword/karma-preprocessor
-    preprocessors: {
-    },
+        plugins: [
+            require("karma-webpack"),
+            require("karma-jasmine"),
+            require("karma-spec-reporter"),
+            require("karma-phantomjs-launcher"),
+            require("karma-sourcemap-loader")
+        ],
 
-
-    // test results reporter to use
-    // possible values: 'dots', 'progress'
-    // available reporters: https://npmjs.org/browse/keyword/karma-reporter
-    reporters: ['progress'],
-
-
-    // web server port
-    port: 9876,
-
-
-    // enable / disable colors in the output (reporters and logs)
-    colors: true,
-
-
-    // level of logging
-    // possible values: config.LOG_DISABLE || config.LOG_ERROR || config.LOG_WARN || config.LOG_INFO || config.LOG_DEBUG
-    logLevel: config.LOG_INFO,
-
-
-    // enable / disable watching file and executing tests whenever any file changes
-    autoWatch: true,
-
-
-    // start these browsers
-    // available browser launchers: https://npmjs.org/browse/keyword/karma-launcher
-    browsers: ['PhantomJS'],
-
-
-    // Continuous Integration mode
-    // if true, Karma captures browsers, runs the tests and exits
-    singleRun: false
-  })
-}
+        webpack: {
+            devtool: 'inline-source-map',
+            module: {
+                loaders: [{
+                    test: /\.jsx?$/,
+                    exclude: /(node_modules)/,
+                    loader: 'babel',
+                    query: {
+                        // presets: ['react', 'es2015', 'stage-0'],
+                        // plugins: ['transform-runtime'], //
+                        // Use `require.resolve` here because we require locally linked modules that
+                        // don't have these plugins in their node_modules tree.
+                        presets: [
+                            require.resolve('babel-preset-react'),
+                            require.resolve('babel-preset-es2015'),
+                            require.resolve('babel-preset-stage-0')
+                        ],
+                        plugins: [
+                            require.resolve('babel-plugin-transform-runtime')
+                        ],
+                        cacheDirectory: true // cache into OS temp folder by default
+                    }
+                },
+                { test: /\.(png|jpg|jpeg|gif|mp3)$/, loader: 'url?limit=10000&name=[name]_[hash:6].[ext]' },
+                { test: /\.txt$/, loader: 'raw' },
+                { test: /\.json$/, loader: 'json' },
+                { test: /\.pegjs$/, loader: 'pegjs-loader?cache=true&optimize=size' },
+                {
+                    test: /PEGUtil.js$/,
+                    include: /node_modules\/pegjs-util/,
+                    loader: StringReplacePlugin.replace({ // from the 'string-replace-webpack-plugin'
+                        replacements: [{
+                            pattern: /typeof define\.amd !== (\"|\')undefined(\"|\')/ig,
+                            replacement: function() {
+                                return false;
+                            }
+                        }]
+                    })
+                }]
+            },
+            resolve: {
+                modulesDirectories: [
+                    'src',
+                    'node_modules'
+                ],
+                extensions: ['', '.json', '.js']
+            },
+            plugins: [
+                new StringReplacePlugin(),
+                new webpack.IgnorePlugin(/\.json$/),
+                new webpack.NoErrorsPlugin(),
+                new webpack.DefinePlugin({
+                    __DEV__: true,
+                    'process.env.NODE_ENV': '"development"',
+                })
+            ]
+        },
+        webpackServer: {
+            noInfo: true
+        }
+    });
+};
