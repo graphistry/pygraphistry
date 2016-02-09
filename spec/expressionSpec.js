@@ -224,6 +224,14 @@ describe ('identifiers', () => {
     it('parses colon-separated', () => {
         expect(parse('x:y')).toEqual({type: 'Identifier', name: 'x:y'});
     });
+    it('parses square-bracket-quoted', () => {
+        expect(parse('[x]')).toEqual(parse('x'));
+        expect(parse('[x:y]')).toEqual(parse('x:y'));
+        expect(parse('[x:y $]')).toEqual({
+            type: 'Identifier',
+            name: 'x:y $'
+        });
+    });
     it('parses identifiers that look like keywords', () => {
         expect(parse('endswith')).toEqual({
             type: 'Identifier', name: 'endswith'
