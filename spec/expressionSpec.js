@@ -326,7 +326,7 @@ describe ('member access', function () {
         expect(parse('a[4]')).toEqual({
             type: 'MemberAccess',
             object: {type: 'Identifier', name: 'a'},
-            name: {type: 'Literal', dataType: 'integer', value: 4}
+            property: {type: 'Literal', dataType: 'integer', value: 4}
         });
     });
     it('should parse with whitespace', function() {
@@ -336,10 +336,10 @@ describe ('member access', function () {
         expect(parse('a[b[4]]')).toEqual({
             type: 'MemberAccess',
             object: {type: 'Identifier', name: 'a'},
-            name: {
+            property: {
                 type: 'MemberAccess',
                 object: {type: 'Identifier', name: 'b'},
-                name: {type: 'Literal', dataType: 'integer', value: 4}
+                property: {type: 'Literal', dataType: 'integer', value: 4}
             }
         });
     });
@@ -349,16 +349,9 @@ describe ('member access', function () {
             object: {
                 type: 'MemberAccess',
                 object: {type: 'Identifier', name: 'a' },
-                name: {type: 'Literal', dataType: 'integer', value: 3}
+                property: {type: 'Literal', dataType: 'integer', value: 3}
             },
-            name: {type: 'Literal', dataType: 'integer', value: 4}
-        });
-    });
-    xit('should handle empty', function () {
-        expect(parse('a[]')).toEqual({
-            type: 'MemberAccess',
-            object: {type: 'Identifier', name: 'a'},
-            name: {type: 'Literal', dataType: 'null', value: null}
+            property: {type: 'Literal', dataType: 'integer', value: 4}
         });
     });
 });
