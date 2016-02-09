@@ -483,7 +483,8 @@ class Plotter(object):
             self._check_bound_attribs(nodes, ['node'], 'Vertex')
 
         nlist = nodes.reset_index(drop=True) \
-                     .dropna(subset=[nodeid])
+                     .dropna(subset=[nodeid]) \
+                     .drop_duplicates(subset=[nodeid])
 
         obj_df = nlist.select_dtypes(include=[numpy.object_])
         nlist[obj_df.columns] = obj_df.apply(pandas.to_numeric, errors='ignore')
