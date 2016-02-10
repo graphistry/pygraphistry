@@ -168,7 +168,6 @@ VizServer.prototype.resetState = function (dataset, socket) {
     var createGraph = function (dataset, socket) {
         // TODO: Figure out correct DI/IoC pattern. Is require() sufficient?
         // Otherwise, can we structure this as a DAG constructed of multicast RX streams?
-        var objectStore = {};
 
         var controls = getControls(dataset.metadata.controls);
         var device = dataset.metadata.device;
@@ -181,17 +180,11 @@ VizServer.prototype.resetState = function (dataset, socket) {
             return cljs.create(renderer, device, vendor);
         }).fail(log.makeQErrorHandler(logger, 'Failure in CLJS creation'));
 
-        var qSimulator = Q.all([qNullRenderer, qCl])
-            .spread(function (renderer, cl) {
-                objectStore.renderer = renderer;
+        var qSimulator = Q.all([qNullRenderer, qCl]).spread(function (renderer, cl) {
+            return controls[0].simulator.create(dataframe, renderer, cl, device, vendor, controls)
+        }).fail(log.makeQErrorHandler(logger, 'Cannot create simulator'));
 
-                return controls[0].simulator.create(dataframe, renderer, cl, device, vendor, controls)
-            }).fail(log.makeQErrorHandler(logger, 'Cannot create simulator'));
-
-        var nBodyInstance = qSimulator.then(function (simulator) {
-            objectStore.simulator = simulator;
-            var renderer = objectStore.renderer;
-
+        var nBodyInstance = Q.all([qNullRenderer, qSimulator]).spread(function (renderer, simulator) {
             return NBody.create(renderer, simulator, dataframe, device, vendor, controls, socket);
         }).fail(log.makeQErrorHandler(logger, 'Failure in NBody Creation'));
 
