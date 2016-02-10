@@ -26,6 +26,8 @@ var compress    = require('node-pigz');
 var config      = require('config')();
 var util        = require('./js/util.js');
 var ExpressionCodeGenerator = require('./js/expressionCodeGenerator');
+var RenderNull  = require('./js/RenderNull.js');
+var NBody = require('./js/NBody.js');
 
 var log         = require('common/logger.js');
 var logger      = log.createLogger('graph-viz:driver:viz-server');
@@ -131,6 +133,18 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
     return {count: count, values: values, dataTypes: dataTypes};
 }
 
+function getControls(controlsName) {
+    var controls = lConf.controls.default;
+    if (controlsName in lConf.controls) {
+        controls = lConf.controls[controlsName];
+    }
+    else {
+        logger.warn('Unknown controls "%s", using defaults.', controlsName);
+    }
+
+    return controls;
+}
+
 VizServer.prototype.resetState = function (dataset, socket) {
     logger.info('RESETTING APP STATE');
 
@@ -149,9 +163,30 @@ VizServer.prototype.resetState = function (dataset, socket) {
     //Signal to Explicitly Send New VBOs
     this.updateVboSubject = new Rx.ReplaySubject(1);
 
+    var createGraph = function (dataset, socket) {
+
+        var nullRenderer = RenderNull.create(null);
+
+        var nBodyInstance = nullRenderer.then(function (renderer) {
+            var controls = getControls(dataset.metadata.controls);
+            var device = dataset.metadata.device;
+            var vendor = dataset.metadata.vendor;
+
+            return NBody.create(renderer, device, vendor, controls, socket);
+        }).fail(log.makeQErrorHandler(logger, 'Failure in NBody Creation'))
+
+
+        var graph = driver.create(dataset, socket, nBodyInstance);
+        return graph;
+    };
+
+
+
     // ----- ANIMATION ------------------------------------
     //current animation
-    this.animationStep = driver.create(dataset, socket);
+    // this.animationStep = driver.create(dataset, socket);
+    this.animationStep = createGraph(dataset, socket);
+
     //multicast of current animation's ticks
     this.ticksMulti = this.animationStep.ticks.publish();
     this.ticksMulti.connect();
