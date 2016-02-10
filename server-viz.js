@@ -1604,7 +1604,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     this.socket.on('fork_vgraph', function (name, cb) {
         graph.take(1)
             .do(function (graph) {
-                var vgName = 'Users/' + encodeURIComponent(name);
+                var vgName = 'Users/' + name;
                 vgwriter.save(graph, vgName).then(function () {
                     cb({success: true, name: vgName});
                 }).done(
