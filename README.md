@@ -130,8 +130,8 @@ To define the graph, we <code>bind</code> *source* and *destination* to the colu
 import graphistry
 graphistry.register(key='YOUR_API_KEY_HERE')
 
-g = graphistry.bind(source="source", destination="target")
-g.plot(links)
+plotter = graphistry.bind(source="source", destination="target")
+plotter.plot(links)
 ```
 
 You should see a beautiful graph like this one:
@@ -143,8 +143,8 @@ Let's add labels to edges in order to show how many times each pair of character
 
 ```python
 links["label"] = links.value.map(lambda v: "#Meetings: %d" % v)
-g = g.bind(edge_label="label")
-g.plot(links)
+plotter = plotter.bind(edge_label="label")
+plotter.plot(links)
 ```
 
 ### Controlling Node Size and Color
@@ -153,11 +153,11 @@ Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank
 We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we create two new node attributes (*pagerank* & *community*).
 
 ```python
-ig = g.pandas2igraph(links)
+ig = plotter.pandas2igraph(links)
 ig.vs['pagerank'] = ig.pagerank()
 ig.vs['community'] = ig.community_infomap().membership
 
-g.bind(point_color='community', point_size='pagerank').plot(ig)
+plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 ```
 
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
