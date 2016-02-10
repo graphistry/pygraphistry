@@ -20,6 +20,7 @@ var labeler     = require('./js/labeler.js');
 var encodings   = require('./js/encodings.js');
 var palettes    = require('./js/palettes.js');
 var DataframeMask = require('./js/DataframeMask.js');
+var Dataframe   = require('./js/Dataframe.js');
 var TransactionalIdentifier = require('./js/TransactionalIdentifier');
 var vgwriter    = require('./js/libs/VGraphWriter.js');
 var compress    = require('node-pigz');
@@ -164,17 +165,28 @@ VizServer.prototype.resetState = function (dataset, socket) {
     this.updateVboSubject = new Rx.ReplaySubject(1);
 
     var createGraph = function (dataset, socket) {
+        // TODO: Figure out correct DI/IoC pattern. Is require() sufficient?
+        var objectStore = {};
 
-        var nullRenderer = RenderNull.create(null);
+        var controls = getControls(dataset.metadata.controls);
+        var device = dataset.metadata.device;
+        var vendor = dataset.metadata.vendor;
 
-        var nBodyInstance = nullRenderer.then(function (renderer) {
-            var controls = getControls(dataset.metadata.controls);
-            var device = dataset.metadata.device;
-            var vendor = dataset.metadata.vendor;
+        var dataframe = new Dataframe();
+        var qNullRenderer = RenderNull.create(null);
 
-            return NBody.create(renderer, device, vendor, controls, socket);
-        }).fail(log.makeQErrorHandler(logger, 'Failure in NBody Creation'))
+        var qSimulator = qNullRenderer.then(function (renderer) {
+            objectStore.renderer = renderer;
 
+            return controls[0].simulator.create(dataframe, renderer, device, vendor, controls)
+        }).fail(log.makeQErrorHandler(logger, 'Cannot create simulator'));
+
+        var nBodyInstance = qSimulator.then(function (simulator) {
+            objectStore.simulator = simulator;
+            var renderer = objectStore.renderer;
+
+            return NBody.create(renderer, simulator, dataframe, device, vendor, controls, socket);
+        }).fail(log.makeQErrorHandler(logger, 'Failure in NBody Creation'));
 
         var graph = driver.create(dataset, socket, nBodyInstance);
         return graph;
