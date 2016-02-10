@@ -12,6 +12,7 @@ var path        = require('path');
 var extend      = require('node.extend');
 var rConf       = require('./js/renderer.config.js');
 var lConf       = require('./js/layout.config.js');
+var cljs        = require('./js/cl.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var persist     = require('./js/persist.js');
@@ -166,6 +167,7 @@ VizServer.prototype.resetState = function (dataset, socket) {
 
     var createGraph = function (dataset, socket) {
         // TODO: Figure out correct DI/IoC pattern. Is require() sufficient?
+        // Otherwise, can we structure this as a DAG constructed of multicast RX streams?
         var objectStore = {};
 
         var controls = getControls(dataset.metadata.controls);
@@ -175,11 +177,16 @@ VizServer.prototype.resetState = function (dataset, socket) {
         var dataframe = new Dataframe();
         var qNullRenderer = RenderNull.create(null);
 
-        var qSimulator = qNullRenderer.then(function (renderer) {
-            objectStore.renderer = renderer;
+        var qCl = qNullRenderer.then(function (renderer) {
+            return cljs.create(renderer, device, vendor);
+        }).fail(log.makeQErrorHandler(logger, 'Failure in CLJS creation'));
 
-            return controls[0].simulator.create(dataframe, renderer, device, vendor, controls)
-        }).fail(log.makeQErrorHandler(logger, 'Cannot create simulator'));
+        var qSimulator = Q.all([qNullRenderer, qCl])
+            .spread(function (renderer, cl) {
+                objectStore.renderer = renderer;
+
+                return controls[0].simulator.create(dataframe, renderer, cl, device, vendor, controls)
+            }).fail(log.makeQErrorHandler(logger, 'Cannot create simulator'));
 
         var nBodyInstance = qSimulator.then(function (simulator) {
             objectStore.simulator = simulator;
