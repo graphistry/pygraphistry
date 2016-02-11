@@ -1,9 +1,4 @@
 ---
-- name: Restart nginx
-  service: name=nginx state=restarted
-  sudo: yes
-  sudo_user: root
-
 - name: Add central to Supervisor
   supervisorctl: name="central"
                  state=present
