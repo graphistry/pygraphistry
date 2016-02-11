@@ -4,7 +4,25 @@
 //Set jshint to ignore `predef:'io'` in .jshintrc so we can manually define io here
 /* global -io */
 
-var Rx          = require('rx');
+var Rx          = require('rxjs/Rx.KitchenSink');
+var Observable  = Rx.Observable;
+
+Rx.Observable.return = function (value) {
+    return Rx.Observable.of(value);
+};
+
+Rx.Subject.prototype.onNext = Rx.Subject.prototype.next;
+Rx.Subject.prototype.onError = Rx.Subject.prototype.error;
+Rx.Subject.prototype.onCompleted = Rx.Subject.prototype.complete;
+Rx.Subject.prototype.dispose = Rx.Subscriber.prototype.unsubscribe;
+
+Rx.Subscriber.prototype.onNext = Rx.Subscriber.prototype.next;
+Rx.Subscriber.prototype.onError = Rx.Subscriber.prototype.error;
+Rx.Subscriber.prototype.onCompleted = Rx.Subscriber.prototype.complete;
+Rx.Subscriber.prototype.dispose = Rx.Subscriber.prototype.unsubscribe;
+
+Rx.Subscription.prototype.dispose = Rx.Subscription.prototype.unsubscribe;
+
 var _           = require('underscore');
 var Q           = require('q');
 var fs          = require('fs');
@@ -320,11 +338,7 @@ function getNamespaceFromGraph(graph) {
     return metadata;
 }
 
-function processAggregateIndices (request, nodeIndices) {
-    var graph = request.graph;
-    var cb = request.cb;
-    var query = request.query;
-
+function processAggregateIndices(query, graph, nodeIndices) {
     logger.debug('Done selecting indices');
     try {
         var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
@@ -332,45 +346,37 @@ function processAggregateIndices (request, nodeIndices) {
             point: nodeIndices,
             edge: edgeIndices
         };
-        var data;
 
-        // Initial case of getting global Stats
-        // TODO: Make this match the same structure, not the current approach in StreamGL
+        var types = [], attributes = [];
+
         if (query.type) {
-            data = [
-                function () {
-                    return graph.dataframe.aggregate(
-                        indices[query.type],
-                        query.attributes, query.binning, query.mode, query.type);
-                }];
+            types.push(query.type);
+            attributes.push(query.attributes);
         } else {
-            var types = ['point', 'edge'];
-            data = _.map(types, function (type) {
-                var filteredAttributes = _.filter(query.attributes, function (attr) {
-                    return (attr.type === type);
-                });
-                var attributeNames = _.pluck(filteredAttributes, 'name');
-                return function () {
-                    return graph.dataframe.aggregate(
-                        indices[type],
-                        attributeNames,
-                        query.binning, query.mode, type);
-                };
+            types.push('point', 'edge');
+            attributes = _.map(types, function (type) {
+                return  _.chain(query.attributes)
+                    .where({ type: type })
+                    .pluck('name')
+                    .value();
             });
         }
 
-        return util.chainQAll(data).spread(function () {
-            var returnData = {};
-            _.each(arguments, function (partialData) {
-                _.extend(returnData, partialData);
-            });
-            logger.debug('Sending back aggregate data');
-            cb({success: true, data: returnData});
-        });
-
+        return Observable
+            .from(_.zip(types, attributes))
+            .concatMap(function (tuple) {
+                var type = tuple[0];
+                var attributeNames = tuple[1];
+                return graph.dataframe.aggregate(
+                    indices[type], attributeNames,
+                    query.binning, query.mode, type
+                );
+            })
+            .reduce(function (memo, item) {
+                return _.extend(memo, item);
+            }, {});
     } catch (err) {
-        cb({success: false, error: err.message, stack: err.stack});
-        log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
+        return Observable.throw(err);
     }
 }
 
@@ -866,7 +872,7 @@ function VizServer(app, socket, cachedVBOs) {
             var controls = graph.simulator.controls;
             cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
         })
-        .subscribeOnError(function (err) {
+        .subscribe(null, function (err) {
             logger.error(err, 'Error sending layout_controls');
             failWithMessage(cb, 'Server error when fetching controls');
             throw err;
@@ -1165,10 +1171,10 @@ VizServer.prototype.setupColorTexture = function () {
     this.colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
     var img =
-        Rx.Observable.fromNodeCallback(fs.readFile)(imgPath)
+        Rx.Observable.bindNodeCallback(fs.readFile)(imgPath)
             .flatMap(function (buffer) {
                 logger.trace('Loaded raw colorTexture', buffer.length);
-                return Rx.Observable.fromNodeCallback(compress.deflate)(
+                return Rx.Observable.bindNodeCallback(compress.deflate)(
                     buffer,//binary,
                     {output: new Buffer(
                         Math.max(1024, Math.round(buffer.length * 1.5)))})
@@ -1199,50 +1205,48 @@ VizServer.prototype.setupColorTexture = function () {
 };
 
 VizServer.prototype.setupAggregationRequestHandling = function () {
-    var aggregateRequests = new Rx.Subject().controlled(); // Use pull model.
 
-    //query :: {attributes: ??, binning: ??, mode: ??, type: 'point' + 'edge'}
-    // -> {success: false} + {success: true, data: ??}
-    this.socket.on('aggregate', function (query, cb) {
-        logger.info('Got aggregate', query);
+    var self = this;
+    var logErrorGlobally = log.makeRxErrorHandler(logger, 'aggregate socket handler');
 
-        this.graph.take(1).do(function (graph) {
-            logger.trace('Selecting Indices');
-            var qIndices;
+    // Handle aggregate requests. Using `concatMap` ensures we fully handle one
+    // before moving on to the next.
+    Observable
+        .bindCallback(this.socket.on.bind(this.socket), function (query, cb) {
+            return { query: query, cb: cb }
+        })('aggregate')
+        .concatMap(function (request) {
 
-            if (query.all === true) {
-                var numPoints = graph.simulator.dataframe.getNumElements('point');
-                qIndices = Q(new Uint32Array(_.range(numPoints)));
-            } else if (!query.sel) {
-                qIndices = Q(new Uint32Array([]));
-            } else {
-                qIndices = graph.simulator.selectNodesInRect(query.sel);
+            var cb = request.cb;
+            var query = request.query;
+            var resultSelector = processAggregateIndices.bind(null, query);
+            var sendErrorResponse = failWithMessage.bind(null, cb, 'aggregate socket error');
+
+            logger.info('Got aggregate', query);
+
+            return self.graph.take(1)
+                .flatMap(selectNodeIndices, resultSelector)
+                .mergeAll()
+                .do(null, logErrorGlobally)
+                .do(null, sendErrorResponse)
+                .do(function sendSuccessResponse(data) {
+                    logger.info('--- Aggregate success ---');
+                    cb({ success: true, data: data });
+                })
+                .catch(Observable.empty);
+
+            function selectNodeIndices(graph) {
+                if (query.all === true) {
+                    var numPoints = graph.simulator.dataframe.getNumElements('point');
+                    return Observable.of(new Uint32Array(_.range(numPoints)));
+                } else if (!query.sel) {
+                    return Observable.of(new Uint32Array([]));
+                } else {
+                    return graph.simulator.selectNodesInRect(query.sel);
+                }
             }
-
-            aggregateRequests.subject.onNext({
-                qIndices: qIndices,
-                graph: graph,
-                query: query,
-                cb: cb
-            });
-
-        }).subscribe(
-            _.identity,
-            function (err) {
-                failWithMessage(cb, 'aggregate socket error');
-                log.makeRxErrorHandler(logger, 'aggregate socket handler')(err);
-            }
-        );
-    }.bind(this));
-
-    // Handle aggregate requests. Fully handle one before moving on to the next.
-    aggregateRequests.do(function (request) {
-        request.qIndices.then(processAggregateIndices.bind(null, request))
-            .then(function () {
-                aggregateRequests.request(1);
-            }).done(_.identity, log.makeQErrorHandler(logger, 'AggregateIndices Q'));
-    }).subscribe(_.identity, log.makeRxErrorHandler(logger, 'aggregate request loop'));
-    aggregateRequests.request(1); // Always request first.
+        })
+        .subscribe();
 };
 
 // FIXME: ExpressJS routing does not support re-targeting. So we set a global for now!
@@ -1776,9 +1780,9 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     //var emitter = socket.emit('vbo_update', metadata, function (time) {
                     //return time;
                     //});
-                    //var observableCallback = Rx.Observable.fromNodeCallback(emitter);
+                    //var observableCallback = Rx.Observable.bindNodeCallback(emitter);
                     //return observableCallback;
-                    return Rx.Observable.fromCallback(this.socket.emit.bind(this.socket))('vbo_update', metadata);
+                    return Rx.Observable.bindCallback(this.socket.emit.bind(this.socket))('vbo_update', metadata);
                     //return emitFnWrapper('vbo_update', metadata);
 
                 }.bind(this)).do(
@@ -1889,7 +1893,7 @@ if (require.main === module) {
     });
 
     logger.info('Binding', config.HTTP_LISTEN_ADDRESS, config.HTTP_LISTEN_PORT);
-    var listen = Rx.Observable.fromNodeCallback(
+    var listen = Rx.Observable.bindNodeCallback(
             http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
 
     listen.do(function () {
