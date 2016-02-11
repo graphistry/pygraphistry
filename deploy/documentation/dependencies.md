@@ -67,7 +67,7 @@ We use an ansible script (and apt, npm) to install the following:
 
 We can provide current version numbers at time of installation.
 
-ansible, glfw, AntTweakBar, mongo
+ansible, glfw, mongo
 
 ### apt
 
