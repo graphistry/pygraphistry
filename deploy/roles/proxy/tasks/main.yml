@@ -19,9 +19,18 @@
   apt_repository: "repo='deb-src http://nginx.org/packages/mainline/ubuntu/ {{ ansible_lsb.codename }} nginx' state=present update_cache=yes"
   become: yes
 
+# There is a Ubuntu bug that causes upgrades from 1.4.6 (Ubuntu repo) to 1.9.11 (official nginx r
+# epo) to fail. Uninstalling nginx-common (a dependency of 1.4.6 package) before upgrading fixes it.
+- name: Remove old nginx-common
+  apt: pkg=nginx-common
+       state=absent
+       update_cache=yes
+       cache_valid_time=600
+  become: yes
+  notify: Restart nginx
+
 - name: Install nginx
-  apt: pkg=nginx
-       state=latest
+  apt: pkg=nginx=1.9.11-1~trusty
        update_cache=yes
        cache_valid_time=600
   become: yes
