@@ -1212,9 +1212,7 @@ VizServer.prototype.setupAggregationRequestHandling = function () {
     // Handle aggregate requests. Using `concatMap` ensures we fully handle one
     // before moving on to the next.
     Observable
-        .bindCallback(this.socket.on.bind(this.socket), function (query, cb) {
-            return { query: query, cb: cb }
-        })('aggregate')
+        .fromEvent(this.socket, 'aggregate', (query, cb) => ({ query, cb }))
         .concatMap(function (request) {
 
             var cb = request.cb;
@@ -1227,12 +1225,17 @@ VizServer.prototype.setupAggregationRequestHandling = function () {
             return self.graph.take(1)
                 .flatMap(selectNodeIndices, resultSelector)
                 .mergeAll()
-                .do(null, logErrorGlobally)
-                .do(null, sendErrorResponse)
-                .do(function sendSuccessResponse(data) {
-                    logger.info('--- Aggregate success ---');
-                    cb({ success: true, data: data });
-                })
+                .take(1)
+                .do(
+                    function sendSuccessResponse(data) {
+                        logger.info('--- Aggregate success ---');
+                        cb({ success: true, data: data });
+                    },
+                    function handleErrorResponse(err) {
+                        logErrorGlobally(err);
+                        sendErrorResponse(err)
+                    }
+                )
                 .catch(Observable.empty);
 
             function selectNodeIndices(graph) {
