@@ -84,6 +84,7 @@
        version="{{ central_module_checkout }}"
        update=yes
        accept_hostkey=yes
+       force=yes
   register: central_updated
   notify: Restart central
 
