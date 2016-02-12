@@ -1,4 +1,11 @@
 ---
+- name: Find DNS server in use by remote host
+  command: awk 'BEGIN {dns="8.8.8.8"} /^nameserver/ {dns=$2; exit;} END {print dns;}' /etc/resolv.conf
+  register: remote_dns_server
+
+- name: Set dns_server variable for use in nginx config file templates
+  set_fact: dns_server="{{ remote_dns_server.stdout | default("8.8.8.8") }}"
+
 - name: Install official nginx apt repo signing key
   sudo: yes
   apt_key: url=http://nginx.org/keys/nginx_signing.key state=present
