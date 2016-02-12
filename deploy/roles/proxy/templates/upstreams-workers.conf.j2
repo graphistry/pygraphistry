@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+
+################################################################################
+# Upstream server definitions for viz-server worker server
+################################################################################
+{% for worker_port in range(workers_port_start, (workers_port_start + workers_count)) %}
+upstream worker{{ worker_port }} {
+    server                      127.0.0.1:{{ worker_port }};
+    keepalive                   256;
+}
+
+{% endfor %}
