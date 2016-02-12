@@ -8,9 +8,6 @@ staging.graphistry.com
 [workers]
 staging.graphistry.com
 
-[proxy]
-staging-secure.graphistry.com
-
 [deploy]
 deploy.graphistry.com
 
@@ -35,19 +32,14 @@ splunk_url="splunk.graphistry.com:3000"
 ################################################################################
 # Groups
 ################################################################################
-[proxy_active]
-# Leave empty. Dynamically populated by playbook.
-
 [app_servers:children]
 workers
 central
 
 [remote_servers:children]
 app_servers
-proxy_active
 deploy
 
 [staging:children]
 app_servers
-proxy_active
 deploy

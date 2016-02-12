@@ -39,24 +39,6 @@
     - central_deploy
     - workers_deploy
 
-# Only connect and deploy to proxy when `-e 'proxy=true'` is passed on the command line.
-# This prevents Ansible from failing when the user running it isn't authorized to access the proxy.
-- hosts: proxy
-  gather_facts: no
-  tasks:
-    - name: Mark proxy to add to inventory
-      set_fact: proxy_deploy_action={{ (proxy | default(false)) | ternary("active", "inactive") }}
-    - name: Inform user about deploying to the proxy
-      debug: msg="Not including proxy server in deployment. Add `-e 'proxy=true'` to ansible-playbook command to include it."
-      when: "{{ (proxy | default(false)) }}"
-    - name: Add marked proxies to invenvtory
-      group_by: key=proxy_{{ proxy_deploy_action }}
-  tags:
-    - proxy
-    - provision
-    - deploy
-    - always
-
 - hosts: remote_servers
   gather_facts: no
   roles:
@@ -92,17 +74,11 @@
 - hosts: central
   roles:
    - { role: central, sudo: yes, sudo_user: www }
+   - { role: proxy, tags: [ 'proxy' ] }
   tags:
     - central
     - deploy
     - central_deploy
-
-- hosts: proxy_active
-  roles:
-    - { role: proxy }
-  tags:
-    - deploy
-    - proxy
 
 - hosts: deploy
   roles:
