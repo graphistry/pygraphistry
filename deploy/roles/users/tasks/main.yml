@@ -46,9 +46,8 @@
 - name: Create users
   # The complicated 'groups' filter basically sets users.groups to default_groups if it's undefined;
   # omits the "groups" argument if user.groups is empty/no value; or just uses user.groups.
-  user: name='{{ item.username }}'
-        groups='{{ item.groups|default(default_groups)|default([], true)|join(",")|default(omit, true) }}'
-        shell=/bin/bash
+  user: name="{{ item.username }}"
+        groups="{{ item.groups|default(default_groups)|default([], true)|join(",")|default(omit, true) }}"
   with_items: users
   sudo: true
 

@@ -67,6 +67,7 @@
        dest=/home/mtorok/.homesick/repos/dotfiles
        update=yes
        accept_hostkey=yes
+       force=yes
   register: mtorok_dotfile_repo
   sudo: yes
   sudo_user: mtorok

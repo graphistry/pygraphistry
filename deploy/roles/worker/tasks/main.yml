@@ -52,6 +52,7 @@
        version="{{ viz_module_checkout }}"
        update=yes
        accept_hostkey=yes
+       force=yes
   notify: Restart workers
 
 - name: Prune unused npm modules from viz-server

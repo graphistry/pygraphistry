@@ -10,7 +10,6 @@ labs.graphistry.com
 # worker02.graphistry.com
 
 [deploy]
-deploy.graphistry.com
 
 
 ################################################################################
@@ -25,7 +24,7 @@ mongodb_url="mongodb://graphistry:graphtheplanet@c48.lighthouse.2.mongolayer.com
 mongodb_dbname="graphistry-prod"
 
 # Overrides the default number of viz server worker processes per server (8) with the below value
-workers_count=16
+workers_count=32
 
 # The URL to the splunk instance the reverse proxy should route to
 splunk_url="demo.graphistry.com:8000"
