@@ -32,7 +32,7 @@ class PyGraphistry(object):
     _api_key = os.environ.get(EnvVarNames['api_key'], None)
     _tag = util.fingerprint()
     _dataset_prefix = os.environ.get(EnvVarNames['dataset_prefix'], 'PyGraphistry/')
-    _hostname = os.environ.get(EnvVarNames['hostname'], 'localhost:3000')
+    _hostname = os.environ.get(EnvVarNames['hostname'], 'proxy-labs.graphistry.com')
     _protocol = os.environ.get(EnvVarNames['protocol'], None)
 
     _is_authenticated = False
