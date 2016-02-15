@@ -7,7 +7,7 @@ import copy
 import numpy
 import pandas
 
-from . import pygraphistry
+from .pygraphistry import PyGraphistry
 from . import util
 
 
@@ -305,21 +305,20 @@ class Plotter(object):
         name = name or util.random_string(10)
 
         self._check_mandatory_bindings(not isinstance(n, type(None)))
-        PyG = pygraphistry.PyGraphistry
 
-        api_version = PyG.api_version()
+        api_version = PyGraphistry.api_version()
         if (api_version == 1):
             dataset = self._plot_dispatch(g, n, name, 'json')
-            info = PyG._etl1(dataset)
+            info = PyGraphistry._etl1(dataset)
         elif (api_version == 2):
             dataset = self._plot_dispatch(g, n, name, 'vgraph')
-            info = PyG._etl2(dataset)
+            info = PyGraphistry._etl2(dataset)
 
-        viz_url = PyG._viz_url(info, self._url_params)
+        viz_url = PyGraphistry._viz_url(info, self._url_params)
 
         if util.in_ipython() is True:
             from IPython.core.display import HTML
-            return HTML(util.make_iframe(viz_url, self._height, PyG._protocol))
+            return HTML(util.make_iframe(viz_url, self._height, PyGraphistry._protocol))
         else:
             print('Url: http://%s' % viz_url)
             import webbrowser
@@ -584,7 +583,7 @@ class Plotter(object):
 
         bindings = {'idField': self._node or Plotter._defaultNodeId,
                     'destinationField': self._destination, 'sourceField': self._source}
-        dataset = {'name': pygraphistry.PyGraphistry._dataset_prefix + name,
+        dataset = {'name': PyGraphistry._dataset_prefix + name,
                    'bindings': bindings, 'type': 'edgelist', 'graph': edict}
 
         if nlist is not None:
