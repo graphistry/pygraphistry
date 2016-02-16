@@ -48,6 +48,11 @@
 @inspector-z:                  41100;
 @inspector-tabs-z:             41200;
 @inspector-overlay-z:          41300;
+@timeexplorer-z:               42100;
+@timeexplorer-main-z:          42200;
+@timeexplorer-box-z:           42300;
+@timeexplorer-line-z:          42500;
+
 
 //what is this?
 @status-bar-z:                 99999;
@@ -297,7 +302,7 @@ html.poiIsDisabled .graph-label-container {
         .graph-label-pair:not(:last-child) .graph-label-icons {
             border-top-left-radius: 0;
             border-top-right-radius: 0;
-            bottom: -2em;
+            bottom: -1.9em;
         }
         .graph-label-pair:last-child .graph-label-icons {
             border-bottom-left-radius: 0;
@@ -324,7 +329,7 @@ html.poiIsDisabled .graph-label-container {
                 padding-top: 5px;
             }
 
-            //* may be a tooltip
+            // may be a tooltip
             & > * + a {
                 margin-left: 0.3em;
             }
@@ -1681,6 +1686,7 @@ button:disabled {
             }
             .encode-color-quantitative {
                 background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0, white), color-stop(0.3, lightblue), color-stop(1, blue));
+                background-image: -moz-linear-gradient(white, lightblue, blue);
                 //-webkit-background-clip: text;
                 background-image: gradient( linear, left top, left bottom, color-stop(0, white), color-stop(0.3, lightblue), color-stop(1, blue));
                 //background-clip: text;
@@ -1688,6 +1694,7 @@ button:disabled {
             }
             .encode-color-categorical {
                 background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0, red), color-stop(0.2, orange), color-stop(0.5, yellow), color-stop(0.7, green), color-stop(1, blue));
+                background-image: -moz-linear-gradient(red, orange, yellow, green, blue);
                 //-webkit-background-clip: text;
                 background-image: gradient( linear, left top, left bottom, color-stop(0, red), color-stop(0.2, orange), color-stop(0.5, yellow), color-stop(0.7, green), color-stop(1, blue));
                 //background-clip: text;
@@ -1734,6 +1741,156 @@ button:disabled {
     #addHistogram {
         text-align: center;
         margin: 10px;
+    }
+
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Time Explorer
+//////////////////////////////////////////////////////////////////////////////
+
+@histogram-z:                  40100;
+@timeExplorerMainHeight: 60px;
+@timeExplorerAxisHeight: 20px;
+@timeExplorerTotalHeight: 272px; // 17em
+
+#timeExplorer {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: @timeExplorerTotalHeight;
+    margin: 0;
+    padding: 0;
+    background-color: @light-grey-background-2;
+    z-index: @timeexplorer-z;
+
+    visibility: hidden;
+
+    #timeExplorerSideInput {
+        overflow: scroll;
+    }
+
+    #timeExplorerAxisContainer {
+        position: absolute;
+        width: 100%;
+        bottom: 0px;
+    }
+
+    #timeExplorerBody {
+        position: absolute;
+        width: 100%;
+        top: 0px;
+        bottom: @timeExplorerMainHeight;
+        overflow-y: scroll;
+        overflow-x: hidden;
+
+        // Scrollbars are hidden on mac, so we force it to show
+        &::-webkit-scrollbar {
+            -webkit-appearance: none;
+            width: 7px;
+        }
+        &::-webkit-scrollbar-thumb {
+            border-radius: 4px;
+            background-color: rgba(0,0,0,.5);
+            -webkit-box-shadow: 0 0 1px rgba(255,255,255,.5);
+        }
+    }
+
+    #timeExplorerMain {
+        position: absolute;
+        width: 100%;
+        bottom: 0px;
+        z-index: @timeexplorer-main-z;
+        box-shadow: 0px -2px 2px @medium-grey;
+    }
+
+    .timeBarDiv {
+        width: 100%;
+        position: relative;
+        background-color: @light-grey-background;
+
+        .timeAggregationSwitchboard {
+            position: absolute;
+            right: 0;
+            top: 0;
+        }
+    }
+
+    .bottomAxisDiv {
+        width: 100%;
+        position: relative;
+        background-color: @light-grey-background;
+    }
+
+    .verticalLine {
+        position: absolute;
+        left: 0px;
+        height: 100%;
+        width: 0px;
+        border-right: 1px solid #000000;
+        display: none;
+        z-index: @timeexplorer-line-z;
+        pointer-events: none;
+    }
+
+    .dragBox {
+        position: absolute;
+        left: 0;
+        height: 100%;
+        opacity: 0.25;
+        background-color: @graphistry-lightblue;
+        display: none;
+        z-index: @timeexplorer-box-z;
+        pointer-events: none;
+
+        border-right-style: solid;
+        border-left-style: solid;
+        border-left-width: 1px;
+        border-right-width: 1px;
+        border-left-color: black;
+        border-right-color: black;
+
+    }
+
+    .axis {
+        text {
+            font: 10px sans-serif;
+            fill: @dark-grey;
+
+        }
+        path, line {
+            fill: none;
+            stroke: @dark-grey;
+            shape-rendering: crispEdges;
+        }
+    }
+
+    .timeExplorerFixedHeight {
+        height: @timeExplorerTotalHeight - @timeExplorerAxisHeight;
+    }
+
+    .timeExplorerFixedHeightAxis {
+        height: @timeExplorerAxisHeight;
+    }
+
+    .timeExplorerBodyRow {
+
+    }
+
+    .noPadding {
+        padding: 0px;
+    }
+
+    .hidden {
+        visibility: hidden;
+    }
+
+    .unselectable {
+        -webkit-user-select: none;  /* Chrome all / Safari all */
+        -moz-user-select: none;     /* Firefox all */
+        -ms-user-select: none;      /* IE 10+ */
+        user-select: none;          /* Likely future */
     }
 
 }

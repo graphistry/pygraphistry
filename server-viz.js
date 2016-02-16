@@ -4,7 +4,25 @@
 //Set jshint to ignore `predef:'io'` in .jshintrc so we can manually define io here
 /* global -io */
 
-var Rx          = require('rx');
+var Rx          = require('rxjs/Rx.KitchenSink');
+var Observable  = Rx.Observable;
+
+Rx.Observable.return = function (value) {
+    return Rx.Observable.of(value);
+};
+
+Rx.Subject.prototype.onNext = Rx.Subject.prototype.next;
+Rx.Subject.prototype.onError = Rx.Subject.prototype.error;
+Rx.Subject.prototype.onCompleted = Rx.Subject.prototype.complete;
+Rx.Subject.prototype.dispose = Rx.Subscriber.prototype.unsubscribe;
+
+Rx.Subscriber.prototype.onNext = Rx.Subscriber.prototype.next;
+Rx.Subscriber.prototype.onError = Rx.Subscriber.prototype.error;
+Rx.Subscriber.prototype.onCompleted = Rx.Subscriber.prototype.complete;
+Rx.Subscriber.prototype.dispose = Rx.Subscriber.prototype.unsubscribe;
+
+Rx.Subscription.prototype.dispose = Rx.Subscription.prototype.unsubscribe;
+
 var _           = require('underscore');
 var Q           = require('q');
 var fs          = require('fs');
@@ -12,19 +30,24 @@ var path        = require('path');
 var extend      = require('node.extend');
 var rConf       = require('./js/renderer.config.js');
 var lConf       = require('./js/layout.config.js');
+var cljs        = require('./js/cl.js');
 var loader      = require('./js/data-loader.js');
 var driver      = require('./js/node-driver.js');
 var persist     = require('./js/persist.js');
 var workbook    = require('./js/workbook.js');
 var labeler     = require('./js/labeler.js');
 var encodings   = require('./js/encodings.js');
+var palettes    = require('./js/palettes.js');
 var DataframeMask = require('./js/DataframeMask.js');
+var Dataframe   = require('./js/Dataframe.js');
 var TransactionalIdentifier = require('./js/TransactionalIdentifier');
 var vgwriter    = require('./js/libs/VGraphWriter.js');
 var compress    = require('node-pigz');
 var config      = require('config')();
 var util        = require('./js/util.js');
 var ExpressionCodeGenerator = require('./js/expressionCodeGenerator');
+var RenderNull  = require('./js/RenderNull.js');
+var NBody = require('./js/NBody.js');
 
 var log         = require('common/logger.js');
 var logger      = log.createLogger('graph-viz:driver:viz-server');
@@ -49,10 +72,22 @@ function sizeInMBOfVBOs(VBOs) {
     return (vboSizeBytes / (1024 * 1024)).toFixed(1);
 }
 
+function getDatatypesFromValues(values, type, dataframe) {
+    var dataTypes = {};
+    if (values.length > 0) {
+        _.each(_.keys(values[0]), function (columnName) {
+            dataTypes[columnName] = dataframe.getDataType(columnName, type);
+        });
+    }
+    return dataTypes;
+}
+
 // TODO: Dataframe doesn't currently support sorted/filtered views, so we just do
 // a shitty job and manage it directly out here, which is slow + error prone.
 // We need to extend dataframe to allow us to have views.
 function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending, searchFilter) {
+    var values;
+    var dataTypes;
 
     if (searchFilter) {
         searchFilter = searchFilter.toLowerCase();
@@ -75,7 +110,9 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
     var count = indices.length;
 
     if (sort_by === undefined) {
-        return {count: count, values: dataFrame.getRows(indices.slice(start, end), type)};
+        values = dataFrame.getRows(indices.slice(start, end), type);
+        dataTypes = getDatatypesFromValues(values, type, dataFrame);
+        return {count: count, values: values, dataTypes: dataTypes};
     }
 
     // TODO: Speed this up / cache sorting. Actually, put this into dataframe itself.
@@ -110,7 +147,22 @@ function sliceSelection(dataFrame, type, indices, start, end, sort_by, ascending
         return val[1];
     });
 
-    return {count: count, values: dataFrame.getRows(slicedIndices, type)};
+    values = dataFrame.getRows(slicedIndices, type);
+    dataTypes = getDatatypesFromValues(values, type, dataFrame);
+
+    return {count: count, values: values, dataTypes: dataTypes};
+}
+
+function getControls(controlsName) {
+    var controls = lConf.controls.default;
+    if (controlsName in lConf.controls) {
+        controls = lConf.controls[controlsName];
+    }
+    else {
+        logger.warn('Unknown controls "%s", using defaults.', controlsName);
+    }
+
+    return controls;
 }
 
 VizServer.prototype.resetState = function (dataset, socket) {
@@ -131,9 +183,40 @@ VizServer.prototype.resetState = function (dataset, socket) {
     //Signal to Explicitly Send New VBOs
     this.updateVboSubject = new Rx.ReplaySubject(1);
 
+    var createGraph = function (dataset, socket) {
+        // TODO: Figure out correct DI/IoC pattern. Is require() sufficient?
+        // Otherwise, can we structure this as a DAG constructed of multicast RX streams?
+
+        var controls = getControls(dataset.metadata.controls);
+        var device = dataset.metadata.device;
+        var vendor = dataset.metadata.vendor;
+
+        var dataframe = new Dataframe();
+        var qNullRenderer = RenderNull.create(null);
+
+        var qCl = qNullRenderer.then(function (renderer) {
+            return cljs.create(renderer, device, vendor);
+        }).fail(log.makeQErrorHandler(logger, 'Failure in CLJS creation'));
+
+        var qSimulator = Q.all([qNullRenderer, qCl]).spread(function (renderer, cl) {
+            return controls[0].simulator.create(dataframe, renderer, cl, device, vendor, controls)
+        }).fail(log.makeQErrorHandler(logger, 'Cannot create simulator'));
+
+        var nBodyInstance = Q.all([qNullRenderer, qSimulator]).spread(function (renderer, simulator) {
+            return NBody.create(renderer, simulator, dataframe, device, vendor, controls, socket);
+        }).fail(log.makeQErrorHandler(logger, 'Failure in NBody Creation'));
+
+        var graph = driver.create(dataset, socket, nBodyInstance);
+        return graph;
+    };
+
+
+
     // ----- ANIMATION ------------------------------------
     //current animation
-    this.animationStep = driver.create(dataset, socket);
+    // this.animationStep = driver.create(dataset, socket);
+    this.animationStep = createGraph(dataset, socket);
+
     //multicast of current animation's ticks
     this.ticksMulti = this.animationStep.ticks.publish();
     this.ticksMulti.connect();
@@ -161,9 +244,11 @@ VizServer.prototype.readSelection = function (type, query, res) {
             var end = start + per_page;
             var data = sliceSelection(graph.dataframe, type, lastSelectionIndices[type], start, end,
                                         query.sort_by, query.order === 'asc', query.search);
-            res.send(_.extend(data, {
+            _.extend(data, {
                 page: page
-            }));
+            });
+
+            res.send(data);
         }).fail(log.makeQErrorHandler(logger, 'read_selection qLastSelectionIndices'));
 
     }).subscribe(
@@ -253,11 +338,7 @@ function getNamespaceFromGraph(graph) {
     return metadata;
 }
 
-function processAggregateIndices (request, nodeIndices) {
-    var graph = request.graph;
-    var cb = request.cb;
-    var query = request.query;
-
+function processAggregateIndices(query, graph, nodeIndices) {
     logger.debug('Done selecting indices');
     try {
         var edgeIndices = graph.simulator.connectedEdges(nodeIndices);
@@ -265,45 +346,37 @@ function processAggregateIndices (request, nodeIndices) {
             point: nodeIndices,
             edge: edgeIndices
         };
-        var data;
 
-        // Initial case of getting global Stats
-        // TODO: Make this match the same structure, not the current approach in StreamGL
+        var types = [], attributes = [];
+
         if (query.type) {
-            data = [
-                function () {
-                    return graph.dataframe.aggregate(
-                        indices[query.type],
-                        query.attributes, query.binning, query.mode, query.type);
-                }];
+            types.push(query.type);
+            attributes.push(query.attributes);
         } else {
-            var types = ['point', 'edge'];
-            data = _.map(types, function (type) {
-                var filteredAttributes = _.filter(query.attributes, function (attr) {
-                    return (attr.type === type);
-                });
-                var attributeNames = _.pluck(filteredAttributes, 'name');
-                return function () {
-                    return graph.dataframe.aggregate(
-                        indices[type],
-                        attributeNames,
-                        query.binning, query.mode, type);
-                };
+            types.push('point', 'edge');
+            attributes = _.map(types, function (type) {
+                return  _.chain(query.attributes)
+                    .where({ type: type })
+                    .pluck('name')
+                    .value();
             });
         }
 
-        return util.chainQAll(data).spread(function () {
-            var returnData = {};
-            _.each(arguments, function (partialData) {
-                _.extend(returnData, partialData);
-            });
-            logger.debug('Sending back aggregate data');
-            cb({success: true, data: returnData});
-        });
-
+        return Observable
+            .from(_.zip(types, attributes))
+            .concatMap(function (tuple) {
+                var type = tuple[0];
+                var attributeNames = tuple[1];
+                return graph.dataframe.aggregate(
+                    indices[type], attributeNames,
+                    query.binning, query.mode, type
+                );
+            })
+            .reduce(function (memo, item) {
+                return _.extend(memo, item);
+            }, {});
     } catch (err) {
-        cb({success: false, error: err.message, stack: err.stack});
-        log.makeRxErrorHandler(logger,'aggregate inner handler')(err);
+        return Observable.throw(err);
     }
 }
 
@@ -587,6 +660,85 @@ function VizServer(app, socket, cachedVBOs) {
             _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
     }.bind(this));
 
+    this.socket.on('getTimeBoundaries', function (data, cb) {
+        this.graph.take(1).do(function (graph) {
+            var values = graph.dataframe.getColumnValues(data.timeAttr, data.timeType);
+            var minTime = new Date(values[0]);
+            var maxTime = new Date(values[0]);
+
+            _.each(values, function (val) {
+                var date = new Date(val);
+                if (date < minTime) {
+                    minTime = date;
+                }
+                if (date > maxTime) {
+                    maxTime = date;
+                }
+            });
+
+            var resp = {
+                success: true,
+                max: maxTime.getTime(),
+                min: minTime.getTime()
+            }
+
+            cb(resp);
+
+        }.bind(this))
+        .subscribe(
+            _.identity,
+            function (err) {
+                log.makeRxErrorHandler(logger, 'timeAggregation handler')(err);
+            }
+        );
+    }.bind(this));
+
+    this.socket.on('timeAggregation', function (data, cb) {
+        this.graph.take(1).do(function (graph) {
+            var dataframe = graph.dataframe;
+            var allMasks = [];
+            var errors = [];
+
+            _.each(data.filters, function (filter) {
+
+                var query = filter.query;
+                if (!query.type) {
+                    query.type = filter.type;
+                }
+                if (!query.attribute) {
+                    query.attribute = filter.attribute;
+                }
+                var masks = dataframe.getMasksForQuery(query, errors);
+                if (masks !== undefined) {
+                    // Record the size of the filtered set for UI feedback:
+                    filter.maskSizes = masks.maskSize();
+                    allMasks.push(masks);
+                }
+            });
+
+            var combinedMask = allMasks[0];
+            if (allMasks.length > 1) {
+                for (var i = 1; i < allMasks.length; i++) {
+                    combinedMask = combinedMask.intersection(allMasks[i]);
+                }
+            }
+
+            var agg = dataframe.timeBasedHistogram(combinedMask, data.timeType, data.timeAttr, data.start, data.stop, data.timeAggregation);
+            cb({
+                success: true,
+                data: agg
+            });
+
+        }.bind(this))
+        .subscribe(
+            _.identity,
+            function (err) {
+                log.makeRxErrorHandler(logger, 'timeAggregation handler')(err);
+            }
+        );
+    }.bind(this));
+
+
     this.socket.on('update_filters', function (definition, cb) {
         logger.trace('updating filters from client values');
         // Maybe direct assignment isn't safe, but it'll do for now.
@@ -648,6 +800,12 @@ function VizServer(app, socket, cachedVBOs) {
                 });
 
                 _.each(viewConfig.filters, function (filter) {
+
+                    console.log('==================================\n');
+                    console.log('filter: ', filter);
+                    console.log('==================================\n');
+
+
                     if (filter.enabled === false) {
                         return;
                     }
@@ -714,7 +872,7 @@ function VizServer(app, socket, cachedVBOs) {
             var controls = graph.simulator.controls;
             cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
         })
-        .subscribeOnError(function (err) {
+        .subscribe(null, function (err) {
             logger.error(err, 'Error sending layout_controls');
             failWithMessage(cb, 'Server error when fetching controls');
             throw err;
@@ -851,8 +1009,26 @@ function VizServer(app, socket, cachedVBOs) {
                     return;
                 }
             }
-            var encoding;
+            var encoding, bufferName;
             try {
+                if (!encodingType) {
+                    encodingType = encodings.inferEncodingType(dataframe, type, attributeName);
+                }
+                bufferName = encodings.bufferNameForEncodingType(encodingType);
+                if (query.reset) {
+                    if (bufferName) {
+                        dataframe.resetLocalBuffer(bufferName);
+                        graph.simulator.tickBuffers([bufferName]);
+                    }
+                    this.tickGraph(cb);
+                    cb({
+                        success: true,
+                        enabled: false,
+                        encodingType: encodingType,
+                        bufferName: bufferName
+                    });
+                    return;
+                }
                 encoding = encodings.inferEncoding(dataframe, type, attributeName, encodingType, variation, binning);
             } catch (e) {
                 failWithMessage(cb, e.message);
@@ -860,34 +1036,56 @@ function VizServer(app, socket, cachedVBOs) {
             }
 
             if (encoding === undefined || encoding.scaling === undefined) {
-                failWithMessage(cb, 'No scaling inferred for: ' + encodingType);
+                failWithMessage(cb, 'No scaling inferred for: ' + encodingType + ' on ' + attributeName);
                 return;
             }
-            var bufferName = encoding.bufferName;
-            var enabled = false;
-            if (query.reset) {
-                dataframe.resetLocalBuffer(bufferName);
-            } else {
-                var sourceValues = dataframe.getUnfilteredColumnValues(type, attributeName);
-                var encodedAttributeName = bufferName + '_' + attributeName;
-                var encodedColumnValues;
-                // TODO fix how we map to and recolor edges.
-                if (bufferName === 'edgeColors') {
-                    encodedColumnValues = new Array(sourceValues.length * 2);
-                    for (var i=0; i<sourceValues.length; i++) {
-                        var value = sourceValues[i];
-                        encodedColumnValues[2*i] = encoding.scaling(value);
-                        encodedColumnValues[2*i+1] = encoding.scaling(value);
-                    }
+            var sourceValues = dataframe.getUnfilteredColumnValues(type, attributeName);
+            var encodedAttributeName = bufferName + '_' + attributeName;
+            var encodedColumnValues;
+            var wrappedScaling = encoding.scaling;
+            if (encodingType.match(/Color$/)) {
+                // Auto-detect when a buffer is filled with our ETL-defined color space and map that directly:
+                // TODO don't have ETL magically encode the color space; it doesn't save space, time, code, or style.
+                if (dataframe.doesColumnRepresentColorPaletteMap(type, attributeName)) {
+                    wrappedScaling = function (x) { return palettes.bindings[x]; };
+                    encoding.legend = _.map(encoding.legend, function (sourceValue) {
+                        return palettes.intToHex(palettes.bindings[sourceValue]);
+                    });
                 } else {
-                    encodedColumnValues = _.map(sourceValues, encoding.scaling);
+                    wrappedScaling = function (x) { return palettes.hexToABGR(encoding.scaling(x)); };
                 }
-                dataframe.overlayLocalBuffer(type, bufferName, encodedAttributeName, encodedColumnValues);
-                enabled = true;
             }
+            // TODO fix how we map to and recolor edges.
+            if (bufferName === 'edgeColors') {
+                encodedColumnValues = new sourceValues.constructor(sourceValues.length * 2);
+                _.each(sourceValues, function (value, i) {
+                    // Protect against encoding undefined values by letting them fall past the scaling.
+                    if (!dataframe.valueSignifiesUndefined(value)) {
+                        var scaledValue = wrappedScaling(value);
+                        encodedColumnValues[2 * i] = scaledValue;
+                        encodedColumnValues[2 * i + 1] = scaledValue;
+                    }
+                });
+            } else {
+                encodedColumnValues = new sourceValues.constructor(sourceValues.length);
+                _.each(sourceValues, function (value, i) {
+                    // Protect against encoding undefined values by letting them fall past the scaling.
+                    if (!dataframe.valueSignifiesUndefined(value)) {
+                        encodedColumnValues[i] = wrappedScaling(value);
+                    }
+                });
+                // TODO Compute edge color blends from point colors if no edge color otherwise specified.
+            }
+            dataframe.overlayLocalBuffer(type, bufferName, encodedAttributeName, encodedColumnValues);
             graph.simulator.tickBuffers([bufferName]);
             this.tickGraph(cb);
-            cb(_.extend({success: true, enabled: enabled}, _.omit(encoding, ['scaling'])));
+            cb({
+                success: true,
+                enabled: true,
+                encodingType: encodingType,
+                bufferName: bufferName,
+                legend: encoding.legend
+            });
         }.bind(this)).subscribe(
             _.identity,
             function (err) {
@@ -973,10 +1171,10 @@ VizServer.prototype.setupColorTexture = function () {
     this.colorTexture = new Rx.ReplaySubject(1);
     var imgPath = path.resolve(__dirname, 'test-colormap2.rgba');
     var img =
-        Rx.Observable.fromNodeCallback(fs.readFile)(imgPath)
+        Rx.Observable.bindNodeCallback(fs.readFile)(imgPath)
             .flatMap(function (buffer) {
                 logger.trace('Loaded raw colorTexture', buffer.length);
-                return Rx.Observable.fromNodeCallback(compress.deflate)(
+                return Rx.Observable.bindNodeCallback(compress.deflate)(
                     buffer,//binary,
                     {output: new Buffer(
                         Math.max(1024, Math.round(buffer.length * 1.5)))})
@@ -1007,50 +1205,53 @@ VizServer.prototype.setupColorTexture = function () {
 };
 
 VizServer.prototype.setupAggregationRequestHandling = function () {
-    var aggregateRequests = new Rx.Subject().controlled(); // Use pull model.
 
-    //query :: {attributes: ??, binning: ??, mode: ??, type: 'point' + 'edge'}
-    // -> {success: false} + {success: true, data: ??}
-    this.socket.on('aggregate', function (query, cb) {
-        logger.info('Got aggregate', query);
+    var self = this;
+    var logErrorGlobally = log.makeRxErrorHandler(logger, 'aggregate socket handler');
 
-        this.graph.take(1).do(function (graph) {
-            logger.trace('Selecting Indices');
-            var qIndices;
+    // Handle aggregate requests. Using `concatMap` ensures we fully handle one
+    // before moving on to the next.
+    Observable
+        .fromEvent(this.socket, 'aggregate', function (query, cb) {
+            return { query: query, cb: cb };
+        })
+        .concatMap(function (request) {
 
-            if (query.all === true) {
-                var numPoints = graph.simulator.dataframe.getNumElements('point');
-                qIndices = Q(new Uint32Array(_.range(numPoints)));
-            } else if (!query.sel) {
-                qIndices = Q(new Uint32Array([]));
-            } else {
-                qIndices = graph.simulator.selectNodesInRect(query.sel);
+            var cb = request.cb;
+            var query = request.query;
+            var resultSelector = processAggregateIndices.bind(null, query);
+            var sendErrorResponse = failWithMessage.bind(null, cb, 'aggregate socket error');
+
+            logger.info('Got aggregate', query);
+
+            return self.graph.take(1)
+                .flatMap(selectNodeIndices, resultSelector)
+                .mergeAll()
+                .take(1)
+                .do(
+                    function sendSuccessResponse(data) {
+                        logger.info('--- Aggregate success ---');
+                        cb({ success: true, data: data });
+                    },
+                    function handleErrorResponse(err) {
+                        logErrorGlobally(err);
+                        sendErrorResponse(err)
+                    }
+                )
+                .catch(Observable.empty);
+
+            function selectNodeIndices(graph) {
+                if (query.all === true) {
+                    var numPoints = graph.simulator.dataframe.getNumElements('point');
+                    return Observable.of(new Uint32Array(_.range(numPoints)));
+                } else if (!query.sel) {
+                    return Observable.of(new Uint32Array([]));
+                } else {
+                    return graph.simulator.selectNodesInRect(query.sel);
+                }
             }
-
-            aggregateRequests.subject.onNext({
-                qIndices: qIndices,
-                graph: graph,
-                query: query,
-                cb: cb
-            });
-
-        }).subscribe(
-            _.identity,
-            function (err) {
-                failWithMessage(cb, 'aggregate socket error');
-                log.makeRxErrorHandler(logger, 'aggregate socket handler')(err);
-            }
-        );
-    }.bind(this));
-
-    // Handle aggregate requests. Fully handle one before moving on to the next.
-    aggregateRequests.do(function (request) {
-        request.qIndices.then(processAggregateIndices.bind(null, request))
-            .then(function () {
-                aggregateRequests.request(1);
-            }).done(_.identity, log.makeQErrorHandler(logger, 'AggregateIndices Q'));
-    }).subscribe(_.identity, log.makeRxErrorHandler(logger, 'aggregate request loop'));
-    aggregateRequests.request(1); // Always request first.
+        })
+        .subscribe();
 };
 
 // FIXME: ExpressJS routing does not support re-targeting. So we set a global for now!
@@ -1353,9 +1554,11 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     var matchingSets = _.filter(viewConfig.sets, function (vizSet) {
                         return specification.setIDs.indexOf(vizSet.id) !== -1;
                     });
-                    var combinedMasks = _.reduce(matchingSets, function (masks, vizSet) {
-                        return masks.union(vizSet.masks);
-                    }, new DataframeMask(graph.dataframe, [], []));
+                    var combinedMasks = _.reduce(_.map(matchingSets, function (vizSet) {
+                        return vizSet.masks;
+                    }), function (eachMask, accumMask) {
+                        return accumMask.union(eachMask);
+                    });
                     qNodeSelection = Q(combinedMasks);
                     break;
                 default:
@@ -1457,7 +1660,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     this.socket.on('fork_vgraph', function (name, cb) {
         graph.take(1)
             .do(function (graph) {
-                var vgName = 'Users/' + encodeURIComponent(name);
+                var vgName = 'Users/' + name;
                 vgwriter.save(graph, vgName).then(function () {
                     cb({success: true, name: vgName});
                 }).done(
@@ -1582,9 +1785,9 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     //var emitter = socket.emit('vbo_update', metadata, function (time) {
                     //return time;
                     //});
-                    //var observableCallback = Rx.Observable.fromNodeCallback(emitter);
+                    //var observableCallback = Rx.Observable.bindNodeCallback(emitter);
                     //return observableCallback;
-                    return Rx.Observable.fromCallback(this.socket.emit.bind(this.socket))('vbo_update', metadata);
+                    return Rx.Observable.bindCallback(this.socket.emit.bind(this.socket))('vbo_update', metadata);
                     //return emitFnWrapper('vbo_update', metadata);
 
                 }.bind(this)).do(
@@ -1695,7 +1898,7 @@ if (require.main === module) {
     });
 
     logger.info('Binding', config.HTTP_LISTEN_ADDRESS, config.HTTP_LISTEN_PORT);
-    var listen = Rx.Observable.fromNodeCallback(
+    var listen = Rx.Observable.bindNodeCallback(
             http.listen.bind(http, config.HTTP_LISTEN_PORT, config.HTTP_LISTEN_ADDRESS))();
 
     listen.do(function () {
