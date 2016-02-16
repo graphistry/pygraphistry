@@ -51,20 +51,20 @@ def addEdges(vg, sources, dests, node_map):
 
 
 def storeEdgeAttributes(vg, df):
-    node_types = {}
+    edge_types = {}
 
     coltypes = df.columns.to_series().groupby(df.dtypes)
     for dtype, cols in list(coltypes.groups.items()):
         for col in cols:
             enc_type = storeValueVector(vg, df, col, dtype, EDGE)
-            node_types[col] = enc_type
+            edge_types[col] = enc_type
 
-    return node_types
+    return edge_types
 
 
 def storeNodeAttributes(vg, df, nodeid, node_map):
     ordercol = '__order__'
-    edge_types = {}
+    node_types = {}
 
     df[ordercol] = df[nodeid].map(lambda n: node_map[n])
     df.sort_values(ordercol, inplace=True)
@@ -74,9 +74,9 @@ def storeNodeAttributes(vg, df, nodeid, node_map):
     for dtype, cols in list(coltypes.groups.items()):
         for col in cols:
             enc_type = storeValueVector(vg, df, col, dtype, VERTEX)
-            edge_types[col] = enc_type
+            node_types[col] = enc_type
 
-    return edge_types
+    return node_types
 
 
 def storeValueVector(vg, df, col, dtype, target):
