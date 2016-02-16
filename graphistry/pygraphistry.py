@@ -273,7 +273,7 @@ class PyGraphistry(object):
             ],
             'edges': [
                 {
-                    'count': vg.nedges,
+                    'count': vg.edgeCount,
                     'encodings': encodings['edges'],
                     'attributes': attributes['edges']
                 }

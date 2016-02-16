@@ -25,7 +25,7 @@ def create(edge_df, node_df, sources, dests, nodeid, node_map, name):
     vg.version = 1
     vg.type = VectorGraph.DIRECTED
     vg.nvertices = len(node_map)
-    vg.nedges = len(edge_df)
+    vg.edgeCount = len(edge_df)
     if name is not None:
         vg.name = name
 

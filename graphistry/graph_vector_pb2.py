@@ -442,7 +442,7 @@ _VECTORGRAPH = _descriptor.Descriptor(
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='nedges', full_name='VectorGraph.nedges', index=4,
+      name='edgeCount', full_name='VectorGraph.edgeCount', index=4,
       number=5, type=13, cpp_type=3, label=2,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
