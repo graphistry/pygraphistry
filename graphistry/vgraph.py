@@ -93,7 +93,7 @@ def storeValueVector(vg, df, col, dtype, target):
         'datetime64[ns]': datetimeEncoder,
     }
     (vec, info) = encoders[dtype.name](vg, df[col], dtype)
-    vec.name = col
+    vec.name = str(col)
     vec.target = target
 
     if 'distinct' not in info:
