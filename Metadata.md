@@ -61,7 +61,7 @@ Maps attribute names to their encoding descriptions. The `attributes` field list
 Maps attribute names to a summary.
 
 ```json
-attributes:
+attributes:{
 	"spinglass":{
 		"originalType":"int64",
        "min":0,
@@ -72,6 +72,7 @@ attributes:
        "mean":5.051250309482545
    },
    ...
+}
 ```
 
 The following summary fields are **mandatory**:
@@ -184,7 +185,7 @@ The following summary fields are **optional/context dependent**:
 				"mean":4.504476732325408
 			},
 			"Boolean":{
-				"distinct"2,
+				"distinct":2,
 				"max":true,
 				"ctype":"bool",
 				"min":false
