@@ -1,3 +1,0 @@
----
-# The size we set in nginx for file upload size limit
-upload_limit: "128M"

@@ -13,6 +13,9 @@ graphistry_install_path: "/var/graphistry"
 # The number of viz server worker processes to keep running
 workers_count: 8
 
+# The port the first worker will listen on (each subsequent one will listen on the next higher port)
+workers_port_start: 10000
+
 # The Bash environmental variables needed to install node-webcl modules (CUDA + npm config)
 nodecl_env:
     DISPLAY: ":0"
