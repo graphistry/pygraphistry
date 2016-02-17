@@ -1,4 +1,7 @@
 ---
+# We need have a `resolver` directive in nginx's config file because, listing the DNS server we want
+# it to use. If we don't, it just uses the system's, but caches DNS lookups indefinitely. See, e.g.,
+# https://trac.nginx.org/nginx/ticket/658 .
 - name: Find DNS server in use by remote host
   command: awk 'BEGIN {dns="8.8.8.8"} /^nameserver/ {dns=$2; exit;} END {print dns;}' /etc/resolv.conf
   register: remote_dns_server
