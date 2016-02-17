@@ -24,7 +24,7 @@ def create(edge_df, node_df, sources, dests, nodeid, node_map, name):
     vg = graph_vector_pb2.VectorGraph()
     vg.version = 1
     vg.type = VectorGraph.DIRECTED
-    vg.nvertices = len(node_map)
+    vg.vertexCount = len(node_map)
     vg.edgeCount = len(edge_df)
     if name is not None:
         vg.name = name

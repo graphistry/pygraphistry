@@ -266,7 +266,7 @@ class PyGraphistry(object):
             ],
             'nodes': [
                 {
-                    'count': vg.nvertices,
+                    'count': vg.vertexCount,
                     'encodings': encodings['nodes'],
                     'attributes': attributes['nodes']
                 }
