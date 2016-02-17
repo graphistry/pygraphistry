@@ -93,7 +93,7 @@ def storeValueVector(vg, df, col, dtype, target):
         'datetime64[ns]': datetimeEncoder,
     }
     (vec, info) = encoders[dtype.name](vg, df[col], dtype)
-    vec.name = col
+    vec.name = str(col)
     vec.target = target
 
     if 'distinct' not in info:
@@ -145,11 +145,12 @@ def numericEncoder(vg, series, dtype):
         for val in series:
             vec.values.append(val.item()) # Cast to Python native int? Loss of precision?
 
+    stddev = series.std()
     info = {
         'ctype': rep_type.name,
         'originalType': dtype.name,
         'mean': series.mean(),
-        'stddev': series.std()
+        'stddev': stddev if not numpy.isnan(stddev) else None
     }
     return (vec, info)
 
