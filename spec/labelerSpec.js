@@ -18,7 +18,7 @@ describe('Labeler', function () {
             }
         };
 
-        dataframe.load(attrs, 'point', 1);
+        dataframe.loadAttributesForType(attrs, 'point', 1);
 
         var expectedResult = [
             {
