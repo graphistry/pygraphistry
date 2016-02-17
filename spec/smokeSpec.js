@@ -1,6 +1,6 @@
 'use strict';
 
-var Rx           = require('rx');
+var Rx           = require('rxjs/Rx.KitchenSink');
 var _            = require('underscore');
 var fs           = require('fs');
 var path         = require('path');
