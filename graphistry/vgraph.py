@@ -145,11 +145,12 @@ def numericEncoder(vg, series, dtype):
         for val in series:
             vec.values.append(val.item()) # Cast to Python native int? Loss of precision?
 
+    stddev = series.std()
     info = {
         'ctype': rep_type.name,
         'originalType': dtype.name,
         'mean': series.mean(),
-        'stddev': series.std()
+        'stddev': stddev if not numpy.isnan(stddev) else None
     }
     return (vec, info)
 
