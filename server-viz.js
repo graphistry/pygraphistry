@@ -38,6 +38,7 @@ var workbook    = require('./js/workbook.js');
 var labeler     = require('./js/labeler.js');
 var encodings   = require('./js/encodings.js');
 var palettes    = require('./js/palettes.js');
+var dataTypeUtil = require('./js/dataTypes.js');
 var DataframeMask = require('./js/DataframeMask.js');
 var Dataframe   = require('./js/Dataframe.js');
 var TransactionalIdentifier = require('./js/TransactionalIdentifier');
@@ -1060,7 +1061,7 @@ function VizServer(app, socket, cachedVBOs) {
                 encodedColumnValues = new sourceValues.constructor(sourceValues.length * 2);
                 _.each(sourceValues, function (value, i) {
                     // Protect against encoding undefined values by letting them fall past the scaling.
-                    if (!dataframe.valueSignifiesUndefined(value)) {
+                    if (!dataTypeUtil.valueSignifiesUndefined(value)) {
                         var scaledValue = wrappedScaling(value);
                         encodedColumnValues[2 * i] = scaledValue;
                         encodedColumnValues[2 * i + 1] = scaledValue;
@@ -1070,7 +1071,7 @@ function VizServer(app, socket, cachedVBOs) {
                 encodedColumnValues = new sourceValues.constructor(sourceValues.length);
                 _.each(sourceValues, function (value, i) {
                     // Protect against encoding undefined values by letting them fall past the scaling.
-                    if (!dataframe.valueSignifiesUndefined(value)) {
+                    if (!dataTypeUtil.valueSignifiesUndefined(value)) {
                         encodedColumnValues[i] = wrappedScaling(value);
                     }
                 });
