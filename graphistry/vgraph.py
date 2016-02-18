@@ -92,22 +92,31 @@ def storeValueVector(vg, df, col, dtype, target):
         'float64': numericEncoder,
         'datetime64[ns]': datetimeEncoder,
     }
-    (vec, info) = encoders[dtype.name](vg, df[col], dtype)
+    df_col = df[col]
+    (vec, info) = encoders[dtype.name](vg, df_col, dtype)
     vec.name = str(col)
     vec.target = target
 
-    if 'distinct' not in info:
-        info['distinct'] = df[col].nunique()
-    if 'min' not in info:
-        info['min'] = df[col].min()
-    if 'max' not in info:
-        info['max'] = df[col].max()
+    if 'aggregations' not in info:
+        info['aggregations'] = {}
+    aggregations = info['aggregations']
+    if 'valid' not in aggregations:
+        aggregations['valid'] = df_col.count()
+        aggregations['missing'] = df_col.size - aggregations['valid']
+    if 'distinct' not in aggregations:
+        aggregations['distinct'] = df_col.nunique()
+    if 'min' not in aggregations:
+        aggregations['min'] = df_col.min()
+    if 'max' not in aggregations:
+        aggregations['max'] = df_col.max()
 
     return info
 
 
+# returns tuple() of StringAttributeVector and object with type info.
 def objectEncoder(vg, series, dtype):
     series.where(pandas.notnull(series), '\0', inplace=True)
+    # vec is a string[] submessage within a repeated
     vec = vg.string_vectors.add()
     for val in series.map(lambda x: str(x)):
         vec.values.append(val)
@@ -145,12 +154,16 @@ def numericEncoder(vg, series, dtype):
         for val in series:
             vec.values.append(val.item()) # Cast to Python native int? Loss of precision?
 
+    variance = series.var()
     stddev = series.std()
     info = {
         'ctype': rep_type.name,
         'originalType': dtype.name,
-        'mean': series.mean(),
-        'stddev': stddev if not numpy.isnan(stddev) else None
+        'aggregations': {
+            'mean': series.mean(),
+            'variance': variance if not numpy.isnan(variance) else None,
+            'stddev': stddev if not numpy.isnan(stddev) else None
+        }
     }
     return (vec, info)
 
@@ -159,7 +172,9 @@ def boolEncoder(vg, series, dtype):
     vec = vg.bool_vectors.add()
     for val in series:
         vec.values.append(val.item())
-    return (vec, {'ctype': 'bool'})
+    return (vec, {
+        'ctype': 'bool'
+    })
 
 
 def datetimeEncoder(vg, series, dtype):
@@ -172,9 +187,11 @@ def datetimeEncoder(vg, series, dtype):
     info = {
         'ctype': 'datetime32[s]',
         'userType': 'datetime',
-        'min': series32.min(),
-        'max': series32.max(),
-        'distinct': series32.nunique()
+        'aggregations': {
+            'min': series32.min(),
+            'max': series32.max(),
+            'distinct': series32.nunique()
+        }
     }
     return (vec, info)
 
