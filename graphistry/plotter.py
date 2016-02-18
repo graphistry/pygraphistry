@@ -48,13 +48,13 @@ class Plotter(object):
 
 
     def __repr__(self):
-        bnds = ['edges', 'nodes', 'source', 'destination', 'node', 'edge_title',
-                'edge_label', 'edge_color', 'edge_weight', 'point_title',
-                'point_label', 'point_color', 'point_size']
-        stgs = ['height', 'url_params']
+        bindings = ['edges', 'nodes', 'source', 'destination', 'node', 'edge_title',
+                    'edge_label', 'edge_color', 'edge_weight', 'point_title',
+                    'point_label', 'point_color', 'point_size']
+        settings = ['height', 'url_params']
 
-        rep = {'bindings': dict([(f, getattr(self, '_' + f)) for f in bnds]),
-               'settings': dict([(f, getattr(self, '_' + f)) for f in stgs])}
+        rep = {'bindings': dict([(f, getattr(self, '_' + f)) for f in bindings]),
+               'settings': dict([(f, getattr(self, '_' + f)) for f in settings])}
         if util.in_ipython():
             from IPython.lib.pretty import pretty
             return pretty(rep)
