@@ -17,7 +17,7 @@ var logger      = Log.createLogger('etlworker:index');
 
 
 // String * String * Sting * Object -> ()
-function notifySlack(name, nnodes, nedges, params) {
+function notifySlack(name, nodeCount, edgeCount, params) {
     function makeUrl(server) {
         var type = params.apiVersion == 2 ? 'jsonMeta' : 'vgraph';
         var domain;
@@ -68,8 +68,8 @@ function notifySlack(name, nnodes, nedges, params) {
             text: title + '\n' + links,
             color: isInternal(key) ? 'good' : 'bad',
             fields: [
-                { title: 'Nodes', value: nnodes, short: true },
-                { title: 'Edges', value: nedges, short: true },
+                { title: 'Nodes', value: nodeCount, short: true },
+                { title: 'Edges', value: edgeCount, short: true },
                 { title: 'API', value: params.apiVersion, short: true },
                 { title: 'Machine Tag', value: tag, short: true },
                 { title: 'Agent', value: params.agent, short: true },
@@ -130,7 +130,7 @@ function dispatcher(tearDown, req, res) {
         try {
             handler(req, res, params)
                 .then(function (info) {
-                    return notifySlack(info.name, info.nnodes, info.nedges, params);
+                    return notifySlack(info.name, info.nodeCount, info.edgeCount, params);
                 }).then(function() {
                     tearDown(0);
                 }).fail(makeFailHandler(res, tearDown));
