@@ -1,7 +1,7 @@
 'use strict';
 
 var _ = require('underscore');
-var NBody = require('../js/NBody.js');
+var NBody = require('../dist/NBody.js');
 
 describe('nBody', function () {
     var minimalSim, minimalSocket;

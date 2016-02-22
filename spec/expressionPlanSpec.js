@@ -2,8 +2,8 @@
 
 var _ = require('underscore');
 
-var ExpressionPlan = require('../js/ExpressionPlan.js');
-var Dataframe = require('../js/Dataframe.js');
+var ExpressionPlan = require('../dist/ExpressionPlan.js');
+var Dataframe = require('../dist/Dataframe.js');
 
 describe('Plans for multi-column expressions', function () {
     var dataframe;

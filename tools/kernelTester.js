@@ -1,10 +1,10 @@
 'use strict';
 
-var Kernel      = require('../js/kernel.js');
-var cljs        = require('../js/cl.js');
+var Kernel      = require('../dist/kernel.js');
+var cljs        = require('../dist/cl.js');
 var _           = require('underscore');
-var simCl       = require('../js/SimCL.js');
-var RenderNull  = require('../js/RenderNull.js');
+var simCl       = require('../dist/SimCL.js');
+var RenderNull  = require('../dist/RenderNull.js');
 var Q           = require('q');
 var log         = require('common/logger.js');
 var logger      = log.createLogger('graph-viz:tools:kerneltester');

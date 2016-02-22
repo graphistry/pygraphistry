@@ -1,6 +1,6 @@
 'use strict';
 
-var loader = require('../js/data-loader.js');
+var loader = require('../dist/data-loader.js');
 
 describe('Data loader', function () {
 

@@ -1,7 +1,7 @@
 'use strict';
 var _ = require('underscore');
-var labeler = require('../js/labeler.js');
-var Dataframe = require('../js/Dataframe.js');
+var labeler = require('../dist/labeler.js');
+var Dataframe = require('../dist/Dataframe.js');
 
 
 describe('Labeler', function () {
