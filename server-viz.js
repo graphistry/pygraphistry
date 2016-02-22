@@ -51,7 +51,7 @@ var RenderNull  = require('./js/RenderNull.js');
 var NBody = require('./js/NBody.js');
 
 var log         = require('common/logger.js');
-var logger      = log.createLogger('graph-viz:driver:viz-server');
+var logger      = log.createLogger('graph-viz', 'graph-viz/viz-server.js');
 var perf        = require('common/perfStats.js').createPerfMonitor();
 
 /**** GLOBALS ****************************************************/
@@ -802,9 +802,7 @@ function VizServer(app, socket, cachedVBOs) {
 
                 _.each(viewConfig.filters, function (filter) {
 
-                    console.log('==================================\n');
-                    console.log('filter: ', filter);
-                    console.log('==================================\n');
+                    logger.trace({filter: filter}, 'Beginning ast creation for filter');
 
 
                     if (filter.enabled === false) {
