@@ -167,7 +167,7 @@ function getControls(controlsName) {
 }
 
 VizServer.prototype.resetState = function (dataset, socket) {
-    logger.info('RESETTING APP STATE');
+    logger.info({socketID: socket.id}, 'RESETTING APP STATE');
 
     //FIXME explicitly destroy last graph if it exists?
 
@@ -452,7 +452,7 @@ function VizServer(app, socket, cachedVBOs) {
 
     this.socket.on('get_view_config', function (ignore, cb) {
         this.viewConfig.take(1).do(function (viewConfig) {
-            logger.info('viewConfig', viewConfig);
+            logger.debug('viewConfig', viewConfig);
             cb({success: true, viewConfig: viewConfig});
         }).subscribe(_.identity, function (err) {
             cb({success: false, errors: [err.message]});
@@ -482,7 +482,8 @@ function VizServer(app, socket, cachedVBOs) {
 
     this.socket.on('render_config', function(_, cb) {
         this.qRenderConfig.then(function (renderConfig) {
-            logger.info('renderConfig', renderConfig);
+            logger.debug('renderConfig', renderConfig);
+            logger.debug({renderConfig : renderConfig}, "Sending render-config to client");
             logger.trace('Sending render-config to client');
             cb({success: true, renderConfig: renderConfig});
 
@@ -752,7 +753,7 @@ function VizServer(app, socket, cachedVBOs) {
                 viewConfig.exclusions = definition.exclusions;
                 bumpViewConfig = true;
             }
-            logger.info('updated exclusions', viewConfig.exclusions);
+            logger.info({exclusions: viewConfig.exclusions}, 'updated exclusions');
 
             // Update filters:
             if (definition.filters !== undefined &&
@@ -760,7 +761,7 @@ function VizServer(app, socket, cachedVBOs) {
                 viewConfig.filters = definition.filters;
                 bumpViewConfig = true;
             }
-            logger.info('updated filters', viewConfig.filters);
+            logger.debug('updated filters', viewConfig.filters);
 
             if (viewConfig.limits === undefined) {
                 viewConfig.limits = {point: Infinity, edge: Infinity};
@@ -1401,7 +1402,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
     //Knowing this helps overlap communication and computations
     this.socket.on('planned_binary_requests', function (request) {
-        logger.debug('CLIENT SETTING PLANNED REQUESTS', request.buffers, request.textures);
+        logger.trace('CLIENT SETTING PLANNED REQUESTS', request.buffers, request.textures);
         requestedBuffers = request.buffers;
         requestedTextures = request.textures;
     });
@@ -1415,7 +1416,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
     this.socket.on('interaction', function (payload) {
         // performance monitor here?
         // profiling.trace('Got Interaction');
-        logger.trace('Got interaction:', payload);
+        logger.trace({payload: payload}, 'Recieved interaction:');
         // TODO: Find a way to avoid flooding main thread waiting for GPU ticks.
         var defaults = {play: false, layout: false};
         animationStep.interact(_.extend(defaults, payload || {}));
@@ -1702,12 +1703,14 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
         var ticker = {step: step};
 
-        logger.trace('0. Prefetch VBOs', this.socket.id, activeBuffers, ticker);
+        var fetchDataLogger = logger.child({socket: this.socket.id, step:ticker.step});
+
+        fetchDataLogger.trace({activeBuffers: activeBuffers}, '0. Prefetch VBOs');
 
         return driver.fetchData(graph, renderConfig, compress,
                                 activeBuffers, lastVersions, activePrograms)
             .do(function (VBOs) {
-                logger.trace('1. pre-fetched VBOs for xhr2: ' + sizeInMBOfVBOs(VBOs.compressed) + 'MB', ticker);
+                fetchDataLogger.trace('1. pre-fetched VBOs for xhr2: ' + sizeInMBOfVBOs(VBOs.compressed) + 'MB');
 
                 //tell XHR2 sender about it
                 if (this.lastCompressedVBOs) {
@@ -1722,32 +1725,31 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 }
             }.bind(this))
             .flatMap(function (VBOs) {
-                logger.trace('2. Waiting for client to finish previous', this.socket.id, ticker);
+                fetchDataLogger.trace('2. Waiting for client to finish previous');
                 return clientReady
                     .filter(_.identity)
                     .take(1)
                     .do(function () {
-                        logger.trace('2b. Client ready, proceed and mark as processing.', this.socket.id, ticker);
+                        fetchDataLogger.trace('2b. Client ready, proceed and mark as processing.');
                         clientReady.onNext(false);
                     }.bind(this))
                     .map(_.constant(VBOs));
             }.bind(this))
             .flatMap(function (VBOs) {
-                logger.trace('3. tell client about availability', this.socket.id, ticker);
+                fetchDataLogger.trace('3. tell client about availability');
 
                 //for each buffer transfer
                 var clientAckStartTime;
                 var clientElapsed;
                 var transferredBuffers = [];
                 this.bufferTransferFinisher = function (bufferName) {
-                    logger.trace('5a ?. sending a buffer', bufferName, this.socket.id, ticker);
+                    fetchDataLogger.trace('5a ?. sending a buffer %s', bufferName);
                     transferredBuffers.push(bufferName);
                     //console.log("Length", transferredBuffers.length, requestedBuffers.length);
                     if (transferredBuffers.length === requestedBuffers.length) {
-                        logger.trace('5b. started sending all', this.socket.id, ticker);
-                        logger.trace('Socket', '...client ping ' + clientElapsed + 'ms');
-                        logger.trace('Socket', '...client asked for all buffers',
-                            Date.now() - clientAckStartTime, 'ms');
+                        fetchDataLogger.trace('5b. started sending all');
+                        fetchDataLogger.trace('Socket...client ping ' + clientElapsed + 'ms');
+                        fetchDataLogger.trace('Socket', '...client asked for all buffers' + (Date.now() - clientAckStartTime) + 'ms');
                     }
                 }.bind(this);
 
@@ -1756,7 +1758,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 //notify of buffer/texture metadata
                 //FIXME make more generic and account in buffer notification status
                 var receivedAll = colorTexture.flatMap(function (colorTexture) {
-                    logger.trace('4a. unwrapped texture meta', ticker);
+                    fetchDataLogger.trace('4a. unwrapped texture meta');
 
                     var textures = {
                         colorMap: _.pick(colorTexture, ['width', 'height', 'bytes'])
@@ -1777,7 +1779,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     lastVersions = VBOs.versions;
                     lastTick = VBOs.tick;
 
-                    logger.trace('4b. notifying client of buffer metadata', metadata, ticker);
+                    fetchDataLogger.trace('4b. notifying client of buffer metadata');
                     //performance monitor here?
                     // profiling.trace('===Sending VBO Update===');
 
@@ -1791,7 +1793,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
                 }.bind(this)).do(
                     function (clientElapsedMsg) {
-                        logger.trace('6. client all received', this.socket.id, ticker);
+                        fetchDataLogger.trace('6. client all received');
                         clientElapsed = clientElapsedMsg;
                         clientAckStartTime = Date.now();
                     }.bind(this));
@@ -1799,7 +1801,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 return receivedAll;
             }.bind(this))
             .flatMap(function () {
-                logger.trace('7. Wait for next animation step, updateVboSubject, or if we are behind on ticks', this.socket.id, ticker);
+                fetchDataLogger.trace('7. Wait for next animation step, updateVboSubject, or if we are behind on ticks');
 
                 var filteredUpdateVbo = this.updateVboSubject.filter(function (data) {
                     return data;
@@ -1815,12 +1817,12 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                         // Mark that we don't need to send VBOs independently of ticks anymore.
                         this.updateVboSubject.onNext(false);
                     }.bind(this))
-                    .do(function () { logger.trace('8. next ready!', this.socket.id, ticker); }.bind(this));
+                    .do(function () { logger.trace('8. next ready!'); }.bind(this));
             }.bind(this))
             .map(_.constant(graph));
     }.bind(this))
     .subscribe(function () {
-            logger.trace('9. LOOP ITERATED', this.socket.id);
+            logger.trace('9. LOOP ITERATED');
         }.bind(this),
         log.makeRxErrorHandler(logger, 'Main loop failure'));
 };
