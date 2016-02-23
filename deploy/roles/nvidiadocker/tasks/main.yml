@@ -1,0 +1,14 @@
+---
+- name: Enjoy the thrill of HEAD from nvidia-Docker
+  git: repo=https://github.com/NVIDIA/nvidia-docker.git
+       dest=/home/ubuntu/nvidia-docker
+
+- name: Install nvidia-Docker
+  command: make install chdir=/home/ubuntu/nvidia-docker
+  become: yes
+  become_user: root
+
+- name: Setup nvidia-docker volumes for standalone use
+  command: nvidia-docker volume setup chdir=/home/ubuntu/nvidia-docker
+  become: yes
+  become_user: root
