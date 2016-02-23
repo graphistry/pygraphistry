@@ -15,7 +15,7 @@
            sha256sum=549748e0e52857d357cbd118fbcea5de49b5f13e54281d1e9bb1d71e92a4e358
 
 - name: Install Splunk Universal Forwarder
-  apt: deb="{{ ansible_files }}/splunkforwarder-6.2.1-245427-linux-2.6-amd64.deb"
+  apt: deb="{{ ansible_files }}/splunkforwarder-6.3.3-f44afce176d0-linux-2.6-amd64.deb"
        state=present
 
 - name: Start Splunk Forwarder
