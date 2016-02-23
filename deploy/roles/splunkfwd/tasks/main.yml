@@ -10,9 +10,9 @@
 
 - name: Downlad Splunk Universal Forwarder
   sudo: no
-  get_url: url="http://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=Linux&version=6.2.1&product=universalforwarder&filename=splunkforwarder-6.2.1-245427-linux-2.6-amd64.deb&wget=true"
-           dest="{{ ansible_files }}/splunkforwarder-6.2.1-245427-linux-2.6-amd64.deb"
-           sha256sum=4f37add3f0ef900a80891b234d892f05ca59868f9e507ae8de720261dd9876a2
+  get_url: url="http://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.3.3&product=universalforwarder&filename=splunkforwarder-6.3.3-f44afce176d0-linux-2.6-amd64.deb&wget=true"
+           dest="{{ ansible_files }}/splunkforwarder-6.3.3-f44afce176d0-linux-2.6-amd64.deb"
+           sha256sum=549748e0e52857d357cbd118fbcea5de49b5f13e54281d1e9bb1d71e92a4e358
 
 - name: Install Splunk Universal Forwarder
   apt: deb="{{ ansible_files }}/splunkforwarder-6.2.1-245427-linux-2.6-amd64.deb"
