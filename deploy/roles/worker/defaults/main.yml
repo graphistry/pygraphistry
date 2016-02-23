@@ -1,5 +1,2 @@
 ---
 mongodb_dbname: "graphistry-staging"
-
-# The number of viz server worker processes to keep running
-workers_count: 8
