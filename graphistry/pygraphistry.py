@@ -335,11 +335,6 @@ class PyGraphistry(object):
             util.warn('Could not contact %s. Are you connected to the Internet?' % PyGraphistry._hostname)
 
 
-server = PyGraphistry.server
-protocol = PyGraphistry.protocol
-api_key = PyGraphistry.api_key
-api_version = PyGraphistry.api_version
-authenticate = PyGraphistry.authenticate
 register = PyGraphistry.register
 bind = PyGraphistry.bind
 edges = PyGraphistry.edges
