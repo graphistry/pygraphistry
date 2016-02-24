@@ -6,4 +6,3 @@ except DistributionNotFound:
     __version__ = '0.0.0'
 
 from graphistry.pygraphistry import register, bind, edges, nodes, graph, settings
-
