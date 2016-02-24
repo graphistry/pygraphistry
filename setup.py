@@ -49,7 +49,7 @@ setup(
         'igraph': ['python-igraph'],
         'networkx': ['networkx'],
         'pandas-extra': ['numexpr', 'Bottleneck'],
-        'all': ['python-igraph', 'networkx', 'numexpr', 'Bottleneck']
+        'all': ['python-igraph', 'networkx', 'numexpr', 'Bottleneck', 'colorlover']
     },
     license='BSD',
     classifiers=[
