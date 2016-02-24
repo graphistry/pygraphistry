@@ -7,7 +7,7 @@ It supports unusually large graphs for interactive visualization. The client's c
 1. [Interactive Demo](#demo-of-friendship-communities-on-facebook)
 2. [Graph Gallery](#gallery)
 3. [Installation](#installation)
-4. [Tutorial](#tutorial-les-misérables)
+4. [Tutorial](#graphing-les-misérables)
 5. [API Reference](#api-reference)
 
 ### Demo of Friendship Communities on Facebook
@@ -101,10 +101,10 @@ import graphistry
 graphistry.register(key='Your key')
 ```
 
-## Tutorial: Graphing Les Misérables
+## Tutorial: Les Misérables
 
 Let's visualize relationships between the characters in [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
-For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [IGraph](http://igraph.org) to run a community detection algorithm. You can download the [IPython notebook](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/MiserablesDemo.ipynb) containing this example.
+For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [IGraph](http://igraph.org) to run a community detection algorithm. You can [view](http://graphistry.github.io/pygraphistry/html/Quickstart%20(Les%20Miserables).html) and [download](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/MiserablesDemo.ipynb) the IPython notebook containing this example.
 
 Our [dataset is a CSV file](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/lesmiserables.csv) that looks like this:
 
@@ -148,7 +148,7 @@ plotter.plot(links)
 ```
 
 ### Controlling Node Size and Color
-Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). [IGraph](http://igraph.org/python/) already has these algorithms implemented for us. If IGraph is not already installed, fetch it with `pip install igraph-python`. (<span style="color:maroon">Warning: `pip install igraph` will install the wrong package!</span>)
+Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). [IGraph](http://igraph.org/python/) already has these algorithms implemented for us. If IGraph is not already installed, fetch it with `pip install igraph-python`. Warning: `pip install igraph` will install the wrong package!
 
 We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we create two new node attributes (*pagerank* & *community*).
 
@@ -162,18 +162,15 @@ plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
-
-### Going Further
+## Next Steps
 
 1. Email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) for an API key!
 2. Read our advanced tutorials:
 	-  [Creating a node table + controlling sizes and colors (HoneyPot)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%201%20(Honey%20Pot).html)
-	-  [Aggregating edges and creating multiple views (Apache Logs)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%202%20(Apache%20Logs).html)
+	-  [Aggregating edges and creating multiple views of the same data (Apache Logs)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%202%20(Apache%20Logs).html)
 3. Check out our [demos folder](https://github.com/graphistry/pygraphistry/tree/master/demos).
 
 ## API Reference
 
 Full Python (including IPython/Juypter) [API documentation](http://pygraphistry.readthedocs.org/en/latest/).
-
-See also: [REST API and deprecrated Python docs](http://graphistry.com/api/api0.9.2.html#python).
 
