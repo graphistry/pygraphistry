@@ -1,0 +1,89 @@
+---
+- name: Ensure Ansible version is 1.9 for compatability with our plabooks
+  fail: msg="Ansible {{ ansible_version.full }} is currently incompatible with our playbooks. Please install Ansible 1.9.x instead."
+  when: not ("%d.%d" | format(ansible_version.major, ansible_version.minor) | version_compare("1.9", "=="))
+  run_once: true
+  become: no
+
+- name: Create Ansible file folder
+  become: no
+  file: path="{{ ansible_files }}"
+        state=directory
+        owner=root
+        mode=1777
+        recurse=no
+  become: yes
+  become_user: root
+
+- name: Configure timezone
+  copy: content="US/Pacific-New"
+        dest=/etc/timezone
+        owner=root
+        group=root
+        mode=0644
+  notify: Update timezone
+  become: yes
+  become_user: root
+
+- name: Upgrade packages
+  apt: upgrade=dist
+       state=latest
+       update_cache=yes
+  become: yes
+  become_user: root
+  notify:
+    - Reboot server
+    - Wait for server to restart
+
+- name: Install common tools
+  apt: pkg={{ item }}
+       state=latest
+       update_cache=yes
+  with_items:
+    - build-essential
+    - curl
+    - git
+    - logrotate
+    - ntp
+    - apt-transport-https
+    - ca-certificates
+  become: yes
+
+- name: Enable ACLs on root filesystem
+  mount: name=/
+         src='LABEL=cloudimg-rootfs'
+         fstype=ext4
+         opts='defaults,acl,discard,barrier=0,noatime,nodiratime'
+         state=mounted
+  become: yes
+  become_user: root
+
+- name: Add Docker GPG key
+  become: yes
+  become_user: root
+  apt_key: keyserver=p80.pool.sks-keyservers.net id=58118E89F3A912897C070ADBF76221572C52609D
+
+- name: Create a list file for Docker
+  become: yes
+  become_user: root
+  apt_repository: repo="deb https://apt.dockerproject.org/repo ubuntu-trusty main"
+
+- name: Install Docker
+  become: yes
+  become_user: root
+  apt: update_cache=yes name={{ item }}
+  with_items:
+    - linux-image-generic-lts-trusty
+    - linux-headers-generic-lts-trusty
+    - apparmor
+    - docker-engine
+
+- name: Start the docker daemon
+  become: yes
+  become_user: root
+  service: name=docker state=started
+
+- name: Verify docker is installed correctly
+  become: yes
+  become_user: root
+  command: docker run hello-world
