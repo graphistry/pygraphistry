@@ -416,7 +416,12 @@ function failWithMessage (cb, message) {
 }
 
 function VizServer(app, socket, cachedVBOs) {
-    logger.info('Client connected', socket.id);
+
+    var socketLogger = logger.child({
+        socketID: socket.id, 
+    });
+
+    socketLogger.info('Client connected');
 
     this.isActive = true;
     this.defineRoutesInApp(app);
@@ -429,7 +434,7 @@ function VizServer(app, socket, cachedVBOs) {
     this.workbookForQuery(this.workbookDoc, query);
     this.workbookDoc.subscribe(function (workbookDoc) {
         this.viewConfig.onNext(this.getViewToLoad(workbookDoc, query));
-    }.bind(this), log.makeRxErrorHandler(logger, 'Getting View from Workbook'));
+    }.bind(this), log.makeRxErrorHandler(socketLogger, 'Getting View from Workbook'));
 
     this.setupColorTexture();
 
@@ -441,50 +446,54 @@ function VizServer(app, socket, cachedVBOs) {
             var metadata = dataset.metadata;
 
             if (!(metadata.scene in rConf.scenes)) {
-                logger.warn('WARNING Unknown scene "%s", using default', metadata.scene);
+                socketLogger.warn('WARNING Unknown scene "%s", using default', metadata.scene);
                 metadata.scene = 'default';
             }
 
             this.resetState(dataset, socket);
             renderConfigDeferred.resolve(rConf.scenes[metadata.scene]);
-        }.bind(this)).fail(log.makeQErrorHandler(logger, 'resetting state'));
-    }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(logger, 'Get render config'));
+        }.bind(this)).fail(log.makeQErrorHandler(socketLogger, 'resetting state'));
+    }.bind(this)).subscribe(_.identity, log.makeRxErrorHandler(socketLogger, 'Get render config'));
 
     this.socket.on('get_view_config', function (ignore, cb) {
         this.viewConfig.take(1).do(function (viewConfig) {
-            logger.debug('viewConfig', viewConfig);
+            socketLogger.info('Socket on get_view_config');
+            socketLogger.trace({viewConfig: viewConfig}, 'viewConfig');
             cb({success: true, viewConfig: viewConfig});
         }).subscribe(_.identity, function (err) {
             cb({success: false, errors: [err.message]});
-            log.makeRxErrorHandler(logger, 'Get view config')(err);
+            log.makeRxErrorHandler(socketLogger, 'Get view config')(err);
         });
     }.bind(this));
 
     this.socket.on('update_view_config', function (newValues, cb) {
         this.viewConfig.take(1).do(function (viewConfig) {
+            socketLogger.info({newValues: newValues}, 'Socket on update_view_config');
+            socketLogger.trace({viewConfig: viewConfig}, 'viewConfig');
             extend(true, viewConfig, newValues);
             cb({success: true, viewConfig: viewConfig});
         }).subscribe(_.identity, function (err) {
             cb({success: false, errors: [err.message]});
-            log.makeRxErrorHandler(logger, 'Update view config')(err);
+            log.makeRxErrorHandler(socketLogger, 'Update view config')(err);
         });
     }.bind(this));
 
     this.socket.on('update_view_parameter', function (spec, cb) {
         this.viewConfig.take(1).do(function (viewConfig) {
+            socketLogger.info({newParameters: spec}, 'Socket on update_view_parameters');
             viewConfig.parameters[spec.name] = spec.value;
+            socketLogger.trace({viewConfig: viewConfig}, 'viewConfig');
             cb({success: true});
         }).subscribe(_.identity, function (err) {
             cb({success: false, errors: [err.message]});
-            log.makeRxErrorHandler(logger, 'Update view parameter')(err);
+            log.makeRxErrorHandler(socketLogger, 'Update view parameter')(err);
         });
     }.bind(this));
 
     this.socket.on('render_config', function(_, cb) {
         this.qRenderConfig.then(function (renderConfig) {
-            logger.debug('renderConfig', renderConfig);
-            logger.debug({renderConfig : renderConfig}, "Sending render-config to client");
-            logger.trace('Sending render-config to client');
+            socketLogger.info("Socket on render_config (sending render_config to client");
+            socketLogger.trace({renderConfig : renderConfig}, "renderConfig");
             cb({success: true, renderConfig: renderConfig});
 
             if (saveAtEachStep) {
@@ -494,14 +503,14 @@ function VizServer(app, socket, cachedVBOs) {
             this.lastRenderConfig = renderConfig;
         }.bind(this)).fail(function (err) {
             failWithMessage(cb, 'Render config read error');
-            log.makeQErrorHandler(logger, 'sending render_config')(err);
+            log.makeQErrorHandler(socketLogger, 'sending render_config')(err);
         });
     }.bind(this));
 
     this.socket.on('update_render_config', function(newValues, cb) {
         this.qRenderConfig.then(function (renderConfig) {
-            logger.info('renderConfig [before]', renderConfig);
-            logger.trace('Updating render-config from client values');
+            socketLogger.info('Socket on update_render_config (Updating render-config from client values)');
+            socketLogger.trace({renderConfig: renderConfig}, 'renderConfig [before]');
 
             extend(true, renderConfig, newValues);
 
@@ -514,7 +523,7 @@ function VizServer(app, socket, cachedVBOs) {
             this.lastRenderConfig = renderConfig;
         }.bind(this)).fail(function (err) {
             failWithMessage(cb, 'Render config update error');
-            log.makeQErrorHandler(logger, 'updating render_config')(err);
+            log.makeQErrorHandler(socketLogger, 'updating render_config')(err);
         });
     }.bind(this));
 
@@ -593,10 +602,10 @@ function VizServer(app, socket, cachedVBOs) {
                 viewConfig.sets.push(newSet);
                 dataframe.masksForVizSets[newSet.id] = dataframeMask;
                 cb({success: true, set: dataframe.presentVizSet(newSet)});
-            }).fail(log.makeQErrorHandler(logger, 'pin_selection_as_set'));
+            }).fail(log.makeQErrorHandler(socketLogger, 'pin_selection_as_set'));
         }).take(1).subscribe(_.identity,
             function (err) {
-                logger.error(err, 'Error creating set from selection');
+                socketLogger.error(err, 'Error creating set from selection');
                 failWithMessage(cb, 'Server error when saving the selection as a Set');
             });
     }.bind(this));
@@ -604,13 +613,13 @@ function VizServer(app, socket, cachedVBOs) {
     var specialSetKeys = ['dataframe', 'filtered', 'selection'];
 
     this.socket.on('get_sets', function (cb) {
-        logger.trace('sending current sets to client');
+        socketLogger.trace('sending current sets to client');
         Rx.Observable.combineLatest(this.graph, this.viewConfig, function (graph, viewConfig) {
             var outputSets = vizSetsToPresentFromViewConfig(viewConfig, graph.dataframe);
             cb({success: true, sets: outputSets});
         }.bind(this)).take(1).subscribe(_.identity,
             function (err) {
-                logger.error(err, 'Error retrieving Sets');
+                socketLogger.error(err, 'Error retrieving Sets');
                 failWithMessage(cb, 'Server error when retrieving all Set definitions');
             });
     }.bind(this));
@@ -648,18 +657,18 @@ function VizServer(app, socket, cachedVBOs) {
             cb({success: true, set: graph.dataframe.presentVizSet(updatedVizSet)});
         }).take(1).subscribe(_.identity,
             function (err) {
-                logger.error(err, 'Error sending update_set');
+                socketLogger.error(err, 'Error sending update_set');
                 failWithMessage(cb, 'Server error when updating a Set');
                 throw err;
             });
     }.bind(this));
 
     this.socket.on('get_filters', function (cb) {
-        logger.trace('sending current filters and exclusions to client');
+        socketLogger.trace('sending current filters and exclusions to client');
         this.viewConfig.take(1).do(function (viewConfig) {
             cb({success: true, filters: viewConfig.filters, exclusions: viewConfig.exclusions});
         }).subscribe(
-            _.identity, log.makeRxErrorHandler(logger, 'get_filters handler'));
+            _.identity, log.makeRxErrorHandler(socketLogger, 'get_filters handler'));
     }.bind(this));
 
     this.socket.on('getTimeBoundaries', function (data, cb) {
@@ -690,7 +699,7 @@ function VizServer(app, socket, cachedVBOs) {
         .subscribe(
             _.identity,
             function (err) {
-                log.makeRxErrorHandler(logger, 'timeAggregation handler')(err);
+                log.makeRxErrorHandler(socketLogger, 'timeAggregation handler')(err);
             }
         );
     }.bind(this));
@@ -735,7 +744,7 @@ function VizServer(app, socket, cachedVBOs) {
         .subscribe(
             _.identity,
             function (err) {
-                log.makeRxErrorHandler(logger, 'timeAggregation handler')(err);
+                log.makeRxErrorHandler(socketLogger, 'timeAggregation handler')(err);
             }
         );
     }.bind(this));
@@ -761,7 +770,7 @@ function VizServer(app, socket, cachedVBOs) {
                 viewConfig.filters = definition.filters;
                 bumpViewConfig = true;
             }
-            logger.debug('updated filters', viewConfig.filters);
+            logger.debug({filters: viewConfig.filters}, 'Updated filters');
 
             if (viewConfig.limits === undefined) {
                 viewConfig.limits = {point: Infinity, edge: Infinity};
@@ -868,8 +877,8 @@ function VizServer(app, socket, cachedVBOs) {
         logger.info('Sending layout controls to client');
 
         this.graph.take(1).do(function (graph) {
-            logger.info('Got layout controls');
             var controls = graph.simulator.controls;
+            logger.info({controls: controls}, 'Got layout controls');
             cb({success: true, controls: lConf.toClient(controls.layoutAlgorithms)});
         })
         .subscribe(null, function (err) {
@@ -949,7 +958,7 @@ function VizServer(app, socket, cachedVBOs) {
 
     // Legacy method for timeslider.js only; refactor that to work with newer code and kill this.
     this.socket.on('filter', function (query, cb) {
-        logger.info('Got filter', query);
+        logger.info({query: query}, 'Got filter');
         Rx.Observable.combineLatest(this.viewConfig, this.graph, function (viewConfig, graph) {
 
             var selectionMasks = [];
@@ -1154,7 +1163,7 @@ VizServer.prototype.setupDataset = function (workbookDoc, query) {
 
 VizServer.prototype.workbookForQuery = function (observableResult, query) {
     if (query.workbook) {
-        logger.debug('Loading workbook', query.workbook);
+        logger.debug({workbook: query.workbook}, 'Loading workbook');
         workbook.loadDocument(decodeURIComponent(query.workbook)).subscribe(function (workbookDoc) {
             observableResult.onNext(workbookDoc);
         }, function (error) {
@@ -1222,7 +1231,7 @@ VizServer.prototype.setupAggregationRequestHandling = function () {
             var resultSelector = processAggregateIndices.bind(null, query);
             var sendErrorResponse = failWithMessage.bind(null, cb, 'aggregate socket error');
 
-            logger.info('Got aggregate', query);
+            logger.debug({query: query}, 'Got aggregate');
 
             return self.graph.take(1)
                 .flatMap(selectNodeIndices, resultSelector)
@@ -1265,7 +1274,8 @@ VizServer.prototype.defineRoutesInApp = function (app) {
     if (routesAlreadyBound) { return; }
 
     this.app.get('/vbo', function (req, res) {
-        logger.info('VBOs: HTTP GET %s', req.originalUrl);
+        //console.log(req);
+        logger.info('HTTP GET request for vbo %s', req.query.buffer);
         // performance monitor here?
         // profiling.debug('VBO request');
 
@@ -1291,7 +1301,7 @@ VizServer.prototype.defineRoutesInApp = function (app) {
     });
 
     this.app.get('/texture', function (req, res) {
-        logger.debug('got texture req', req.originalUrl, req.query);
+        logger.info({req: req, res: res}, 'HTTP GET %s', req.originalUrl);
         try {
             appRouteResponder.colorTexture.pluck('buffer').do(
                 function (data) {
@@ -1306,7 +1316,7 @@ VizServer.prototype.defineRoutesInApp = function (app) {
     });
 
     this.app.get('/read_node_selection', function (req, res) {
-        logger.debug('Got read_node_selection', req.query);
+        logger.info({req: req, res: res}, 'HTTP GET %s', req.originalUrl);
 
         // HACK because we're sending numbers across a URL string parameter.
         // This should be sent in a type aware manner
@@ -1322,7 +1332,7 @@ VizServer.prototype.defineRoutesInApp = function (app) {
     });
 
     this.app.get('/read_edge_selection', function (req, res) {
-        logger.debug('Got read_edge_selection', req.query);
+        logger.info({req: req, res: res}, 'HTTP GET /read_edge_selection');
 
         // HACK because we're sending numbers across a URL string parameter.
         // This should be sent in a type aware manner
@@ -1338,7 +1348,7 @@ VizServer.prototype.defineRoutesInApp = function (app) {
     });
 
     this.app.get('/export_csv', function (req, res) {
-        logger.debug('Got export CSV request: ', req.query);
+        logger.info({req: req, res: res}, 'HTTP GET /export_csv');
         var type = req.query.type;
 
         appRouteResponder.graph.take(1).do(function (graph) {
@@ -1401,14 +1411,16 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
         requestedTextures = activeTextures;
 
     //Knowing this helps overlap communication and computations
+    var that = this;
     this.socket.on('planned_binary_requests', function (request) {
-        logger.trace('CLIENT SETTING PLANNED REQUESTS', request.buffers, request.textures);
+        //console.log(that.socket);
+        logger.trace({buffers: request.buffers, textures: request.textures}, 'Client sending planned requests');
         requestedBuffers = request.buffers;
         requestedTextures = request.textures;
     });
 
 
-    logger.debug('active buffers/textures/programs', activeBuffers, activeTextures, activePrograms);
+    logger.debug({activeBuffers: activeBuffers, activeTextures: activeTextures, activePrograms: activePrograms}, "Begining stream");
 
     var graph = this.graph;
     var animationStep = this.animationStep;
@@ -1703,14 +1715,12 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
         var ticker = {step: step};
 
-        var fetchDataLogger = logger.child({socket: this.socket.id, step:ticker.step});
-
-        fetchDataLogger.trace({activeBuffers: activeBuffers}, '0. Prefetch VBOs');
+        logger.trace({activeBuffers: activeBuffers, step:step}, '0. Prefetch VBOs');
 
         return driver.fetchData(graph, renderConfig, compress,
                                 activeBuffers, lastVersions, activePrograms)
             .do(function (VBOs) {
-                fetchDataLogger.trace('1. pre-fetched VBOs for xhr2: ' + sizeInMBOfVBOs(VBOs.compressed) + 'MB');
+                logger.trace({step:step}, '1. pre-fetched VBOs for xhr2: ' + sizeInMBOfVBOs(VBOs.compressed) + 'MB');
 
                 //tell XHR2 sender about it
                 if (this.lastCompressedVBOs) {
@@ -1725,31 +1735,31 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 }
             }.bind(this))
             .flatMap(function (VBOs) {
-                fetchDataLogger.trace('2. Waiting for client to finish previous');
+                logger.trace({step: step}, '2. Waiting for client to finish previous');
                 return clientReady
                     .filter(_.identity)
                     .take(1)
                     .do(function () {
-                        fetchDataLogger.trace('2b. Client ready, proceed and mark as processing.');
+                        logger.trace({step: step}, '2b. Client ready, proceed and mark as processing.');
                         clientReady.onNext(false);
                     }.bind(this))
                     .map(_.constant(VBOs));
             }.bind(this))
             .flatMap(function (VBOs) {
-                fetchDataLogger.trace('3. tell client about availability');
+                logger.trace('3. tell client about availability');
 
                 //for each buffer transfer
                 var clientAckStartTime;
                 var clientElapsed;
                 var transferredBuffers = [];
                 this.bufferTransferFinisher = function (bufferName) {
-                    fetchDataLogger.trace('5a ?. sending a buffer %s', bufferName);
+                    logger.trace({step: step}, '5a ?. sending a buffer %s', bufferName);
                     transferredBuffers.push(bufferName);
                     //console.log("Length", transferredBuffers.length, requestedBuffers.length);
                     if (transferredBuffers.length === requestedBuffers.length) {
-                        fetchDataLogger.trace('5b. started sending all');
-                        fetchDataLogger.trace('Socket...client ping ' + clientElapsed + 'ms');
-                        fetchDataLogger.trace('Socket', '...client asked for all buffers' + (Date.now() - clientAckStartTime) + 'ms');
+                        logger.trace('5b. started sending all');
+                        logger.trace('Socket...client ping ' + clientElapsed + 'ms');
+                        logger.trace('Socket', '...client asked for all buffers' + (Date.now() - clientAckStartTime) + 'ms');
                     }
                 }.bind(this);
 
@@ -1758,7 +1768,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 //notify of buffer/texture metadata
                 //FIXME make more generic and account in buffer notification status
                 var receivedAll = colorTexture.flatMap(function (colorTexture) {
-                    fetchDataLogger.trace('4a. unwrapped texture meta');
+                    logger.trace('4a. unwrapped texture meta');
 
                     var textures = {
                         colorMap: _.pick(colorTexture, ['width', 'height', 'bytes'])
@@ -1779,7 +1789,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                     lastVersions = VBOs.versions;
                     lastTick = VBOs.tick;
 
-                    fetchDataLogger.trace('4b. notifying client of buffer metadata');
+                    logger.trace('4b. notifying client of buffer metadata');
                     //performance monitor here?
                     // profiling.trace('===Sending VBO Update===');
 
@@ -1793,7 +1803,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
 
                 }.bind(this)).do(
                     function (clientElapsedMsg) {
-                        fetchDataLogger.trace('6. client all received');
+                        logger.trace('6. client all received');
                         clientElapsed = clientElapsedMsg;
                         clientAckStartTime = Date.now();
                     }.bind(this));
@@ -1801,7 +1811,7 @@ VizServer.prototype.beginStreaming = function (renderConfig, colorTexture) {
                 return receivedAll;
             }.bind(this))
             .flatMap(function () {
-                fetchDataLogger.trace('7. Wait for next animation step, updateVboSubject, or if we are behind on ticks');
+                logger.trace('7. Wait for next animation step, updateVboSubject, or if we are behind on ticks');
 
                 var filteredUpdateVbo = this.updateVboSubject.filter(function (data) {
                     return data;
