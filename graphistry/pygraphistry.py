@@ -39,6 +39,8 @@ class PyGraphistry(object):
 
     @staticmethod
     def authenticate():
+        """Authenticate via already provided configuration.
+        This is called once automatically per session when uploading and rendering a visualization."""
         key = PyGraphistry.api_key()
         if key is None:
             raise RuntimeError('API key not set explicitly or available at ' + EnvVarNames['api_key'])
@@ -48,6 +50,9 @@ class PyGraphistry(object):
 
     @staticmethod
     def server(value=None):
+        """Get the hostname of the server or set the server using hostname or aliases.
+        Supported aliases: 'localhost', 'staging', 'labs'.
+        Also set via environment variable GRAPHISTRY_HOSTNAME."""
         if value is None:
             return PyGraphistry._hostname
 
@@ -62,6 +67,8 @@ class PyGraphistry(object):
 
     @staticmethod
     def api_key(value=None):
+        """Set or get the API key.
+        Also set via environment variable GRAPHISTRY_API_KEY."""
         if value is None:
             return PyGraphistry._api_key
 
@@ -72,6 +79,9 @@ class PyGraphistry(object):
 
     @staticmethod
     def protocol(value=None):
+        """Set or get the protocol ('http' or 'https').
+        Set automatically when using a server alias.
+        Also set via environment variable GRAPHISTRY_PROTOCOL."""
         if value is None:
             return PyGraphistry._protocol
         # setter
@@ -79,6 +89,8 @@ class PyGraphistry(object):
 
     @staticmethod
     def api_version(value=None):
+        """Set or get the API version (1 or 2).
+        Also set via environment variable GRAPHISTRY_API_VERSION."""
         if value is None:
             return PyGraphistry._api_version
         # setter
