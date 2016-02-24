@@ -1,6 +1,6 @@
 'use strict';
 
-var ExpressionCodeGenerator = require('../js/expressionCodeGenerator');
+var ExpressionCodeGenerator = require('../dist/expressionCodeGenerator');
 
 describe('Regular expressions from LIKE patterns', function () {
     var codeGenerator = new ExpressionCodeGenerator();

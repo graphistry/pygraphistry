@@ -7,3 +7,4 @@ tests.log
 kernels/debug.*
 kernels/**/*.debug
 graph.css
+dist

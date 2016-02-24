@@ -3,14 +3,18 @@
   "private": true,
   "version": "0.0.1",
   "description": "",
-  "main": "index.js",
+  "main": "./dist/index.js",
   "author": "",
   "scripts": {
     "test": "jasmine-node spec/ --forceexit",
     "less": "mkdir -p assets/css && (lessc less/graph.less > assets/css/graph.css)",
-    "install": "npm run less",
     "watch": "watch-less -d less --output assets/css -e .css",
-    "jshint": "jshint -c .jshintrc --exclude-path .gitignore ."
+    "jshint": "jshint -c .jshintrc --exclude-path .gitignore .",
+    "clean": "rm -rf ./dist && mkdir -p ./dist",
+    "build": "npm run build-less && npm run build-js",
+    "build-js": "npm run clean && babel src -d dist --source-maps inline --presets es2015,stage-0",
+    "build-less": "npm run less",
+    "postinstall": "npm run build"
   },
   "license": "ISC",
   "dependencies": {
@@ -50,7 +54,10 @@
     "xhr2": "~0.1.0"
   },
   "devDependencies": {
-    "jasmine-node": "~1.14.5",
-    "StreamGL": "graphistry/StreamGL"
+    "StreamGL": "graphistry/StreamGL",
+    "babel-cli": "^6.5.1",
+    "babel-preset-es2015": "^6.5.0",
+    "babel-preset-stage-0": "^6.5.0",
+    "jasmine-node": "~1.14.5"
   }
 }

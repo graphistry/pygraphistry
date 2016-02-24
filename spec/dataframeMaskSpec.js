@@ -2,8 +2,8 @@
 
 var _ = require('underscore');
 
-var DataframeMask = require('../js/DataframeMask');
-//var Dataframe = require('../js/Dataframe');
+var DataframeMask = require('../dist/DataframeMask');
+//var Dataframe = require('../dist/Dataframe');
 
 describe('union', function () {
     it('handles empty masks', function () {
