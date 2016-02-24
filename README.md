@@ -7,7 +7,7 @@ It supports unusually large graphs for interactive visualization. The client's c
 1. [Interactive Demo](#demo-of-friendship-communities-on-facebook)
 2. [Graph Gallery](#gallery)
 3. [Installation](#installation)
-4. [Tutorial](#graphing-les-misérables)
+4. [Tutorial](#tutorial-les-misérables)
 5. [API Reference](#api-reference)
 
 ### Demo of Friendship Communities on Facebook
