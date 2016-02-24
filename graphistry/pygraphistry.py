@@ -9,6 +9,7 @@ import os
 import sys
 import calendar
 import time
+from datetime import datetime
 import gzip
 import io
 import json
@@ -349,4 +350,6 @@ class NumpyJSONEncoder(json.JSONEncoder):
                 return obj.tolist()
         elif isinstance(obj, numpy.generic):
             return obj.item()
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
         return json.JSONEncoder.default(self, obj)
