@@ -101,14 +101,14 @@ def storeValueVector(vg, df, col, dtype, target):
         info['aggregations'] = {}
     aggregations = info['aggregations']
     if 'valid' not in aggregations:
-        aggregations['valid'] = df_col.count()
-        aggregations['missing'] = df_col.size - aggregations['valid']
+        aggregations['valid'] = nanGuard(df_col.count())
+        aggregations['missing'] = nanGuard(df_col.size - aggregations['valid'])
     if 'distinct' not in aggregations:
-        aggregations['distinct'] = df_col.nunique()
+        aggregations['distinct'] = nanGuard(df_col.nunique())
     if 'min' not in aggregations:
-        aggregations['min'] = df_col.min()
+        aggregations['min'] = nanGuard(df_col.min())
     if 'max' not in aggregations:
-        aggregations['max'] = df_col.max()
+        aggregations['max'] = nanGuard(df_col.max())
 
     return info
 
@@ -122,6 +122,13 @@ def objectEncoder(vg, series, dtype):
         vec.values.append(val)
     return (vec, {'ctype': 'utf8'})
 
+def nanGuard(value):
+    try:
+        if numpy.isnan(value):
+            return None
+    except:
+        pass
+    return value
 
 def numericEncoder(vg, series, dtype):
     def getBestRep(series, candidate_types):
@@ -160,9 +167,9 @@ def numericEncoder(vg, series, dtype):
         'ctype': rep_type.name,
         'originalType': dtype.name,
         'aggregations': {
-            'mean': series.mean(),
-            'variance': variance if not numpy.isnan(variance) else None,
-            'stddev': stddev if not numpy.isnan(stddev) else None
+            'mean': nanGuard(series.mean()),
+            'variance': nanGuard(variance),
+            'stddev': nanGuard(stddev)
         }
     }
     return (vec, info)
@@ -190,7 +197,7 @@ def datetimeEncoder(vg, series, dtype):
         'aggregations': {
             'min': series32.min(),
             'max': series32.max(),
-            'distinct': series32.nunique()
+            'distinct': nanGuard(series32.nunique())
         }
     }
     return (vec, info)
