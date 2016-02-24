@@ -49,13 +49,6 @@
     - ca-certificates
   become: yes
 
-- name: Install common Python packages
-  pip: name={{ item }}
-  with_items:
-    - setuptools
-    - distribute
-  become: yes
-
 - name: Enable ACLs on root filesystem
   mount: name=/
          src='LABEL=cloudimg-rootfs'
