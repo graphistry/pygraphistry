@@ -101,7 +101,7 @@ import graphistry
 graphistry.register(key='Your key')
 ```
 
-## Tutorial: Les Misérables
+## Tutorial: Graphing Les Misérables
 
 Let's visualize relationships between the characters in [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
 For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [IGraph](http://igraph.org) to run a community detection algorithm. You can download the [IPython notebook](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/MiserablesDemo.ipynb) containing this example.
@@ -162,25 +162,18 @@ plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
-## Going Further: Marvel Comics
 
-This is a more complex example: we link together Marvel characters who co-star in the same comic. The dataset is split in three files:
+### Going Further
 
-- [appearances.txt](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/appearances.txt)
-- [characters.txt](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/characters.txt)
-- [comics.txt](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/comics.txt)
-
-Find out who is the most popular Marvel hero! Run the code in [the Marvel Demo notebook](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/MarvelTutorial.ipynb) to browse the entire Marvel universe.
-
-![Marvel Universe](http://i.imgur.com/0rgPLg7.png)
+1. Email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) for an API key!
+2. Read our advanced tutorials:
+	-  [Creating a node table + controlling sizes and colors (HoneyPot)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%201%20(Honey%20Pot).html)
+	-  [Aggregating edges and creating multiple views (Apache Logs)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%202%20(Apache%20Logs).html)
+3. Check out our [demos folder](https://github.com/graphistry/pygraphistry/tree/master/demos).
 
 ## API Reference
 
 Full Python (including IPython/Juypter) [API documentation](http://pygraphistry.readthedocs.org/en/latest/).
 
 See also: [REST API and deprecrated Python docs](http://graphistry.com/api/api0.9.2.html#python).
-
-## Next Step
-
-Email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) for an API key!
 
