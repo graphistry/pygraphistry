@@ -11,27 +11,24 @@ import string
 from distutils.version import LooseVersion, StrictVersion
 
 
-def make_iframe(raw_url, height, protocol=None):
+def make_iframe(raw_url, height, protocol):
     id = uuid.uuid4()
-    scrollbug_workaround='''<script>
-            $("#%s").bind('mousewheel', function(e) {
+
+    scrollbug_workaround='''
+            <script>
+                $("#%s").bind('mousewheel', function(e) {
                 e.preventDefault();
-            });
-        </script>''' % id
+                });
+            </script>
+        ''' % id
 
-    if protocol:
-        return '''<iframe id="%s" src="%s"
-                          style="width:100%%; height:%dpx; border: 1px solid #DDD">
-                </iframe>''' % (id, protocol + ':' + raw_url, height) + scrollbug_workaround
+    iframe = '''
+            <iframe id="%s" src="%s"
+                    style="width:100%%; height:%dpx; border: 1px solid #DDD">
+            </iframe>
+        ''' % (id, protocol + ':' + raw_url, height)
 
-    script = '''<script>var p = document.location.protocol;
-                        if(p === "file:") {p = "http:";}
-                        $("#%s").attr("src", p + "%s").show();
-                </script>''' % (id, raw_url)
-    iframe = '''<iframe id="%s"
-                        style="display:none; width:100%%; height:%dpx; border: 1px solid #DDD">
-                </iframe>''' % (id, height)
-    return iframe + script + scrollbug_workaround
+    return iframe + scrollbug_workaround
 
 
 def fingerprint():

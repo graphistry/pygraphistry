@@ -33,8 +33,8 @@ class PyGraphistry(object):
     _api_key = os.environ.get(EnvVarNames['api_key'], None)
     _tag = util.fingerprint()
     _dataset_prefix = os.environ.get(EnvVarNames['dataset_prefix'], 'PyGraphistry/')
-    _hostname = os.environ.get(EnvVarNames['hostname'], 'proxy-labs.graphistry.com')
-    _protocol = os.environ.get(EnvVarNames['protocol'], None)
+    _hostname = os.environ.get(EnvVarNames['hostname'], 'labs.graphistry.com')
+    _protocol = os.environ.get(EnvVarNames['protocol'], 'https')
 
     _is_authenticated = False
 
@@ -59,8 +59,8 @@ class PyGraphistry(object):
 
         # setter
         shortcuts = {'localhost': 'localhost:3000',
-                     'staging': 'proxy-staging.graphistry.com',
-                     'labs': 'proxy-labs.graphistry.com'}
+                     'staging': 'staging.graphistry.com',
+                     'labs': 'labs.graphistry.com'}
         if value in shortcuts:
             PyGraphistry._hostname = shortcuts[value]
         else:

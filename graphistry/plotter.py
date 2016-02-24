@@ -320,7 +320,7 @@ class Plotter(object):
             from IPython.core.display import HTML
             return HTML(util.make_iframe(viz_url, self._height, PyGraphistry._protocol))
         else:
-            print('Url: http://%s' % viz_url)
+            print('Url: %s://%s' % (PyGraphistry._protocol, viz_url))
             import webbrowser
             webbrowser.open(viz_url)
             return self
