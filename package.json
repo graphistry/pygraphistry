@@ -8,13 +8,18 @@
   "scripts": {
     "test": "jasmine-node spec/ --forceexit",
     "less": "mkdir -p assets/css && (lessc less/graph.less > assets/css/graph.css)",
-    "watch": "watch-less -d less --output assets/css -e .css",
     "jshint": "jshint -c .jshintrc --exclude-path .gitignore .",
+
     "clean": "rm -rf ./dist && mkdir -p ./dist",
-    "build": "npm run build-less && npm run build-js",
+
+    "build": "parallelshell \"npm run build-less\" \"npm run build-js\"",
     "build-js": "npm run clean && babel src -d dist --source-maps --presets es2015,stage-0",
-    "watch-js": "npm run clean && babel src -d dist --source-maps --presets es2015,stage-0 --watch",
     "build-less": "npm run less",
+
+    "watch": "parallelshell \"npm run watch-less\" \"npm run watch-js\" ",
+    "watch-js": "npm run clean && babel src -d dist --source-maps --presets es2015,stage-0 --watch",
+    "watch-less": "watch-less -d less --output assets/css -e .css",
+
     "postinstall": "npm run build"
   },
   "license": "ISC",
@@ -41,6 +46,7 @@
     "node-pigz": "graphistry/node-pigz",
     "node-s3-url-encode": "0.0.4",
     "node.extend": "~1.1.5",
+    "parallelshell": "^2.0.0",
     "protobufjs": "~3.8.0",
     "q": "~1.1.0",
     "request": "~2.54.0",
