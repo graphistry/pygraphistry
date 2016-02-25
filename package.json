@@ -12,7 +12,8 @@
     "jshint": "jshint -c .jshintrc --exclude-path .gitignore .",
     "clean": "rm -rf ./dist && mkdir -p ./dist",
     "build": "npm run build-less && npm run build-js",
-    "build-js": "npm run clean && babel src -d dist --source-maps inline --presets es2015,stage-0",
+    "build-js": "npm run clean && babel src -d dist --source-maps --presets es2015,stage-0",
+    "watch-js": "npm run clean && babel src -d dist --source-maps --presets es2015,stage-0 --watch",
     "build-less": "npm run less",
     "postinstall": "npm run build"
   },
