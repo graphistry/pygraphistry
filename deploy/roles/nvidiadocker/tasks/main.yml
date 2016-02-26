@@ -1,0 +1,57 @@
+---
+- name: Enjoy the thrill of HEAD from nvidia-docker
+  git: repo=https://github.com/NVIDIA/nvidia-docker.git
+       dest=/home/ubuntu/nvidia-docker
+
+- name: Install nvidia-Docker
+  command: make install chdir=/home/ubuntu/nvidia-docker
+  become: yes
+  become_user: root
+
+- name: Setup nvidia-docker volumes for standalone use
+  command: nvidia-docker volume setup chdir=/home/ubuntu/nvidia-docker
+  become: yes
+  become_user: root
+
+- name: Install test samples
+  command: /bin/bash -l -c "cuda-install-samples-7.5.sh /tmp"
+
+- name: Make the matrixMul test
+  command: make chdir=/tmp/NVIDIA_CUDA-7.5_Samples/0_Simple/matrixMul
+
+- name: Copy matrixMul to somewhere friendlier
+  command: cp /tmp/NVIDIA_CUDA-7.5_Samples/0_Simple/matrixMul/matrixMul /tmp/mm
+
+- name: Run nvidia-smi on the host
+  command: nvidia-smi
+  register: hostsmi
+- debug: var=hostsmi.stdout_lines
+
+- name: Run the matrix mul test on the host
+  command: /tmp/mm
+  register: hostmm
+- debug: var=hostmm.stdout_lines
+
+- name: Test running nvidia-smi on a blank container
+  command: nvidia-docker run --name=monolith nvidia/cuda nvidia-smi
+  become: yes
+  become_user: root
+  register: guestsmi
+- debug: var=guestsmi.stdout_lines
+
+- name: Add matrixMul to this blank container
+  command: nvidia-docker cp /tmp/mm monolith:/tmp
+  become: yes
+  become_user: root
+
+- name: Commit the fs on the container to an image
+  command: nvidia-docker commit monolith box1
+  become: yes
+  become_user: root
+
+- name: Run the matrix mul test on the container
+  command: nvidia-docker run box1 /tmp/mm
+  become: yes
+  become_user: root
+  register: guestmm
+- debug: var=guestmm.stdout_lines

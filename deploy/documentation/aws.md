@@ -6,6 +6,22 @@ See https://docs.google.com/document/d/1J7UgXXXs5LujC6Nl6st0ooavfzRAZKI1ZSzl6n_Z
 
 ## Provisioning
 
+### AMI
+
+We usually want to run our instances on top of the latest official Canonical AMI for Ubuntu Server v14.04 "Trusty Tahir". The AMI provided in the AWS web console when you search for Ubuntu 14.04 is usually outdated by 3-6 months compared to this. 
+
+To quickly find the AMI ID of the latest Canonical release, you can use the following shell one-liner. This uses `curl` to fetch the [official list of the latest Ubuntu 'Trusty' releases](https://cloud-images.ubuntu.com/query/trusty/server/released.current.txt), and `awk` to find the line matching our parameters and print its AMI-ID.
+
+```bash
+curl -sS 'https://cloud-images.ubuntu.com/query/trusty/server/released.current.txt' | awk -F"\t" '{if ($5=="ebs-ssd" && $6=="amd64" && $7=="us-west-1" && $11=="hvm") print $8}'
+```
+
+Alternatively, to find the latest official Canonical AMI by-hand, use the official [Ubuntu Amazon EC2 AMI Locator](https://cloud-images.ubuntu.com/locator/ec2/). Scroll to the bottom, and select the following options to filter down to the right AMI: us-west-1, trusty, amd64, hvm:ebs-ssd (or, just type "us-west-1 trusty amd64 hvm:ebs-ssd" into the "Search" bar instead).
+
+
+
+### Instance Creation Step-by-Step
+
 1. Create new EC2 instance with the following settings:
  * Region: us-west-1 (N. California)
  * AMI: Ubuntu 14.04 LTR "Trusty" with HVM as the AMI
