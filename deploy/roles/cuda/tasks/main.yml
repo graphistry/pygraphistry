@@ -22,19 +22,6 @@
   when: cuda_repo_installed.changed
   sudo: yes
 
-# Force handlers to run, which will cause a reboot here if one is to be performed
-- meta: flush_handlers
-
-- name: Remove CUDA 7.0
-  apt: pkg=cuda-7-0
-       state=absent
-       update_cache=yes
-       cache_valid_time=600
-  notify:
-      - Reboot server
-      - Wait for server to restart
-  sudo: yes
-
 - name: Install CUDA 7.5 (includes NVIDIA drivers)
   apt: pkg=cuda-7-5
        state=present
