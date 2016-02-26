@@ -48,7 +48,7 @@ function notifySlack(name, nodeCount, edgeCount, params) {
         try {
             key += apiKey.decrypt(params.key);
         } catch (err) {
-            logger.error('Could not decrypt key', err);
+            logger.error(err, 'Could not decrypt key');
             key += ' COULD NOT DECRYPT';
         }
     } else {
@@ -81,14 +81,14 @@ function notifySlack(name, nodeCount, edgeCount, params) {
 
     return Q.denodeify(slack.post)(msg)
         .fail(function (err) {
-            logger.error('Error posting on slack', err);
+            logger.error(err, 'Error posting on slack');
         });
 }
 
 
 // Request -> Object
 function parseQueryParams(req) {
-    var res = [];
+    var res = {};
 
     res.usertag = req.query.usertag || 'unknown';
     res.agent = req.query.agent || 'unknown';
@@ -158,7 +158,7 @@ function tearDown(socket, exitCode) {
 
 // Express.App * Socket -> ()
 function init(app, socket) {
-    logger.debug('Client connected', socket.id);
+    logger.debug({socket: socket.id}, 'Client connected');
 
     var JSONParser = bodyParser.json({limit: '128mb'});
 
