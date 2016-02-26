@@ -133,21 +133,22 @@ def log_boundary(metric, value):
     # The below template needs to be escaped twice: '{' and '}' need to be escaped as '{{'/'}}' for
     # Python's `format()` string formatter, but '{{'/'}}' needs to be escape because it's also used
     # for Ansible's JINJA2 template engine, so "{" turns into "{{ '{{' }}".
-    data = '{{ '{{' }}"source": "{source}", "metric": "{metric}", "measure": {measure}, "timestamp": {timestamp} {{ '}}' }}'.format(
-        source=fqdn, metric=metric, measure=value, timestamp=int(time.time()))
-    headers = {'content-type': 'application/json'}
-
-    try:
-        r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
-    except requests.exceptions.ChunkedEncodingError as chunk_err:
-        # Boundary, for some stupid reason, gives the wrong ContentLength field in its response,
-        # causing ChunkedEncodingError when the connection closes before requests expects. This is
-        # harmless, and the API call seems to succeed anyway.
-        pass
-    except Exception as err:
-        logger.info("Boundary: error logging metric {metric}: {err}".format(metric=metric, err=str(err)))
-    except:
-        logger.info("Boundary: unknown error logging metric {metric}".format(metric=metric))
+    # data = '{{ '{{' }}"source": "{source}", "metric": "{metric}", "measure": {measure}, "timestamp": {timestamp} {{ '}}' }}'.format(
+    #     source=fqdn, metric=metric, measure=value, timestamp=int(time.time()))
+    # headers = {'content-type': 'application/json'}
+    # 
+    # try:
+    #     r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
+    # except requests.exceptions.ChunkedEncodingError as chunk_err:
+    #     # Boundary, for some stupid reason, gives the wrong ContentLength field in its response,
+    #     # causing ChunkedEncodingError when the connection closes before requests expects. This is
+    #     # harmless, and the API call seems to succeed anyway.
+    #     pass
+    # except Exception as err:
+    #     logger.info("Boundary: error logging metric {metric}: {err}".format(metric=metric, err=str(err)))
+    # except:
+    #     logger.info("Boundary: unknown error logging metric {metric}".format(metric=metric))
+    pass
 
 
 def get_available_memory():
