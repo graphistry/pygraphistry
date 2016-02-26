@@ -4,7 +4,7 @@
 # WARNING: Do not edit! This file is managed by Ansible. Changes will be lost.
 
 # Only execute this file if we haven't already done so
-if [[ $_GRAPHISTRY_CUDA_INIT != 1 ]]; then
+if [ "$_GRAPHISTRY_CUDA_INIT" != "1" ]; then
     # Setup environment variables for using CUDA/OpenCL
     export DISPLAY=:0
     export PATH="/usr/local/cuda/bin:$PATH"
