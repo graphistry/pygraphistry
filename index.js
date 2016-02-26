@@ -23,16 +23,16 @@ function notifySlack(name, nodeCount, edgeCount, params) {
         var domain;
         switch (server) {
             case 'staging':
-                domain = 'https://staging-secure.graphistry.com';
+                domain = 'http://staging.graphistry.com';
                 break;
             case 'labs':
-                domain = 'http://proxy-labs.graphistry.com';
+                domain = 'http://labs.graphistry.com';
                 break;
             case 'localhost':
                 domain = 'http://localhost:3000';
                 break;
             default:
-                domain = 'http://proxy-%s.graphistry.com';
+                domain = 'http://%s.graphistry.com';
         }
         var url = sprintf('%s/graph/graph.html?type=%s&dataset=%s&info=true',
                           domain, type, name);
