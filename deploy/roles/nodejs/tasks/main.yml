@@ -57,116 +57,11 @@
   sudo: yes
   sudo_user: root
 
-- name: Create global nodejs directories
-  file: path={{ item }}
-        state=directory
-        owner=root
-        group=graphistry-dev
-        mode='u=rwx,g=rwxs,o=rx'
-  sudo: yes
-  with_items: npm_subdirs | difference(["{{ graphistry_install_path }}"])
-
-- name: Set ACL defaults on npm global paths for specific groups
-  acl: name={{ item[0] }}
-       state=present
-       etype=group
-       entity={{ item[1].group }}
-       permissions={{ item[1].permissions }}
-       default=yes
-  sudo: yes
-  with_nested:
-    - npm_subdirs
-    - npm_group_permissions
-
-- name: Set ACL defaults on npm global paths for specific groups
-  acl: name={{ item[0] }}
-       state=present
-       etype=group
-       entity={{ item[1].group }}
-       permissions={{ item[1].permissions }}
-       default=yes
-  sudo: yes
-  with_nested:
-    - npm_subdirs
-    - npm_group_permissions
-
-- name: Set default user ACLs on global nodejs directory
-  acl: name={{ item }}
-       state=present
-       etype=user
-       permissions=rwx
-       default=yes
-  sudo: yes
-  with_items: npm_subdirs
-
-- name: Set default group ACLs on global nodejs directory to allow group access
-  acl: name={{ item }}
-       state=present
-       etype=group
-       permissions=rwx
-       default=yes
-  sudo: yes
-  with_items: npm_subdirs
-
-- name: Set default mask ACLs on global nodejs directory
-  acl: name={{ item }}
-       state=present
-       etype=mask
-       permissions=rwx
-       default=yes
-  sudo: yes
-  with_items: npm_subdirs
-
-- name: Set mask ACLs on global nodejs directory
-  acl: name={{ item }}
-       state=present
-       etype=mask
-       permissions=rwx
-       default=no
-  sudo: yes
-  with_items: npm_subdirs
-
-- name: Find graphistry-dev GID
-  group: name=graphistry-dev state=present
-  sudo: yes
-  sudo_user: root
-  register: graphistry_dev_group
-
-- name: Upload npm global config
-  template: src=npmrc.j2
-            dest={{ npm_global_path }}/etc/npmrc
-            owner=root
-            group=graphistry-dev
-            mode=0644
-  sudo: yes
-
-- name: Create directory to hold npm global config shim
-  file: path=/usr/etc
-        state=directory
-        owner=root
-        group=root
-        mode=0755
-  sudo: yes
-
-- name: Symlink default npmrc to our global npmrc
-  file: path=/usr/etc/npmrc
-        state=link
-        src={{ npm_global_path }}/etc/npmrc
-  sudo: yes
-
 - name: Disable default nodejs bash config
   file: path=/etc/profile.d/nodejs.sh
         state=absent
   sudo: yes
   sudo_user: root
-
-- name: Configure global Bash profile for npm options
-  template: src=Z90-graphistry-nodeglobal.sh.j2
-            dest=/etc/profile.d/Z90-graphistry-nodeglobal.sh
-            owner=root
-            group=root
-            mode=0755
-  sudo: yes
 
 - name: Install npm v2.14.0
   npm: name=npm
@@ -175,4 +70,3 @@
        version=2.14.0
   environment: nodecl_env
   sudo: yes
-

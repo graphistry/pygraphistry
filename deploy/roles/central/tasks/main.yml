@@ -89,13 +89,12 @@
   notify: Restart central
 
 - name: Prune unused npm modules from central
-  command: '{{ npm_global_path }}/bin/npm prune
+  command: 'npm prune
            chdir="{{ graphistry_install_path }}/central"'
   notify: Restart central
 
 - name: Install central module
   npm: path={{ graphistry_install_path }}/central
        state=latest
-       executable={{ npm_global_path }}/bin/npm
   environment: nodecl_env
   notify: Restart central
