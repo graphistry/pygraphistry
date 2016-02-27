@@ -72,7 +72,7 @@
     "node-pigz": "graphistry/node-pigz",
     "node-s3-url-encode": "0.0.4",
     "node.extend": "~1.1.5",
-    "parallelshell": "^2.0.0",
+    "parallelshell": "~2.0.0",
     "protobufjs": "~3.8.0",
     "q": "~1.1.0",
     "request": "~2.54.0",
@@ -88,7 +88,7 @@
   },
   "devDependencies": {
     "StreamGL": "graphistry/StreamGL",
-    "babel-cli": "^6.5.1",
+    "babel-cli": "~6.5.1",
     "babel-preset-es2015": "^6.5.0",
     "babel-preset-stage-0": "^6.5.0",
     "jasmine-node": "~1.14.5",
