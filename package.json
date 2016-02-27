@@ -39,7 +39,7 @@
     "debug": true,
     "devel": true,
     "browser": true,
-    "node": true
+    "node": false
   },
   "dependencies": {
     "assets-webpack-plugin": "~3.2.0",
@@ -89,7 +89,7 @@
     "rxjs": "graphistry/RxJS-v5",
     "socket.io-client": "~1.3.5",
     "source-map-loader": "~0.1.5",
-    "source-map-support": "^0.4.0",
+    "source-map-support": "~0.4.0",
     "sprintf-js": "~1.0.0",
     "string-replace-webpack-plugin": "0.0.3",
     "style-loader": "~0.13.0",
