@@ -318,9 +318,9 @@ class Plotter(object):
 
         if util.in_ipython() is True:
             from IPython.core.display import HTML
-            return HTML(util.make_iframe(viz_url, self._height, PyGraphistry._protocol))
+            return HTML(util.make_iframe(viz_url, self._height, PyGraphistry._config['protocol']))
         else:
-            print('Url: %s://%s' % (PyGraphistry._protocol, viz_url))
+            print('Url: %s://%s' % (PyGraphistry._config['protocol'], viz_url))
             import webbrowser
             webbrowser.open(viz_url)
             return self
@@ -583,7 +583,7 @@ class Plotter(object):
 
         bindings = {'idField': self._node or Plotter._defaultNodeId,
                     'destinationField': self._destination, 'sourceField': self._source}
-        dataset = {'name': PyGraphistry._dataset_prefix + name,
+        dataset = {'name': PyGraphistry._config['dataset_prefix'] + name,
                    'bindings': bindings, 'type': 'edgelist', 'graph': edict}
 
         if nlist is not None:

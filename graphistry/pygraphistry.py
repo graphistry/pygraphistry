@@ -27,15 +27,41 @@ EnvVarNames = {
     'protocol': 'GRAPHISTRY_PROTOCOL'
 }
 
+config_paths = [
+    os.path.join('/etc/graphistry', '.pygraphistry'),
+    os.path.join(os.path.expanduser('~'), '.pygraphistry'),
+    os.environ.get('PYGRAPHISTRY_CONFIG', '')
+]
+
+default_config = {
+    'api_version': 1,
+    'dataset_prefix': 'PyGraphistry',
+    'hostname': 'labs.graphistry.com',
+    'protocol': 'https'
+}
+
+
+def _get_initial_config():
+    config = default_config.copy()
+    for path in config_paths:
+        try:
+            with open(path) as config_file:
+                config.update(json.load(config_file))
+        except ValueError as e:
+            util.warn('Syntax error in %s, skipping. (%s)' % (path, e.message))
+            pass
+        except IOError:
+            pass
+
+    env_config = {k: os.environ.get(v) for k, v in EnvVarNames.items()}
+    env_override = {k: v for k, v in env_config.items() if v != None}
+    config.update(env_override)
+    return config
+
 
 class PyGraphistry(object):
-    _api_version = 1
-    _api_key = os.environ.get(EnvVarNames['api_key'], None)
+    _config = _get_initial_config()
     _tag = util.fingerprint()
-    _dataset_prefix = os.environ.get(EnvVarNames['dataset_prefix'], 'PyGraphistry/')
-    _hostname = os.environ.get(EnvVarNames['hostname'], 'labs.graphistry.com')
-    _protocol = os.environ.get(EnvVarNames['protocol'], 'https')
-
     _is_authenticated = False
 
     @staticmethod
@@ -55,27 +81,28 @@ class PyGraphistry(object):
         Supported aliases: 'localhost', 'staging', 'labs'.
         Also set via environment variable GRAPHISTRY_HOSTNAME."""
         if value is None:
-            return PyGraphistry._hostname
+            return PyGraphistry._config['hostname']
 
         # setter
         shortcuts = {'localhost': 'localhost:3000',
                      'staging': 'staging.graphistry.com',
                      'labs': 'labs.graphistry.com'}
         if value in shortcuts:
-            PyGraphistry._hostname = shortcuts[value]
+            PyGraphistry._config['hostname'] = shortcuts[value]
         else:
-            PyGraphistry._hostname = value
+            PyGraphistry._config['hostname'] = value
 
     @staticmethod
     def api_key(value=None):
         """Set or get the API key.
         Also set via environment variable GRAPHISTRY_API_KEY."""
+
         if value is None:
-            return PyGraphistry._api_key
+            return PyGraphistry._config['api_key']
 
         # setter
-        if value is not PyGraphistry._api_key:
-            PyGraphistry._api_key = value.strip()
+        if value is not PyGraphistry._config['api_key']:
+            PyGraphistry._config['api_key'] = value.strip()
             PyGraphistry._is_authenticated = False
 
     @staticmethod
@@ -84,18 +111,18 @@ class PyGraphistry(object):
         Set automatically when using a server alias.
         Also set via environment variable GRAPHISTRY_PROTOCOL."""
         if value is None:
-            return PyGraphistry._protocol
+            return PyGraphistry._config['protocol']
         # setter
-        PyGraphistry._protocol = value
+        PyGraphistry._config['protocol'] = value
 
     @staticmethod
     def api_version(value=None):
         """Set or get the API version (1 or 2).
         Also set via environment variable GRAPHISTRY_API_VERSION."""
         if value is None:
-            return PyGraphistry._api_version
+            return PyGraphistry._config['api_version']
         # setter
-        PyGraphistry._api_version = value
+        PyGraphistry._config['api_version'] = value
 
     @staticmethod
     def register(key=None, server='labs', protocol=None, api=1):
@@ -195,14 +222,14 @@ class PyGraphistry(object):
     @staticmethod
     def _etl_url(datatype):
         if datatype == 'json':
-            return 'http://%s/etl' % PyGraphistry._hostname
+            return 'http://%s/etl' % PyGraphistry._config['hostname']
         elif datatype == 'vgraph':
-            return 'http://%s/etlvgraph' % PyGraphistry._hostname
+            return 'http://%s/etlvgraph' % PyGraphistry._config['hostname']
 
 
     @staticmethod
     def _check_url():
-        return 'http://%s/api/check' % PyGraphistry._hostname
+        return 'http://%s/api/check' % PyGraphistry._config['hostname']
 
 
     @staticmethod
@@ -210,7 +237,7 @@ class PyGraphistry(object):
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = '&'.join([ k + '=' + str(v) for k,v in list(url_params.items())])
         pattern = '//%s/graph/graph.html?dataset=%s&type=%s&viztoken=%s&usertag=%s&splashAfter=%s&%s'
-        return pattern % (PyGraphistry._hostname, info['name'], info['type'],
+        return pattern % (PyGraphistry._config['hostname'], info['name'], info['type'],
                           info['viztoken'], PyGraphistry._tag, splash_time, extra)
 
 
@@ -333,8 +360,7 @@ class PyGraphistry(object):
             if jres['success'] is not True:
                 util.warn(jres['error'])
         except Exception as e:
-            util.warn('Could not contact %s. Are you connected to the Internet?' % PyGraphistry._hostname)
-
+            util.warn('Could not contact %s. Are you connected to the Internet?' % PyGraphistry._config['hostname'])
 
 register = PyGraphistry.register
 bind = PyGraphistry.bind
