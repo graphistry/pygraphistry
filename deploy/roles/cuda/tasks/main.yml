@@ -126,31 +126,3 @@
   command: chdir={{ ansible_files }}/glfw make install
   sudo: yes
   when: glfw.changed
-
-- name: Download AntTweakBar
-  get_url: dest={{ ansible_files }}/AntTweakBar_116.zip
-           url=http://sourceforge.net/projects/anttweakbar/files/latest/download
-
-- name: Unzip AntTweakBar
-  unarchive: src={{ ansible_files }}/AntTweakBar_116.zip
-             dest={{ ansible_files }}
-             copy=no
-             creates={{ ansible_files }}/AntTweakBar
-             owner={{ ansible_env.USER }}
-             group={{ ansible_env.USER }}
-  register: anttweak_downloaded
-
-- name: Make AntTweakBar
-  command: chdir={{ ansible_files }}/AntTweakBar/src make
-  sudo: yes
-  when: anttweak_downloaded.changed
-
-- name: Move AntTweakBar shared lib (1 of 2)
-  command: chdir={{ ansible_files }}/AntTweakBar/src mv ../lib/libAntTweakBar.so /usr/lib/
-  when: anttweak_downloaded.changed
-  sudo: yes
-
-- name: Move AntTweakBar shared lib (2 of 2)
-  command: chdir={{ ansible_files }}/AntTweakBar/src mv ../lib/libAntTweakBar.so.1 /usr/lib/
-  when: anttweak_downloaded.changed
-  sudo: yes
