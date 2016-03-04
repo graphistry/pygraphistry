@@ -15,6 +15,7 @@
 3. `git tag X.X.X`
 4. `git push`
 5. `git push --tags`
+6. In the *graphistry/config* repo, in *index.js*, update `PYGRAPHISTRY.latestVersion`.
 
 ###Package & Upload:
 1. Get `~/.pypirc` file from the powers that be.
