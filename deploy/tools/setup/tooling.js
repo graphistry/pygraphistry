@@ -76,6 +76,10 @@ function getPkgInfo(roots, repo) {
 
     var pkgFile = path.resolve(wd, repo, 'package.json');
     var content = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+
+    // Consider devDependencies regular dependencies, since we install all packages in dev mode
+    _.merge(content.dependencies, content.devDependencies);
+
     var deps = _.map(content.dependencies, function (url, name) {
         // Old Regex for explicit SSH link
         // var regex = /^git\+ssh:\/\/git@github.com:graphistry\/([\w-]+)\.git#master$/;
