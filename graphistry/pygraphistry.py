@@ -35,7 +35,7 @@ config_paths = [
 
 default_config = {
     'api_version': 1,
-    'dataset_prefix': 'PyGraphistry',
+    'dataset_prefix': 'PyGraphistry/',
     'hostname': 'labs.graphistry.com',
     'protocol': 'https'
 }
