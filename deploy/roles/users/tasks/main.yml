@@ -63,26 +63,9 @@
   shell: ~/.ssh/rc
   sudo: no
 
-# - name: Upload SSH client config for users
-#   copy: src=ssh.config
-#         dest='/home/{{ item.username}}/.ssh/config'
-#         owner='{{ item.username }}'
-#         group='{{ item.username }}'
-#         mode=0644
-#         backup=yes
-#   sudo: yes
-#   sudo_user: "{{ item.username }}"
-#   with_items: users
-
 - name: Do extra user tasks for user 'mtorok'
   include: mtorok.yml
-  when: '{{ "mtorok" in users|map(attribute="username") }} and {{ (lookup("env","USER") == "mtorok") }}'
+  when: '{{ "mtorok" in users|map(attribute="username") }}'
   tags:
     - mtorok
     - users
-
-# - name: Kill zombie ssh-agent processes (it's OK if this fails)
-#   command: killall ssh-agent
-#   ignore_errors: true
-#   sudo: yes
-#   sudo_user: root

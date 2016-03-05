@@ -32,6 +32,7 @@
     - socat
     - cmake
     - python-pygments
+    - grc
   sudo: yes
   sudo_user: root
 
@@ -113,6 +114,8 @@
            removes=/home/mtorok/.vim/janus
   sudo: yes
   sudo_user: mtorok
+  # Only run is Matt is running the deploying, because this is slow, and others shouldn't be slowed
+  when: '{{ (lookup("env","USER") == "mtorok") }}'
   tags:
     - slow
 
@@ -122,14 +125,14 @@
 #   sudo: yes
 #   sudo_user: mtorok
 
-# - name: "[mtorok] Compiling Vim plugin 'YouCompleteMe'"
-#   command: /home/mtorok/.janus/YouCompleteMe/install.sh --clang-completer
-#            chdir=/home/mtorok/.janus/YouCompleteMe/
-#   when: mtorok_dotfile_repo.changed
-#   sudo: yes
-#   sudo_user: mtorok
-#   tags:
-#     - slow
+- name: "[mtorok] Compiling Vim plugin 'YouCompleteMe'"
+  command: /home/mtorok/.janus/YouCompleteMe/install.sh --clang-completer
+           chdir=/home/mtorok/.janus/YouCompleteMe/
+  when: mtorok_dotfile_repo.changed and {{ (lookup("env","USER") == "mtorok") }}
+  sudo: yes
+  sudo_user: mtorok
+  tags:
+    - slow
 
 
 ###############################################################################
