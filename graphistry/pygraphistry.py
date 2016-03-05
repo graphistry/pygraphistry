@@ -125,7 +125,7 @@ class PyGraphistry(object):
         PyGraphistry._config['api_version'] = value
 
     @staticmethod
-    def register(key=None, server='labs', protocol=None, api=1):
+    def register(key=None, server=None, protocol=None, api=None):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
