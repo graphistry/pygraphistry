@@ -1,6 +1,6 @@
 # PyGraphistry: Explore Relationships
 
-PyGraphistry is a visual graph analytics library to extract, transform, and load big graphs into [Graphistry's](http://www.graphistry.com) cloud-based graph explorer. 
+PyGraphistry is a visual graph analytics library to extract, transform, and load big graphs into [Graphistry's](http://www.graphistry.com) cloud-based graph explorer.
 
 It supports unusually large graphs for interactive visualization. The client's custom WebGL rendering engine renders up to 8MM nodes and edges at a time, and most older client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside OpenCL analytics engine supports even bigger graphs.
 
@@ -14,7 +14,7 @@ It supports unusually large graphs for interactive visualization. The client's c
 
 <table style="width:100%;">
   <tr valign="top">
-    <td align="center">Click to open interactive version! <em>(For server-backed interactive analytics, use an API key)</em><a href="http://proxy-labs.graphistry.com/graph/graph.html?dataset=PyGraphistry/NY0D72L2UW&usertag=github&info=true&static=true&contentKey=Facebook_Github_Demo&play=0&center=false&menu=false&goLive=false&left=-2.02e+4&right=1.51e+4&top=-1.07e+4&bottom=9.15e+3&legend={%22nodes%22:%20%22People%20(Names%20are%20fake).%3Cbr/%3E%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%20%22edges%22:%20%22Friendships%22,%20%22subtitle%22:%20%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%20%22title%22:%20%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22}"><img src="http://i.imgur.com/Ows4rK4.png" title="Click to open."></a>
+    <td align="center">Click to open interactive version! <em>(For server-backed interactive analytics, use an API key)</em><a href="http://labs.graphistry.com/graph/graph.html?dataset=PyGraphistry/NY0D72L2UW&usertag=github&info=true&static=true&contentKey=Facebook_Github_Demo&play=0&center=false&menu=false&goLive=false&left=-2.02e+4&right=1.51e+4&top=-1.07e+4&bottom=9.15e+3&legend={%22nodes%22:%20%22People%20(Names%20are%20fake).%3Cbr/%3E%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%20%22edges%22:%20%22Friendships%22,%20%22subtitle%22:%20%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%20%22title%22:%20%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22}"><img src="http://i.imgur.com/Ows4rK4.png" title="Click to open."></a>
     <em>Source data: <a href="http://snap.stanford.edu">SNAP</a></em>
 	</td>
   </tr>
@@ -25,13 +25,13 @@ It supports unusually large graphs for interactive visualization. The client's c
 
 <table style="width:100%;">
   <tr valign="top">
-    <td align="center"><b>Friendship Communities on Facebook.</b> (Read-only interactive version.)<br><iframe width="100%" height="500" src="http://proxy-labs.graphistry.com/graph/graph.html?dataset=PyGraphistry/NY0D72L2UW&usertag=github&info=true&static=true&contentKey=Facebook_Github_Demo&play=0&center=false&menu=false&goLive=false&left=-2.02e+4&right=1.51e+4&top=-1.07e+4&bottom=9.15e+3&legend={%22nodes%22:%20%22People%20(Names%20are%20fake).%3Cbr/%3E%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%20%22edges%22:%20%22Friendships%22,%20%22subtitle%22:%20%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%20%22title%22:%20%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22}"></iframe><br></a>
+    <td align="center"><b>Friendship Communities on Facebook.</b> (Read-only interactive version.)<br><iframe width="100%" height="500" src="http://labs.graphistry.com/graph/graph.html?dataset=PyGraphistry/NY0D72L2UW&usertag=github&info=true&static=true&contentKey=Facebook_Github_Demo&play=0&center=false&menu=false&goLive=false&left=-2.02e+4&right=1.51e+4&top=-1.07e+4&bottom=9.15e+3&legend={%22nodes%22:%20%22People%20(Names%20are%20fake).%3Cbr/%3E%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%20%22edges%22:%20%22Friendships%22,%20%22subtitle%22:%20%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%20%22title%22:%20%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22}"></iframe><br></a>
     <em>Source data: <a href="http://snap.stanford.edu">SNAP</a></em>
 	</td>
   </tr>
 </table>
 -->
-	
+
 ### PyGraphistry is...
 
 - **Fast & Gorgeous:** Cluster, filter, and inspect large amounts of data at interactive speed. We layout graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
@@ -79,7 +79,7 @@ It supports unusually large graphs for interactive visualization. The client's c
 ## Installation
 
 ### Dependencies
-[Python](https://www.python.org) 2.7 or 3.4 (experimental). 
+[Python](https://www.python.org) 2.7 or 3.4 (experimental).
 
 The simplest way to install PyGraphistry is with Python's pip package manager:
 
