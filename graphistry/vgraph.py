@@ -118,7 +118,7 @@ def objectEncoder(vg, series, dtype):
     series.where(pandas.notnull(series), '\0', inplace=True)
     # vec is a string[] submessage within a repeated
     vec = vg.string_vectors.add()
-    for val in series.map(lambda x: unicode(x, 'utf-8')):
+    for val in series.astype('unicode'):
         vec.values.append(val)
     return (vec, {'ctype': 'utf8'})
 
