@@ -160,7 +160,7 @@ function tearDown(socket, exitCode) {
 function init(app, socket) {
     logger.debug({socket: socket.id}, 'Client connected');
 
-    var JSONParser = bodyParser.json({limit: '128mb'});
+    var JSONParser = bodyParser.json({limit: '384mb'}); // This is the uncompressed size
 
     var fields = _.map(_.range(16), function (n) {
         return { name: 'data' + n, maxCount: 1 };
