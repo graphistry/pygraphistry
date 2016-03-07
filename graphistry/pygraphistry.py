@@ -71,7 +71,7 @@ class PyGraphistry(object):
         This is called once automatically per session when uploading and rendering a visualization."""
         key = PyGraphistry.api_key()
         if key is None:
-            raise RuntimeError('API key not set explicitly or available at ' + EnvVarNames['api_key'])
+            util.error('API key not set explicitly in `register()` or available at ' + EnvVarNames['api_key'])
         if not PyGraphistry._is_authenticated:
             PyGraphistry._check_key_and_version()
             PyGraphistry._is_authenticated = True
