@@ -113,18 +113,12 @@ def storeValueVector(vg, df, col, dtype, target):
     return info
 
 
-def unicodeEncode(someString):
-    try:
-        return unicode(someString, 'utf-8')
-    except TypeError:
-        return someString.encode('utf-8')
-
 # returns tuple() of StringAttributeVector and object with type info.
 def objectEncoder(vg, series, dtype):
     series.where(pandas.notnull(series), '\0', inplace=True)
     # vec is a string[] submessage within a repeated
     vec = vg.string_vectors.add()
-    for val in series.map(unicodeEncode):
+    for val in series.astype('unicode'):
         vec.values.append(val)
     return (vec, {'ctype': 'utf8'})
 
