@@ -19,9 +19,10 @@ labs.graphistry.com
 # The name of this deploy type (used for Slack notifications)
 cluster="production"
 
-mongodb_url="mongodb://graphistry:graphtheplanet@lighthouse.3.mongolayer.com:10048,lighthouse.2.mongolayer.com:10048/graphistry-prod?replicaSet=set-545152bc461811298c009c03"
-# The name of the MongoDB database on compose.io to write pings to
-mongodb_dbname="graphistry-prod"
+mongo_username="graphistry"
+mongo_password="graphtheplanet"
+mongo_host="localhost:27017"
+mongo_name="cluster"
 
 # The URL to the splunk instance the reverse proxy should route to
 splunk_url="demo.graphistry.com:8000"

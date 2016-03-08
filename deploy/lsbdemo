@@ -3,13 +3,16 @@
 # Servers
 ################################################################################
 [central]
-staging.graphistry.com
+52.9.34.130
 
 [workers]
-staging.graphistry.com
+52.9.34.130
 
-[deploy]
+#[proxy]
+# staging-secure.graphistry.com
 
+#[deploy]
+# deploy.graphistry.com
 
 
 ################################################################################
@@ -17,12 +20,13 @@ staging.graphistry.com
 ################################################################################
 [all:vars]
 # The name of this deploy type (used for Slack notifications)
-cluster="staging"
+cluster="lsbdemo"
 
 mongo_username="graphistry"
 mongo_password="graphtheplanet"
-mongo_host="localhost:27017"
-mongo_name="graphistry-staging"
+mongo_host="localhost"
+mongo_name="cluster"
+
 
 # The URL to the splunk instance the reverse proxy should route to
 splunk_url="splunk.graphistry.com:3000"
@@ -31,14 +35,19 @@ splunk_url="splunk.graphistry.com:3000"
 ################################################################################
 # Groups
 ################################################################################
+[proxy_active]
+# Leave empty. Dynamically populated by playbook.
+
 [app_servers:children]
 workers
 central
 
 [remote_servers:children]
 app_servers
-deploy
+proxy_active
+# deploy
 
-[staging:children]
+[lsbstage:children]
 app_servers
-deploy
+proxy_active
+# deploy

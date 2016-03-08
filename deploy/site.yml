@@ -4,8 +4,6 @@
 # has limited access. No home folder, only has read-only access to npm modules used, no access to
 # .git directories, ideally no access to any SSH keys, can only write to /var/log/clients.log.
 
-# TODO: Automatically clear the MongoDB when deploying
-
 # TODO: Secure sensitive data:
 # * Username/password variable files should be encrypted and/or distributed out-of-band.
 # * No Ansible SSH private key in repo (users use their own SSH keys to log in either as `ubuntu`,
@@ -27,7 +25,6 @@
 
 # TODO: Install & configure `ccache` to speed up install of node-gyp native modules
 
-
 - hosts: localhost
   gather_facts: no
   roles:
@@ -46,6 +43,13 @@
   tags:
     - sshd
     - provision
+
+- hosts: central
+  roles:
+    - { role: docker }
+    - { role: mongo }
+  tags:
+    - mongo
 
 - hosts: remote_servers
   roles:
@@ -73,6 +77,7 @@
 
 - hosts: central
   roles:
+   - { role: cuda, tags: [ 'provision' , 'cuda' ] }
    - { role: central, sudo: yes, sudo_user: www }
    - { role: proxy, tags: [ 'proxy' ] }
   tags:
