@@ -32,7 +32,7 @@
   become: yes
 
 - name: Install nginx
-  apt: pkg=nginx=1.9.11-1~trusty
+  apt: pkg=nginx
        update_cache=yes
        cache_valid_time=600
   become: yes
