@@ -17,12 +17,12 @@ staging.graphistry.com
 ################################################################################
 [all:vars]
 # The name of this deploy type (used for Slack notifications)
-cluster="staging"
+cluster="basicallyStaging"
 
 mongo_username="graphistry"
 mongo_password="graphtheplanet"
-mongo_host="localhost:27017"
-mongo_name="graphistry-staging"
+mongo_host="localhost"
+mongo_name="cluster"
 
 # The URL to the splunk instance the reverse proxy should route to
 splunk_url="splunk.graphistry.com:3000"
