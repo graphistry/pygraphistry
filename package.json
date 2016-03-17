@@ -52,7 +52,7 @@
     "babel-runtime": "~6.3.19",
     "backbone": "~1.1.0",
     "backbone.paginator": "~2.0.0",
-    "backgrid": "~0.3.0",
+    "backgrid": "0.3.5",
     "backgrid-filter": "wyuenho/backgrid-filter#01b2b217b8a3fbf2f240b882b338284632bae791",
     "backgrid-paginator": "graphistry/backgrid-paginator",
     "bootstrap-slider": "~4.3.0",
