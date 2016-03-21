@@ -75,10 +75,16 @@ module.exports = {
     resolve: {
         modulesDirectories: ['src', 'node_modules'],
         extensions: ['', '.json', '.js', '.jsx'],
-        fallback: [path.resolve('./node_modules')]
+        fallback: [path.resolve('./node_modules')],
+        alias: {
+            'handlebars': 'handlebars/runtime.js'
+        }
     },
     resolveLoader: {
-        fallback: [path.resolve('./node_modules')]
+        fallback: [path.resolve('./node_modules')],
+        alias: {
+            'hbs': 'handlebars-loader'
+        }
     },
     plugins: [
         new StringReplacePlugin(),
