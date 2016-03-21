@@ -77,7 +77,7 @@ module.exports = {
         extensions: ['', '.json', '.js', '.jsx'],
         fallback: [path.resolve('./node_modules')],
         alias: {
-            'handlebars': 'handlebars/runtime.js'
+            'handlebars': 'handlebars/dist/handlebars.js'
         }
     },
     resolveLoader: {
