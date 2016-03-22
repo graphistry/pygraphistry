@@ -147,11 +147,11 @@ function dispatcher(tearDown, req, res) {
 // Socket * Int -> ()
 function tearDown(socket, exitCode) {
     logger.debug('Worker finished, exiting');
-    if (config.ENVIRONMENT === 'local') {
+    if (config.WORKER_RESTART) {
+        process.exit(exitCode);
+    } else {
         logger.warn('not actually exiting, only disconnect socket');
         socket.disconnect();
-    } else {
-        process.exit(exitCode);
     }
 }
 
