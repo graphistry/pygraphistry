@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "author": "",
   "scripts": {
-    "test": "jasmine-node spec/ --forceexit",
+    "test": "jasmine-node --forceexit --junitreport --output test_results spec/",
     "less": "mkdir -p assets/css && (lessc less/graph.less > assets/css/graph.css)",
     "jshint": "jshint -c .jshintrc --exclude-path .gitignore .",
     "clean": "rm -rf ./dist && mkdir -p ./dist",

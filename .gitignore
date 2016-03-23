@@ -8,3 +8,4 @@ kernels/debug.*
 kernels/**/*.debug
 graph.css
 dist
+test_results
