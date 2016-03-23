@@ -23,15 +23,22 @@ module.exports = function(config) {
             'spec/*Spec.js': ['webpack', 'sourcemap']
         },
 
-        reporters: ['spec'],
+        reporters: ['spec', 'junit'],
 
         plugins: [
             require("karma-webpack"),
             require("karma-jasmine"),
             require("karma-spec-reporter"),
             require("karma-phantomjs-launcher"),
-            require("karma-sourcemap-loader")
+            require("karma-sourcemap-loader"),
+            require("karma-junit-reporter")
         ],
+
+        junitReporter: {
+            outputDir: 'test_results', // results will be saved as $outputDir/$browserName.xml
+            suite: 'StreamGL', // suite will become the package name attribute in xml testsuite element
+            useBrowserName: false // add browser name to report and classes names
+        },
 
         webpack: {
             devtool: 'inline-source-map',

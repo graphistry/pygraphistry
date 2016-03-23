@@ -3,3 +3,4 @@ dist
 node_modules
 .tern-project
 tests.log
+test_results
