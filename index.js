@@ -150,7 +150,7 @@ function tearDown(socket, exitCode) {
     if (config.WORKER_RESTART) {
         process.exit(exitCode);
     } else {
-        logger.warn('not actually exiting, only disconnect socket');
+        logger.info('Not actually exiting, only disconnect socket');
         socket.disconnect();
     }
 }
