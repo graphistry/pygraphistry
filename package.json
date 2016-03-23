@@ -68,6 +68,7 @@
     "falcor-path-syntax": "netflix/falcor-path-syntax",
     "falcor-router": "graphistry/falcor-router",
     "gl-matrix": "~2.2.0",
+    "graphlib": "~2.1.0",
     "less": "~2.2.0",
     "lodash": "~4.6.1",
     "moment": "~2.11.0",
