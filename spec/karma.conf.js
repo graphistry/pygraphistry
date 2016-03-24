@@ -1,5 +1,6 @@
 var webpack = require('webpack');
 var StringReplacePlugin = require('string-replace-webpack-plugin');
+var os = require('os');
 
 module.exports = function(config) {
 
@@ -24,6 +25,9 @@ module.exports = function(config) {
         },
 
         reporters: ['spec', 'junit'],
+
+        // Don't use color output on Linux, to make output easier to read for tools like Jenkins
+        colors: (os.type() !== 'Linux'),
 
         plugins: [
             require("karma-webpack"),
