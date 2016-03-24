@@ -1,7 +1,9 @@
-StreamGL
-========
+# StreamGL
+
+[![Build Status](http://deploy.graphistry.com/buildStatus/icon?job=StreamGL)](http://deploy.graphistry.com/view/Graphistry%20Modules/job/StreamGL/)
 
 Stream WebGL buffers into the browser from a remote server
+
 
 ## Build
 
@@ -14,6 +16,7 @@ Requires node `v0.10.41` and npm `v2.14.0`.
 - `npm run dev` is an alias for `npm run start-dev`
 
 None of these scripts use live-reload or hot-module-reloading, so your app state will stay safe until you refresh.
+
 
 ## Test Datasets
 
