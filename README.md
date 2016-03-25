@@ -1,6 +1,6 @@
 # StreamGL
 
-[![Build Status](http://deploy.graphistry.com/job/StreamGL/badge/icon)](http://deploy.graphistry.com/job/StreamGL/)
+[![Build Status](http://deploy.graphistry.com/buildStatus/icon?job=StreamGL)](http://deploy.graphistry.com/job/StreamGL/)
 
 Stream WebGL buffers into the browser from a remote server
 
