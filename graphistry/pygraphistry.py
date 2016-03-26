@@ -221,11 +221,9 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def _etl_url(datatype):
-        if datatype == 'json':
-            return 'http://%s/etl' % PyGraphistry._config['hostname']
-        elif datatype == 'vgraph':
-            return 'http://%s/etlvgraph' % PyGraphistry._config['hostname']
+    def _etl_url():
+        hostname =  PyGraphistry._config['hostname']
+        return 'http://%s/etl' % hostname
 
 
     @staticmethod
@@ -279,7 +277,7 @@ class PyGraphistry(object):
                   'key': PyGraphistry.api_key()}
 
         out_file = PyGraphistry._get_data_file(dataset, 'json')
-        response = requests.post(PyGraphistry._etl_url('json'), out_file.getvalue(),
+        response = requests.post(PyGraphistry._etl_url(), out_file.getvalue(),
                                  headers=headers, params=params)
         response.raise_for_status()
 
@@ -331,7 +329,7 @@ class PyGraphistry(object):
         params = {'usertag': PyGraphistry._tag, 'agent': 'pygraphistry', 'apiversion' : '2',
                   'agentversion': sys.modules['graphistry'].__version__,
                   'key': PyGraphistry.api_key()}
-        response = requests.post(PyGraphistry._etl_url('json'), files=parts, params=params)
+        response = requests.post(PyGraphistry._etl_url(), files=parts, params=params)
         response.raise_for_status()
 
         jres = response.json()
