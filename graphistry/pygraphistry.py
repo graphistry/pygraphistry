@@ -222,13 +222,16 @@ class PyGraphistry(object):
 
     @staticmethod
     def _etl_url():
-        hostname =  PyGraphistry._config['hostname']
-        return 'http://%s/etl' % hostname
+        hostname = PyGraphistry._config['hostname']
+        protocol = PyGraphistry._config['protocol']
+        return '%s://%s/etl' % (protocol, hostname)
 
 
     @staticmethod
     def _check_url():
-        return 'http://%s/api/check' % PyGraphistry._config['hostname']
+        hostname = PyGraphistry._config['hostname']
+        protocol = PyGraphistry._config['protocol']
+        return '%s://%s/api/check' % (protocol, hostname)
 
 
     @staticmethod
