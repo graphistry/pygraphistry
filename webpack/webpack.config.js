@@ -14,7 +14,18 @@ var preLoaders = [{
 
 var loaders = [{
     test: /\.jsx?$/,
-    exclude: /(StreamGL\/node_modules)/,
+    exclude: function (absPath) {
+        var inStreamGLRegex = /(StreamGL)/;
+        var inStreamGL = absPath.match(inStreamGLRegex);
+
+        if (inStreamGL) {
+            var streamGLNodeModulesRegex = /(StreamGL\/node_modules)/;
+            return absPath.match(streamGLNodeModulesRegex);
+        } else {
+            var generalNodeModulesRegex = /(node_modules)/;
+            return absPath.match(generalNodeModulesRegex);
+        }
+    },
     loader: 'babel',
     query: {
         // presets: ['react', 'es2015', 'stage-0'],
