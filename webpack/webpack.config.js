@@ -14,7 +14,7 @@ var preLoaders = [{
 
 var loaders = [{
     test: /\.jsx?$/,
-    exclude: /(StreamGL\/node_modules)/
+    exclude: /(StreamGL\/node_modules)/,
     loader: 'babel',
     query: {
         // presets: ['react', 'es2015', 'stage-0'],
