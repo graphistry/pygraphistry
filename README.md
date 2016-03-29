@@ -10,6 +10,8 @@ It supports unusually large graphs for interactive visualization. The client's c
 4. [Tutorial](#tutorial-les-misérables)
 5. [API Reference](#api-reference)
 
+[https://img.shields.io/pypi/dm/graphistry.svg](https://pypi.python.org/pypi/pandas)
+
 ### Demo of Friendship Communities on Facebook
 
 <table style="width:100%;">
