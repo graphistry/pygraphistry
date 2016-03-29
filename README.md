@@ -11,6 +11,7 @@ It supports unusually large graphs for interactive visualization. The client's c
 5. [API Reference](#api-reference)
 
 <a href="https://pypi.python.org/pypi/graphistry"><img src="https://img.shields.io/pypi/dm/graphistry.svg" ></a>
+<a href="https://pypi.python.org/pypi/graphistry"><img src="https://img.shields.io/pypi/pyversions/graphistry.svg" ></a>
 
 ### Demo of Friendship Communities on Facebook
 
