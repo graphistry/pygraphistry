@@ -10,4 +10,5 @@ Additionally, it contains documentation pertaining to our overall application st
 * [AWS](https://github.com/graphistry/deploy/blob/master/documentation/aws.md): How to deploy the Graphistry stack to Amazon Web Services for both staging and production.
 * [Troubleshooting](https://github.com/graphistry/deploy/blob/master/documentation/troubleshooting.md): What to do if the server stops working.
 * [Manual Testing](https://docs.google.com/document/d/1J7UgXXXs5LujC6Nl6st0ooavfzRAZKI1ZSzl6n_Z90c/edit#heading=h.z8ufwwipb9wm): Demos and tasks to try before prod deploys.
+* [Jenkins!](http://deploy.graphistry.com/) CI server for testing history and remote builds
 
