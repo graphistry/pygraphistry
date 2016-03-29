@@ -19,4 +19,4 @@
 
 ###Package & Upload:
 1. Get `~/.pypirc` file from the powers that be.
-2. Run `./setup.py sdist upload -r pypi`
+2. Run `./setup.py bdist_wheel upload -r pypi`
