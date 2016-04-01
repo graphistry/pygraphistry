@@ -53,11 +53,44 @@ describe ('Numerical expressions', () => {
         expect(parse('345679801')).toEqual({type: 'Literal', dataType: 'integer', value: 345679801});
     });
     it('should parse sums', () => {
-        let sum = parse('3 + 4');
-        expect(sum.type).toEqual('BinaryExpression');
-        expect(sum.operator).toEqual('+');
-        expect(sum.left.value).toEqual(3);
-        expect(sum.right.value).toEqual(4);
+        expect(parse('3 + 4')).toEqual({
+            type: 'BinaryExpression',
+            operator: '+',
+            left: {type: 'Literal', dataType: 'integer', value: 3},
+            right: {type: 'Literal', dataType: 'integer', value: 4}
+        });
+    });
+    it('should parse products', () => {
+        expect(parse('3 * 4')).toEqual({
+            type: 'BinaryExpression',
+            operator: '*',
+            left: {type: 'Literal', dataType: 'integer', value: 3},
+            right: {type: 'Literal', dataType: 'integer', value: 4}
+        });
+    });
+    it('should parse divisions', () => {
+        expect(parse('3 / 4')).toEqual({
+            type: 'BinaryExpression',
+            operator: '/',
+            left: {type: 'Literal', dataType: 'integer', value: 3},
+            right: {type: 'Literal', dataType: 'integer', value: 4}
+        });
+    });
+    it('should parse modulus', () => {
+        expect(parse('3 % 4')).toEqual({
+            type: 'BinaryExpression',
+            operator: '%',
+            left: {type: 'Literal', dataType: 'integer', value: 3},
+            right: {type: 'Literal', dataType: 'integer', value: 4}
+        });
+    });
+    it('should parse exponents', () => {
+        expect(parse('3 ** 4')).toEqual({
+            type: 'BinaryExpression',
+            operator: '**',
+            left: {type: 'Literal', dataType: 'integer', value: 3},
+            right: {type: 'Literal', dataType: 'integer', value: 4}
+        });
     });
 });
 
