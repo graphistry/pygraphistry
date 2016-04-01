@@ -126,6 +126,12 @@ describe ('IN expressions', () => {
         expect(clause.operator).toBe('IN');
         expect(_.pluck(clause.right.elements, 'value')).toEqual([1, 2, 3]);
     });
+    it('should parse lower precedence than conjunctions', () => {
+        let clause = parse('A IN B OR C IN D'),
+            expected = parse('(A IN B) OR (C IN D)');
+        expect(clause.operator).toBe(expected.operator);
+        expect(clause).toEqual(expected);
+    });
 });
 
 describe('LIKE expressions', () => {
