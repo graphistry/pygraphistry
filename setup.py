@@ -51,6 +51,7 @@ setup(
         'pandas-extra': ['numexpr', 'Bottleneck'],
         'all': ['python-igraph', 'networkx', 'numexpr', 'Bottleneck', 'colorlover']
     },
+    test_suite = 'nose.collector',
     license='BSD',
     classifiers=[
         'Development Status :: 4 - Beta',
