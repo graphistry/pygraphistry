@@ -477,6 +477,17 @@ describe ('Range predicates', () => {
             value: betweenAnd
         });
     });
+    it('should parse with complex sub-expressions', () => {
+        let value = parse('A'),
+            lower = parse('2 + 4'),
+            upper = parse('5 OR 6');
+        expect(parse('A BETWEEN 2 + 4 AND (5 OR 6)')).toEqual({
+            type: 'BetweenPredicate',
+            value: value,
+            start: lower,
+            stop: upper
+        });
+    });
 });
 
 describe ('LIMIT clauses', () => {
