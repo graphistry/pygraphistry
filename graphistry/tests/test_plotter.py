@@ -1,11 +1,20 @@
 import unittest
 import pandas
+import igraph
+import networkx
 import graphistry
 from mock import patch
 
 
 triangleEdges = pandas.DataFrame({'src': ['a', 'b', 'c'], 'dst': ['b', 'c', 'a']})
 triangleNodes = pandas.DataFrame({'id': ['a', 'b', 'c'], 'a1': [1, 2, 3], 'a2': ['red', 'blue', 'green']})
+
+
+def assertFrameEqual(df1, df2, **kwds ):
+    """ Assert that two dataframes are equal, ignoring ordering of columns"""
+
+    from pandas.util.testing import assert_frame_equal
+    return assert_frame_equal(df1.sort_index(axis=1), df2.sort_index(axis=1), check_names=True, **kwds)
 
 
 @patch.object(graphistry.util, 'warn')
@@ -76,3 +85,53 @@ class TestPlotterCallChaining(unittest.TestCase):
         plotter1 = plotter0.bind(node='id').bind(point_title='a2')
         plotter1.edges(triangleEdges).nodes(triangleNodes).plot()
         self.assertTrue(mock_etl2.called)
+
+
+class TestPlotterConversions(unittest.TestCase):
+
+    def test_igraph2pandas(self):
+        ig = igraph.Graph.Tree(4, 2)
+        ig.vs['vattrib'] = 0
+        ig.es['eattrib'] = 1
+        (e, n) = graphistry.bind(source='src', destination='dst').igraph2pandas(ig)
+
+        edges = pandas.DataFrame({
+            'dst': {0: 1, 1: 2, 2: 3},
+            'src': {0: 0, 1: 0, 2: 1},
+            'eattrib': {0: 1, 1: 1, 2: 1}
+        })
+        nodes = pandas.DataFrame({
+            '__nodeid__': {0: 0, 1: 1, 2: 2, 3: 3},
+            'vattrib': {0: 0, 1: 0, 2: 0, 3: 0}
+        })
+
+        assertFrameEqual(e, edges)
+        assertFrameEqual(n, nodes)
+
+
+    def test_pandas2igraph(self):
+        plotter = graphistry.bind(source='src', destination='dst', node='id')
+        ig = plotter.pandas2igraph(triangleEdges)
+        (e, n) = plotter.igraph2pandas(ig)
+        assertFrameEqual(e, triangleEdges[['src', 'dst']])
+        assertFrameEqual(n, triangleNodes[['id']])
+
+
+    def test_networkx2igraph(self):
+        ng = networkx.complete_graph(3)
+        networkx.set_node_attributes(ng, 'vattrib', 0)
+        networkx.set_edge_attributes(ng, 'eattrib', 1)
+        (e, n) = graphistry.bind(source='src', destination='dst').networkx2pandas(ng)
+
+        edges = pandas.DataFrame({
+            'dst': {0: 1, 1: 2, 2: 2},
+            'src': {0: 0, 1: 0, 2: 1},
+            'eattrib': {0: 1, 1: 1, 2: 1}
+        })
+        nodes = pandas.DataFrame({
+            '__nodeid__': {0: 0, 1: 1, 2: 2},
+            'vattrib': {0: 0, 1: 0, 2: 0}
+        })
+
+        assertFrameEqual(e, edges)
+        assertFrameEqual(n, nodes)
