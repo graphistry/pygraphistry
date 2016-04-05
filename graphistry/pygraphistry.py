@@ -5,6 +5,9 @@ from __future__ import print_function
 from future import standard_library
 standard_library.install_aliases()
 from builtins import object
+from builtins import str
+from past.utils import old_div
+
 import os
 import sys
 import calendar
@@ -260,7 +263,7 @@ class PyGraphistry(object):
         else:
             raise ValueError('Unknown mode:', mode)
 
-        size = len(out_file.getvalue()) / 1024
+        size = old_div(len(out_file.getvalue()), 1024)
         if size >= 5 * 1024:
             print('Uploading %d kB. This may take a while...' % size)
             sys.stdout.flush()

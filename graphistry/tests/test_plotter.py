@@ -1,3 +1,5 @@
+from builtins import object
+
 import unittest
 import pandas
 import requests
@@ -12,7 +14,7 @@ triangleEdges = pandas.DataFrame({'src': ['a', 'b', 'c'], 'dst': ['b', 'c', 'a']
 triangleNodes = pandas.DataFrame({'id': ['a', 'b', 'c'], 'a1': [1, 2, 3], 'a2': ['red', 'blue', 'green']})
 
 
-class Fake_Response():
+class Fake_Response(object):
     def raise_for_status(self):
         pass
     def json(self):
@@ -36,6 +38,7 @@ class TestPlotterBindings(unittest.TestCase):
     def setUpClass(cls):
         graphistry.register(api=2)
 
+
     def test_no_src_dst(self, mock_etl2, mock_warn, mock_open):
         with self.assertRaises(ValueError):
             graphistry.bind().plot(triangleEdges)
@@ -45,6 +48,7 @@ class TestPlotterBindings(unittest.TestCase):
             graphistry.bind(destination='dst').plot(triangleEdges)
         with self.assertRaises(ValueError):
             graphistry.bind(source='doesnotexist', destination='dst').plot(triangleEdges)
+
 
     def test_no_nodeid(self, mock_etl2, mock_warn, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
