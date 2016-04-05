@@ -320,10 +320,11 @@ class Plotter(object):
             from IPython.core.display import HTML
             return HTML(util.make_iframe(viz_url, self._height, PyGraphistry._config['protocol']))
         else:
-            print('Url: %s://%s' % (PyGraphistry._config['protocol'], viz_url))
+            full_url = '%s://%s' % (PyGraphistry._config['protocol'], viz_url)
+            print('Url: ' + full_url)
             import webbrowser
-            webbrowser.open(viz_url)
-            return self
+            webbrowser.open(full_url)
+            return full_url
 
 
     def pandas2igraph(self, edges, directed=True):
