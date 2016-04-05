@@ -28,7 +28,8 @@ class TestPlotterBindings(unittest.TestCase):
             graphistry.bind(source='src').plot(triangleEdges)
         with self.assertRaises(ValueError):
             graphistry.bind(destination='dst').plot(triangleEdges)
-
+        with self.assertRaises(ValueError):
+            graphistry.bind(source='doesnotexist', destination='dst').plot(triangleEdges)
 
     def test_no_nodeid(self, mock_etl2, mock_warn):
         plotter = graphistry.bind(source='src', destination='dst')
