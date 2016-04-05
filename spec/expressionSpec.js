@@ -487,6 +487,17 @@ describe ('Range predicates', () => {
             start: lower,
             stop: upper
         });
+        expect(parse('A BETWEEN 2 + 4 AND 5 OR 6')).toEqual({
+            type: 'BinaryPredicate',
+            operator: 'OR',
+            left: {
+                type: 'BetweenPredicate',
+                value: value,
+                start: lower,
+                stop: upper.left
+            },
+            right: {type: 'Literal', dataType: 'integer', value: 6}
+        });
     });
 });
 
