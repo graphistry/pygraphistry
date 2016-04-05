@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import unittest
 import pandas
 import numpy
@@ -29,8 +31,8 @@ class TestEtl2Metadata(unittest.TestCase):
     def test_metadata_mandatory_fields(self, mock_etl2, mock_open):
         graphistry.bind(source='src', destination='dst').plot(triangleEdges)
         dataset = mock_etl2.call_args[0][0]
-        self.assertListEqual(list(dataset['attributes']['nodes'].keys()), [nid])
-        self.assertListEqual(list(dataset['attributes']['edges'].keys()), [])
+        self.assertListEqual(list(dataset['attributes']['nodes']), [nid])
+        self.assertListEqual(list(dataset['attributes']['edges']), [])
 
         self.assertEqual(dataset['encodings']['nodes'], {
             'pointTitle': {'attributes': [nid]},
@@ -68,3 +70,19 @@ class TestEtl2Metadata(unittest.TestCase):
                 else:
                     self.assertFalse(numpy.isnan(entry))
 
+
+
+@patch('webbrowser.open')
+@patch.object(graphistry.pygraphistry.PyGraphistry, '_etl2')
+class TestEtl2Unicode(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        graphistry.register(api=2)
+
+    def test_metadata_mandatory_fields(self, mock_etl2, mock_open):
+        edges = triangleEdges.copy()
+        edges['ustring'] = [u'abcdef', u'тйîbàüd', u'♜ ♞ ♝ ♛ ♚ ♝ ♞ ♜']
+
+        graphistry.bind(source='src', destination='dst').plot(edges)
+        self.assertTrue(mock_etl2.called)
