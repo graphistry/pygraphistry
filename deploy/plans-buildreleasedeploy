@@ -1,0 +1,72 @@
+BUILD: Dockerfile builders should work anywhere (with "enough" memory)
+
+ARCHIVE: keep creds somewhere and push lxc[s] up to Dockerhub.
+
+RUN: PROVISION + DEPLOY
+
+PROVISION:
+
+infrastructure/nvidia-docker-host ansible script
+
+DEPLOY:
+
+tbd. a docker compose image with 1 or 2 private images and 3 or 4 public images? (5 pvt images is $7/mo.)
+
+
+BUILD STEPS:
+
+<slack>
+
+remote servers:
+  common
+    main
+    tmp_mount (for ansible maintaining a persistent connection, seemingly unnecessary)
+    performance (commented out)
+  users
+    main (ssh forwarding, users [seems unnecessary], do ssh keys)
+    mtorok [sic] (ruby/tmux/vim/rake/gawk/exuberant-ctags/python-dev/libtool/automake/socat/cmake/python-pygments/grc, homesick, powerline, int3h/dotfiles, janus, vim plugins, motd; I have never installed these)
+  splunkfwd (use github.com/outcoldman/docker-splunk ?)
+
+app_servers:
+  nodejs
+    node apt repos
+    kerberos dev libs
+    install node (must come in graphistry/js-and-gpu:0.10.44)
+    clear caches (seemingly unnecessary)
+    screw around with the default nodejs bash config
+    install npm 2.14.0 (must come in graphistry/js-and-gpu:0.10.44)
+  app_server
+    logs
+    logrotate [+ splunk?]
+    tmp folder
+    supervisord (ask matt: do we want to expose supervisorctl beyond shell commands on box)
+
+workers:
+  cuda (must come in graphistry/gpu-base:1.0)
+  worker (as user www)
+    log folder
+    reaper
+      random python package
+      supervisor config for reaper
+      upload and process template reaper.py.j2
+        restart reaper.py (seemingly unnecessary)
+    [clear cache] (seemingly unnecessary)
+    add another apt package
+    npm install viz-server
+    viz-server supervisor conf
+
+central:
+  cuda (must come in graphistry/gpu-base:1.0)
+  central
+    clear caches (seemingly unnecessary)
+    log folders
+    central entry in supervisord
+    prune modules (before?)
+    install central
+  proxy
+    dns stuff (maybe necessary)
+    get the newest ngx (via dockerhub)
+    put ssl certs in place (via volume/mounted dir instead?)
+    put in app config & main config
+
+<slack>
