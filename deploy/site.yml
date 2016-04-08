@@ -8,6 +8,8 @@
     - deploy
 
 - hosts: remote_servers
+  # gather_facts runs before roles. If not disabled, Ansible will try to connect to on port 61630,
+  # before we've set sshd to listen on that port, causing a fatal error before we even start.
   gather_facts: no
   roles:
     - sshd_port
