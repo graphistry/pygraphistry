@@ -35,12 +35,6 @@
     - workers
     - central
 
-- hosts: workers
-  roles:
-   - { role: worker, sudo: yes, sudo_user: www, tags: [ 'deploy', 'workers_deploy' ] }
-  tags:
-    - workers
-
 - hosts: central
   roles:
    - { role: mongo, tags: [ 'mongo' , 'provision' ] }
@@ -51,12 +45,11 @@
     - deploy
     - central_deploy
 
-- hosts: deploy
+- hosts: workers
   roles:
-    - { role: cuda, tags: [ 'provision' , 'cuda' ] }
+   - { role: worker, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
   tags:
-    - deploy_server
-    - provision
+    - workers
 
 - hosts: localhost
   gather_facts: no
