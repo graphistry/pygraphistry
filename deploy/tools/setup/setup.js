@@ -144,4 +144,7 @@ if (argv.versions) {
     .then(function() {
         return argv.link ? linkAll(roots, argv.shared) : Q();
     })
-    .done(_.noop, errorHandler);
+    .done(_.noop, function(err) {
+        errorHandler(err);
+        process.exit(1);
+    });
