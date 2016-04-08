@@ -35,9 +35,5 @@ splunk_url="demo.graphistry.com:8000"
 workers
 central
 
-[remote_servers:children]
-app_servers
-deploy
-
 [production:children]
 app_servers
