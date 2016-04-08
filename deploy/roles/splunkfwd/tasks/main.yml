@@ -58,4 +58,11 @@
             mode=0664
   notify: Restart Splunk
 
-- { include: boundary.yml, tags: [ 'boundary' ] }
+- name: Uninstall Boundary
+  apt: pkg=boundary-meter
+       state=absent
+       update_cache=no
+
+- name: Remove Boundary's apt repo from apt sources
+  file: path=/etc/apt/sources.list.d/boundary.list
+        state=absent
