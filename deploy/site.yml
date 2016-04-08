@@ -19,7 +19,6 @@
 
 - hosts: central
   roles:
-    - { role: docker }
     - { role: mongo }
   tags:
     - mongo
