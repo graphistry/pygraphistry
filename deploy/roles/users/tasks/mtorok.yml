@@ -115,7 +115,7 @@
   sudo: yes
   sudo_user: mtorok
   # Only run is Matt is running the deploying, because this is slow, and others shouldn't be slowed
-  when: '{{ (lookup("env","USER") == "mtorok") }}'
+  when: (lookup("env","USER") == "mtorok")
   tags:
     - slow
 
