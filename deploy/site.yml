@@ -17,12 +17,6 @@
     - sshd
     - provision
 
-- hosts: central
-  roles:
-    - { role: mongo }
-  tags:
-    - mongo
-
 - hosts: all
   roles:
     - { role: common, become: yes, tags: [ 'common' ] }
@@ -49,8 +43,9 @@
 
 - hosts: central
   roles:
-   - { role: central, sudo: yes, sudo_user: www }
-   - { role: proxy, tags: [ 'proxy' ] }
+   - { role: mongo, tags: [ 'mongo' , 'provision' ] }
+   - { role: proxy, tags: [ 'proxy' , 'deploy' ] }
+   - { role: central, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
   tags:
     - central
     - deploy
