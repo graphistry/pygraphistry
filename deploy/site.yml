@@ -12,10 +12,7 @@
   # before we've set sshd to listen on that port, causing a fatal error before we even start.
   gather_facts: no
   roles:
-    - sshd_port
-  tags:
-    - sshd
-    - provision
+    - { role: sshd_port, tags: [ 'sshd', 'provision' ] }
 
 - hosts: all
   roles:
@@ -42,8 +39,6 @@
    - { role: central, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
   tags:
     - central
-    - deploy
-    - central_deploy
 
 - hosts: workers
   roles:
