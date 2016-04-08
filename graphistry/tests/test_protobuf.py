@@ -4,13 +4,15 @@ import unittest
 import pandas
 import numpy
 import graphistry
+import graphistry.plotter
 from mock import patch
-
+from common import NoAuthTestCase
 
 nid = graphistry.plotter.Plotter._defaultNodeId
 
 triangleEdges = pandas.DataFrame({'src': ['a', 'b', 'c'], 'dst': ['b', 'c', 'a']})
 triangleNodes = pandas.DataFrame({'id': ['a', 'b', 'c'], 'a1': [1, 2, 3], 'a2': ['red', 'blue', 'green']})
+
 
 
 def assertFrameEqual(df1, df2, **kwds ):
@@ -20,13 +22,10 @@ def assertFrameEqual(df1, df2, **kwds ):
     return assert_frame_equal(df1.sort_index(axis=1), df2.sort_index(axis=1), check_names=True, **kwds)
 
 
+
 @patch('webbrowser.open')
 @patch.object(graphistry.pygraphistry.PyGraphistry, '_etl2')
-class TestEtl2Metadata(unittest.TestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        graphistry.register(api=2)
+class TestEtl2Metadata(NoAuthTestCase):
 
     def test_metadata_mandatory_fields(self, mock_etl2, mock_open):
         graphistry.bind(source='src', destination='dst').plot(triangleEdges)
@@ -74,11 +73,7 @@ class TestEtl2Metadata(unittest.TestCase):
 
 @patch('webbrowser.open')
 @patch.object(graphistry.pygraphistry.PyGraphistry, '_etl2')
-class TestEtl2Unicode(unittest.TestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        graphistry.register(api=2)
+class TestEtl2Unicode(NoAuthTestCase):
 
     def test_metadata_mandatory_fields(self, mock_etl2, mock_open):
         edges = triangleEdges.copy()

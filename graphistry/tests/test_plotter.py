@@ -8,6 +8,7 @@ import igraph
 import networkx
 import graphistry
 from mock import patch
+from common import NoAuthTestCase
 
 
 triangleEdges = pandas.DataFrame({'src': ['a', 'b', 'c'], 'dst': ['b', 'c', 'a']})
@@ -32,10 +33,11 @@ def assertFrameEqual(df1, df2, **kwds ):
 @patch('webbrowser.open')
 @patch.object(graphistry.util, 'warn')
 @patch.object(graphistry.pygraphistry.PyGraphistry, '_etl2')
-class TestPlotterBindings(unittest.TestCase):
+class TestPlotterBindings(NoAuthTestCase):
 
     @classmethod
     def setUpClass(cls):
+        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
         graphistry.register(api=2)
 
 
@@ -94,7 +96,7 @@ class TestPlotterBindings(unittest.TestCase):
 
 @patch('webbrowser.open')
 @patch('requests.post', return_value=Fake_Response())
-class TestPlotterReturnValue(unittest.TestCase):
+class TestPlotterReturnValue(NoAuthTestCase):
 
     def test_no_ipython(self, mock_post, mock_open):
         url = graphistry.bind(source='src', destination='dst').plot(triangleEdges)
@@ -113,10 +115,11 @@ class TestPlotterReturnValue(unittest.TestCase):
 
 @patch('webbrowser.open')
 @patch.object(graphistry.pygraphistry.PyGraphistry, '_etl2')
-class TestPlotterCallChaining(unittest.TestCase):
+class TestPlotterCallChaining(NoAuthTestCase):
 
     @classmethod
     def setUpClass(cls):
+        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
         graphistry.register(api=2)
 
     def test_bind_chain(self, mock_etl2, mock_open):
@@ -132,7 +135,7 @@ class TestPlotterCallChaining(unittest.TestCase):
         self.assertTrue(mock_etl2.called)
 
 
-class TestPlotterConversions(unittest.TestCase):
+class TestPlotterConversions(NoAuthTestCase):
 
     def test_igraph2pandas(self):
         ig = igraph.Graph.Tree(4, 2)
