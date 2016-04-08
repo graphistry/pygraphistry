@@ -6,9 +6,6 @@
   tags:
     - provision
     - deploy
-    - local
-    - central_deploy
-    - workers_deploy
 
 - hosts: remote_servers
   gather_facts: no
@@ -73,6 +70,3 @@
   tags:
     - provision
     - deploy
-    - local
-    - central_deploy
-    - workers_deploy
