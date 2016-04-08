@@ -34,7 +34,3 @@ splunk_url="splunk.graphistry.com:3000"
 [app_servers:children]
 workers
 central
-
-[staging:children]
-app_servers
-deploy
