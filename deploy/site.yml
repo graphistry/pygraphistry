@@ -24,9 +24,9 @@
 
 - hosts: app_servers
   roles:
-   - { role: cuda, tags: [ 'cuda' ] }
-   - { role: nodejs, tags: [ 'nodejs' ] }
-   - { role: app_server, tags: [ 'app_servers' ] }
+    - { role: cuda, tags: [ 'cuda' ] }
+    - { role: nodejs, tags: [ 'nodejs' ] }
+    - { role: app_server, tags: [ 'app_servers' ] }
   tags:
     - provision
     - workers
@@ -34,17 +34,17 @@
 
 - hosts: central
   roles:
-   # We install MongoDB as a Docker container
-   - { role: docker, tags: [ 'docker' , 'mongo' , 'provision' ] }
-   - { role: mongo, tags: [ 'mongo' , 'provision' ] }
-   - { role: proxy, tags: [ 'proxy' , 'deploy' ] }
-   - { role: central, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
+    # We install MongoDB as a Docker container
+    - { role: docker, tags: [ 'docker' , 'mongo' , 'provision' ] }
+    - { role: mongo, tags: [ 'mongo' , 'provision' ] }
+    - { role: proxy, tags: [ 'proxy' , 'deploy' ] }
+    - { role: central, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
   tags:
     - central
 
 - hosts: workers
   roles:
-   - { role: worker, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
+    - { role: worker, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
   tags:
     - workers
 
