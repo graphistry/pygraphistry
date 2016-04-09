@@ -34,6 +34,8 @@
 
 - hosts: central
   roles:
+   # We install MongoDB as a Docker container
+   - { role: docker, tags: [ 'docker' , 'mongo' , 'provision' ] }
    - { role: mongo, tags: [ 'mongo' , 'provision' ] }
    - { role: proxy, tags: [ 'proxy' , 'deploy' ] }
    - { role: central, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
