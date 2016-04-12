@@ -25,6 +25,8 @@ def make_iframe(raw_url, height, protocol):
 
     iframe = '''
             <iframe id="%s" src="%s"
+                    allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true"
+                    oallowfullscreen="true" msallowfullscreen="true"
                     style="width:100%%; height:%dpx; border: 1px solid #DDD">
             </iframe>
         ''' % (id, protocol + ':' + raw_url, height)
