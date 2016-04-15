@@ -37,7 +37,7 @@ describe('Computed Columns', function () {
 
         var baseDesc = new ComputedColumnSpec({
             type: 'number',
-            graphComponentType: 'point',
+            graphComponentType: 'point'
         });
 
         var eDesc = baseDesc.clone();
