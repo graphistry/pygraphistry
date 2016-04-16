@@ -34,7 +34,6 @@ args.add_argument('--db', metavar='URL', dest='db', default='mongodb://graphistr
 args.add_argument('--address', metavar='URL', dest='address', default='localhost',
                      help="Address this server can be found at (default: \"%(default)s\")")
 
-ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
 hostname = '{{ inventory_hostname_short }}' #socket.gethostname()
 reaper_pid = os.getpid()
 options = args.parse_args()
@@ -180,7 +179,7 @@ def kill_process(pid):
 def advertise_gpu_memory(gpu_collection):
     """Updates the database with the current amount of GPU memory available on this instance."""
     gpu_memory_free = get_available_memory()
-    gpu_collection.update({'ip': ip}, {'$set':
+    gpu_collection.update({'ip': options.address}, {'$set':
         {
             'gpu_memory_free': gpu_memory_free,
             'updated': datetime.utcnow()
@@ -196,7 +195,7 @@ def advertise_process_memory(workers_collection):
     for process in gpu_process_usage():
         logger.debug("Process GPU data: {}".format(process['raw']))
         workers_collection.update(
-            { 'ip': ip, 'pid': int(process['pid']) },
+            { 'ip': options.address, 'pid': int(process['pid']) },
             { '$set': {'gpu_memory' : int(process['memory'])} })
 
 
@@ -206,7 +205,7 @@ def reap_workers(workers_collection):
     """
     # Select all checkins older than 30 seconds
     zombie_timestamp = datetime.utcnow() - timedelta(seconds=WORKER_TIMEOUT)
-    zombie_workers = workers_collection.find({"ip": ip, "updated": {"$lt": zombie_timestamp}})
+    zombie_workers = workers_collection.find({"ip": options.address, "updated": {"$lt": zombie_timestamp}})
 
     for worker in zombie_workers:
         kill_process(int(worker['pid']))
