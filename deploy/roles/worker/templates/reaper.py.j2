@@ -24,8 +24,6 @@ else:
 # The number of seconds without a ping before a worker process is considered a zombie
 WORKER_TIMEOUT = 30
 
-DATABASE = '{{ mongo_name }}'
-MONGO_SERVER = 'mongodb://{{ mongo_username }}:{{ mongo_password }}@{{ mongo_host }}/{{ mongo_name }}'
 args = argparse.ArgumentParser(
     description="Graphistry daemon to register server/GPU availability, and kill hung workers",
     epilog="This daemon must be actively running on each server with `viz-server` worker processes, \
@@ -86,9 +84,9 @@ logger.addHandler(ch)
 def connect_mongo():
     """ Connects to the MongoDB database and returns a dictionary with the database object,
     gpu_monitor collection, and node_monitor collection."""
-    logger.info("Connecting to MongoDB at URL '{url}' and using the database named {db}".format(url=MONGO_SERVER, db=DATABASE))
-    client = MongoClient(MONGO_SERVER)
-    db = client[DATABASE]
+    logger.info("Connecting to MongoDB at URL '{url}' and using the database named {db}".format(url=options.db, db=options.db_name))
+    client = MongoClient(options.db)
+    db = client[options.db_name]
     return db['gpu_monitor'], db['node_monitor']
 
 
