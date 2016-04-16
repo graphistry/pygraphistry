@@ -11,9 +11,14 @@ import signal
 import urllib2
 import sys
 
+import argparse
+if sys.version_info[0] == 2:
+    from urlparse import urlparse
+else:
+    from urllib.parse import urlparse
 
 #########################
-# Constants
+# Options
 #########################
 
 # The number of seconds without a ping before a worker process is considered a zombie
@@ -21,11 +26,22 @@ WORKER_TIMEOUT = 30
 
 DATABASE = '{{ mongo_name }}'
 MONGO_SERVER = 'mongodb://{{ mongo_username }}:{{ mongo_password }}@{{ mongo_host }}/{{ mongo_name }}'
+args = argparse.ArgumentParser(
+    description="Graphistry daemon to register server/GPU availability, and kill hung workers",
+    epilog="This daemon must be actively running on each server with `viz-server` worker processes, \
+        to make those processes discoverable to `central` for routing incoming users.")
 
+args.add_argument('--db', metavar='URL', dest='db', default='mongodb://graphistry:pinger@localhost/cluster',
+                    help="URL of pinger MongoDB server (default: \"%(default)s\")")
+args.add_argument('--address', metavar='URL', dest='address', default='localhost',
+                     help="Address this server can be found at (default: \"%(default)s\")")
 
 ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
 hostname = '{{ inventory_hostname_short }}' #socket.gethostname()
 reaper_pid = os.getpid()
+options = args.parse_args()
+# pymongo needs the Mongo database name (used after connecting), so extract it from the server URL
+options.db_name = urlparse(options.db).path.lstrip('/')
 
 
 #########################
