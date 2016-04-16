@@ -9,8 +9,6 @@ import os
 import random
 import signal
 import urllib2
-import requests
-from requests.auth import HTTPBasicAuth
 import sys
 
 
@@ -25,10 +23,8 @@ DATABASE = '{{ mongo_name }}'
 MONGO_SERVER = 'mongodb://{{ mongo_username }}:{{ mongo_password }}@{{ mongo_host }}/{{ mongo_name }}'
 
 
-auth = HTTPBasicAuth('{{ boundary_username }}', '{{ boundary_password }}')
 ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
 hostname = '{{ inventory_hostname_short }}' #socket.gethostname()
-fqdn = '{{ inventory_hostname }}' #socket.getfqdn()
 reaper_pid = os.getpid()
 
 
@@ -47,11 +43,6 @@ logging.logThreads = 0
 
 loggerParent = logging.getLogger()
 loggerParent.setLevel(logging.ERROR)
-
-# Quiet down request's log output
-requests_log = logging.getLogger("requests")
-requests_log.setLevel(logging.ERROR)
-requests_log.propagate = False
 
 # Our own logging object
 logger = logging.getLogger(__name__)
@@ -127,30 +118,6 @@ def str_to_bytes(human_size):
         raise SyntaxError('String "{}" could not be converted into an integer number of bytes'.format(human_size))
 
 
-def log_boundary(metric, value):
-    """ Sends the given value to Boundary under the metric name given. If value is not a JSON
-    primitive type (number, etc), it should be string that includes quotes as part of the string."""
-    # The below template needs to be escaped twice: '{' and '}' need to be escaped as '{{'/'}}' for
-    # Python's `format()` string formatter, but '{{'/'}}' needs to be escape because it's also used
-    # for Ansible's JINJA2 template engine, so "{" turns into "{{ '{{' }}".
-    # data = '{{ '{{' }}"source": "{source}", "metric": "{metric}", "measure": {measure}, "timestamp": {timestamp} {{ '}}' }}'.format(
-    #     source=fqdn, metric=metric, measure=value, timestamp=int(time.time()))
-    # headers = {'content-type': 'application/json'}
-    # 
-    # try:
-    #     r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
-    # except requests.exceptions.ChunkedEncodingError as chunk_err:
-    #     # Boundary, for some stupid reason, gives the wrong ContentLength field in its response,
-    #     # causing ChunkedEncodingError when the connection closes before requests expects. This is
-    #     # harmless, and the API call seems to succeed anyway.
-    #     pass
-    # except Exception as err:
-    #     logger.info("Boundary: error logging metric {metric}: {err}".format(metric=metric, err=str(err)))
-    # except:
-    #     logger.info("Boundary: unknown error logging metric {metric}".format(metric=metric))
-    pass
-
-
 def get_available_memory():
     # Get GPU free memory from nvidia-smi
     p = subprocess.Popen(["nvidia-smi",
@@ -205,7 +172,6 @@ def advertise_gpu_memory(gpu_collection):
             'updated': datetime.utcnow()
         }}, True)
     logger.debug('GPU memory available: {mem}'.format(mem=gpu_memory_free))
-    log_boundary("GPU_FREE", gpu_memory_free)
 
 
 def advertise_process_memory(workers_collection):
@@ -218,18 +184,6 @@ def advertise_process_memory(workers_collection):
         workers_collection.update(
             { 'ip': ip, 'pid': int(process['pid']) },
             { '$set': {'gpu_memory' : int(process['memory'])} })
-
-    # Update Boundary
-    try:
-        total_workers = workers_collection.find({"ip": ip}).count()
-        log_boundary("TOTAL_WORKERS", total_workers)
-
-        active_users = workers_collection.find({"ip": ip, "active": True}).count()
-        log_boundary("ACTIVE_WORKERS", active_users)
-
-        log_boundary("INACTIVE_WORKERS", total_workers - active_users)
-    except Exception as activity_err:
-        console.warn("Error while attempting to count and log active/inactive workers: {err}".format(err=str(activity_err)))
 
 
 def reap_workers(workers_collection):
