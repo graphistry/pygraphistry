@@ -1,17 +1,14 @@
 #!/usr/bin/env python
-
-from pymongo import MongoClient, ASCENDING, errors
-from datetime import datetime, timedelta
+import os
+import sys
+import random
 import subprocess
 import socket
 import time
-import os
-import random
 import signal
-import urllib2
-import sys
-
 import argparse
+from datetime import datetime, timedelta
+from pymongo import MongoClient, ASCENDING, errors
 if sys.version_info[0] == 2:
     from urlparse import urlparse
 else:
