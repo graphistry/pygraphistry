@@ -31,8 +31,6 @@ args.add_argument('--db', metavar='URL', dest='db', default='mongodb://graphistr
 args.add_argument('--address', metavar='URL', dest='address', default='localhost',
                      help="Address this server can be found at (default: \"%(default)s\")")
 
-hostname = '{{ inventory_hostname_short }}' #socket.gethostname()
-reaper_pid = os.getpid()
 options = args.parse_args()
 # pymongo needs the Mongo database name (used after connecting), so extract it from the server URL
 options.db_name = urlparse(options.db).path.lstrip('/')
@@ -64,7 +62,7 @@ ch.setLevel(logging.INFO)
 
 # Format the output as JSON
 formatter = logging.Formatter(
-    '{"name": "reaper.py", "module": "reaper", "hostname": "' + str(hostname) + '", "pid": ' + str(reaper_pid) + \
+    '{"name": "reaper.py", "module": "reaper", "hostname": "' + socket.gethostname() + '", "pid": ' + str(os.getpid()) + \
         ', "level": %(levelno)s, "time": "%(asctime)s", "message_type": "%(levelname)s" , "msg": "%(message)s"}',
     datefmt='%Y-%m-%dT%H:%M:%SZ')
 formatter.converter = time.gmtime
