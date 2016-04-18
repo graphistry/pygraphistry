@@ -1765,9 +1765,11 @@ button:disabled {
 //////////////////////////////////////////////////////////////////////////////
 
 @histogram-z:                  40100;
+@timeExplorerTimeSliderHeight: 6px;
 @timeExplorerMainHeight: 60px;
 @timeExplorerAxisHeight: 20px;
 @timeExplorerTotalHeight: 272px; // 17em
+
 
 #timeExplorer {
     position: absolute;
@@ -1782,6 +1784,53 @@ button:disabled {
 
     visibility: hidden;
 
+
+    #timeFilterSliderRow {
+
+        #timeFilterSliderDiv {
+            height: @timeExplorerTimeSliderHeight;
+        }
+
+        /*visibility: hidden;*/
+        height: @timeExplorerTimeSliderHeight;
+        top: 0px;
+
+        .slider {
+            width: 100%;
+            height: @timeExplorerTimeSliderHeight;
+            display: block;
+
+            .slider-handle {
+                background: transparent none;
+                box-shadow: none;
+                -webkit-box-shadow: none;
+                width: 10px;
+                height: 10px;
+                margin-left: -5px;
+                margin-top: -8px;
+            }
+            .slider-handle::before {
+                line-height: 10px;
+                font-size: 10px;
+                content: '\25BC';
+                color: @dark-grey;
+            }
+
+            .slider-track {
+                height: 5px;
+                top: 0px;
+                margin-top: 0px;
+                border-radius: 0px;
+                box-shadow: none;
+            }
+
+
+
+        }
+
+    }
+
+
     #timeExplorerSideInput {
         overflow: scroll;
     }
@@ -1795,7 +1844,7 @@ button:disabled {
     #timeExplorerBody {
         position: absolute;
         width: 100%;
-        top: 0px;
+        max-height: @timeExplorerTotalHeight - @timeExplorerAxisHeight - @timeExplorerMainHeight - @timeExplorerTimeSliderHeight;
         bottom: @timeExplorerMainHeight;
         overflow-y: scroll;
         overflow-x: hidden;
@@ -1820,6 +1869,10 @@ button:disabled {
         box-shadow: 0px -2px 2px @medium-grey;
     }
 
+    #timeExplorerVizContainer {
+        top: 0px;
+    }
+
     .timeBarDiv {
         width: 100%;
         position: relative;
@@ -1829,6 +1882,14 @@ button:disabled {
             position: absolute;
             right: 0;
             top: 0;
+        }
+
+        .filterExpression {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 13;
+            width: 30%;
         }
     }
 
@@ -1882,7 +1943,7 @@ button:disabled {
     }
 
     .timeExplorerFixedHeight {
-        height: @timeExplorerTotalHeight - @timeExplorerAxisHeight;
+        height: @timeExplorerTotalHeight - @timeExplorerAxisHeight - @timeExplorerTimeSliderHeight;
     }
 
     .timeExplorerFixedHeightAxis {
