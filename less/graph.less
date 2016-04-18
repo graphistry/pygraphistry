@@ -1769,6 +1769,8 @@ button:disabled {
 @timeExplorerMainHeight: 60px;
 @timeExplorerAxisHeight: 20px;
 @timeExplorerTotalHeight: 272px; // 17em
+@timeExplorerEncodingSliderHeight: 6px;
+@timeExplorerBottomSlidersHeight: 12px;
 
 
 #timeExplorer {
@@ -1785,30 +1787,39 @@ button:disabled {
     visibility: hidden;
 
 
+    .slider {
+        width: 100%;
+        display: block;
+
+        .slider-handle {
+            background: transparent none;
+            box-shadow: none;
+            -webkit-box-shadow: none;
+            width: 10px;
+            height: 10px;
+            margin-left: -5px;
+            margin-top: -8px;
+        }
+
+        .slider-track {
+            height: 5px;
+            top: 0px;
+            margin-top: 0px;
+            border-radius: 0px;
+            box-shadow: none;
+        }
+
+    }
+
     #timeFilterSliderRow {
 
         #timeFilterSliderDiv {
             height: @timeExplorerTimeSliderHeight;
         }
 
-        /*visibility: hidden;*/
-        height: @timeExplorerTimeSliderHeight;
-        top: 0px;
-
         .slider {
-            width: 100%;
             height: @timeExplorerTimeSliderHeight;
-            display: block;
 
-            .slider-handle {
-                background: transparent none;
-                box-shadow: none;
-                -webkit-box-shadow: none;
-                width: 10px;
-                height: 10px;
-                margin-left: -5px;
-                margin-top: -8px;
-            }
             .slider-handle::before {
                 line-height: 10px;
                 font-size: 10px;
@@ -1816,18 +1827,32 @@ button:disabled {
                 color: @dark-grey;
             }
 
-            .slider-track {
-                height: 5px;
-                top: 0px;
-                margin-top: 0px;
-                border-radius: 0px;
-                box-shadow: none;
-            }
-
-
-
         }
 
+        /*visibility: hidden;*/
+        height: @timeExplorerTimeSliderHeight;
+        top: 0px;
+    }
+
+    #timeEncodingSliderRow {
+
+        #timeEncodingSliderDiv {
+            height: @timeExplorerBottomSlidersHeight;
+        }
+
+        .slider {
+            height: @timeExplorerEncodingSliderHeight;
+
+            .slider-handle::before {
+                line-height: 10px;
+                font-size: 10px;
+                content: '\25BC';
+                color: @dark-grey;
+            }
+        }
+
+        height: @timeExplorerBottomSlidersHeight;
+        bottom: 0px;
     }
 
 
@@ -1838,14 +1863,14 @@ button:disabled {
     #timeExplorerAxisContainer {
         position: absolute;
         width: 100%;
-        bottom: 0px;
+        bottom: @timeExplorerBottomSlidersHeight;
     }
 
     #timeExplorerBody {
         position: absolute;
         width: 100%;
-        max-height: @timeExplorerTotalHeight - @timeExplorerAxisHeight - @timeExplorerMainHeight - @timeExplorerTimeSliderHeight;
-        bottom: @timeExplorerMainHeight;
+        max-height: @timeExplorerTotalHeight - @timeExplorerAxisHeight - @timeExplorerMainHeight - @timeExplorerTimeSliderHeight - @timeExplorerBottomSlidersHeight;
+        bottom: @timeExplorerMainHeight + @timeExplorerBottomSlidersHeight;
         overflow-y: scroll;
         overflow-x: hidden;
 
@@ -1864,7 +1889,7 @@ button:disabled {
     #timeExplorerMain {
         position: absolute;
         width: 100%;
-        bottom: 0px;
+        bottom: @timeExplorerBottomSlidersHeight;
         z-index: @timeexplorer-main-z;
         box-shadow: 0px -2px 2px @medium-grey;
     }
@@ -1926,7 +1951,18 @@ button:disabled {
         border-right-width: 1px;
         border-left-color: black;
         border-right-color: black;
+    }
 
+    #timeExplorerEncodingA.dragBox {
+        background-color: red;
+    }
+
+    #timeExplorerEncodingB.dragBox {
+        background-color: blue;
+    }
+
+    #timeExplorerEncodingC.dragBox {
+        background-color: purple;
     }
 
     .axis {
@@ -1943,7 +1979,7 @@ button:disabled {
     }
 
     .timeExplorerFixedHeight {
-        height: @timeExplorerTotalHeight - @timeExplorerAxisHeight - @timeExplorerTimeSliderHeight;
+        height: @timeExplorerTotalHeight - @timeExplorerAxisHeight - @timeExplorerTimeSliderHeight - @timeExplorerBottomSlidersHeight;
     }
 
     .timeExplorerFixedHeightAxis {
