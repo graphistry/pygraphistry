@@ -1840,6 +1840,20 @@ button:disabled {
             height: @timeExplorerBottomSlidersHeight;
         }
 
+        // Red
+        #time-panel-encoding-slider-a {
+            .slider-selection {
+                background-image: linear-gradient(to bottom, #FF0000 0%, #FF0000 100%);
+            }
+        }
+
+        // Blue
+        #time-panel-encoding-slider-b {
+            .slider-selection {
+                background-image: linear-gradient(to bottom, #0000FF 0%, #0000FF 100%);
+            }
+        }
+
         .slider {
             height: @timeExplorerEncodingSliderHeight;
 
@@ -1873,6 +1887,26 @@ button:disabled {
         bottom: @timeExplorerMainHeight + @timeExplorerBottomSlidersHeight;
         overflow-y: scroll;
         overflow-x: hidden;
+
+        .addTimeBarDiv {
+            height: 20px;
+            margin-bottom: 2px;
+
+            .pull-right {
+                height: 20px;
+            }
+
+            .btn {
+                padding: 0px;
+                width: 20px;
+                height: 16px;
+            }
+
+            i.fa {
+                font-size: 14px;
+            }
+
+        }
 
         // Scrollbars are hidden on mac, so we force it to show
         &::-webkit-scrollbar {
