@@ -1765,16 +1765,21 @@ button:disabled {
 //////////////////////////////////////////////////////////////////////////////
 
 @histogram-z:                  40100;
+@timeExplorerTimeSliderHeight: 6px;
 @timeExplorerMainHeight: 60px;
 @timeExplorerAxisHeight: 20px;
 @timeExplorerTotalHeight: 272px; // 17em
+@timeExplorerEncodingSliderHeight: 6px;
+@timeExplorerBottomSlidersHeight: 12px;
+
 
 #timeExplorer {
     position: absolute;
     left: 0;
     bottom: 0;
     width: 100%;
-    height: @timeExplorerTotalHeight;
+    max-height: @timeExplorerTotalHeight;
+    /*height: @timeExplorerTotalHeight;*/
     margin: 0;
     padding: 0;
     background-color: @light-grey-background-2;
@@ -1782,23 +1787,132 @@ button:disabled {
 
     visibility: hidden;
 
+    .row {
+        margin-left: 3px;
+        margin-right: 3px;
+    }
+
+
+    .slider {
+        width: 100%;
+        display: block;
+
+        .slider-handle {
+            background: transparent none;
+            box-shadow: none;
+            -webkit-box-shadow: none;
+            width: 10px;
+            height: 10px;
+            margin-left: -5px;
+            margin-top: -8px;
+        }
+
+        .slider-track {
+            height: 5px;
+            top: 0px;
+            margin-top: 0px;
+            border-radius: 0px;
+            box-shadow: none;
+        }
+
+    }
+
+    #timeFilterSliderRow {
+
+        #timeFilterSliderDiv {
+            height: @timeExplorerTimeSliderHeight;
+        }
+
+        .slider {
+            height: @timeExplorerTimeSliderHeight;
+
+            .slider-handle::before {
+                line-height: 10px;
+                font-size: 10px;
+                content: '\25BC';
+                color: @dark-grey;
+            }
+
+        }
+
+        /*visibility: hidden;*/
+        height: @timeExplorerTimeSliderHeight;
+        /*top: 0px;*/
+    }
+
+    #timeEncodingSliderRow {
+
+        #timeEncodingSliderDiv {
+            height: @timeExplorerBottomSlidersHeight;
+        }
+
+        // Red
+        #time-panel-encoding-slider-a {
+            .slider-selection {
+                background-image: linear-gradient(to bottom, #E68686 0%, #AF5454 100%);
+            }
+        }
+
+        // Blue
+        #time-panel-encoding-slider-b {
+            .slider-selection {
+                background-image: linear-gradient(to bottom, #8595E6 0%, #5563AD 100%);
+            }
+        }
+
+        .slider {
+            height: @timeExplorerEncodingSliderHeight;
+
+            .slider-handle::before {
+                line-height: 10px;
+                font-size: 10px;
+                content: '\25BC';
+                color: @dark-grey;
+            }
+        }
+
+        height: @timeExplorerBottomSlidersHeight;
+        /*bottom: 0px;*/
+    }
+
+
     #timeExplorerSideInput {
         overflow: scroll;
     }
 
     #timeExplorerAxisContainer {
-        position: absolute;
+        /*position: absolute;*/
         width: 100%;
-        bottom: 0px;
+        /*bottom: @timeExplorerBottomSlidersHeight;*/
     }
 
     #timeExplorerBody {
-        position: absolute;
+        /*position: absolute;*/
         width: 100%;
-        top: 0px;
-        bottom: @timeExplorerMainHeight;
+        max-height: @timeExplorerTotalHeight - @timeExplorerAxisHeight - @timeExplorerMainHeight - @timeExplorerTimeSliderHeight - @timeExplorerBottomSlidersHeight;
+        /*bottom: @timeExplorerMainHeight + @timeExplorerBottomSlidersHeight;*/
         overflow-y: scroll;
         overflow-x: hidden;
+
+        .addTimeBarDiv {
+            height: 20px;
+            margin-bottom: 2px;
+
+            .pull-right {
+                height: 20px;
+            }
+
+            .btn {
+                padding: 0px;
+                width: 20px;
+                height: 16px;
+            }
+
+            i.fa {
+                font-size: 14px;
+            }
+
+        }
 
         // Scrollbars are hidden on mac, so we force it to show
         &::-webkit-scrollbar {
@@ -1813,11 +1927,15 @@ button:disabled {
     }
 
     #timeExplorerMain {
-        position: absolute;
+        /*position: absolute;*/
         width: 100%;
-        bottom: 0px;
+        /*bottom: @timeExplorerBottomSlidersHeight;*/
         z-index: @timeexplorer-main-z;
         box-shadow: 0px -2px 2px @medium-grey;
+    }
+
+    #timeExplorerVizContainer {
+        top: 0px;
     }
 
     .timeBarDiv {
@@ -1827,8 +1945,16 @@ button:disabled {
 
         .timeAggregationSwitchboard {
             position: absolute;
-            right: 0;
+            right: 2px;
+            top: 2px;
+        }
+
+        .filterExpression {
+            position: absolute;
+            left: 0;
             top: 0;
+            height: 13;
+            width: 25%;
         }
     }
 
@@ -1853,7 +1979,7 @@ button:disabled {
         position: absolute;
         left: 0;
         height: 100%;
-        opacity: 0.25;
+        opacity: 0.2;
         background-color: @graphistry-lightblue;
         display: none;
         z-index: @timeexplorer-box-z;
@@ -1865,7 +1991,18 @@ button:disabled {
         border-right-width: 1px;
         border-left-color: black;
         border-right-color: black;
+    }
 
+    #timeExplorerEncodingA.dragBox {
+        background-color: red;
+    }
+
+    #timeExplorerEncodingB.dragBox {
+        background-color: blue;
+    }
+
+    #timeExplorerEncodingC.dragBox {
+        background-color: purple;
     }
 
     .axis {
@@ -1882,11 +2019,11 @@ button:disabled {
     }
 
     .timeExplorerFixedHeight {
-        height: @timeExplorerTotalHeight - @timeExplorerAxisHeight;
+        /*height: @timeExplorerTotalHeight - @timeExplorerAxisHeight - @timeExplorerTimeSliderHeight - @timeExplorerBottomSlidersHeight;*/
     }
 
     .timeExplorerFixedHeightAxis {
-        height: @timeExplorerAxisHeight;
+        /*height: @timeExplorerAxisHeight;*/
     }
 
     .timeExplorerBodyRow {
