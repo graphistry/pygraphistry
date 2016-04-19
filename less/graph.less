@@ -1842,6 +1842,8 @@ button:disabled {
 
     #timeEncodingSliderRow {
 
+        margin-bottom: 2px;
+
         #timeEncodingSliderDiv {
             height: @timeExplorerBottomSlidersHeight;
         }
@@ -1851,17 +1853,6 @@ button:disabled {
             .slider-selection {
                 background-image: linear-gradient(to bottom, #E68686 0%, #AF5454 100%);
             }
-        }
-
-        // Blue
-        #time-panel-encoding-slider-b {
-            .slider-selection {
-                background-image: linear-gradient(to bottom, #8595E6 0%, #5563AD 100%);
-            }
-        }
-
-        .slider {
-            height: @timeExplorerEncodingSliderHeight;
 
             .slider-handle::before {
                 line-height: 10px;
@@ -1869,6 +1860,25 @@ button:disabled {
                 content: '\25BC';
                 color: @dark-grey;
             }
+        }
+
+        // Blue
+        #time-panel-encoding-slider-b {
+            .slider-selection {
+                background-image: linear-gradient(to bottom, #8595E6 0%, #5563AD 100%);
+            }
+
+            .slider-handle::before {
+                line-height: 10px;
+                font-size: 10px;
+                content: '\25B2';
+                color: @dark-grey;
+            }
+        }
+
+        .slider {
+            height: @timeExplorerEncodingSliderHeight;
+
         }
 
         height: @timeExplorerBottomSlidersHeight;
