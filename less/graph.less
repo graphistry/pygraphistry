@@ -1778,7 +1778,8 @@ button:disabled {
     left: 0;
     bottom: 0;
     width: 100%;
-    height: @timeExplorerTotalHeight;
+    max-height: @timeExplorerTotalHeight;
+    /*height: @timeExplorerTotalHeight;*/
     margin: 0;
     padding: 0;
     background-color: @light-grey-background-2;
@@ -1836,7 +1837,7 @@ button:disabled {
 
         /*visibility: hidden;*/
         height: @timeExplorerTimeSliderHeight;
-        top: 0px;
+        /*top: 0px;*/
     }
 
     #timeEncodingSliderRow {
@@ -1871,7 +1872,7 @@ button:disabled {
         }
 
         height: @timeExplorerBottomSlidersHeight;
-        bottom: 0px;
+        /*bottom: 0px;*/
     }
 
 
@@ -1880,16 +1881,16 @@ button:disabled {
     }
 
     #timeExplorerAxisContainer {
-        position: absolute;
+        /*position: absolute;*/
         width: 100%;
-        bottom: @timeExplorerBottomSlidersHeight;
+        /*bottom: @timeExplorerBottomSlidersHeight;*/
     }
 
     #timeExplorerBody {
-        position: absolute;
+        /*position: absolute;*/
         width: 100%;
         max-height: @timeExplorerTotalHeight - @timeExplorerAxisHeight - @timeExplorerMainHeight - @timeExplorerTimeSliderHeight - @timeExplorerBottomSlidersHeight;
-        bottom: @timeExplorerMainHeight + @timeExplorerBottomSlidersHeight;
+        /*bottom: @timeExplorerMainHeight + @timeExplorerBottomSlidersHeight;*/
         overflow-y: scroll;
         overflow-x: hidden;
 
