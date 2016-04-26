@@ -1,0 +1,3 @@
+docker run --net host -d gngx
+docker run --restart=unless-stopped --name graphistry_mongo --net host -d mongo:2 ; ./schema.sh
+nvidia-docker run --net host -d g1
