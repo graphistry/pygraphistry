@@ -33,6 +33,7 @@
     - cmake
     - python-pygments
     - grc
+    - htop
   sudo: yes
   sudo_user: root
 
