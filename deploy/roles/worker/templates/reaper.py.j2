@@ -1,35 +1,39 @@
 #!/usr/bin/env python
-
-from pymongo import MongoClient, ASCENDING, errors
-from datetime import datetime, timedelta
+import os
+import sys
+import random
 import subprocess
 import socket
 import time
-import os
-import random
 import signal
-import urllib2
-import requests
-from requests.auth import HTTPBasicAuth
-import sys
-
+import argparse
+from datetime import datetime, timedelta
+from pymongo import MongoClient, ASCENDING, errors
+if sys.version_info[0] == 2:
+    from urlparse import urlparse
+else:
+    from urllib.parse import urlparse
 
 #########################
-# Constants
+# Options
 #########################
 
 # The number of seconds without a ping before a worker process is considered a zombie
 WORKER_TIMEOUT = 30
 
-DATABASE = '{{ mongo_name }}'
-MONGO_SERVER = 'mongodb://{{ mongo_username }}:{{ mongo_password }}@{{ mongo_host }}/{{ mongo_name }}'
+args = argparse.ArgumentParser(
+    description="Graphistry daemon to register server/GPU availability, and kill hung workers",
+    epilog="This daemon must be actively running on each server with `viz-server` worker processes, \
+        to make those processes discoverable to `central` for routing incoming users.")
 
+args.add_argument('--db', metavar='URL', dest='db', default='mongodb://graphistry:pinger@localhost/cluster',
+                    help="URL of pinger MongoDB server (default: \"%(default)s\")")
+args.add_argument('--address', metavar='URL', dest='address', default='localhost',
+                     help="Address this server can be found at (default: \"%(default)s\")")
 
-auth = HTTPBasicAuth('{{ boundary_username }}', '{{ boundary_password }}')
-ip = urllib2.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4").read()
-hostname = '{{ inventory_hostname_short }}' #socket.gethostname()
-fqdn = '{{ inventory_hostname }}' #socket.getfqdn()
-reaper_pid = os.getpid()
+options = args.parse_args()
+# pymongo needs the Mongo database name (used after connecting), so extract it from the server URL
+options.db_name = urlparse(options.db).path.lstrip('/')
 
 
 #########################
@@ -48,11 +52,6 @@ logging.logThreads = 0
 loggerParent = logging.getLogger()
 loggerParent.setLevel(logging.ERROR)
 
-# Quiet down request's log output
-requests_log = logging.getLogger("requests")
-requests_log.setLevel(logging.ERROR)
-requests_log.propagate = False
-
 # Our own logging object
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -63,7 +62,7 @@ ch.setLevel(logging.INFO)
 
 # Format the output as JSON
 formatter = logging.Formatter(
-    '{"name": "reaper.py", "module": "reaper", "hostname": "' + str(hostname) + '", "pid": ' + str(reaper_pid) + \
+    '{"name": "reaper.py", "module": "reaper", "hostname": "' + socket.gethostname() + '", "pid": ' + str(os.getpid()) + \
         ', "level": %(levelno)s, "time": "%(asctime)s", "message_type": "%(levelname)s" , "msg": "%(message)s"}',
     datefmt='%Y-%m-%dT%H:%M:%SZ')
 formatter.converter = time.gmtime
@@ -79,9 +78,9 @@ logger.addHandler(ch)
 def connect_mongo():
     """ Connects to the MongoDB database and returns a dictionary with the database object,
     gpu_monitor collection, and node_monitor collection."""
-    logger.info("Connecting to MongoDB at URL '{url}' and using the database named {db}".format(url=MONGO_SERVER, db=DATABASE))
-    client = MongoClient(MONGO_SERVER)
-    db = client[DATABASE]
+    logger.info("Connecting to MongoDB at URL '{url}' and using the database named {db}".format(url=options.db, db=options.db_name))
+    client = MongoClient(options.db)
+    db = client[options.db_name]
     return db['gpu_monitor'], db['node_monitor']
 
 
@@ -125,30 +124,6 @@ def str_to_bytes(human_size):
         return int(size_str.replace('KiB','')) * 1024
     else:
         raise SyntaxError('String "{}" could not be converted into an integer number of bytes'.format(human_size))
-
-
-def log_boundary(metric, value):
-    """ Sends the given value to Boundary under the metric name given. If value is not a JSON
-    primitive type (number, etc), it should be string that includes quotes as part of the string."""
-    # The below template needs to be escaped twice: '{' and '}' need to be escaped as '{{'/'}}' for
-    # Python's `format()` string formatter, but '{{'/'}}' needs to be escape because it's also used
-    # for Ansible's JINJA2 template engine, so "{" turns into "{{ '{{' }}".
-    # data = '{{ '{{' }}"source": "{source}", "metric": "{metric}", "measure": {measure}, "timestamp": {timestamp} {{ '}}' }}'.format(
-    #     source=fqdn, metric=metric, measure=value, timestamp=int(time.time()))
-    # headers = {'content-type': 'application/json'}
-    # 
-    # try:
-    #     r = requests.post(url="https://premium-api.boundary.com/v1/measurements", data=data, auth=auth, headers=headers)
-    # except requests.exceptions.ChunkedEncodingError as chunk_err:
-    #     # Boundary, for some stupid reason, gives the wrong ContentLength field in its response,
-    #     # causing ChunkedEncodingError when the connection closes before requests expects. This is
-    #     # harmless, and the API call seems to succeed anyway.
-    #     pass
-    # except Exception as err:
-    #     logger.info("Boundary: error logging metric {metric}: {err}".format(metric=metric, err=str(err)))
-    # except:
-    #     logger.info("Boundary: unknown error logging metric {metric}".format(metric=metric))
-    pass
 
 
 def get_available_memory():
@@ -199,13 +174,12 @@ def kill_process(pid):
 def advertise_gpu_memory(gpu_collection):
     """Updates the database with the current amount of GPU memory available on this instance."""
     gpu_memory_free = get_available_memory()
-    gpu_collection.update({'ip': ip}, {'$set':
+    gpu_collection.update({'ip': options.address}, {'$set':
         {
             'gpu_memory_free': gpu_memory_free,
             'updated': datetime.utcnow()
         }}, True)
     logger.debug('GPU memory available: {mem}'.format(mem=gpu_memory_free))
-    log_boundary("GPU_FREE", gpu_memory_free)
 
 
 def advertise_process_memory(workers_collection):
@@ -216,20 +190,8 @@ def advertise_process_memory(workers_collection):
     for process in gpu_process_usage():
         logger.debug("Process GPU data: {}".format(process['raw']))
         workers_collection.update(
-            { 'ip': ip, 'pid': int(process['pid']) },
+            { 'ip': options.address, 'pid': int(process['pid']) },
             { '$set': {'gpu_memory' : int(process['memory'])} })
-
-    # Update Boundary
-    try:
-        total_workers = workers_collection.find({"ip": ip}).count()
-        log_boundary("TOTAL_WORKERS", total_workers)
-
-        active_users = workers_collection.find({"ip": ip, "active": True}).count()
-        log_boundary("ACTIVE_WORKERS", active_users)
-
-        log_boundary("INACTIVE_WORKERS", total_workers - active_users)
-    except Exception as activity_err:
-        console.warn("Error while attempting to count and log active/inactive workers: {err}".format(err=str(activity_err)))
 
 
 def reap_workers(workers_collection):
@@ -238,7 +200,7 @@ def reap_workers(workers_collection):
     """
     # Select all checkins older than 30 seconds
     zombie_timestamp = datetime.utcnow() - timedelta(seconds=WORKER_TIMEOUT)
-    zombie_workers = workers_collection.find({"ip": ip, "updated": {"$lt": zombie_timestamp}})
+    zombie_workers = workers_collection.find({"ip": options.address, "updated": {"$lt": zombie_timestamp}})
 
     for worker in zombie_workers:
         kill_process(int(worker['pid']))

@@ -2,7 +2,7 @@
 
 [program:reaper.py]
 
-command=python {{ graphistry_install_path }}/reaper.py
+command=python {{ graphistry_install_path }}/reaper.py --db "mongodb://graphistry:graphtheplanet@localhost/cluster"
 directory={{ graphistry_install_path }}
 environment=
 
