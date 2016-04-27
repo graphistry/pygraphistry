@@ -501,13 +501,15 @@ describe ('Range predicates', () => {
     });
 });
 
-describe ('LIMIT clauses', () => {
+describe('LIMIT clauses', () => {
     it('should parse LIMIT N', () => {
-        expect(parse('LIMIT 4')).toEqual({type: 'Limit', value: {type: 'Literal', dataType: 'integer', value: 4}});
+        expect(parse('LIMIT 4')).toEqual({
+            type: 'LimitExpression', value: {type: 'Literal', dataType: 'integer', value: 4}
+        });
     });
     it('should not parse LIMIT N + 1', () => {
         expect(parse('LIMIT 4 + 3')).toEqual({
-            type: 'Limit',
+            type: 'LimitExpression',
             value: {
                 type: 'BinaryExpression',
                 operator: '+',
