@@ -7,7 +7,6 @@ labs.graphistry.com
 
 [workers]
 labs.graphistry.com
-# worker02.graphistry.com
 
 [deploy]
 
@@ -34,10 +33,3 @@ splunk_url="demo.graphistry.com:8000"
 [app_servers:children]
 workers
 central
-
-[remote_servers:children]
-app_servers
-deploy
-
-[production:children]
-app_servers

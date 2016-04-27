@@ -1,30 +1,4 @@
 ---
-
-# TODO: Ensure that the process that the nodejs apps (central, workers) run under (currently 'www')
-# has limited access. No home folder, only has read-only access to npm modules used, no access to
-# .git directories, ideally no access to any SSH keys, can only write to /var/log/clients.log.
-
-# TODO: Secure sensitive data:
-# * Username/password variable files should be encrypted and/or distributed out-of-band.
-# * No Ansible SSH private key in repo (users use their own SSH keys to log in either as `ubuntu`,
-#   like present, or even as their own user account.)
-# * Review account creation and permissions on 'production' machines.
-# * Consider requiring passwords for `sudo` (refactor Ansible to prompt users for sudo password.)
-
-# TODO: write out lock/status file at beginning of deploys, with the user who ran ansible, time and
-# inventory filename. At the end of deploys, delete this file and add a similar file reporting
-# success (this file should be deleted at the beginning of deploys.) We can further add a check at
-# the beginning of deploys for this lock file (or maybe just lock files from other users?) and not
-# continue if one is found.
-
-# TODO: Use Ansible's sysctl module instead of uploading individual conf files in common/performance
-
-# TODO: Setup ssh config on servers that enables compression and ControlMaster to speed up git
-# clones of our modules' repos. Make sure this is in a place Ansilbe's git task (sudo'ed under user
-# `www`) will find and use it.
-
-# TODO: Install & configure `ccache` to speed up install of node-gyp native modules
-
 - hosts: localhost
   gather_facts: no
   roles:
@@ -32,26 +6,15 @@
   tags:
     - provision
     - deploy
-    - local
-    - central_deploy
-    - workers_deploy
 
-- hosts: remote_servers
+- hosts: all
+  # gather_facts runs before roles. If not disabled, Ansible will try to connect to on port 61630,
+  # before we've set sshd to listen on that port, causing a fatal error before we even start.
   gather_facts: no
   roles:
-    - sshd_port
-  tags:
-    - sshd
-    - provision
+    - { role: sshd_port, tags: [ 'sshd', 'provision' ] }
 
-- hosts: central
-  roles:
-    - { role: docker }
-    - { role: mongo }
-  tags:
-    - mongo
-
-- hosts: remote_servers
+- hosts: all
   roles:
     - { role: common, become: yes, tags: [ 'common' ] }
     - { role: users, tags: [ 'users' ] }
@@ -61,36 +24,29 @@
 
 - hosts: app_servers
   roles:
-   - { role: nodejs, tags: [ 'nodejs' ] }
-   - { role: app_server, tags: [ 'app_servers' ] }
+    - { role: cuda, tags: [ 'cuda' ] }
+    - { role: nodejs, tags: [ 'nodejs' ] }
+    - { role: app_server, tags: [ 'app_servers' ] }
   tags:
     - provision
     - workers
+    - central
+
+- hosts: central
+  roles:
+    # We install MongoDB as a Docker container
+    - { role: docker, tags: [ 'docker' , 'mongo' , 'provision' ] }
+    - { role: mongo, tags: [ 'mongo' , 'provision' ] }
+    - { role: proxy, tags: [ 'proxy' , 'deploy' ] }
+    - { role: central, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
+  tags:
     - central
 
 - hosts: workers
   roles:
-   - { role: cuda, tags: [ 'provision' , 'cuda' ] }
-   - { role: worker, sudo: yes, sudo_user: www, tags: [ 'deploy', 'workers_deploy' ] }
+    - { role: worker, sudo: yes, sudo_user: www, tags: [ 'deploy' ] }
   tags:
     - workers
-
-- hosts: central
-  roles:
-   - { role: cuda, tags: [ 'provision' , 'cuda' ] }
-   - { role: central, sudo: yes, sudo_user: www }
-   - { role: proxy, tags: [ 'proxy' ] }
-  tags:
-    - central
-    - deploy
-    - central_deploy
-
-- hosts: deploy
-  roles:
-    - { role: cuda, tags: [ 'provision' , 'cuda' ] }
-  tags:
-    - deploy_server
-    - provision
 
 - hosts: localhost
   gather_facts: no
@@ -99,6 +55,3 @@
   tags:
     - provision
     - deploy
-    - local
-    - central_deploy
-    - workers_deploy
