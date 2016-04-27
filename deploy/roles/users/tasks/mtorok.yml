@@ -108,27 +108,8 @@
   tags:
     - slow
 
-- name: "[mtorok] Update Janus"
-  command: rake
-           chdir=/home/mtorok/.vim/
-           removes=/home/mtorok/.vim/janus
-  sudo: yes
-  sudo_user: mtorok
-  # Only run is Matt is running the deploying, because this is slow, and others shouldn't be slowed
-  when: (lookup("env","USER") == "mtorok")
-  tags:
-    - slow
-
-# - name: "[mtorok] Clone/update Vim plugins"
-#   command: /home/mtorok/.homesick/repos/dotfiles/home/.janus/update.sh
-#            chdir=/home/mtorok/.homesick/repos/dotfiles/home/.janus/
-#   sudo: yes
-#   sudo_user: mtorok
-
-- name: "[mtorok] Compiling Vim plugin 'YouCompleteMe'"
-  command: /home/mtorok/.janus/YouCompleteMe/install.sh --clang-completer
-           chdir=/home/mtorok/.janus/YouCompleteMe/
-  when: mtorok_dotfile_repo.changed and {{ (lookup("env","USER") == "mtorok") }}
+- name: "[mtorok] Install Vim modules"
+  command: /home/mtorok/.janus/update.sh install
   sudo: yes
   sudo_user: mtorok
   tags:
