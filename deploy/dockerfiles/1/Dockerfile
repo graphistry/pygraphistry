@@ -13,39 +13,28 @@ RUN apt-get install -y supervisor libkrb5-dev gettext pigz
 
 # logs.
 
-RUN mkdir -p /var/log/central-app /var/log/clients /var/log/worker /var/log/graphistry-json
+RUN mkdir -p /var/log/central-app /var/log/clients /var/log/worker /var/log/graphistry-json /root/.ssh
 
-# secrets.
+COPY hot-patch-pings.js /tmp
 
-COPY gh-id-rsa     /root/.ssh/id_rsa
-COPY gh-id-rsa-pub /root/.ssh/id_rsa.pub
-RUN chmod 400 /root/.ssh/*
-RUN ssh -o StrictHostKeyChecking=no -T git@github.com || true
+# fetch secrets from our vault, do the npm installs, and delete the secrets.
 
-# central.
+RUN curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa > /root/.ssh/id_rsa && \
+    curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa.pub > /root/.ssh/id_rsa.pub && \
+    chmod 400 /root/.ssh/* && \
+    (ssh -o StrictHostKeyChecking=no -T git@github.com || true) && \
+    cd $graphistry_install_path && \
+    git clone git@github.com:graphistry/central.git && \
+    git clone git@github.com:graphistry/viz-server.git && \
+    cd central && bash -l -c "npm install --unsafe-perm" && cd .. && \
+    cd viz-server && mv /tmp/hot-patch-pings.js src/pings.js && bash -l -c "npm install --unsafe-perm" && cd .. && \
+    shred -u /root/.ssh/*
 
-WORKDIR /var/graphistry
-RUN git clone git@github.com:graphistry/central.git
-WORKDIR central
-RUN bash -l -c "npm install --unsafe-perm" # as root, we do an unsafe perm; npm usually installs as nobody
-
-# worker[s].
-
-WORKDIR /var/graphistry
-RUN git clone git@github.com:graphistry/viz-server.git
-WORKDIR viz-server
-COPY hot-patch-pings.js src/pings.js
-RUN bash -l -c "npm install --unsafe-perm"
-
-# reaper.
-
-COPY reaper.py /var/graphistry/
+COPY reaper.py $graphistry_install_path
 RUN apt-get install -y python-pip && pip install pymongo
 
 # supervisor.
 
-COPY central.conf /etc/supervisor/conf.d/
-COPY viz_workers.conf /etc/supervisor/conf.d/
-COPY reaper.conf /etc/supervisor/conf.d/
+COPY central.conf viz_workers.conf reaper.conf /etc/supervisor/conf.d/
 COPY supervisord.conf /etc/supervisor
 CMD bash -l -c "supervisord -n -c /etc/supervisor/supervisord.conf"
