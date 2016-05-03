@@ -17,7 +17,7 @@ var logger      = Log.createLogger('etlworker:index');
 
 
 // String * String * Sting * Object -> ()
-function notifySlack(name, nodeCount, edgeCount, params) {
+function notifySlackAndSplunk(name, nodeCount, edgeCount, params) {
     function makeUrl(server) {
         var type = params.apiVersion == 2 ? 'jsonMeta' : 'vgraph';
         var domain;
@@ -79,6 +79,17 @@ function notifySlack(name, nodeCount, edgeCount, params) {
         }])
     };
 
+    // Log info forwarded to Slack so we can access it in Splunk
+    logger.info({
+        user: key,
+        internal: isInternal(key),
+        dataset: name,
+        tag: tag,
+        params: _.pick(params, ['apiVersion', 'agent', 'agentVersion']),
+        nodes: nodeCount,
+        edges: edgeCount,
+    }, 'New dataset');
+
     return Q.denodeify(slack.post)(msg)
         .fail(function (err) {
             logger.error(err, 'Error posting on slack');
@@ -130,7 +141,7 @@ function dispatcher(tearDown, req, res) {
         try {
             handler(req, res, params)
                 .then(function (info) {
-                    return notifySlack(info.name, info.nodeCount, info.edgeCount, params);
+                    return notifySlackAndSplunk(info.name, info.nodeCount, info.edgeCount, params);
                 }).then(function() {
                     tearDown(0);
                 }).fail(makeFailHandler(res, tearDown));
