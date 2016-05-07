@@ -7,12 +7,14 @@ standard_library.install_aliases()
 from builtins import object
 from builtins import str
 from past.utils import old_div
+from past.builtins import basestring
 
 import os
 import sys
 import calendar
 import time
 from datetime import datetime
+from distutils.util import strtobool
 import gzip
 import io
 import json
@@ -27,7 +29,8 @@ EnvVarNames = {
     'api_version': 'GRAPHISTRY_API_VERSION',
     'dataset_prefix': 'GRAPHISTRY_DATASET_PREFIX',
     'hostname': 'GRAPHISTRY_HOSTNAME',
-    'protocol': 'GRAPHISTRY_PROTOCOL'
+    'protocol': 'GRAPHISTRY_PROTOCOL',
+    'certificate_validation': 'GRAPHISTRY_CERTIFICATE_VALIDATION'
 }
 
 config_paths = [
@@ -41,7 +44,8 @@ default_config = {
     'api_version': 1,
     'dataset_prefix': 'PyGraphistry/',
     'hostname': 'labs.graphistry.com',
-    'protocol': 'https'
+    'protocol': 'https',
+    'certificate_validation': True
 }
 
 
@@ -129,7 +133,21 @@ class PyGraphistry(object):
         PyGraphistry._config['api_version'] = value
 
     @staticmethod
-    def register(key=None, server=None, protocol=None, api=None):
+    def certificate_validation(value=None):
+        """Enable/Disable SSL certificate validation (True, False).
+        Also set via environment variable GRAPHISTRY_CERTIFICATE_VALIDATION."""
+        if value is None:
+            return PyGraphistry._config['certificate_validation']
+
+        # setter
+        v = bool(strtobool(value)) if isinstance(value, basestring) else value
+        if v == False:
+            from requests.packages.urllib3.exceptions import InsecureRequestWarning
+            requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+        PyGraphistry._config['certificate_validation'] = v
+
+    @staticmethod
+    def register(key=None, server=None, protocol=None, api=None, certificate_validation=None):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -168,6 +186,7 @@ class PyGraphistry(object):
         PyGraphistry.server(server)
         PyGraphistry.api_version(api)
         PyGraphistry.protocol(protocol)
+        PyGraphistry.certificate_validation(certificate_validation)
         PyGraphistry.authenticate()
 
 
@@ -284,7 +303,8 @@ class PyGraphistry(object):
 
         out_file = PyGraphistry._get_data_file(dataset, 'json')
         response = requests.post(PyGraphistry._etl_url(), out_file.getvalue(),
-                                 headers=headers, params=params)
+                                 headers=headers, params=params,
+                                 verify=PyGraphistry._config['certificate_validation'])
         response.raise_for_status()
 
         jres = response.json()
@@ -335,7 +355,8 @@ class PyGraphistry(object):
         params = {'usertag': PyGraphistry._tag, 'agent': 'pygraphistry', 'apiversion' : '2',
                   'agentversion': sys.modules['graphistry'].__version__,
                   'key': PyGraphistry.api_key()}
-        response = requests.post(PyGraphistry._etl_url(), files=parts, params=params)
+        response = requests.post(PyGraphistry._etl_url(), files=parts, params=params,
+                                 verify=PyGraphistry._config['certificate_validation'])
         response.raise_for_status()
 
         jres = response.json()
@@ -348,8 +369,8 @@ class PyGraphistry(object):
     def _check_key_and_version():
         params = {'text': PyGraphistry.api_key()}
         try:
-            response = requests.get(PyGraphistry._check_url(), params=params,
-                                    timeout=(2,2))
+            response = requests.get(PyGraphistry._check_url(), params=params, timeout=(3,3),
+                                    verify=PyGraphistry._config['certificate_validation'])
             response.raise_for_status()
             jres = response.json()
 
