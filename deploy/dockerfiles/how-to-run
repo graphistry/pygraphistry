@@ -1,3 +1,3 @@
-       docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v /root/fauxssl:/etc/nginx/graphistry/ssl:ro graphistry/nginx-central-vizservers:1.0.0.32
+       docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v <absolute ssl path>:/etc/nginx/graphistry/ssl:ro graphistry/nginx-central-vizservers:1.0.0.32
        docker run --net host --restart=unless-stopped --name graphistry_mongo -d graphistry/cluster-membership:1.0
 nvidia-docker run --net host --restart=unless-stopped --name graphistry_httpd -d graphistry/central-and-vizservers-without-s3:0.2
