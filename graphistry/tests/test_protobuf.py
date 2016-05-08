@@ -3,6 +3,7 @@
 import unittest
 import pandas
 import numpy
+import datetime
 import graphistry
 import graphistry.plotter
 from mock import patch
@@ -69,6 +70,18 @@ class TestEtl2Metadata(NoAuthTestCase):
                 else:
                     self.assertFalse(numpy.isnan(entry))
 
+    def test_metadata_no_nat(self, mock_etl2, mock_open):
+        edges = triangleEdges.copy()
+        edges['testDate'] = triangleNodes.a1.map(lambda x: None if x == 1 else datetime.datetime.now())
+        edges['testDate'] = pandas.to_datetime(edges.testDate, errors='ignore')
+        graphistry.bind(source='src', destination='dst', node='id').plot(edges)
+        dataset = mock_etl2.call_args[0][0]
+
+        for entry in list(dataset['attributes']['edges']['testDate']['aggregations'].values()):
+            if entry is None or isinstance(entry, str):
+                pass
+            else:
+                self.assertFalse(numpy.isnan(entry))
 
 
 @patch('webbrowser.open')
