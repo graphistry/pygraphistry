@@ -56,6 +56,8 @@ class TestEtl2Metadata(NoAuthTestCase):
 
     def test_metadata_no_nan(self, mock_etl2, mock_open):
         edges = triangleEdges.copy()
+        edges['testNone'] = triangleNodes.a1.map(lambda x: numpy.nan)
+        edges['testNone'] = pandas.to_numeric(edges.testNone, errors='ignore')
         edges['testInt'] = triangleNodes.a1.map(lambda x: numpy.nan if x%2 == 1 else 0)
         edges['testFloat'] = triangleNodes.a1.map(lambda x: numpy.nan if x%2 == 1 else 0.5)
         edges['testString'] = triangleNodes.a1.map(lambda x: numpy.nan if x%2 == 1 else 'foo')
@@ -63,7 +65,7 @@ class TestEtl2Metadata(NoAuthTestCase):
         graphistry.bind(source='src', destination='dst', node='id').plot(edges)
         dataset = mock_etl2.call_args[0][0]
 
-        for attrib in ['testInt', 'testFloat', 'testString', 'testBool']:
+        for attrib in ['testInt', 'testFloat', 'testString', 'testBool', 'testNone']:
             for entry in list(dataset['attributes']['edges'][attrib]['aggregations'].values()):
                 if entry is None or isinstance(entry, str):
                     pass
@@ -73,15 +75,15 @@ class TestEtl2Metadata(NoAuthTestCase):
     def test_metadata_no_nat(self, mock_etl2, mock_open):
         edges = triangleEdges.copy()
         edges['testDate'] = triangleNodes.a1.map(lambda x: None if x == 1 else datetime.datetime.now())
+        edges['testDate2'] = triangleNodes.a1.map(lambda x: None)
         edges['testDate'] = pandas.to_datetime(edges.testDate, errors='ignore')
+        edges['testDate2'] = pandas.to_datetime(edges.testDate2, errors='ignore')
         graphistry.bind(source='src', destination='dst', node='id').plot(edges)
         dataset = mock_etl2.call_args[0][0]
 
-        for entry in list(dataset['attributes']['edges']['testDate']['aggregations'].values()):
-            if entry is None or isinstance(entry, str):
-                pass
-            else:
-                self.assertFalse(numpy.isnan(entry))
+        for attrib in ['testDate', 'testDate2']:
+            for entry in list(dataset['attributes']['edges'][attrib]['aggregations'].values()):
+                self.assertFalse(isinstance(entry, pandas.tslib.NaTType))
 
 
 @patch('webbrowser.open')
