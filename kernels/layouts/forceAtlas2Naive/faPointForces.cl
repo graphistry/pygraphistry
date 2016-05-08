@@ -1,7 +1,7 @@
 #include "common.h"
 
 __kernel void faPointForces (
-    // #Define: preventOverlap, strongGravity
+    // #Define: strongGravity
     //GRAPH_PARAMS
     const float scalingRatio, const float gravity,
     const uint edgeInfluence,
@@ -64,22 +64,7 @@ __kernel void faPointForces (
             const float dist = fast_length(distVec);
             const int degreeProd = (n1Degree + 1) * (n2Degree + 1);
 
-            float rForce;
-            #ifdef preventOverlap
-            {
-                float n1Size = DEFAULT_NODE_SIZE;
-                float n2Size = DEFAULT_NODE_SIZE;
-                float distB2B = dist - n1Size - n2Size; //border-to-border
-
-                rForce = distB2B > EPSILON  ? (scalingRatio * degreeProd / dist)
-                                            : distB2B < -EPSILON ? (REPULSION_OVERLAP * degreeProd)
-                                            : 0.0f;
-            }
-            #else
-            {
-                rForce = scalingRatio * degreeProd / dist;
-            }
-            #endif
+            float rForce = scalingRatio * degreeProd / dist;
 
             debug4("\trForce (%d<->%d) %f\n", n1Idx, tileStart + cachedPoint, rForce);
             n1D += fast_normalize(distVec) * clamp(rForce, 0.0f, 1000000.0f);

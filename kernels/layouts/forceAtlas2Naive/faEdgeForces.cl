@@ -45,20 +45,9 @@ __kernel void faEdgeForces(
         const float n2Size = DEFAULT_NODE_SIZE;
         const float2 distVec = n2Pos - n1Pos;
 
-        float aForce;
-        #ifdef preventOverlap
-        {
-            aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
-                                     true, edgeInfluence,
-                                     IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
-        }
-        #else
-        {
-            aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
+        float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
                                      false, edgeInfluence,
                                      IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
-        }
-        #endif
 
         debug4("\taForce (%d->%d): %f\n", sourceIdx, curSpring.y, aForce);
         n1D += normalize(distVec) * aForce;
