@@ -19,6 +19,7 @@ import gzip
 import io
 import json
 import requests
+import pandas
 import numpy
 
 from . import util
@@ -402,6 +403,8 @@ class NumpyJSONEncoder(json.JSONEncoder):
                 return obj.tolist()
         elif isinstance(obj, numpy.generic):
             return obj.item()
+        elif isinstance(obj, pandas.tslib.NaTType):
+            return None
         elif isinstance(obj, datetime):
             return obj.isoformat()
         return json.JSONEncoder.default(self, obj)
