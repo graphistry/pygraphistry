@@ -240,13 +240,13 @@ __kernel void calculate_forces(
 
                             // Adding all forces
                             repForce = repulsionForce(distSquared, 2.0f,
-                                            mass[child] + 1.0f, scalingRatio, IS_PREVENT_OVERLAP(flags));
+                                            mass[child] + 1.0f, scalingRatio);
                             forceX += distX * repForce;
                             forceY += distY * repForce;
 
 
                             // forceVector += distVector * repulsionForce(distSquared, 2.0f,
-                            //                 mass[child] + 1.0f, scalingRatio, IS_PREVENT_OVERLAP(flags));
+                            //                 mass[child] + 1.0f, scalingRatio);
 
                         } else {
                             // Push this cell onto the stack.

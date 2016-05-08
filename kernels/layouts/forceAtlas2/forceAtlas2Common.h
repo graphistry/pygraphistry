@@ -2,7 +2,6 @@
 #define DEFAULT_NODE_SIZE 0.000001f
 #define EPSILON 0.00001f // bound whether d(a,b) == 0
 
-#define IS_PREVENT_OVERLAP(flags) (flags & 1)
 #define IS_STRONG_GRAVITY(flags)  (flags & 2)
 #define IS_DISSUADE_HUBS(flags)   (flags & 4)
 #define IS_LIN_LOG(flags)         (flags & 8)

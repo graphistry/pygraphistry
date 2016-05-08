@@ -46,7 +46,7 @@ __kernel void faEdgeForces(
         const float2 distVec = n2Pos - n1Pos;
 
         float aForce = attractionForce(distVec, n1Size, n2Size, springsCount, 1.0f,
-                                     false, edgeInfluence,
+                                     edgeInfluence,
                                      IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
 
         debug4("\taForce (%d->%d): %f\n", sourceIdx, curSpring.y, aForce);

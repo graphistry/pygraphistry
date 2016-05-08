@@ -34,7 +34,7 @@ __kernel void faEdgeMap(
 
         // TODO (paden) This can probably be optimized
         const float aForce = attractionForce(distVec, n1Size, n2Size, n1Deg, edgeWeights[workItem],
-                                             IS_PREVENT_OVERLAP(flags), edgeInfluence,
+                                             edgeInfluence,
                                              IS_LIN_LOG(flags), IS_DISSUADE_HUBS(flags));
 
         const float2 n1D = normalize(distVec) * aForce;
