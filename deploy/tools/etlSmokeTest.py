@@ -8,12 +8,12 @@ import pandas
 import graphistry
 import sys
 
-if len(sys.argv) is not 2:
-    print "Need server ip/hostname as argument. For example \"labs.graphistry.com\""
+if len(sys.argv) is not 3:
+    print "Useage: etlSmokeTest.py <server ip/hostname> <api key>"
     sys.exit(1)
 
-graphistry.register(key='500af5922e31e89a2dbed524f53578669b26410c14d5d9b834126e607fe74f43', \
-        protocol='https', \
+graphistry.register(key=sys.argv[2], api=1, \
+        protocol='https', certificate_validation=False, \
         server=sys.argv[1])
 
 links = pandas.DataFrame(data)
