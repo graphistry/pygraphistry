@@ -570,6 +570,9 @@ class Plotter(object):
 
 
     def _make_dataset(self, edges, nodes, name, mode):
+        if len(edges.index) == 0:
+            util.error('Graph has no edges (at least 1 edge required)')
+
         if mode == 'json':
             return self._make_json_dataset(edges, nodes, name)
         elif mode == 'vgraph':
