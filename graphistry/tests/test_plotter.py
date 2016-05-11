@@ -93,6 +93,16 @@ class TestPlotterBindings(NoAuthTestCase):
         self.assertTrue(mock_warn.called)
 
 
+    @patch.object(graphistry.util, 'error')
+    def test_empty_graph(self, mock_error, mock_etl2, mock_warn, mock_open):
+        mock_error.side_effect = ValueError('error')
+        plotter = graphistry.bind(source='src', destination='dst')
+        with self.assertRaises(ValueError):
+            plotter.plot(pandas.DataFrame([]))
+        self.assertFalse(mock_etl2.called)
+        self.assertTrue(mock_error.called)
+
+
 
 @patch('webbrowser.open')
 @patch('requests.post', return_value=Fake_Response())
