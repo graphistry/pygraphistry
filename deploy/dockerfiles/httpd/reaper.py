@@ -63,7 +63,7 @@ ch.setLevel(logging.INFO)
 # Format the output as JSON
 formatter = logging.Formatter(
     '{"name": "reaper.py", "module": "reaper", "hostname": "' + socket.gethostname() + '", "pid": ' + str(os.getpid()) + \
-        ', "level": %(levelno)s, "time": "%(asctime)s", "message_type": "%(levelname)s" , "msg": "%(message)s"}',
+        ', "level": ' + str(int(levelno)+10) + ', "time": "%(asctime)s", "message_type": "%(levelname)s" , "msg": "%(message)s"}',
     datefmt='%Y-%m-%dT%H:%M:%SZ')
 formatter.converter = time.gmtime
 ch.setFormatter(formatter)
