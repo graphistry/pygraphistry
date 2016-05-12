@@ -1,0 +1,13 @@
+{
+    "libs": [
+        "underscore"
+    ],
+    "plugins": {
+        "node": {},
+        "modules": {},
+        "es_modules": {},
+        "doc_comment": {
+            "fullDocs": true
+        }
+    }
+}
