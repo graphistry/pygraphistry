@@ -1,0 +1,2 @@
+FROM graphistry/nginx-central-vizservers:1.0.0.32
+RUN sed -E -i -e 's_include[[:space:]]+/etc/nginx/graphistry/ssl.conf;__' /etc/nginx/graphistry/server.conf && rm /etc/nginx/graphistry/ssl.conf
