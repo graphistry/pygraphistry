@@ -60,13 +60,13 @@
     "socket.io": "~1.3.5",
     "socket.io-client": "~1.3.5",
     "sprintf-js": "~1.0.0",
+    "StreamGL": "graphistry/StreamGL",
     "supertest": "~0.15.0",
     "underscore": "~1.8.0",
     "watch-less": "0.0.4",
     "xhr2": "~0.1.0"
   },
   "devDependencies": {
-    "StreamGL": "graphistry/StreamGL",
     "babel-cli": "~6.5.1",
     "babel-preset-es2015": "~6.5.0",
     "babel-preset-stage-0": "~6.5.0",
