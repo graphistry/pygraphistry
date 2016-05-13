@@ -74,7 +74,7 @@ module.exports = {
 
         path: './dist',
         publicPath: '/dist/',
-        filename: '[name].js',
+        filename: '[name].[hash].js',
         chunkFilename: '[name].js',
         sourceMapFilename: '[name].map'
     },
