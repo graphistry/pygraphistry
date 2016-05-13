@@ -1,0 +1,15 @@
+{  
+    "libs": [
+        "underscore",
+        "browser",
+        "jquery"
+    ],
+    "plugins": {
+        "node": {},
+        "modules": {},
+        "es_modules": {},
+        "doc_comment": {
+            "fullDocs": true
+        }
+    }
+}
