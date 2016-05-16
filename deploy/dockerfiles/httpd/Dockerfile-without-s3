@@ -30,6 +30,7 @@ RUN curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa > /r
     rm -rf central/.git viz-server/.git && \
     cd central && bash -l -c "npm install --unsafe-perm" && cd .. && \
     cd viz-server && bash -l -c "npm install --unsafe-perm" && cd .. && \
+    sed -i -E -e "s/accessKeyId: '.+', secretAccessKey: '.+'/accessKeyId: null, secretAccessKey: null/" -e "s/SLACK_BOT_ETL_TOKEN: '.+'/SLACK_BOT_ETL_TOKEN: null/" -e "s/SECRET: '.+'/SECRET: 'IQT'/" $(find -L . -name index.js | grep 'config/index.js') && \
     shred -u /root/.ssh/*
 
 COPY reaper.py $graphistry_install_path
