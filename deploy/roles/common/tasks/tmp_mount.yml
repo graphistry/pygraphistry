@@ -31,7 +31,7 @@
   when: remount_tmp
 
 - name: Move /tmp to /tmp_old
-  shell: mv -v /tmp /tmp_old
+  shell: mv /tmp /tmp_old
          executable=/bin/bash
   become: yes
   when: remount_tmp
@@ -56,7 +56,7 @@
   when: remount_tmp
 
 - name: Move contents of /tmp_old back to /tmp (it's OK if this fails)
-  shell: mv -v /tmp_old/* /tmp/
+  shell: mv /tmp_old/* /tmp/
          executable=/bin/bash
   ignore_errors: true
   become: yes
