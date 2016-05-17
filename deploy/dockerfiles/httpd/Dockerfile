@@ -1,4 +1,4 @@
-FROM graphistry/js-and-gpu:0.10.44
+FROM graphistry/js-and-gpu:0.10.45
 ENV graphistry_install_path "/var/graphistry"
 ENV graphistry_temp_path "/tmp/graphistry"
 ENV workers_count 2
