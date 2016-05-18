@@ -1,7 +1,6 @@
 .DS_Store
 node_modules
 config.json
-.tern-project
 npm-debug.log
 tests.log
 kernels/debug.*
