@@ -42,15 +42,7 @@ describe('Labeler', function () {
             }
         ];
 
-        // Mock graph object
-        var graph = {
-            simulator: {
-                dataframe: dataframe
-            },
-            dataframe: dataframe
-        };
-
-        var labels = labeler.getLabels(graph, [0], 1);
+        var labels = labeler.getLabels(dataframe, [0], 1);
         expect(labels).toEqual(expectedResult);
     });
 
