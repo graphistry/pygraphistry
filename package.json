@@ -10,8 +10,8 @@
     "dev": "npm run start-dev",
     "start": "npm run clean && webpack --watch --config ./webpack/webpack.prod.config.js",
     "start-dev": "npm run clean && webpack --watch --config ./webpack/webpack.dev.config.js",
-    "build": "npm run clean && webpack --config ./webpack/webpack.prod.config.js",
-    "build-dev": "npm run clean && webpack --config ./webpack/webpack.dev.config.js",
+    "build": "npm run clean && webpack --config ./webpack/webpack.prod.config.js --bail",
+    "build-dev": "npm run clean && webpack --config ./webpack/webpack.dev.config.js --bail",
     "bundle": "npm run build && npm shrinkwrap && tar -cvjf bundle.tar.bz2 npm-shrinkwrap.json dist",
     "clean": "rm -rf dist"
   },
