@@ -25,10 +25,6 @@ describe('Labeler', function () {
                 "title": 0,
                 "columns": [
                     {
-                        "value": 0,
-                        "key": "_index"
-                    },
-                    {
                         "value": 5,
                         "key": "numAttr",
                         "dataType": "number"
