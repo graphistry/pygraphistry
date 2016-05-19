@@ -1,4 +1,6 @@
 #!/bin/sh
+
+docker pull graphistry/central-and-vizservers:$1
 docker rm -f graphistry_httpd || true
 
 mkdir -p central-app worker graphistry-json clients reaper
