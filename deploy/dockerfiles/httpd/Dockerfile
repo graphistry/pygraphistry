@@ -9,11 +9,11 @@ ENV upload_limit "128M"
 
 RUN mkdir -p /var/log/graphistry-json $graphistry_temp_path $graphistry_install_path
 RUN apt-get install -y supervisor libkrb5-dev gettext pigz
-#FIXME COPY lol-graphistry-json.logrotate.conf /etc/logrotate.d/graphistry-json // app server
+COPY logrotate.conf /etc/logrotate.d/graphistry.conf
 
 # logs.
 
-RUN mkdir -p /var/log/central-app /var/log/clients /var/log/worker /var/log/graphistry-json /root/.ssh
+RUN mkdir -p /var/log/central-app /var/log/clients /var/log/worker /var/log/graphistry-json /var/log/reaper /root/.ssh
 
 # fetch secrets from our vault, do the npm installs, and delete the secrets.
 
@@ -30,6 +30,7 @@ RUN curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa > /r
     rm -rf central/.git viz-server/.git && \
     cd central && bash -l -c "npm install --unsafe-perm" && cd .. && \
     cd viz-server && bash -l -c "npm install --unsafe-perm" && cd .. && \
+    rm -r /tmp/* && \
     shred -u /root/.ssh/*
 
 COPY reaper.py $graphistry_install_path
