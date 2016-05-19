@@ -66,6 +66,8 @@ def _get_initial_config():
     env_config = {k: os.environ.get(v) for k, v in EnvVarNames.items()}
     env_override = {k: v for k, v in env_config.items() if v != None}
     config.update(env_override)
+    if not config['certificate_validation']:
+        requests.packages.urllib3.disable_warnings()
     return config
 
 
