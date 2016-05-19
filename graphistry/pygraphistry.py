@@ -144,8 +144,7 @@ class PyGraphistry(object):
         # setter
         v = bool(strtobool(value)) if isinstance(value, basestring) else value
         if v == False:
-            from requests.packages.urllib3.exceptions import InsecureRequestWarning
-            requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+            requests.packages.urllib3.disable_warnings()
         PyGraphistry._config['certificate_validation'] = v
 
     @staticmethod
