@@ -6,6 +6,7 @@ from future import standard_library
 standard_library.install_aliases()
 from builtins import object
 from builtins import str
+from builtins import bytes
 from past.utils import old_div
 from past.builtins import basestring
 
@@ -272,7 +273,7 @@ class PyGraphistry(object):
         if mode == 'json':
             json_dataset = json.dumps(dataset, ensure_ascii=False, cls=NumpyJSONEncoder)
             with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
-                if sys.version_info < (3,0) and isinstance(json_dataset, str):
+                if sys.version_info < (3,0) and isinstance(json_dataset, bytes):
                     f.write(json_dataset)
                 else:
                     f.write(json_dataset.encode('utf8'))
