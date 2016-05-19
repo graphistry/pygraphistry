@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="robots" content="noindex, nofollow">
+    <script type="text/javascript" src="libs/jquery-2.1.1.js"></script>
+    <link rel="stylesheet" href="css/jquery-ui-1.10.4.css">
+    <link rel="stylesheet" href="libs/jQRangeSlider-5.6.0/css/classic-min.css">
+    <link rel="stylesheet" href="libs/colorpicker/colorpicker.css">
+
+    <!-- Libs (bootstrap etc.) -->
+    <script type="text/javascript" src="libs/jquery-ui-1.10.4.min.js"></script>
+    <script type="text/javascript" src="libs/underscore-min.js"></script>
+    <script type="text/javascript" src="libs/jquery.mousewheel-3.1.9.js"></script>
+    <script type="text/javascript" src="libs/jQRangeSlider-5.6.0/jQAllRangeSliders-min.js"></script>
+    <script type="text/javascript" src="libs/colorpicker/colorpicker.js"></script>
+    <script type="text/javascript" src="libs/spin.min.js"></script>
+
+    <!-- FIXME: Package Quo and bundle with StreamGL -->
+    <script type="text/javascript" src="libs/quo.js"></script>
+
+    <link rel="stylesheet" href="libs/bootstrap/css/bootstrap.css">
+    <script type="text/javascript" src="libs/bootstrap/js/bootstrap.js"></script>
+    <script type="text/javascript" src="libs/bootstrap-slider/js/bootstrap-slider.js"></script>
+    <script type="text/javascript" src="libs/bootstrap-switch.min.js"></script>
+
+    <!-- Ace editor, ideally delayed until used. -->
+    <script type="text/javascript" src="libs/ace/src-noconflict/ace.js"></script>
+    <script type="text/javascript" src="libs/ace/src-noconflict/ext-language_tools.js"></script>
+
+    <link rel="stylesheet" href="libs/bootstrap-slider/css/bootstrap-slider.css">
+    <link rel="stylesheet" href="libs/bootstrap-switch.min.css">
+    <link rel="stylesheet" href="libs/bootstrap.vertical-tabs.min.css">
+
+    <link rel="stylesheet" href="libs/font-awesome/css/font-awesome.css">
+    <link rel="stylesheet" href="css/nunito.css">
+
+    <link rel="stylesheet" href="libs/backgrid.min.css">
+    <link rel="stylesheet" href="libs/backgrid-paginator.min.css">
+
+    <!-- App -->
+    <link rel="stylesheet" href="css/gpustreaming.css" type="text/css" media="screen" charset="utf-8">
+    <link rel="stylesheet" href="css/graph.css" type="text/css" media="screen" charset="utf-8">
+
+    <link rel="shortcut icon" href="/favicon.ico" />
+
+</head>
+<body class="graphistry-body">
+
+    <!-- copied from index.fragment.handlebars -->
+    <script type="text/javascript">
+
+        var templatePaths = {
+            API_ROOT: window.location.protocol + "//" + window.location.host + "/"
+        };
+    </script>
+
+    <!-- GA init is done in StreamGL -->
+    <script>
+        (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+        (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+        m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+        })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+    </script>
+
+    <!-- FIXME: Include fpsmeter as part of the StreamGL bundle -->
+    <script type="text/javascript" src="libs/fpsmeter.js" charset="utf-8"></script>
+    <!-- TODO: Offer a way to dynamically include the bundle contents individually. -->
+    <script type="text/javascript" src="StreamGL.js" charset="utf-8"></script>
+
+
+    <script type="text/javascript">
+        window.addEventListener("beforeunload", function(){console.clear();});
+        window.addEventListener("DOMContentLoaded", function() {$('[data-toggle="tooltip"]').tooltip();});
+        $.fn.bootstrapSwitch.defaults.size = 'small';
+    </script>
+
+
+    <div class="content">
+        <div class="sim-container" tabindex="-1">
+
+            <canvas id="simulation" class="sim"> WebGL not supported </canvas>
+
+            <div id="marquee" class="marquee-outline off"></div>
+            <div id="brush" class="marquee-outline off"></div>
+
+            <!-- over canvas but below interactions -->
+            <div id="highlighted-point-cont">
+                <div class="highlighted-point">
+                    <div class="highlighted-point-center"></div>
+                </div>
+            </div>
+
+        </div>
+
+
+    </div>
+
+    <div class='section' id="menus">
+
+
+        <div class="accordion" id="controlState">
+            <div class="accordion-group">
+
+                <div class="accordion-heading">
+
+                    <div class="options-group" id="externalLinkButtonContainer">
+                      <!-- only show if in iframe -->
+                      <a href="#" id="externalLinkButton" class="button nav-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Open in New Tab">
+                          <i class="fa fa-external-link fa-2x"></i>
+                      </a>
+                      <a href="#" id="fullscreenButton" class="button nav-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Expand to fullscreen">
+                          <i class="fa fa-expand fa-2x"></i>
+                      </a>
+                    </div>
+
+                    <div title="View Controls" class="options-group">
+
+                      <a href="#" id="zoomin" class="button" data-container="body" data-toggle="tooltip" data-placement="right" title="Zoom in">
+                        <i class="fa fa-search-plus fa-2x"></i>
+                      </a>
+
+                      <div class="divide-line"></div>
+
+                      <a href="#" id="zoomout" class="button" data-container="body" data-toggle="tooltip" data-placement="right" title="Zoom out">
+                        <i class="fa fa-search-minus fa-2x"></i>
+                      </a>
+
+                      <div class="divide-line"></div>
+
+                      <a href="#" id="center" class="button" data-container="body" data-toggle="tooltip" data-placement="right" title="Center View">
+                          <i class="fa fa-compress fa-2x"></i>
+                      </a>
+
+                    </div>
+
+
+                    <div title="Layout Controls" class="options-group">
+
+                      <a href="#" id="mouser" class="button">
+                        <i class="fa fa-arrows fa-2x"></i>
+                      </a>
+
+                      <a href="#" id="simulate" class="button" data-container="body" data-toggle="tooltip" data-placement="right" title="Start/Stop Visual Clustering">
+                        <i class="fa fa-play-circle fa-2x"></i>
+                      </a>
+
+                      <div class="divide-line"></div>
+
+                      <a href="#" id="layoutSettingsButton" class="button panel-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Layout Settings">
+                            <i class="fa fa-cogs fa-2x"></i>
+                        </a>
+                    </div>
+
+                    <div title="Selection Controls" class="options-group">
+
+                      <div class="divide-line"></div>
+
+                      <a href="#" id="viewSelectionButton" class="button modal-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Select Nodes">
+                        <span class="fa-stack">
+                          <i class="fa fa-square-o fa-stack-2x" style="font-size: 2em"></i>
+                          <i class="fa fa-arrows fa-stack-1x" style="font-size: 15px"></i>
+                        </span>
+                      </a>
+
+                      <div class="divide-line"></div>
+
+                      <a href="#" id="brushButton" class="button modal-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Data Brush">
+                            <i class="fa" style="height: 0.9em; width: 0.9em; border-style: dashed; border-width: 0.1em"></i>
+                      </a>
+
+                    </div>
+
+                    <div title="Panel Controls" class="options-group">
+
+                    <a href="#" id="histogramPanelControl" class="button panel-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Expand/Shrink Histogram Panel">
+                        <i class="fa fa-bar-chart fa-2x"></i>
+                      </a>
+
+                      <div class="divide-line"></div>
+
+                      <a href="#" id="dataInspectorButton" class="button panel-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Data Inspector">
+                          <i class="fa fa-table fa-2x"></i>
+                      </a>
+
+                      <a href="#" id="timeExplorerButton" class="button panel-button beta" data-container="body" data-toggle="tooltip" data-placement="right" title="Time Explorer">
+                            <i class="fa fa-clock-o fa-2x"></i>
+                      </a>
+
+                      <div class="divide-line"></div>
+
+                        <a href="#" id="exclusionButton" class="button panel-button badged" data-container="body" data-toggle="tooltip" data-placement="right" title="Exclude">
+                            <i class="fa fa-ban fa-2x"></i>
+                            <small><span class="badge badge-info"></span></small>
+                        </a>
+
+                        <a href="#" id="filterButton" class="button panel-button badged" data-container="body" data-toggle="tooltip" data-placement="right" title="Filter">
+                          <i class="fa fa-filter fa-2x"></i>
+                          <small><span class="badge badge-info"></span></small>
+                        </a>
+
+                        <a href="#" id="setsPanelButton" class="button panel-button badged beta" data-container="body" data-toggle="tooltip" data-placement="right" title="Sets">
+                            <i class="fa fa-tag"></i>
+                            <small><span class="badge badge-info"></span></small>
+                        </a>
+                      <!--
+                      <a href="#" id="shortestpath" data-container="body" data-toggle="tooltip" data-placement="right" title="Find routes between two points" style="display:none">
+                          <i class="fa fa-road fa-2x"></i>
+                      </a>
+                      -->
+
+
+
+                    </div> <!-- last options group -->
+
+                    <div class="options-group">
+
+                      <a href="#" id="forkButton" class="button dialog-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Save A Copy">
+                          <i class="fa fa-code-fork fa-2x"></i>
+                      </a>
+
+                      <div class="divide-line"></div>
+
+                      <a href="#" id="persistWorkbookButton" class="beta button dialog-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Save Workbook">
+                          <i class="fa fa-floppy-o fa-2x"></i>
+                      </a>
+
+                      <a href="#" id="persistButton" class="button dialog-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Share/Embed Snapshot">
+                            <i class="fa fa-share-alt fa-2x"></i>
+                        </a>
+                        <a href="#" id="goLiveButton" class="button nav-button" data-container="body" data-toggle="tooltip" data-placement="right" title="Go Live">
+                            <i class="fa fa-share-square fa-2x"></i>
+                        </a>
+                    </div>
+
+                </div> <!-- accordion heading -->
+
+            </div>
+        </div>
+
+        <div id="renderingItems" class="settingsPanel">
+            <p class="panelHeader text-center bg-primary">Rendering</p>
+            <div class="form-horizontal">
+
+
+                <div class="control-title">Background</div>
+
+                    <style scoped="scoped">
+                    .colorpicker {
+                        right: 7em;
+                    }
+                    .colorSelector {
+                        position: relative;
+                        top: 0;
+                        left: 0;
+                        width: 36px;
+                        height: 36px;
+                        background: url(libs/images/select2.png);
+                    }
+
+                    .colorSelector div {
+                        position: relative;
+                        top: 4px;
+                        left: 4px;
+                        width: 28px;
+                        height: 28px;
+                        background: url(libs/images/select2.png) center;
+                    }
+                    </style>
+
+                    <div id="colorpickers">
+
+                        <div class="form-group colorer">
+                            <label  class="control-label col-xs-4">Foreground</label>
+                            <div class="col-xs-8">
+
+                                <div id="foregroundColor">
+
+                                    <div class="colorSelector">
+                                        <div style="background-color: #000"></div>
+                                    </div>
+                                    <div class="colorHolder"></div>
+
+                                </div>
+                            </div>
+                        </div><!-- /form-group -->
+
+                        <div class="form-group colorer">
+                            <label  class="control-label col-xs-4">Background</label>
+                            <div class="col-xs-8">
+
+                                <div id="backgroundColor">
+
+                                    <div class="colorSelector">
+                                        <div style="background-color: #fff"></div>
+                                    </div>
+                                    <div class="colorHolder"></div>
+
+                                </div>
+                            </div>
+                        </div><!-- /form-group -->
+
+                    </div><!-- /colorpickers -->
+
+
+            </div>  <!-- /form-horizontal -->
+        </div> <!-- /renderingItems -->
+
+        <div id="exclusionsPanel" class="exclusionsPanel">
+            <p class="panelHeader text-center bg-primary">Exclusions</p>
+            <div id="exclusions"></div>
+            <div id="addExclusion" class="container-fluid">
+                <div class="row">
+                    <div class="col-xs-12">
+                        <button type="button" class="btn btn-primary btn-xs addExclusionButton"
+                                data-toggle="tooltip" title="New Exclusion" {{disabled}}>
+                            <span class="fa fa-plus"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div> <!-- /exclusionsPanel -->
+
+        <div id="filtersPanel" class="filtersPanel">
+            <p class="panelHeader text-center bg-primary">Filters</p>
+            <div id="filters"></div>
+            <div id="addFilter"></div>
+        </div> <!-- /filtersPanel -->
+
+        <div id="setsPanel" class="setsPanel container">
+            <p class="panelHeader text-center bg-primary">Sets</p>
+            <div class="btn-toolbar setsPanelToolbar" role="toolbar" aria-label="sets toolbar"></div>
+            <div id="sets">
+                <p id="setsEmptyMessage" class="text-muted text-center hidden">
+                    <i>Sets appear here</i>
+                </p>
+            </div>
+        </div> <!-- /setsPanel -->
+
+    </div> <!-- /section -->
+
+    <div class="status-bar"></div>
+
+
+    <div id="graph-legend" class="legend-container on">
+        <div class="toggles">
+            <a href="#hideLegend"><i class="fa fa-minus-square hider" style="color: rgb(51,51,102)"></i></a>
+            <a href="#revealLegend"><i class="fa fa-plus-square revealer" style="color: rgb(51,51,102)"></i></a>
+        </div>
+        <div class="legend-title"></div>
+        <table>
+            <tr>
+                <td><span class="legend-label">Nodes</span></td>
+                <td><span class="legend-nodes"></span></td>
+            </tr>
+            <tr>
+                <td><span class="legend-label">Edges</span></td>
+                <td><span class="legend-edges"></span></td>
+            </tr>
+        </table>
+    </div>
+
+    <div id="inspector">
+        <div class="inspector-panels">
+            <div class="inspector-tabs">
+                <ul class="nav nav-tabs tabs-left sideways">
+                    <li class="active"><a href="#inspector-nodes" data-toggle="tab">Nodes</a></li>
+                    <li><a href="#inspector-edges" data-toggle="tab">Edges</a></li>
+                </ul>
+            </div>
+            <div class="tab-content">
+                <div id="inspector-nodes" class="tab-pane active">
+                    <div class="inspector panel backgrid-container"></div>
+                </div>
+                <div id="inspector-edges" class="tab-pane">
+                    <div class="inspector panel backgrid-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="inspector-overlay" class="panel"></div>
+    <div id="histogram" class="panel">
+        <div id="histograms"></div>
+        <div id="histogramErrors"></div>
+        <div id="addHistogram"></div>
+    </div>
+
+    <div id="timeExplorer" class="panel">
+
+        <div id="timeExplorerDragBox" class="dragBox"></div>
+        <div id="timeExplorerEncodingA" class="dragBox"></div>
+        <div id="timeExplorerEncodingB" class="dragBox"></div>
+        <div id="timeExplorerEncodingC" class="dragBox"></div>
+
+        <div id="timeExplorerVerticalLine" class="verticalLine"></div>
+        <div id="timeExplorerTop">
+            <div class="row" id="timeFilterSliderRow">
+                <div class="col-xs-12 noPadding" id="timeFilterSliderDiv">
+                    <input class="time-panel-filter-slider hidden" id="time-panel-filter-slider" type="text" data-slider-id="time-panel-filter-slider" data-slider-min="0" data-slider-max="1000", data-slider-step="1" data-slider-value="[0, 1000]" data-slider-handle="filterhandle">
+                </div>
+            </div>
+        </div>
+        <div class="row timeExplorerBodyRow timeExplorerFixedHeight">
+            <!-- <div id="timeExplorerSideInput" class="col-xs-2 timeExplorerFixedHeight"></div> -->
+            <div id="timeExplorerVizContainer" class="col-xs-12 timeExplorerFixedHeight noPadding">
+                <div id="timeExplorerBody" class="noPadding"></div>
+                <div id="timeExplorerMain" class="noPadding"></div>
+            </div>
+        </div>
+        <div class="row timeExplorerFixedHeightAxis">
+            <div class="timeExplorerFixedHeightAxis noPadding col-xs-12">
+                <div id="timeExplorerAxisContainer" class="noPadding">
+                </div>
+            </div>
+        </div>
+        <div id="timeExplorerBottom">
+            <div class="row" id="timeEncodingSliderRow">
+                <div class="col-xs-12 noPadding" id="timeEncodingSliderDiv">
+                    <input class="time-panel-encoding-slider-a hidden" id="time-panel-encoding-slider-a" type="text" data-slider-id="time-panel-encoding-slider-a" data-slider-min="0" data-slider-max="1000", data-slider-step="1" data-slider-value="[0, 1000]" data-slider-handle="encoding-handle-a">
+                    <input class="time-panel-encoding-slider-b hidden" id="time-panel-encoding-slider-b" type="text" data-slider-id="time-panel-encoding-slider-b" data-slider-min="0" data-slider-max="1000", data-slider-step="1" data-slider-value="[0, 1000]" data-slider-handle="encoding-handle-b">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    $(function () {
+        var legend = $('#graph-legend');
+        $('.hider', legend).on('click', function () {
+            legend.removeClass('on').addClass('off');
+        });
+        $('.revealer', legend).on('click', function () {
+            legend.removeClass('off').addClass('on');
+        });
+    });
+    </script>
+
+<!--</div>-->
+
+<div class="meter meter-graphnodes" style="left: 21em;">
+    <span class="flavor">graph</span>
+    <div style="padding: 0; min-width: 95px; height: 30px; line-height: 30px; text-align: right; text-shadow: rgba(0, 0, 0, 0.498039) 1px 1px 0; color: rgb(255, 255, 255); position: absolute; z-index: 10; left: 5px; top: 5px; right: auto; bottom: auto; margin: 0; cursor: pointer;">
+        <div style="position: absolute; top: 0; right: 0; padding: 0 5px; height: 40px; font-size: 24px; font-family: Consolas, 'Andale Mono', monospace; z-index: 2; line-height: 27px; text-align: right">
+            <span id="graph-node-count">0</span>
+        </div>
+        <div style="position: absolute; top: 20px; right: 0; padding: 0 5px; height: 40px; font-size: 24px; font-family: Consolas, 'Andale Mono', monospace; z-index: 2; line-height: 27px; text-align: right">
+            <span id="graph-edge-count">0</span>
+        </div>
+        <div style="position: absolute; top: 15px; left: 0; padding: 0 5px; height: 40px; font-size: 12px; line-height: 15px; font-family: sans-serif; text-align: left; z-index: 2;">nodes<br/>edges</div>
+        <div style="position: relative; height: 40px; z-index: 1; width: 145px;">&nbsp;</div>
+    </div>
+</div>
+
+<div class="logo-container">
+    <img src="img/logo_white_horiz.png" />
+    <div class="logo-version">{{config.RELEASE}}</div>
+</div>
+
+
+<!-- TEMPLATES -->
+<script type="text/x-handlebars-template" id="forkTemplate">
+    <div class="modal fade forker" tabindex="-1" role="dialog" aria-labelledby="basicModal" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                <h3 class="modal-title">Save a copy</h3>
+                </div>
+                <div class="modal-body">
+
+                    <form class="form-horizontal">
+                      <div class="form-group">
+                        <label for="forkSaveName" class="col-sm-2 control-label">Upload As</label>
+                        <div class="col-sm-10">
+                          <input type="text" class="form-control" id="forkSaveName" value="{{defName}}">
+                        </div>
+                      </div>
+                    </form>
+
+                </div>
+                <div class="modal-footer">
+                    <i class="fa fa-spinner fa-spin status"></i>
+                    <button type="button" class="btn btn-primary">Fork</button>
+            </div>
+        </div>
+      </div>
+    </div>
+</script>
+
+<script type="text/x-handlebars-template" id="persistWorkbookTemplate">
+    <div class="modal fade persistWorkbook" tabindex="-1" role="dialog" aria-labelledby="basicModal" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                    <h3 class="modal-title">Save / Overwrite Workbook</h3>
+                </div>
+                <div class="modal-body">
+                    <div class="persist-workbook-form-area">
+                        <p>For publication, avoid sharing a live view with your API keys and GPU cluster access. Instead, name a location below to save the current working state.</p>
+                        <form class="form-horizontal">
+                            <div class="form-group">
+                                <label for="workbookName" class="col-sm-2 control-label">Save As</label>
+                                <div class="col-sm-10">
+                                    <input type="text" class="form-control" id="workbookName" value="{{defName}}" />
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="workbook-preview"></div>
+                </div>
+                <div class="modal-footer">
+                    <span class="persist-status-text"> </span> <i class="fa fa-spinner fa-spin status"></i>
+                    <button type="button" class="btn btn-primary">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</script>
+
+<script type="text/x-handlebars-template" id="persistLayoutTemplate">
+    <div class="modal fade persistLayout" tabindex="-1" role="dialog" aria-labelledby="basicModal" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                    <h3 class="modal-title">Share / Embed Snapshot</h3>
+                </div>
+                <div class="modal-body">
+                    <div class="snapshot-form-area">
+                        <p>For publication, avoid sharing a live view with your API keys and GPU cluster access. Instead, name a location below to save the current static, embeddable layout.</p>
+                        <p><b>Configure:</b> To control dimensions, resize the window. Move the view as desired.</p>
+                        <form class="form-horizontal">
+                            <div class="form-group">
+                                <label for="snapshotName" class="col-sm-2 control-label">Save As</label>
+                                <div class="col-sm-10">
+                                    <input type="text" class="form-control" id="snapshotName" value="{{defName}}" />
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="snapshot-preview">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <span class="persist-status-text"> </span> <i class="fa fa-spinner fa-spin status"></i>
+                    <button type="button" class="btn btn-primary">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</script>
+
+<script type="text/x-handlebars-template" id="setTemplate">
+    <div class="topMenu setEntry row {{selectionClass}}">
+        <div class="col-md-10 labelArea">
+            <a href="#"><i class="label label-info fa fa-tag tagButton"
+                           data-toggle="tooltip" data-placement="right" title="Tag">
+                {{#if title~}}
+                    {{~title~}}
+                {{~else~}}
+                    (unnamed)
+                {{/if~}}
+            </i></a>
+            {{#if description}}
+                <span class="setDescription muted"><i>{{description}}</i></span>
+            {{/if}}
+        </div>
+        <div class="col-md-1 typeIndicator">
+            <!-- TODO place an icon here for selection, filter, etc. -->
+            <!-- <i class="setTypeIndicator fa {{setTypeClass}}"></i> -->
+        </div>
+        <div class="col-md-1 deleteButton">
+            <a href="#">
+                <i class="fa fa-close deleteSetButton"
+                   data-toggle="tooltip" title="Delete Set"></i>
+            </a>
+        </div>
+    </div>
+</script>
+
+<script type="text/x-handlebars-template" id="setCreateTemplate">
+    <div class="btn-group btn-group-xs createSetDropdown">
+        <button type="button" class="btn btn-primary btn-xs addSetButton"
+                data-toggle="tooltip" title="New Set" {{disabled}}>
+            <span title="New Set" class="fa fa-plus"></span>
+        </button>
+        <button type="button" class="btn btn-default btn-xs dropdown-toggle" title="New Set"
+                data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            {{#with selectedOption}}
+            <span class="createSetSelectionTitle">
+                {{~title~}}
+                {{#if description}}
+                    <small> ({{description}})</small>
+                {{/if}}
+            </span>
+            {{/with}}
+            <span class="caret"></span>
+            <span class="sr-only">Toggle Dropdown</span>
+        </button>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="dropdownMenu">
+        {{#each options}}
+            <li class="createSetDropdownOption" data-attributes="{{json this}}" data-id="{{id}}">
+                <a tabindex="-1" href="#">{{~title~}}
+                {{#if description}}
+                    <small> ({{description}})</small>
+                {{/if}}</a>
+            </li>
+        {{/each}}
+        </ul>
+    </div>
+</script>
+
+<script type="text/x-handlebars-template" id="setTagTemplate">
+    <div class="modal fade tagSet" tabindex="-1" role="dialog" aria-labelledby="basicModal" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                    <h3 class="modal-title">Tag / Rename Set</h3>
+                </div>
+                <div class="modal-body">
+                    <form class="form-horizontal">
+                        <div class="form-group">
+                            <label for="setTag" class="col-sm-2 control-label">Tag</label>
+                            <div class="col-sm-10">
+                                <input type="text" class="form-control" id="setTag" value="" />
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</script>
+
+<script type="text/x-handlebars-template" id="exclusionTemplate">
+    <div class="topMenu row">
+        <div class="col-xs-10">
+            <form class="exclusionEditor form-horizontal">
+                <div class="row form-group" title="Expression">
+                    <!--
+                    <textarea class="form-control exclusionExpression" id="exclusionExpression{{id}}" name="expression" title="Exclusion expression"
+                          rows="2" cols="40" placeholder="{{model.placeholder}}">{{model.expression}}</textarea>-->
+                    <div class="form-control exclusionExpression" id="exclusionExpression{{id}}"
+                         data-toggle="tooltip" title="Exclusion expression"></div>
+                </div>
+            </form>
+        </div>
+        <div class="col-xs-1 disableButton">
+            <a href="#">
+                <i class="fa fa-toggle-on disableExclusionButton" data-toggle="tooltip" data-placement="right" title="Enabled" cid="{{id}}"></i>
+            </a>
+        </div>
+        <div class="col-xs-1 deleteButton">
+            <a href="#">
+                <i class="fa fa-close deleteExclusionButton" cid="{{id}}"
+                   data-toggle="tooltip" data-placement="right" title="Delete Exclusion"></i>
+            </a>
+        </div>
+    </div>
+</script>
+
+<script type="text/x-handlebars-template" id="filterTemplate">
+    <div class="topMenu row">
+        {{#if model.isSystem}}
+            <div class="col-xs-12 full-column">
+        {{else if model.controlType}}
+            <div class="col-xs-12 full-column">
+        {{else}}
+            <div class="col-xs-10">
+        {{/if}}
+            <form class="filterEditor form-horizontal">
+                <div class="form-group-sm" title="Data Type">
+                    <label class="control-label" for="filterDataType{{id}}">Data Type</label>
+                    <span class="form-control-static">{{model.dataType}}</span>
+                    <select class="filterDataTypeSelector form-control hidden" id="filterDataType{{id}}" title="Data Type">
+                        <option value="">(Unknown)</option>
+                        {{#each dataTypes}}
+                        {{#if selected}}
+                            <option value="{{name}}" selected="selected">{{name}}</option>
+                        {{else}}
+                            <option value="{{name}}">{{name}}</option>
+                        {{/if}}
+                        {{/each}}
+                    </select>
+                </div>
+                <div class="form-group-sm" title="Control Type">
+                    <label class="control-label" for="filterControlType{{id}}">Control Type</label>
+                    <span class="form-control-static">{{model.controlType}}</span>
+                    <select class="filterControlTypeSelector form-control hidden" id="filterControlType{{id}}" title="Control Type">
+                        <option value="">(Unknown)</option>
+                        {{#each controlTypes}}
+                        {{#if selected}}
+                            <option value="{{value}}" selected="selected">{{name}}</option>
+                        {{else}}
+                            <option value="{{value}}">{{name}}</option>
+                        {{/if}}
+                        {{/each}}
+                    </select>
+                </div>
+                <div class="row form-group" title="Expression">
+                    <!--
+                    <textarea class="form-control filterExpression" id="filterExpression{{id}}" name="expression" title="Filter expression"
+                              rows="2" cols="40" placeholder="{{model.placeholder}}">{{model.expression}}</textarea>-->
+                    <div class="form-control filterExpression" id="filterExpression{{id}}"
+                         data-toggle="tooltip" data-placement="right" title="Filter expression"></div>
+                </div>
+            </form>
+        </div>
+        {{#unless model.isSystem}}
+        <div class="col-xs-1 disableButton">
+            <a href="#">
+                <i class="fa fa-toggle-on disableFilterButton"
+                   data-toggle="tooltip" data-placement="right" title="Enabled" cid="{{id}}"></i>
+            </a>
+        </div>
+        <div class="col-xs-1 deleteButton">
+            <a href="#">
+                <i class="fa fa-close deleteFilterButton" cid="{{id}}"
+                   data-toggle="tooltip" title="Delete Filter"></i>
+            </a>
+        </div>
+        {{/unless}}
+    </div>
+</script>
+
+<script type="text/x-handlebars-template" id="addFilterTemplate">
+    <!--
+    <div class="topMenu grab-cursor" draggable="true">
+        <a href="#">
+            <i class="fa fa-caret-right filterButton expandFilterButton" id="expandFilterButton{{id}}" cid="{{id}}"></i>
+        </a>
+    </div>
+    -->
+    <div class="row">
+        <div class="col-xs-5">
+            <div class="dropdown">
+                <button class="btn btn-primary dropdown-toggle" type="button" id="addFilterButton" data-toggle="dropdown" aria-expanded="true">
+                    Add Filter
+                    <span class="caret"></span>
+                </button>
+                <ul class="dropdown-menu scrollable-menu" role="menu" aria-labelledby="dropdownMenu{{id}}">
+                    {{#each fields}}
+                    <li role="presentation"><a class="addFilterDropdownField" role="menuitem" tabindex="-1" href="#"
+                            data-attributes="{{json this}}">
+                        {{#if dataType}}
+                        {{name}} ({{dataType}})
+                        {{else}}
+                        {{name}}
+                        {{/if}}
+                    </a></li>
+                    {{/each}}
+                </ul>
+            </div>
+        </div>
+        <div class="col-xs-7">
+            <a class="filter-about" href="#" data-toggle="tooltip" data-placement="bottom" title="To use,
+1. Pick field to filter on from dropdown.
+2. Enter an ANSI SQL expression over that field (but no other).
+Note: this release does not support expressions with multiple fields nor changing which field a filter acts over."
+                ><i class="fa fa-question-circle"></i></a>
+        </div>
+    </div>
+    <!--
+    <div class="col-xs-1 filterButton closeButton">
+        <a href="#">
+            <i class="fa fa-times filterButton closeFilterButton" id="closeFilterbutton{{id}}" cid="{{id}}"></i>
+        </a>
+    </div>
+    -->
+</script>
+
+<script type="text/x-handlebars-template" id="histogramTemplate">
+    <div class="topMenu">
+        <div class="col-xs-1 expandButton">
+            <a href="#" class="beta">
+                <i class="fa fa-caret-right interactive expandHistogramButton" id="expandHistogramButton{{id}}" cid="{{id}}"></i>
+            </a>
+        </div>
+        <div class="col-xs-9">
+            <div class="dropdown">
+                <button class="btn btn-default btn-block dropdown-toggle pull-right" type="button" id="dropdownMenu{{id}}"
+                        data-toggle="dropdown" aria-expanded="true">
+                    {{attribute}}
+                    <span class="caret"></span>
+                </button>
+                <ul class="dropdown-menu scrollable-menu" role="menu" aria-labelledby="dropdownMenu{{id}}">
+                    {{#each fields}}
+                        <li role="presentation"><a class="histogramDropdownField" role="menuitem" tabindex="-1" href="#">
+                            {{this}}
+                        </a></li>
+                    {{/each}}
+                </ul>
+            </div>
+            <div class="encode-attribute interactive encode-color-categorical"
+                 data-toggle="tooltip" title="Encode Color Categorical">
+                <a href="#">
+                    <i class="fa fa-circle"></i>
+                </a>
+            </div>
+            <div class="encode-attribute interactive encode-color-quantitative"
+                 data-toggle="tooltip" title="Encode Color Quantitative">
+                <a href="#">
+                    <i class="fa fa-circle"></i>
+                </a>
+            </div>
+            <div class="encode-attribute interactive encode-size"
+                 data-toggle="tooltip" title="Encode Size">
+                <a href="#">
+                    <i class="fa fa-circle"></i>
+                </a>
+            </div>
+        </div>
+        <div class="col-xs-1 closeButton">
+            <a href="#">
+                <i class="fa fa-times interactive closeHistogramButton" id="closeHistogramButton{{id}}" cid="{{id}}"></i>
+            </a>
+        </div>
+    </div>
+    <div class="vizContainer"></div>
+    <div class="divide-line"></div>
+</script>
+
+<script type="text/x-handlebars-template" id="histogramTemplateNoDropdown">
+    <div class="topMenu grab-cursor" draggable="true">
+        <div class="col-xs-1 histogramButton expandButton">
+            <a href="#" class="beta">
+                <i class="fa fa-caret-right interactive histogramButton expandHistogramButton" id="expandHistogramButton{{id}}" cid="{{id}}"></i>
+            </a>
+        </div>
+        <div class="col-xs-4 attributeName">
+            {{attribute}}
+        </div>
+        <div class="col-xs-6">
+            <a href="#">
+                <i class="encode-attribute interactive encode-color-categorical fa fa-square"
+                   data-toggle="tooltip" title="Encode Color Categorical"></i></a>
+            <a href="#">
+                <i class="encode-attribute interactive encode-color-quantitative fa fa-square"
+                   data-toggle="tooltip" title="Encode Color Quantitative"></i></a>
+            <a href="#">
+                <i class="encode-attribute interactive encode-size fa fa-circle"
+                   data-toggle="tooltip" title="Encode Size"></i></a>
+        </div>
+        <div class="col-xs-1 histogramButton closeButton">
+            <a href="#">
+                <i class="fa fa-times interactive histogramButton closeHistogramButton" id="closeHistogramButton{{id}}" cid="{{id}}"></i>
+            </a>
+        </div>
+    </div>
+    <div class="vizContainer"></div>
+    <div class="divide-line"></div>
+</script>
+
+<script type="text/x-handlebars-template" id="addHistogramTemplate">
+    <div class="dropdown">
+        <button class="btn btn-primary dropdown-toggle" type="button" id="addHistogramButton" data-toggle="dropdown" aria-expanded="true">
+            Add Histogram
+            <span class="caret"></span>
+        </button>
+        <ul class="dropdown-menu scrollable-menu" role="menu" aria-labelledby="dropdownMenu{{id}}">
+            {{#each fields}}
+                <li role="presentation"><a class="addHistogramDropdownField" role="menuitem" tabindex="-1" href="#">
+                    {{this}}
+                </a></li>
+            {{/each}}
+        </ul>
+    </div>
+</script>
+
+<script type="text/x-handlebars-template" id="timeBarTemplate">
+
+    {{#if timeAggregationButtons}}
+        <div class="timeAggregationSwitchboard">
+            <div class="btn-group" data-toggle="buttons-radio">
+                {{#each timeAggregationButtons}}
+
+                    <button type="button" id="timeAggButton-{{this.shortValue}}" class="timeAggButton btn btn-primary btn-xs {{#if this.active}}active{{/if}}" data-aggregation-value="{{this.longValue}}">{{this.shortValue}}</button>
+
+                {{/each}}
+            </div>
+        </div>
+
+    {{else}}
+
+        <div class="form-control filterExpression" id="filterExpressionID"
+         data-toggle="tooltip" data-placement="right" title="Filter expression"></div>
+
+    {{/if}}
+    <div class="vizContainer"></div>
+</script>
+
+<script type="text/x-handlebars-template" id="timeExplorerBodyTemplate">
+
+    <div class="row">
+
+        <div class="col-xs-1 col-xs-offset-11 addTimeBarDiv">
+            <div class="pull-right">
+                <button class="btn btn-primary btn-sm" id="newTimeBarButton" href="#">
+                    <i class="fa fa-plus" aria-hidden="true" title="Add new time bar"></i>
+                </button>
+            </div>
+        </div>
+
+    </div>
+</script>
+
+<script type="text/x-handlebars-template" id="timeBarBottomAxisTemplate">
+    <div class="axisContainer"></div>
+</script>
+
+<script type="text/x-handlebars-template" id="timeBarInitializationMenuTemplate">
+
+    <div class="row">
+
+        <div class="col-xs-4">
+
+            <div class="dropup">
+                <button class="btn btn-primary dropdown-toggle" type="button" id="selectTimeAttrButton" data-toggle="dropdown" aria-expanded="true">
+                    Select Time Attribute
+                    <span class="caret"></span>
+                </button>
+                <ul class="dropdown-menu scrollable-menu" role="menu" aria-labelledby="dropdownMenu{{id}}">
+                    {{#each fields}}
+                        <li role="presentation"><a class="selectTimeAttrDropdownField" role="menuitem" tabindex="-1" href="#" data-graph-type="{{graphType}}" data-attr-name="{{attrName}}">
+                            {{displayName}}
+                        </a></li>
+                    {{/each}}
+                </ul>
+            </div>
+
+        </div>
+
+
+    </div>
+</script>
+
+
+</body>
+</html>
