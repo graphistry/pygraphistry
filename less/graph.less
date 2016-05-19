@@ -435,6 +435,12 @@ html.labelsDisabled .graph-label-container {
     left: -10px;
     cursor: pointer;
 
+    &.draggable {
+        cursor: -webkit-grab;
+        cursor: -moz-grab;
+        cursor: grab;
+    }
+
     .noselect();
 }
 
