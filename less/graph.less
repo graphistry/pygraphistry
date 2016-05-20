@@ -1642,11 +1642,8 @@ button:disabled {
     .histogramDiv {
 
         //controls
-        & .interactive {
+        &:not(:hover) .interactive {
             visibility: hidden;
-        }
-        &:hover .interactive {
-            visibility: visible;
         }
 
         //top line
@@ -1662,23 +1659,62 @@ button:disabled {
             visibility: visible;
         }
 
+        .vizContainer {
+
+            //paint above icon bar
+            svg {
+                position: relative;
+            }
+
+            // do not allow SVG ~bg to capture, e.g., passthrough to icon bar
+            svg, svg > g {
+                pointer-events: none;
+            }
+            svg > g * {
+                pointer-events: all;
+            }
+        }
 
     }
 
     .histogramDiv {
+
         width: 100%;
+
         background-color: @light-grey-background;
+        &:hover {
+            background-color: #FFF;
+        }
+
+        .topMenu {
+
+            padding-left: 0.5em;
+            padding-right: 0.5em;
+
+            .histogram-close {
+                float: right;
+                margin-top: -3px;
+            }
+
+            .attributeName {
+                word-break: break-all;
+                padding-top: 0px;
+            }
+
+        }
 
         .vizContainer {
             height: calc(100% - 30px);
         }
 
-        .topMenu {
-            height: 30px;
 
-            .dropdown {
-                margin: 3px;
-            }
+        .histogram-icons {
+
+            margin-top: -1em;
+            padding-right: 0.5em;
+
+            width: 100%;
+            text-align: right;
 
             .encode-attribute {
                 color: @medium-grey;

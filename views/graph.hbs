@@ -828,32 +828,31 @@ Note: this release does not support expressions with multiple fields nor changin
 
 <script type="text/x-handlebars-template" id="histogramTemplateNoDropdown">
     <div class="topMenu grab-cursor" draggable="true">
-        <div class="col-xs-1 histogramButton expandButton">
-            <a href="#" class="beta">
-                <i class="fa fa-caret-right interactive histogramButton expandHistogramButton" id="expandHistogramButton{{id}}" cid="{{id}}"></i>
-            </a>
-        </div>
-        <div class="col-xs-4 attributeName">
+
+        <a href="#" class="histogram-close">
+            <i class="fa fa-times interactive histogramButton closeHistogramButton" id="closeHistogramButton{{id}}" cid="{{id}}"></i>
+        </a>
+
+        <div class="attributeName">
             {{attribute}}
         </div>
-        <div class="col-xs-6">
-            <a href="#">
-                <i class="encode-attribute interactive encode-color-categorical fa fa-square"
-                   data-toggle="tooltip" title="Encode Color Categorical"></i></a>
-            <a href="#">
-                <i class="encode-attribute interactive encode-color-quantitative fa fa-square"
-                   data-toggle="tooltip" title="Encode Color Quantitative"></i></a>
-            <a href="#">
-                <i class="encode-attribute interactive encode-size fa fa-circle"
-                   data-toggle="tooltip" title="Encode Size"></i></a>
-        </div>
-        <div class="col-xs-1 histogramButton closeButton">
-            <a href="#">
-                <i class="fa fa-times interactive histogramButton closeHistogramButton" id="closeHistogramButton{{id}}" cid="{{id}}"></i>
-            </a>
-        </div>
+
     </div>
+
     <div class="vizContainer"></div>
+
+    <div class="histogram-icons interactive">
+        <a href="#">
+            <i class="encode-attribute interactive encode-color-categorical fa fa-square"
+               data-toggle="tooltip" title="Encode Color Categorical"></i></a>
+        <a href="#">
+            <i class="encode-attribute interactive encode-color-quantitative fa fa-square"
+               data-toggle="tooltip" title="Encode Color Quantitative"></i></a>
+        <a href="#">
+            <i class="encode-attribute interactive encode-size fa fa-circle"
+               data-toggle="tooltip" title="Encode Size"></i></a>
+    </div>
+
     <div class="divide-line"></div>
 </script>
 
