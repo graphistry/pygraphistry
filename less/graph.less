@@ -117,8 +117,14 @@ html.labelsDisabled .graph-label-container {
         -webkit-box-shadow: 0 0 1px rgba(255,255,255,.5);
     }
 
-    & .graph-label-title .fa-thumb-tack {
-        display: none;
+    & .graph-label-title {
+        .fa-thumb-tack {
+            display: none;
+        }
+
+        .exclude-by-title {
+            display: none;
+        }
     }
 
     &.clicked, &:hover {
@@ -138,10 +144,20 @@ html.labelsDisabled .graph-label-container {
     &.clicked {
 
         .graph-label-container {
+            .graph-label-title {
+                .fa-thumb-tack {
+                    display: inline-block;
+                    color: @graphistry-darkblue;
+                }
+                .exclude-by-title {
+                    display: inline-block;
+                    color: @dark-grey;
 
-            .graph-label-title .fa-thumb-tack {
-                display: inline-block;
-                color: @graphistry-darkblue;
+                    &:hover {
+                        color: @graphistry-lightblue;
+                        cursor: pointer;
+                    }
+                }
             }
         }
     }
@@ -185,7 +201,6 @@ html.labelsDisabled .graph-label-container {
         max-width: 10em;
         display: inline-block;
         overflow:hidden;
-        pointer-events: none;
         vertical-align: middle;
     }
 
@@ -419,6 +434,12 @@ html.labelsDisabled .graph-label-container {
     top: -10px;
     left: -10px;
     cursor: pointer;
+
+    &.draggable {
+        cursor: -webkit-grab;
+        cursor: -moz-grab;
+        cursor: grab;
+    }
 
     .noselect();
 }
