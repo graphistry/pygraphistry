@@ -1,4 +1,4 @@
-#!/bin/sh -x -e
+#!/bin/sh -xe
 
 docker rm -f graphistry_httpd_test || true
 nvidia-docker run --name graphistry_httpd_test graphistry/central-and-vizservers:$1 clinfo
