@@ -1,2 +1,2 @@
-#!/bin/sh -x -e
-docker rmi `docker images | awk '{print $3}'`
+#!/bin/sh -xe
+docker rmi `docker images | awk '{print $3}'` || true
