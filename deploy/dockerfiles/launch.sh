@@ -1,6 +1,8 @@
-#!/bin/sh
+#!/bin/sh -x -e
 
-docker pull graphistry/central-and-vizservers:$1
+docker rm -f graphistry_httpd_test || true
+nvidia-docker run --name graphistry_httpd_test graphistry/central-and-vizservers:$1 clinfo
+docker rm graphistry_httpd_test
 docker rm -f graphistry_httpd || true
 
 mkdir -p central-app worker graphistry-json clients reaper
