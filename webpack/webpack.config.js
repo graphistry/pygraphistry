@@ -102,6 +102,9 @@ module.exports = {
         new webpack.NoErrorsPlugin(),
         new AssetsPlugin({ path: './dist' }),
         new webpack.optimize.OccurrenceOrderPlugin(),
-        new WriteFileWebpackPlugin({ test: /(\.(js|css|map)?$)/ })
+        new WriteFileWebpackPlugin({ test: /(\.(js|css|map)?$)/ }),
+        new webpack.DefinePlugin({
+          VERSION: JSON.stringify(require("../package.json").version)
+        })
     ]
 };
