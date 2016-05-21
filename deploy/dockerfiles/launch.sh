@@ -13,7 +13,7 @@ nvidia-docker run --net host --restart=unless-stopped --name graphistry_httpd -d
 docker rm -f graphistry_nginx || true
 
 if [ -n "$SSLPATH" ] ; then
-    docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v ${SSLPATH}:/etc/nginx/graphistry/ssl:ro graphistry/nginx-central-vizservers:1.0.0.32
+    docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v ${SSLPATH}:/etc/graphistry/ssl:ro graphistry/nginx-central-vizservers:1.0.0.32
 else
     docker run --net host --restart=unless-stopped --name graphistry_nginx -d graphistry/nginx-central-vizservers:1.0.0.32.httponly
 fi
