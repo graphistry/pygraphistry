@@ -395,7 +395,7 @@
         <div id="timeExplorerVerticalLine" class="verticalLine"></div>
         <div id="timeExplorerTop">
             <div class="row" id="timeFilterSliderRow">
-                <div class="col-xs-12 noPadding" id="timeFilterSliderDiv">
+                <div class="col-xs-12 noPadding" id="timeFilterSliderDiv" data-toggle="tooltip" data-placement="top" title="Drag to filter graph by time">
                     <input class="time-panel-filter-slider hidden" id="time-panel-filter-slider" type="text" data-slider-id="time-panel-filter-slider" data-slider-min="0" data-slider-max="1000", data-slider-step="1" data-slider-value="[0, 1000]" data-slider-handle="filterhandle">
                 </div>
             </div>
@@ -415,7 +415,7 @@
         </div>
         <div id="timeExplorerBottom">
             <div class="row" id="timeEncodingSliderRow">
-                <div class="col-xs-12 noPadding" id="timeEncodingSliderDiv">
+                <div class="col-xs-12 noPadding" id="timeEncodingSliderDiv" data-toggle="tooltip" data-placement="top" title="Drag to color graph by time">
                     <input class="time-panel-encoding-slider-a hidden" id="time-panel-encoding-slider-a" type="text" data-slider-id="time-panel-encoding-slider-a" data-slider-min="0" data-slider-max="1000", data-slider-step="1" data-slider-value="[0, 1000]" data-slider-handle="encoding-handle-a">
                     <input class="time-panel-encoding-slider-b hidden" id="time-panel-encoding-slider-b" type="text" data-slider-id="time-panel-encoding-slider-b" data-slider-min="0" data-slider-max="1000", data-slider-step="1" data-slider-value="[0, 1000]" data-slider-handle="encoding-handle-b">
                 </div>
@@ -875,7 +875,7 @@ Note: this release does not support expressions with multiple fields nor changin
 <script type="text/x-handlebars-template" id="timeBarTemplate">
 
     {{#if timeAggregationButtons}}
-        <div class="timeAggregationSwitchboard">
+        <div class="timeAggregationSwitchboard" data-toggle="tooltip" data-placement="bottom" title="Bin by time interval">
             <div class="btn-group" data-toggle="buttons-radio">
                 {{#each timeAggregationButtons}}
 
@@ -901,7 +901,7 @@ Note: this release does not support expressions with multiple fields nor changin
         <div class="col-xs-1 col-xs-offset-11 addTimeBarDiv">
             <div class="pull-right">
                 <button class="btn btn-primary btn-sm" id="newTimeBarButton" href="#">
-                    <i class="fa fa-plus" aria-hidden="true" title="Add new time bar"></i>
+                    <i class="fa fa-plus" data-toggle="tooltip" data-placement="left" title="Add new filtered time bar"></i>
                 </button>
             </div>
         </div>
