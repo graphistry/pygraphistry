@@ -63,6 +63,21 @@
 @modal-z:                    2000000;
 @colorpicker-z:              2002000;
 
+
+//////////////////////////////////////////////////////////////////////////////
+// Panels
+//////////////////////////////////////////////////////////////////////////////
+
+#histogram:not(.open),
+#exclusionsPanel:not(.open),
+#filtersPanel:not(.open),
+#renderingItems:not(.open),
+#setsPanel:not(.open),
+#inspector:not(.open) {
+    display: none;
+}
+
+
 //////////////////////////////////////////////////////////////////////////////
 // Labels
 //////////////////////////////////////////////////////////////////////////////
@@ -659,7 +674,6 @@ html.nomenu #menus, html.nomenu #sliders {
 
 #filtersPanel, #setsPanel, #exclusionsPanel {
     z-index: @menus-z;
-    display: none; // Initial state meant to toggle.
     &:hover {
         z-index: @modal-z;
     }
@@ -844,7 +858,6 @@ button:disabled {
     padding: 0.5em;
 
     position: absolute;
-    display: none;
 }
 
 
@@ -1225,7 +1238,6 @@ button:disabled {
 }
 
 #inspector {
-    visibility: hidden;
     z-index: @inspector-z;
     position: fixed;
     left: 0;
@@ -1487,7 +1499,6 @@ button:disabled {
         width: 100%;
         height: 16em;
         margin: 0;
-        visibility: hidden;
         background-color: gray;
         opacity: .4;
         box-shadow: @floating-box-shadow;
@@ -1548,7 +1559,6 @@ button:disabled {
 
     &.panel {
         background-color: @light-grey-background-2;
-        visibility: hidden;
         z-index: @histogram-z;
         position: fixed;
         right: 0;
