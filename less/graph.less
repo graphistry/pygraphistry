@@ -1228,10 +1228,10 @@ button:disabled {
 //resize & control shadow based on whether histogram on right
 #inspector, #inspector-overlay {
 
-    &.with-histograms {
+    body.with-histograms & {
         width: 85%;
     }
-    &:not(.with-histograms) {
+    body:not(.with-histograms) & {
         width: 100%;
     }
 
