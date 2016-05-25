@@ -679,7 +679,7 @@ html.nomenu #menus, html.nomenu #sliders {
     }
 }
 
-.refreshButton, .expandButton, .closeButton, .disableButton i.fa, .deleteButton i.fa, i.closeHistogramButton.fa {
+.refreshButton, .expandButton, .closeButton, .disableButton i.fa, .deleteButton i.fa, i.closeHistogramButton.fa, i.closeTimeBarButton.fa {
     margin-top: 4px;
 
     &.fa, .fa {
@@ -2026,8 +2026,12 @@ button:disabled {
 
         .timeBarCloseDiv {
             position: absolute;
-            right: 2px;
-            top: 2px;
+            right: 4px;
+            top: 0px;
+
+            .closeTimeBarButton {
+                margin-top: -4 px;
+            }
         }
 
         .filterExpression {
