@@ -873,8 +873,8 @@ Note: this release does not support expressions with multiple fields nor changin
 </script>
 
 <script type="text/x-handlebars-template" id="timeBarTemplate">
-
     {{#if timeAggregationButtons}}
+        <p id="timeExplorerWatermark">alpha</p>
         <div class="timeAggregationSwitchboard" data-toggle="tooltip" data-placement="bottom" title="Bin by time interval">
             <div class="btn-group" data-toggle="buttons-radio">
                 {{#each timeAggregationButtons}}
