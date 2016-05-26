@@ -386,6 +386,11 @@
     </div>
 
     <div id="timeExplorer" class="panel">
+      <div id="timeExplorerInitDiv">
+
+      </div>
+      <div id="timeExplorerContents" class="hidden">
+
 
         <div id="timeExplorerDragBox" class="dragBox"></div>
         <div id="timeExplorerEncodingA" class="dragBox"></div>
@@ -421,6 +426,9 @@
                 </div>
             </div>
         </div>
+
+      </div>
+
     </div>
 
     <script>
@@ -874,7 +882,7 @@ Note: this release does not support expressions with multiple fields nor changin
 
 <script type="text/x-handlebars-template" id="timeBarTemplate">
     {{#if timeAggregationButtons}}
-        <p id="timeExplorerWatermark">alpha</p>
+        <p id="timeExplorerWatermark" class="noselect">alpha</p>
         <div class="timeAggregationSwitchboard" data-toggle="tooltip" data-placement="bottom" title="Bin by time interval">
             <div class="btn-group" data-toggle="buttons-radio">
                 {{#each timeAggregationButtons}}
@@ -924,6 +932,8 @@ Note: this release does not support expressions with multiple fields nor changin
 
         <div class="col-xs-4">
 
+          {{#if fields.length}}
+
             <div class="dropup">
                 <button class="btn btn-primary dropdown-toggle" type="button" id="selectTimeAttrButton" data-toggle="dropdown" aria-expanded="true">
                     Select Time Attribute
@@ -937,6 +947,12 @@ Note: this release does not support expressions with multiple fields nor changin
                     {{/each}}
                 </ul>
             </div>
+
+          {{else}}
+
+            <h4>Dataset does not contain any time fields</h4>
+
+          {{/if}}
 
         </div>
 

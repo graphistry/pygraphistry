@@ -1838,24 +1838,28 @@ button:disabled {
 
 
 #timeExplorer {
-    position: absolute;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    max-height: @timeExplorerTotalHeight;
-    /*height: @timeExplorerTotalHeight;*/
-    margin: 0;
-    padding: 5px;
-    padding-bottom: 15px;
-    background-color: @light-grey-background-2;
-    z-index: @timeexplorer-z;
 
     visibility: hidden;
+
+    // Use this for both containing panel and wrapping div
+    &, #timeExplorerContents {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        max-height: @timeExplorerTotalHeight;
+        margin: 0;
+        padding: 5px;
+        padding-bottom: 15px;
+        background-color: @light-grey-background-2;
+        z-index: @timeexplorer-z;
+    }
 
     .row {
         margin-left: 3px;
         margin-right: 3px;
     }
+
 
 
     .slider {
