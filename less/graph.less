@@ -744,12 +744,12 @@ html.nomenu #menus, html.nomenu #sliders {
     left: 4em;
 }
 
-.accordion-heading a:hover .fa {
-    color: rgb(15, 165, 197);
-}
-
 .accordion-heading .fa {
     color: @dark-grey;
+}
+
+.accordion-heading a:hover .fa:not(.toggle-on) {
+    color: @medium-dark-grey;
 }
 
 .accordion-heading .toggle-on {
