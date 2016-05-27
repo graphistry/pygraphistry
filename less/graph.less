@@ -9,6 +9,7 @@
 @light-grey-background: rgba(252, 252, 252, 1.0);
 @light-grey-background-2: #F9F9F9;
 @medium-grey: rgba(200,200,200,1.0);
+@medium-dark-grey: rgba(160,160,160,1.0);
 @dark-grey: rgba(100,100,100,1.0);
 @floating-box-shadow: 0 1.2em 1.2em rgba(0,0,0,0.7);
 @floating-box-shadow-bottom: -0.3em 0em 0.3em rgba(0,0,0,0.2);
@@ -672,7 +673,7 @@ html.nomenu #menus, html.nomenu #sliders {
     }
 }
 
-#filtersPanel, #setsPanel, #exclusionsPanel {
+#renderingItems, #filtersPanel, #setsPanel, #exclusionsPanel {
     z-index: @menus-z;
     &:hover {
         z-index: @modal-z;
@@ -698,10 +699,6 @@ html.nomenu #menus, html.nomenu #sliders {
 
 .ace_editor.ace_autocomplete.ace-chrome {
     z-index: @modal-z + 1;
-}
-
-.settingsPanel {
-    z-index: @modal-z;
 }
 
 .colorpicker {
@@ -850,28 +847,31 @@ button:disabled {
     white-space: nowrap;
 }
 
-.sidePanel {
+.leftSidePanel {
     box-shadow: @floating-box-shadow;
     border-radius: @floating-border-radius;
+    position: absolute;
+    left: 3.4em;
+    top: 0.5em;
+    width: 25em;
+    max-height: 27.5em;
+}
+
+.sidePanel {
     background-color: @light-grey-background;
-
     padding: 0.5em;
-
     position: absolute;
 }
 
 
 .settingsPanel {
-    max-height: 23.2em;
+    .leftSidePanel;
+
     overflow-x: hidden;
     overflow-y: auto;
 
     .sidePanel;
     //opacity: 0;
-    width: 25em;
-
-    left: 5em;
-    top: 2.5em;
 }
 
 .overlayPanel {
@@ -879,7 +879,7 @@ button:disabled {
     padding-bottom: 0.5em;
     padding-left: 0;
     padding-right: 0;
-    border-radius: 3px;
+    border-radius: @floating-border-radius;
 
     background-color: @light-grey-background-2;
 }
@@ -933,11 +933,7 @@ button:disabled {
 }
 
 .filtersPanel, .exclusionsPanel {
-
-    width: 25em;
-    left: 5em;
-    top: 2.5em;
-    position: absolute;
+    .leftSidePanel;
 
     .overlayPanel;
 
