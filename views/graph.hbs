@@ -882,7 +882,10 @@ Note: this release does not support expressions with multiple fields nor changin
 
 <script type="text/x-handlebars-template" id="timeBarTemplate">
     {{#if timeAggregationButtons}}
-        <p id="timeExplorerWatermark" class="noselect">alpha</p>
+        <p id="timeExplorerWatermark" class="noselect">alpha version</p>
+        <div class="timeAttributeField" class="noselect">
+            <p class="noselect">{{timeAttributeField}}</p>
+        </div>
         <div class="timeAggregationSwitchboard" data-toggle="tooltip" data-placement="bottom" title="Bin by time interval">
             <div class="btn-group" data-toggle="buttons-radio">
                 {{#each timeAggregationButtons}}
