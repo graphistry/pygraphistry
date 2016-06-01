@@ -2055,12 +2055,30 @@ button:disabled {
             }
         }
 
+        // TODO: filter expression and enter button should not both be absolutely positioned
         .filterExpression {
             position: absolute;
             left: 0;
             top: 0;
-            height: 13;
+            height: 16px;
             width: 25%;
+        }
+
+        .timeFilterEnterButton {
+            position: absolute;
+            left: 25%;
+            margin-left: 2px;
+            top: 0;
+            height: 16px;
+
+            .btn {
+                margin-top: -6px;
+                height: 16px;
+                width: 16px;
+                padding: 1px;
+                font-size: 10px;
+            }
+
         }
     }
 
