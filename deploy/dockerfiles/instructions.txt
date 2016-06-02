@@ -67,6 +67,8 @@ If you want debug logs, launch with the environment variable of GRAPHISTRY_LOG_L
 
 When you have launched the app, you should be able to point your browser to that machine via HTTP and receive a page with four links on it, each of which take you to a visualization of a different data set.
 
-# BONUS: NOTEBOOKS.
+# USE A JUPYTER NOTEBOOK WITH PYGRAPHISTRY INSTALLED.
 
-Run `docker run --net host --restart=unless-stopped--name graphistry_notebooks -d graphistry/jupyter-notebook-demos:1.1`.
+These are public images, available on DockerHub, built on the Jupyter notebooks with pygraphistry installed, with several demo notebooks.
+
+Run `docker run -p 8888:8888  --restart=unless-stopped --name graphistry_notebook -d graphistry/jupyter-notebook:1.1`.
