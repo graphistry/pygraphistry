@@ -37,10 +37,10 @@ Currently, the only supported and tested configuration is
 
 ### OR SET UP NVIDIA-DOCKER WITH YOUR PROCESS.
 
-1. Test that a machine that is set up with nvidia-docker (via https://github.com/NVIDIA/nvidia-docker/wiki/Deploy-on-Amazon-EC2 ) can run the cljs convolution demo.
-2. Run
-    nvidia-docker run -P 3001 graphistry/cljs:1.0
-on your machine. You should be able to go to <machine>:3001/?mode=opencl and see the bear outline rendered in a few milliseconds.
+1. (Use your process to set up nvidia-docker.)
+2. Verify that your process succeeds by pulling down the nvidia/cuda:7.5-devel image and running
+    `nvidia-docker run nvidia/cuda:7.5-devel nvidia-smi`
+3. Run through the four commands at https://github.com/graphistry/infrastructure/blob/d8feb37ea6f38faa0ce21c75f7f8e581142b456e/nvidia-docker-host/roles/nvidiadocker/tasks/main.yml#L10-L20 to verify that the cljs convolution demo runs.
 
 ## SET UP GRAPHISTRY.
 
