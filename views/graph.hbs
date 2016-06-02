@@ -891,7 +891,7 @@ Note: this release does not support expressions with multiple fields nor changin
             <div class="btn-group" data-toggle="buttons-radio">
                 {{#each timeAggregationButtons}}
 
-                    <button type="button" id="timeAggButton-{{this.shortValue}}" class="timeAggButton btn btn-primary btn-xs {{#if this.active}}active{{/if}}" data-aggregation-value="{{this.longValue}}">{{this.shortValue}}</button>
+                    <button type="button" id="timeAggButton-{{this.shortValue}}" class="timeAggButton btn btn-primary btn-xs {{#if this.active}}active{{/if}}" data-aggregation-value="{{this.longValue}}" data-toggle="tooltip" data-placement="top" title="{{this.longValue}}">{{this.shortValue}}</button>
 
                 {{/each}}
             </div>
