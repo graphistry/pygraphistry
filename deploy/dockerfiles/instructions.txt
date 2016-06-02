@@ -55,7 +55,7 @@ on your machine. You should be able to go to <machine>:3001/?mode=opencl and see
 
 Run `docker stop graphistry_mongo graphistry_nginx graphistry_httpd`.
 
-# VIEWING LOGS.
+# VIEW THE LOGS.
 
 Logs are mounted in the working directory of where you run launch.sh.
 
@@ -63,7 +63,7 @@ There are client logs, in clients/, server logs, in graphistry-json/, other asso
 
 If you want debug logs, launch with the environment variable of GRAPHISTRY_LOG_LEVEL set to DEBUG; i.e. `GRAPHISTRY_LOG_LEVEL=DEBUG ./launch.sh` .
 
-# VERIFYING THAT THE APP IS RUNNING
+# VERIFY THAT THE APP IS RUNNING.
 
 When you have launched the app, you should be able to point your browser to that machine via HTTP and receive a page with four links on it, each of which take you to a visualization of a different data set.
 
