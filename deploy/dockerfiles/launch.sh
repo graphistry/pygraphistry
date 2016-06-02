@@ -26,3 +26,7 @@ docker run --net host --restart=unless-stopped --name graphistry_mongo -d graphi
 
 docker rm -f graphistry_splunk || true
 # docker run --net host --restart=unless-stopped graphistry_splunk -d -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper graphistry/log-shipper:1.0.0
+
+echo SUCCESS.
+echo Graphistry has been launched, and should be up and running.
+echo SUCCESS.
