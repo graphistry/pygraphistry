@@ -59,7 +59,7 @@ Run `docker stop graphistry_mongo graphistry_nginx graphistry_httpd`.
 
 Logs are mounted in the working directory of where you run launch.sh.
 
-There are client logs, in clients/, server logs, in graphistry-json/, other assorted logs in central-app/ and worker/.
+There are client logs, in clients/, server logs, in graphistry-json/, other assorted logs in central-app/ and worker/. Logs are in JSON. We recommend using [Bunyan](https://github.com/trentm/node-bunyan) to print logs in a more readable format. For instance, you can use `bunyan -o short < logfile`
 
 If you want debug logs, launch with the environment variable of GRAPHISTRY_LOG_LEVEL set to DEBUG; i.e. `GRAPHISTRY_LOG_LEVEL=DEBUG ./launch.sh` .
 
