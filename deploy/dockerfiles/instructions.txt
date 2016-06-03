@@ -37,10 +37,10 @@ Currently, the only supported and tested configuration is
 
 ### OR SET UP NVIDIA-DOCKER WITH YOUR PROCESS.
 
-1. Test that a machine that is set up with nvidia-docker (via https://github.com/NVIDIA/nvidia-docker/wiki/Deploy-on-Amazon-EC2 ) can run the cljs convolution demo.
-2. Run
-    nvidia-docker run -P 3001 graphistry/cljs:1.0
-on your machine. You should be able to go to <machine>:3001/?mode=opencl and see the bear outline rendered in a few milliseconds.
+1. (Use your process to set up nvidia-docker.)
+2. Verify that your process succeeds by pulling down the nvidia/cuda:7.5-devel image and running
+    `nvidia-docker run nvidia/cuda:7.5-devel nvidia-smi`
+3. Run through the four commands at https://github.com/graphistry/infrastructure/blob/d8feb37ea6f38faa0ce21c75f7f8e581142b456e/nvidia-docker-host/roles/nvidiadocker/tasks/main.yml#L10-L20 to verify that the cljs convolution demo runs.
 
 ## SET UP GRAPHISTRY.
 
@@ -55,18 +55,20 @@ on your machine. You should be able to go to <machine>:3001/?mode=opencl and see
 
 Run `docker stop graphistry_mongo graphistry_nginx graphistry_httpd`.
 
-# VIEWING LOGS.
+# VIEW THE LOGS.
 
 Logs are mounted in the working directory of where you run launch.sh.
 
-There are client logs, in clients/, server logs, in graphistry-json/, other assorted logs in central-app/ and worker/.
+There are client logs, in clients/, server logs, in graphistry-json/, other assorted logs in central-app/ and worker/. Logs are in JSON. We recommend using [Bunyan](https://github.com/trentm/node-bunyan) to print logs in a more readable format. For instance, you can use `bunyan -o short < logfile`
 
 If you want debug logs, launch with the environment variable of GRAPHISTRY_LOG_LEVEL set to DEBUG; i.e. `GRAPHISTRY_LOG_LEVEL=DEBUG ./launch.sh` .
 
-# VERIFYING THAT THE APP IS RUNNING
+# VERIFY THAT THE APP IS RUNNING.
 
 When you have launched the app, you should be able to point your browser to that machine via HTTP and receive a page with four links on it, each of which take you to a visualization of a different data set.
 
-# BONUS: NOTEBOOKS.
+# USE A JUPYTER NOTEBOOK WITH PYGRAPHISTRY INSTALLED.
 
-Run `docker run --net host --restart=unless-stopped--name graphistry_notebooks -d graphistry/jupyter-notebook-demos:1.1`.
+These are public images, available on DockerHub, built on the Jupyter notebooks with pygraphistry installed, with several demo notebooks.
+
+Run `docker run -p 8888:8888  --restart=unless-stopped --name graphistry_notebook -d graphistry/jupyter-notebook:1.1`.
