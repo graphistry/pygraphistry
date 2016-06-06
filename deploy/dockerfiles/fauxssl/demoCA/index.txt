@@ -1,2 +1,0 @@
-V	190506232815Z		AB0E2CB164B99734	unknown	/C=AU/ST=Some-State/O=Internet Widgits Pty Ltd/CN=graphistry.internal
-V	170506234139Z		AB0E2CB164B99735	unknown	/C=AU/ST=Some-State/O=Internet Widgits Pty Ltd/CN=graphistry-in-a-box
