@@ -1,0 +1,2 @@
+include versioneer.py
+include graphistry/_version.py

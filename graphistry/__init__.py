@@ -1,8 +1,5 @@
-from pkg_resources import get_distribution, DistributionNotFound
-
-try:
-    __version__ = get_distribution('graphistry').version
-except DistributionNotFound:
-    __version__ = '0.0.0'
+from ._version import get_versions
+__version__ = get_versions()['version']
+del get_versions
 
 from graphistry.pygraphistry import register, bind, edges, nodes, graph, settings

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from setuptools import setup, find_packages
+import versioneer
 
 long_description = """
 **PyGraphistry** is a visual graph analytics library to extract, transform, and
@@ -34,7 +35,7 @@ Tutorial and API docs are on
 
 setup(
     name='graphistry',
-    version='0.9.30',
+    version=versioneer.get_version(),
     packages = ['graphistry'],
     platforms='any',
     description = 'Visualize node-link graphs using Graphistry\'s cloud',
@@ -52,6 +53,7 @@ setup(
         'all': ['python-igraph', 'networkx', 'numexpr', 'Bottleneck', 'colorlover']
     },
     test_suite = 'nose.collector',
+    cmdclass=versioneer.get_cmdclass(),
     license='BSD',
     classifiers=[
         'Development Status :: 4 - Beta',
