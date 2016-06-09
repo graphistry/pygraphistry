@@ -16,10 +16,15 @@
 Uninstall the local checkout (useful to rollback to packaged version) with `./setup.py develop --uninstall`
 
 # Release Procedure
-1. `git tag X.X.X`
-2. `git push --tags`
-3. In the *graphistry/config* repo, in *index.js*, update `PYGRAPHISTRY.latestVersion`.
+1. Tag the repository with a new version number. We use semantic version numbers of the form *X.Y.Z*.
 
-### Package & Upload:
-1. Get `~/.pypirc` file from the powers that be.
-2. Run `./setup.py bdist_wheel upload -r pypi`
+	```sh
+	git tag X.Y.Z`
+	git push --tags
+	```
+
+3. In the [graphistry/config](https://github.com/graphistry/config) repository, update `PYGRAPHISTRY.latestVersion` in *index.js*
+
+### Package & Upload
+1. Login to [Graphistry's Jenkins](http://deploy.graphistry.com/view/Package/job/Package%20PyGraphistry%20to%20PIP/build).
+2. Fill the `tag` parameter with version number you have just used to tag the repository, then click *Build*.
