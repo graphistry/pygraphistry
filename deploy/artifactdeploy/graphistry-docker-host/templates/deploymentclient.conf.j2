@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+
+[deployment-client]
+clientName = {{ inventory_friendlyname if inventory_friendlyname is defined else inventory_hostname }}
+
+[target-broker:deploymentServer]
+targetUri = {{ splunk_deploy_server_uri }}

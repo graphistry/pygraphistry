@@ -1,0 +1,43 @@
+---
+- hosts: all
+  tasks:
+    - name: Log in to Docker for our private images
+      command: docker login -u {{ docker_username }} -p {{ docker_password }}
+
+    - name: Directories for Graphistry config and logs
+      command: mkdir /etc/graphistry /var/graphistry
+      become: yes
+      become_user: root
+
+    - name: Own Graphistry config and logs
+      command: chown {{ ansible_ssh_user }} /etc/graphistry /var/graphistry
+      become: yes
+      become_user: root
+
+    - name: Make Graphistry config directories
+      command: mkdir /etc/graphistry/splunk /etc/graphistry/ssl
+
+    - name: Splunk host name
+      template: src=inputs.conf.j2
+                dest=/etc/graphistry/splunk/inputs.conf
+
+    - name: Splunk server name
+      template: src=server.conf.j2
+                dest=/etc/graphistry/splunk/server.conf
+
+    - name: Splunk deployment client
+      template: src=deploymentclient.conf.j2
+                dest=/etc/graphistry/splunk/deploymentclient.conf
+
+    - name: Place SSL certs
+      copy: src=certs
+            dest=/etc/graphistry/ssl
+
+    - name: Place launch script
+      copy: src=launch.sh
+            dest=/usr/bin/graphistry-launch.sh
+            owner=root
+            group=root
+            mode=0644
+      become: yes
+      become_user: root
