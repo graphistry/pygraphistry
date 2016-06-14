@@ -3,7 +3,7 @@ C1=graphistry/nginx-central-vizservers:1.0.0.32
 C2=graphistry/nginx-central-vizservers:1.0.0.32.httponly
 C3=graphistry/cluster-membership:1.0
 C4=graphistry/central-and-vizservers:$1
-for i in    $C1 $C2 $C3 $C4 ; do docker rmi $i ; docker pull $i ; done
+for i in    $C1 $C2 $C3 $C4 ; do (docker rmi $i || true) ; docker pull $i ; done
 docker save $C1 $C2 $C3 $C4 | gzip -c6 > containers.lxc.gz
 for i in    $C1 $C2 $C3 $C4 ; do docker rmi $i ; done
 sed -i -e 's_$1_'$1'_' launch.sh
