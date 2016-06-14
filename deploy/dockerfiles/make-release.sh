@@ -10,6 +10,6 @@ sed -i -e 's_$1_'$1'_' launch.sh
 cp ../documentation/certs.txt .
 tar -cvzf tmp.tar.gz instructions.txt certs.txt containers.lxc.gz load.sh launch.sh
 SUFFIX=`sha1sum tmp.tar.gz | cut -d ' ' -f 1`
-TARBALL=iqt-package-${2}-${SUFFIX}.tar.gz
+TARBALL=airgapped-package-${2}-${SUFFIX}.tar.gz
 mv tmp.tar.gz ${TARBALL}
 s3cmd -c /home/ubuntu/.s3cfg put ${TARBALL} s3://graphistry.releases/
