@@ -5,12 +5,8 @@
       command: docker login -u {{ docker_username }} -p {{ docker_password }}
 
     - name: Directories for Graphistry config and logs
-      command: mkdir /etc/graphistry /var/graphistry
-      become: yes
-      become_user: root
-
-    - name: Own Graphistry config and logs
-      command: chown {{ ansible_ssh_user }} /etc/graphistry /var/graphistry
+      file: state=directory owner={{ ansible_ssh_user }} path={{ item }}
+      with_items: ["/etc/graphistry", "/var/graphistry"]
       become: yes
       become_user: root
 
