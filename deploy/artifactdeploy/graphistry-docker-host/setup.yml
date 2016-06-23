@@ -24,7 +24,6 @@
 
     - name: Place SSL certs
       copy: src=certs
-            state=directory
             dest=/etc/graphistry/ssl
 
     - name: Place launch script
