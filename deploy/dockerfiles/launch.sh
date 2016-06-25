@@ -21,7 +21,14 @@ fi
 
 docker rm -f graphistry_mongo || true
 
-docker run --net host --restart=unless-stopped --name graphistry_mongo -d graphistry/cluster-membership:1.0
+docker run --net host --restart=unless-stopped --name graphistry_mongo -d mongo:2
+
+
+for i in {1..5} ; do docker exec graphistry_mongo mongo --eval "2+2" | sleep 1 ; done
+MONGO_NAME=cluster
+MONGO_USERNAME=graphistry
+MONGO_PASSWORD=graphtheplanet
+docker exec graphistry_mongo bash -c "mongo --eval '2+2' -u $MONGO_USERNAME -p $MONGO_PASSWORD localhost/$MONGO_NAME || (mongo --eval \"db.createUser({user: '$MONGO_USERNAME', pwd: '$MONGO_PASSWORD', roles: ['readWrite']})\" localhost/$MONGO_NAME && mongo --eval 'db.gpu_monitor.createIndex({updated: 1}, {expireAfterSeconds: 30})'  -u $MONGO_USERNAME -p $MONGO_PASSWORD localhost/$MONGO_NAME && mongo --eval 'db.node_monitor.createIndex({updated: 1}, {expireAfterSeconds: 30})' -u $MONGO_USERNAME -p $MONGO_PASSWORD localhost/$MONGO_NAME )"
 
 
 docker rm -f graphistry_splunk || true
