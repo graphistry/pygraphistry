@@ -1,8 +1,9 @@
 .DS_Store
 node_modules
+config.json
 npm-debug.log
-lerna-debug.log
 tests.log
 dist
 tmp
 www
+test_results
