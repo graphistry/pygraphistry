@@ -2,10 +2,11 @@
 [![Build Status](http://deploy.graphistry.com/buildStatus/icon?job=graph-viz)](http://deploy.graphistry.com/job/graph-viz/)
 
 Graph visualization for Graphistry's cloud-based visualization platform.
+[![Build Status](http://deploy.graphistry.com/buildStatus/icon?job=StreamGL)](http://deploy.graphistry.com/job/StreamGL/)
 
+Stream WebGL buffers into the browser from a remote server
 This module is primarily intended to be loaded by [viz-server](https://github.com/graphistry/viz-server), where it implements a OpenCL-based graph layout simulation and [StreamGL](https://github.com/graphistry/StreamGL)-compatible data generation. 
 
-This module also has basic support for being run as a stand-alone app, strictly for development/testing purposes. 
 
 ## Instructions
 
@@ -17,12 +18,16 @@ This module also has basic support for being run as a stand-alone app, strictly 
   - **If you fail to do this, your code changes won't have any effect on the running code.**
 5. Alternatively, instead of step 4, you can run `npm watch`.
   - While this command is running, it watches for any changes made to the source files, and automatically recompiles the code when a change is detected.
+Requires node `v0.10.41` and npm `v2.14.0`.
+
+- `npm run build` compiles for production
+- `npm run build-dev` compiles for development
+- `npm run start` compiles for production and starts a file watcher
+- `npm run start-dev` compiles for development and starts a file watcher
+- `npm run dev` is an alias for `npm run start-dev`
 
 
-## Standalone Development Server
 
-This modules implements a bare-bones equivalent of [viz-server](https://github.com/graphistry/viz-server), to provide a HTTP/WebSocket interface to the graph visualization. This is not meant to be run in production *ever*, and lacks many core features compared to viz-server.
+## Test Datasets
 
-> It is reccomended that, even for local development, you run viz-server, which will load graph-viz, instead of running graph-viz directly.
-
-If you still insist on running graph-viz directly, run `npm start` in this repo's root directory.
+https://docs.google.com/spreadsheets/d/1ctmEoT-aWjJyCiAZ9kEvW_XE9-ydyMCTtL9wGZna58Q/edit#gid=0
