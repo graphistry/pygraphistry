@@ -24,7 +24,7 @@
   },
   "homepage": "https://github.com/graphistry/viz-app#readme",
   "dependencies": {
-    "@graphistry/common": "2.0.0",
+    "@graphistry/common": "2.0.1",
     "@graphistry/config": "2.0.0",
     "@graphistry/dijkstra": "2.0.0",
     "@graphistry/node-pigz": "2.0.0",
@@ -88,6 +88,8 @@
     "q": "1.4.1",
     "raw-loader": "0.5.1",
     "reaxtor": "1.2.2",
+    "rx-http-server": "trxcllnt/rx-http-server",
+    "rx-router": "trxcllnt/rx-router",
     "shelljs": "0.7.0",
     "simpleflake": "1.0.0",
     "snabbdom": "0.5.0",

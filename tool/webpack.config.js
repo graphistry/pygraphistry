@@ -28,7 +28,7 @@ const clientConfig = {
   },
   output: {
     path: './www',
-    publicPath: '/',
+    publicPath: '/graph/',
     // filename: 'viz-client.js', //during development
     filename: 'viz-client_[hash:6].js',
   },
@@ -70,7 +70,7 @@ const clientConfig = {
     }),*/
   ],
   externals: [
-    'jquery', // externalize jQuery
+    { jquery: 'jQuery' } // externalize jQuery
   ]
 }
 
@@ -101,7 +101,7 @@ const serverConfig = {
     // /^.cl$/i, // load node-opencl kernels at runtime from www
   ],
   node: {
-    fs: 'empty',
+    // fs: 'empty',
     console: true,
     __filename: true,
     __dirname: true,
@@ -136,11 +136,6 @@ const cordovaConfig = {
       __SERVER__: false,
       __CORDOVA__: true,
     }),
-    /*new HtmlWebpackPlugin({
-      title: 'My Awesome App',
-      template: './src/share/index.html',
-      // filename: './src/share/index.html'
-    }),*/
   ],
 }
 
@@ -176,7 +171,7 @@ function commonLoadersWithPresets(presets) {
       }
     }, {
       test: /\.cl$/,
-      loader: 'raw-loader'
+      loader: 'raw'
     }, {
       test: /\.json$/,
       loader: 'json',
