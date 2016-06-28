@@ -4,14 +4,14 @@
   "description": "viz-app",
   "main": "index.js",
   "scripts": {
-    "build": "npm run clean && node tool/build",
-    "bundle": "npm run build && npm shrinkwrap && tar -cvjf bundle.tar.bz2 npm-shrinkwrap.json ./www",
-    "jshint": "jshint -c .jshintrc --exclude-path .gitignore .",
     "clean": "rm -rf ./www/*",
     "dev": "npm run clean && node tool/dev",
     "debug": "node-debug ./www/viz-server.js",
-    "serve": "node ./www/viz-server.js",
-    "test": "rm -rf test/build && node tool/test"
+    "build": "npm run clean && node tool/build",
+    "test": "rm -rf test/build && node tool/test",
+    "start": "npm run build && node ./www/viz-server.js",
+    "jshint": "jshint -c .jshintrc --exclude-path .gitignore .",
+    "bundle": "npm run build && npm shrinkwrap && tar -cvjf bundle.tar.bz2 npm-shrinkwrap.json ./www"
   },
   "repository": {
     "type": "git",

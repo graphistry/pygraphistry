@@ -1,12 +1,7 @@
-# graph-viz
-[![Build Status](http://deploy.graphistry.com/buildStatus/icon?job=graph-viz)](http://deploy.graphistry.com/job/graph-viz/)
+# viz-app
+[![Build Status](http://deploy.graphistry.com/buildStatus/icon?job=viz-app)](http://deploy.graphistry.com/job/viz-app/)
 
-Graph visualization for Graphistry's cloud-based visualization platform.
-[![Build Status](http://deploy.graphistry.com/buildStatus/icon?job=StreamGL)](http://deploy.graphistry.com/job/StreamGL/)
-
-Stream WebGL buffers into the browser from a remote server
-This module is primarily intended to be loaded by [viz-server](https://github.com/graphistry/viz-server), where it implements a OpenCL-based graph layout simulation and [StreamGL](https://github.com/graphistry/StreamGL)-compatible data generation. 
-
+Graphistry's cloud-based visualization platform. Stream WebGL buffers into the browser powered by an Open-CL based layout simulation.
 
 ## Instructions
 
@@ -14,19 +9,15 @@ This module is primarily intended to be loaded by [viz-server](https://github.co
 2. Clone this repo.
 3. Run `npm install` from this repo's root directory.
   - This will install all dependencies, and run the module's build scripts to compile our es6 to (es5) JavaScript, and LESS to CSS.
-4. After making any changes to the source code, run `npm build` to recompile the source. 
-  - **If you fail to do this, your code changes won't have any effect on the running code.**
-5. Alternatively, instead of step 4, you can run `npm watch`.
-  - While this command is running, it watches for any changes made to the source files, and automatically recompiles the code when a change is detected.
-Requires node `v0.10.41` and npm `v2.14.0`.
+4. Run `npm run dev` to clean, compile, and start a webpack-dev-server that hot reloads modules for the client and server.
 
-- `npm run build` compiles for production
-- `npm run build-dev` compiles for development
-- `npm run start` compiles for production and starts a file watcher
-- `npm run start-dev` compiles for development and starts a file watcher
-- `npm run dev` is an alias for `npm run start-dev`
+Requires node `v6.1.0` and npm `v3.9.3`.
 
+## Commands
 
+- `npm run build` cleans `www/` and compiles all modules for production
+- `npm start` cleans `www/`, compiles all modules for production, and starts the viz-server
+- `npm run dev` cleans `www/`, compiles all modules for development, and starts a webpack-dev-server that watches source files and hot-reloads the viz-client and viz-server
 
 ## Test Datasets
 
