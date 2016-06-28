@@ -93,7 +93,7 @@
     "shelljs": "0.7.0",
     "simpleflake": "1.0.0",
     "snabbdom": "0.5.0",
-    "snabbdom-to-html": "2.1.3",
+    "snabbdom-to-html": "acstll/snabbdom-to-html",
     "socket.io": "1.3.5",
     "socket.io-client": "1.3.5",
     "source-map-support": "0.4.0",
