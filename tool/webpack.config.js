@@ -8,10 +8,10 @@ const config = require('@graphistry/config')();
 const vizAppPackage = require('../package.json');
 const AssetsPlugin = require('assets-webpack-plugin')
 const StringReplacePlugin = require('string-replace-webpack-plugin');
-// const HtmlWebpackPlugin = require('html-webpack-plugin')
 const postcss = () => [require('postcss-calc'), require('postcss-nesting'), require('postcss-css-variables'), require('autoprefixer')]
 
 const commonPlugins = [
+  new StringReplacePlugin(),
   new webpack.optimize.OccurrenceOrderPlugin(),
   new webpack.NoErrorsPlugin(),
   new webpack.ProvidePlugin({
@@ -22,6 +22,7 @@ const commonPlugins = [
 const clientConfig = {
   amd: false,
   progress: true,
+  devtool: 'source-map',
   node: { fs: 'empty' },
   entry: {
     client: ['./src/viz-client/index.js'],
@@ -29,15 +30,13 @@ const clientConfig = {
   output: {
     path: './www',
     publicPath: '/graph/',
-    // filename: 'viz-client.js', //during development
+    // filename: 'viz-client.js',
+    //during development
     filename: 'viz-client_[hash:6].js',
   },
   module: {
     loaders: [...commonLoadersWithPresets(['es2015', 'stage-0', 'react'])],
     noParse: [],
-  },
-  resolve: {
-    alias: {},
   },
   postcss,
   plugins: [...commonPlugins,
@@ -47,9 +46,10 @@ const clientConfig = {
     new webpack.DefinePlugin({
       __CLIENT__: true,
       __SERVER__: false,
-      __RELEASE__: `${config.RELEASE}`,
-      __VERSION__: `${vizAppPackage.version}`
+      __RELEASE__: JSON.stringify(config.RELEASE),
+      __VERSION__: JSON.stringify(vizAppPackage.version)
     }),
+    /*
     // extract common code to a single file loaded asynchronously
     new webpack.optimize.CommonsChunkPlugin({
       // (the commons chunk name)
@@ -63,11 +63,7 @@ const clientConfig = {
       // (create an async commons chunk)
       async: true
     }),
-    /* new HtmlWebpackPlugin({
-      title: 'My Awesome App',
-      template: './src/share/index.html',
-      // filename: './src/share/index.html'
-    }),*/
+    */
   ],
   externals: [
     { jquery: 'jQuery' } // externalize jQuery
@@ -75,6 +71,7 @@ const clientConfig = {
 }
 
 const serverConfig = {
+  devtool: 'source-map',
   entry: {
     server: ['./src/viz-server/index.js'],
   },
@@ -92,7 +89,8 @@ const serverConfig = {
     new webpack.DefinePlugin({
       __CLIENT__: false,
       __SERVER__: true,
-      __VERSION__: `${vizAppPackage.version}`
+      __RELEASE__: JSON.stringify(config.RELEASE),
+      __VERSION__: JSON.stringify(vizAppPackage.version)
     }),
   ],
   externals: [
@@ -114,6 +112,7 @@ const serverConfig = {
  */
 
 const cordovaConfig = {
+  devtool: 'source-map',
   entry: {
     client: ['./src/viz-client/index.js'],
   },
@@ -170,9 +169,6 @@ function commonLoadersWithPresets(presets) {
         cacheDirectory: true, // cache into OS temp folder by default
       }
     }, {
-      test: /\.cl$/,
-      loader: 'raw'
-    }, {
       test: /\.json$/,
       loader: 'json',
     }, {
@@ -185,7 +181,13 @@ function commonLoadersWithPresets(presets) {
       test: /\.pegjs$/,
       loader: 'pegjs-loader?cache=true&optimize=size'
     }, {
-      test: /\.(?!(jsx?|json|s?css|less|html?|pegjs|proto)$)([^.]+$)/, // match everything except js, jsx, json, css, scss, less. You can add more
+      test: /\.(hbs|handlebars)$/, loader: 'handlebars-loader'
+    }, {
+      // match everything except [
+      //   hb, js, jsx, json, css, scss, less,
+      //   html, glsl, pegjs, proto, handlebars
+      // ] You can add more.
+      test: /\.(?!(hb|jsx?|json|s?css|less|html?|glsl|pegjs|proto|handlebars)$)([^.]+$)/,
       loader: 'url?limit=10000&name=[name]_[hash:6].[ext]',
     }, {
       test: /PEGUtil.js$/,

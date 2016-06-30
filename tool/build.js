@@ -36,7 +36,7 @@ const commonPlugins = [
     compress: {
       warnings: false,
     },
-    sourceMap: false,
+    sourceMap: true,
     comments: false,
     'screw-ie8': true,
   }),
