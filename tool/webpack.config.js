@@ -1,8 +1,5 @@
 'use strict' // eslint-disable-line
 
-// const path = require('path')
-// const _root = path.resolve()
-
 const webpack = require('webpack');
 const config = require('@graphistry/config')();
 const vizAppPackage = require('../package.json');
@@ -30,9 +27,9 @@ const clientConfig = {
   output: {
     path: './www',
     publicPath: '/graph/',
-    // filename: 'viz-client.js',
+    filename: '[name].js',
     //during development
-    filename: 'viz-client_[hash:6].js',
+    // filename: '[name]_[hash:6].js',
   },
   module: {
     loaders: [...commonLoadersWithPresets(['es2015', 'stage-0', 'react'])],
