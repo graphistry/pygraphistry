@@ -1,2 +1,22 @@
 [default]
 host = {{ inventory_friendlyname if inventory_friendlyname is defined else inventory_hostname }}
+
+[monitor:///var/log/central-app/*.log]
+disabled = false
+index = graphistry_apps
+
+[monitor:///var/log/worker/*.log]
+disabled = false
+index = graphistry_apps
+
+[monitor:///var/log/graphistry-json/*.log]
+disabled = false
+index = graphistry_apps
+
+[monitor:///var/log/reaper/*.log]
+disabled = false
+index = graphistry_apps
+
+[monitor:///var/log/worker/*.log]
+disabled = false
+index = graphistry_apps
