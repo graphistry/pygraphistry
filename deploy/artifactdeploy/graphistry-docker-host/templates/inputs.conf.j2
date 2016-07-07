@@ -5,7 +5,7 @@ host = {{ inventory_friendlyname if inventory_friendlyname is defined else inven
 disabled = false
 index = graphistry_apps
 
-[monitor:///var/log/worker/*.log]
+[monitor:///var/log/clients/*.log]
 disabled = false
 index = graphistry_apps
 
