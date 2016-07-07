@@ -22,6 +22,10 @@
       template: src=deploymentclient.conf.j2
                 dest=/etc/graphistry/splunk/deploymentclient.conf
 
+    - name: Splunk outputs
+      template: src=outputs.conf.j2
+                dest=/etc/graphistry/splunk/deploymentclient.conf
+
     - name: Place SSL certs
       copy: src=certs
             dest=/etc/graphistry/ssl
