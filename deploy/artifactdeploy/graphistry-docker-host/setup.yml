@@ -30,6 +30,10 @@
       copy: src=certs
             dest=/etc/graphistry/ssl
 
+    - name: Place environment variables
+      template: src=graphistry-docker-host.sh.j2
+                dest=/etc/profile.d/graphistry-docker-host.sh
+
     - name: Place launch script
       copy: src=launch.sh
             dest=/usr/bin/graphistry-launch.sh
