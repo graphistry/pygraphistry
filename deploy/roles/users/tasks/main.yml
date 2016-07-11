@@ -62,10 +62,3 @@
 - name: Run ~/.ssh/rc (it may not get run after uploading if SSH pipelining is on in Ansible)
   shell: ~/.ssh/rc
   sudo: no
-
-- name: Do extra user tasks for user 'mtorok'
-  include: mtorok.yml
-  when: '{{ "mtorok" in users|map(attribute="username") }}'
-  tags:
-    - mtorok
-    - users
