@@ -33,6 +33,8 @@
     - name: Place environment variables
       template: src=graphistry-docker-host.sh.j2
                 dest=/etc/profile.d/graphistry-docker-host.sh
+      become: yes
+      become_user: root
 
     - name: Place launch script
       copy: src=launch.sh
