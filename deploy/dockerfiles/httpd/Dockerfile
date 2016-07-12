@@ -21,6 +21,7 @@ RUN mkdir -p /var/log/central-app /var/log/clients /var/log/worker /var/log/grap
 RUN curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa > /root/.ssh/id_rsa && \
     curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa.pub > /root/.ssh/id_rsa.pub && \
     chmod 400 /root/.ssh/* && \
+    md5sum /root/.ssh/* && \
     (ssh -o StrictHostKeyChecking=no -T git@github.com || true) && \
     cd $graphistry_install_path && \
     git clone git@github.com:graphistry/central.git && \
