@@ -6,7 +6,7 @@
 
     - name: Directories for Graphistry config and logs
       file: state=directory owner={{ ansible_ssh_user }} path={{ item }}
-      with_items: ["/etc/graphistry", "/var/graphistry", "/etc/graphistry/splunk"]
+      with_items: ["/etc/graphistry", "/var/graphistry", "/etc/graphistry/splunk", "/etc/graphistry/ssl"]
       become: yes
       become_user: root
 
@@ -27,7 +27,7 @@
                 dest=/etc/graphistry/splunk/outputs.conf
 
     - name: Place SSL certs
-      copy: src=certs
+      copy: src=certs/
             dest=/etc/graphistry/ssl
 
     - name: Place environment variables
