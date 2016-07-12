@@ -32,8 +32,9 @@ docker exec graphistry_mongo bash -c "mongo --eval '2+2' -u $MONGO_USERNAME -p $
 
 
 docker rm -f graphistry_splunk || true
-# docker run -e "SPLUNK_START_ARGS=--accept-license" -e "SPLUNK_CMD_1='edit user admin -password $SPLUNK_PASSWORD -auth admin:changeme --answer-yes'" -v `pwd`/inputs.conf:/opt/splunk/etc/system/local/inputs.conf -v `pwd`/server.conf:/opt/splunk/etc/system/local/server.conf -v `pwd`/deploymentclient.conf:/opt/splunk/etc/system/local/deploymentclient.conf -e "SPLUNK_FORWARD_SERVER=splunk.graphistry.com:9997" -e "SPLUNK_FORWARD_SERVER_1=splunk.graphistry.com:9997" -e SPLUNK_DEPLOYMENT_SERVER="splunk.graphistry.com:8089" outcoldman/splunk:forwarder
-# docker run --net host --restart=unless-stopped graphistry_splunk -d -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper graphistry/log-shipper:1.0.0
+if [ -n "$SPLUNK_PASSWORD" ] ; then
+    docker run --name graphistry_splunk --restart=unless-stopped -d -v /etc/graphistry/splunk/:/opt/splunkforwarder/etc/system/local -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper graphistry/splunkforwarder:6.4.1 bash -c "/opt/splunkforwarder/bin/splunk edit user admin -password $SPLUNK_PASSWORD -auth admin:$SPLUNK_ADMIN --accept-license --answer-yes ; /opt/splunkforwarder/bin/splunk start --nodaemon --accept-license --answer-yes"
+fi
 
 echo SUCCESS.
 echo Graphistry has been launched, and should be up and running.
