@@ -6,7 +6,7 @@
 
     - name: Directories for Graphistry config and logs
       file: state=directory owner={{ ansible_ssh_user }} path={{ item }}
-      with_items: ["/etc/graphistry", "/var/graphistry", "/etc/graphistry/splunk", "/etc/graphistry/ssl"]
+      with_items: ["/etc/graphistry", "/var/graphistry", "/etc/graphistry/splunk"]
       become: yes
       become_user: root
 
