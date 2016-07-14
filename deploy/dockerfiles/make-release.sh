@@ -1,7 +1,7 @@
 #!/bin/sh -xe
 C1=graphistry/nginx-central-vizservers:1.1.0.32
 C2=graphistry/nginx-central-vizservers:1.1.0.32.httponly
-C3=graphistry/cluster-membership:1.0
+C3=graphistry/splunkfwd:6.4.1
 C4=graphistry/central-and-vizservers:$1
 for i in    $C1 $C2 $C3 $C4 ; do (docker rmi $i || true) ; docker pull $i ; done
 docker save $C1 $C2 $C3 $C4 | gzip -c6 > containers.lxc.gz
