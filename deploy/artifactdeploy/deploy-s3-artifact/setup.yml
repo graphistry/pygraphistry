@@ -1,0 +1,21 @@
+---
+- hosts: all
+  tasks:
+    - name: Make directory
+      command: mkdir /var/graphistry/{{ deploy_directory }}
+
+    - name: Copy release to deploy directory
+      copy: src=release.tar.gz
+            dest=/var/graphistry/{{ deploy_directory }}
+
+    - name: Unpack release
+      chdir: /var/graphistry/{{ deploy_directory }}
+      command: tar -xvzf release.tar.gz
+
+    - name: Load containers
+      chdir: /var/graphistry/{{ deploy_directory }}
+      command: load.sh
+
+    - name: Launch containers with arbitrary bash parameters
+      chdir: /var/graphistry/{{ deploy_directory }}
+      command: bash -c "{{ arbitrary_parameters }} ./launch.sh"
