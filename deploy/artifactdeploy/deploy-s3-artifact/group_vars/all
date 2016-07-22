@@ -1,0 +1,5 @@
+---
+ansible_ssh_user: ubuntu
+ansible_ssh_private_key_file: /tmp/key
+deploy_directory: deploy
+arbitrary_parameters: "GRAPHISTRY_LOG_LEVEL=DEBUG SSL=off"
