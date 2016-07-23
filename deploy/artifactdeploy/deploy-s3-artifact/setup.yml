@@ -16,7 +16,7 @@
     - name: Load containers
       args:
         chdir: /var/graphistry/{{ deploy_directory }}
-      command: load.sh
+      command: ./load.sh
 
     - name: Launch containers with arbitrary bash parameters
       args:
