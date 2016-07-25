@@ -11,6 +11,6 @@ sed -i -e 's_$1_'$1'_' launch.sh
 cp ../documentation/certs.txt .
 tar -cvzf tmp.tar.gz instructions.txt certs.txt containers.lxc.gz load.sh launch.sh
 SUFFIX=`sha1sum tmp.tar.gz | cut -d ' ' -f 1`
-TARBALL=graphistry-release-${2}-${SUFFIX}.tar.gz
+TARBALL=graphistry-release-${2}-${1}-${SUFFIX}.tar.gz
 mv tmp.tar.gz ${TARBALL}
 s3cmd -c /home/ubuntu/.s3cfg put ${TARBALL} s3://graphistry.releases/
