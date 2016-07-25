@@ -35,12 +35,3 @@
                 dest=/etc/profile.d/graphistry-docker-host.sh
       become: yes
       become_user: root
-
-    - name: Place launch script
-      copy: src=launch.sh
-            dest=/usr/bin/graphistry-launch.sh
-            owner=root
-            group=root
-            mode=0755
-      become: yes
-      become_user: root
