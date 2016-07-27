@@ -21,4 +21,4 @@
     - name: Launch containers with arbitrary bash parameters
       args:
         chdir: /var/graphistry/{{ deploy_directory }}
-      command: bash -c "{{ arbitrary_parameters }} ./launch.sh"
+      command: bash -l -c "{{ arbitrary_parameters }} ./launch.sh"
