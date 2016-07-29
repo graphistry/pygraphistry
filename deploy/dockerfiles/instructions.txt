@@ -16,7 +16,7 @@ Second, we will be loading a few containers onto that machine that, in the ensem
 # HOW LONG SHOULD THIS TAKE?
 
 Preparing a machine to run Docker containers should take around an hour (provisioning, finding a new version of Ubuntu, running the scripts).
-Loading new versions of the containers onto the machine should take under a minute.
+Loading new versions of the containers onto the machine should take a minute or two, and the launch script should take ten seconds or so.
 
 # WHAT DO I NEED?
 
