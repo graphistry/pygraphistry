@@ -40,7 +40,7 @@ const commonPlugins = [
  */
 
 // clientConfig.devtool = 'cheap-module-eval-source-map'
-clientConfig.devtool = 'inline-source-map'
+// clientConfig.devtool = 'inline-source-map'
 // add hot middleware on port 8090
 clientConfig.entry.client.push('webpack-hot-middleware/client?path=http://localhost:8090/__webpack_hmr&overlay=false&reload=true&noInfo=true&quiet=true')
 clientConfig.module.loaders.push(
@@ -76,7 +76,7 @@ let clientStarted = false
  * Server
  */
 // serverConfig.devtool = 'cheap-module-eval-source-map'
-serverConfig.devtool = 'inline-source-map'
+// serverConfig.devtool = 'inline-source-map'
 
 // allow hot module on server side
 serverConfig.entry.server.push(__dirname + '/signal.js?hmr')  // hmr is the signal to re load
@@ -119,7 +119,7 @@ function createServer() {
  */
 const cordovaConfig = require('./webpack.config.js').cordovaConfig
 
-cordovaConfig.devtool = 'inline-source-map'
+// cordovaConfig.devtool = 'inline-source-map'
 cordovaConfig.module.loaders.push(...commonLoaders)
 // remove webpack.HotModuleReplacementPlugin
 cordovaConfig.module.loaders = cordovaConfig.module.loaders.filter(m => !(m instanceof webpack.HotModuleReplacementPlugin))
