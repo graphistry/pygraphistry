@@ -179,12 +179,18 @@ function commonLoadersWithPresets(presets) {
       loader: 'pegjs-loader?cache=true&optimize=size'
     }, {
       test: /\.(hbs|handlebars)$/, loader: 'handlebars-loader'
-    }, {
+    },
+    { test: /\.woff(\?v=\d+\.\d+\.\d+)?$/, loader: "url?&name=[name]_[hash:6].[ext]&limit=10000&mimetype=application/font-woff" },
+    { test: /\.woff2(\?v=\d+\.\d+\.\d+)?$/, loader: "url?&name=[name]_[hash:6].[ext]&limit=10000&mimetype=application/font-woff" },
+    { test: /\.ttf(\?v=\d+\.\d+\.\d+)?$/, loader: "url?&name=[name]_[hash:6].[ext]&limit=10000&mimetype=application/octet-stream" },
+    { test: /\.eot(\?v=\d+\.\d+\.\d+)?$/, loader: "url?&name=[name]_[hash:6].[ext]" },
+    { test: /\.svg(\?v=\d+\.\d+\.\d+)?$/, loader: "url?&name=[name]_[hash:6].[ext]&limit=10000&mimetype=image/svg+xml" },
+    {
       // match everything except [
       //   hb, js, jsx, json, css, scss, less,
       //   html, glsl, pegjs, proto, handlebars
       // ] You can add more.
-      test: /\.(?!(hb|jsx?|json|s?css|less|html?|glsl|pegjs|proto|handlebars)$)([^.]+$)/,
+      test: /\.(?!(hb|jsx?|json|s?css|less|html?|glsl|woff|woff2|ttf|eot|svg|pegjs|proto|handlebars)$)([^.]+$)/,
       loader: 'url?limit=10000&name=[name]_[hash:6].[ext]',
     }, {
       test: /PEGUtil.js$/,
