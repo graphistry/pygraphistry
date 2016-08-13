@@ -72,3 +72,11 @@ When you have launched the app, you should be able to point your browser to that
 These are public images, available on DockerHub, built on the Jupyter notebooks with pygraphistry installed, with several demo notebooks.
 
 Run `docker run -p 8888:8888  --restart=unless-stopped --name graphistry_notebook -d graphistry/jupyter-notebook:1.1`.
+
+# KEEP MY DATASETS AROUND FROM DEPLOY TO DEPLOY.
+
+By default, the launch script will make a directory in its directory, `data_cache`, for all loaded datasets.
+
+If you make a new directory for each release that you deploy, and you are running an airgapped Graphistry, you may want to keep around the datasets that you have previously loaded.
+
+Please use the GRAPHISTRY_DATA_CACHE environment variable to set this to a directory of your choosing.
