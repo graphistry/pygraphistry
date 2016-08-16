@@ -80,3 +80,7 @@ By default, the launch script will make a directory in its directory, `data_cach
 If you make a new directory for each release that you deploy, and you are running an airgapped Graphistry, you may want to keep around the datasets that you have previously loaded.
 
 Please use the GRAPHISTRY_DATA_CACHE environment variable to set this to a directory of your choosing.
+
+# CLEAN UP SPACE ON A GRAPHISTRY-ONLY BOX.
+
+Feel free to use something like https://github.com/spotify/docker-gc .
