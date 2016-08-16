@@ -1,6 +1,6 @@
 # Graphistry Deploy
 
-This repo contains the Ansible scripts which deploy our application stack to AWS. It also contain the `setup.js` tool, which can download/update and link our application stack on both local and remote systems.
+This repo contains the Docker files and Ansible scripts which deploy our application stack to AWS. It also contain the `setup.js` tool, which can download/update and link our application stack on both local and remote systems.
 
 Additionally, it contains documentation pertaining to our overall application stack, including installing and running it. Documentation for individual applications should be kept in the repositories for those applications.
 
