@@ -1,3 +1,0 @@
----
-# The git label to use when checking out the viz-server module
-viz_module_checkout: "master"

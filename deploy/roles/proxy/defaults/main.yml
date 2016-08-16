@@ -1,3 +1,0 @@
----
-# The port the first worker will listen on (each subsequent one will listen on the next higher port)
-workers_port_start: 10000
