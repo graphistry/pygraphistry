@@ -34,9 +34,11 @@ if(module.hot) {
 		}
 	}
 
-
 	process.on("message", function(m) {
-		if (m != __resourceQuery.substr(1)) return
+		console.log('[HMR] got hmr message ' + m);
+		if (m != __resourceQuery.substr(1)) {
+			return;
+		}
 		if(module.hot.status() !== "idle") {
 			console.warn("[HMR] Got signal but currently in " + module.hot.status() + " state.");
 			console.warn("[HMR] Need to be in idle state to start hot update.");
