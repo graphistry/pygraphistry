@@ -1,113 +1,189 @@
-'use strict' //eslint-disable-line
+var http = require('http');
+var path = require('path');
+var chalk = require('chalk');
+var Subject = require('rxjs').Subject;
+var Observable = require('rxjs').Observable;
+var Subscription = require('rxjs').Subscription;
+var ReplaySubject = require('rxjs').ReplaySubject;
+var childProcess = require('child_process');
+var buildResource = require('./build-resource');
+var webpackConfigs = require('./webpack.config.js');
 
-/**
- * Dependencies
- */
+var HMRPort = 8090;
+var HMRMiddleware = require('webpack-hot-middleware');
+var isFancyBuild = process.argv[3] === '--fancy';
+var isDevBuild = process.env.NODE_ENV === 'development';
+var shouldWatch = isDevBuild && process.argv[2] === '--watch';
 
-const path = require('path')
+var clientConfig = webpackConfigs[0](isDevBuild, isFancyBuild);
+var serverConfig = webpackConfigs[1](isDevBuild, isFancyBuild);
 
-// get the last argument, see the dev.js
-const argv = process.argv[2]
+// copy static assets
+var shelljs = require('shelljs');
+shelljs.mkdir('-p', clientConfig.output.path);
+shelljs.cp('-rf', './src/viz-client/static/*', clientConfig.output.path);
+shelljs.mkdir('-p', serverConfig.output.path);
+shelljs.cp('-rf', './src/viz-server/static/*', serverConfig.output.path);
+shelljs.cp('-rf', './src/viz-worker/static/*', serverConfig.output.path);
 
-const fs = require('fs')
+var compile, compileClient, compileServer;
 
-const webpack = require('webpack')
-const ExtractTextPlugin = require('extract-text-webpack-plugin')
+// Prod builds have to be built sequentially so webpack can share the css modules
+// style cache between both client and server compilations.
+if (!isDevBuild) {
+    compileClient = buildResourceToObservable(clientConfig, isDevBuild, shouldWatch);
+    compileServer = buildResourceToObservable(serverConfig, isDevBuild, shouldWatch);
+    compile = Observable.concat(compileClient, compileServer).take(2).toArray();
+}
+// Dev builds can run in parallel because we don't extract the client-side
+// CSS into a styles.css file (which allows us to hot-reload CSS in dev mode).
+else {
+    compileClient = processToObservable(childProcess
+        .fork(require.resolve('./build-resource'), process.argv.slice(2).concat([0, 0]), {
+            env: process.env, cwd: process.cwd()
+        }));
+    compileServer = processToObservable(childProcess
+        .fork(require.resolve('./build-resource'), process.argv.slice(2).concat([1, 1]), {
+            env: process.env, cwd: process.cwd()
+        }));
+    compile = Observable.combineLatest(compileClient, compileServer);
+}
 
-const clientConfig = require('./webpack.config.js').clientConfig
-const serverConfig = require('./webpack.config.js').serverConfig
-
-const commonLoaders = [
-  { test: /\.css$/, loader: ExtractTextPlugin.extract('css?module&minimize&localIdentName=[local]_[hash:6]!postcss') },
-  { test: /\.less$/, loader: ExtractTextPlugin.extract('css?module&minimize&localIdentName=[local]_[hash:6]!postcss!less') },
-]
-
-const commonPlugins = [
-  new webpack.DefinePlugin({
-    __DEV__: false,
-    'process.env.NODE_ENV': '"production"',
-  }),
-  new ExtractTextPlugin('styles_[contenthash:6].css', {
-    allChunks: true,
-  }),
-  new webpack.optimize.DedupePlugin(),
-  new webpack.optimize.AggressiveMergingPlugin(),
-  new webpack.optimize.UglifyJsPlugin({
-    compress: {
-      warnings: false,
-    },
-    sourceMap: true,
-    comments: false,
-    'screw-ie8': true,
-  }),
-]
-
-
-/**
- * Client
- */
-
-clientConfig.output.filename = 'viz-client.js'
-clientConfig.module.loaders.push(...commonLoaders)
-clientConfig.plugins.push(...commonPlugins)
-;(argv !== 'cordovaOnly') && webpack(clientConfig).run((err, stats) => { // eslint-disable-line no-unused-expressions
-  console.log('Client Bundles \n', stats.toString({
-    colors: true,
-  }), '\n')
-    // cssnano, temparory work around
-  try {
-    const fileName = require(path.resolve('www/webpack-assets.json')).client.css
-    const filePath = path.resolve('www', fileName.replace(/^\/+/, ''))
-    const css = fs.readFileSync(filePath)
-    require('cssnano').process(css, { discardComments: { removeAll: true } }).then((result) => {
-      require('fs').writeFileSync(filePath, result.css)
+compile.do({
+        next: function(res) {
+            console.log('%s ✅  Build succeeded', chalk.blue('[WEBPACK]'));
+        },
+        error(err) {
+            console.error('%s ❌  Build failed', chalk.blue('[WEBPACK]'));
+            console.error(err.toString());
+        }
     })
-  } catch (e) { /* do nothing */ }
-})
+    .multicast(function() { return new Subject(); }, function(shared) {
 
-/**
- * Server
- */
+        if (!shouldWatch) {
+            return shared;
+        }
 
-serverConfig.module.loaders.push(...commonLoaders)
-serverConfig.plugins.push(...commonPlugins)
-;(argv !== 'cordovaOnly') && webpack(serverConfig).run((err, stats) => { // eslint-disable-line no-unused-expressions
-  console.log('Server Bundle \n', stats.toString({
-    colors: true,
-  }), '\n')
-  require('child_process').exec('rm www/styles_??????.css', () => {})
-  // then delele the styles.css in the server folder
-  // try {
-  // const styleFile = _root+'/www/styles.css'
-  //  fs.statSync(styleFile) && fs.unlinkSync(styleFile)
-  // } catch(e) {/*do nothing*/}
-  // file loader may also result in duplicated files from shared React components
-})
+        return Observable.merge(
+            shared.take(1).mergeMap(createClientServer),
+            shared.map(function(arr) { return arr[1] })
+                .distinctUntilChanged()
+                .mergeScan(startOrUpdateServer, null)
+        );
 
-/**
- * Cordova
- */
+        function createClientServer() {
+            console.log('Starting Client [HMR] Server...');
+            var clientHMRServer = new http.createServer(function(req, res) {
+                res.setHeader('Access-Control-Allow-Origin', '*');
+                HMRMiddleware({
+                    plugin: function(type, cb) {
+                        if (type === 'done') {
+                            shared
+                                .map(function(arr) { return arr[0]; })
+                                .distinctUntilChanged()
+                                .subscribe(cb);
+                        }
+                    }
+                }, { log: false })(req, res);
+            });
+            var listenAsObs = Observable.bindNodeCallback(clientHMRServer.listen.bind(clientHMRServer), function() {
+                console.log('************************************************************');
+                console.log('Client HMR server listening at http://%s:%s', this.address().address, this.address().port);
+                console.log('************************************************************');
+                return clientHMRServer;
+            })
+            return listenAsObs(HMRPort);
+        }
 
-const cordovaConfig = require('./webpack.config.js').cordovaConfig
-
-cordovaConfig.module.loaders.push(...commonLoaders)
-cordovaConfig.plugins.push(...commonPlugins)
-
-// remove the ExtractTextPlugin
-cordovaConfig.plugins = cordovaConfig.plugins.filter(p => !(p instanceof ExtractTextPlugin))
-// re-add the ExtractTextPlugin with new option
-cordovaConfig.plugins.push(new ExtractTextPlugin('styles.css', { allChunks: true }))
-
-;(argv === 'all' || argv === 'cordovaOnly') && webpack(cordovaConfig).run((err, stats) => {  // eslint-disable-line no-unused-expressions
-  console.log('Cordova Bundles \n', stats.toString({
-    colors: true,
-  }), '\n')
-    // cssnano, temparory work around
-  try {
-    const filePath = path.resolve(cordovaConfig.output.path, 'styles.css')
-    const css = fs.readFileSync(filePath)
-    require('cssnano').process(css, { discardComments: { removeAll: true } }).then((result) => {
-      require('fs').writeFileSync(filePath, result.css)
+        function startOrUpdateServer(child, stats) {
+            if (!child) {
+                console.log('Starting Dev Server with [HMR]...');
+            } else {
+                child.kill('SIGKILL');
+                console.log('Restarting Dev Server with [HMR]...');
+            }
+            child = childProcess.fork(path.join(
+                serverConfig.output.path,
+                serverConfig.output.filename), {
+                env: process.env, cwd: process.cwd()
+            });
+            return processToObservable(child)
+                .last(null, null, { code: 1 })
+                .mergeMap(function(data) {
+                    if (data && data.code != null) {
+                        console.error(
+                            'Dev Server exited with code:', data.code,
+                            'and signal:', data.signal
+                        );
+                    }
+                    return Observable.empty();
+                })
+                .startWith(child);
+        }
     })
-  } catch (e) { /* do nothing */ }
-})
+    .subscribe({
+        error: function(e) {
+            console.error('Unhandled compilation error: ', e);
+        }
+    });
+
+process.on('exit', function() {
+    require('tree-kill')(process.pid, 'SIGKILL');
+});
+
+function buildResourceToObservable(webpackConfig, isDevBuild, shouldWatch) {
+    var subject = new ReplaySubject(1);
+    return Observable.using(function() {
+        var watcher = buildResource(webpackConfig, isDevBuild, shouldWatch, function(err, data) {
+            if (err) {
+                return subject.error(err);
+            }
+            subject.next(JSON.parse(data.stats));
+            if (!shouldWatch) {
+                subject.complete();
+            }
+        });
+        return new Subscription(function() {
+            if (watcher) {
+                watcher.close();
+            }
+        });
+    }, function(subscription) {
+        return subject;
+    });
+}
+
+function processToObservable(process) {
+    return Observable.create(function(subscriber) {
+        function onExitHandler(code, signal) {
+            if (code != null) {
+                subscriber.next({
+                    code: code,
+                    signal: signal
+                });
+            }
+            subscriber.complete();
+        }
+        function onMessageHandler(data) {
+            if (!data) {
+                return;
+            } else if (data.type === 'complete') {
+                return subscriber.complete();
+            } else if (data.type === 'next') {
+                return subscriber.next(JSON.parse(data.stats));
+            } else if (data.type === 'error') {
+                subscriber.error({
+                    error: data.error,
+                    stats: JSON.parse(data.stats)
+                });
+            }
+        };
+        process.on('exit', onExitHandler);
+        process.on('message', onMessageHandler);
+        return function() {
+            // if (process.exitCode === null) {
+                process.kill('SIGKILL');
+            // }
+        }
+    });
+}
