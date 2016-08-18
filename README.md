@@ -16,8 +16,8 @@ Requires node `v6.1.0` and npm `v3.9.3`.
 ## Commands
 
 - `npm run build` cleans `www/` and compiles all modules for production
-- `npm start` cleans `www/`, compiles all modules for production, and starts the viz-server
-- `npm run dev` cleans `www/`, compiles all modules for development, and starts a webpack-dev-server that watches source files and hot-reloads the viz-client and viz-server
+- `npm run watch` cleans `www/` and starts parallel development builds, and starts the viz-server with hot-module reloading
+- `npm run fancy` cleans `www/`, starts parallel development builds with `webpack-dashboard`, and starts the viz-server with hot-module reloading
 
 ## Test Datasets
 
