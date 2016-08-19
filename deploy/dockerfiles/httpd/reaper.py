@@ -131,7 +131,7 @@ def get_available_memory():
     p = subprocess.Popen(["nvidia-smi",
                         "--query-gpu=memory.free",
                         "--format=csv,noheader"], stdout=subprocess.PIPE)
-    gpu_data = p.communicate()[0]
+    gpu_data = p.communicate()[0].split('\n')[0]
     return str_to_bytes(gpu_data)
 
 
