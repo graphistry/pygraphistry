@@ -3,20 +3,25 @@ host = {{ inventory_friendlyname if inventory_friendlyname is defined else inven
 
 [monitor:///var/log/central-app/*.log]
 disabled = false
+sourcetype = _json
 index = graphistry_apps
 
 [monitor:///var/log/clients/*.log]
 disabled = false
+sourcetype = _json
 index = graphistry_apps
 
 [monitor:///var/log/graphistry-json/*.log]
 disabled = false
+sourcetype = _json
 index = graphistry_apps
 
 [monitor:///var/log/reaper/*.log]
 disabled = false
+sourcetype = _json
 index = graphistry_apps
 
 [monitor:///var/log/worker/*.log]
+sourcetype = _json
 disabled = false
 index = graphistry_apps
