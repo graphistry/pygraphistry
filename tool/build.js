@@ -9,11 +9,17 @@ var childProcess = require('child_process');
 var buildResource = require('./build-resource');
 var webpackConfigs = require('./webpack.config.js');
 
+var pid = process.pid;
+var argv = process.argv.slice(2);
+while (argv.length < 2) {
+    argv.push(0);
+}
+
 var HMRPort = 8090;
 var HMRMiddleware = require('webpack-hot-middleware');
-var isFancyBuild = process.argv[3] === '--fancy';
+var isFancyBuild = argv[1] === '--fancy';
 var isDevBuild = process.env.NODE_ENV === 'development';
-var shouldWatch = isDevBuild && process.argv[2] === '--watch';
+var shouldWatch = isDevBuild && argv[0] === '--watch';
 
 var clientConfig = webpackConfigs[0](isDevBuild, isFancyBuild);
 var serverConfig = webpackConfigs[1](isDevBuild, isFancyBuild);
@@ -39,36 +45,45 @@ if (!isDevBuild) {
 // CSS into a styles.css file (which allows us to hot-reload CSS in dev mode).
 else {
     compileClient = processToObservable(childProcess
-        .fork(require.resolve('./build-resource'), process.argv.slice(2).concat([0, 0]), {
+        .fork(require.resolve('./build-resource'), argv.concat(0), {
             env: process.env, cwd: process.cwd()
         }));
     compileServer = processToObservable(childProcess
-        .fork(require.resolve('./build-resource'), process.argv.slice(2).concat([1, 1]), {
+        .fork(require.resolve('./build-resource'), argv.concat(1), {
             env: process.env, cwd: process.cwd()
         }));
     compile = Observable.combineLatest(compileClient, compileServer);
 }
 
-compile.do({
-        next: function(res) {
-            console.log('%s ✅  Build succeeded', chalk.blue('[WEBPACK]'));
-        },
-        error(err) {
-            console.error('%s ❌  Build failed', chalk.blue('[WEBPACK]'));
-            console.error(err.toString());
-        }
-    })
-    .multicast(function() { return new Subject(); }, function(shared) {
+compile.multicast(function() { return new Subject(); }, function(shared) {
+
+        const client = shared.map((xs) => xs[0]).distinctUntilChanged();
+        const server = shared.map((xs) => xs[1]).distinctUntilChanged();
+
+        const buildStatuses = client.merge(server);
+        const initialBuilds = client.take(1).merge(server.take(1));
 
         if (!shouldWatch) {
-            return shared;
+            return buildStatuses.do({
+                next: function({ name }) {
+                    console.log('%s ✅  Successfully built %s', chalk.blue('[WEBPACK]'), name);
+                }
+            });
         }
 
         return Observable.merge(
+            initialBuilds.do({
+                next: function({ name }) {
+                    console.log('%s ✅  Successfully built %s', chalk.blue('[WEBPACK]'), name);
+                }
+            }),
+            buildStatuses.skipUntil(initialBuilds).do({
+                next: function({ name }) {
+                    console.log('%s ✅  Successfully rebuilt %s', chalk.blue('[WEBPACK]'), name);
+                }
+            }),
             shared.take(1).mergeMap(createClientServer),
-            shared.map(function(arr) { return arr[1] })
-                .distinctUntilChanged()
-                .mergeScan(startOrUpdateServer, null)
+            server.mergeScan(startOrUpdateServer, null)
         );
 
         function createClientServer() {
@@ -122,13 +137,15 @@ compile.do({
         }
     })
     .subscribe({
-        error: function(e) {
-            console.error('Unhandled compilation error: ', e);
+        error(err) {
+            console.error('%s ❌  Failed while building', chalk.red('[WEBPACK]'));
+            console.error(err.error);
+            console.error(err.stats);
         }
     });
 
 process.on('exit', function() {
-    require('tree-kill')(process.pid, 'SIGKILL');
+    require('tree-kill')(pid, 'SIGKILL');
 });
 
 function buildResourceToObservable(webpackConfig, isDevBuild, shouldWatch) {
@@ -136,9 +153,12 @@ function buildResourceToObservable(webpackConfig, isDevBuild, shouldWatch) {
     return Observable.using(function() {
         var watcher = buildResource(webpackConfig, isDevBuild, shouldWatch, function(err, data) {
             if (err) {
-                return subject.error(err);
+                return subject.error({
+                    error: err.error,
+                    stats: err.stats
+                });
             }
-            subject.next(JSON.parse(data.stats));
+            subject.next(JSON.parse(data.body));
             if (!shouldWatch) {
                 subject.complete();
             }
@@ -170,11 +190,11 @@ function processToObservable(process) {
             } else if (data.type === 'complete') {
                 return subscriber.complete();
             } else if (data.type === 'next') {
-                return subscriber.next(JSON.parse(data.stats));
+                return subscriber.next(JSON.parse(data.body));
             } else if (data.type === 'error') {
                 subscriber.error({
                     error: data.error,
-                    stats: JSON.parse(data.stats)
+                    stats: data.stats
                 });
             }
         };

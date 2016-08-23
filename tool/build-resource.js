@@ -1,17 +1,21 @@
 var chalk = require('chalk');
 var webpack = require('webpack');
 var Observable = require('rxjs').Observable;
+var argv = process.argv.slice(2);
+while (argv.length < 3) {
+    argv.push(0);
+}
 
 module.exports = buildResource;
 
 if (require.main === module) {
 
-    var webpackConfig = require('./webpack.config.js')[process.argv[4]](
+    var webpackConfig = require('./webpack.config.js')[argv[2]](
         process.env.NODE_ENV === 'development',
-        process.argv[3] === '--fancy'
+        argv[1] === '--fancy'
     );
     var isDevBuild = process.env.NODE_ENV === 'development';
-    var shouldWatch = process.argv[2] === '--watch';
+    var shouldWatch = argv[0] === '--watch';
     var watcher = buildResource(
         webpackConfig, isDevBuild, shouldWatch, function(err, data) {
             if (err) {
@@ -69,15 +73,17 @@ function buildResource(webpackConfig, isDevBuild, shouldWatch, cb) {
                 return cb({
                     type: 'error',
                     error: message,
-                    stats: JSON.stringify(
-                        stats.toJson(webpackConfig.stats || {}), null, 2
-                    )
+                    body: JSON.stringify({
+                        name: getAppName(webpackConfig),
+                        stats: stats.toString(webpackConfig.stats || {})
+                    })
                 });
             }
         }
-        cb(null, { type: 'next', stats: JSON.stringify(
-            stats.toJson(webpackConfig.stats || {}), null, 2
-        )});
+        cb(null, { type: 'next', body: JSON.stringify({
+            name: getAppName(webpackConfig),
+            stats: stats.toJson(webpackConfig.stats || { entrypoints: true })
+        })});
     });
 
     function getAppName(webpackConfig) {

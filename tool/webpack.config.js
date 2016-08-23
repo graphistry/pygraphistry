@@ -5,8 +5,15 @@ var AssetsPlugin = require('assets-webpack-plugin');
 var graphistryConfig = require('@graphistry/config')();
 var WebpackDashboard = require('webpack-dashboard/plugin');
 var NPMInstallPlugin = require('npm-install-webpack-plugin');
+var WebpackVisualizer = require('webpack-visualizer-plugin');
 var ExtractTextPlugin = require('extract-text-webpack-plugin');
+var WebpackNodeExternals = require('webpack-node-externals');
 var StringReplacePlugin = require('string-replace-webpack-plugin');
+
+var argv = process.argv.slice(2);
+while (argv.length < 2) {
+    argv.push(0);
+}
 
 module.exports = [
     clientConfig,
@@ -15,7 +22,7 @@ module.exports = [
 
 function commonConfig(
     isDevBuild = process.env.NODE_ENV === 'development',
-    isFancyBuild = process.argv[3] === '--fancy'
+    isFancyBuild = argv[1] === '--fancy'
 ) {
     return {
         amd: false,
@@ -24,6 +31,13 @@ function commonConfig(
         // Create Sourcemaps for the bundle
         devtool: 'source-map',
         postcss: postcss,
+        resolve: {
+            unsafeCache: true,
+            alias: {
+                'viz-shared': path.resolve('./src/viz-shared')
+            },
+            // modules: ['node_modules', path.resolve('./src')],
+        },
         module: {
             loaders: loaders(isDevBuild, isFancyBuild),
             noParse: [
@@ -40,7 +54,7 @@ function commonConfig(
 
 function clientConfig(
     isDevBuild = process.env.NODE_ENV === 'development',
-    isFancyBuild = process.argv[3] === '--fancy'
+    isFancyBuild = argv[1] === '--fancy'
 ) {
     var config = commonConfig(isDevBuild, isFancyBuild);
     config.node = { fs: 'empty', global: false };
@@ -68,6 +82,7 @@ function clientConfig(
     config.plugins.push(new AssetsPlugin({ path: path.resolve('./www') }));
     config.plugins.push(new webpack.DefinePlugin({
         global: 'window',
+        DEBUG: isDevBuild,
         __DEV__: isDevBuild,
         __CLIENT__: true,
         __SERVER__: false,
@@ -80,7 +95,7 @@ function clientConfig(
 
 function serverConfig(
     isDevBuild = process.env.NODE_ENV === 'development',
-    isFancyBuild = process.argv[3] === '--fancy'
+    isFancyBuild = argv[1] === '--fancy'
 ) {
     var config = commonConfig(isDevBuild, isFancyBuild);
     config.node = {
@@ -101,7 +116,7 @@ function serverConfig(
     };
     config.externals = [
         // native modules will be excluded, e.g require('react/server')
-        /^[@a-z][a-z\/\.\-0-9]*$/i,
+        WebpackNodeExternals(),
         // these assets produced by assets-webpack-plugin
         /^.+assets\.json$/i,
     ];
@@ -117,6 +132,7 @@ function serverConfig(
         banner: `require('source-map-support').install();`
     }));
     config.plugins.push(new webpack.DefinePlugin({
+        DEBUG: isDevBuild,
         __DEV__: isDevBuild,
         __CLIENT__: false,
         __SERVER__: true,
@@ -186,7 +202,6 @@ function plugins(isDevBuild, isFancyBuild) {
         // Avoid publishing files when compilation fails
         new webpack.NoErrorsPlugin(),
         new webpack.ProvidePlugin({ React: 'react' }),
-        new webpack.optimize.OccurrenceOrderPlugin(true),
         new webpack.LoaderOptionsPlugin({
             debug: isDevBuild,
             minimize: !isDevBuild
@@ -196,7 +211,8 @@ function plugins(isDevBuild, isFancyBuild) {
     ];
 
     if (isDevBuild) {
-        plugins.push(new NPMInstallPlugin());
+        // plugins.push(new NPMInstallPlugin());
+        // plugins.push(new WebpackVisualizer());
         plugins.push(new webpack.HotModuleReplacementPlugin());
         if (isFancyBuild) {
             plugins.push(new WebpackDashboard());
@@ -207,7 +223,8 @@ function plugins(isDevBuild, isFancyBuild) {
     } else {
         // Report progress for prod builds
         plugins.push(new webpack.ProgressPlugin())
-        // Deduping is currently broken :()
+        plugins.push(new webpack.optimize.OccurrenceOrderPlugin(true));
+        // Deduping is currently broken :(
         // plugins.push(new webpack.optimize.DedupePlugin());
         plugins.push(new webpack.optimize.AggressiveMergingPlugin());
         plugins.push(new webpack.optimize.UglifyJsPlugin({
