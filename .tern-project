@@ -1,6 +1,6 @@
-{  
+{
+    "ecmaVersion": 6,
     "libs": [
-        "underscore",
         "browser",
         "jquery"
     ],
@@ -11,5 +11,15 @@
         "doc_comment": {
             "fullDocs": true
         }
-    }
+    },
+    "loadEagerly": [
+        "src/**/*.js",
+        "src/*.js"
+    ],
+    "dontLoad": [
+        "src/viz-worker/static/**/*",
+        "src/viz-worker/static/*",
+        "www/**/*",
+        "www/*"
+    ]
 }
