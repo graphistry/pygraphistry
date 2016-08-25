@@ -72,6 +72,12 @@ function clientConfig(
         filename: 'viz-client.js'
     };
     config.module.loaders.push({
+        test: /\.css$/,
+        loader: isDevBuild ? 'style!css!postcss' : ExtractTextPlugin.extract({
+            loader: 'css!postcss'
+        })
+    });
+    config.module.loaders.push({
         test: /\.less$/,
         loader: isDevBuild ?
             'style!css?module&-minimize&localIdentName=[local]_[hash:6]!postcss!less' :

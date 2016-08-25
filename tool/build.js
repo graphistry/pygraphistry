@@ -17,9 +17,9 @@ while (argv.length < 2) {
 
 var HMRPort = 8090;
 var HMRMiddleware = require('webpack-hot-middleware');
+var shouldWatch = argv[0] === '--watch';
 var isFancyBuild = argv[1] === '--fancy';
 var isDevBuild = process.env.NODE_ENV === 'development';
-var shouldWatch = isDevBuild && argv[0] === '--watch';
 
 var clientConfig = webpackConfigs[0](isDevBuild, isFancyBuild);
 var serverConfig = webpackConfigs[1](isDevBuild, isFancyBuild);
@@ -34,25 +34,46 @@ shelljs.cp('-rf', './src/viz-worker/static/*', serverConfig.output.path);
 
 var compile, compileClient, compileServer;
 
-// Prod builds have to be built sequentially so webpack can share the css modules
-// style cache between both client and server compilations.
-if (!isDevBuild) {
-    compileClient = buildResourceToObservable(clientConfig, isDevBuild, shouldWatch);
-    compileServer = buildResourceToObservable(serverConfig, isDevBuild, shouldWatch);
-    compile = Observable.concat(compileClient, compileServer).take(2).toArray();
-}
 // Dev builds can run in parallel because we don't extract the client-side
 // CSS into a styles.css file (which allows us to hot-reload CSS in dev mode).
-else {
+if (isDevBuild) {
+
     compileClient = processToObservable(childProcess
         .fork(require.resolve('./build-resource'), argv.concat(0), {
             env: process.env, cwd: process.cwd()
         }));
+
     compileServer = processToObservable(childProcess
         .fork(require.resolve('./build-resource'), argv.concat(1), {
             env: process.env, cwd: process.cwd()
         }));
+
     compile = Observable.combineLatest(compileClient, compileServer);
+}
+// Prod builds have to be built sequentially so webpack can share the css modules
+// style cache between both client and server compilations.
+else {
+
+    compileClient = buildResourceToObservable(
+        clientConfig, isDevBuild, shouldWatch
+    ).multicast(() => new Subject()).refCount();
+
+    compileServer = buildResourceToObservable(
+        serverConfig, isDevBuild, shouldWatch
+    ).multicast(() => new Subject()).refCount();
+
+    compile = compileClient.mergeMap(
+            (client) => compileServer,
+            (client, server) => [client, server]
+        )
+        .take(1)
+        .mergeMap((results) => !shouldWatch ?
+            Observable.of(results) :
+            Observable.combineLatest(
+                compileClient.startWith(results[0]),
+                compileServer.startWith(results[1])
+            )
+        );
 }
 
 compile.multicast(function() { return new Subject(); }, function(shared) {
@@ -201,9 +222,7 @@ function processToObservable(process) {
         process.on('exit', onExitHandler);
         process.on('message', onMessageHandler);
         return function() {
-            // if (process.exitCode === null) {
-                process.kill('SIGKILL');
-            // }
+            process.kill('SIGKILL');
         }
     });
 }
