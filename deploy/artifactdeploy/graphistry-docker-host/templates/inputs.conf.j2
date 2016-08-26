@@ -21,6 +21,10 @@ disabled = false
 sourcetype = _json
 index = graphistry_apps
 
+[monitor:///var/log/supervisor/supervisord.log]
+disabled = false
+sourcetype = supervisord
+
 [monitor:///var/log/worker/*.log]
 disabled = false
 index = graphistry_apps
