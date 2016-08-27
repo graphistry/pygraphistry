@@ -34,7 +34,9 @@ function commonConfig(
         resolve: {
             unsafeCache: true,
             alias: {
-                'viz-shared': path.resolve('./src/viz-shared')
+                'viz-client': path.resolve('./src/viz-client'),
+                'viz-shared': path.resolve('./src/viz-shared'),
+                'viz-worker': path.resolve('./src/viz-worker'),
             },
             // modules: ['node_modules', path.resolve('./src')],
         },
