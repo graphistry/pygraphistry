@@ -27,6 +27,8 @@
       args:
         chdir: /var/graphistry
       command: bash -c "rm -r `ls -t | tail -n +2`"
+      become: yes
+      become_user: root
 
     - name: GC old containers
       command: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /etc:/etc spotify/docker-gc
