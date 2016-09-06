@@ -25,8 +25,8 @@
 
     - name: GC old directories (keep last 2)
       args:
-        chdir: /var/graphistry/{{ deploy_directory }}
-      command: bash -c "rm -r `ls -t | tail -n +4`"
+        chdir: /var/graphistry
+      command: bash -c "rm -r `ls -t | tail -n +2`"
 
     - name: GC old containers
       command: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /etc:/etc spotify/docker-gc
