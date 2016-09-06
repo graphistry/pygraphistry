@@ -43,7 +43,9 @@ function commonConfig(
         module: {
             loaders: loaders(isDevBuild, isFancyBuild),
             noParse: [
-                /reaxtor-falcor-syntax-pathmap\/lib\/parser\.js$/
+                /\@graphistry\/falcor\/dist\/falcor\.min\.js$/,
+                /\@graphistry\/falcor-query-syntax\/lib\/paths\-parser\.js$/,
+                /\@graphistry\/falcor-query-syntax\/lib\/route\-parser\.js$/
             ]
         },
         plugins: plugins(isDevBuild, isFancyBuild),
@@ -230,9 +232,9 @@ function plugins(isDevBuild, isFancyBuild) {
         }
     } else {
         // Report progress for prod builds
-        plugins.push(new webpack.ProgressPlugin())
+        plugins.push(new webpack.ProgressPlugin());
         plugins.push(new webpack.optimize.OccurrenceOrderPlugin(true));
-        // Deduping is currently broken :(
+        // Webpack deduping is currently broken :(
         // plugins.push(new webpack.optimize.DedupePlugin());
         plugins.push(new webpack.optimize.AggressiveMergingPlugin());
         plugins.push(new webpack.optimize.UglifyJsPlugin({
