@@ -9,6 +9,7 @@ var WebpackVisualizer = require('webpack-visualizer-plugin');
 var ExtractTextPlugin = require('extract-text-webpack-plugin');
 var WebpackNodeExternals = require('webpack-node-externals');
 var StringReplacePlugin = require('string-replace-webpack-plugin');
+var ClosureCompilerPlugin = require('webpack-closure-compiler');
 
 var argv = process.argv.slice(2);
 while (argv.length < 2) {
@@ -29,7 +30,7 @@ function commonConfig(
         quiet: isDevBuild,
         progress: !isDevBuild,
         // Create Sourcemaps for the bundle
-        devtool: 'source-map',
+        devtool: isDevBuild && /*'cheap-module-eval-*/'source-map' || 'source-map',
         postcss: postcss,
         resolve: {
             unsafeCache: true,
@@ -41,6 +42,11 @@ function commonConfig(
             // modules: ['node_modules', path.resolve('./src')],
         },
         module: {
+            preLoaders: [{
+                test: /\.jsx?$/,
+                exclude: /src\//,
+                loader: 'source-map'
+            }],
             loaders: loaders(isDevBuild, isFancyBuild),
             noParse: [
                 /\@graphistry\/falcor\/dist\/falcor\.min\.js$/,
@@ -100,6 +106,16 @@ function clientConfig(
         __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
         'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
     }));
+    if (!isDevBuild) {
+        config.plugins.push(new ClosureCompilerPlugin({
+            compiler: {
+                language_in: 'ECMASCRIPT6',
+                language_out: 'ECMASCRIPT5',
+                compilation_level: 'SIMPLE'
+            },
+            concurrency: 3,
+        }));
+    }
     return config;
 }
 
@@ -242,7 +258,7 @@ function plugins(isDevBuild, isFancyBuild) {
             // output: { comments: false },
             mangle: false,
             comments: false,
-            sourceMap: false,
+            sourceMap: true,
             'screw-ie8': true,
         }));
     }
