@@ -26,7 +26,7 @@
     - name: GC old directories (keep last 2)
       args:
         chdir: /var/graphistry
-      command: bash -c "ls -t | tail -n +3 | xargs --no-run-if-empty rm"
+      command: bash -c "ls -t | tail -n +3 | xargs --no-run-if-empty rm -r"
       become: yes
       become_user: root
 
