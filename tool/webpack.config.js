@@ -28,9 +28,10 @@ function commonConfig(
     return {
         amd: false,
         quiet: isDevBuild,
+        profile: isDevBuild,
         progress: !isDevBuild,
         // Create Sourcemaps for the bundle
-        devtool: isDevBuild && /*'cheap-module-eval-*/'source-map' || 'source-map',
+        devtool: isDevBuild ? 'source-map' : 'hidden-source-map',
         postcss: postcss,
         resolve: {
             unsafeCache: true,
@@ -38,8 +39,7 @@ function commonConfig(
                 'viz-client': path.resolve('./src/viz-client'),
                 'viz-shared': path.resolve('./src/viz-shared'),
                 'viz-worker': path.resolve('./src/viz-worker'),
-            },
-            // modules: ['node_modules', path.resolve('./src')],
+            }
         },
         module: {
             preLoaders: [{
@@ -69,15 +69,17 @@ function clientConfig(
     var config = commonConfig(isDevBuild, isFancyBuild);
     config.node = { fs: 'empty', global: false };
     config.target = 'web';
-    config.entry = {
-        client: ['./src/viz-client/index.js'].concat(true || !isDevBuild ? [] : [
-            'webpack-hot-middleware/client' +
-            '?path=http://localhost:8090/__webpack_hmr' +
-            '&overlay=false' + '&reload=true' + '&noInfo=true' + '&quiet=true'
-        ])
-    };
+    config.entry = { client: './src/viz-client/index.js' };
+    // config.entry = {
+    //     client: ['./src/viz-client/index.js'].concat(true || !isDevBuild ? [] : [
+    //         'webpack-hot-middleware/client' +
+    //         '?path=http://localhost:8090/__webpack_hmr' +
+    //         '&overlay=false' + '&reload=true' + '&noInfo=true' + '&quiet=true'
+    //     ])
+    // };
     config.output = {
         path: path.resolve('./www'),
+        pathinfo: isDevBuild,
         publicPath: '/graph/',
         filename: 'viz-client.js'
     };
@@ -109,9 +111,15 @@ function clientConfig(
     if (!isDevBuild) {
         config.plugins.push(new ClosureCompilerPlugin({
             compiler: {
-                language_in: 'ECMASCRIPT6',
+                language_in: 'ECMASCRIPT5',
                 language_out: 'ECMASCRIPT5',
-                compilation_level: 'SIMPLE'
+                compilation_level: 'SIMPLE',
+                // use_types_for_optimization: false,
+                // can't get webpack to play nice with closure compiler sourcemaps :(
+                // source_map_format: 'V3',
+                // create_source_map: `${
+                //     config.output.path}/${
+                //     config.output.filename}.map`
             },
             concurrency: 3,
         }));
@@ -130,13 +138,17 @@ function serverConfig(
         __dirname: true
     };
     config.target = 'node';
-    config.entry = {
-        server: ['./src/viz-server/index.js'].concat(!isDevBuild ? [] : [
-            __dirname + '/hmr/signal.js?hmr'
-        ])
-    };
+    config.devtool = 'source-map';
+    config.entry = { server: './src/viz-server/index.js' };
+    // config.entry = {
+    //     server: ['./src/viz-server/index.js']
+    //     .concat(!isDevBuild ? [] : [
+    //         __dirname + '/hmr/signal.js?hmr'
+    //     ])
+    // };
     config.output = {
         path: path.resolve('./www'),
+        pathinfo: isDevBuild,
         filename: 'viz-server.js',
         libraryTarget: 'commonjs2'
     };
@@ -155,9 +167,10 @@ function serverConfig(
     config.plugins.push(new webpack.BannerPlugin({
         raw: true,
         entryOnly: true,
-        banner: `require('source-map-support').install();`
+        banner: `require('source-map-support').install({ environment: 'node' });`
     }));
     config.plugins.push(new webpack.DefinePlugin({
+        window: 'global',
         DEBUG: isDevBuild,
         __DEV__: isDevBuild,
         __CLIENT__: false,
@@ -229,8 +242,10 @@ function plugins(isDevBuild, isFancyBuild) {
         new webpack.NoErrorsPlugin(),
         new webpack.ProvidePlugin({ React: 'react' }),
         new webpack.LoaderOptionsPlugin({
-            debug: isDevBuild,
-            minimize: !isDevBuild
+            // debug: isDevBuild,
+            // minimize: !isDevBuild
+            debug: false,
+            minimize: true
         }),
         // use this for universal server client rendering
         new ExtractTextPlugin({ allChunks: true, filename: 'styles.css' }),
