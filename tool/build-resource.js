@@ -48,8 +48,8 @@ if (require.main === module) {
 
 function buildResource(webpackConfig, isDevBuild, shouldWatch, cb) {
 
-    console.log('%s Started %s %s', chalk.blue('[WEBPACK]'),
-                 shouldWatch ? 'watching' : 'building',
+    console.log('%s %s %s', chalk.blue('[WEBPACK]'),
+                 shouldWatch ? '👀  Started watching' : '🔨  Started building',
                  chalk.yellow(getAppName(webpackConfig)));
 
     var compiler = webpack(webpackConfig);
