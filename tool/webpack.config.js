@@ -9,6 +9,7 @@ var WebpackVisualizer = require('webpack-visualizer-plugin');
 var ExtractTextPlugin = require('extract-text-webpack-plugin');
 var WebpackNodeExternals = require('webpack-node-externals');
 var StringReplacePlugin = require('string-replace-webpack-plugin');
+var ClosureCompilerPlugin = require('webpack-closure-compiler');
 
 var argv = process.argv.slice(2);
 while (argv.length < 2) {
@@ -27,21 +28,30 @@ function commonConfig(
     return {
         amd: false,
         quiet: isDevBuild,
+        profile: isDevBuild,
         progress: !isDevBuild,
         // Create Sourcemaps for the bundle
-        devtool: 'source-map',
+        devtool: isDevBuild ? 'source-map' : 'hidden-source-map',
         postcss: postcss,
         resolve: {
             unsafeCache: true,
             alias: {
-                'viz-shared': path.resolve('./src/viz-shared')
-            },
-            // modules: ['node_modules', path.resolve('./src')],
+                'viz-client': path.resolve('./src/viz-client'),
+                'viz-shared': path.resolve('./src/viz-shared'),
+                'viz-worker': path.resolve('./src/viz-worker'),
+            }
         },
         module: {
+            preLoaders: [{
+                test: /\.jsx?$/,
+                exclude: /src\//,
+                loader: 'source-map'
+            }],
             loaders: loaders(isDevBuild, isFancyBuild),
             noParse: [
-                /reaxtor-falcor-syntax-pathmap\/lib\/parser\.js$/
+                /\@graphistry\/falcor\/dist\/falcor\.min\.js$/,
+                /\@graphistry\/falcor-query-syntax\/lib\/paths\-parser\.js$/,
+                /\@graphistry\/falcor-query-syntax\/lib\/route\-parser\.js$/
             ]
         },
         plugins: plugins(isDevBuild, isFancyBuild),
@@ -59,15 +69,17 @@ function clientConfig(
     var config = commonConfig(isDevBuild, isFancyBuild);
     config.node = { fs: 'empty', global: false };
     config.target = 'web';
-    config.entry = {
-        client: ['./src/viz-client/index.js'].concat(true || !isDevBuild ? [] : [
-            'webpack-hot-middleware/client' +
-            '?path=http://localhost:8090/__webpack_hmr' +
-            '&overlay=false' + '&reload=true' + '&noInfo=true' + '&quiet=true'
-        ])
-    };
+    config.entry = { client: './src/viz-client/index.js' };
+    // config.entry = {
+    //     client: ['./src/viz-client/index.js'].concat(true || !isDevBuild ? [] : [
+    //         'webpack-hot-middleware/client' +
+    //         '?path=http://localhost:8090/__webpack_hmr' +
+    //         '&overlay=false' + '&reload=true' + '&noInfo=true' + '&quiet=true'
+    //     ])
+    // };
     config.output = {
         path: path.resolve('./www'),
+        pathinfo: isDevBuild,
         publicPath: '/graph/',
         filename: 'viz-client.js'
     };
@@ -96,6 +108,22 @@ function clientConfig(
         __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
         'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
     }));
+    if (!isDevBuild) {
+        config.plugins.push(new ClosureCompilerPlugin({
+            compiler: {
+                language_in: 'ECMASCRIPT5',
+                language_out: 'ECMASCRIPT5',
+                compilation_level: 'SIMPLE',
+                // use_types_for_optimization: false,
+                // can't get webpack to play nice with closure compiler sourcemaps :(
+                // source_map_format: 'V3',
+                // create_source_map: `${
+                //     config.output.path}/${
+                //     config.output.filename}.map`
+            },
+            concurrency: 3,
+        }));
+    }
     return config;
 }
 
@@ -110,13 +138,17 @@ function serverConfig(
         __dirname: true
     };
     config.target = 'node';
-    config.entry = {
-        server: ['./src/viz-server/index.js'].concat(!isDevBuild ? [] : [
-            __dirname + '/hmr/signal.js?hmr'
-        ])
-    };
+    config.devtool = 'source-map';
+    config.entry = { server: './src/viz-server/index.js' };
+    // config.entry = {
+    //     server: ['./src/viz-server/index.js']
+    //     .concat(!isDevBuild ? [] : [
+    //         __dirname + '/hmr/signal.js?hmr'
+    //     ])
+    // };
     config.output = {
         path: path.resolve('./www'),
+        pathinfo: isDevBuild,
         filename: 'viz-server.js',
         libraryTarget: 'commonjs2'
     };
@@ -135,9 +167,10 @@ function serverConfig(
     config.plugins.push(new webpack.BannerPlugin({
         raw: true,
         entryOnly: true,
-        banner: `require('source-map-support').install();`
+        banner: `require('source-map-support').install({ environment: 'node' });`
     }));
     config.plugins.push(new webpack.DefinePlugin({
+        window: 'global',
         DEBUG: isDevBuild,
         __DEV__: isDevBuild,
         __CLIENT__: false,
@@ -209,8 +242,10 @@ function plugins(isDevBuild, isFancyBuild) {
         new webpack.NoErrorsPlugin(),
         new webpack.ProvidePlugin({ React: 'react' }),
         new webpack.LoaderOptionsPlugin({
-            debug: isDevBuild,
-            minimize: !isDevBuild
+            // debug: isDevBuild,
+            // minimize: !isDevBuild
+            debug: false,
+            minimize: true
         }),
         // use this for universal server client rendering
         new ExtractTextPlugin({ allChunks: true, filename: 'styles.css' }),
@@ -228,9 +263,9 @@ function plugins(isDevBuild, isFancyBuild) {
         }
     } else {
         // Report progress for prod builds
-        plugins.push(new webpack.ProgressPlugin())
+        plugins.push(new webpack.ProgressPlugin());
         plugins.push(new webpack.optimize.OccurrenceOrderPlugin(true));
-        // Deduping is currently broken :(
+        // Webpack deduping is currently broken :(
         // plugins.push(new webpack.optimize.DedupePlugin());
         plugins.push(new webpack.optimize.AggressiveMergingPlugin());
         plugins.push(new webpack.optimize.UglifyJsPlugin({
@@ -238,7 +273,7 @@ function plugins(isDevBuild, isFancyBuild) {
             // output: { comments: false },
             mangle: false,
             comments: false,
-            sourceMap: false,
+            sourceMap: true,
             'screw-ie8': true,
         }));
     }
