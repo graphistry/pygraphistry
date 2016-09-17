@@ -1,0 +1,5 @@
+src
+.jshintrc
+.tern-project
+.eslintrc.yml
+.eslintignore

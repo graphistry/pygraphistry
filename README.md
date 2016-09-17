@@ -11,10 +11,11 @@ Graphistry's cloud-based visualization platform. Stream WebGL buffers into the b
   - This will install all dependencies, and run the module's build scripts to compile our es6 to (es5) JavaScript, and LESS to CSS.
 4. Run `npm run dev` to clean, compile, and start a webpack-dev-server that hot reloads modules for the client and server.
 
-Requires node `v6.1.0` and npm `v3.9.3`.
+Requires node `v6.6.0` and npm `v3.10.3`.
 
 ## Commands
 
+- `npm run dev` cleans `www/` and compiles all modules for development
 - `npm run build` cleans `www/` and compiles all modules for production
 - `npm run watch` cleans `www/` and starts parallel development builds, and starts the viz-server with hot-module reloading
 - `npm run fancy` cleans `www/`, starts parallel development builds with `webpack-dashboard`, and starts the viz-server with hot-module reloading

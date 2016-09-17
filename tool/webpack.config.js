@@ -9,7 +9,8 @@ var WebpackVisualizer = require('webpack-visualizer-plugin');
 var ExtractTextPlugin = require('extract-text-webpack-plugin');
 var WebpackNodeExternals = require('webpack-node-externals');
 var StringReplacePlugin = require('string-replace-webpack-plugin');
-var ClosureCompilerPlugin = require('webpack-closure-compiler');
+var FaviconsWebpackPlugin = require('favicons-webpack-plugin');
+var ClosureCompilerPlugin = require('@graphistry/webpack-closure-compiler');
 
 var argv = process.argv.slice(2);
 while (argv.length < 2) {
@@ -38,6 +39,8 @@ function commonConfig(
             alias: {
                 'viz-client': path.resolve('./src/viz-client'),
                 'viz-shared': path.resolve('./src/viz-shared'),
+                'doc-worker': path.resolve('./src/doc-worker'),
+                'etl-worker': path.resolve('./src/etl-worker'),
                 'viz-worker': path.resolve('./src/viz-worker'),
             }
         },
@@ -66,64 +69,106 @@ function clientConfig(
     isDevBuild = process.env.NODE_ENV === 'development',
     isFancyBuild = argv[1] === '--fancy'
 ) {
+
     var config = commonConfig(isDevBuild, isFancyBuild);
+
     config.node = { fs: 'empty', global: false };
+
     config.target = 'web';
-    config.entry = { client: './src/viz-client/index.js' };
-    // config.entry = {
-    //     client: ['./src/viz-client/index.js'].concat(true || !isDevBuild ? [] : [
-    //         'webpack-hot-middleware/client' +
-    //         '?path=http://localhost:8090/__webpack_hmr' +
-    //         '&overlay=false' + '&reload=true' + '&noInfo=true' + '&quiet=true'
-    //     ])
-    // };
+
+    config.entry = {
+        client: './src/viz-client/index.js',
+        vendor: [
+            'react-ace',
+            'simpleflakes',
+            'socket.io-client',
+            'lodash', 'underscore',
+            'rxjs', 'rxjs-gestures',
+            // 'falcor-http-datasource',
+            'moment', 'moment-timezone',
+            'debug', 'pegjs', 'pegjs-util',
+            'rc-switch', 'rc-color-picker',
+            'redux', 'recompose', 'redux-observable',
+            'react', 'react-dom', 'react-redux',
+            'react-bootstrap', 'react-overlays',
+            '@graphistry/falcor',
+            '@graphistry/falcor-json-graph',
+            '@graphistry/falcor-path-syntax',
+            '@graphistry/falcor-path-utils',
+            '@graphistry/falcor-query-syntax',
+            '@graphistry/falcor-react-redux',
+            '@graphistry/falcor-router',
+            '@graphistry/falcor-socket-datasource',
+            '@graphistry/rc-slider',
+        ]
+    };
+
     config.output = {
         path: path.resolve('./www'),
         pathinfo: isDevBuild,
         publicPath: '/graph/',
         filename: 'viz-client.js'
     };
-    config.module.loaders.push({
-        test: /\.css$/,
-        loader: isDevBuild ? 'style!css!postcss' : ExtractTextPlugin.extract({
-            loader: 'css!postcss'
-        })
-    });
-    config.module.loaders.push({
-        test: /\.less$/,
-        loader: isDevBuild ?
-            'style!css?module&-minimize&localIdentName=[local]_[hash:6]!postcss!less' :
-            ExtractTextPlugin.extract({
-                loader: 'css?module&minimize&localIdentName=[local]_[hash:6]!postcss!less'
+
+    config.module.loaders = [
+        ...config.module.loaders,
+        {
+            test: /\.css$/,
+            loader: isDevBuild ? 'style!css!postcss' : ExtractTextPlugin.extract({
+                loader: 'css!postcss'
             })
-    });
-    config.plugins.push(new AssetsPlugin({ path: path.resolve('./www') }));
-    config.plugins.push(new webpack.DefinePlugin({
-        global: 'window',
-        DEBUG: isDevBuild,
-        __DEV__: isDevBuild,
-        __CLIENT__: true,
-        __SERVER__: false,
-        __VERSION__: JSON.stringify(vizAppPackage.version),
-        __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
-        'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
-    }));
+        },
+        {
+            test: /\.less$/,
+            loader: isDevBuild ?
+                'style!css?module&-minimize&localIdentName=[local]_[hash:6]!postcss!less' :
+                ExtractTextPlugin.extract({
+                    loader: 'css?module&minimize&localIdentName=[local]_[hash:6]!postcss!less'
+                })
+        }
+    ];
+
+    config.plugins = [
+        ...config.plugins,
+        new webpack.optimize.CommonsChunkPlugin({
+            name: 'vendor',
+            minChunks: Infinity,
+            filename: 'vendor.bundle.js'
+        }),
+        new AssetsPlugin({ path: path.resolve('./www') }),
+        new webpack.DefinePlugin({
+            global: 'window',
+            DEBUG: isDevBuild,
+            __DEV__: isDevBuild,
+            __CLIENT__: true,
+            __SERVER__: false,
+            __VERSION__: JSON.stringify(vizAppPackage.version),
+            __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
+            'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
+        })
+    ];
+
     if (!isDevBuild) {
         config.plugins.push(new ClosureCompilerPlugin({
             compiler: {
                 language_in: 'ECMASCRIPT5',
                 language_out: 'ECMASCRIPT5',
                 compilation_level: 'SIMPLE',
-                // use_types_for_optimization: false,
+                rewrite_polyfills: false,
+                use_types_for_optimization: false,
+                // warning_level: 'QUIET',
+                jscomp_off: '*',
+                jscomp_warning: '*',
                 // can't get webpack to play nice with closure compiler sourcemaps :(
-                // source_map_format: 'V3',
-                // create_source_map: `${
-                //     config.output.path}/${
-                //     config.output.filename}.map`
+                source_map_format: 'V3',
+                create_source_map: `${config.output.path}/${
+                                      config.output.filename}.map`,
+                output_wrapper: `%output%\n//# sourceMappingURL=${config.output.filename}.map`
             },
             concurrency: 3,
         }));
     }
+
     return config;
 }
 
@@ -131,53 +176,63 @@ function serverConfig(
     isDevBuild = process.env.NODE_ENV === 'development',
     isFancyBuild = argv[1] === '--fancy'
 ) {
+
     var config = commonConfig(isDevBuild, isFancyBuild);
+
     config.node = {
         console: true,
         __filename: true,
         __dirname: true
     };
+
     config.target = 'node';
-    config.devtool = 'source-map';
+
     config.entry = { server: './src/viz-server/index.js' };
-    // config.entry = {
-    //     server: ['./src/viz-server/index.js']
-    //     .concat(!isDevBuild ? [] : [
-    //         __dirname + '/hmr/signal.js?hmr'
-    //     ])
-    // };
+
     config.output = {
         path: path.resolve('./www'),
         pathinfo: isDevBuild,
         filename: 'viz-server.js',
         libraryTarget: 'commonjs2'
     };
+
     config.externals = [
         // native modules will be excluded, e.g require('react/server')
         WebpackNodeExternals(),
         // these assets produced by assets-webpack-plugin
         /^.+assets\.json$/i,
     ];
-    config.module.loaders.push({
-        test: /\.less$/,
-        loader: 'css/locals' +
-        // loader: require.resolve('css-loader/locals') +
-            '?module&localIdentName=[local]_[hash:6]!postcss!less'
-    });
-    config.plugins.push(new webpack.BannerPlugin({
-        raw: true,
-        entryOnly: true,
-        banner: `require('source-map-support').install({ environment: 'node' });`
-    }));
-    config.plugins.push(new webpack.DefinePlugin({
-        window: 'global',
-        DEBUG: isDevBuild,
-        __DEV__: isDevBuild,
-        __CLIENT__: false,
-        __SERVER__: true,
-        __VERSION__: JSON.stringify(vizAppPackage.version),
-        __RELEASE__: JSON.stringify(graphistryConfig.RELEASE)
-    }));
+
+    config.module.loaders = [
+        ...config.module.loaders,
+        {
+            test: /\.less$/,
+            loader: `css/locals?module&localIdentName=[local]_[hash:6]!postcss!less`
+        }
+    ];
+
+    config.plugins = [
+        ...config.plugins,
+        new FaviconsWebpackPlugin({
+            logo: './src/viz-server/static/img/logo_g.png',
+            emitStats: true, statsFilename: 'favicon-assets.json'
+        }),
+        new webpack.BannerPlugin({
+            raw: true,
+            entryOnly: true,
+            banner: `require('source-map-support').install({ environment: 'node' });`
+        }),
+        new webpack.DefinePlugin({
+            window: 'global',
+            DEBUG: isDevBuild,
+            __DEV__: isDevBuild,
+            __CLIENT__: false,
+            __SERVER__: true,
+            __VERSION__: JSON.stringify(vizAppPackage.version),
+            __RELEASE__: JSON.stringify(graphistryConfig.RELEASE)
+        })
+    ];
+
     return config;
 }
 
@@ -224,7 +279,7 @@ function loaders(isDevBuild) {
                     { plugins: [ 'transform-runtime' ] },
                     {
                         passPerPreset: false,
-                        presets: [['es2015', { modules: false }], 'react', 'stage-0']
+                        presets: [['es2015', { modules: false, loose: true }], 'react', 'stage-0']
                     },
                     'es2015'
                 ]
@@ -268,14 +323,6 @@ function plugins(isDevBuild, isFancyBuild) {
         // Webpack deduping is currently broken :(
         // plugins.push(new webpack.optimize.DedupePlugin());
         plugins.push(new webpack.optimize.AggressiveMergingPlugin());
-        plugins.push(new webpack.optimize.UglifyJsPlugin({
-            compress: { warnings: false },
-            // output: { comments: false },
-            mangle: false,
-            comments: false,
-            sourceMap: true,
-            'screw-ie8': true,
-        }));
     }
 
     return plugins;
