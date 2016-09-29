@@ -10,7 +10,7 @@ var ExtractTextPlugin = require('extract-text-webpack-plugin');
 var WebpackNodeExternals = require('webpack-node-externals');
 var StringReplacePlugin = require('string-replace-webpack-plugin');
 var FaviconsWebpackPlugin = require('favicons-webpack-plugin');
-var ClosureCompilerPlugin = require('@graphistry/webpack-closure-compiler');
+var ClosureCompilerPlugin = require('webpack-closure-compiler');
 
 var argv = process.argv.slice(2);
 while (argv.length < 2) {
@@ -28,9 +28,7 @@ function commonConfig(
 ) {
     return {
         amd: false,
-        quiet: isDevBuild,
         profile: isDevBuild,
-        progress: !isDevBuild,
         // Create Sourcemaps for the bundle
         devtool: isDevBuild ? 'source-map' : 'hidden-source-map',
         postcss: postcss,
@@ -156,10 +154,9 @@ function clientConfig(
                 compilation_level: 'SIMPLE',
                 rewrite_polyfills: false,
                 use_types_for_optimization: false,
-                // warning_level: 'QUIET',
+                warning_level: 'QUIET',
                 jscomp_off: '*',
                 jscomp_warning: '*',
-                // can't get webpack to play nice with closure compiler sourcemaps :(
                 source_map_format: 'V3',
                 create_source_map: `${config.output.path}/${
                                       config.output.filename}.map`,
@@ -300,7 +297,9 @@ function plugins(isDevBuild, isFancyBuild) {
             // debug: isDevBuild,
             // minimize: !isDevBuild
             debug: false,
-            minimize: true
+            minimize: true,
+            quiet: isDevBuild,
+            progress: !isDevBuild,
         }),
         // use this for universal server client rendering
         new ExtractTextPlugin({ allChunks: true, filename: 'styles.css' }),
