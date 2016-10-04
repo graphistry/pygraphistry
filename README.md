@@ -17,6 +17,8 @@ Requires node `v6.6.0` and npm `v3.10.3`.
 
 - `npm run dev` cleans `www/` and compiles all modules for development
 - `npm run build` cleans `www/` and compiles all modules for production
+- `npm run serve` starts the server in `www/`
+- `npm run debug` starts the server in `www/` with `--inspect --debug` options
 - `npm run watch` cleans `www/` and starts parallel development builds, and starts the viz-server with hot-module reloading
 - `npm run fancy` cleans `www/`, starts parallel development builds with `webpack-dashboard`, and starts the viz-server with hot-module reloading
 
