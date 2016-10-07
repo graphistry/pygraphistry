@@ -41,6 +41,28 @@ if [ -n "$SPLUNK_PASSWORD" ] ; then
     docker run --name graphistry_splunk --restart=unless-stopped -d -v /etc/graphistry/splunk/:/opt/splunkforwarder/etc/system/local -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper -v `pwd`/supervisor:/var/log/supervisor graphistry/splunkforwarder:6.4.1 bash -c "/opt/splunkforwarder/bin/splunk edit user admin -password $SPLUNK_PASSWORD -auth admin:$SPLUNK_ADMIN --accept-license --answer-yes ; /opt/splunkforwarder/bin/splunk start --nodaemon --accept-license --answer-yes"
 fi
 
+### 6. Postgres.
+
+DB_BACKUP_DIRECTORY=${DB_BACKUP_DIRECTORY:-../.pgbackup}
+PG_USER=${PG_USER:-graphistry}
+PG_PASS=${PG_PASS:-graphtheplanet}
+if (docker inspect pg) ; then
+  DB_BU=$(tempfile)
+  DB_LD=$(tempfile)
+  docker network disconnect host pg
+  docker network connect none pg
+  docker exec pg pg_dumpall -Upostgres > $DB_BU
+  echo 'psql -Upostgres < /tmp/backup.sql' > $DB_LD
+  docker rm -f -v pg
+  docker run -d --restart=unless-stopped --net none --name pg -e POSTGRES_USER=${PG_USER} -e POSTGRES_PASSWORD=${PG_PASS} -v ${DB_BU}:/tmp/backup.sql:ro -v ${DB_LD}:/docker-entrypoint-initdb.d/backup.sh:ro postgres:9.5
+else
+  mkdir -p DB_BACKUP_DIRECTORY
+  docker run -d --restart=unless-stopped --net none --name pg -e POSTGRES_USER=${PG_USER} -e POSTGRES_PASSWORD=${PG_PASS} postgres:9.5
+fi
+# spinlock until pg starts up?
+docker network disconnect none pg
+docker network connect host pg
+
 ### Done.
 
 echo SUCCESS.
