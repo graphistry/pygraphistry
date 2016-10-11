@@ -1,8 +1,13 @@
 #!/bin/bash -xe
 
-### 1. Ensure that we can get an OpenCL context.
+### 0. Ensure that we can get an OpenCL context.
 
 nvidia-docker run --rm --name graphistry_httpd_test graphistry/central-and-vizservers:$1 clinfo
+
+### 1. Ensure we have a network for our application to run in.
+
+GRAPHISTRY_NETWORK=${GRAPHISTRY_NETWORK:-monolith-network}
+docker network ls $GRAPHISTRY_NETWORK || docker network create $GRAPHISTRY_NETWORK
 
 ### 2. Stop app, make log directories, start app.
 
@@ -46,22 +51,21 @@ fi
 DB_BACKUP_DIRECTORY=${DB_BACKUP_DIRECTORY:-../.pgbackup}
 PG_USER=${PG_USER:-graphistry}
 PG_PASS=${PG_PASS:-graphtheplanet}
-if (docker inspect pg) ; then
-  DB_BU=$(tempfile)
-  DB_LD=$(tempfile)
-  docker network disconnect host pg
-  docker network connect none pg
-  docker exec pg pg_dumpall -Upostgres > $DB_BU
-  echo 'psql -Upostgres < /tmp/backup.sql' > $DB_LD
-  docker rm -f -v pg
-  docker run -d --restart=unless-stopped --net none --name pg -e POSTGRES_USER=${PG_USER} -e POSTGRES_PASSWORD=${PG_PASS} -v ${DB_BU}:/tmp/backup.sql:ro -v ${DB_LD}:/docker-entrypoint-initdb.d/backup.sh:ro postgres:9.5
+if (docker exec pg psql -c "select 'database is up' as healthcheck" postgresql://${PG_USER}:${PG_PASS}@pg:5432) ; then
+  echo Keeping db.
 else
-  mkdir -p DB_BACKUP_DIRECTORY
-  docker run -d --restart=unless-stopped --net none --name pg -e POSTGRES_USER=${PG_USER} -e POSTGRES_PASSWORD=${PG_PASS} postgres:9.5
+  echo Bringing up db.
+  docker run -d --restart=unless-stopped --net none --name pg -e POSTGRES_USER=${PG_USER} -e POSTGRESS_PASSWORD=${PG_PASS} postgres:9.5
+  if [ -z $DB_RESTORE ] ; then
+    echo Nothing to restore.
+  else
+    echo Restoring db with the contents of ${DB_RESTORE}.
+    for i in {1..100} ; do docker exec pg psql -U${PG_USER} -c "select 'database is up' as healthcheck" || sleep 5 ; done
+    docker exec -i pg psql -U${PG_USER} < ${DB_RESTORE}
+  fi
+  docker network disconnect none pg
+  docker network connect $GRAPHISTRY_NETWORK pg
 fi
-# spinlock until pg starts up?
-docker network disconnect none pg
-docker network connect host pg
 
 ### Done.
 
