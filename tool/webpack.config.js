@@ -104,7 +104,7 @@ function clientConfig(
     config.output = {
         path: path.resolve('./www'),
         pathinfo: isDevBuild,
-        publicPath: '/graph/',
+        publicPath: '',
         filename: 'viz-client.js'
     };
 
@@ -333,4 +333,3 @@ function postcss(webpack) {
         require('autoprefixer')
     ];
 }
-
