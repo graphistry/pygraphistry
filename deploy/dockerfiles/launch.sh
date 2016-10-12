@@ -32,7 +32,7 @@ fi
 docker rm -f -v graphistry_mongo || true
 docker run --net host --restart=unless-stopped --name graphistry_mongo -d mongo:2
 
-for i in {1..5} ; do echo $i; docker exec graphistry_mongo mongo --eval "2+2" || sleep 1 ; done
+for i in {1..10} ; do echo $i; docker exec graphistry_mongo mongo --eval "2+2" || sleep $i ; done
 MONGO_NAME=cluster
 MONGO_USERNAME=graphistry
 MONGO_PASSWORD=graphtheplanet
