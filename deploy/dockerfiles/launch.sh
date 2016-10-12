@@ -7,7 +7,7 @@ nvidia-docker run --rm --name graphistry_httpd_test graphistry/central-and-vizse
 ### 1. Ensure we have a network for our application to run in.
 
 GRAPHISTRY_NETWORK=${GRAPHISTRY_NETWORK:-monolith-network}
-docker network ls $GRAPHISTRY_NETWORK || docker network create $GRAPHISTRY_NETWORK
+docker network inspect $GRAPHISTRY_NETWORK || docker network create $GRAPHISTRY_NETWORK
 
 ### 2. Stop app, make log directories, start app.
 
