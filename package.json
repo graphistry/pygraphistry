@@ -13,7 +13,9 @@
     "serve": "node ./www/viz-server.js",
     "debug": "node --inspect --debug ./www/viz-server.js",
     "test": "rm -rf test/build && node tool/test",
-    "jshint": "jshint -c .jshintrc --exclude-path .gitignore ."
+    "jshint": "jshint -c .jshintrc --exclude-path .gitignore .",
+    "version": "npm run build",
+    "postversion": "git push && git push --tags"
   },
   "repository": {
     "type": "git",
