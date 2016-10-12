@@ -145,7 +145,7 @@ function clientConfig(
             __SERVER__: false,
             __VERSION__: JSON.stringify(vizAppPackage.version),
             __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
-            'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
+            'process.env.NODE_ENV': '"production"'//JSON.stringify(process.env.NODE_ENV)
         })
     ];
 
@@ -232,7 +232,8 @@ function serverConfig(
             __CLIENT__: false,
             __SERVER__: true,
             __VERSION__: JSON.stringify(vizAppPackage.version),
-            __RELEASE__: JSON.stringify(graphistryConfig.RELEASE)
+            __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
+            'process.env.NODE_ENV': '"production"'//JSON.stringify(process.env.NODE_ENV)
         })
     ];
 
