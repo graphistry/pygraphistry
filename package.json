@@ -2,7 +2,7 @@
   "name": "@graphistry/viz-app",
   "version": "2.0.0",
   "description": "viz-app",
-  "main": "index.js",
+  "main": "viz-server.js",
   "scripts": {
     "clean": "rm -rf ./www/*",
     "dev": "npm run clean && cross-env NODE_ENV=development node tool/build",
@@ -19,6 +19,9 @@
     "type": "git",
     "url": "git+https://github.com/graphistry/viz-app.git"
   },
+  "files": [
+    "www"
+  ],
   "author": "",
   "license": "ISC",
   "bugs": {
