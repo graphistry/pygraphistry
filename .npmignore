@@ -1,4 +1,5 @@
 src
+tool
 .jshintrc
 .tern-project
 .eslintrc.yml

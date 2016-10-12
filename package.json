@@ -2,7 +2,7 @@
   "name": "@graphistry/viz-app",
   "version": "2.0.0",
   "description": "viz-app",
-  "main": "index.js",
+  "main": "viz-server.js",
   "scripts": {
     "clean": "rm -rf ./www/*",
     "dev": "npm run clean && cross-env NODE_ENV=development node tool/build",
@@ -13,12 +13,17 @@
     "serve": "node ./www/viz-server.js",
     "debug": "node --inspect --debug ./www/viz-server.js",
     "test": "rm -rf test/build && node tool/test",
-    "jshint": "jshint -c .jshintrc --exclude-path .gitignore ."
+    "jshint": "jshint -c .jshintrc --exclude-path .gitignore .",
+    "version": "npm run build",
+    "postversion": "git push && git push --tags"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/graphistry/viz-app.git"
   },
+  "files": [
+    "www"
+  ],
   "author": "",
   "license": "ISC",
   "bugs": {
