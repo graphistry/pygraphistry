@@ -30,7 +30,8 @@ function commonConfig(
         amd: false,
         profile: isDevBuild,
         // Create Sourcemaps for the bundle
-        devtool: isDevBuild ? 'source-map' : 'hidden-source-map',
+        devtool: 'source-map',
+        // devtool: isDevBuild ? 'source-map' : 'hidden-source-map',
         postcss: postcss,
         resolve: {
             unsafeCache: true,
@@ -105,7 +106,8 @@ function clientConfig(
         path: path.resolve('./www'),
         pathinfo: isDevBuild,
         publicPath: '',
-        filename: 'viz-client.js'
+        filename: 'viz-client.js',
+        fileSuffix: 'window.__assetSuffix__ || ""'
     };
 
     config.module.loaders = [
@@ -127,6 +129,7 @@ function clientConfig(
     ];
 
     config.plugins = [
+        customJSONPScriptPlugin(),
         ...config.plugins,
         new webpack.optimize.CommonsChunkPlugin({
             name: 'vendor',
@@ -142,28 +145,31 @@ function clientConfig(
             __SERVER__: false,
             __VERSION__: JSON.stringify(vizAppPackage.version),
             __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
-            'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
+            'process.env.NODE_ENV': '"production"'//JSON.stringify(process.env.NODE_ENV)
         })
     ];
 
     if (!isDevBuild) {
-        config.plugins.push(new ClosureCompilerPlugin({
-            compiler: {
-                language_in: 'ECMASCRIPT5',
-                language_out: 'ECMASCRIPT5',
-                compilation_level: 'SIMPLE',
-                rewrite_polyfills: false,
-                use_types_for_optimization: false,
-                warning_level: 'QUIET',
-                jscomp_off: '*',
-                jscomp_warning: '*',
-                source_map_format: 'V3',
-                create_source_map: `${config.output.path}/${
-                                      config.output.filename}.map`,
-                output_wrapper: `%output%\n//# sourceMappingURL=${config.output.filename}.map`
-            },
-            concurrency: 3,
-        }));
+        config.plugins = [
+            ...config.plugins,
+            new ClosureCompilerPlugin({
+                compiler: {
+                    language_in: 'ECMASCRIPT5',
+                    language_out: 'ECMASCRIPT5',
+                    compilation_level: 'SIMPLE',
+                    rewrite_polyfills: false,
+                    use_types_for_optimization: false,
+                    warning_level: 'QUIET',
+                    jscomp_off: '*',
+                    jscomp_warning: '*',
+                    source_map_format: 'V3',
+                    create_source_map: `${config.output.path}/${
+                                          config.output.filename}.map`,
+                    output_wrapper: `%output%\n//# sourceMappingURL=${config.output.filename}.map`
+                },
+                concurrency: 3,
+            })
+        ];
     }
 
     return config;
@@ -226,7 +232,8 @@ function serverConfig(
             __CLIENT__: false,
             __SERVER__: true,
             __VERSION__: JSON.stringify(vizAppPackage.version),
-            __RELEASE__: JSON.stringify(graphistryConfig.RELEASE)
+            __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
+            'process.env.NODE_ENV': '"production"'//JSON.stringify(process.env.NODE_ENV)
         })
     ];
 
@@ -332,4 +339,32 @@ function postcss(webpack) {
         require('postcss-font-awesome'),
         require('autoprefixer')
     ];
+}
+
+/**
+ * This "plugin" modifies viz-client's runtime webpack requireEnsure function
+ * to append the value of "webpackConfig.options.output.fileSuffix" to the async
+ * script tag src. Search `www/vendor.bundle.js` for "requireEnsure" to see what
+ * the `script.src` value will be.
+ * https://github.com/webpack/webpack/issues/803#issuecomment-219263635
+ */
+function customJSONPScriptPlugin() {
+    return {
+        apply(compiler) {
+            compiler.plugin('compilation', function(compilation) {
+                compilation.mainTemplate.plugin('jsonp-script', function(source, chunk, hash) {
+                    var options = compilation.outputOptions || {};
+                    var outFileName = options.filename || '';
+                    var outFileSuffix = options.fileSuffix || '';
+                    if (!outFileName || !outFileSuffix) {
+                        return source;
+                    }
+                    // `source` is the source code returned by the existing 'jsonp-script' plugin,
+                    // e.g. from JsonpMainTemplatePlugin.js or NodeMainTemplatePlugin.js
+                    // e.g. surround the chunk-loading code with `'start';` and `'end';` string literals
+                    return source.replace(`".${outFileName}"`, `".${outFileName}" + (${outFileSuffix})`);
+                });
+            });
+        }
+    };
 }
