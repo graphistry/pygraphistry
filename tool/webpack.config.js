@@ -105,9 +105,8 @@ function clientConfig(
     config.output = {
         path: path.resolve('./www'),
         pathinfo: isDevBuild,
-        publicPath: '/graph/',
-        filename: 'viz-client.js',
-        fileSuffix: 'window.__assetSuffix__ || ""'
+        publicPath: '',
+        filename: 'viz-client.js'
     };
 
     config.module.loaders = [
@@ -129,7 +128,6 @@ function clientConfig(
     ];
 
     config.plugins = [
-        customJSONPScriptPlugin(),
         ...config.plugins,
         new webpack.optimize.CommonsChunkPlugin({
             name: 'vendor',
@@ -339,32 +337,4 @@ function postcss(webpack) {
         require('postcss-font-awesome'),
         require('autoprefixer')
     ];
-}
-
-/**
- * This "plugin" modifies viz-client's runtime webpack requireEnsure function
- * to append the value of "webpackConfig.options.output.fileSuffix" to the async
- * script tag src. Search `www/vendor.bundle.js` for "requireEnsure" to see what
- * the `script.src` value will be.
- * https://github.com/webpack/webpack/issues/803#issuecomment-219263635
- */
-function customJSONPScriptPlugin() {
-    return {
-        apply(compiler) {
-            compiler.plugin('compilation', function(compilation) {
-                compilation.mainTemplate.plugin('jsonp-script', function(source, chunk, hash) {
-                    var options = compilation.outputOptions || {};
-                    var outFileName = options.filename || '';
-                    var outFileSuffix = options.fileSuffix || '';
-                    if (!outFileName || !outFileSuffix) {
-                        return source;
-                    }
-                    // `source` is the source code returned by the existing 'jsonp-script' plugin,
-                    // e.g. from JsonpMainTemplatePlugin.js or NodeMainTemplatePlugin.js
-                    // e.g. surround the chunk-loading code with `'start';` and `'end';` string literals
-                    return source.replace(`".${outFileName}"`, `".${outFileName}" + (${outFileSuffix})`);
-                });
-            });
-        }
-    };
 }
