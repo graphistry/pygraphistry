@@ -4,16 +4,13 @@
   "description": "viz-app",
   "main": "viz-server.js",
   "scripts": {
+    "start": "node ./www/viz-server.js",
     "clean": "rm -rf ./www/*",
-    "dev": "npm run clean && cross-env NODE_ENV=development node tool/build",
     "build": "npm run clean && cross-env NODE_ENV=production node tool/build",
-    "start": "npm run clean && cross-env NODE_ENV=production node tool/build --watch",
+    "dev": "npm run clean && cross-env NODE_ENV=development node tool/build",
     "watch": "npm run clean && cross-env NODE_ENV=development node tool/build --watch",
     "fancy": "npm run clean && cross-env NODE_ENV=development webpack-dashboard -- node tool/build --watch --fancy",
-    "serve": "node ./www/viz-server.js",
     "debug": "node --inspect --debug ./www/viz-server.js",
-    "test": "rm -rf test/build && node tool/test",
-    "jshint": "jshint -c .jshintrc --exclude-path .gitignore .",
     "version": "npm run build",
     "postversion": "git push && git push --tags"
   },
