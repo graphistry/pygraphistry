@@ -7,3 +7,4 @@ dist
 tmp
 www
 test_results
+.npmrc
