@@ -1,0 +1,22 @@
+FROM graphistry/baseapp:1.2
+
+# fetch secrets from our vault, do the npm installs, and delete the secrets.
+
+ENV APPDIR /app
+WORKDIR $APPDIR
+
+COPY . $APPDIR
+
+
+RUN mkdir /root/.ssh && \
+    curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa > /root/.ssh/id_rsa && \
+    curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa.pub > /root/.ssh/id_rsa.pub && \
+    curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/npm/rc > /root/.npmrc && \
+    chmod 400 /root/.ssh/* && \
+    md5sum /root/.ssh/* && \
+    (ssh -o StrictHostKeyChecking=no -T git@github.com || true) && \
+    cd $APPDIR && \
+    npm install && \
+    npm build && \
+    npm publish && \
+    shred -u /root/.ssh/* /root/.npmrc
