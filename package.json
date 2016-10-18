@@ -1,6 +1,6 @@
 {
   "name": "@graphistry/viz-app",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "viz-app",
   "main": "viz-server.js",
   "scripts": {
@@ -93,6 +93,7 @@
     "react": "15.3.1",
     "react-ace": "3.5.0",
     "react-bootstrap": "0.30.2",
+    "react-dock": "~0.2.3",
     "react-dom": "15.3.1",
     "react-overlays": "0.6.6",
     "react-redux": "4.4.5",
