@@ -103,7 +103,7 @@
     "rx-http-server": "trxcllnt/rx-http-server",
     "rx-router": "trxcllnt/rx-router",
     "rxjs": "5.0.0-rc.1",
-    "rxjs-gestures": "1.0.6",
+    "rxjs-gestures": "1.0.7",
     "simpleflakes": "1.2.2",
     "socket.io": "1.4.8",
     "socket.io-client": "1.4.8",
