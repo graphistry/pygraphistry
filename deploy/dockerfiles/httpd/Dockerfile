@@ -1,4 +1,4 @@
-FROM graphistry/baseapp:1.0
+FROM graphistry/baseapp:1.1
 ENV graphistry_install_path "/var/graphistry"
 ENV graphistry_temp_path "/tmp/graphistry"
 ENV workers_count 2
@@ -27,17 +27,15 @@ CMD bash -l -c "supervisord -n -c /etc/supervisor/supervisord.conf"
 
 RUN curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa > /root/.ssh/id_rsa && \
     curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa.pub > /root/.ssh/id_rsa.pub && \
+    curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/npm/rc > /root/.npmrc && \
     chmod 400 /root/.ssh/* && \
     md5sum /root/.ssh/* && \
     (ssh -o StrictHostKeyChecking=no -T git@github.com || true) && \
     cd $graphistry_install_path && \
-    git clone git@github.com:graphistry/central.git && \
-    git clone git@github.com:graphistry/viz-server.git && \
+    npm install @graphistry/central && \
+    bash -l -c "npm install @graphistry/viz-app" && \
     git clone git@github.com:graphistry/datasets.git && \
-    mv datasets/preloaded/* central/assets/ && \
+    mv datasets/preloaded/* node_modules/@graphistry/central/assets/ && \
     rm -rf datasets && \
-    rm -rf central/.git viz-server/.git && \
-    cd central && bash -l -c "npm install --unsafe-perm" && cd .. && \
-    cd viz-server && bash -l -c "npm install --unsafe-perm" && cd .. && \
     rm -r /tmp/* && \
-    shred -u /root/.ssh/*
+    shred -u /root/.ssh/* /root/.npmrc
