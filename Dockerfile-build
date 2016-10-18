@@ -16,7 +16,7 @@ RUN mkdir /root/.ssh && \
     md5sum /root/.ssh/* && \
     (ssh -o StrictHostKeyChecking=no -T git@github.com || true) && \
     cd $APPDIR && \
-    npm install && \
+    bash -l -c "npm install" && \
     npm run build && \
     npm publish && \
     shred -u /root/.ssh/* /root/.npmrc
