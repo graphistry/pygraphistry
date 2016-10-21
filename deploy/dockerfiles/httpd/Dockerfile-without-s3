@@ -23,6 +23,11 @@ COPY central.conf viz_workers.conf reaper.conf /etc/supervisor/conf.d/
 COPY supervisord.conf /etc/supervisor
 CMD bash -l -c "supervisord -n -c /etc/supervisor/supervisord.conf"
 
+# config.
+
+COPY cloudOptions.json $graphistry_install_path
+COPY mergeThreeFiles.js /usr/local/bin
+
 # fetch secrets from our vault, do the npm installs, and delete the secrets.
 
 RUN curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa > /root/.ssh/id_rsa && \
