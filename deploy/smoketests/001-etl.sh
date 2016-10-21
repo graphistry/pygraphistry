@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -ex
 
 ## 2 ETLs, to $1.
 
