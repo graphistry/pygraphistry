@@ -1,4 +1,4 @@
-#!/bin/bash -ex
+#!/bin/bash -e
 
 ## 2 ETLs, to $1.
 
@@ -6,6 +6,8 @@ WHOAMI=twoetls
 SEEKRIT=Validated
 APIKEY=$(curl -L --silent $1'/api/encrypt?text='${WHOAMI}${SEEKRIT} | awk -F '"' '{print $(NF-1)}')
 DATASETNAME=g
+
+echo " >> DEBUG: APIKEY == ${APIKEY}"
 
 for i in {1..2} ; do echo -n ${1}'/graph/graph.html?dataset='${DATASETNAME}'&viztoken=' ; curl -L --silent -X POST -H "Content-Type: application/json" --data '{"name":"'${DATASETNAME}'","graph":[{"s":"a","d":"b"},{"s":"b","d":"c"}],"bindings":{"sourceField":"s","destinationField":"d"}}' ${1}'/etl?key='${APIKEY} | awk -F '"' '{print $(NF-1)}' ; done
 
