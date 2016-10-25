@@ -23,10 +23,10 @@
         chdir: /var/graphistry/{{ deploy_directory }}
       command: !!str {{ arbitrary_parameters }} ./launch.sh
 
-    - name: GC old directories (keep last 2)
+    - name: GC old directories (keep last 10)
       args:
         chdir: /var/graphistry
-      command: bash -c "ls -t | tail -n +3 | xargs --no-run-if-empty rm -r"
+      command: bash -c "ls -t | tail -n +11 | xargs --no-run-if-empty rm -r"
       become: yes
       become_user: root
 
