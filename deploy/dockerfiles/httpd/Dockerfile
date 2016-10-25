@@ -25,7 +25,7 @@ CMD bash -l -c "supervisord -n -c /etc/supervisor/supervisord.conf"
 
 # config.
 
-COPY cloudOptions.json $graphistry_install_path
+COPY central-cloud-options.json viz-worker-cloud-options.json $graphistry_install_path
 COPY mergeThreeFiles.js /usr/local/bin
 
 # fetch secrets from our vault, do the npm installs, and delete the secrets.
