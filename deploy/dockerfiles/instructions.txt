@@ -71,7 +71,7 @@ When you have launched the app, you should be able to point your browser to that
 
 These are public images, available on DockerHub, built on the Jupyter notebooks with pygraphistry installed, with several demo notebooks.
 
-Run `docker run -p 8888:8888  --restart=unless-stopped --name graphistry_notebook -d graphistry/jupyter-notebook:1.1`.
+Run `docker run -p 8888:8888  --restart=unless-stopped --name graphistry_notebook -d graphistry/jupyter-notebook:1.2`.
 
 # KEEP MY WORKBOOKS AROUND FROM DEPLOY TO DEPLOY.
 
