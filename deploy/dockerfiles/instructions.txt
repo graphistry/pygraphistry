@@ -73,6 +73,14 @@ These are public images, available on DockerHub, built on the Jupyter notebooks 
 
 Run `docker run -p 8888:8888  --restart=unless-stopped --name graphistry_notebook -d graphistry/jupyter-notebook:1.1`.
 
+# KEEP MY WORKBOOKS AROUND FROM DEPLOY TO DEPLOY.
+
+By default, the launch script will make a directory in its directory, `workbook_cache`, for all loaded workbooks.
+
+If you make a new directory for each release that you deploy, and you are running an airgapped Graphistry, you may want to keep around the workbooks that you have previously made.
+
+Please use the GRAPHISTRY_WORKBOOK_CACHE environment variable to set this to a directory of your choosing.
+
 # KEEP MY DATASETS AROUND FROM DEPLOY TO DEPLOY.
 
 By default, the launch script will make a directory in its directory, `data_cache`, for all loaded datasets.
@@ -81,13 +89,13 @@ If you make a new directory for each release that you deploy, and you are runnin
 
 Please use the GRAPHISTRY_DATA_CACHE environment variable to set this to a directory of your choosing.
 
-## KEEP MY DATASETS AND WORKBOOKS IN MEMORY ONLY.
+## KEEP MY DATASETS IN MEMORY ONLY.
 
-Your datasets and workbooks live in two places: in the Node process memory and in the `data_cache` directory. They are not written anywhere else.
+Your datasets live in two places: in the Node process memory and in the `data_cache` directory. They are not written anywhere else.
 
 If you would like to launch Graphistry so as to never write a dataset or workbook to disk, please first ensure that your machine has virtual memory turned off, to avoid swapping memory out to disk. (This is often a common requirement at an installation, and we defer to best practices therein.)
 
-Once your machine is not using swap, please mount the `data_cache` directory somewhere below `/run/shm` (for Ubuntu 14.04 LTS) or `/dev/shm` (for RHEL 7.2).
+Please set the GRAPHISTRY_DATA_CACHE environment variable to some subdirectory of `/run/shm` (on Ubuntu 14.04 LTS) or `/dev/shm` (on RHEL 7.2).
 
 This will ensure that Graphistry will never write your datasets to disk.
 
