@@ -1,4 +1,4 @@
-#!/bin/bash -xe
+#!/bin/bash -lex
 
 ### 0. Ensure that we can get an OpenCL context.
 
