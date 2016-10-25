@@ -19,7 +19,7 @@ stat ../httpd-config.json || (echo '{}' > ../httpd-config.json)
 echo "${GRAPHISTRY_APP_CONFIG:-{\}}" > ./httpd-config.json
 
 CENTRAL_MERGED_CONFIG=$(docker   run --rm -v `pwd`/../httpd-config.json:/tmp/box-config.json -v `pwd`/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/central-cloud-options.json    /tmp/box-config.json /tmp/local-config.json')
-VIZWORKER_MERGED_CONFIG=$(docker run --rm -v `pwd`/../httpd_config.json:/tmp/box-config.json -v `pwd`/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/viz-worker-cloud-options.json /tmp/box-config.json /tmp/local-config.json')
+VIZWORKER_MERGED_CONFIG=$(docker run --rm -v `pwd`/../httpd-config.json:/tmp/box-config.json -v `pwd`/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/viz-worker-cloud-options.json /tmp/box-config.json /tmp/local-config.json')
 
 nvidia-docker run --net host --restart=unless-stopped --name graphistry_httpd -e "GRAPHISTRY_CENTRAL_CONFIG=${CENTRAL_MERGED_CONFIG}" -e "GRAPHISTRY_VIZWORKER_CONFIG=${VIZWORKER_MERGED_CONFIG}" -d -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper -v ${GRAPHISTRY_DATA_CACHE:-`pwd`/data_cache}:/tmp/graphistry/data_cache -v `pwd`/supervisor:/var/log/supervisor graphistry/central-and-vizservers:$1
 
