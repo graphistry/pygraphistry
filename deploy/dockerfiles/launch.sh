@@ -75,6 +75,9 @@ fi
 
 ### Done.
 
+docker restart graphistry_httpd # to be removed once DEV-898 is fixed.
+
+
 echo SUCCESS.
 echo Graphistry has been launched, and should be up and running.
 echo SUCCESS.
