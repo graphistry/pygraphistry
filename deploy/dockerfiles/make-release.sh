@@ -1,6 +1,6 @@
 #!/bin/sh -xe
-C1=graphistry/nginx-central-vizservers:1.3.0.32
-C2=graphistry/nginx-central-vizservers:1.3.0.32.httponly
+C1=graphistry/nginx-central-vizservers:1.3.0.0
+C2=graphistry/nginx-central-vizservers:1.3.0.0.httponly
 C3=graphistry/splunkfwd:6.4.1
 C4=graphistry/central-and-vizservers:$1
 C5=mongo:2
