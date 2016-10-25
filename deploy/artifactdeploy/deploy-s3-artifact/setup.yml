@@ -21,7 +21,7 @@
     - name: Launch containers with arbitrary bash parameters
       args:
         chdir: /var/graphistry/{{ deploy_directory }}
-      command: "{{ arbitrary_parameters }} ./launch.sh"
+      command: "bash -c '{{ arbitrary_parameters|safe }} ./launch.sh'"
 
     - name: GC old directories (keep last 10)
       args:
