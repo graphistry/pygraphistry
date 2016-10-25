@@ -1,9 +1,6 @@
 ---
 - hosts: all
   tasks:
-    - name: Log in to Docker for our private images
-      command: docker login -u {{ docker_username }} -p {{ docker_password }}
-
     - name: Directories for Graphistry config and logs
       file: state=directory owner={{ ansible_ssh_user }} path={{ item }}
       with_items: ["/etc/graphistry", "/var/graphistry", "/etc/graphistry/splunk", "/etc/graphistry/ssl"]
