@@ -28,9 +28,9 @@ nvidia-docker run --net host --restart=unless-stopped --name graphistry_httpd -e
 docker rm -f -v graphistry_nginx || true
 
 if [ -n "$SSLPATH" ] ; then
-    docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v ${SSLPATH}:/etc/graphistry/ssl:ro graphistry/nginx-central-vizservers:1.2.0.32
+    docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v ${SSLPATH}:/etc/graphistry/ssl:ro graphistry/nginx-central-vizservers:1.3.0.32
 else
-    docker run --net host --restart=unless-stopped --name graphistry_nginx -d graphistry/nginx-central-vizservers:1.2.0.32.httponly
+    docker run --net host --restart=unless-stopped --name graphistry_nginx -d graphistry/nginx-central-vizservers:1.3.0.32.httponly
 fi
 
 ### 4. Cluster membership.
