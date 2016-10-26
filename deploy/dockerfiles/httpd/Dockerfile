@@ -1,4 +1,4 @@
-FROM graphistry/baseapp:1.1
+FROM graphistry/baseapp:1.3
 ENV graphistry_install_path "/var/graphistry"
 ENV graphistry_temp_path "/tmp/graphistry"
 ENV workers_count 2
