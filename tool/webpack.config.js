@@ -11,6 +11,7 @@ var WebpackNodeExternals = require('webpack-node-externals');
 var StringReplacePlugin = require('string-replace-webpack-plugin');
 var FaviconsWebpackPlugin = require('favicons-webpack-plugin');
 var ClosureCompilerPlugin = require('webpack-closure-compiler');
+var child_process = require('child_process');
 
 var argv = process.argv.slice(2);
 while (argv.length < 2) {
@@ -21,6 +22,19 @@ module.exports = [
     clientConfig,
     serverConfig
 ];
+
+const commitId = child_process.execSync('git rev-parse --short HEAD').toString().trim();
+const revName = child_process.execSync('git name-rev --name-only HEAD').toString().trim();
+const buildNumber = process.env.BUILD_NUMBER;
+const buildDate = Date.now();
+
+const versionDefines = {
+    __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
+    __GITCOMMIT__: `"${commitId}"`,
+    __GITBRANCH__: `"${revName}"`,
+    __BUILDDATE__: `${buildDate}`,
+    __BUILDNUMBER__: buildNumber ? `"${buildNumber}"` : undefined,
+}
 
 function commonConfig(
     isDevBuild = process.env.NODE_ENV === 'development',
@@ -135,16 +149,20 @@ function clientConfig(
             filename: 'vendor.bundle.js'
         }),
         new AssetsPlugin({ path: path.resolve('./www') }),
-        new webpack.DefinePlugin({
-            global: 'window',
-            DEBUG: isDevBuild,
-            __DEV__: isDevBuild,
-            __CLIENT__: true,
-            __SERVER__: false,
-            __VERSION__: JSON.stringify(vizAppPackage.version),
-            __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
-            'process.env.NODE_ENV': '"production"'//JSON.stringify(process.env.NODE_ENV)
-        })
+        new webpack.DefinePlugin(
+            Object.assign(
+                {},
+                {
+                    global: 'window',
+                    DEBUG: isDevBuild,
+                    __DEV__: isDevBuild,
+                    __CLIENT__: true,
+                    __SERVER__: false,
+                    'process.env.NODE_ENV': '"production"',
+                },
+                versionDefines
+            )
+        )
     ];
 
     if (!isDevBuild) {
@@ -223,16 +241,20 @@ function serverConfig(
             entryOnly: true,
             banner: `require('source-map-support').install({ environment: 'node' });`
         }),
-        new webpack.DefinePlugin({
-            window: 'global',
-            DEBUG: isDevBuild,
-            __DEV__: isDevBuild,
-            __CLIENT__: false,
-            __SERVER__: true,
-            __VERSION__: JSON.stringify(vizAppPackage.version),
-            __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
-            'process.env.NODE_ENV': '"production"'//JSON.stringify(process.env.NODE_ENV)
-        })
+        new webpack.DefinePlugin(
+            Object.assign(
+                {},
+                {
+                    window: 'global',
+                    DEBUG: isDevBuild,
+                    __DEV__: isDevBuild,
+                    __CLIENT__: false,
+                    __SERVER__: true,
+                    'process.env.NODE_ENV': '"production"',
+                },
+                versionDefines
+            )
+        )
     ];
 
     return config;
