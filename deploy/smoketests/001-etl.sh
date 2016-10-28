@@ -2,10 +2,10 @@
 
 ## 2 ETLs, to $1.
 
-WHOAMI=twoetls
+WHOAMI=smoketest001@graphistry.com
 SEEKRIT=Validated
 APIKEY=$(curl -L --silent $1'/api/encrypt?text='${WHOAMI}${SEEKRIT} | awk -F '"' '{print $(NF-1)}')
-DATASETNAME=g
+DATASETNAME=`LC_CTYPE=C tr -dc A-Za-z0-9 < /dev/urandom | fold -w 32 | head -n 1`
 
 echo " >> DEBUG: APIKEY == ${APIKEY}"
 
