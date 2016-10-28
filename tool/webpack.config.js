@@ -20,7 +20,8 @@ while (argv.length < 2) {
 
 module.exports = [
     clientConfig,
-    serverConfig
+    serverConfig,
+    apiConfig,
 ];
 
 const commitId = child_process.execSync('git rev-parse --short HEAD').toString().trim();
@@ -41,12 +42,12 @@ function commonConfig(
     isFancyBuild = argv[1] === '--fancy'
 ) {
     return {
+        postcss,
         amd: false,
         profile: isDevBuild,
         // Create Sourcemaps for the bundle
         devtool: 'source-map',
         // devtool: isDevBuild ? 'source-map' : 'hidden-source-map',
-        postcss: postcss,
         resolve: {
             unsafeCache: true,
             alias: {
@@ -58,11 +59,11 @@ function commonConfig(
             }
         },
         module: {
-            preLoaders: [{
-                test: /\.jsx?$/,
-                exclude: /src\//,
-                loader: 'source-map'
-            }],
+            // preLoaders: [{
+            //     test: /\.jsx?$/,
+            //     exclude: /src\//,
+            //     loader: 'source-map'
+            // }],
             loaders: loaders(isDevBuild, isFancyBuild),
             noParse: [
                 /\@graphistry\/falcor\/dist\/falcor\.min\.js$/,
@@ -158,11 +159,16 @@ function clientConfig(
                     __DEV__: isDevBuild,
                     __CLIENT__: true,
                     __SERVER__: false,
+                    __VERSION__: JSON.stringify(vizAppPackage.version),
+                    __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
                     'process.env.NODE_ENV': '"production"',
                 },
                 versionDefines
             )
-        )
+        ),
+        new WebpackVisualizer({
+            filename: `${config.output.filename}.stats.html`
+        })
     ];
 
     if (!isDevBuild) {
@@ -254,8 +260,71 @@ function serverConfig(
                 },
                 versionDefines
             )
-        )
+        ),
+        new WebpackVisualizer({
+            filename: `${config.output.filename}.stats.html`
+        })
     ];
+
+    return config;
+}
+
+function apiConfig(
+    isDevBuild = process.env.NODE_ENV === 'development',
+    isFancyBuild = argv[1] === '--fancy'
+) {
+    var config = commonConfig(isDevBuild, isFancyBuild);
+
+    config.entry = { api: './src/api-client/index.js' };
+    config.output = {
+        publicPath: '',
+        pathinfo: isDevBuild,
+        path: path.resolve('./www'),
+        libraryTarget: 'umd',
+        umdNamedDefine: true,
+        library: 'GraphistryJS',
+        filename: 'graphistryJS.js'
+    };
+
+    config.plugins = [
+        ...config.plugins,
+        new webpack.DefinePlugin({
+            global: 'window',
+            DEBUG: isDevBuild,
+            __DEV__: isDevBuild,
+            __CLIENT__: false,
+            __SERVER__: false,
+            __VERSION__: JSON.stringify(vizAppPackage.version),
+            __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
+            'process.env.NODE_ENV': '"production"'//JSON.stringify(process.env.NODE_ENV)
+        }),
+        new WebpackVisualizer({
+            filename: `${config.output.filename}.stats.html`
+        })
+    ];
+
+    if (!isDevBuild) {
+        config.plugins = [
+            ...config.plugins,
+            new ClosureCompilerPlugin({
+                compiler: {
+                    language_in: 'ECMASCRIPT5',
+                    language_out: 'ECMASCRIPT5',
+                    compilation_level: 'SIMPLE',
+                    rewrite_polyfills: false,
+                    use_types_for_optimization: false,
+                    warning_level: 'QUIET',
+                    jscomp_off: '*',
+                    jscomp_warning: '*',
+                    source_map_format: 'V3',
+                    create_source_map: `${config.output.path}/${
+                                          config.output.filename}.map`,
+                    output_wrapper: `%output%\n//# sourceMappingURL=${config.output.filename}.map`
+                },
+                concurrency: 3,
+            })
+        ];
+    }
 
     return config;
 }
@@ -321,12 +390,12 @@ function plugins(isDevBuild, isFancyBuild) {
         new webpack.NoErrorsPlugin(),
         new webpack.ProvidePlugin({ React: 'react' }),
         new webpack.LoaderOptionsPlugin({
-            // debug: isDevBuild,
-            // minimize: !isDevBuild
-            debug: false,
-            minimize: true,
+            // debug: false,
+            // minimize: true,
+            debug: isDevBuild,
+            minimize: !isDevBuild,
             quiet: isDevBuild,
-            progress: !isDevBuild,
+            progress: !isDevBuild
         }),
         // use this for universal server client rendering
         new ExtractTextPlugin({ allChunks: true, filename: 'styles.css' }),
@@ -334,7 +403,6 @@ function plugins(isDevBuild, isFancyBuild) {
 
     if (isDevBuild) {
         // plugins.push(new NPMInstallPlugin());
-        // plugins.push(new WebpackVisualizer());
         plugins.push(new webpack.HotModuleReplacementPlugin());
         if (isFancyBuild) {
             plugins.push(new WebpackDashboard());

@@ -18,12 +18,22 @@ if (require.main === module) {
     var shouldWatch = argv[0] === '--watch';
     var watcher = buildResource(
         webpackConfig, isDevBuild, shouldWatch, function(err, data) {
-            if (err) {
-                return process.send(err);
-            }
-            process.send(data);
-            if (!shouldWatch) {
-                process.send({ type: 'complete' });
+            if (process.send) {
+                if (err) {
+                    return process.send(err);
+                }
+                process.send(data);
+                if (!shouldWatch) {
+                    process.send({ type: 'complete' });
+                }
+            } else {
+                const body = JSON.parse((err || data).body);
+                if (err) {
+                    console.error('%s ❌  Failed while building %s', chalk.red('[WEBPACK]'), body.name);
+                    console.error(err.error);
+                } else {
+                    console.log('%s ✅  Successfully built %s', chalk.blue('[WEBPACK]'), body.name);
+                }
             }
         }
     );
@@ -66,9 +76,10 @@ function buildResource(webpackConfig, isDevBuild, shouldWatch, cb) {
                 }).join("\n");
 
             console.error('%s fatal error occured', chalk.red('[WEBPACK]'));
-            console.error(err);
+            // console.error(err);
             if (shouldWatch) {
                 console.log(message);
+                console.log(stats.toString(webpackConfig.stats || {}));
             } else {
                 return cb({
                     type: 'error',

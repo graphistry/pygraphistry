@@ -161,7 +161,7 @@ compile.multicast(function() { return new Subject(); }, function(shared) {
         error(err) {
             console.error('%s ❌  Failed while building', chalk.red('[WEBPACK]'));
             console.error(err.error);
-            console.error(err.stats);
+            // console.error(err.stats);
         }
     });
 
@@ -176,7 +176,7 @@ function buildResourceToObservable(webpackConfig, isDevBuild, shouldWatch) {
             if (err) {
                 return subject.error({
                     error: err.error,
-                    stats: err.stats
+                    stats: JSON.parse(err.body).stats
                 });
             }
             subject.next(JSON.parse(data.body));
@@ -215,7 +215,7 @@ function processToObservable(process) {
             } else if (data.type === 'error') {
                 subscriber.error({
                     error: data.error,
-                    stats: data.stats
+                    stats: JSON.parse(data.body).stats
                 });
             }
         };
