@@ -1,7 +1,6 @@
 FROM graphistry/baseapp:1.3
 ENV graphistry_install_path "/var/graphistry"
 ENV graphistry_temp_path "/tmp/graphistry"
-ENV workers_count 2
 ENV workers_port_start 10000
 ENV upload_limit "128M"
 ENV GRAPHISTRY_LOG_LEVEL INFO
