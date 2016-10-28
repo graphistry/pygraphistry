@@ -2,7 +2,7 @@
 
 ## 2 ETLs, to $1.
 
-AGENT=`basename $0`
+AGENT="$(basename $0)"
 WHOAMI=smoketest001@graphistry.com
 SEEKRIT=Validated
 APIKEY=$(curl -L --silent $1'/api/encrypt?text='${WHOAMI}${SEEKRIT} | awk -F '"' '{print $(NF-1)}')
