@@ -1,0 +1,21 @@
+[program:viz-worker]
+
+command=npm start '$GRAPHISTRY_VIZWORKER_CONFIG'
+directory=/var/graphistry/node_modules/@graphistry/viz-app
+environment=
+
+process_name=%(program_name)s-%(process_num)d
+numprocs=32
+numprocs_start=10000
+
+stdout_logfile=/var/log/worker/%(program_name)s-%(process_num)d.stdout.log
+stdout_logfile_maxbytes=10MB
+
+redirect_stderr=false
+stderr_logfile=/var/log/worker/%(program_name)s-%(process_num)d.stderr.log
+stderr_logfile_maxbytes=10MB
+
+autostart=true
+autorestart=true
+
+stopasgroup=true

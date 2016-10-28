@@ -1,0 +1,21 @@
+[program:central]
+
+command=npm start '$GRAPHISTRY_CENTRAL_CONFIG'
+directory=/var/graphistry/node_modules/@graphistry/central
+environment=
+
+process_name=%(program_name)s
+numprocs=1
+numprocs_start=0
+
+stdout_logfile=/var/log/central-app/%(program_name)s.stdout.log
+stdout_logfile_maxbytes=10MB
+
+redirect_stderr=false
+stderr_logfile=/var/log/central-app/%(program_name)s.stderr.log
+stderr_logfile_maxbytes=10MB
+
+autostart=true
+autorestart=true
+
+stopasgroup=true

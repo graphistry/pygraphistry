@@ -1,4 +1,4 @@
-#!/bin/bash -xe
+#!/bin/bash -lex
 
 ### 0. Ensure that we can get an OpenCL context.
 
@@ -15,16 +15,22 @@ docker rm -f -v graphistry_httpd || true
 
 mkdir -p central-app worker graphistry-json clients reaper
 
-nvidia-docker run --net host --restart=unless-stopped --name graphistry_httpd -e "GRAPHISTRY_LOG_LEVEL=${GRAPHISTRY_LOG_LEVEL:-INFO}" -d -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper -v ${GRAPHISTRY_DATA_CACHE:-`pwd`/data_cache}:/tmp/graphistry/data_cache -v `pwd`/supervisor:/var/log/supervisor graphistry/central-and-vizservers:$1
+stat ../httpd-config.json || (echo '{}' > ../httpd-config.json)
+echo "${GRAPHISTRY_APP_CONFIG:-{\}}" > ./httpd-config.json
+
+CENTRAL_MERGED_CONFIG=$(docker   run --rm -v `pwd`/../httpd-config.json:/tmp/box-config.json -v `pwd`/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/central-cloud-options.json    /tmp/box-config.json /tmp/local-config.json')
+VIZWORKER_MERGED_CONFIG=$(docker run --rm -v `pwd`/../httpd-config.json:/tmp/box-config.json -v `pwd`/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/viz-worker-cloud-options.json /tmp/box-config.json /tmp/local-config.json')
+
+nvidia-docker run --net host --restart=unless-stopped --name graphistry_httpd -e "GRAPHISTRY_CENTRAL_CONFIG=${CENTRAL_MERGED_CONFIG}" -e "GRAPHISTRY_VIZWORKER_CONFIG=${VIZWORKER_MERGED_CONFIG}" -d -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper -v ${GRAPHISTRY_DATA_CACHE:-`pwd`/data_cache}:/tmp/graphistry/data_cache -v ${GRAPHISTRY_WORKBOOK_CACHE:-`pwd`/workbook_cache}:/tmp/graphistry/workbook_cache -v `pwd`/supervisor:/var/log/supervisor graphistry/central-and-vizservers:$1
 
 ### 3. Nginx, maybe with ssl.
 
 docker rm -f -v graphistry_nginx || true
 
 if [ -n "$SSLPATH" ] ; then
-    docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v ${SSLPATH}:/etc/graphistry/ssl:ro graphistry/nginx-central-vizservers:1.1.0.32
+    docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v ${SSLPATH}:/etc/graphistry/ssl:ro graphistry/nginx-central-vizservers:1.4.0.32
 else
-    docker run --net host --restart=unless-stopped --name graphistry_nginx -d graphistry/nginx-central-vizservers:1.1.0.32.httponly
+    docker run --net host --restart=unless-stopped --name graphistry_nginx -d graphistry/nginx-central-vizservers:1.4.0.32.httponly
 fi
 
 ### 4. Cluster membership.
@@ -68,6 +74,9 @@ else
 fi
 
 ### Done.
+
+docker restart graphistry_httpd # to be removed once DEV-898 is fixed.
+
 
 echo SUCCESS.
 echo Graphistry has been launched, and should be up and running.

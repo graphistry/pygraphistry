@@ -51,9 +51,9 @@ Currently, the only supported and tested configuration is
 
 `./launch.sh` .
 
-# STOP THE APP. (RARE.)
+# STOP OR RESTART THE APP. (RARE.)
 
-Run `docker stop graphistry_mongo graphistry_nginx graphistry_httpd`.
+Run `docker stop graphistry_httpd` or `docker restart graphistry_httpd`.
 
 # VIEW THE LOGS.
 
@@ -61,7 +61,7 @@ Logs are mounted in the working directory of where you run launch.sh.
 
 There are client logs, in clients/, server logs, in graphistry-json/, other assorted logs in central-app/ and worker/. Logs are in JSON. We recommend using [Bunyan](https://github.com/trentm/node-bunyan) to print logs in a more readable format. For instance, you can use `bunyan -o short < logfile`
 
-If you want debug logs, launch with the environment variable of GRAPHISTRY_LOG_LEVEL set to DEBUG; i.e. `GRAPHISTRY_LOG_LEVEL=DEBUG ./launch.sh` .
+If you want debug logs, launch with the `GRAPHISTRY_APP_CONFIG` environment variable having a key in its JSON hash of `LOG_LEVEL` set to DEBUG; i.e. `GRAPHISTRY_APP_CONFIG='{"LOG_LEVEL":"DEBUG"}' ./launch.sh` .
 
 # VERIFY THAT THE APP IS RUNNING.
 
@@ -71,7 +71,15 @@ When you have launched the app, you should be able to point your browser to that
 
 These are public images, available on DockerHub, built on the Jupyter notebooks with pygraphistry installed, with several demo notebooks.
 
-Run `docker run -p 8888:8888  --restart=unless-stopped --name graphistry_notebook -d graphistry/jupyter-notebook:1.1`.
+Run `docker run -p 8888:8888  --restart=unless-stopped --name graphistry_notebook -d graphistry/jupyter-notebook:1.2`.
+
+# KEEP MY WORKBOOKS AROUND FROM DEPLOY TO DEPLOY.
+
+By default, the launch script will make a directory in its directory, `workbook_cache`, for all loaded workbooks.
+
+If you make a new directory for each release that you deploy, and you are running an airgapped Graphistry, you may want to keep around the workbooks that you have previously made.
+
+Please use the `GRAPHISTRY_WORKBOOK_CACHE` environment variable to set this to a directory of your choosing, i.e. `GRAPHISTRY_WORKBOOK_CACHE=/var/graphistry/workbooks GRAPHISTRY_APP_CONFIG='{"LOG_LEVEL":"INFO"}' ./launch.sh`.
 
 # KEEP MY DATASETS AROUND FROM DEPLOY TO DEPLOY.
 
@@ -79,17 +87,19 @@ By default, the launch script will make a directory in its directory, `data_cach
 
 If you make a new directory for each release that you deploy, and you are running an airgapped Graphistry, you may want to keep around the datasets that you have previously loaded.
 
-Please use the GRAPHISTRY_DATA_CACHE environment variable to set this to a directory of your choosing.
+Please use the `GRAPHISTRY_DATA_CACHE` environment variable to set this to a directory of your choosing, i.e. `GRAPHISTRY_DATA_CACHE=/tmp/graphistry-data-cache ./launch.sh`
 
-## KEEP MY DATASETS AND WORKBOOKS IN MEMORY ONLY.
+## KEEP MY DATASETS IN MEMORY ONLY. (READ-PROCESS-DISCARD.)
 
-Your datasets and workbooks live in two places: in the Node process memory and in the `data_cache` directory. They are not written anywhere else.
+Your datasets live in two places: in the Node process memory and in the `data_cache` directory. They are not written anywhere else.
 
 If you would like to launch Graphistry so as to never write a dataset or workbook to disk, please first ensure that your machine has virtual memory turned off, to avoid swapping memory out to disk. (This is often a common requirement at an installation, and we defer to best practices therein.)
 
-Once your machine is not using swap, please mount the `data_cache` directory somewhere below `/run/shm` (for Ubuntu 14.04 LTS) or `/dev/shm` (for RHEL 7.2).
+Please set the `GRAPHISTRY_DATA_CACHE` environment variable to some subdirectory of `/run/shm` (on Ubuntu 14.04 LTS) or `/dev/shm` (on RHEL 7.2).
 
 This will ensure that Graphistry will never write your datasets to disk.
+
+For the discard part of read/process/discard: by keeping datasets in memory it is possible to cause a box to discard datasets on restart.
 
 # CLEAN UP SPACE ON A GRAPHISTRY-ONLY BOX.
 
