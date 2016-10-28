@@ -34,7 +34,10 @@ RUN curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa > /r
     git clone git@github.com:graphistry/central.git && \
     git clone git@github.com:graphistry/viz-server.git && \
     git clone git@github.com:graphistry/datasets.git && \
+    git clone git@github.com:graphistry/docs.git && \
     mv datasets/preloaded/* central/assets/ && \
+    mv docs/* central/assets/ && \
+    rm -rf docs && \
     rm -rf datasets && \
     rm -rf central/.git viz-server/.git && \
     cd central && bash -l -c "npm install --unsafe-perm" && cd .. && \
