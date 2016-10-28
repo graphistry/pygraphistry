@@ -28,3 +28,7 @@ sourcetype = supervisord
 [monitor:///var/log/worker/*.log]
 disabled = false
 index = graphistry_apps
+
+[monitor:///var/log/nginx/*.log]
+disabled = false
+index = graphistry_apps
