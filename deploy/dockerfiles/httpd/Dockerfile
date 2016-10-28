@@ -39,7 +39,11 @@ RUN curl $(/sbin/ip route | awk '/default/ {print $3}'):17290/github/id_rsa > /r
     npm install @graphistry/central && \
     bash -l -c "npm install @graphistry/viz-app" && \
     git clone git@github.com:graphistry/datasets.git && \
+    git clone git@github.com:graphistry/docs.git && \
+    mkdir node_modules/@graphistry/central/assets/docs && \
+    mv docs/* node_modules/@graphistry/central/assets/docs && \
     mv datasets/preloaded/* node_modules/@graphistry/central/assets/ && \
+    rm -rf docs && \
     rm -rf datasets && \
     rm -r /tmp/* && \
     shred -u /root/.ssh/* /root/.npmrc
