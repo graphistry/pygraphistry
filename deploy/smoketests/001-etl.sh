@@ -9,7 +9,7 @@ APIKEY=$(curl -L --silent $1'/api/encrypt?text='${WHOAMI}${SEEKRIT} | awk -F '"'
 
 echo " >> DEBUG: APIKEY == ${APIKEY}"
 
-DATASETNAME=$(uuidgen)
+DATASETNAME=$(head -c 16 < /dev/urandom | od -x -A n | tr -d ' ')
 DATASET='{"name":"'${DATASETNAME}'","graph":[{"s":"a","d":"b"},{"s":"b","d":"c"}],"bindings":{"sourceField":"s","destinationField":"d"}}'
 
 for i in {1..2} ; do
