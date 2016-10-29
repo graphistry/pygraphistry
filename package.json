@@ -30,8 +30,8 @@
   "homepage": "https://github.com/graphistry/viz-app#readme",
   "dependencies": {
     "@graphistry/backgrid-paginator": "2.0.0",
-    "@graphistry/common": "2.1.0",
-    "@graphistry/config": "2.2.0",
+    "@graphistry/common": "2.1.2",
+    "@graphistry/config": "2.2.1",
     "@graphistry/dijkstra": "2.0.0",
     "@graphistry/falcor": "^2.2.0",
     "@graphistry/falcor-json-graph": "^2.0.4",
