@@ -23,7 +23,10 @@ Uninstall the local checkout (useful to rollback to packaged version) with `./se
 	git push --tags
 	```
 
-3. In the [graphistry/config](https://github.com/graphistry/config) repository, update `PYGRAPHISTRY.latestVersion` in *index.js*
+2. In the [graphistry/config](https://github.com/graphistry/config) repository, update `PYGRAPHISTRY.latestVersion` in *index.js*
+3. Bump the config's package version
+4. Publish config to npm using `npm publish`
+5. Update the config dependency version in both common and viz-app
 
 ### Package & Upload
 1. Login to [Graphistry's Jenkins](http://deploy.graphistry.com/view/Package/job/Package%20PyGraphistry%20to%20PIP/build).
