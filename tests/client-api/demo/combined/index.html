@@ -51,11 +51,17 @@
                 .delay(5000)
                 .flatMap(function() {
                     console.log('filters opened');
-                    console.log('closing filters');
-                    return g.closeFilters();
+                    // console.log('closing filters');
+                    // return g.closeFilters();
+                    const columns = [
+                        ['edge', 'highways', [66, 101, 280], 'number'],
+                        ['point', 'theme parks', ['six flags', 'disney world', 'great america'], 'string']
+                    ];
+                    console.log('adding columns', columns);
+                    return g.addColumns.apply(g, columns);
                 })
-                .subscribe(function () {
-                    console.log('filters closed');
+                .subscribe(function (result) {
+                    console.log('all columns: ', result);
                 });
 
                 // g.addFilter('degree > 0');
