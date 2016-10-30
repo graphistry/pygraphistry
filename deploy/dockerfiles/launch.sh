@@ -28,9 +28,9 @@ nvidia-docker run --net host --restart=unless-stopped --name graphistry_httpd -e
 docker rm -f -v graphistry_nginx || true
 
 if [ -n "$SSLPATH" ] ; then
-    docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v ${SSLPATH}:/etc/graphistry/ssl:ro graphistry/nginx-central-vizservers:1.4.0.32
+    docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v `pwd`/nginx:/var/log/nginx -v ${SSLPATH}:/etc/graphistry/ssl:ro graphistry/nginx-central-vizservers:1.4.0.32
 else
-    docker run --net host --restart=unless-stopped --name graphistry_nginx -d graphistry/nginx-central-vizservers:1.4.0.32.httponly
+    docker run --net host --restart=unless-stopped --name graphistry_nginx -d -v `pwd`/nginx:/var/log/nginx graphistry/nginx-central-vizservers:1.4.0.32.httponly
 fi
 
 ### 4. Cluster membership.
@@ -49,7 +49,7 @@ docker exec graphistry_mongo bash -c "mongo --eval '2+2' -u $MONGO_USERNAME -p $
 docker rm -f -v graphistry_splunk || true
 
 if [ -n "$SPLUNK_PASSWORD" ] ; then
-    docker run --name graphistry_splunk --restart=unless-stopped -d -v /etc/graphistry/splunk/:/opt/splunkforwarder/etc/system/local -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper -v `pwd`/supervisor:/var/log/supervisor graphistry/splunkforwarder:6.4.1 bash -c "/opt/splunkforwarder/bin/splunk edit user admin -password $SPLUNK_PASSWORD -auth admin:$SPLUNK_ADMIN --accept-license --answer-yes ; /opt/splunkforwarder/bin/splunk start --nodaemon --accept-license --answer-yes"
+    docker run --name graphistry_splunk --restart=unless-stopped -d -v /etc/graphistry/splunk/:/opt/splunkforwarder/etc/system/local -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper -v `pwd`/supervisor:/var/log/supervisor -v `pwd`/nginx:/var/log/nginx graphistry/splunkforwarder:6.4.1 bash -c "/opt/splunkforwarder/bin/splunk edit user admin -password $SPLUNK_PASSWORD -auth admin:$SPLUNK_ADMIN --accept-license --answer-yes ; /opt/splunkforwarder/bin/splunk start --nodaemon --accept-license --answer-yes"
 fi
 
 ### 6. Postgres.
