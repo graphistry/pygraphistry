@@ -99,7 +99,7 @@ Please set the `GRAPHISTRY_DATA_CACHE` environment variable to some subdirectory
 
 This will ensure that Graphistry will never write your datasets to disk.
 
-For the discard part of read/process/discard: by keeping datasets in memory it is possible to cause a box to discard datasets on restart.
+For the discard part of read/process/discard, passing `GRAPHISTRY_APP_CONFIG='{"READ_PROCESS_DISCARD":true}'` to `launch.sh` cause datasets to be garbage-collected eagerly loading them in a visualization.
 
 # CLEAN UP SPACE ON A GRAPHISTRY-ONLY BOX.
 
