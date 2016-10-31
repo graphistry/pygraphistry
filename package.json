@@ -1,6 +1,6 @@
 {
   "name": "@graphistry/viz-app",
-  "version": "2.0.17",
+  "version": "2.0.18",
   "description": "viz-app",
   "main": "viz-server.js",
   "scripts": {
@@ -138,6 +138,7 @@
     "font-awesome-webpack": "0.0.4",
     "glsl-loader": "0.0.1",
     "handlebars-loader": "1.3.0",
+    "jsdoc-babel": "^0.2.1",
     "json-loader": "0.5.4",
     "less": "2.7.1",
     "less-loader": "2.2.3",
