@@ -11,14 +11,14 @@
             }
 
             #controls {
-                height: calc(100% - 300px);
+                height: calc(100% - 600px);
                 width: 100%;
                 overflow-y: scroll;
             }
 
             #viz {
                 width: 100%;
-                height: 300px;
+                height: 600px;
             }
 
             td {
@@ -53,12 +53,13 @@
                     console.log('filters opened');
                     // console.log('closing filters');
                     // return g.closeFilters();
-                    const columns = [
-                        ['edge', 'highways', [66, 101, 280], 'number'],
-                        ['point', 'theme parks', ['six flags', 'disney world', 'great america'], 'string']
-                    ];
-                    console.log('adding columns', columns);
-                    return g.addColumns.apply(g, columns);
+                    // const columns = [
+                    //     ['edge', 'highways', [66, 101, 280], 'number'],
+                    //     ['point', 'theme parks', ['six flags', 'disney world', 'great america'], 'string']
+                    // ];
+                    // console.log('adding columns', columns);
+                    // return g.addColumns.apply(g, columns);
+                    return g.addColumns.apply(g, []);
                 })
                 .subscribe(function (result) {
                     console.log('all columns: ', result);
@@ -214,6 +215,31 @@
                         <button onclick="window.overlay(true)">Use label overlays</button>
                         <button onclick="window.overlay(false)">Use default labels</button>
                     </td>
+                </tr>
+                <tr>
+                    <td>Add Column</td>
+                    <td><script>
+                        var numNodes = 77;
+                        var numEdges = 254;
+                        var arrOfNodeValues = Array.apply(null, Array(numNodes)).map(Number.prototype.valueOf,1);
+                        arrOfNodeValues[1] = 2;
+                        arrOfNodeValues[2] = 2;
+                        var arrOfEdgeValues = Array.apply(null, Array(numEdges)).map(String.prototype.valueOf, "sampleString");
+                        arrOfEdgeValues[2] = "differentString";
+                        arrOfEdgeValues[3] = "differentString";
+
+                        [
+                            ['point', 'demoPointNumValues', arrOfNodeValues, 'number'],
+                            ['edge', 'demoEdgeStrValues', arrOfEdgeValues, 'string']
+                        ].forEach(function (args) {
+                            var htmlString = '<button onclick=\'window.g.addColumns(["' + args[0]
+                                + '", "' + args[1] + '", ' + JSON.stringify(args[2]) + ', "'
+                                + args[3] + '"' + "])'>"
+                                + 'Add Column: ' + args[1] + "</button>";
+                            document.write(htmlString);
+                        });
+
+                    </script></td>
                 </tr>
                 <tr>
                     <td>Chrome</td>
