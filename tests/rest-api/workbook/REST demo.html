@@ -171,7 +171,7 @@ div#notebook {
 
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
-<div class="prompt input_prompt">In&nbsp;[44]:</div>
+<div class="prompt input_prompt">In&nbsp;[19]:</div>
 <div class="inner_cell">
     <div class="input_area">
 <div class=" highlight hl-ipython2"><pre><span class="kn">import</span> <span class="nn">os</span>
@@ -184,7 +184,6 @@ div#notebook {
     <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;NEED API KEY&#39;</span><span class="p">)</span>
     
 <span class="n">SERVER</span><span class="o">=</span><span class="s">&#39;https://staging.graphistry.com&#39;</span>
-<span class="n">QUERY</span><span class="o">=</span><span class="mi">1</span> <span class="c">## point:community_infomap &lt; ##QUERY##</span>
 </pre></div>
 
 </div>
@@ -194,18 +193,50 @@ div#notebook {
 </div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
-<div class="prompt input_prompt">In&nbsp;[45]:</div>
+<div class="prompt input_prompt">In&nbsp;[20]:</div>
 <div class="inner_cell">
     <div class="input_area">
 <div class=" highlight hl-ipython2"><pre><span class="kn">import</span> <span class="nn">json</span>
-<span class="kn">import</span> <span class="nn">requests</span>
-
 <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s">&#39;workbook.json&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">data_file</span><span class="p">:</span>    
     <span class="n">wb</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">data_file</span><span class="p">)</span>
-    
-<span class="n">params</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s">&#39;key&#39;</span><span class="p">:</span> <span class="n">API_KEY</span>
-<span class="p">}</span>
+<span class="n">wb</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+</pre></div>
+
+</div>
+</div>
+</div>
+
+<div class="output_wrapper">
+<div class="output">
+
+
+<div class="output_area"><div class="prompt output_prompt">Out[20]:</div>
+
+
+<div class="output_text output_subarea output_execute_result">
+<pre>[u&apos;fullscreen&apos;,
+ u&apos;datasets&apos;,
+ u&apos;views&apos;,
+ u&apos;contentName&apos;,
+ u&apos;title&apos;,
+ u&apos;controls&apos;,
+ u&apos;viewsById&apos;,
+ u&apos;id&apos;]</pre>
+</div>
+
+</div>
+
+</div>
+</div>
+
+</div>
+<div class="cell border-box-sizing code_cell rendered">
+<div class="input">
+<div class="prompt input_prompt">In&nbsp;[21]:</div>
+<div class="inner_cell">
+    <div class="input_area">
+<div class=" highlight hl-ipython2"><pre><span class="kn">import</span> <span class="nn">requests</span>
+<span class="n">params</span><span class="o">=</span><span class="p">{</span><span class="s">&#39;key&#39;</span><span class="p">:</span> <span class="n">API_KEY</span><span class="p">}</span>
 <span class="n">resp</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">SERVER</span> <span class="o">+</span><span class="s">&#39;/workbook&#39;</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">wb</span><span class="p">)</span>
 <span class="n">resp</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
 </pre></div>
@@ -218,7 +249,7 @@ div#notebook {
 <div class="output">
 
 
-<div class="output_area"><div class="prompt output_prompt">Out[45]:</div>
+<div class="output_area"><div class="prompt output_prompt">Out[21]:</div>
 
 
 <div class="output_text output_subarea output_execute_result">
@@ -235,7 +266,7 @@ div#notebook {
 </div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
-<div class="prompt input_prompt">In&nbsp;[46]:</div>
+<div class="prompt input_prompt">In&nbsp;[22]:</div>
 <div class="inner_cell">
     <div class="input_area">
 <div class=" highlight hl-ipython2"><pre><span class="n">SERVER</span> <span class="o">+</span> <span class="n">resp</span><span class="o">.</span><span class="n">json</span><span class="p">()[</span><span class="s">&#39;view&#39;</span><span class="p">]</span>
@@ -249,7 +280,7 @@ div#notebook {
 <div class="output">
 
 
-<div class="output_area"><div class="prompt output_prompt">Out[46]:</div>
+<div class="output_area"><div class="prompt output_prompt">Out[22]:</div>
 
 
 <div class="output_text output_subarea output_execute_result">
