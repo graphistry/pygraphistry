@@ -83,33 +83,16 @@
         document.addEventListener("DOMContentLoaded", function () {
 
             GraphistryJS(document.getElementById('viz'))
+                .do(function (g) { window.g = g; })
                 .do(settingsButtons)
-                .flatMap(function (g) {
-                    window.g = g;
-                    document.getElementById('controls').style.opacity=1.0;
-                    console.log('opening filters');
-                    return g.openFilters();
+                .do(function () {
+                    document.getElementById('controls').style.opacity = 1.0;
                 })
-                .delay(5000)
-                .flatMap(function() {
-                    console.log('filters opened');
-                    // console.log('closing filters');
-                    // return g.closeFilters();
-                    // const columns = [
-                    //     ['edge', 'highways', [66, 101, 280], 'number'],
-                    //     ['point', 'theme parks', ['six flags', 'disney world', 'great america'], 'string']
-                    // ];
-                    // console.log('adding columns', columns);
-                    // return g.addColumns.apply(g, columns);
-                    return g.addColumns.apply(g, []);
-                })
-                .subscribe(function (result) {
-                    console.log('all columns: ', result);
-                });
+                .subscribe();
 
                 // g.addFilter('degree > 0');
                 // g.updateSetting('background-color', '#FF0000');
-                // g.startClustering(3000);
+                // g.tickClustering();
             // GraphistryLoader(document.getElementById('viz'), function (err, g) {
             //     window.g = g;
             //     document.getElementById('controls').style.opacity=1.0;
@@ -151,26 +134,36 @@
                 window.g.unsubscribeLabels();
             }
         }
+
+        function openInNewWindow() {
+            window.g.getCurrentWorkbook(function (err, workbook) {
+                if (err) return alert('Error: ' + err);
+                window.open(
+                    'http://127.0.0.1:10000/graph/graph.html?dataset=Miserables&workbook=' + workbook.id,
+                    '_blank');
+            });
+        }
         </script>
     </head>
     <body>
         <div id="controls" style="opacity: 0.5">
             <h1>Client API</h1>
             <table>
-                <tr style="opacity: 0.5">
+                <tr>
                     <td>Clustering</td>
                     <td>
-                        <button onclick="window.g.startClustering(2000)">start</button>
-                        <button onclick="window.g.stopClustering()">stop</button>
+                        <button onclick="window.g.tickClustering()">Run one tick</button>
                     </td>
                 </tr>
+                <!--
                 <tr>
                     <td>API callback</td>
                     <td>
-                        <button onclick="window.g.startClustering(2000)">start</button>
-                        <button onclick="window.g.stopClustering(function (f, s) { alert(f ? 'error: ' + f : 'success: ' + s); })">stop (w/ alert)</button>
+                        <button onclick="window.g.tickClustering(function (f, s) { alert(f ? 'error: ' + f : 'success: ' + s); })">stop (w/ alert)</button>
                     </td>
                 </tr>
+                -->
+                <!--
                 <tr style="opacity: 0.5">
                     <td>Filter/Exclusions</td>
                     <td>
@@ -178,6 +171,7 @@
                         <button onclick="window.g.addExclusion('point:degree < 5')">exclude: point:degree < 5</button>
                     </td>
                 </tr>
+                -->
                 <tr>
                     <td>Camera</td>
                     <td>
@@ -190,12 +184,16 @@
                         <button onclick="window.g.updateSetting('zoom', 1)">zoom regular (bounding box)</button>
                     </td>
                 </tr>
-                <tr style="opacity: 0.5">
+                <tr>
                     <td>Save</td>
                     <td>
+                        <button onclick="window.g.getCurrentWorkbook(function (err, out) { alert(out.id); })">get workbook id</button>
                         <button onclick="window.g.saveWorkbook()">save workbook</button>
-                        <button onclick="window.g.exportStatic('mytest', function (err, url) { alert('view at: ' + url); })">export static: "mytest"</button>
+                        <button onclick="openInNewWindow()">open in new window</button>
+                        <!--
+                        <button onclick="window.g.exportStatic('mytest', function (err, url) { alert('view at: ' + url); })">export static: "mytest"</button>-->
                     </td>
+                <!--
                 <tr style="opacity: 0.5">
                     <td>Encodings</td>
                     <td>
@@ -226,6 +224,7 @@
                         </script>
                     </td>
                 </tr>
+                -->
                 <tr>
                     <td>Settings</td>
                     <td><div id="settings"></div></td>
