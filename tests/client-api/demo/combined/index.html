@@ -67,7 +67,7 @@
 
                 // g.addFilter('degree > 0');
                 // g.updateSetting('background-color', '#FF0000');
-                // g.startClustering(3000);
+                // g.tickClustering();
             // GraphistryLoader(document.getElementById('viz'), function (err, g) {
             //     window.g = g;
             //     document.getElementById('controls').style.opacity=1.0;
@@ -124,8 +124,7 @@
                 <tr>
                     <td>Clustering</td>
                     <td>
-                        <button onclick="window.g.startClustering(2000)">start</button>
-                        <button onclick="window.g.stopClustering()">stop</button>
+                        <button onclick="window.g.tickClustering()">Run one tick</button>
                     </td>
                 </tr>
                 <tr>
