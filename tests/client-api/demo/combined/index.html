@@ -81,29 +81,12 @@
         document.addEventListener("DOMContentLoaded", function () {
 
             GraphistryJS(document.getElementById('viz'))
+                .do(function (g) { window.g = g; })
                 .do(settingsButtons)
-                .flatMap(function (g) {
-                    window.g = g;
-                    document.getElementById('controls').style.opacity=1.0;
-                    console.log('opening filters');
-                    return g.openFilters();
+                .do(function () {
+                    document.getElementById('controls').style.opacity = 1.0;
                 })
-                .delay(5000)
-                .flatMap(function() {
-                    console.log('filters opened');
-                    // console.log('closing filters');
-                    // return g.closeFilters();
-                    // const columns = [
-                    //     ['edge', 'highways', [66, 101, 280], 'number'],
-                    //     ['point', 'theme parks', ['six flags', 'disney world', 'great america'], 'string']
-                    // ];
-                    // console.log('adding columns', columns);
-                    // return g.addColumns.apply(g, columns);
-                    return g.addColumns.apply(g, []);
-                })
-                .subscribe(function (result) {
-                    console.log('all columns: ', result);
-                });
+                .subscribe();
 
                 // g.addFilter('degree > 0');
                 // g.updateSetting('background-color', '#FF0000');
@@ -175,6 +158,7 @@
                     </td>
                 </tr>
                 -->
+                <!--
                 <tr style="opacity: 0.5">
                     <td>Filter/Exclusions</td>
                     <td>
@@ -182,6 +166,7 @@
                         <button onclick="window.g.addExclusion('point:degree < 5')">exclude: point:degree < 5</button>
                     </td>
                 </tr>
+                -->
                 <tr>
                     <td>Camera</td>
                     <td>
@@ -203,6 +188,7 @@
                         <!--
                         <button onclick="window.g.exportStatic('mytest', function (err, url) { alert('view at: ' + url); })">export static: "mytest"</button>-->
                     </td>
+                <!--
                 <tr style="opacity: 0.5">
                     <td>Encodings</td>
                     <td>
@@ -233,6 +219,7 @@
                         </script>
                     </td>
                 </tr>
+                -->
                 <tr>
                     <td>Settings</td>
                     <td><div id="settings"></div></td>
