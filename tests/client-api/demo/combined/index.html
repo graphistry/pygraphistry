@@ -127,13 +127,14 @@
                         <button onclick="window.g.tickClustering()">Run one tick</button>
                     </td>
                 </tr>
+                <!--
                 <tr>
                     <td>API callback</td>
                     <td>
-                        <button onclick="window.g.startClustering(2000)">start</button>
-                        <button onclick="window.g.stopClustering(function (f, s) { alert(f ? 'error: ' + f : 'success: ' + s); })">stop (w/ alert)</button>
+                        <button onclick="window.g.tickClustering(function (f, s) { alert(f ? 'error: ' + f : 'success: ' + s); })">stop (w/ alert)</button>
                     </td>
                 </tr>
+                -->
                 <tr>
                     <td>Filter/Exclusions</td>
                     <td>
