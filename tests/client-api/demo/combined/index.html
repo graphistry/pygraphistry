@@ -39,9 +39,49 @@
         </style>
         <script src="../../../../www/graphistryJS.js"></script>
         <script>
+
+        function settingsButtons (g) {
+            [
+                ['showArrows', true],
+                ['showArrows', false],
+                ['pruneOrphans', true],
+                ['pruneOrphans', false],
+                //['background', new g.Color('#CCCCCC').rgb()],
+                //['background', new g.Color('#444444').rgb()],
+                ['edgeOpacity', 0.5],
+                ['edgeOpacity', 1],
+                ['edgeSize', 0.5],
+                ['edgeSize', 1.0],
+                ['edgeSize', 3.0],
+                ['pointOpacity', 0.5],
+                ['pointOpacity', 1],
+                ['pointSize', 0.5],
+                ['pointSize', 1.0],
+                ['pointSize', 3.0],
+                ['labelOpacity', 0.5], ['labelOpacity', 1],
+                ['labelEnabled', true], ['labelEnabled', false],
+                ['labelPOI', true], ['labelPOI', false],
+                //['labelColor', new g.Color('#000000')],
+                //['labelColor', new g.Color('#FF0000')],
+                //['labelBackground', new g.Color('#0000FF')],
+                //['labelBackground', new g.Color('#EEEEEE')]
+
+                //['precisionVsSpeed', -1],
+                //['precisionVsSpeed', 0],
+                //['precisionVsSpeed', 1]
+
+            ].forEach(function (pair) {
+                document.getElementById('settings').innerHTML += ('<button onclick=\'window.g.updateSetting("' + pair[0]
+                    + '", ' + JSON.stringify(pair[1]) + ")'>"
+                    + pair[0] + ": " + JSON.stringify(pair[1]) + "</button>");
+                });
+        }
+
+
         document.addEventListener("DOMContentLoaded", function () {
 
             GraphistryJS(document.getElementById('viz'))
+                .do(settingsButtons)
                 .flatMap(function (g) {
                     window.g = g;
                     document.getElementById('controls').style.opacity=1.0;
@@ -81,7 +121,7 @@
         function overlay(on) {
             var labels = document.getElementById('labels');
             if (on) {
-                window.g.updateSetting('show-points-of-interest', false);
+                window.g.updateSetting('labelPOI', false);
                 window.g.subscribeLabels({
                     onChange: function (id, entityType, x, y) {
                         var elt = cache[entityType][id];
@@ -102,7 +142,7 @@
             } else {
                 labels.innerHTML = '';
                 cache = {point: {}, edge: {}};
-                window.g.updateSetting('show-points-of-interest', true);
+                window.g.updateSetting('labelPOI', true);
                 window.g.unsubscribeLabels();
             }
         }
@@ -140,11 +180,13 @@
                 <tr>
                     <td>Camera</td>
                     <td>
+                        <!--
                         <button onclick="window.g.autocenter()">autocenter</button>
                         <button onclick="window.g.autocenter(0.95)">... on 95% entities</button>
-                        <button onclick="window.g.updateZoom(1.5)">zoom out</button>
-                        <button onclick="window.g.updateZoom(0.5)">zoom in</button>
-                        <button onclick="window.g.updateZoom(1)">zoom regular (bounding box)</button>
+                        -->
+                        <button onclick="window.g.updateSetting('zoom', 1.5)">zoom out</button>
+                        <button onclick="window.g.updateSetting('zoom', 0.5)">zoom in</button>
+                        <button onclick="window.g.updateSetting('zoom', 1)">zoom regular (bounding box)</button>
                     </td>
                 </tr>
                 <tr>
@@ -185,33 +227,11 @@
                 </tr>
                 <tr>
                     <td>Settings</td>
-                    <td><script>
-                    [
-                        ['text-color', '#FF0000'],
-                        ['background-color', '#EEEEEE'],
-                        ['transparency', 0.5], ['transparency', 1.0],
-                        ['show-labels', false], ['show-labels', true],
-                        ['show-points-of-interest', true], ['show-points-of-interest', false],
-                        ['tau', 0.5],
-                        ['gravity', 1.0],
-                        ['scalingRatio', 1.0],
-                        ['edgeInfluence', 1.0],
-                        ['strongGravity', 1.0],
-                        ['dissuadeHubs', true], ['dissuadeHubs', false],
-                        ['linLog', true], ['linLog', false]
-                    ].forEach(function (pair) {
-                        document.write('<button onclick=\'window.g.updateSetting("' + pair[0]
-                            + '", ' + JSON.stringify(pair[1]) + ")'>"
-                            + pair[0] + ": " + JSON.stringify(pair[1]) + "</button>");
-                    });
-                    </script></td>
+                    <td><div id="settings"></div></td>
                 </tr>
                 <tr>
                     <td>Labels</td>
                     <td>
-                        <button onclick="window.g.updateSetting('show-labels', false)">Hide labels</button>
-                        <button onclick="window.g.updateSetting('show-labels', true)">Show labels</button>
-                        <br/>
                         <button onclick="window.overlay(true)">Use label overlays</button>
                         <button onclick="window.overlay(false)">Use default labels</button>
                     </td>
