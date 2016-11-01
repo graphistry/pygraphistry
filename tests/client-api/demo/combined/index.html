@@ -33,7 +33,9 @@
                 position: absolute;
                 width: 20px;
                 height: 20px;
-                background-color: rgba(255,255,255,0.5);
+                margin-top: -10px;
+                margin-left: -10px;
+                background-color: rgba(0,255,50, 0.5);
                 border-radius: 15px;
             }
         </style>
@@ -118,7 +120,10 @@
                         elt.style.top = y;
                     },
                     onExit: function (id, entityType) {
-                        labels.removeChild(cache[entityType][id]);
+                        const element = cache[entityType][id];
+                        if (element && element.parentNode === labels) {
+                            labels.removeChild(element);
+                        }
                         delete cache[entityType][id];
                     }
                 });
@@ -224,7 +229,7 @@
                     <td>Settings</td>
                     <td><div id="settings"></div></td>
                 </tr>
-                <tr style="opacity: 0.5">
+                <tr style="opacity: 1">
                     <td>Label Overlays</td>
                     <td>
                         <button onclick="window.overlay(true)">Use label overlays</button>
