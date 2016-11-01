@@ -106,6 +106,15 @@
                 window.g.unsubscribeLabels();
             }
         }
+
+        function openInNewWindow() {
+            window.g.getCurrentWorkbook(function (err, workbook) {
+                if (err) return alert('Error: ' + err);
+                window.open(
+                    'http://127.0.0.1:10000/graph/graph.html?dataset=Miserables&workbook=' + workbook.id,
+                    '_blank');
+            });
+        }
         </script>
     </head>
     <body>
@@ -150,8 +159,11 @@
                 <tr>
                     <td>Save</td>
                     <td>
+                        <button onclick="window.g.getCurrentWorkbook(function (err, out) { alert(out.id); })">get workbook id</button>
                         <button onclick="window.g.saveWorkbook()">save workbook</button>
-                        <button onclick="window.g.exportStatic('mytest', function (err, url) { alert('view at: ' + url); })">export static: "mytest"</button>
+                        <button onclick="openInNewWindow()">open in new window</button>
+                        <!--
+                        <button onclick="window.g.exportStatic('mytest', function (err, url) { alert('view at: ' + url); })">export static: "mytest"</button>-->
                     </td>
                 <tr>
                     <td>Encodings</td>
