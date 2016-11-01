@@ -152,7 +152,7 @@
         <div id="controls" style="opacity: 0.5">
             <h1>Client API</h1>
             <table>
-                <tr>
+                <tr style="opacity: 0.5">
                     <td>Clustering</td>
                     <td>
                         <button onclick="window.g.startClustering(2000)">start</button>
@@ -166,16 +166,12 @@
                         <button onclick="window.g.stopClustering(function (f, s) { alert(f ? 'error: ' + f : 'success: ' + s); })">stop (w/ alert)</button>
                     </td>
                 </tr>
-                <tr>
+                <tr style="opacity: 0.5">
                     <td>Filter/Exclusions</td>
                     <td>
                         <button onclick="window.g.addFilter('point:degree > 2')">filter: point:degree > 2</button>
                         <button onclick="window.g.addExclusion('point:degree < 5')">exclude: point:degree < 5</button>
                     </td>
-                </tr>
-                <tr>
-                    <td>Highlights</td>
-                    <td>Select some combination of nodes and edges..</td>
                 </tr>
                 <tr>
                     <td>Camera</td>
@@ -189,13 +185,13 @@
                         <button onclick="window.g.updateSetting('zoom', 1)">zoom regular (bounding box)</button>
                     </td>
                 </tr>
-                <tr>
+                <tr style="opacity: 0.5">
                     <td>Save</td>
                     <td>
                         <button onclick="window.g.saveWorkbook()">save workbook</button>
                         <button onclick="window.g.exportStatic('mytest', function (err, url) { alert('view at: ' + url); })">export static: "mytest"</button>
                     </td>
-                <tr>
+                <tr style="opacity: 0.5">
                     <td>Encodings</td>
                     <td>
                         <script>
@@ -229,8 +225,8 @@
                     <td>Settings</td>
                     <td><div id="settings"></div></td>
                 </tr>
-                <tr>
-                    <td>Labels</td>
+                <tr style="opacity: 0.5">
+                    <td>Label Overlays</td>
                     <td>
                         <button onclick="window.overlay(true)">Use label overlays</button>
                         <button onclick="window.overlay(false)">Use default labels</button>
