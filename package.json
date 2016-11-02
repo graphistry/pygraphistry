@@ -31,7 +31,7 @@
   "dependencies": {
     "@graphistry/backgrid-paginator": "2.0.0",
     "@graphistry/common": "2.1.5",
-    "@graphistry/config": "2.2.5",
+    "@graphistry/config": "2.2.6",
     "@graphistry/dijkstra": "2.0.0",
     "@graphistry/falcor": "^2.2.0",
     "@graphistry/falcor-json-graph": "^2.0.4",
