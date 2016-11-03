@@ -263,7 +263,8 @@ function serverConfig(
         ),
         new WebpackVisualizer({
             filename: `${config.output.filename}.stats.html`
-        })
+        }),
+        new webpack.optimize.UglifyJsPlugin(serverUglifyJSConfig())
     ];
 
     return config;
@@ -427,4 +428,68 @@ function postcss(webpack) {
         require('postcss-font-awesome'),
         require('autoprefixer')
     ];
+}
+
+function serverUglifyJSConfig() {
+    return {
+        mangle: false,
+        beautify: true,
+        sourceMap: true,
+        compress: {
+            /* (default: true) -- join consecutive simple statements using the comma operator. May be set to a positive integer to specify the maximum number of consecutive comma sequences that will be generated. If this option is set to true then the default sequences limit is 200. Set option to false or 0 to disable. The smallest sequences length is 2. A sequences value of 1 is grandfathered to be equivalent to true and as such means 200. On rare occasions the default sequences limit leads to very slow compress times in which case a value of 20 or less is recommended. */
+            sequences: false,
+            /* -- rewrite property access using the dot notation, for example foo["bar"] → foo.bar */
+            properties: false,
+            /* -- remove unreachable code */
+            dead_code: true,
+            /* -- remove debugger; statements */
+            drop_debugger: false,
+            /* (default: false) -- apply "unsafe" transformations (discussion below) */
+            unsafe: false,
+            /* (default: false) -- Reverse < and <= to > and >= to allow improved compression. This might be unsafe when an at least one of two operands is an object with computed values due the use of methods like get, or valueOf. This could cause change in execution order after operands in the comparison are switching. Compression only works if both comparisons and unsafe_comps are both set to true. */
+            unsafe_comps: false,
+            /* -- apply optimizations for if-s and conditional expressions */
+            conditionals: false,
+            /* -- apply certain optimizations to binary nodes, for example: !(a <= b) → a > b (only when unsafe_comps), attempts to negate binary nodes, e.g. a = !b && !c && !d && !e → a=!(b||c||d||e) etc. */
+            comparisons: false,
+            /* -- attempt to evaluate constant expressions */
+            evaluate: false,
+            /* -- various optimizations for boolean context, for example !!a ? b : c → a ? b : c */
+            booleans: false,
+            /* -- optimizations for do, while and for loops when we can statically determine the condition */
+            loops: false,
+            /* -- drop unreferenced functions and variables */
+            unused: true,
+            /* -- hoist function declarations */
+            hoist_funs: false,
+            /* (default: false) -- hoist var declarations (this is false by default because it seems to increase the size of the output in general) */
+            hoist_vars: false,
+            /* -- optimizations for if/return and if/continue */
+            if_return: false,
+            /* -- join consecutive var statements */
+            join_vars: false,
+            /* -- small optimization for sequences, transform x, x into x and x = something(), x into x = something() */
+            cascade: false,
+            /* -- default false. Collapse single-use var and const definitions when possible. */
+            collapse_vars: false,
+            /* -- default false. Improve optimization on variables assigned with and used as constant values. */
+            // reduce_vars: false,
+            /* -- display warnings when dropping unreachable code or unused declarations etc. */
+            warnings: false,
+            /* -- negate "Immediately-Called Function Expressions" where the return value is discarded, to avoid the parens that the code generator would insert. */
+            negate_iife: false,
+            /* -- the default is false. If you pass true for this, UglifyJS will assume that object property access (e.g. foo.bar or foo["bar"]) doesn't have any side effects. */
+            pure_getters: false,
+            /* -- default null. You can pass an array of names and UglifyJS will assume that those functions do not produce side effects. DANGER: will not check if the name is redefined in scope. An example case here, for instance var q = Math.floor(a/b). If variable q is not used elsewhere, UglifyJS will drop it, but will still keep the Math.floor(a/b), not knowing what it does. You can pass pure_funcs: [ 'Math.floor' ] to let it know that this function won't produce any side effect, in which case the whole statement would get discarded. The current implementation adds some overhead (compression will be slower). */
+            pure_funcs: null,
+            /* -- default false. Pass true to discard calls to console.* functions. */
+            drop_console: false,
+            /* -- default true. Prevents the compressor from discarding unused function arguments. You need this for code which relies on Function.length. */
+            keep_fargs: true,
+            /* -- default false. Pass true to prevent the compressor from discarding function names. Useful for code relying on Function.prototype.name. See also: the keep_fnames mangle option. */
+            keep_fnames: true,
+            /* -- default 1. Number of times to run compress. Use an integer argument larger than 1 to further reduce code size in some cases. Note: raising the number of passes will increase uglify compress time. */
+            passes: 1,
+        }
+    };
 }
