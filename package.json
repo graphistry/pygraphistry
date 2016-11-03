@@ -4,7 +4,7 @@
   "description": "viz-app",
   "main": "viz-server.js",
   "scripts": {
-    "start": "node ./www/viz-server.js '{ \"LOG_LEVEL\": \"FATAL\" }'",
+    "start": "node ./www/viz-server.js",
     "clean": "rm -rf ./www/*",
     "build": "npm run clean && cross-env NODE_ENV=production node tool/build && npm run build-api",
     "build-api": "cross-env NODE_ENV=production node tool/build-resource -- -- 2",
