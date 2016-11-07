@@ -136,8 +136,7 @@
         }
 
         function openInNewWindow() {
-            window.g.getCurrentWorkbook(function (err, workbook) {
-                if (err) return alert('Error: ' + err);
+            window.g.getCurrentWorkbook().subscribe(function (workbook) {
                 window.open(
                     'http://127.0.0.1:10000/graph/graph.html?dataset=Miserables&workbook=' + workbook.id,
                     '_blank');
@@ -186,7 +185,7 @@
                 <tr>
                     <td>Save</td>
                     <td>
-                        <button onclick="window.g.getCurrentWorkbook(function (err, out) { alert(out.id); })">get workbook id</button>
+                        <button onclick="window.g.getCurrentWorkbook().subscribe(function (workbook) { alert(workbook.id); })">get workbook id</button>
                         <button onclick="window.g.saveWorkbook()">save workbook</button>
                         <button onclick="openInNewWindow()">open in new window</button>
                         <!--
@@ -261,15 +260,29 @@
                     </script></td>
                 </tr>
                 <tr>
-                    <td>Chrome</td>
+                    <td>Panel Visibility</td>
                     <td>
-                        <button onclick="window.g.toggleChrome(false)">Hide chrome</button>
-                        <button onclick="window.g.toggleChrome(true)">Show chrome</button>
+                        <button onclick="window.g.toggleToolbar(false)">Hide toolbar</button>
+                        <button onclick="window.g.toggleToolbar(true)">Show toolbar</button>
+                        <button onclick="window.g.toggleLeftPanel('filters', true)">Show filters</button>
+                        <button onclick="window.g.toggleLeftPanel('filters', false)">Hide filters</button>
+                        <button onclick="window.g.toggleLeftPanel('exclusions', true)">Show exclusions</button>
+                        <button onclick="window.g.toggleLeftPanel('exclusions', false)">Hide exclusions</button>
+                        <button onclick="window.g.toggleLeftPanel('labels', true)">Show labels</button>
+                        <button onclick="window.g.toggleLeftPanel('labels', false)">Hide labels</button>
+                        <button onclick="window.g.toggleLeftPanel('scene', true)">Show scene</button>
+                        <button onclick="window.g.toggleLeftPanel('scene', false)">Hide scene</button>
+                        <button onclick="window.g.toggleLeftPanel('layout', true)">Show layout</button>
+                        <button onclick="window.g.toggleLeftPanel('layout', false)">Hide layout</button>
+                        <button onclick="window.g.toggleInspector(true)">Show inspector</button>
+                        <button onclick="window.g.toggleInspector(false)">Hide inspector</button>
+                        <button onclick="window.g.toggleHistograms(true)">Show histograms</button>
+                        <button onclick="window.g.toggleHistograms(false)">Hide histograms</button>
                     </td>
                 </tr>
             </table>
         </div>
         <div id="labels"></div>
-        <iframe id="viz" src="http://127.0.0.1:10000/graph/graph.html?dataset=Miserables" />
+        <iframe id="viz" src="http://127.0.0.1:10000/graph/graph.html?dataset=Miserables" allowfullscreen />
     </body>
 </html>
