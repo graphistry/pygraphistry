@@ -261,10 +261,20 @@
                     </script></td>
                 </tr>
                 <tr>
-                    <td>Chrome</td>
+                    <td>Panel Visibility</td>
                     <td>
-                        <button onclick="window.g.toggleChrome(false)">Hide chrome</button>
-                        <button onclick="window.g.toggleChrome(true)">Show chrome</button>
+                        <button onclick="window.g.toggleToolbar(false)">Hide toolbar</button>
+                        <button onclick="window.g.toggleToolbar(true)">Show toolbar</button>
+                        <button onclick="window.g.toggleLeftPanel('filters', true)">Show filters</button>
+                        <button onclick="window.g.toggleLeftPanel('filters', false)">Hide filters</button>
+                        <button onclick="window.g.toggleLeftPanel('exclusions', true)">Show exclusions</button>
+                        <button onclick="window.g.toggleLeftPanel('exclusions', false)">Hide exclusions</button>
+                        <button onclick="window.g.toggleLeftPanel('labels', true)">Show labels</button>
+                        <button onclick="window.g.toggleLeftPanel('labels', false)">Hide labels</button>
+                        <button onclick="window.g.toggleLeftPanel('scene', true)">Show scene</button>
+                        <button onclick="window.g.toggleLeftPanel('scene', false)">Hide scene</button>
+                        <button onclick="window.g.toggleLeftPanel('layout', true)">Show layout</button>
+                        <button onclick="window.g.toggleLeftPanel('layout', false)">Hide layout</button>
                     </td>
                 </tr>
             </table>
