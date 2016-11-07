@@ -136,8 +136,7 @@
         }
 
         function openInNewWindow() {
-            window.g.getCurrentWorkbook(function (err, workbook) {
-                if (err) return alert('Error: ' + err);
+            window.g.getCurrentWorkbook().subscribe(function (workbook) {
                 window.open(
                     'http://127.0.0.1:10000/graph/graph.html?dataset=Miserables&workbook=' + workbook.id,
                     '_blank');
@@ -186,7 +185,7 @@
                 <tr>
                     <td>Save</td>
                     <td>
-                        <button onclick="window.g.getCurrentWorkbook(function (err, out) { alert(out.id); })">get workbook id</button>
+                        <button onclick="window.g.getCurrentWorkbook().subscribe(function (workbook) { alert(workbook.id); })">get workbook id</button>
                         <button onclick="window.g.saveWorkbook()">save workbook</button>
                         <button onclick="openInNewWindow()">open in new window</button>
                         <!--
