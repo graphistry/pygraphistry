@@ -63,15 +63,21 @@ def in_ipython():
 
 
 def warn(msg):
-    if in_ipython:
-        import IPython
-        IPython.utils.warn.warn(msg)
-    else:
-        print('WARNING: ', msg, file=sys.stderr)
+    try:
+        if in_ipython:
+            import IPython
+            IPython.utils.warn.warn(msg)
+            return
+    except:
+        'ok'
+    print('WARNING: ', msg, file=sys.stderr)
 
 
 def error(msg):
-    if in_ipython:
-        import IPython
-        IPython.utils.warn.error(msg)
+    try:
+        if in_ipython:
+            import IPython
+            IPython.utils.warn.error(msg)
+    except:
+            'ok'
     raise ValueError(msg)
