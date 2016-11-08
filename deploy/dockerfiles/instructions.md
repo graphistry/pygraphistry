@@ -104,7 +104,7 @@ GRAPHISTRY_APP_CONFIG='{"LOG_LEVEL":"DEBUG"}' ./launch.sh
 ```
 
 
-## Workbooks Persistance
+## Workbooks Persistence
 
 By default, the launch script will make a directory in its directory, `workbook_cache`, for all loaded workbooks.
 
@@ -116,7 +116,7 @@ Please use the `GRAPHISTRY_WORKBOOK_CACHE` environment variable to set this to a
 GRAPHISTRY_WORKBOOK_CACHE=/var/graphistry/workbooks GRAPHISTRY_APP_CONFIG='{"LOG_LEVEL":"INFO"}' ./launch.sh`
 ```
 
-## Dataset Persistance
+## Dataset Persistence
 
 By default, the launch script will make a directory in its directory, `data_cache`, for all loaded datasets.
 
