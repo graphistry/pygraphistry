@@ -39,7 +39,14 @@
                 border-radius: 15px;
             }
         </style>
-        <script src="../../../../www/graphistryJS.js"></script>
+
+        <script>
+        var where = window.location.origin === 'file://' ? '../../../../www'
+            : window.location.origin;
+        document.write(
+            "<script src=\"" + where + "/graphistryJS.js\">" + "</" + "script>");
+        </script>
+
         <script>
 
         function settingsButtons (g) {
@@ -283,6 +290,10 @@
             </table>
         </div>
         <div id="labels"></div>
-        <iframe id="viz" src="http://127.0.0.1:10000/graph/graph.html?dataset=Miserables" allowfullscreen />
+        <script>
+        var where = window.location.origin === 'file://' ? 'http://127.0.0.1:10000' : window.location.origin;
+        document.write(
+            '<iframe id="viz" src="' + where + '/graph/graph.html?dataset=Miserables" allowfullscreen />');
+        </script>
     </body>
 </html>
