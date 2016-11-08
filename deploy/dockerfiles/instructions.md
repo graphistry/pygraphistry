@@ -139,13 +139,15 @@ Please set the `GRAPHISTRY_DATA_CACHE` environment variable to some subdirectory
 This will ensure that Graphistry will never write your datasets to disk.
 
 ### Garbage Collection
+
 For the discard part of read/process/discard, passing
 
 ```
 GRAPHISTRY_APP_CONFIG='{"READ_PROCESS_DISCARD":true}'
 ```
 
-to `launch.sh` cause datasets to be garbage-collected eagerly loading them in a visualization.
+to `launch.sh` causes datasets to be deleted immediately after the start of processing.
+(If this is on, refreshing a page with a visualization will be an error, because that dataset will have been discarded.)
 
 ## Software Updates
 
