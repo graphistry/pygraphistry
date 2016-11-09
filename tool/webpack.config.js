@@ -161,7 +161,7 @@ function clientConfig(
                     __SERVER__: false,
                     __VERSION__: JSON.stringify(vizAppPackage.version),
                     __RELEASE__: JSON.stringify(graphistryConfig.RELEASE),
-                    'process.env.NODE_ENV': '"production"',
+                    'process.env.NODE_ENV': '"production"'// || JSON.stringify(process.env.NODE_ENV),
                 },
                 versionDefines
             )
