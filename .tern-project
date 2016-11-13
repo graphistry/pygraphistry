@@ -1,25 +1,38 @@
 {
-    "ecmaVersion": 6,
-    "libs": [
-        "browser",
-        "jquery"
-    ],
-    "plugins": {
-        "node": {},
-        "modules": {},
-        "es_modules": {},
-        "doc_comment": {
-            "fullDocs": true
-        }
+  "ecmaVersion": 7,
+  "libs": [
+    "browser",
+    "jquery"
+  ],
+  "loadEagerly": [
+    "src/**/*.js",
+    "src/*.js"
+  ],
+  "dontLoad": [
+    "src/viz-server/static/**/*",
+    "src/viz-server/static/*",
+    "www/**/*",
+    "www/*",
+    "**/node_modules/**"
+  ],
+  "plugins": {
+    "node": {
+      "dontLoad": "",
+      "load": "",
+      "modules": ""
     },
-    "loadEagerly": [
-        "src/**/*.js",
-        "src/*.js"
-    ],
-    "dontLoad": [
-        "src/viz-worker/static/**/*",
-        "src/viz-worker/static/*",
-        "www/**/*",
-        "www/*"
-    ]
+    "modules": {
+      "dontLoad": "",
+      "load": "",
+      "modules": ""
+    },
+    "es_modules": {},
+    "doc_comment": {
+      "fullDocs": true,
+      "strong": false
+    },
+    "node-express": {},
+    "node_resolve": {},
+    "commonjs": {}
+  }
 }

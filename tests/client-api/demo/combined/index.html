@@ -11,14 +11,14 @@
             }
 
             #controls {
-                height: calc(100% - 300px);
+                height: 50%;
                 width: 100%;
                 overflow-y: scroll;
             }
 
             #viz {
                 width: 100%;
-                height: 300px;
+                height: 50%;
             }
 
             td {
@@ -33,34 +33,73 @@
                 position: absolute;
                 width: 20px;
                 height: 20px;
-                background-color: rgba(255,255,255,0.5);
+                margin-top: -10px;
+                margin-left: -10px;
+                background-color: rgba(0,255,50, 0.5);
                 border-radius: 15px;
             }
         </style>
-        <script src="../../../../www/graphistryJS.js"></script>
+
         <script>
+        var where = window.location.origin === 'file://' ? '../../../../www'
+            : window.location.origin;
+        document.write(
+            "<script src=\"" + where + "/graphistryJS.js\">" + "</" + "script>");
+        </script>
+
+        <script>
+
+        function settingsButtons (g) {
+            [
+                ['showArrows', true],
+                ['showArrows', false],
+                ['pruneOrphans', true],
+                ['pruneOrphans', false],
+                //['background', new g.Color('#CCCCCC').rgb()],
+                //['background', new g.Color('#444444').rgb()],
+                ['edgeOpacity', 0.5],
+                ['edgeOpacity', 1],
+                ['edgeSize', 0.5],
+                ['edgeSize', 1.0],
+                ['edgeSize', 3.0],
+                ['pointOpacity', 0.5],
+                ['pointOpacity', 1],
+                ['pointSize', 0.5],
+                ['pointSize', 1.0],
+                ['pointSize', 3.0],
+                ['labelOpacity', 0.5], ['labelOpacity', 1],
+                ['labelEnabled', true], ['labelEnabled', false],
+                ['labelPOI', true], ['labelPOI', false],
+                //['labelColor', new g.Color('#000000')],
+                //['labelColor', new g.Color('#FF0000')],
+                //['labelBackground', new g.Color('#0000FF')],
+                //['labelBackground', new g.Color('#EEEEEE')]
+
+                //['precisionVsSpeed', -1],
+                //['precisionVsSpeed', 0],
+                //['precisionVsSpeed', 1]
+
+            ].forEach(function (pair) {
+                document.getElementById('settings').innerHTML += ('<button onclick=\'window.g.updateSetting("' + pair[0]
+                    + '", ' + JSON.stringify(pair[1]) + ")'>"
+                    + pair[0] + ": " + JSON.stringify(pair[1]) + "</button>");
+                });
+        }
+
+
         document.addEventListener("DOMContentLoaded", function () {
 
             GraphistryJS(document.getElementById('viz'))
-                .flatMap(function (g) {
-                    window.g = g;
-                    document.getElementById('controls').style.opacity=1.0;
-                    console.log('opening filters');
-                    return g.openFilters();
+                .do(function (g) { window.g = g; })
+                .do(settingsButtons)
+                .do(function () {
+                    document.getElementById('controls').style.opacity = 1.0;
                 })
-                .delay(5000)
-                .flatMap(function() {
-                    console.log('filters opened');
-                    console.log('closing filters');
-                    return g.closeFilters();
-                })
-                .subscribe(function () {
-                    console.log('filters closed');
-                });
+                .subscribe();
 
                 // g.addFilter('degree > 0');
                 // g.updateSetting('background-color', '#FF0000');
-                // g.startClustering(3000);
+                // g.tickClustering();
             // GraphistryLoader(document.getElementById('viz'), function (err, g) {
             //     window.g = g;
             //     document.getElementById('controls').style.opacity=1.0;
@@ -74,7 +113,7 @@
         function overlay(on) {
             var labels = document.getElementById('labels');
             if (on) {
-                window.g.updateSetting('show-points-of-interest', false);
+                window.g.updateSetting('labelPOI', false);
                 window.g.subscribeLabels({
                     onChange: function (id, entityType, x, y) {
                         var elt = cache[entityType][id];
@@ -88,16 +127,27 @@
                         elt.style.top = y;
                     },
                     onExit: function (id, entityType) {
-                        labels.removeChild(cache[entityType][id]);
+                        const element = cache[entityType][id];
+                        if (element && element.parentNode === labels) {
+                            labels.removeChild(element);
+                        }
                         delete cache[entityType][id];
                     }
                 });
             } else {
                 labels.innerHTML = '';
                 cache = {point: {}, edge: {}};
-                window.g.updateSetting('show-points-of-interest', true);
+                window.g.updateSetting('labelPOI', true);
                 window.g.unsubscribeLabels();
             }
+        }
+
+        function openInNewWindow() {
+            window.g.getCurrentWorkbook().subscribe(function (workbook) {
+                window.open(
+                    'http://127.0.0.1:10000/graph/graph.html?dataset=Miserables&workbook=' + workbook.id,
+                    '_blank');
+            });
         }
         </script>
     </head>
@@ -108,17 +158,18 @@
                 <tr>
                     <td>Clustering</td>
                     <td>
-                        <button onclick="window.g.startClustering(2000)">start</button>
-                        <button onclick="window.g.stopClustering()">stop</button>
+                        <button onclick="window.g.tickClustering()">Run one tick</button>
                     </td>
                 </tr>
+                <!--
                 <tr>
                     <td>API callback</td>
                     <td>
-                        <button onclick="window.g.startClustering(2000)">start</button>
-                        <button onclick="window.g.stopClustering(function (f, s) { alert(f ? 'error: ' + f : 'success: ' + s); })">stop (w/ alert)</button>
+                        <button onclick="window.g.tickClustering(function (f, s) { alert(f ? 'error: ' + f : 'success: ' + s); })">stop (w/ alert)</button>
                     </td>
                 </tr>
+                -->
+
                 <tr>
                     <td>Filter/Exclusions</td>
                     <td>
@@ -127,26 +178,28 @@
                     </td>
                 </tr>
                 <tr>
-                    <td>Highlights</td>
-                    <td>Select some combination of nodes and edges..</td>
-                </tr>
-                <tr>
                     <td>Camera</td>
                     <td>
+                        <!--
                         <button onclick="window.g.autocenter()">autocenter</button>
                         <button onclick="window.g.autocenter(0.95)">... on 95% entities</button>
-                        <button onclick="window.g.updateZoom(1.5)">zoom out</button>
-                        <button onclick="window.g.updateZoom(0.5)">zoom in</button>
-                        <button onclick="window.g.updateZoom(1)">zoom regular (bounding box)</button>
+                        -->
+                        <button onclick="window.g.updateSetting('zoom', 1.5)">zoom out</button>
+                        <button onclick="window.g.updateSetting('zoom', 0.5)">zoom in</button>
+                        <button onclick="window.g.updateSetting('zoom', 1)">zoom regular (bounding box)</button>
                     </td>
                 </tr>
                 <tr>
                     <td>Save</td>
                     <td>
+                        <button onclick="window.g.getCurrentWorkbook().subscribe(function (workbook) { alert(workbook.id); })">get workbook id</button>
                         <button onclick="window.g.saveWorkbook()">save workbook</button>
-                        <button onclick="window.g.exportStatic('mytest', function (err, url) { alert('view at: ' + url); })">export static: "mytest"</button>
+                        <button onclick="openInNewWindow()">open in new window</button>
+                        <!--
+                        <button onclick="window.g.exportStatic('mytest', function (err, url) { alert('view at: ' + url); })">export static: "mytest"</button>-->
                     </td>
-                <tr>
+                <!--
+                <tr style="opacity: 0.5">
                     <td>Encodings</td>
                     <td>
                         <script>
@@ -176,49 +229,71 @@
                         </script>
                     </td>
                 </tr>
+                -->
                 <tr>
                     <td>Settings</td>
-                    <td><script>
-                    [
-                        ['text-color', '#FF0000'],
-                        ['background-color', '#EEEEEE'],
-                        ['transparency', 0.5], ['transparency', 1.0],
-                        ['show-labels', false], ['show-labels', true],
-                        ['show-points-of-interest', true], ['show-points-of-interest', false],
-                        ['tau', 0.5],
-                        ['gravity', 1.0],
-                        ['scalingRatio', 1.0],
-                        ['edgeInfluence', 1.0],
-                        ['strongGravity', 1.0],
-                        ['dissuadeHubs', true], ['dissuadeHubs', false],
-                        ['linLog', true], ['linLog', false]
-                    ].forEach(function (pair) {
-                        document.write('<button onclick=\'window.g.updateSetting("' + pair[0]
-                            + '", ' + JSON.stringify(pair[1]) + ")'>"
-                            + pair[0] + ": " + JSON.stringify(pair[1]) + "</button>");
-                    });
-                    </script></td>
+                    <td><div id="settings"></div></td>
                 </tr>
-                <tr>
-                    <td>Labels</td>
+                <tr style="opacity: 1">
+                    <td>Label Overlays</td>
                     <td>
-                        <button onclick="window.g.updateSetting('show-labels', false)">Hide labels</button>
-                        <button onclick="window.g.updateSetting('show-labels', true)">Show labels</button>
-                        <br/>
                         <button onclick="window.overlay(true)">Use label overlays</button>
                         <button onclick="window.overlay(false)">Use default labels</button>
                     </td>
                 </tr>
                 <tr>
-                    <td>Chrome</td>
+                    <td>Add Column</td>
+                    <td><script>
+                        var numNodes = 77;
+                        var numEdges = 254;
+                        var arrOfNodeValues = Array.apply(null, Array(numNodes)).map(Number.prototype.valueOf,1);
+                        arrOfNodeValues[1] = 2;
+                        arrOfNodeValues[2] = 2;
+                        var arrOfEdgeValues = Array.apply(null, Array(numEdges)).map(String.prototype.valueOf, "sampleString");
+                        arrOfEdgeValues[2] = "differentString";
+                        arrOfEdgeValues[3] = "differentString";
+
+                        [
+                            ['point', 'demoPointNumValues', arrOfNodeValues, 'number'],
+                            ['edge', 'demoEdgeStrValues', arrOfEdgeValues, 'string']
+                        ].forEach(function (args) {
+                            var htmlString = '<button onclick=\'window.g.addColumns(["' + args[0]
+                                + '", "' + args[1] + '", ' + JSON.stringify(args[2]) + ', "'
+                                + args[3] + '"' + "])'>"
+                                + 'Add Column: ' + args[1] + "</button>";
+                            document.write(htmlString);
+                        });
+
+                    </script></td>
+                </tr>
+                <tr>
+                    <td>Panel Visibility</td>
                     <td>
-                        <button onclick="window.g.toggleChrome(false)">Hide chrome</button>
-                        <button onclick="window.g.toggleChrome(true)">Show chrome</button>
+                        <button onclick="window.g.toggleToolbar(false)">Hide toolbar</button>
+                        <button onclick="window.g.toggleToolbar(true)">Show toolbar</button>
+                        <button onclick="window.g.toggleLeftPanel('filters', true)">Show filters</button>
+                        <button onclick="window.g.toggleLeftPanel('filters', false)">Hide filters</button>
+                        <button onclick="window.g.toggleLeftPanel('exclusions', true)">Show exclusions</button>
+                        <button onclick="window.g.toggleLeftPanel('exclusions', false)">Hide exclusions</button>
+                        <button onclick="window.g.toggleLeftPanel('labels', true)">Show labels</button>
+                        <button onclick="window.g.toggleLeftPanel('labels', false)">Hide labels</button>
+                        <button onclick="window.g.toggleLeftPanel('scene', true)">Show scene</button>
+                        <button onclick="window.g.toggleLeftPanel('scene', false)">Hide scene</button>
+                        <button onclick="window.g.toggleLeftPanel('layout', true)">Show layout</button>
+                        <button onclick="window.g.toggleLeftPanel('layout', false)">Hide layout</button>
+                        <button onclick="window.g.toggleInspector(true)">Show inspector</button>
+                        <button onclick="window.g.toggleInspector(false)">Hide inspector</button>
+                        <button onclick="window.g.toggleHistograms(true)">Show histograms</button>
+                        <button onclick="window.g.toggleHistograms(false)">Hide histograms</button>
                     </td>
                 </tr>
             </table>
         </div>
         <div id="labels"></div>
-        <iframe id="viz" src="http://127.0.0.1:10000/graph/graph.html?dataset=Miserables" />
+        <script>
+        var where = window.location.origin === 'file://' ? 'http://127.0.0.1:10000' : window.location.origin;
+        document.write(
+            '<iframe id="viz" src="' + where + '/graph/graph.html?dataset=Miserables" allowfullscreen />');
+        </script>
     </body>
 </html>
