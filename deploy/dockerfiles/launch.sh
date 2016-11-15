@@ -37,11 +37,11 @@ else
     echo Nothing to restore.
   else
     echo Restoring db with the contents of ${DB_RESTORE}.
-    for i in {1..100} ; do docker exec pg psql -U${PG_USER} -c "select 'database is up' as healthcheck" || sleep 5 ; done
-    docker exec -i pg psql -U${PG_USER} < ${DB_RESTORE}
+    for i in {1..100} ; do docker exec $PG_BOX_NAME psql -U${PG_USER} -c "select 'database is up' as healthcheck" || sleep 5 ; done
+    docker exec -i $PG_BOX_NAME psql -U${PG_USER} < ${DB_RESTORE}
   fi
-  docker network disconnect none pg
-  docker network connect $GRAPHISTRY_NETWORK pg
+  docker network disconnect none $PG_BOX_NAME
+  docker network connect $GRAPHISTRY_NETWORK $PG_BOX_NAME
 fi
 
 ### 3. Cluster membership.
