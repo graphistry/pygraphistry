@@ -4,7 +4,7 @@ C2=graphistry/nginx-central-vizservers:1.4.0.32.httponly
 C3=graphistry/splunkfwd:6.4.1
 C4=graphistry/central-and-vizservers:$1
 C5=mongo:2
-C6=postgres:9.5
+C6=postgres:9-alpine
 BUCKET=s3://graphistry.releases/
 for i in    $C1 $C2 $C3 $C4 $C5 $C6 ; do (docker rmi $i || true) ; docker pull $i ; done
 docker save $C1 $C2 $C3 $C4 $C5 $C6 | pigz -b500 > containers.lxc.gz
