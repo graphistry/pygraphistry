@@ -23,7 +23,7 @@ docker network inspect $GRAPHISTRY_NETWORK || docker network create $GRAPHISTRY_
 
 ### 2. Postgres.
 
-DB_BACKUP_DIRECTORY=${DB_BACKUP_DIRECTORY:-../.pgbackup}
+DB_BACKUP_DIRECTORY=${DB_BACKUP_DIRECTORY:-$PWD/.pgbackup-$GRAPHISTRY_NETWORK}
 PG_USER=${PG_USER:-graphistry}
 PG_PASS=${PG_PASS:-graphtheplanet}
 PG_BOX_NAME=${GRAPHISTRY_NETWORK}-pg
