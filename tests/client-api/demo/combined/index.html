@@ -230,10 +230,27 @@
                     </td>
                 </tr>
                 -->
+
                 <tr>
                     <td>Settings</td>
                     <td><div id="settings"></div></td>
                 </tr>
+                <tr>
+                    <td>Colors</td>
+                    <td>
+                        <button onclick="window.g.encodeColor('point', 'degree', 'continuous', ['black', 'white'])">Override color encoding</button>
+                        <button onclick="window.g.resetColor('point')">Reset color encoding</button>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>Sizes</td>
+                    <td>
+                        <button onclick="window.g.encodeSize('point', 'community_infomap')">Override size encoding</button>
+                        <button onclick="window.g.resetSize('point')">Reset size encoding</button>
+                    </td>
+                </tr>
+
                 <tr style="opacity: 1">
                     <td>Label Overlays</td>
                     <td>
