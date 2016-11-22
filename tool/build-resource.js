@@ -79,7 +79,7 @@ function buildResource(webpackConfig, isDevBuild, shouldWatch, cb) {
             // console.error(err);
             if (shouldWatch) {
                 console.log(message);
-                console.log(stats.toString(webpackConfig.stats || {}));
+                // console.log(stats.toString(webpackConfig.stats || {}));
             } else {
                 return cb({
                     type: 'error',
