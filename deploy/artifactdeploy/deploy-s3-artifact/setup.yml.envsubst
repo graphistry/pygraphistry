@@ -2,7 +2,7 @@
 - hosts: all
   tasks:
     - name: Make directory
-      command: mkdir /var/graphistry/{{ deploy_directory }}
+      command: mkdir -p /var/graphistry/{{ deploy_directory }}
 
     - name: Copy release to deploy directory
       copy: src=release.tar.gz
