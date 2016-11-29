@@ -2,7 +2,9 @@
 - hosts: all
   tasks:
     - name: Make directory
-      command: mkdir -p /var/graphistry/{{ deploy_directory }}
+      file: state=directory owner={{ ansible_ssh_user }} path=/var/graphistry/{{ deploy_directory }}
+      become: yes
+      become_user: root
 
     - name: Copy release to deploy directory
       copy: src=release.tar.gz
