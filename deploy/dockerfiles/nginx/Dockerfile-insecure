@@ -1,4 +1,5 @@
 FROM nginx:alpine
 COPY nginx.conf /etc/nginx
 COPY server.conf upstreams-central.conf upstreams-workers.conf routes-workers.conf /etc/nginx/graphistry/
+RUN sed -E -i -e 's_include[[:space:]]+/etc/nginx/graphistry/ssl.conf;__' /etc/nginx/graphistry/server.conf
 
