@@ -23,7 +23,7 @@ docker network inspect $GRAPHISTRY_NETWORK || docker network create $GRAPHISTRY_
 
 ### 2. Postgres.
 
-DB_BACKUP_DIRECTORY=${DB_BACKUP_DIRECTORY:-../.pgbackup}
+DB_BACKUP_DIRECTORY=${DB_BACKUP_DIRECTORY:-$PWD/.pgbackup-$GRAPHISTRY_NETWORK}
 PG_USER=${PG_USER:-graphistry}
 PG_PASS=${PG_PASS:-graphtheplanet}
 PG_BOX_NAME=${GRAPHISTRY_NETWORK}-pg
@@ -38,11 +38,19 @@ else
   else
     echo Restoring db with the contents of ${DB_RESTORE}.
     for i in {1..100} ; do docker exec $PG_BOX_NAME psql -U${PG_USER} -c "select 'database is up' as healthcheck" || sleep 5 ; done
-    docker exec -i $PG_BOX_NAME psql -U${PG_USER} < ${DB_RESTORE}
+    gzip -cd ${DB_RESTORE} | docker exec -i $PG_BOX_NAME psql -U${PG_USER}
   fi
   docker network disconnect none $PG_BOX_NAME
   docker network connect $GRAPHISTRY_NETWORK $PG_BOX_NAME
 fi
+BACKUP_SLEEP=86400
+MAX_DB_BACKUPS=10
+DB_BU_BUCKET=$DB_BU_BUCKET
+DB_BU_ACCESS=$DB_BU_ACCESS
+DB_BU_SECRET=$DB_BU_SECRET
+DB_BU_BOX_NAME=${GRAPHISTRY_NETWORK}-db-bu
+docker rm -f $DB_BU_BOX_NAME || true
+docker run -d --name $DB_BU_BOX_NAME -e MAX_DB_BACKUPS=$MAX_DB_BACKUPS -e BACKUP_SLEEP=$BACKUP_SLEEP -e DB_BU_BUCKET=$DB_BU_BUCKET -e DB_BU_ACCESS=$DB_BU_ACCESS -e DB_BU_SECRET=$DB_BU_SECRET --network=$GRAPHISTRY_NETWORK -e PGUSER=${PG_USER} -e PGPASSWORD=${PG_PASS} -e PGHOST=${GRAPHISTRY_NETWORK}-pg --restart=unless-stopped -v $DB_BACKUP_DIRECTORY:/backup -w /backup graphistry/s3cmd-postgres sh -c 'pg_dump | gzip -c > $(date +%s).sql.gz && ls -t . | tail -n +$(( MAX_DB_BACKUPS + 1)) | xargs --no-run-if-empty rm && ( [ -z $DB_BU_BUCKET ] && echo No bucket, keeping db bu local || s3cmd --access_key=$DB_BU_ACCESS --secret_key=$DB_BU_SECRET sync /backup/ s3://$DB_BU_BUCKET ) && sleep $BACKUP_SLEEP'
 
 ### 3. Cluster membership.
 
