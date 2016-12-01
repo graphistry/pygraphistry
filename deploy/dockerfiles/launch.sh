@@ -50,7 +50,7 @@ DB_BU_ACCESS=$DB_BU_ACCESS
 DB_BU_SECRET=$DB_BU_SECRET
 DB_BU_BOX_NAME=${GRAPHISTRY_NETWORK}-db-bu
 docker rm -f $DB_BU_BOX_NAME || true
-docker run -d --name $DB_BU_BOX_NAME -e MAX_DB_BACKUPS=$MAX_DB_BACKUPS -e BACKUP_SLEEP=$BACKUP_SLEEP -e DB_BU_BUCKET=$DB_BU_BUCKET -e DB_BU_ACCESS=$DB_BU_ACCESS -e DB_BU_SECRET=$DB_BU_SECRET --network=$GRAPHISTRY_NETWORK -e PGUSER=${PG_USER} -e PGPASSWORD=${PG_PASS} -e PGHOST=${GRAPHISTRY_NETWORK}-pg --restart=unless-stopped -v $DB_BACKUP_DIRECTORY:/backup graphistry/s3cmd-postgres sh -c 'pg_dump | gzip -c > /backup/$(date +%s).sql.gz && ls -t . | tail -n +$(( MAX_DB_BACKUPS + 1)) | xargs --no-run-if-empty rm && ( [ -z $DB_BU_BUCKET ] && echo No bucket, keeping db bu local || s3cmd --access_key=$DB_BU_ACCESS --secret_key=$DB_BU_SECRET sync /backup/ s3://$DB_BU_BUCKET ) && sleep $BACKUP_SLEEP'
+docker run -d --name $DB_BU_BOX_NAME -e MAX_DB_BACKUPS=$MAX_DB_BACKUPS -e BACKUP_SLEEP=$BACKUP_SLEEP -e DB_BU_BUCKET=$DB_BU_BUCKET -e DB_BU_ACCESS=$DB_BU_ACCESS -e DB_BU_SECRET=$DB_BU_SECRET --network=$GRAPHISTRY_NETWORK -e PGUSER=${PG_USER} -e PGPASSWORD=${PG_PASS} -e PGHOST=${GRAPHISTRY_NETWORK}-pg --restart=unless-stopped -v $DB_BACKUP_DIRECTORY:/backup -w /backup graphistry/s3cmd-postgres sh -c 'pg_dump | gzip -c > $(date +%s).sql.gz && ls -t . | tail -n +$(( MAX_DB_BACKUPS + 1)) | xargs --no-run-if-empty rm && ( [ -z $DB_BU_BUCKET ] && echo No bucket, keeping db bu local || s3cmd --access_key=$DB_BU_ACCESS --secret_key=$DB_BU_SECRET sync /backup/ s3://$DB_BU_BUCKET ) && sleep $BACKUP_SLEEP'
 
 ### 3. Cluster membership.
 
