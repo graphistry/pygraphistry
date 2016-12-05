@@ -56,6 +56,9 @@ function commonConfig(
                 'doc-worker': path.resolve('./src/doc-worker'),
                 'etl-worker': path.resolve('./src/etl-worker'),
                 'viz-worker': path.resolve('./src/viz-worker'),
+                '@graphistry/falcor': path.resolve(
+                    './node_modules/@graphistry/falcor/dist/falcor.all.min.js'
+                )
             }
         },
         module: {
@@ -66,7 +69,6 @@ function commonConfig(
             // }],
             loaders: loaders(isDevBuild, isFancyBuild),
             noParse: [
-                /\@graphistry\/falcor\/dist\/falcor\.min\.js$/,
                 /\@graphistry\/falcor-query-syntax\/lib\/paths\-parser\.js$/,
                 /\@graphistry\/falcor-query-syntax\/lib\/route\-parser\.js$/
             ]
@@ -332,7 +334,7 @@ function apiConfig(
 
 function loaders(isDevBuild) {
     return [
-        babel(),
+        babel(isDevBuild),
         { test: /\.json$/, loader: 'json' },
         { test: /\.glsl$/, loader: 'webpack-glsl' },
         { test: /\.proto$/, loader: 'proto-loader' },
@@ -360,7 +362,7 @@ function loaders(isDevBuild) {
             })
         }
     ];
-    function babel() {
+    function babel(isDevBuild) {
         return {
             test: /\.(js|es6|mjs|jsx)$/,
             exclude: /(node_modules(?!\/rxjs))/,
@@ -368,14 +370,12 @@ function loaders(isDevBuild) {
             query: {
                 babelrc: false,
                 cacheDirectory: true, // cache into OS temp folder by default
-                passPerPreset: true,
+                plugins: ['transform-runtime'],
                 presets: [
-                    { plugins: [ 'transform-runtime' ] },
-                    {
-                        passPerPreset: false,
-                        presets: [['es2015', { modules: false, loose: true }], 'react', 'stage-0']
-                    },
-                    'es2015'
+                    // !isDevBuild ? 'es2016' :
+                    ['es2015', { modules: false, loose: true }],
+                    'react',
+                    'stage-0'
                 ]
             }
         };
