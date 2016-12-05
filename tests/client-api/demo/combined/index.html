@@ -31,12 +31,10 @@
             }
             .label {
                 position: absolute;
-                width: 20px;
-                height: 20px;
-                margin-top: -10px;
-                margin-left: -10px;
-                background-color: rgba(0,255,50, 0.5);
-                border-radius: 15px;
+                pointer-events: none;
+                box-sizing: border-box;
+                border: 1px solid rgba(255, 0, 0, 0.5);
+                background-color: rgba(0, 255, 50, 0.5);
             }
         </style>
 
@@ -106,16 +104,18 @@
             // });
         });
 
-        var cache ={
-            point: {},
-            edge: {}
-        };
+        var subscription, cache ={ point: {}, edge: {} };
         function overlay(on) {
             var labels = document.getElementById('labels');
             if (on) {
+                if (subscription) {
+                    labels.innerHTML = '';
+                    cache = { point: {}, edge: {} };
+                    subscription.unsubscribe();
+                }
                 window.g.updateSetting('labelPOI', false);
-                window.g.subscribeLabels({
-                    onChange: function (id, entityType, x, y) {
+                subscription = window.g.subscribeLabels({
+                    onChange: function (id, entityType, x, y, size) {
                         var elt = cache[entityType][id];
                         if (!elt) {
                             elt = document.createElement('div');
@@ -123,8 +123,21 @@
                             labels.appendChild(elt);
                             cache[entityType][id] = elt;
                         }
-                        elt.style.left = x;
-                        elt.style.top = y;
+                        if (size <= 0) {
+                            size = 2;
+                        }
+
+                        var border = 1;
+                        var radius = Math.floor(size * 0.5);
+
+                        elt.style['top'] = y + 'px';
+                        elt.style['left'] = x + 'px';
+                        elt.style['width'] = size - border + 'px';
+                        elt.style['height'] = size - border + 'px';
+
+                        elt.style['margin-top'] = (border * 2) - radius + 'px';
+                        elt.style['margin-left'] = (border * 2) - radius + 'px';
+                        elt.style['border-radius'] = size + 'px';
                     },
                     onExit: function (id, entityType) {
                         const element = cache[entityType][id];
@@ -134,11 +147,12 @@
                         delete cache[entityType][id];
                     }
                 });
-            } else {
+            } else if (subscription) {
                 labels.innerHTML = '';
-                cache = {point: {}, edge: {}};
+                cache = { point: {}, edge: {} };
                 window.g.updateSetting('labelPOI', true);
-                window.g.unsubscribeLabels();
+                subscription.unsubscribe();
+                subscription = null;
             }
         }
 
@@ -186,7 +200,8 @@
                         -->
                         <button onclick="window.g.updateSetting('zoom', 1.5)">zoom out</button>
                         <button onclick="window.g.updateSetting('zoom', 0.5)">zoom in</button>
-                        <button onclick="window.g.updateSetting('zoom', 1)">zoom regular (bounding box)</button>
+                        <button onclick="window.g.updateSetting('zoom', 1);
+                                         window.g.updateSetting('center', 0);">zoom regular (bounding box)</button>
                     </td>
                 </tr>
                 <tr>
