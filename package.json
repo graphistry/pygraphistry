@@ -1,6 +1,6 @@
 {
   "name": "@graphistry/viz-app",
-  "version": "2.0.47",
+  "version": "2.1.0",
   "description": "viz-app",
   "main": "viz-server.js",
   "scripts": {
