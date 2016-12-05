@@ -144,6 +144,12 @@ function clientConfig(
         }
     ];
 
+    config.resolve.alias['@graphistry/common'] = path.resolve('./src/viz-client/client-logger');
+    config.resolve.alias['dtrace-provider'] = path.resolve('./src/viz-client/client-logger/empty-shim.js');
+    config.resolve.alias['fs'] = path.resolve('./src/viz-client/client-logger/empty-shim.js');
+    config.resolve.alias['safe-json-stringify'] = path.resolve('./src/viz-client/client-logger/empty-shim.js');
+    config.resolve.alias['mv'] = path.resolve('./src/viz-client/client-logger/empty-shim.js');
+
     config.plugins = [
         ...config.plugins,
         new webpack.optimize.CommonsChunkPlugin({
