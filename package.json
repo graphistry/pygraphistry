@@ -54,6 +54,7 @@
     "backgrid-filter": "wyuenho/backgrid-filter#01b2b217b8a3fbf2f240b882b338284632bae791",
     "body-parser": "1.15.2",
     "bootstrap": "3.3.7",
+    "bunyan": "~1.8.5",
     "color": "0.10.1",
     "colorbrewer": "1.0.0",
     "compression": "1.6.2",
