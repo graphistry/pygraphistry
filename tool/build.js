@@ -1,6 +1,7 @@
 var http = require('http');
 var path = require('path');
 var chalk = require('chalk');
+var treeKill = require('tree-kill');
 var Subject = require('rxjs').Subject;
 var Observable = require('rxjs').Observable;
 var Subscription = require('rxjs').Subscription;
@@ -17,9 +18,18 @@ while (argv.length < 2) {
 
 var HMRPort = 8090;
 var HMRMiddleware = require('webpack-hot-middleware');
+var shouldDebug = argv[2] === 'debug';
 var shouldWatch = argv[0] === '--watch';
 var isFancyBuild = argv[1] === '--fancy';
+var serverArgs = argv.slice(3);
+var serverExecArgv = shouldDebug ? ['--inspect'] : [];
+
 var isDevBuild = process.env.NODE_ENV === 'development';
+
+// console.log('CLI args:', JSON.stringify(process.argv));
+// console.log('build CLI args:', JSON.stringify(argv));
+// console.log('build Server args:', JSON.stringify(serverArgs));
+// console.log('build Server Executable args:', JSON.stringify(serverExecArgv));
 
 var clientConfig = webpackConfigs[0](isDevBuild, isFancyBuild);
 var serverConfig = webpackConfigs[1](isDevBuild, isFancyBuild);
@@ -39,14 +49,16 @@ var compile, compileClient, compileServer;
 if (isDevBuild) {
 
     compileClient = processToObservable(childProcess
-        .fork(require.resolve('./build-resource'), argv.concat(0), {
+        .fork(require.resolve('./build-resource'), argv.slice(0, 2).concat(0), {
             env: process.env, cwd: process.cwd()
         }));
 
     compileServer = processToObservable(childProcess
-        .fork(require.resolve('./build-resource'), argv.concat(1), {
+        .fork(require.resolve('./build-resource'), argv.slice(0, 2).concat(1), {
             env: process.env, cwd: process.cwd()
         }));
+    // compileClient = Observable.of({ name: 'client' });
+    // compileServer = Observable.of({ name: 'server' });
 
     compile = Observable.combineLatest(compileClient, compileServer);
 }
@@ -138,10 +150,11 @@ compile.multicast(function() { return new Subject(); }, function(shared) {
                 child.kill('SIGKILL');
                 console.log('Restarting Dev Server with [HMR]...');
             }
+            const childArgs = !shouldDebug ? argv.slice(2) : ['--inspect'].concat(argv.slice(3));
             child = childProcess.fork(path.join(
                 serverConfig.output.path,
-                serverConfig.output.filename), {
-                env: process.env, cwd: process.cwd()
+                serverConfig.output.filename), serverArgs, {
+                env: process.env, cwd: process.cwd(), execArgv: serverExecArgv
             });
             return processToObservable(child)
                 .last(null, null, { code: 1 })
@@ -166,7 +179,7 @@ compile.multicast(function() { return new Subject(); }, function(shared) {
     });
 
 process.on('exit', function() {
-    require('tree-kill')(pid, 'SIGKILL');
+    treeKill(pid, 'SIGKILL');
 });
 
 function buildResourceToObservable(webpackConfig, isDevBuild, shouldWatch) {
