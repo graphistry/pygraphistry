@@ -31,7 +31,6 @@
       "fullDocs": true,
       "strong": false
     },
-    "node-express": {},
     "node_resolve": {},
     "commonjs": {}
   }
