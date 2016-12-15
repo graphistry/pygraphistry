@@ -11,8 +11,8 @@ BUCKET=s3://graphistry.releases/
 for i in    $C1 $C2 $C3 $C4 $C5 $C6 $C7 $C8 ; do (docker rmi $i || true) ; docker pull $i ; done
 docker save $C1 $C2 $C3 $C4 $C5 $C6 $C7 $C8 | pigz -b500 > containers.lxc.gz
 for i in    $C1 $C2 $C3 $C4 $C5 $C6 $C7 $C8 ; do docker rmi $i ; done
-sed -i -e 's_$1_'$1'_' launch.sh
-sed -i -e 's_$2_'$2'_' launch.sh
+sed -i -e 's_$1_'${VIZ_VERSION}'_' launch.sh
+sed -i -e 's_$2_'${PIVOT_VERSION}'_' launch.sh
 cp ../documentation/certs.txt .
 GZIP=-1 tar -cvzf tmp.tar.gz instructions.md certs.txt containers.lxc.gz load.sh launch.sh
 SUFFIX=`sha1sum tmp.tar.gz | cut -d ' ' -f 1`
