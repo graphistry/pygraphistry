@@ -2,19 +2,21 @@
 C1=graphistry/nginx-central-vizservers:1.4.0.32
 C2=graphistry/nginx-central-vizservers:1.4.0.32.httponly
 C3=graphistry/splunkfwd:6.4.1
-C4=graphistry/central-and-vizservers:$1
+C4=graphistry/central-and-vizservers:${VIZ_VERSION}
 C5=mongo:2
 C6=postgres:9-alpine
 C7=graphistry/s3cmd-postgres:latest
+C8=graphistry/pivot-app:${PIVOT_VERSION}
 BUCKET=s3://graphistry.releases/
-for i in    $C1 $C2 $C3 $C4 $C5 $C6 $C7 ; do (docker rmi $i || true) ; docker pull $i ; done
-docker save $C1 $C2 $C3 $C4 $C5 $C6 $C7 | pigz -b500 > containers.lxc.gz
-for i in    $C1 $C2 $C3 $C4 $C5 $C6 $C7 ; do docker rmi $i ; done
+for i in    $C1 $C2 $C3 $C4 $C5 $C6 $C7 $C8 ; do (docker rmi $i || true) ; docker pull $i ; done
+docker save $C1 $C2 $C3 $C4 $C5 $C6 $C7 $C8 | pigz -b500 > containers.lxc.gz
+for i in    $C1 $C2 $C3 $C4 $C5 $C6 $C7 $C8 ; do docker rmi $i ; done
 sed -i -e 's_$1_'$1'_' launch.sh
+sed -i -e 's_$2_'$2'_' launch.sh
 cp ../documentation/certs.txt .
 GZIP=-1 tar -cvzf tmp.tar.gz instructions.md certs.txt containers.lxc.gz load.sh launch.sh
 SUFFIX=`sha1sum tmp.tar.gz | cut -d ' ' -f 1`
-TARBALL=graphistry-release-${2}-${1}-${SUFFIX}.tar.gz
+TARBALL=graphistry-release-${BUILD_NUMBER}-${VIZ_VERSION}-${PIVOT_VERSION}-${SUFFIX}.tar.gz
 mv tmp.tar.gz ${TARBALL}
 s3cmd -c /home/ubuntu/.s3cfg --multipart-chunk-size-mb=200 put ${TARBALL} ${BUCKET}
 

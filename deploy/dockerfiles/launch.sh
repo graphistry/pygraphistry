@@ -81,6 +81,16 @@ VIZWORKER_MERGED_CONFIG=$(docker run --rm -v `pwd`/../httpd-config.json:/tmp/box
 
 nvidia-docker run --net $GRAPHISTRY_NETWORK --restart=unless-stopped --name $VIZAPP_BOX_NAME --link=${PG_BOX_NAME}:pg --link=${MONGO_BOX_NAME}:mongo  -e "GRAPHISTRY_CENTRAL_CONFIG=${CENTRAL_MERGED_CONFIG}" -e "GRAPHISTRY_VIZWORKER_CONFIG=${VIZWORKER_MERGED_CONFIG}" -d -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper -v ${GRAPHISTRY_DATA_CACHE:-`pwd`/data_cache}:/tmp/graphistry/data_cache -v ${GRAPHISTRY_WORKBOOK_CACHE:-`pwd`/workbook_cache}:/tmp/graphistry/workbook_cache -v `pwd`/supervisor:/var/log/supervisor graphistry/central-and-vizservers:$1
 
+### 4a. Start pivot-app.
+
+PIVOTAPP_BOX_NAME=${GRAPHISTRY_NETWORK}-pivot
+
+docker rm -f -v $PIVOTAPP_BOX_NAME || true
+
+mkdir -p pivot-app
+echo "${PIVOT_APP_CONFIG:-{\}}" > ./pivot-config.json
+docker run -d --name $PIVOTAPP_BOX_NAME -v $PWD/pivot-app/:/pivot-app/logs -v $PWD/pivot-config.json:/pivot-app/config/zzz-deploy-override.json --restart=unless-stopped --network=$GRAPHISTRY_NETWORK graphistry/pivot-app:$2
+
 ### 5. Nginx, maybe with ssl.
 
 NGINX_BOX_NAME=${GRAPHISTRY_NETWORK}-nginx
