@@ -16,7 +16,7 @@ sed -i -e 's_$2_'${PIVOT_VERSION}'_' launch.sh
 cp ../documentation/certs.txt .
 GZIP=-1 tar -cvzf tmp.tar.gz instructions.md certs.txt containers.lxc.gz load.sh launch.sh
 SUFFIX=`sha1sum tmp.tar.gz | cut -d ' ' -f 1`
-TARBALL=graphistry-release-${BUILD_NUMBER}-${VIZ_VERSION}-${PIVOT_VERSION}-${SUFFIX}.tar.gz
+TARBALL=graphistry-app-${BUILD_NUMBER}-${VIZ_VERSION}-${PIVOT_VERSION}-${SUFFIX}.tar.gz
 mv tmp.tar.gz ${TARBALL}
 s3cmd -c /home/ubuntu/.s3cfg --multipart-chunk-size-mb=200 put ${TARBALL} ${BUCKET}
 

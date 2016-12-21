@@ -4,7 +4,7 @@ if [ -z $RELEASE ]
 then
   cd dockerfiles/
   ./make-release.sh
-  mv graphistry-release-* ../release.tar.gz
+  mv graphistry-app-* ../release.tar.gz
   cd ..
 else
   s3cmd -c /home/ubuntu/.s3cfg --force get ${RELEASE} release.tar.gz
