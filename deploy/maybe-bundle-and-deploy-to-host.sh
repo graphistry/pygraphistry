@@ -14,7 +14,7 @@ export KEY_PATH="$(pwd)/wholly-innocuous/files/aws/ansible_id_rsa.pem"
 chmod 400 "${KEY_PATH}"
 ssh -T -i "${KEY_PATH}" ${BOXUSER}@${HOST} whoami
 
-JOB_PATH=deploy/artifactdeploy/deploy-s3-artifact
+JOB_PATH=artifactdeploy/deploy-s3-artifact
 
 mv release.tar.gz ${JOB_PATH}/files/
 
