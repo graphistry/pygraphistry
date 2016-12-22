@@ -11,7 +11,7 @@ else
   then
     s3cmd -c /home/ubuntu/.s3cfg --force get ${RELEASE} release.tar.gz
   else
-    s3cmd -c /home/ubuntu/.s3cfg --force get s3://graphistry.releases/graphistry-app-${RELEASE}-* release.tar.gz
+    s3cmd -c /home/ubuntu/.s3cfg --force get s3://graphistry-releases/graphistry-app-${RELEASE}-* release.tar.gz
   fi
 fi
 

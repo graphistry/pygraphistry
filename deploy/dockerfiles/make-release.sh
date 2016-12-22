@@ -7,7 +7,7 @@ C5=mongo:2
 C6=postgres:9-alpine
 C7=graphistry/s3cmd-postgres:latest
 C8=graphistry/pivot-app:${PIVOT_VERSION}
-BUCKET=s3://graphistry.releases/
+BUCKET=s3://graphistry-releases/
 for i in    $C1 $C2 $C3 $C4 $C5 $C6 $C7 $C8 ; do (docker rmi $i || true) ; docker pull $i ; done
 docker save $C1 $C2 $C3 $C4 $C5 $C6 $C7 $C8 | pigz -b500 > containers.lxc.gz
 for i in    $C1 $C2 $C3 $C4 $C5 $C6 $C7 $C8 ; do docker rmi $i ; done
