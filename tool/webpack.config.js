@@ -56,6 +56,7 @@ function commonConfig(
                 'doc-worker': path.resolve('./src/doc-worker'),
                 'etl-worker': path.resolve('./src/etl-worker'),
                 'viz-worker': path.resolve('./src/viz-worker'),
+                'moment': path.resolve('./node_modules/moment/min/moment.min.js'),
                 '@graphistry/falcor': path.resolve(isDevBuild ?
                     './node_modules/@graphistry/falcor/dist/falcor.all.js' :
                     './node_modules/@graphistry/falcor/dist/falcor.all.min.js'
