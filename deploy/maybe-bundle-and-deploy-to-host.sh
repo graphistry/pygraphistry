@@ -7,7 +7,12 @@ then
   mv graphistry-app-* ../release.tar.gz
   cd ..
 else
-  s3cmd -c /home/ubuntu/.s3cfg --force get ${RELEASE} release.tar.gz
+  if (echo $RELEASE | grep "s3://" > /dev/null)
+  then
+    s3cmd -c /home/ubuntu/.s3cfg --force get ${RELEASE} release.tar.gz
+  else
+    s3cmd -c /home/ubuntu/.s3cfg --force get s3://graphistry.releases/graphistry-app-${RELEASE}-* release.tar.gz
+  fi
 fi
 
 export KEY_PATH="$(pwd)/wholly-innocuous/files/aws/ansible_id_rsa.pem"
