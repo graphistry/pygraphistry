@@ -76,10 +76,10 @@ mkdir -p central-app worker graphistry-json clients reaper
 stat ../httpd-config.json || (echo '{}' > ../httpd-config.json)
 echo "${GRAPHISTRY_APP_CONFIG:-{\}}" > ./httpd-config.json
 
-CENTRAL_MERGED_CONFIG=$(docker   run --rm -v `pwd`/../httpd-config.json:/tmp/box-config.json -v `pwd`/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/central-cloud-options.json    /tmp/box-config.json /tmp/local-config.json')
-VIZWORKER_MERGED_CONFIG=$(docker run --rm -v `pwd`/../httpd-config.json:/tmp/box-config.json -v `pwd`/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/viz-worker-cloud-options.json /tmp/box-config.json /tmp/local-config.json')
+CENTRAL_MERGED_CONFIG=$(docker   run --rm -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/central-cloud-options.json    /tmp/box-config.json /tmp/local-config.json')
+VIZWORKER_MERGED_CONFIG=$(docker run --rm -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/viz-worker-cloud-options.json /tmp/box-config.json /tmp/local-config.json')
 
-nvidia-docker run --net $GRAPHISTRY_NETWORK --restart=unless-stopped --name $VIZAPP_BOX_NAME --link=${PG_BOX_NAME}:pg --link=${MONGO_BOX_NAME}:mongo  -e "GRAPHISTRY_CENTRAL_CONFIG=${CENTRAL_MERGED_CONFIG}" -e "GRAPHISTRY_VIZWORKER_CONFIG=${VIZWORKER_MERGED_CONFIG}" -d -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper -v ${GRAPHISTRY_DATA_CACHE:-`pwd`/data_cache}:/tmp/graphistry/data_cache -v ${GRAPHISTRY_WORKBOOK_CACHE:-`pwd`/workbook_cache}:/tmp/graphistry/workbook_cache -v `pwd`/supervisor:/var/log/supervisor graphistry/central-and-vizservers:$1
+nvidia-docker run --net $GRAPHISTRY_NETWORK --restart=unless-stopped --name $VIZAPP_BOX_NAME --link=${PG_BOX_NAME}:pg --link=${MONGO_BOX_NAME}:mongo  -e "GRAPHISTRY_CENTRAL_CONFIG=${CENTRAL_MERGED_CONFIG}" -e "GRAPHISTRY_VIZWORKER_CONFIG=${VIZWORKER_MERGED_CONFIG}" -d -v ${PWD}/central-app:/var/log/central-app -v ${PWD}/worker:/var/log/worker -v ${PWD}/graphistry-json:/var/log/graphistry-json -v ${PWD}/clients:/var/log/clients -v ${PWD}/reaper:/var/log/reaper -v ${GRAPHISTRY_DATA_CACHE:-${PWD}/data_cache}:/tmp/graphistry/data_cache -v ${GRAPHISTRY_WORKBOOK_CACHE:-${PWD}/workbook_cache}:/tmp/graphistry/workbook_cache -v ${PWD}/supervisor:/var/log/supervisor graphistry/central-and-vizservers:$1
 
 ### 4a. Start pivot-app.
 
@@ -107,7 +107,7 @@ else
     NGINX_IMAGE_SUFFIX=".httponly"
 fi
 
-docker run --net $GRAPHISTRY_NETWORK -p 80:$NGINX_HTTP_PORT -p 443:$NGINX_HTTPS_PORT --link=${VIZAPP_BOX_NAME}:vizapp --link=${PIVOTAPP_BOX_NAME}:pivotapp --restart=unless-stopped --name $NGINX_BOX_NAME -d -v `pwd`/nginx:/var/log/nginx $SSL_MOUNT graphistry/nginx-central-vizservers:1.4.0.32${NGINX_IMAGE_SUFFIX}
+docker run --net $GRAPHISTRY_NETWORK -p 80:$NGINX_HTTP_PORT -p 443:$NGINX_HTTPS_PORT --link=${VIZAPP_BOX_NAME}:vizapp --link=${PIVOTAPP_BOX_NAME}:pivotapp --restart=unless-stopped --name $NGINX_BOX_NAME -d -v ${PWD}/nginx:/var/log/nginx $SSL_MOUNT graphistry/nginx-central-vizservers:1.4.0.32${NGINX_IMAGE_SUFFIX}
 
 ### 6. Splunk.
 
@@ -116,7 +116,7 @@ SPLUNK_BOX_NAME=${GRAPHISTRY_NETWORK}-splunk
 docker rm -f -v $SPLUNK_BOX_NAME || true
 
 if [ -n "$SPLUNK_PASSWORD" ] ; then
-    docker run --name $SPLUNK_BOX_NAME --restart=unless-stopped -d -v /etc/graphistry/splunk/:/opt/splunkforwarder/etc/system/local -v `pwd`/central-app:/var/log/central-app -v `pwd`/worker:/var/log/worker -v `pwd`/graphistry-json:/var/log/graphistry-json -v `pwd`/clients:/var/log/clients -v `pwd`/reaper:/var/log/reaper -v `pwd`/supervisor:/var/log/supervisor -v `pwd`/nginx:/var/log/nginx graphistry/splunkfwd:6.4.1 bash -c "/opt/splunkforwarder/bin/splunk edit user admin -password $SPLUNK_PASSWORD -auth admin:$SPLUNK_ADMIN --accept-license --answer-yes ; /opt/splunkforwarder/bin/splunk start --nodaemon --accept-license --answer-yes"
+    docker run --name $SPLUNK_BOX_NAME --restart=unless-stopped -d -v /etc/graphistry/splunk/:/opt/splunkforwarder/etc/system/local -v ${PWD}/central-app:/var/log/central-app -v ${PWD}/worker:/var/log/worker -v ${PWD}/graphistry-json:/var/log/graphistry-json -v ${PWD}/clients:/var/log/clients -v ${PWD}/reaper:/var/log/reaper -v ${PWD}/supervisor:/var/log/supervisor -v ${PWD}/nginx:/var/log/nginx graphistry/splunkfwd:6.4.1 bash -c "/opt/splunkforwarder/bin/splunk edit user admin -password $SPLUNK_PASSWORD -auth admin:$SPLUNK_ADMIN --accept-license --answer-yes ; /opt/splunkforwarder/bin/splunk start --nodaemon --accept-license --answer-yes"
 fi
 
 ### Done.
