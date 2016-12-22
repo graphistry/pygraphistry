@@ -116,7 +116,7 @@ SPLUNK_BOX_NAME=${GRAPHISTRY_NETWORK}-splunk
 docker rm -f -v $SPLUNK_BOX_NAME || true
 
 if [ -n "$SPLUNK_PASSWORD" ] ; then
-    docker run --name $SPLUNK_BOX_NAME --restart=unless-stopped -d -v /etc/graphistry/splunk/:/opt/splunkforwarder/etc/system/local -v ${PWD}/central-app:/var/log/central-app -v ${PWD}/worker:/var/log/worker -v ${PWD}/graphistry-json:/var/log/graphistry-json -v ${PWD}/clients:/var/log/clients -v ${PWD}/reaper:/var/log/reaper -v ${PWD}/supervisor:/var/log/supervisor -v ${PWD}/nginx:/var/log/nginx graphistry/splunkfwd:6.4.1 bash -c "/opt/splunkforwarder/bin/splunk edit user admin -password $SPLUNK_PASSWORD -auth admin:$SPLUNK_ADMIN --accept-license --answer-yes ; /opt/splunkforwarder/bin/splunk start --nodaemon --accept-license --answer-yes"
+    docker run --name $SPLUNK_BOX_NAME --restart=unless-stopped -d -v /etc/graphistry/splunk/:/opt/splunkforwarder/etc/system/local -v ${PWD}/central-app:/var/log/central-app -v ${PWD}/worker:/var/log/worker -v ${PWD}/graphistry-json:/var/log/graphistry-json -v ${PWD}/clients:/var/log/clients -v ${PWD}/reaper:/var/log/reaper -v ${PWD}/supervisor:/var/log/supervisor -v ${PWD}/nginx:/var/log/nginx -v ${PWD}/pivot-app:/var/log/pivot-app graphistry/splunkfwd:6.4.1 bash -c "/opt/splunkforwarder/bin/splunk edit user admin -password $SPLUNK_PASSWORD -auth admin:$SPLUNK_ADMIN --accept-license --answer-yes ; /opt/splunkforwarder/bin/splunk start --nodaemon --accept-license --answer-yes"
 fi
 
 ### Done.
