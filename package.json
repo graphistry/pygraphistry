@@ -1,10 +1,10 @@
 {
   "name": "@graphistry/viz-app",
-  "version": "2.1.14",
+  "version": "2.1.15",
   "description": "viz-app",
   "main": "./www/viz-server.js",
   "scripts": {
-    "start": "node --inspect ./www/viz-server.js",
+    "start": "node ./www/viz-server.js",
     "clean": "rm -rf ./www/*",
     "build": "npm run clean && cross-env NODE_ENV=production node ./tool/build && npm run build-api",
     "build-api": "cross-env NODE_ENV=production node ./tool/build-resource -- -- 2",
