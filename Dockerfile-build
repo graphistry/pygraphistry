@@ -22,5 +22,6 @@ RUN mkdir /root/.ssh && \
     npm run build && \
     cd $APPDIR/packages/graphistry-client && \
     npm run build && \
+    cd $APPDIR && \
     yes | ./node_modules/.bin/lerna publish --yes && \
     shred -u /root/.ssh/* /root/.npmrc
