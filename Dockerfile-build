@@ -17,6 +17,11 @@ RUN mkdir /root/.ssh && \
     (ssh -o StrictHostKeyChecking=no -T git@github.com || true) && \
     cd $APPDIR && \
     bash -l -c "npm install" && \
+    npm run build ; \
+    cd $APPDIR/packages/viz-app && \
     npm run build && \
-    npm publish && \
+    cd $APPDIR/packages/api-client && \
+    npm run build && \
+    cd $APPDIR && \
+    yes | ./node_modules/.bin/lerna publish --yes && \
     shred -u /root/.ssh/* /root/.npmrc
