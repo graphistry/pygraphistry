@@ -20,7 +20,7 @@ RUN mkdir /root/.ssh && \
     bash -l -c "npm run build" && \
     cd $APPDIR/packages/viz-app && \
     npm run build && \
-    cd $APPDIR/packages/api-client && \
+    cd $APPDIR/packages/graphistry-client && \
     npm run build && \
     yes | ./node_modules/.bin/lerna publish --yes && \
     shred -u /root/.ssh/* /root/.npmrc
