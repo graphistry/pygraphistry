@@ -1,6 +1,6 @@
 FROM graphistry/baseapp:1.2
 
-# fetch secrets from our vault, do the npm installs, and delete the secrets.
+# fetch secrets from our vault, do the npm installs & publish, and delete the secrets.
 ARG BUILD_NUMBER
 ENV APPDIR /app
 WORKDIR $APPDIR
@@ -17,6 +17,11 @@ RUN mkdir /root/.ssh && \
     (ssh -o StrictHostKeyChecking=no -T git@github.com || true) && \
     cd $APPDIR && \
     bash -l -c "npm install" && \
+    bash -l -c "npm run build" && \
+    cd $APPDIR/packages/viz-app && \
     npm run build && \
-    npm publish && \
+    cd $APPDIR/packages/graphistry-client && \
+    npm run build && \
+    cd $APPDIR && \
+    ./node_modules/.bin/lerna publish --skip-git --force-publish=* --repo-version=`node -e "console.log(JSON.parse(fs.readFileSync('./lerna.json')).version)"` --yes  && \
     shred -u /root/.ssh/* /root/.npmrc

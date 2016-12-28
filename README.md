@@ -1,27 +1,41 @@
 # viz-app
-[![Build Status](http://deploy.graphistry.com/buildStatus/icon?job=viz-app)](http://deploy.graphistry.com/job/viz-app/)
 
-Graphistry's cloud-based visualization platform. Stream WebGL buffers into the browser powered by an Open-CL based layout simulation.
+Mono-repo for viz-app and graphistry-client
 
-## Instructions
-
-1. Ensure you have `pigz` installed on your system. Mac: `brew install pigz`, Linux: `sudo apt-get install pigz`.
-2. Clone this repo.
-3. Run `npm install` from this repo's root directory.
-  - This will install all dependencies, and run the module's build scripts to compile our es6 to (es5) JavaScript, and LESS to CSS.
-4. Run `npm run dev` to clean, compile, and start a webpack-dev-server that hot reloads modules for the client and server.
+# Install
 
 Requires node `v6.6.0` and npm `v3.10.3`.
 
-## Commands
+1. Ensure you have `pigz` installed on your system. Mac: `brew install pigz`, Linux: `sudo apt-get install pigz`.
+2. Clone this repo.
+3. `npm install` to install Lerna
+4. `npm run build` to install subpackages `packages/viz-app` and `packages/api-client`
 
-- `npm run dev` cleans `www/` and compiles all modules for development
-- `npm run build` cleans `www/` and compiles all modules for production
-- `npm run serve` starts the server in `www/`
-- `npm run debug` starts the server in `www/` with `--inspect --debug` options
-- `npm run watch` cleans `www/` and starts parallel development builds, and starts the viz-server with hot-module reloading
-- `npm run fancy` cleans `www/`, starts parallel development builds with `webpack-dashboard`, and starts the viz-server with hot-module reloading
+# Dev Build
 
-## Test Datasets
+* In `packages/viz-app` or `packages/api-client`, run `npm run build`
+* For viz-app, a common option within that package is `npm run watch | bunyan -o short`
+* For additional options for viz-app, see `packages/viz-app/README.md`
 
-https://docs.google.com/spreadsheets/d/1ctmEoT-aWjJyCiAZ9kEvW_XE9-ydyMCTtL9wGZna58Q/edit#gid=0
+# Committing to Master
+
+Our build server automatically builds on commits to master, publishes to npm, and manages the `packages/*/package.json` version numbers.
+
+## Gitflow Development: Branches with PRs
+
+1. Prepare whatever commits, e.g., in a branch
+2. Manually increment `lerna.json` with a semantic version number update (NOT `packages/viz-app/package.json` NOR `packages/api-client/package.json`)
+3. Commit as part of the branch
+4. Merge the PR
+
+The server will then build and publish each package under that version.
+
+## Straight to Master
+
+Committing straight to master will still work, though not advised. Even in this case, version number changes should be on the global package, and the build server will still autopublish.
+
+## Dev Builds
+
+1. Change `lerna.json` with whatever version number and commit to master
+2. In Jenkins, do `Build and push viz-app` with `Build with parameters`, specifying your branch `dev/MyBranch`
+3. There is no step 3
