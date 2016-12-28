@@ -8,3 +8,4 @@ tmp
 www
 test_results
 .npmrc
+packages/graphistry-client/lib
