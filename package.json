@@ -2,7 +2,8 @@
   "scripts": {
     "lerna": "lerna",
     "test": "lerna run test",
-    "build": "lerna run build",
+    "build": "lerna bootstrap",
+    "compile": "lerna run build",
     "bootstrap": "lerna bootstrap"
   },
   "devDependencies": {
