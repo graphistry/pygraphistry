@@ -23,5 +23,5 @@ RUN mkdir /root/.ssh && \
     cd $APPDIR/packages/graphistry-client && \
     npm run build && \
     cd $APPDIR && \
-    ./node_modules/.bin/lerna publish --skip-git --force-publish=* --repo-version=`node -e "console.log(JSON.parse(fs.readFileSync('./lerna.json')).version)"` --yes  && \
+    ./node_modules/.bin/lerna publish --skip-git --force-publish=* --repo-version=`node -e "console.log(JSON.parse(fs.readFileSync('./lerna.json')).version.replace(/[.]\d+$/,'.$BUILD_NUMBER'))"` --yes  && \
     shred -u /root/.ssh/* /root/.npmrc
