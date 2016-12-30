@@ -11,15 +11,21 @@ Requires node `v6.6.0` and npm `v3.10.3`.
 3. `npm install` to install Lerna
 4. `npm run build` to install subpackages `packages/viz-app` and `packages/api-client`
 
-# Dev Build
+# Local Dev
 
 * In `packages/viz-app` or `packages/api-client`, run `npm run build`
 * For viz-app, a common option within that package is `npm run watch | bunyan -o short`
 * For additional options for viz-app, see `packages/viz-app/README.md`
 
-# Committing to Master
+# Landing Code
 
-Our build server automatically builds on commits to master, publishes to npm, and manages the `packages/*/package.json` version numbers.
+You should manually kick off the build when commiting to master, but that's it.
+
+## What The Build Server Does
+
+* Our build server will automatically set package version numbers. It looks at what is in lerna.json, e.g., "2.0.0000", and turn it into "2.0.45", where "45" is the jenkins build. You don't need to manually change version numbers, but are always free to do major/minor semvar (but not patch, which the build server controls).
+* It will build, publish to npm, and deploy to staging.
+
 
 ## Gitflow Development: Branches with PRs
 
@@ -34,8 +40,10 @@ The server will then build and publish each package under that version.
 
 Committing straight to master will still work, though not advised. Even in this case, version number changes should be on the global package, and the build server will still autopublish.
 
-## Dev Builds
+# Deploying Code
 
-1. Change `lerna.json` with whatever version number and commit to master
-2. In Jenkins, do `Build and push viz-app` with `Build with parameters`, specifying your branch `dev/MyBranch`
+1. Push code to master or a branch
+2. In Jenkins (deploy.graphistry.com), do `Build and push viz-app` with `Build with parameters`, specifying your branch `dev/MyBranch` or leave as `origin/master`
 3. There is no step 3
+
+Caution: If you deploy a branch, staging will be on that branch for everyone else too.
