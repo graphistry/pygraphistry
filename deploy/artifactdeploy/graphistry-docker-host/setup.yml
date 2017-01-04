@@ -32,3 +32,11 @@
                 dest=/etc/profile.d/graphistry-docker-host.sh
       become: yes
       become_user: root
+
+    - name: Place viz-app box configuration
+      template: src=viz-app.json.j2
+                dest=/var/graphistry/httpd-config.json
+
+    - name: Place pivot-app box configuration
+      template: src=pivot-app.json.j2
+                dest=/var/graphistry/pivot-config.json
