@@ -94,11 +94,15 @@ If you do not already have Jupyter Notebook, you can quickly start via our prebu
 1. Install [Docker](https://www.docker.com)
 2. Install and run the Jupyter Notebook + Graphistry container:
 
- docker run -it --rm -p 8888:8888  graphistry/jupyter-notebook
+  `docker run -it --rm -p 8888:8888  graphistry/jupyter-notebook`
  
-If you would like to save results to a folder `$PWD/myfolder`, instead run:
+  If you would like to save results to a folder `$PWD/myfolder`, instead run:
 
-  docker run -it --rm -p 8888:8888 -v $PWD/myfolder:/home/jovyan/work/myfolder graphistry/jupyter-notebook
+  `docker run -it --rm -p 8888:8888 -v $PWD/myfolder:/home/jovyan/work/myfolder graphistry/jupyter-notebook`
+ 
+3. After you run the above command, you will be provided a link. Go to it in a web browser:
+
+	 `http://localhost:8888/?token=< generated token value >`
  
 
 ### Option 2: PyGraphistry pip package for Python or Jupyter Notebook users
