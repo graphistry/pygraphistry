@@ -467,6 +467,12 @@ class Plotter(object):
         util.error('Expected Pandas dataframe(s) or Igraph/NetworkX graph.')
 
 
+    # Sanitize node/edge dataframe by
+    # - dropping indices
+    # - dropping edges with NAs in source or destination
+    # - dropping nodes with NAs in nodeid
+    # - creating a default node table if none was provided.
+    # - inferring numeric types of all columns containing numpy objects
     def _sanitize_dataset(self, edges, nodes, nodeid):
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
         elist = edges.reset_index(drop=True) \
@@ -504,6 +510,8 @@ class Plotter(object):
             util.warn('Large graph: |nodes| + |edges| = %d. Layout/rendering might be slow.' % graph_size)
 
 
+    # Bind attributes for ETL1 by creating a copy of the designated column renamed
+    # with magic names understood by ETL1 (eg. pointColor, etc)
     def _bind_attributes_v1(self, edges, nodes):
         def bind(df, pbname, attrib, default=None):
             bound = getattr(self, attrib)
@@ -530,7 +538,8 @@ class Plotter(object):
         bind(nlist, 'pointSize', '_point_size')
         return (elist, nlist)
 
-
+    # Bind attributes for ETL2 by an encodings map storing the visual semantic of
+    # each bound column.
     def _bind_attributes_v2(self, edges, nodes):
         def bind(enc, df, pbname, attrib, default=None):
             bound = getattr(self, attrib)
@@ -581,6 +590,7 @@ class Plotter(object):
             raise ValueError('Unknown mode: ' + mode)
 
 
+    # Main helper for creating ETL1 payload
     def _make_json_dataset(self, edges, nodes, name):
         (elist, nlist) = self._bind_attributes_v1(edges, nodes)
         edict = elist.where((pandas.notnull(elist)), None).to_dict(orient='records')
@@ -596,6 +606,7 @@ class Plotter(object):
         return dataset
 
 
+    # Main helper for creating ETL2 payload
     def _make_vgraph_dataset(self, edges, nodes, name):
         from . import vgraph
 
@@ -606,9 +617,13 @@ class Plotter(object):
         dests = elist[self._destination]
         elist.drop([self._source, self._destination], axis=1, inplace=True)
 
+        # Filter out nodes which have no edges
         lnodes = pandas.concat([sources, dests], ignore_index=True).unique()
         lnodes_df = pandas.DataFrame(lnodes, columns=[nodeid])
         filtered_nlist = pandas.merge(lnodes_df, nlist, on=nodeid, how='left')
+
+        # Create a map from nodeId to a continuous range of integer [0, #nodes-1].
+        # The vgraph protobuf format uses the continous integer ranger as internal nodeIds.
         node_map = dict([(v, i) for i, v in enumerate(lnodes.tolist())])
 
         dataset = vgraph.create(elist, filtered_nlist, sources, dests, nodeid, node_map, name)

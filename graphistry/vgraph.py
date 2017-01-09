@@ -20,6 +20,14 @@ EDGE = graph_vector_pb2.VectorGraph.EDGE
 VERTEX = graph_vector_pb2.VectorGraph.VERTEX
 
 
+# Creates the ETL2 protobuf vgraph from
+#  - edge_df: the edge dataframe
+#  - node_df: the node dataframe
+#  - sources: a series of edge sources
+#  - dests: a series of edge destinations
+#  - nodeid: The name of the nodeId column in node_df
+#  - node_map: A map from nodeId to a dense integer range [0, #nodes -1]
+#  - name: The name of the dataset.
 def create(edge_df, node_df, sources, dests, nodeid, node_map, name):
     vg = graph_vector_pb2.VectorGraph()
     vg.version = 1
@@ -43,6 +51,7 @@ def create(edge_df, node_df, sources, dests, nodeid, node_map, name):
     }
 
 
+# Encode edges into protobuf using source/dest pairs in [0, #nodes-1] range.
 def addEdges(vg, sources, dests, node_map):
     for s, d in zip(sources.tolist(), dests.tolist()):
         e = vg.edges.add()
@@ -66,6 +75,7 @@ def storeNodeAttributes(vg, df, nodeid, node_map):
     ordercol = '__order__'
     node_types = {}
 
+    # Sort values of node attributes based on assigned id in [0, #nodes-1] range
     df[ordercol] = df[nodeid].map(lambda n: node_map[n])
     df.sort_values(ordercol, inplace=True)
     df.drop(ordercol, axis=1, inplace=True)
@@ -79,6 +89,12 @@ def storeNodeAttributes(vg, df, nodeid, node_map):
     return node_types
 
 
+# Create a protobuf vector of value (for storing node/edge attributes) given
+#  - vg: A VGraph instance
+#  - df: An input dataframe (nodes or edges)
+#  - col: The name of the column to encode inside the input dataframe
+#  - dtype: The numpy type of the column
+#  - target: Whether attribute applies to nodes or edges (one of VERTEX/EDGE)
 def storeValueVector(vg, df, col, dtype, target):
     encoders = {
         'object': objectEncoder,
@@ -122,6 +138,9 @@ def objectEncoder(vg, series, dtype):
         vec.values.append(val)
     return (vec, {'ctype': 'utf8'})
 
+
+# NaN (as well as Infinity and undefined) are valid JSON. Use this guard to filter
+# them out when creating the json metadata.
 def nanGuard(value):
     try:
         if numpy.isnan(value):
@@ -129,6 +148,7 @@ def nanGuard(value):
     except:
         pass
     return value
+
 
 def numericEncoder(vg, series, dtype):
     def getBestRep(series, candidate_types):
@@ -201,4 +221,3 @@ def datetimeEncoder(vg, series, dtype):
         }
     }
     return (vec, info)
-
