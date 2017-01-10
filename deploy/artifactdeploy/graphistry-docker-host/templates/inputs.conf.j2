@@ -29,6 +29,13 @@ sourcetype = supervisord
 disabled = false
 index = graphistry_apps
 
-[monitor:///var/log/nginx/*.log]
+[monitor:///var/log/nginx/access.log]
 disabled = false
 index = graphistry_apps
+sourcetype = access_combined
+
+
+[monitor:///var/log/nginx/error.log]
+disabled = false
+index = graphistry_apps
+sourcetype = nginx_error
