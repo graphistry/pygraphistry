@@ -42,7 +42,7 @@ var argv = require('yargs')
     .alias('help', 'h')
     .argv;
 
-var roots = ['central', 'viz-server'];
+var roots = ['central', 'viz-app', 'pivot-app'];
 
 var errorHandler = function (err) {
     if (err.friendly_headline) {

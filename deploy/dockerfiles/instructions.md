@@ -39,7 +39,7 @@ Currently, the only supported and tested configuration are
 #### Set up Nvidia-Docker With Our Process (Option A)
 
 1. Checkout the infrastructure repository at [https://github.com/graphistry/infrastructure/](https://github.com/graphistry/infrastructure/).
-2. Run through the setup at [https://github.com/graphistry/infrastructure/tree/master/nvidia-docker-host](https://github.com/graphistry/infrastructure/tree/master/nvidia-docker-host).
+2. Run through the setup at [https://github.com/graphistry/infrastructure/tree/master/nvidia-docker-rhel](https://github.com/graphistry/infrastructure/tree/master/nvidia-docker-host).
 
 If the script runs through, your machine will have passed a test of using Docker to run GPU computation (matrix multiplication in this case).
 

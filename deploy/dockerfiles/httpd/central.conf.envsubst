@@ -1,6 +1,6 @@
 [program:central]
 
-command=npm start '$GRAPHISTRY_CENTRAL_CONFIG'
+command=node ./bin/central '$GRAPHISTRY_CENTRAL_CONFIG'
 directory=/var/graphistry/node_modules/@graphistry/central
 environment=
 

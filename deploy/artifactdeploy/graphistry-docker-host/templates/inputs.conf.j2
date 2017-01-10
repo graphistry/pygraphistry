@@ -29,6 +29,12 @@ sourcetype = supervisord
 disabled = false
 index = graphistry_apps
 
+[monitor:///var/log/pivot-app/*.log]
+disabled = false
+sourcetype = _json
+index = graphistry_apps
+
+
 [monitor:///var/log/nginx/access.log]
 disabled = false
 index = graphistry_apps

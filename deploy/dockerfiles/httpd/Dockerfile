@@ -20,7 +20,7 @@ COPY reaper.py $graphistry_install_path
 
 COPY central.conf.envsubst viz_workers.conf.envsubst reaper.conf /etc/supervisor/conf.d/
 COPY supervisord.conf /etc/supervisor
-CMD bash -l -c "envsubst < /etc/supervisor/conf.d/central.conf.envsubst > /etc/supervisor/conf.d/central.conf && envsubst < /etc/supervisor/conf.d/viz_workers.conf.envsubst > /etc/supervisor/conf.d/viz_workers.conf && supervisord -n -c /etc/supervisor/supervisord.conf"
+CMD ["bash", "-l", "-c", "envsubst < /etc/supervisor/conf.d/central.conf.envsubst > /etc/supervisor/conf.d/central.conf && envsubst < /etc/supervisor/conf.d/viz_workers.conf.envsubst > /etc/supervisor/conf.d/viz_workers.conf && exec supervisord -n -c /etc/supervisor/supervisord.conf"]
 
 # config.
 
