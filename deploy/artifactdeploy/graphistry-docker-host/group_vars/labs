@@ -1,0 +1,6 @@
+---
+vizapp_s3_access: "DEV-1087"
+vizapp_s3_secret: "DEV-1087"
+# pivot_app_host: "" -- this defaults to local, and is what we should test in production (because this is how we run in airgapped mode)
+pivot_app_key: "e94a95fc409e8d39b71a08b4d944a30d4bb75acfb4e87e1bb7e1dd7065eb4d72c7a1247e4cf4c568a63a96ad06e29aa4"
+pivot_app_password: ""
