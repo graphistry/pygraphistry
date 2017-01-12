@@ -89,7 +89,7 @@ docker rm -f -v $PIVOTAPP_BOX_NAME || true
 
 mkdir -p pivot-app
 echo "${PIVOT_APP_CONFIG:-{\}}" > ./pivot-config.json
-docker run -d --name $PIVOTAPP_BOX_NAME -e LOG_FILE=/pivot-app/logs/pivot-app.log -v $PWD/pivot-app/:/pivot-app/logs -v $PWD/pivot-config.json:/pivot-app/config/zzz-deploy-override.json --restart=unless-stopped --network=$GRAPHISTRY_NETWORK graphistry/pivot-app:$2
+docker run -d --name $PIVOTAPP_BOX_NAME -v $PWD/pivot-app/:/pivot-app/logs -v $PWD/pivot-cache:/pivot-app/data -v $PWD/pivot-config.json:/pivot-app/config/zzz-deploy-override.json --link $VIZAPP_BOX_NAME:viz --restart=unless-stopped --network=$GRAPHISTRY_NETWORK graphistry/pivot-app:$2
 
 ### 5. Nginx, maybe with ssl.
 
