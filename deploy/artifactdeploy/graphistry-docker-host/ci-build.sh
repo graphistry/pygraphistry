@@ -23,6 +23,6 @@ cp -r ${TLS_PATH} deploy/artifactdeploy/graphistry-docker-host/files/certs
 chmod 400 ${KEY_PATH}
 ssh -T -i ${KEY_PATH} ${BOXUSER}@${HOST} whoami
 cd deploy/artifactdeploy/graphistry-docker-host
-echo "[$(echo $HOSTNNAMEOVERRIDE | cut -d - -f 1)]\n$HOST" > inventory
+echo "[$(echo $HOSTNAMEOVERRIDE | cut -d - -f 1)]\n$HOST" > inventory
 ansible-playbook setup.yml -i inventory
 
