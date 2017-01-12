@@ -10,7 +10,7 @@ splunk_user_password: $(cat $SPLUNK_UP)
 splunk_admin_password: $(cat $SPLUNK_AP)
 splunk_deploy_server_uri: splunk.graphistry.com:8089
 pivot_app_splunk_user: admin
-pivot_app_splunk_key: ${SPLUNK_PP}
+pivot_app_splunk_key: $(cat $SPLUNK_PP)
 pivot_app_splunk_host: splunk.graphistry.com
 inventory_friendlyname: ${HOSTNAMEOVERRIDE:-HOST}
 vizapp_s3_access: dev1087
