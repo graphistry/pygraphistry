@@ -129,6 +129,10 @@ import graphistry
 graphistry.register(key='Your key')
 ```
 
+Optionally, for convenience, you may set your API key in your system environment and thereby skip the register step in all your notebooks. In your `.profile` or `.bash_profile`, add the following and reload your environment:
+
+```export GRAPHISTRY_API_KEY="Your key"```
+
 ## Tutorial: Les Misérables
 
 Let's visualize relationships between the characters in [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
