@@ -96,9 +96,9 @@ If you do not already have Jupyter Notebook, you can quickly start via our prebu
 
   `docker run -it --rm -p 8888:8888  graphistry/jupyter-notebook`
  
-  If you would like to save results to a folder `$PWD/myfolder`, instead run:
+  If you would like to open data in the current folder `$PWD` or save results to the current folder `$PWD`, instead run:
 
-  `docker run -it --rm -p 8888:8888 -v $PWD/myfolder:/home/jovyan/work/myfolder graphistry/jupyter-notebook`
+  `docker run -it --rm -p 8888:8888 -v "$PWD":/home/jovyan/work/myPWDFolder graphistry/jupyter-notebook`
  
 3. After you run the above command, you will be provided a link. Go to it in a web browser:
 
