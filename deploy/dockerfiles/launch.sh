@@ -9,6 +9,7 @@
 ### $GRAPHISTRY_APP_CONFIG is the json override for app configuration, like '{"LOG_LEVEL": "DEBUG"}', that gets filtered through supervisord.
 ### $GRAPHISTRY_DATA_CACHE is where datasets get written to disk.
 ### $GRAPHISTRY_WORKBOOK_CACHE is where workbooks get written to disk.
+### $GRAPHISTRY_PIVOT_CACHE is where pivots and investigations get written to disk.
 ### $NGINX_HTTP_PORT and $NGINX_HTTPS_PORT are where we expose our app to the host.
 
 
@@ -89,7 +90,7 @@ docker rm -f -v $PIVOTAPP_BOX_NAME || true
 
 mkdir -p pivot-app
 echo "${PIVOT_APP_CONFIG:-{\}}" > ./pivot-config.json
-docker run -d --name $PIVOTAPP_BOX_NAME --link=${PG_BOX_NAME}:pg -e "GRAPHISTRY_LOG_LEVEL=debug" -e "LOG_FILE=logs/pivot.log" -v $PWD/pivot-app/:/pivot-app/logs -v $PWD/pivot-cache:/pivot-app/data -v $PWD/../pivot-config.json:/pivot-app/config/z-box-override.json:ro -v $PWD/pivot-config.json:/pivot-app/config/zzz-deploy-override.json:ro --link $VIZAPP_BOX_NAME:viz --restart=unless-stopped --network=$GRAPHISTRY_NETWORK graphistry/pivot-app:$2
+docker run -d --name $PIVOTAPP_BOX_NAME --link=${PG_BOX_NAME}:pg -e "GRAPHISTRY_LOG_LEVEL=debug" -e "LOG_FILE=logs/pivot.log" -v $PWD/pivot-app/:/pivot-app/logs -v ${GRAPHISTRY_PIVOT_CACHE:-$PWD/pivot-cache}:/pivot-app/data -v $PWD/../pivot-config.json:/pivot-app/config/z-box-override.json:ro -v $PWD/pivot-config.json:/pivot-app/config/zzz-deploy-override.json:ro --link $VIZAPP_BOX_NAME:viz --restart=unless-stopped --network=$GRAPHISTRY_NETWORK graphistry/pivot-app:$2
 
 ### 5. Nginx, maybe with ssl.
 
