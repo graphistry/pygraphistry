@@ -23,10 +23,6 @@
       template: src=outputs.conf.j2
                 dest=/etc/graphistry/splunk/outputs.conf
 
-    - name: Place SSL certs
-      copy: src=certs/
-            dest=/etc/graphistry/ssl
-
     - name: Place environment variables
       template: src=graphistry-docker-host.sh.j2
                 dest=/etc/profile.d/graphistry-docker-host.sh
