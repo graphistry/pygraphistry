@@ -14,8 +14,8 @@ pivot_app_splunk_user: admin
 pivot_app_splunk_key: $(cat $SPLUNK_PP)
 pivot_app_splunk_host: splunk.graphistry.com
 inventory_friendlyname: ${HOSTNAMEOVERRIDE:-HOST}
-vizapp_s3_access: $(cat VIZAPP_ACCESS)
-vizapp_s3_secret: $(cat VIZAPP_SECRET)
+vizapp_s3_access: $(cat $VIZAPP_ACCESS)
+vizapp_s3_secret: $(cat $VIZAPP_SECRET)
 ansible_ssh_user: ${BOXUSER}
 ansible_ssh_private_key_file: \"$(pwd)/${KEY_PATH}\"" > deploy/artifactdeploy/graphistry-docker-host/group_vars/all
 
