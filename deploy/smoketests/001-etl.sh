@@ -14,7 +14,7 @@ DATASET='{"name":"'${DATASETNAME}'","graph":[{"s":"a","d":"b"},{"s":"b","d":"c"}
 
 for i in {1..2} ; do
     echo "${1}/graph/graph.html?dataset=${DATASETNAME}&viztoken=$(
-       curl -L --silent -X POST -H "Content-Type: application/json" --data $DATASET "${1}/etl?apiversion=1&agent=${AGENT}&key=${APIKEY}" | awk -F '"' '{print $(NF-1)}'
+       curl -L --verbose -X POST -H "Content-Type: application/json" --data $DATASET "${1}/etl?apiversion=1&agent=${AGENT}&key=${APIKEY}" | awk -F '"' '{print $(NF-1)}'
     )" ; done
 
 echo Check out the above link to see the result of a successful ETL.
