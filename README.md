@@ -82,7 +82,31 @@ It supports unusually large graphs for interactive visualization. The client's c
 
 ## Installation
 
-### Dependencies
+We recommend two options for installing PyGraphistry:
+
+1. Docker: For quickly trying Graphistry when you do not have Jupyter Notebook installed, use our complete Docker image
+2. Pip: If you already have Jupyter Notebook installed, or are a heavy Graphistry user, install the PyGraphistry pip package
+
+### Option 1: Full Docker container for PyGraphistry, Jupyter Notebook, and Scipy/numpy/pandas
+
+If you do not already have Jupyter Notebook, you can quickly start via our prebuilt Docker container:
+
+1. Install [Docker](https://www.docker.com)
+2. Install and run the Jupyter Notebook + Graphistry container:
+
+  `docker run -it --rm -p 8888:8888  graphistry/jupyter-notebook`
+ 
+  If you would like to open data in the current folder `$PWD` or save results to the current folder `$PWD`, instead run:
+
+  `docker run -it --rm -p 8888:8888 -v "$PWD":/home/jovyan/work/myPWDFolder graphistry/jupyter-notebook`
+ 
+3. After you run the above command, you will be provided a link. Go to it in a web browser:
+
+	 `http://localhost:8888/?token=< generated token value >`
+ 
+
+### Option 2: PyGraphistry pip package for Python or Jupyter Notebook users
+### Dependencies for non-Docker installation
 [Python](https://www.python.org) 2.7 or 3.4 (experimental).
 
 The simplest way to install PyGraphistry is with Python's pip package manager:
@@ -97,13 +121,17 @@ We recommend [IPython](http://ipython.org) notebooks to interleave code and visu
 - Install IPython:`pip install "ipython[notebook]"`
 - Launch notebook server: `ipython notebook`
 
-##### API Key
+### API Key
 An API key gives each visualization access to our GPU cluster. We currently ask for API keys to make sure our servers are not melting :) To get your own, email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com). Set your key after the `import graphistry` statement and you are good to go:
 
 ```python
 import graphistry
 graphistry.register(key='Your key')
 ```
+
+Optionally, for convenience, you may set your API key in your system environment and thereby skip the register step in all your notebooks. In your `.profile` or `.bash_profile`, add the following and reload your environment:
+
+```export GRAPHISTRY_API_KEY="Your key"```
 
 ## Tutorial: Les Misérables
 
