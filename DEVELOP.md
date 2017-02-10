@@ -1,4 +1,4 @@
-# Development Setup for PyGraphistry
+# Development Setup
 ### Install Git Checkout:
 
 1. Remove any version installed with pip
