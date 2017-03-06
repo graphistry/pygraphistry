@@ -4,6 +4,7 @@ ENV graphistry_temp_path "/tmp/graphistry"
 ENV workers_port_start 10000
 ENV upload_limit "128M"
 ENV GRAPHISTRY_LOG_LEVEL INFO
+ENV NODE_ENV production
 
 RUN mkdir -p /var/log/graphistry-json $graphistry_temp_path $graphistry_install_path \
              /var/log/central-app /var/log/clients /var/log/worker /var/log/graphistry-json /var/log/reaper /root/.ssh
