@@ -1,6 +1,6 @@
 [program:viz-worker]
 
-command=node ./www/viz-server.js '$GRAPHISTRY_VIZWORKER_CONFIG'
+command=node ./index.js '$GRAPHISTRY_VIZWORKER_CONFIG'
 directory=/var/graphistry/node_modules/@graphistry/viz-app
 environment=
 
