@@ -1,3 +1,3 @@
 **/*.jsx
 **/static/libs/**
-www/**
+packages/viz-app/www/**
