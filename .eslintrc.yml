@@ -3,7 +3,7 @@
     extends: 'eslint:recommended'
 
     parserOptions:
-      ecmaVersion: 6
+      ecmaVersion: 2017
       ecmaFeatures:
         impliedStrict: true
         jsx: true
@@ -16,7 +16,7 @@
       node: true
       browser: true
       shared-node-browser: true
-      jasmine: true
+      mocha: true
 
     rules:
       strict:
