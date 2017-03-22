@@ -90,9 +90,9 @@ nvidia-docker run \
     -e "GRAPHISTRY_CENTRAL_CONFIG=${CENTRAL_MERGED_CONFIG}" \
     -e "GRAPHISTRY_VIZWORKER_CONFIG=${VIZWORKER_MERGED_CONFIG}" \
     -d \
-    -v $PWD/../viz-app-config.json:/vizapp-app/config/z-box-override.json:ro \
-    -v $PWD/viz-app-config.json:/vizapp-app/config/zzz-deploy-override.json:ro \
-    -e "CONFIG_FILES=/vizapp-app/config/z-box-override.json,/vizapp-app/config/zzz-deploy-override.json" \
+    -v $PWD/../viz-app-config.json:/viz-app/config/z-box-override.json:ro \
+    -v $PWD/viz-app-config.json:/viz-app/config/zzz-deploy-override.json:ro \
+    -e "CONFIG_FILES=/viz-app/config/z-box-override.json,/viz-app/config/zzz-deploy-override.json" \
     -v ${PWD}/central-app:/var/log/central-app \
     -v ${PWD}/worker:/var/log/worker \
     -v ${PWD}/graphistry-json:/var/log/graphistry-json \
