@@ -76,11 +76,32 @@ mkdir -p central-app worker graphistry-json clients reaper
 
 stat ../httpd-config.json || (echo '{}' > ../httpd-config.json)
 echo "${GRAPHISTRY_APP_CONFIG:-{\}}" > ./httpd-config.json
+echo "${VIZ_APP_CONFIG:-{\}}" > ./viz-app-config.json
 
 CENTRAL_MERGED_CONFIG=$(docker   run --rm -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/central-cloud-options.json    /tmp/box-config.json /tmp/local-config.json')
 VIZWORKER_MERGED_CONFIG=$(docker run --rm -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/viz-worker-cloud-options.json /tmp/box-config.json /tmp/local-config.json')
 
-nvidia-docker run --net $GRAPHISTRY_NETWORK --restart=unless-stopped --name $VIZAPP_BOX_NAME --link=${PG_BOX_NAME}:pg --link=${MONGO_BOX_NAME}:mongo  -e "GRAPHISTRY_CENTRAL_CONFIG=${CENTRAL_MERGED_CONFIG}" -e "GRAPHISTRY_VIZWORKER_CONFIG=${VIZWORKER_MERGED_CONFIG}" -d -v ${PWD}/central-app:/var/log/central-app -v ${PWD}/worker:/var/log/worker -v ${PWD}/graphistry-json:/var/log/graphistry-json -v ${PWD}/clients:/var/log/clients -v ${PWD}/reaper:/var/log/reaper -v ${GRAPHISTRY_DATA_CACHE:-${PWD}/data_cache}:/tmp/graphistry/data_cache -v ${GRAPHISTRY_WORKBOOK_CACHE:-${PWD}/workbook_cache}:/tmp/graphistry/workbook_cache -v ${PWD}/supervisor:/var/log/supervisor graphistry/central-and-vizservers:$1
+nvidia-docker run \
+    --net $GRAPHISTRY_NETWORK \
+    --restart=unless-stopped \
+    --name $VIZAPP_BOX_NAME \
+    --link=${PG_BOX_NAME}:pg \
+    --link=${MONGO_BOX_NAME}:mongo  \
+    -e "GRAPHISTRY_CENTRAL_CONFIG=${CENTRAL_MERGED_CONFIG}" \
+    -e "GRAPHISTRY_VIZWORKER_CONFIG=${VIZWORKER_MERGED_CONFIG}" \
+    -d \
+    -v $PWD/../viz-app-config.json:/viz-app/config/z-box-override.json:ro \
+    -v $PWD/viz-app-config.json:/viz-app/config/zzz-deploy-override.json:ro \
+    -e "CONFIG_FILES=/viz-app/config/z-box-override.json,/viz-app/config/zzz-deploy-override.json" \
+    -v ${PWD}/central-app:/var/log/central-app \
+    -v ${PWD}/worker:/var/log/worker \
+    -v ${PWD}/graphistry-json:/var/log/graphistry-json \
+    -v ${PWD}/clients:/var/log/clients \
+    -v ${PWD}/reaper:/var/log/reaper \
+    -v ${GRAPHISTRY_DATA_CACHE:-${PWD}/data_cache}:/tmp/graphistry/data_cache \
+    -v ${GRAPHISTRY_WORKBOOK_CACHE:-${PWD}/workbook_cache}:/tmp/graphistry/workbook_cache \
+    -v ${PWD}/supervisor:/var/log/supervisor \
+    graphistry/central-and-vizservers:$1
 
 ### 4a. Start pivot-app.
 
