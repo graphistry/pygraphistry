@@ -76,7 +76,12 @@ mkdir -p central-app worker graphistry-json clients reaper
 
 stat ../httpd-config.json || (echo '{}' > ../httpd-config.json)
 echo "${GRAPHISTRY_APP_CONFIG:-{\}}" > ./httpd-config.json
+
 echo "${VIZ_APP_CONFIG:-{\}}" > ./viz-app-config.json
+# A prior bug caused the 'box override' config to be created as a directory instead of a file. This
+# line checks if it's a directory and, if so, deletes it.
+[[ -d ../viz-app-config.json ]] && rm -rf ../viz-app-config.json
+stat ../viz-app-config.json || (echo '{}' > ../viz-app-config.json)
 
 CENTRAL_MERGED_CONFIG=$(docker   run --rm -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/central-cloud-options.json    /tmp/box-config.json /tmp/local-config.json')
 VIZWORKER_MERGED_CONFIG=$(docker run --rm -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/viz-worker-cloud-options.json /tmp/box-config.json /tmp/local-config.json')
