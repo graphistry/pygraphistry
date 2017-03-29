@@ -30,7 +30,7 @@ You will need a box:
 
 Currently, the only supported and tested configuration are
 
- * Ubuntu 14.04 Trusty LTS or RedHat Enterprise Linux (RHEL) 7.2
+ * Ubuntu 14.04 Trusty LTS or RedHat Enterprise Linux (RHEL) 7.3
  * NVIDIA Grid K2 (g2.2xlarge on AWS EC2) or NVIDIA Tesla K40/K80.
 
 ## 2 Prepare The Machine
