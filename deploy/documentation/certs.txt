@@ -27,7 +27,7 @@ openssl dhparam -outform PEM -out ssl.dhparam 1024
 
 and now that working directory can be the value of the environment variable
 
-    $SSHPATH
+    $SSLPATH
 
 when running launch.sh, which will then be mounted for nginx at `/etc/graphistry/ssl`.
 
