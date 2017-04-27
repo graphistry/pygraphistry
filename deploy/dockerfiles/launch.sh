@@ -60,7 +60,7 @@ MONGO_BOX_NAME=${GRAPHISTRY_NETWORK}-mongo
 docker rm -f -v $MONGO_BOX_NAME || true
 docker run --net $GRAPHISTRY_NETWORK --restart=unless-stopped --name $MONGO_BOX_NAME -d mongo:2
 
-for i in {1..10} ; do echo $i; docker exec $MONGO_BOX_NAME mongo --eval "2+2" || sleep $i ; done
+for i in {1..50} ; do echo $i; docker exec $MONGO_BOX_NAME mongo --eval "2+2" || sleep $i ; done
 MONGO_NAME=cluster
 MONGO_USERNAME=graphistry
 MONGO_PASSWORD=graphtheplanet
