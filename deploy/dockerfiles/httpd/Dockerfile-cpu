@@ -1,4 +1,4 @@
-FROM graphistry/baseapp:1.3
+FROM graphistry/cpu-base:7.4.0
 ENV graphistry_install_path "/var/graphistry"
 ENV graphistry_temp_path "/tmp/graphistry"
 ENV workers_port_start 10000
@@ -26,7 +26,7 @@ CMD ["bash", "-l", "-c", "envsubst < /etc/supervisor/conf.d/central.conf.envsubs
 # config.
 
 COPY central-cloud-options.json ${graphistry_install_path}/
-COPY viz-worker-cloud-options.json ${graphistry_install_path}/viz-worker-cloud-options.json.envsubst
+COPY viz-worker-cpu-cloud-options.json.envsubst ${graphistry_install_path}/viz-worker-cloud-options.json.envsubst
 COPY mergeThreeFiles.js /usr/local/bin
 
 # fetch secrets from our vault, do the npm installs, and delete the secrets.
