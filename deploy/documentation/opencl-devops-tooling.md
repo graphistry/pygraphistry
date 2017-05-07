@@ -8,12 +8,27 @@
 - We made our production deploys much easier
 - We would like to share our tooling with you
 
-## this is the app lol
+## Real-time topological data analysis of huge graphs
+
+![](./biogrid-tda.png)
+
+## Real-time zoom in to see detail
+
+![](./biogrid-zoom.png)
+
+## Inspection over all columns of data
+
+![](./biogrid-datatable.png)
+
+## Scrub a histogram to see different clusters
+
+![](./biogrid-histo.png)
 
 ## Overview
 - What is OpenCL
-- What is an app in production
 - What is a container
+- What is Docker and nvidia-docker
+- What is an app in production
 - What is current tooling
 - What we have built
 - How you can use it and help 😀
@@ -27,17 +42,37 @@
 - like CUDA, a general purpose language calls a driver to run kernels
 
 ## What is a container
-- < what is docker lol >
+- isolation, virtualization, limitation of system resources of a collection of processes
+    - process ids, hostnames, user ids, networks, filesystems, etc
+    - CPU, memory, disk i/o, network, etc
+- talk directly to the Linux kernel APIs
+- kernel exposes the Linux App Binary Interface, everything above that is up for grabs
+    - including libc!
+- a logical app gets wrapped up into a nice box 🎁
+    - and the weirdness of language tooling is abstracted into boxes
 
-## What is an app in production
+## What is Docker + nvidia-docker
+- "Docker" is an ecosystem around containers
+    - Docker engine: CLI runtime to start/stop containers and apps therein
+    - Docker hub: free & paid repositories of containers
+    - Docker machine: provisioning
+    - Docker compose: orchestration
+    - and more!
+- nvidia-docker helps run GPU-accelerated containers
+    - nvidia-docker-plugin discovers pre-installed drivers and devices, hooks into volume mount requests
+    - nvidia-docker is a CLI that uses the plugin to run containers with arbitrarily many GPUs
+        - one-time cost at startup to attach things, Docker containers run as normal thereafter
+
+## What is our idea of an app in production
 
 - an app: mostly other people's code
     - lots of libraries for lots of non-GPU-oriented tech (S3, HTTP, JSON, BCrypt, ...)
+- deploy environment may not be internet-accessible / may not access the internet
+    - some customers have airgapped setups
 - in production: under siege from The Internet
     - production is Serious Business
-    - the app's core competence is tough enough without using weird databases
-- deploy environment may not be internet-accessible / may not access the internet
-    - deploy to a moon base, deploy to a local machine
+- the app's core competence is tough enough without using weird databases
+- we are conservative and spend most of our effort on app dev, not ops
 
 ## What is our type of app in production
 
@@ -60,10 +95,10 @@
 - Blob storage
 
 
-## Where is our app deployed
+## How is our app deployed
 
 - multiple environments
-    - secret moon base, `us-east1`, some new cloud
+    - SCIF, `us-east1`, some new cloud
         - (part of the excitement of a startup is customer development!)
 - tooling is rapidly evolving
 - simplifying assumption to treasure: 1 box can serve prod
@@ -82,18 +117,19 @@
 ## Automated box setup
 
 - Ansible script installs docker, nvidia drivers, nvidia-docker.
-- Other ways to do it: docker-machine + run a few commands.
-    - Tooling is evolving fast in the past 18 months
+    - Ubuntu 16.04 LTS and RHEL 7.3
+- Other ways to do it: docker-machine + manually run a few commands.
+    - tooling is evolving fast in the past 18 months
 - https://github.com/graphistry/infrastructure : nvidia-docker-host
 
 ## Validate that we can run node-opencl code
 
 - cl.js convolution demo
 - Exercises nvidia-docker, opencl driver loader, node opencl bindings
-    - some machines do not have OpenCL support
+    - some machines do not have OpenCL support!
 - Bonus: provides timings of CPU & GPU image convolutions
     - Extra bonus: there is a cute red panda
-- <url>
+- https://github.com/graphistry/cljs / https://hub.docker.com/r/graphistry/cljs/
 
 ## Package an artifact
 
@@ -102,6 +138,8 @@
 - OpenCL on CPU is a few hundred MB compressed; on GPU, almost 1GB compressed
     - This is not a nimble 10MB image based on Alpine Linux
 - `docker-gc` becomes more important
+- `tar` + `pigz`, and a homemade orchestration bash script
+    - this was not unreasonable a year and a half ago
 
 ## Run containers in dev
 
@@ -109,7 +147,8 @@
 - Until the year of Linux on the desktop 🙏 Docker is in a VM and cannot connect to the GPU
 - In production we only need 60 fps; small jobs on the CPU?
     - we have this luxury, versus large batch jobs (eg radiological deep learning)
-- dockerhub: graphistry/js-and-cpu
+- Cloud dev environments with or without GPU
+- dockerhub: graphistry/node-opencl-{gpu,cpu}
 
 # This is only the begining!
 
