@@ -83,10 +83,20 @@ echo "${VIZ_APP_CONFIG:-{\}}" > ./viz-app-config.json
 [[ -d ../viz-app-config.json ]] && rm -rf ../viz-app-config.json
 stat ../viz-app-config.json || (echo '{}' > ../viz-app-config.json)
 
+NPROC=$(((which nproc > /dev/null) && nproc) || echo 1)
 CENTRAL_MERGED_CONFIG=$(docker   run --rm -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/central-cloud-options.json    /tmp/box-config.json /tmp/local-config.json')
-VIZWORKER_MERGED_CONFIG=$(docker run --rm -e NRPOC=$(nproc) -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c '(envsubst < $graphistry/install_path/viz-worker-cloud-options.json.envsubst > /tmp/default-config.json) && mergeThreeFiles.js /tmp/default-config.json /tmp/box-config.json /tmp/local-config.json')
+VIZWORKER_MERGED_CONFIG=$(docker run --rm -e NPROC=$NPROC -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c '(envsubst < $graphistry/install_path/viz-worker-cloud-options.json.envsubst > /tmp/default-config.json) && mergeThreeFiles.js /tmp/default-config.json /tmp/box-config.json /tmp/local-config.json')
 
-nvidia-docker run \
+if [ "${NV_GPU}" == "-1" ]
+then
+    RUNTIME=docker
+    HTTPD_IMAGE_SUFFIX=".multicore"
+else
+    RUNTIME=nvidia-docker
+    HTTPD_IMAGE_SUFFIX=""
+fi
+
+$RUNTIME run \
     --net $GRAPHISTRY_NETWORK \
     --restart=unless-stopped \
     --name $VIZAPP_BOX_NAME \
@@ -106,7 +116,7 @@ nvidia-docker run \
     -v ${GRAPHISTRY_DATA_CACHE:-${PWD}/data_cache}:/tmp/graphistry/data_cache \
     -v ${GRAPHISTRY_WORKBOOK_CACHE:-${PWD}/workbook_cache}:/tmp/graphistry/workbook_cache \
     -v ${PWD}/supervisor:/var/log/supervisor \
-    graphistry/central-and-vizservers:$1
+    graphistry/central-and-vizservers:${1}${HTTPD_IMAGE_SUFFIX}
 
 ### 4a. Start pivot-app.
 

@@ -1,4 +1,4 @@
-FROM graphistry/cpu-base:7.4.0
+FROM graphistry/baseapp-cpu
 ENV graphistry_install_path "/var/graphistry"
 ENV graphistry_temp_path "/tmp/graphistry"
 ENV workers_port_start 10000
