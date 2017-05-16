@@ -2,17 +2,17 @@
 % Lee Butterman, Graphistry, Inc.
 % May 2017
 
-# Welcome!
+## Graphistry is using GPUs to power the future of visual analytics
 
-## Tooling to containerize an OpenCL Visual Analytics Platform
-- We made our production deploys much easier
-- We would like to share our tooling with you
+### >100⨉ data in the first client⟷cloud GPU visual analytics platform: see all known proteins
 
-## Real-time topological data analysis of huge graphs
+<iframe width=100% height=75% src="https://labs.graphistry.com/graph/graph.html?dataset=Biogrid&splashAfter=0"></iframe>
+
+## Every known protein in the BioGrid database at a glance
 
 ![](./biogrid-tda.png)
 
-## Real-time zoom in to see detail
+## Real--time zoom in to see detail
 
 ![](./biogrid-zoom.png)
 
@@ -24,144 +24,73 @@
 
 ![](./biogrid-histo.png)
 
-## Overview
-- What is OpenCL
-- What is a container
-- What is Docker and nvidia-docker
-- What is an app in production
-- What is current tooling
-- What we have built
-- How you can use it and help 😀
+## How to build/deploy a web app with a GPU-accelerated HTTP loop?
 
-# Background!
+### Ideal: change OpenCL kernels, 1-click deploy to environments in minutes!
 
-## What is OpenCL
-- multi-platform parallel computing paradigm
-- runs on GPUs, _CPUs_, FPGAs, &c
-- host vs device
-- like CUDA, a general purpose language calls a driver to run kernels
+## Plan
 
-## What is a container
-- isolation, virtualization, limitation of system resources of a collection of processes
-    - process ids, hostnames, user ids, networks, filesystems, etc
-    - CPU, memory, disk i/o, network, etc
-- talk directly to the Linux kernel APIs
-- kernel exposes the Linux App Binary Interface, everything above that is up for grabs
-    - including libc!
-- a logical app gets wrapped up into a nice box 🎁
-    - and the weirdness of language tooling is abstracted into boxes
+- Reproducible builds: artifact-based deploys
+- Host management: GPU drivers et cetera on the box
+- Validation: minimize GPU surprises
+- Fallback: multicore via CPU
 
-## What is Docker + nvidia-docker
-- "Docker" is an ecosystem around containers
-    - Docker engine: CLI runtime to start/stop containers and apps therein
-    - Docker hub: free & paid repositories of containers
-    - Docker machine: provisioning
-    - Docker compose: orchestration
-    - and more!
-- nvidia-docker helps run GPU-accelerated containers
-    - nvidia-docker-plugin discovers pre-installed drivers and devices, hooks into volume mount requests
-    - nvidia-docker is a CLI that uses the plugin to run containers with arbitrarily many GPUs
-        - one-time cost at startup to attach things, Docker containers run as normal thereafter
+## Problem: reproducible builds
 
-## What is our idea of an app in production
+Deploy artifact to staging, production, a customer’s air gapped network
 
-- an app: mostly other people's code
-    - lots of libraries for lots of non-GPU-oriented tech (S3, HTTP, JSON, BCrypt, ...)
-- deploy environment may not be internet-accessible / may not access the internet
-    - some customers have airgapped setups
-- in production: under siege from The Internet
-    - production is Serious Business
-- the app's core competence is tough enough without using weird databases
-- we are conservative and spend most of our effort on app dev, not ops
+Easily re-deploy old build
 
-## What is our type of app in production
+Docker is popular and has a huge container ecosystem
 
-- Javascript is popular and okay
-- People are optimizing its V8 runtime
-- Server-side node.js + node-opencl = a clear optimization path
-    - single-process map()
-    - multi-process clusterMap()
-    - CPU-mode kernel.run()
-    - GPU-mode kernel.run() 🚀
+## Problem: make Docker talk to GPU
 
-## What is our app in production
+`nvidia-docker`: wraps the Docker CLI
 
-- GPU-accelerated JS on client and server
-    - WebGL on client, OpenCL on server
-- Stateless visualization
-- Front door with awareness of a cluster of processes
-    - Viz session sticks to a process on a device with enough space
-- Cluster membership
-- Blob storage
+Need drivers on disk
 
+Customers on Ubuntu, RHEL, and more
 
-## How is our app deployed
+Install Docker, nvidia-docker, drivers on RHEL/Ubuntu ⇒ our Ansible script!
 
-- multiple environments
-    - SCIF, `us-east1`, some new cloud
-        - (part of the excitement of a startup is customer development!)
-- tooling is rapidly evolving
-- simplifying assumption to treasure: 1 box can serve prod
-    - sufficiently high availability on 1 machine in EC2
-    - scale up 50x from a g2.2xl to a p2.16xl, punt on clustered deployment
+`https://github.com/graphistry/infrastructure/tree/master/nvidia-docker-host`
 
-## Conservative requirements
+`nvidia-docker` 2.0: native orchestration docker-swarm/kubernetes/mesos
 
-- Configure a machine to run containers and have any necessary drivers (automated, ideally)
-- Verify that the machine is compatible with our stack
-- Wrap up an artifact in development, ship it out
-- Potentially reuse this artifact to run in development
+## Add nodejs to GPU-accelerated containers
 
-# Things that have solved our problems
+We need company-wide base containers of app runtime + OpenCL drivers
 
-## Automated box setup
+Pull from dockerhub: `graphistry/`{`cpu`,`gpu`}`-base`, `graphistry/js-and-`{`cpu`,`gpu`}
 
-- Ansible script installs docker, nvidia drivers, nvidia-docker.
-    - Ubuntu 16.04 LTS and RHEL 7.3
-- Other ways to do it: docker-machine + manually run a few commands.
-    - tooling is evolving fast in the past 18 months
-- https://github.com/graphistry/infrastructure : nvidia-docker-host
+## Auto-test GPU assumptions!
 
-## Validate that we can run node-opencl code
+Insufficient: `nvidia-smi` alone
 
-- cl.js convolution demo
-- Exercises nvidia-docker, opencl driver loader, node opencl bindings
-    - some machines do not have OpenCL support!
-- Bonus: provides timings of CPU & GPU image convolutions
-    - Extra bonus: there is a cute red panda
-- https://github.com/graphistry/cljs / https://hub.docker.com/r/graphistry/cljs/
+Better: `clinfo`, testing `node-opencl`, wide coverage
 
-## Package an artifact
+Use our library `cl.js` to do a simple image convolution
 
-- Must be self-contained!
-- Loadable versions of all containers used, in a .tar.gz
-- OpenCL on CPU is a few hundred MB compressed; on GPU, almost 1GB compressed
-    - This is not a nimble 10MB image based on Alpine Linux
-- `docker-gc` becomes more important
-- `tar` + `pigz`, and a homemade orchestration bash script
-    - this was not unreasonable a year and a half ago
+Pull from dockerhub: `graphistry/cljs`
 
-## Run containers in dev
+<iframe width=100% height=50% src="http://52.9.9.187:3001/?mode=opencl"></iframe>
 
-- Provides a quick-start guide to run the app
-- Until the year of Linux on the desktop 🙏 Docker is in a VM and cannot connect to the GPU
-- In production we only need 60 fps; small jobs on the CPU?
-    - we have this luxury, versus large batch jobs (eg radiological deep learning)
-- Cloud dev environments with or without GPU
-- dockerhub: graphistry/node-opencl-{gpu,cpu}
+## CPU mode for the full app is a great idea
 
-# This is only the begining!
+`nvidia-docker` only supports Linux
 
-## Further directions
+Many developers are not using Linux natively
 
-- more configurations! (FPGA devices! ARM hosts! Power8‽)
-- tighter integration with Docker?
-- Kubernetes!
-- smaller images!
+Sufficient performance, much less cost
+
+Pull from docker hub: `graphistry/js-and-cpu`
 
 ## Thank you!
 
-### Lee Butterman, lsb@graphistry.com
+Build apps and tests on top of GPU and CPU OpenCL containers, package an artifact for a deploy, set up a nvidia-docker host to run the artifact, go from 0 to new machine running new code in half an hour
 
-#### Questions? Comments? Discussions?
+`https://github.com/graphistry/infrastructure`
 
+### Lee Butterman
+
+### lsb@graphistry.com
