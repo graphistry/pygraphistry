@@ -15,7 +15,16 @@
 
 ### 0. Ensure that we can get an OpenCL context.
 
-nvidia-docker run --rm graphistry/central-and-vizservers:$1 clinfo
+if [ "${NV_GPU}" == "-1" ]
+then
+    RUNTIME=docker
+    HTTPD_IMAGE_SUFFIX=".multicore"
+else
+    RUNTIME=nvidia-docker
+    HTTPD_IMAGE_SUFFIX=""
+fi
+
+$RUNTIME run --rm graphistry/central-and-vizservers:$1${HTTPD_IMAGE_SUFFIX} clinfo
 
 ### 1. Ensure we have a network for our application to run in.
 
@@ -85,16 +94,7 @@ stat ../viz-app-config.json || (echo '{}' > ../viz-app-config.json)
 
 NPROC=$(((which nproc > /dev/null) && nproc) || echo 1)
 CENTRAL_MERGED_CONFIG=$(docker   run --rm -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c 'mergeThreeFiles.js $graphistry_install_path/central-cloud-options.json    /tmp/box-config.json /tmp/local-config.json')
-VIZWORKER_MERGED_CONFIG=$(docker run --rm -e NPROC=$NPROC -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c '(envsubst < $graphistry/install_path/viz-worker-cloud-options.json.envsubst > /tmp/default-config.json) && mergeThreeFiles.js /tmp/default-config.json /tmp/box-config.json /tmp/local-config.json')
-
-if [ "${NV_GPU}" == "-1" ]
-then
-    RUNTIME=docker
-    HTTPD_IMAGE_SUFFIX=".multicore"
-else
-    RUNTIME=nvidia-docker
-    HTTPD_IMAGE_SUFFIX=""
-fi
+VIZWORKER_MERGED_CONFIG=$(docker run --rm -e NPROC=$NPROC -v ${PWD}/../httpd-config.json:/tmp/box-config.json -v ${PWD}/httpd-config.json:/tmp/local-config.json graphistry/central-and-vizservers:$1 bash -c '(envsubst < $graphistry_install_path/viz-worker-cloud-options.json.envsubst > /tmp/default-config.json) && mergeThreeFiles.js /tmp/default-config.json /tmp/box-config.json /tmp/local-config.json')
 
 $RUNTIME run \
     --net $GRAPHISTRY_NETWORK \
@@ -116,7 +116,7 @@ $RUNTIME run \
     -v ${GRAPHISTRY_DATA_CACHE:-${PWD}/data_cache}:/tmp/graphistry/data_cache \
     -v ${GRAPHISTRY_WORKBOOK_CACHE:-${PWD}/workbook_cache}:/tmp/graphistry/workbook_cache \
     -v ${PWD}/supervisor:/var/log/supervisor \
-    graphistry/central-and-vizservers:${1}${HTTPD_IMAGE_SUFFIX}
+    graphistry/central-and-vizservers:$1${HTTPD_IMAGE_SUFFIX}
 
 ### 4a. Start pivot-app.
 
