@@ -128,7 +128,7 @@ mkdir -p pivot-app
 echo "${PIVOT_APP_CONFIG:-{\}}" > ./pivot-config.json
 [[ -d ../pivot-config.json ]] && rm -rf ../pivot-config.json
 stat ../pivot-config.json || (echo '{}' > ../pivot-config.json)
-docker run -d --name $PIVOTAPP_BOX_NAME --link=${PG_BOX_NAME}:pg -e "GRAPHISTRY_LOG_LEVEL=debug" -e "LOG_FILE=logs/pivot.log" -v $PWD/pivot-app/:/pivot-app/logs -v ${GRAPHISTRY_PIVOT_CACHE:-$PWD/pivot-cache}:/pivot-app/data -v $PWD/../pivot-config.json:/pivot-app/config/z-box-override.json:ro -v $PWD/pivot-config.json:/pivot-app/config/zzz-deploy-override.json:ro --link $VIZAPP_BOX_NAME:viz --restart=unless-stopped --network=$GRAPHISTRY_NETWORK graphistry/pivot-app:$2
+docker run -d --name $PIVOTAPP_BOX_NAME --link=${PG_BOX_NAME}:pg -e "GRAPHISTRY_LOG_LEVEL=debug" -e "LOG_FILE=logs/pivot.log" -v $PWD/pivot-app/:/pivot-app/logs -v ${GRAPHISTRY_PIVOT_CACHE:-$PWD/../.pivot-db}:/pivot-app/data -v $PWD/../pivot-config.json:/pivot-app/config/z-box-override.json:ro -v $PWD/pivot-config.json:/pivot-app/config/zzz-deploy-override.json:ro --link $VIZAPP_BOX_NAME:viz --restart=unless-stopped --network=$GRAPHISTRY_NETWORK graphistry/pivot-app:$2
 
 ### 5. Nginx, maybe with ssl.
 
