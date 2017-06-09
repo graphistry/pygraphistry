@@ -12,3 +12,8 @@ Additionally, it contains documentation pertaining to our overall application st
 * [Manual Testing](https://docs.google.com/document/d/1J7UgXXXs5LujC6Nl6st0ooavfzRAZKI1ZSzl6n_Z90c/edit#heading=h.z8ufwwipb9wm): Demos and tasks to try before prod deploys.
 * [Jenkins!](http://deploy.graphistry.com/): CI server for testing history and remote builds
 
+## User Documentation
+
+When deployed as a container, admins get the following docs:
+
+* [Instructions.md](https://github.com/graphistry/deploy/blob/master/dockerfiles/instructions.md)
