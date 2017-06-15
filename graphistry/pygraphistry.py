@@ -194,6 +194,63 @@ class PyGraphistry(object):
 
 
     @staticmethod
+    def hypergraph(raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=True, verbose=True):
+        """Transform a dataframe into a hypergraph.
+
+        :param Dataframe raw_events: Dataframe to transform
+        :param List entity_types: Optional list of columns (strings) to turn into nodes, None signifies all
+        :param Dict opts: See below
+        :param bool drop_edge_attrs: Reserved, currently no effect
+        :param bool verbose: Whether to print size information
+
+        Create a graph out of the dataframe, and return the graph components as dataframes, 
+        and the renderable result Plotter. It reveals relationships between the rows and between column values.
+        This transform is useful for lists of events, samples, relationships, and other structured high-dimensional data.
+
+        The transform creates a node for every row, and turns a row's column entries into node attributes. 
+        Every unique value within a column is also turned into a node. 
+        Edges are added to connect a row's node to each of its column nodes. 
+        Nodes are given the attribute 'type' corresponding to the originating column name, or in the case of a row, 'EventID'.
+
+
+        Consider a list of events. Each row represents a distinct event, and each column some metadata about an event. 
+        If multiple events have common metadata, they will be transitively connected through those metadata values. 
+        The layout algorithm will try to cluster the events together. 
+        Conversely, if an event has unique metadata, the unique metadata will turn into nodes that only have connections to the event node, and the clustering algorithm will cause them to form a ring around the event node.
+
+        Best practice is to set EVENTID to a row's unique ID,
+        SKIP to all non-categorical columns (or entity_types to all categorical columns),
+        and CATEGORY to group columns with the same kinds of values.
+
+
+        The optional ``opts={...}`` configuration options are:
+
+        * 'EVENTID': Column name to inspect for a row ID. By default, uses the row index.
+        * 'CATEGORY': Dictionary mapping a category name to inhabiting columns. E.g., {'IP': ['srcAddress', 'dstAddress']}.  If the same IP appears in both columns, this makes the transform generate one node for it, instead of one for each column.
+        * 'DELIM': When creating node IDs, defines the separator used between the column name and node value
+        * 'SKIP': List of column names to not turn into nodes. For example, dates and numbers are often skipped.
+
+
+        :returns: {'entities': DF, 'events': DF, 'edges': DF, 'nodes': DF, 'graph': Plotter}
+        :rtype: Dictionary
+
+        **Example**
+
+            ::
+
+                import graphistry
+                h = graphistry.hypergraph(my_df)
+                g = h['graph'].plot()
+
+        """
+        from . import hyper
+        return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose)
+
+
+
+
+
+    @staticmethod
     def bind(node=None, source=None, destination=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
              point_title=None, point_label=None, point_color=None, point_size=None):
@@ -397,6 +454,7 @@ edges = PyGraphistry.edges
 nodes = PyGraphistry.nodes
 graph = PyGraphistry.graph
 settings = PyGraphistry.settings
+hypergraph = PyGraphistry.hypergraph
 
 
 class NumpyJSONEncoder(json.JSONEncoder):
