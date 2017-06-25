@@ -9,7 +9,7 @@
 ### Running Tests Locally
 
 1. Install our test dependencies:`nose` and `mock`.
-2. Run `nosetests` in the root pygraphistry folder.
+2. Run `nosetests` in the root pygraphistry folder (or `nose` or `nose2`).
 
 ### Uninstall Git Checkout
 
