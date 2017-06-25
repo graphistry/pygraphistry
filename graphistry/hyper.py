@@ -26,6 +26,16 @@ def make_reverse_lookup(categories):
             lookup[col] = category
     return lookup
 
+
+def vToUnicode (v): 
+    if type(v) == unicode:
+        return v
+    elif type(v) == str:
+        return v.encode("utf-8").decode('utf-8')
+    else:
+        return str(v).encode("utf-8").decode('utf-8')
+
+
 #ex output: pd.DataFrame([{'val::state': 'CA', 'nodeType': 'state', 'nodeID': 'state::CA'}])
 def format_entities(events, entity_types, defs, drop_na):
     cat_lookup = make_reverse_lookup(defs['CATEGORIES'])
@@ -33,9 +43,9 @@ def format_entities(events, entity_types, defs, drop_na):
                     col: v,
                     defs['TITLE']: v,
                     defs['NODETYPE']: col, 
-                    defs['NODEID']: col2cat(cat_lookup, col) + defs['DELIM'] + str(v)
+                    defs['NODEID']: col2cat(cat_lookup, col) + defs['DELIM'] + vToUnicode(v)
                 } 
-                for v in events[col].unique() if not drop_na or str(v) != 'nan'] for col in entity_types], [])
+                for v in events[col].unique() if not drop_na or vToUnicode(v) != 'nan'] for col in entity_types], [])
     df = pd.DataFrame(lst)
     df[defs['CATEGORY']] = df[defs['NODETYPE']].apply(lambda col: col2cat(cat_lookup, col))
     return df
@@ -66,7 +76,7 @@ def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
         if len(raw):
             raw[defs['EDGETYPE']] = raw.apply(lambda r: col, axis=1)
             raw[defs['CATEGORY']] = raw.apply(lambda r: col2cat(cat_lookup, col), axis=1)
-            raw[defs['ATTRIBID']] = raw.apply(lambda r: col2cat(cat_lookup, col) + defs['DELIM'] + str(r[col]), axis=1)
+            raw[defs['ATTRIBID']] = raw.apply(lambda r: col2cat(cat_lookup, col) + defs['DELIM'] + vToUnicode(r[col]), axis=1)
             subframes.append(raw)
     if len(subframes):
         return pd.concat(subframes).reset_index(drop=True)[[defs['EDGETYPE'], defs['ATTRIBID'], defs['EVENTID']]]
@@ -102,11 +112,11 @@ class Hypergraph(object):
         events = raw_events.copy().reset_index(drop=True)
         if defs['EVENTID'] in events.columns:
             events[defs['EVENTID']] = events.apply(
-                lambda r: defs['EVENTID'] + defs['DELIM'] + str(r[defs['EVENTID']]), 
+                lambda (r): defs['EVENTID'] + defs['DELIM'] + vToUnicode(r[defs['EVENTID']]), 
                 axis=1)
         else:
             events[defs['EVENTID']] = events.reset_index().apply(
-                lambda r: defs['EVENTID'] + defs['DELIM'] + str(r['index']), 
+                lambda r: defs['EVENTID'] + defs['DELIM'] + vToUnicode(r['index']),
                 axis=1)
         events[defs['NODETYPE']] = 'event'
         entities = format_entities(events, entity_types, defs, drop_na)
