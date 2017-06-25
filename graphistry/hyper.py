@@ -85,6 +85,7 @@ def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
 def format_hypernodes(events, defs, drop_na):
     event_nodes = events.copy()
     event_nodes[defs['NODETYPE']] = defs['EVENTID']
+    event_nodes[defs['CATEGORY']] = 'event'
     event_nodes[defs['NODEID']] = event_nodes[defs['EVENTID']]    
     event_nodes[defs['TITLE']] = event_nodes[defs['EVENTID']]    
     return event_nodes
