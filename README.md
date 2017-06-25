@@ -65,6 +65,13 @@ It supports unusually large graphs for interactive visualization. The client's c
      graphistry.bind(source='src', destination='dst', node='nodeid').plot(graph)
      ```
 
+- **Great for Events, CSVs, and more:** Not sure if your data is graph-friendly? PyGraphistry's `hypergraph` transform helps turn any sample data like CSVs, SQL results, and event data into a graph for pattern analysis:
+
+     ```python
+     rows = pandas.read_csv('transactions.csv')[:1000]
+     graphistry.hypergraph(rows)['graph'].plot()
+     ```
+
 ### Gallery
 
 <table>
@@ -154,6 +161,9 @@ links = pandas.read_csv('./lesmiserables.csv')
 ```
 
 ### Quick Visualization
+
+If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](https://github.com/graphistry/pygraphistry/blob/master/demos/more/malware-hypergraph/Malware%20Hypergraph.ipynb)
+
 PyGraphistry can plot graphs directly from Pandas dataframes, IGraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
 
 To define the graph, we <code>bind</code> *source* and *destination* to the columns indicating the start and end nodes of each edges:
@@ -200,6 +210,7 @@ plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 2. Read our advanced tutorials:
 	-  [Creating a node table + controlling sizes and colors (HoneyPot)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%201%20(Honey%20Pot).html)
 	-  [Aggregating edges and creating multiple views of the same data (Apache Logs)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%202%20(Apache%20Logs).html)
+	- [Hypergraph Transform for turning Events and CSVs into Graphs](https://github.com/graphistry/pygraphistry/blob/master/demos/more/malware-hypergraph/Malware%20Hypergraph.ipynb)
 3. Check out our [demos folder](https://github.com/graphistry/pygraphistry/tree/master/demos).
 
 ## API Reference
