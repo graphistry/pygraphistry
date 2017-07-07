@@ -1,0 +1,86 @@
+# Recommended Deployment Configurations
+
+See below for supported client and server software/hardware configurations. In short:
+
+* Client: Chrome/Firefox from the last 3 years, WebGL on, and 100KB/s download ability
+* Server: x86 Linux server with 4+ CPU cores, 16+ GB CPU RAM, and 1+ Nvidia GPUs with 4+ GB RAM each
+
+## Client
+
+The intuition is that a user can work with Graphistry if their environment supports Youtube, and even better, Netflix.
+
+The Graphistry client runs in standard browser configurations:
+
+* **Browser**: Chrome and Firefox from the last 3 years, and users regularly report success with other browsers like Safari.
+
+* **WebGL**: WebGL 1.0 is required. This started shipping ~5 years ago, and most client devices, including phones and tablets, support it.
+
+* **Network**: 100KB+/s download speeds, and we recommend 1MB/s if graphs with > 100K nodes and edges. 
+
+* **Operating System**: All.
+
+
+
+## Server Software: Cloud, OS, Docker, Avoiding Root Users
+
+### Cloud
+
+Graphistry runs on-premise and has been tested with Amazon EC2 and Microsoft Azure.
+
+*Tested AWS Instances*
+* G2.2
+* G2.8
+* P2
+
+*Tested Azure Instances*
+* ?
+
+See the hardware provisioning section to pick the right configuration for you.
+
+### OS & Docker
+
+We recommend:
+
+* Ubuntu AAA
+* RedHat BBB
+
+Both support nvidia-docker.
+
+### User: Root vs. Not
+
+Installing nvidia-docker currently requires root user permissions. 
+
+After nvidia-docker is installed, Graphistry can be installed and run as a regular user.
+
+## Server: Hardware Capacity Planning
+
+Graphistry utilization increases with the number of concurrent visualizations and the sizes of their datasets. 
+Most teams will only have a few concurrent users and a few concurrent sessions per user. So, one primary server, and one spillover or dev server, gets a team far.
+
+For teams doing single-purpose multi-year purchases, we generally recommend more GPUs and more memory: As Graphistry adds further scaling features, users will be able to upload more data and burst to more devices. 
+
+
+### Network
+
+A Graphistry server must support 1MB+/s per expected concurrent user. A moderately used team server may use AAA GB / month.
+
+### GPUs & GPU RAM
+
+The following Nvidia GPUs are known to work with Graphistry:
+
+* Tesla: K40, K80, M40
+* Pascal/DGX: P100
+
+The GPU should provide 1+ GB of memory per concurrent user. We expect the consumable amount of memory per user to increase in 2018.
+
+### CPU Cores & CPU RAM
+
+CPU cores & CPU RAM should be provisioned in proportion to the number of GPUs and users:
+
+* CPU Cores: We recommend 4-6 x86 CPU cores per GPU
+* CPU RAM: We recommend 6 GB base memory and 10 GB per GPU
+
+### CPU-Only
+
+For development purposes such as CI, a CPU-only mode (no GPU) is available.
+
