@@ -77,6 +77,13 @@ Run `docker stop graphistry_httpd` or `docker restart graphistry_httpd`.
 
 When you have launched the app, you should be able to point your browser to that machine via HTTP and receive a page with four links on it, each of which take you to a visualization of a different data set.
 
+### Provision an API key for someone to use to upload data
+
+Our upload service requires an API key for a user to upload a dataset.
+These API keys are hashes of strings that identify the user, often the user's email address.
+To provision a new API key via a web browser, go to `/api/internal/provision?text=<email address>` in your Graphistry app.
+This endpoint is rate-limited.
+
 ### Extra: Use Jupyter Notebooks With PyGraphsitry
 
 These are public images, available on DockerHub, built on the Jupyter notebooks with pygraphistry installed, with several demo notebooks. Run
