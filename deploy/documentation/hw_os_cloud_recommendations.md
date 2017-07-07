@@ -3,7 +3,7 @@
 See below for supported client and server software/hardware configurations. In short:
 
 * Client: Chrome/Firefox from the last 3 years, WebGL on, and 100KB/s download ability
-* Server: x86 Linux server with 4+ CPU cores, 16+ GB CPU RAM, and 1+ Nvidia GPUs with 4+ GB RAM each
+* Server: x86 Linux server with 4+ CPU cores, 16+ GB CPU RAM (3GB per concurrent user), and 1+ Nvidia GPUs with 4+ GB RAM each (1+ GB per concurrent user)
 
 ## Client
 
@@ -13,12 +13,13 @@ The Graphistry client runs in standard browser configurations:
 
 * **Browser**: Chrome and Firefox from the last 3 years, and users regularly report success with other browsers like Safari.
 
-* **WebGL**: WebGL 1.0 is required. This started shipping ~5 years ago, and most client devices, including phones and tablets, support it.
+* **WebGL**: WebGL 1.0 is required. This started shipping ~5 years ago, and most client devices, including phones and tablets, support it. Both integrated and discrete graphic cards work, and for any vendor supporting WebGL.
 
 * **Network**: 100KB+/s download speeds, and we recommend 1MB/s if graphs with > 100K nodes and edges. 
 
 * **Operating System**: All.
 
+***Recommended***: Chrome from last 2 years and with a device from the last 4 years.
 
 
 ## Server Software: Cloud, OS, Docker, Avoiding Root Users
@@ -31,9 +32,11 @@ Graphistry runs on-premise and has been tested with Amazon EC2 and Microsoft Azu
 * G2.2
 * G2.8
 * P2
+* ***Recommended***: ??
 
 *Tested Azure Instances*
 * ?
+* ***Recommended***: ??
 
 See the hardware provisioning section to pick the right configuration for you.
 
@@ -43,6 +46,7 @@ We recommend:
 
 * Ubuntu AAA
 * RedHat BBB
+* ***Recommended***: ??
 
 Both support nvidia-docker.
 
@@ -70,15 +74,16 @@ The following Nvidia GPUs are known to work with Graphistry:
 
 * Tesla: K40, K80, M40
 * Pascal/DGX: P100
+* ***Recommended***: ??
 
-The GPU should provide 1+ GB of memory per concurrent user. We expect the consumable amount of memory per user to increase in 2018.
+The GPU should provide 1+ GB of memory per concurrent user. For teams expecting to look at large datasets (1M-1B element graphs), we expect the consumable amount of memory per concurrent user to increase in 2018 by 100X, if desired.
 
 ### CPU Cores & CPU RAM
 
 CPU cores & CPU RAM should be provisioned in proportion to the number of GPUs and users:
 
 * CPU Cores: We recommend 4-6 x86 CPU cores per GPU
-* CPU RAM: We recommend 6 GB base memory and 10 GB per GPU
+* CPU RAM: We recommend 6 GB base memory and at least 16 GB total memory for a single GPU system. For balanced scaling, 3 GB per concurrent user or 3X the GPU RAM.
 
 ### CPU-Only
 
