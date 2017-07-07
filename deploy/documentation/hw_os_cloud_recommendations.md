@@ -29,14 +29,12 @@ The Graphistry client runs in standard browser configurations:
 Graphistry runs on-premise and has been tested with Amazon EC2 and Microsoft Azure.
 
 *Tested AWS Instances*
-* G2.2
-* G2.8
-* P2
-* ***Recommended***: ??
+* _P2.xl_
+* G2.2xl
 
 *Tested Azure Instances*
-* ?
-* ***Recommended***: ??
+* _NV6_
+* NC6
 
 See the hardware provisioning section to pick the right configuration for you.
 
@@ -44,17 +42,16 @@ See the hardware provisioning section to pick the right configuration for you.
 
 We recommend:
 
-* Ubuntu AAA
-* RedHat BBB
-* ***Recommended***: ??
+* Ubuntu Xenial LTS
+* RHEL 7.3
 
 Both support nvidia-docker.
 
 ### User: Root vs. Not
 
-Installing nvidia-docker currently requires root user permissions. 
+Installing Docker, Nvidia drivers, and nvidia-docker currently all require root user permissions.
 
-After nvidia-docker is installed, Graphistry can be installed and run as a regular user.
+After installation, Graphistry can be installed and run as an unprivileged user, with access to nvidia-docker is installed, Graphistry can be installed and run as a regular user.
 
 ## Server: Hardware Capacity Planning
 
@@ -66,7 +63,7 @@ For teams doing single-purpose multi-year purchases, we generally recommend more
 
 ### Network
 
-A Graphistry server must support 1MB+/s per expected concurrent user. A moderately used team server may use AAA GB / month.
+A Graphistry server must support 1MB+/s per expected concurrent user. A moderately used team server may use a few hundred GB / month.
 
 ### GPUs & GPU RAM
 
@@ -87,5 +84,5 @@ CPU cores & CPU RAM should be provisioned in proportion to the number of GPUs an
 
 ### CPU-Only
 
-For development purposes such as CI, a CPU-only mode (no GPU) is available.
+For development purposes such as testing, a CPU-only mode (for machines without a GPU) is available.
 
