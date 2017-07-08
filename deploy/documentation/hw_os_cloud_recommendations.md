@@ -1,3 +1,15 @@
+<!-- Generate PDF via 
+
+1. MacDown
+
+2. Or, 
+
+docker run --rm -it -v $PWD:/source jagregory/pandoc -s hw_os_cloud_recommendations.md -o hw_os_cloud_recommendations.pdf 
+
+-->
+
+
+
 # Recommended Deployment Configurations: Client, Server Software, Server Hardware
 
 In short:
@@ -28,12 +40,14 @@ The Graphistry client runs in standard browser configurations:
 
 Graphistry runs on-premise and has been tested with Amazon EC2 and Microsoft Azure.
 
-*Tested AWS Instances*
-* P2.xl (Recommended)
+*Tested AWS Instances*:
+
+* P2.xl ***Recommended***
 * G2.2xl
 
-*Tested Azure Instances*
-* NV6 (Recommended)
+*Tested Azure Instances*:
+
+* NV6 ***Recommended***
 * NC6
 
 See the hardware provisioning section to pick the right configuration for you.
@@ -43,7 +57,7 @@ See the hardware provisioning section to pick the right configuration for you.
 We recommend:
 
 * Ubuntu Xenial LTS
-* RHEL 7.3 (Recommended)
+* RHEL 7.3 ***Recommended***
 
 Both support nvidia-docker.
 
@@ -70,7 +84,7 @@ A Graphistry server must support 1MB+/s per expected concurrent user. A moderate
 The following Nvidia GPUs are known to work with Graphistry:
 
 * Tesla: K40, K80, M40
-* Pascal/DGX: P100 (Recommended)
+* Pascal/DGX: P100 ***Recommended***
 
 The GPU should provide 1+ GB of memory per concurrent user. For teams expecting to look at large datasets (1M-1B element graphs), we expect the consumable amount of memory per concurrent user to increase in 2018 by 100X, if desired.
 
@@ -84,4 +98,3 @@ CPU cores & CPU RAM should be provisioned in proportion to the number of GPUs an
 ### CPU-Only
 
 For development purposes such as testing, a CPU-only mode (for machines without a GPU) is available.
-
