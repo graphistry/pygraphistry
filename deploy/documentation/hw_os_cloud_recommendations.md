@@ -1,8 +1,8 @@
-# Recommended Deployment Configurations
+# Recommended Deployment Configurations: Client, Server Software, Server Hardware
 
-See below for supported client and server software/hardware configurations. In short:
+In short:
 
-* Client: Chrome/Firefox from the last 3 years, WebGL on, and 100KB/s download ability
+* Client: Chrome/Firefox from the last 3 years, WebGL enabled, and 100KB/s download ability
 * Server: x86 Linux server with 4+ CPU cores, 16+ GB CPU RAM (3GB per concurrent user), and 1+ Nvidia GPUs with 4+ GB RAM each (1+ GB per concurrent user)
 
 ## Client
@@ -29,11 +29,11 @@ The Graphistry client runs in standard browser configurations:
 Graphistry runs on-premise and has been tested with Amazon EC2 and Microsoft Azure.
 
 *Tested AWS Instances*
-* _P2.xl_
+* P2.xl (Recommended)
 * G2.2xl
 
 *Tested Azure Instances*
-* _NV6_
+* NV6 (Recommended)
 * NC6
 
 See the hardware provisioning section to pick the right configuration for you.
@@ -43,7 +43,7 @@ See the hardware provisioning section to pick the right configuration for you.
 We recommend:
 
 * Ubuntu Xenial LTS
-* RHEL 7.3
+* RHEL 7.3 (Recommended)
 
 Both support nvidia-docker.
 
@@ -70,8 +70,7 @@ A Graphistry server must support 1MB+/s per expected concurrent user. A moderate
 The following Nvidia GPUs are known to work with Graphistry:
 
 * Tesla: K40, K80, M40
-* Pascal/DGX: P100
-* ***Recommended***: ??
+* Pascal/DGX: P100 (Recommended)
 
 The GPU should provide 1+ GB of memory per concurrent user. For teams expecting to look at large datasets (1M-1B element graphs), we expect the consumable amount of memory per concurrent user to increase in 2018 by 100X, if desired.
 
