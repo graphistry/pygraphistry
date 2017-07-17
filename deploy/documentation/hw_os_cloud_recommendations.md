@@ -54,10 +54,10 @@ See the hardware provisioning section to pick the right configuration for you.
 
 ### OS & Docker
 
-We recommend:
+We regularly run on:
 
-* Ubuntu Xenial LTS
-* RHEL 7.3 ***Recommended***
+* Ubuntu Xenial 16.04 LTS
+* RedHat RHEL 7.3 ***Recommended***
 
 Both support nvidia-docker.
 
