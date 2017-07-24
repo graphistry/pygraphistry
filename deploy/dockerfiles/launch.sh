@@ -84,9 +84,9 @@ docker rm -f -v $VIZAPP_BOX_NAME || true
 mkdir -p central-app worker graphistry-json clients reaper
 
 stat ../httpd-config.json || (echo '{}' > ../httpd-config.json)
-echo "${GRAPHISTRY_APP_CONFIG:-{}}" > ./httpd-config.json
+echo "${GRAPHISTRY_APP_CONFIG:-'{}'}" > ./httpd-config.json
 
-echo "${VIZ_APP_CONFIG:-{}}" > ./viz-app-config.json
+echo "${VIZ_APP_CONFIG:-'{}'}" > ./viz-app-config.json
 # A prior bug caused the 'box override' config to be created as a directory instead of a file. This
 # line checks if it's a directory and, if so, deletes it.
 [[ -d ../viz-app-config.json ]] && rm -rf ../viz-app-config.json
@@ -125,7 +125,7 @@ PIVOTAPP_BOX_NAME=${GRAPHISTRY_NETWORK}-pivot
 docker rm -f -v $PIVOTAPP_BOX_NAME || true
 
 mkdir -p pivot-app
-echo "${PIVOT_APP_CONFIG:-{}}" > ./pivot-config.json
+echo "${PIVOT_APP_CONFIG:-'{}'}" > ./pivot-config.json
 [[ -d ../pivot-config.json ]] && rm -rf ../pivot-config.json
 stat ../pivot-config.json || (echo '{}' > ../pivot-config.json)
 PIVOT_LOG_LEVEL=${PIVOT_LOG_LEVEL:-debug}
