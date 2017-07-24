@@ -17,3 +17,8 @@ Additionally, it contains documentation pertaining to our overall application st
 When deployed as a container, admins get the following docs:
 
 * [Instructions.md](https://github.com/graphistry/deploy/blob/master/dockerfiles/instructions.md)
+
+## Modifying this repository
+
+Commits to this repository are generally infrequent; as such, our Jenkins tooling uses the `master` branch of this repository to deploy the app, customarily one tests changes immediately after they land, and this has worked well thus far.
+All commits worth discussing should be mentioned in #infrastructure or proposed as a PR.
