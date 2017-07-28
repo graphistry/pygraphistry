@@ -25,10 +25,10 @@
         chdir: /var/graphistry/{{ deploy_directory }}
       command: bash -c '$ARBITRARY_PARAMETERS ./launch.sh'
 
-    - name: GC old directories (keep last 10)
+    - name: GC old directories (keep last 5)
       args:
         chdir: /var/graphistry
-      command: bash -c "ls -dt */ | tail -n +11 | xargs --no-run-if-empty rm -r"
+      command: bash -c "ls -dt */ | tail -n +6 | xargs --no-run-if-empty rm -r"
       become: yes
       become_user: root
 
