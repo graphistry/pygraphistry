@@ -81,7 +81,13 @@ When you have launched the app, you should be able to point your browser to that
 
 Our upload service requires an API key for a user to upload a dataset.
 These API keys are hashes of strings that identify the user, often the user's email address.
-To provision a new API key via command line, please run `./make-api-key.sh`, passing in a first command-line parameter of the email address.
+To provision a new API key via command line, please run `./make-api-key.sh`, passing in a first command-line parameter of a base62-clean/url-encoded email address.
+
+To provision an API key for 'someone@localhost', run
+
+```
+./make-api-key.sh someone@localhost
+```
 
 ### Extra: Use Jupyter Notebooks With PyGraphsitry
 
