@@ -15,7 +15,7 @@ for i in    $C1 $C2 $C3 $C4 $C4a $C5 $C6 $C7 $C8 ; do docker rmi $i ; done
 sed -i -e 's_$1_'${VIZ_VERSION}'_' launch.sh
 sed -i -e 's_$2_'${PIVOT_VERSION}'_' launch.sh
 cp ../documentation/certs.txt .
-GZIP=-1 tar -cvzf tmp.tar.gz instructions.md certs.txt containers.lxc.gz load.sh launch.sh
+GZIP=-1 tar -cvzf tmp.tar.gz instructions.md certs.txt containers.lxc.gz load.sh launch.sh make-api-key.sh
 SUFFIX=`sha1sum tmp.tar.gz | cut -d ' ' -f 1`
 TARBALL=graphistry-app-${BUILD_NUMBER}-${VIZ_VERSION}-${PIVOT_VERSION}-${SUFFIX}.tar.gz
 mv tmp.tar.gz ${TARBALL}

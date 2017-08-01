@@ -81,8 +81,7 @@ When you have launched the app, you should be able to point your browser to that
 
 Our upload service requires an API key for a user to upload a dataset.
 These API keys are hashes of strings that identify the user, often the user's email address.
-To provision a new API key via a web browser, go to `/api/internal/provision?text=<email address>` in your Graphistry app.
-This endpoint is rate-limited.
+To provision a new API key via command line, please run `./make-api-key.sh`, passing in a first command-line parameter of the email address.
 
 ### Extra: Use Jupyter Notebooks With PyGraphsitry
 
