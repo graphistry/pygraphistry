@@ -44,6 +44,7 @@ class Plotter(object):
         self._point_size = None
         # Settings
         self._height = 500
+        self._render = True
         self._url_params = {'info': 'true'}
 
 
@@ -242,7 +243,7 @@ class Plotter(object):
         return res
 
 
-    def settings(self, height=None, url_params={}):
+    def settings(self, height=None, url_params={}, render=None):
         """Specify iframe height and add URL parameter dictionary.
 
         The library takes care of URI component encoding for the dictionary.
@@ -252,15 +253,20 @@ class Plotter(object):
 
         :param url_params: Dictionary of querystring parameters to append to the URL.
         :type url_params: Dictionary
+
+        :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
+        :type render: Boolean
+
         """
 
         res = copy.copy(self)
         res._height = height or self._height
         res._url_params = dict(self._url_params, **url_params)
+        res._render = self._render if render == None else render
         return res
 
 
-    def plot(self, graph=None, nodes=None, name=None):
+    def plot(self, graph=None, nodes=None, name=None, render=None):
         """Upload data to the Graphistry server and show as an iframe of it.
 
         name, Uses the currently bound schema structure and visual encodings.
@@ -273,6 +279,9 @@ class Plotter(object):
 
         :param nodes: Nodes table.
         :type nodes: Pandas dataframe.
+
+        :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
+        :type render: Boolean
 
         **Example: Simple**
             ::
@@ -315,13 +324,14 @@ class Plotter(object):
             info = PyGraphistry._etl2(dataset)
 
         viz_url = PyGraphistry._viz_url(info, self._url_params)
+        full_url = '%s:%s' % (PyGraphistry._config['protocol'], viz_url)
 
-        if util.in_ipython() is True:
+        if render == False or (render == None and not self._render):
+            return full_url
+        elif util.in_ipython():
             from IPython.core.display import HTML
             return HTML(util.make_iframe(viz_url, self._height, PyGraphistry._config['protocol']))
         else:
-            full_url = '%s://%s' % (PyGraphistry._config['protocol'], viz_url)
-            print('Url: ' + full_url)
             import webbrowser
             webbrowser.open(full_url)
             return full_url
