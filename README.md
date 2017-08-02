@@ -14,7 +14,7 @@ Requires node `v6.6.0` and npm `v3.10.3`.
 # Local Dev
 
 * In `packages/viz-app` or `packages/api-client`, run `npm run build`
-* For viz-app, a common option within that package is `npm run watch | bunyan -o short`
+* For viz-app, a common option within that package is `npm run start:dev`
 * For additional options for viz-app, see `packages/viz-app/README.md`
 
 # Landing Code
@@ -29,10 +29,11 @@ You should manually kick off the build when commiting to master, but that's it.
 
 ## Gitflow Development: Branches with PRs
 
-1. Prepare whatever commits, e.g., in a branch
-2. Manually increment `lerna.json` with a semantic version number update (NOT `packages/viz-app/package.json` NOR `packages/api-client/package.json`)
-3. Commit as part of the branch
-4. Merge the PR
+1. Push whatever commits to a branch
+2. Optional: Manually increment `lerna.json` with a semantic version number update (NOT `packages/viz-app/package.json` NOR `packages/api-client/package.json`)
+3. Stage, review, fix, and repeat until you and your reviewers are happy
+4. `Squash and Merge` the PR
+5. `Delete` the branch
 
 The server will then build and publish each package under that version.
 
