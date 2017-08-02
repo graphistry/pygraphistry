@@ -297,9 +297,9 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def settings(height=None, url_params={}):
+    def settings(height=None, url_params={}, render=None):
         from . import plotter
-        return plotter.Plotter().settings(height, url_params)
+        return plotter.Plotter().settings(height, url_params, render)
 
 
     @staticmethod
