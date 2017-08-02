@@ -96,11 +96,13 @@ class PyGraphistry(object):
             return PyGraphistry._config['hostname']
 
         # setter
-        shortcuts = {'localhost': 'localhost:3000',
+        shortcuts = {'dev': 'localhost:3000',
                      'staging': 'staging.graphistry.com',
                      'labs': 'labs.graphistry.com'}
         if value in shortcuts:
-            PyGraphistry._config['hostname'] = shortcuts[value]
+            resolved = shortcuts[value]
+            PyGraphistry._config['hostname'] = resolved
+            util.warn('Resolving alias %s to %s' % (value, resolved))
         else:
             PyGraphistry._config['hostname'] = value
 
