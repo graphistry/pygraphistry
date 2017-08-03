@@ -19,7 +19,7 @@ Uninstall the local checkout (useful to rollback to packaged version) with `./se
 1. Tag the repository with a new version number. We use semantic version numbers of the form *X.Y.Z*.
 
 	```sh
-	git tag X.Y.Z`
+	git tag X.Y.Z
 	git push --tags
 	```
 
