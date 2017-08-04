@@ -59,11 +59,24 @@ If the script runs through, your machine will have passed a test of using Docker
 
 ## 3 Set Up Graphistry
 
-1. Unpack the package of files into a directory, and run `load.sh` . This should load the airgapped Graphistry deploy into your local Docker engine.
-2. Graphistry can terminate SSL, but by default will not. Follow the instructions in certs.txt for making certs, and for subsequent runtime parameters during launch, if you intend for Graphistry itself to terminate SSL.
+1. Create a directory for Graphistry products, like `/graphistry`, and unpack this release into a subdirectory. The top level directory can have config options like default passwords and default logging levels, and the release directory can have config overrides per release.
+2. Go to this release's subdirectory, and run `load.sh` . This should load the airgapped Graphistry deploy into your local Docker engine.
+3. Graphistry can terminate SSL, but by default will not. Follow the instructions in certs.txt for making certs, and for subsequent runtime parameters during launch, if you intend for Graphistry itself to terminate SSL.
 
-## 4 Start The Graphistry Services
-Once the containers are loaded, the app can be started (or restarted) with
+## 4 Override Default Passwords
+
+Launch the app with the environment variable `GRAPHISTRY_APP_CONFIG` including two unguessable strings for its `.API.CANARY` and its `.API.SECRET`, like so:
+
+```
+GRAPHISTRY_APP_CONFIG='{"API":{"CANARY":"123","SECRET":"456"}}' ./launch.sh
+```
+
+An API key, created for a user-identifying string (often in practice an email address), is that string, salted with a global salt, and then encrypted with a global password. The salt is `.API.CANARY`, and the password is `.API.SECRET`.
+
+To avoid setting JSON configuration in the environment every time, write it to the file `httpd-config.json` in the parent directory of the release (so `echo '{"API:{"CANARY":"123","SECRET":"456"}}' > ../httpd-config.json`, for example).
+
+## 5 Start The Graphistry Services
+Once the containers are loaded and a new password has been written to config on disk, the app can be started (or restarted) with
 
 ```bash
 ./launch.sh
@@ -77,20 +90,10 @@ Run `docker stop graphistry_httpd` or `docker restart graphistry_httpd`.
 
 When you have launched the app, you should be able to point your browser to that machine via HTTP and receive a Getting Started page. Under the section "👁️ Learn More", click "See examples of Graphistry Visualizations", and click (for example) the _Protein Interactions_ at the lower right and ensure that you get a graph that resembles that image.
 
-### Change the Default Password
-
-Launch the app with the `GRAPHISTRY_APP_CONFIG` including two unguessable strings for its `.API.CANARY` and its `.API.SECRET`, like so:
-
-```
-GRAPHISTRY_APP_CONFIG='{"API":{"CANARY":"123","SECRET":"456"}}' ./launch.sh
-```
-
-An API key, created for a user-identifying string (often in practice an email address), is that string, salted with a global salt, and then encrypted with a global password. The salt is `.API.CANARY`, and the password is `.API.SECRET`.
-
 ### Provision an API key for someone to use to upload data
 
 Our upload service requires an API key for a user to upload a dataset.
-These API keys are hashes of strings that identify the user, often the user's email address.
+These API keys are based on strings that should uniquely identify the user, often the user's email address.
 To provision a new API key via command line, please run `./make-api-key.sh`, passing in a first command-line parameter of a base62-clean/url-encoded email address.
 
 To provision an API key for 'someone@localhost', run
