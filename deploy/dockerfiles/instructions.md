@@ -77,6 +77,16 @@ Run `docker stop graphistry_httpd` or `docker restart graphistry_httpd`.
 
 When you have launched the app, you should be able to point your browser to that machine via HTTP and receive a Getting Started page. Under the section "👁️ Learn More", click "See examples of Graphistry Visualizations", and click (for example) the _Protein Interactions_ at the lower right and ensure that you get a graph that resembles that image.
 
+### Change the Default Password
+
+Launch the app with the `GRAPHISTRY_APP_CONFIG` including two unguessable strings for its `.API.CANARY` and its `.API.SECRET`, like so:
+
+```
+GRAPHISTRY_APP_CONFIG='{"API":{"CANARY":"123","SECRET":"456"}}' ./launch.sh
+```
+
+An API key, created for a user-identifying string (often in practice an email address), is that string, salted with a global salt, and then encrypted with a global password. The salt is `.API.CANARY`, and the password is `.API.SECRET`.
+
 ### Provision an API key for someone to use to upload data
 
 Our upload service requires an API key for a user to upload a dataset.
