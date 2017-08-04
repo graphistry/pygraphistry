@@ -75,7 +75,7 @@ Run `docker stop graphistry_httpd` or `docker restart graphistry_httpd`.
 
 ### Verify That Graphistry is Running
 
-When you have launched the app, you should be able to point your browser to that machine via HTTP and receive a page with four links on it, each of which take you to a visualization of a different data set.
+When you have launched the app, you should be able to point your browser to that machine via HTTP and receive a Getting Started page. Under the section "👁️ Learn More", click "See examples of Graphistry Visualizations", and click (for example) the _Protein Interactions_ at the lower right and ensure that you get a graph that resembles that image.
 
 ### Provision an API key for someone to use to upload data
 
