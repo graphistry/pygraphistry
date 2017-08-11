@@ -11,6 +11,7 @@ Additionally, it contains documentation pertaining to our overall application st
 * [Troubleshooting](https://github.com/graphistry/deploy/blob/master/documentation/troubleshooting.md): What to do if the server stops working.
 * [Manual Testing](https://docs.google.com/document/d/1J7UgXXXs5LujC6Nl6st0ooavfzRAZKI1ZSzl6n_Z90c/edit#heading=h.z8ufwwipb9wm): Demos and tasks to try before prod deploys.
 * [Jenkins!](http://deploy.graphistry.com/): CI server for testing history and remote builds
+* [Suggested Environment](https://github.com/graphistry/deploy/raw/master/documentation/hw_os_cloud_recommendations.pdf) HW, OS, Cloud recommendations
 
 ## User Documentation
 
