@@ -113,7 +113,7 @@ class Hypergraph(object):
         events = raw_events.copy().reset_index(drop=True)
         if defs['EVENTID'] in events.columns:
             events[defs['EVENTID']] = events.apply(
-                lambda (r): defs['EVENTID'] + defs['DELIM'] + vToUnicode(r[defs['EVENTID']]), 
+                lambda r: defs['EVENTID'] + defs['DELIM'] + vToUnicode(r[defs['EVENTID']]), 
                 axis=1)
         else:
             events[defs['EVENTID']] = events.reset_index().apply(
