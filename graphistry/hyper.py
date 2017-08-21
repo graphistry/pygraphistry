@@ -1,4 +1,5 @@
 import pandas as pd
+import sys
 
 ### COMMON TO HYPERGRAPH AND SIMPLE GRAPH
 def makeDefs(DEFS, opts={}):
