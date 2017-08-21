@@ -31,12 +31,16 @@ def make_reverse_lookup(categories):
 def vToUnicode (v): 
     if sys.version_info >= (3,0,0):
         return str(v)
-    elif type(v) == unicode:
+    try: #python3 fails to compile vToUnicode() due to no unicode() identifier
+        if type(v) == unicode:
+            return v
+        elif type(v) == str:
+            return v.encode("utf-8").decode('utf-8')
+        else:
+            return str(v).encode("utf-8").decode('utf-8')
+    except:
         return v
-    elif type(v) == str:
-        return v.encode("utf-8").decode('utf-8')
-    else:
-        return str(v).encode("utf-8").decode('utf-8')
+
 
 
 #ex output: pd.DataFrame([{'val::state': 'CA', 'nodeType': 'state', 'nodeID': 'state::CA'}])
