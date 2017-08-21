@@ -28,7 +28,9 @@ def make_reverse_lookup(categories):
 
 
 def vToUnicode (v): 
-    if type(v) == unicode:
+    if sys.version_info >= (3,0,0):
+        return str(v)
+    elif type(v) == unicode:
         return v
     elif type(v) == str:
         return v.encode("utf-8").decode('utf-8')
