@@ -28,18 +28,17 @@ def make_reverse_lookup(categories):
     return lookup
 
 
+
+unicodeType = type(u's') #python3 fails to compile due to no unicode() ref
 def vToUnicode (v): 
     if sys.version_info >= (3,0,0):
         return str(v)
-    try: #python3 fails to compile vToUnicode() due to no unicode() identifier
-        if type(v) == unicode:
-            return v
-        elif type(v) == str:
-            return v.encode("utf-8").decode('utf-8')
-        else:
-            return str(v).encode("utf-8").decode('utf-8')
-    except:
+    elif type(v) == unicodeType:
         return v
+    elif type(v) == str:
+        return v.encode("utf-8").decode('utf-8')
+    else:
+        return str(v).encode("utf-8").decode('utf-8')
 
 
 
