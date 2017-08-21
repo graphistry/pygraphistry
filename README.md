@@ -1,3 +1,9 @@
+[![Build Status](https://travis-ci.org/graphistry/pygraphistry.svg?branch=master)](https://travis-ci.org/graphistry/pygraphistry) 
+[![Latest Version](https://img.shields.io/pypi/v/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
+[![Latest Version](https://img.shields.io/pypi/pyversions/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
+[![License](https://img.shields.io/pypi/l/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
+
+
 # PyGraphistry: Explore Relationships
 
 PyGraphistry is a visual graph analytics library to extract, transform, and load big graphs into [Graphistry's](http://www.graphistry.com) cloud-based graph explorer.
