@@ -10,6 +10,11 @@
 
 1. Install our test dependencies:`nose` and `mock`.
 2. Run `nosetests` in the root pygraphistry folder (or `nose` or `nose2`).
+3. To duplicate CI tests, in python2 and 3, run ` time flake8 . --count --select=E901,E999,F821,F822,F823 --show-source --statistics`
+
+### CI
+
+Travis CI automatically runs on every branch (with a Travis CI file). To configure, go to the [Travis CI account](https://travis-ci.org/graphistry/pygraphistry) .
 
 ### Uninstall Git Checkout
 
