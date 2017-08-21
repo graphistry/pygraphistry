@@ -1,4 +1,5 @@
 import pandas as pd
+import sys
 
 ### COMMON TO HYPERGRAPH AND SIMPLE GRAPH
 def makeDefs(DEFS, opts={}):
@@ -27,13 +28,18 @@ def make_reverse_lookup(categories):
     return lookup
 
 
+
+unicodeType = type(u's') #python3 fails to compile due to no unicode() ref
 def vToUnicode (v): 
-    if type(v) == unicode:
+    if sys.version_info >= (3,0,0):
+        return str(v)
+    elif type(v) == unicodeType:
         return v
     elif type(v) == str:
         return v.encode("utf-8").decode('utf-8')
     else:
         return str(v).encode("utf-8").decode('utf-8')
+
 
 
 #ex output: pd.DataFrame([{'val::state': 'CA', 'nodeType': 'state', 'nodeID': 'state::CA'}])
