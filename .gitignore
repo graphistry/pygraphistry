@@ -10,4 +10,5 @@ tmp
 www
 test_results
 .npmrc
+packages/viz-app/config/z-*
 packages/viz-app/config/graphistryInternal.json
