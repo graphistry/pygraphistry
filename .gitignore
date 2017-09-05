@@ -11,3 +11,5 @@ www
 test_results
 .npmrc
 packages/viz-app/config/graphistryInternal.json
+
+.vscode
