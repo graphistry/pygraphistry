@@ -147,7 +147,7 @@ else
     NGINX_IMAGE_SUFFIX=".httponly"
 fi
 
-docker run --net $GRAPHISTRY_NETWORK -p 80:$NGINX_HTTP_PORT -p 443:$NGINX_HTTPS_PORT --link=${VIZAPP_BOX_NAME}:vizapp --link=${PIVOTAPP_BOX_NAME}:pivotapp --restart=unless-stopped --name $NGINX_BOX_NAME -d -v ${PWD}/nginx:/var/log/nginx $SSL_MOUNT graphistry/nginx-central-vizservers:1.4.0.32${NGINX_IMAGE_SUFFIX}
+docker run --net $GRAPHISTRY_NETWORK -p $NGINX_HTTP_PORT:80 -p $NGINX_HTTPS_PORT:443 --link=${VIZAPP_BOX_NAME}:vizapp --link=${PIVOTAPP_BOX_NAME}:pivotapp --restart=unless-stopped --name $NGINX_BOX_NAME -d -v ${PWD}/nginx:/var/log/nginx $SSL_MOUNT graphistry/nginx-central-vizservers:1.4.0.32${NGINX_IMAGE_SUFFIX}
 
 ### 6. Splunk.
 
