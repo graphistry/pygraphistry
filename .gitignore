@@ -4,6 +4,7 @@ config.json
 npm-debug.log
 .happypack
 build
+coverage
 tests.log
 dist
 tmp
