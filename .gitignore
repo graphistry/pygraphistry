@@ -4,6 +4,7 @@ config.json
 npm-debug.log
 .happypack
 build
+coverage
 tests.log
 dist
 tmp
@@ -14,3 +15,4 @@ packages/viz-app/config/z-*
 packages/viz-app/config/graphistryInternal.json
 
 .vscode
+.cache-loader
