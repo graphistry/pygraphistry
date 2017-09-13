@@ -1,0 +1,4 @@
+**/.DS_Store
+packages/**/www
+packages/**/config/z-*
+packages/**/node_modules
