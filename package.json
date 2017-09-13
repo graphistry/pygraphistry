@@ -6,11 +6,8 @@
     "test": "cross-env NODE_ENV=production MOCHA_COLORS=true lerna run test --concurrency=1",
     "compile": "cross-env NODE_ENV=production MOCHA_COLORS=true lerna run build --concurrency=1"
   },
-  "devDependencies": {
-    "cross-env": "~3.1.4",
-    "lerna": "2.0.0-beta.31"
-  },
   "dependencies": {
-    "@graphistry/client-api": "^2.13.0"
+    "cross-env": "5.0.5",
+    "lerna": "2.1.2"
   }
 }
