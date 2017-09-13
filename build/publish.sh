@@ -1,6 +1,6 @@
-#!/bin/bash -e
+#!/bin/bash -ex
 
-cd $(dirname $0)/../ > /dev/null
+cd $(dirname "$0")/../ > /dev/null
 
 # Relevant Jenkins environment variables:
 # BUILD_NUMBER - The current build number, such as "153"
@@ -45,9 +45,7 @@ do
 
 	echo "building container: $CONTAINER_NAME"
 
-	pushd "$PROJECT_BUILD_DIR" > /dev/null
-	sh ./publish.sh ${BUILD_TAG} ${CONTAINER_NAME} ${COMMIT_ID} ${BRANCH_NAME} &
-	popd > /dev/null
+	sh ${PROJECT_BUILD_DIR}/publish.sh ${BUILD_TAG} ${CONTAINER_NAME} ${COMMIT_ID} ${BRANCH_NAME} &
 done
 
 wait
