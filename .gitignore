@@ -13,6 +13,8 @@ test_results
 .npmrc
 packages/viz-app/config/z-*
 packages/viz-app/config/graphistryInternal.json
+packages/viz-app/package-lock.json
+packages/viz-app/yarn.lock
 
 .vscode
 .cache-loader
