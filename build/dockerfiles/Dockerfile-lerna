@@ -2,14 +2,9 @@ FROM node:8.4.0-alpine
 
 RUN apk add --no-cache git
 
-ARG TARGET_REF=master
-ENV TARGET_REF $TARGET_REF
+ARG NAMESPACE=graphistry
 
-WORKDIR /graphistry
-
-COPY ./.git .git
-COPY ./packages packages
-COPY ./lerna.json ./package.json ./
+WORKDIR /${NAMESPACE}
 
 RUN npm i -g lerna
 
