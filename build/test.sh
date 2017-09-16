@@ -6,10 +6,10 @@ cd $(dirname "$0")/../ > /dev/null
 # BUILD_NUMBER - The current build number, such as "153"
 # CHANGE_TARGET - The target or base branch to which the change should be merged
 
-TARGET_REF=${CHANGE_TARGET:-master}
-COMMIT_ID=$(git rev-parse --short HEAD)
-BRANCH_NAME=$(git name-rev --name-only HEAD)
-BUILD_TAG=${BUILD_TAG:-test}-${BUILD_NUMBER:-dev}
+if [ -z $TARGET_REF         ]; then export TARGET_REF=${CHANGE_TARGET:-master}; fi
+if [ -z $COMMIT_ID          ]; then export COMMIT_ID=$(git rev-parse --short HEAD); fi
+if [ -z $BRANCH_NAME        ]; then export BRANCH_NAME=$(git name-rev --name-only HEAD); fi
+if [ -z $BUILD_TAG          ]; then export BUILD_TAG=${BUILD_TAG:-test}-${BUILD_NUMBER:-dev}; fi
 
 PROJECTS=packages
 NAMESPACE=graphistry
@@ -34,13 +34,12 @@ do
 		exit 1
 	fi
 
-	CONTAINER_NAME="$NAMESPACE/$PROJECT"
+	export CONTAINER_NAME="$NAMESPACE/$PROJECT"
 
 	echo "building container: $CONTAINER_NAME"
 
-	sh ${PROJECT_BUILD_DIR}/test.sh ${BUILD_TAG} ${CONTAINER_NAME} ${COMMIT_ID} ${BRANCH_NAME} &
+	sh ${PROJECT_BUILD_DIR}/test.sh
 done
 
-wait
 
 echo "test finished"
