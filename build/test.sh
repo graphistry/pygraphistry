@@ -17,11 +17,13 @@ LERNA_CONTAINER="$NAMESPACE/lerna-docker"
 LERNA_LS_CHANGED="lerna exec --loglevel=error --since $TARGET_REF -- echo \${PWD##*/}"
 
 docker build -f build/dockerfiles/Dockerfile-lerna \
-	--build-arg TARGET_REF=${TARGET_REF} \
-	-t ${LERNA_CONTAINER}:${BUILD_TAG} \
-	.
+	--build-arg NAMESPACE=${NAMESPACE} \
+	-t ${LERNA_CONTAINER} .
 
-for PROJECT in $(docker run --rm ${LERNA_CONTAINER}:${BUILD_TAG} ${LERNA_LS_CHANGED})
+for PROJECT in $(docker run \
+	-v "${PWD}":/${NAMESPACE} \
+	-e TARGET_REF=${TARGET_REF} \
+	--rm ${LERNA_CONTAINER} ${LERNA_LS_CHANGED})
 do
 	echo "checking $PROJECT for build files"
 
