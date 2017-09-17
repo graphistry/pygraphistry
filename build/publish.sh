@@ -27,18 +27,8 @@ sh ./lerna.sh --run-cmd=\
     --exact \
     --skip-git \
     --skip-npm \
-    --since $TARGET_REF \
     --repo-version=$REPO_VERSION"
 
-sh ./lerna.sh --script=publish.sh --since=${TARGET_REF}
-
-sh ./lerna.sh --run-cmd=\
-"lerna publish \
-    --yes \
-    --exact \
-    --skip-npm \
-    --since $TARGET_REF \
-    --git-remote $TARGET_REF \
-    --repo-version=$REPO_VERSION"
+sh ./lerna.sh --script=publish.sh
 
 echo "publish finished"
