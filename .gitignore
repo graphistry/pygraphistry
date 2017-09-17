@@ -2,6 +2,7 @@
 node_modules
 config.json
 npm-debug.log
+lerna-debug.log
 .happypack
 coverage
 test-results
