@@ -21,10 +21,11 @@ if [ -z $PG_NAME ]; then export PG_NAME=${GRAPHISTRY_NETWORK}-pg; fi
 if [ -z $DB_NAME ]; then export DB_NAME=${GRAPHISTRY_NAMESPACE}-test; fi
 if [ -z $PG_USER ]; then export PG_USER=${GRAPHISTRY_NAMESPACE}-test; fi
 
-docker network inspect $GRAPHISTRY_NETWORK || docker network create $GRAPHISTRY_NETWORK
+docker network inspect ${GRAPHISTRY_NETWORK} ||
+    docker network create ${GRAPHISTRY_NETWORK}
 
-sh ./lerna.sh --build --script test.sh --since ${TARGET_REF}
+./lerna.sh --build=true --script=test.sh --since=${TARGET_REF}
 
-docker network rm $GRAPHISTRY_NETWORK
+docker network rm ${GRAPHISTRY_NETWORK}
 
 echo "test finished"

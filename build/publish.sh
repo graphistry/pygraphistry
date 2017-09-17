@@ -19,9 +19,9 @@ if [ -z $TARGET_REF  ]; then export TARGET_REF=${CHANGE_TARGET:-refs/heads/maste
 MAJOR_MINOR=$(jq -r .version ../lerna.json | cut -d '.' -f 1,2)
 REPO_VERSION=${MAJOR_MINOR}.${BUILD_NUMBER}
 
-sh ./lerna.sh --build
+sh ./lerna.sh --build=true
 
-sh ./lerna.sh --run-cmd \
+sh ./lerna.sh --run-cmd=\
 "lerna publish \
     --yes \
     --exact \
@@ -30,9 +30,9 @@ sh ./lerna.sh --run-cmd \
     --since $TARGET_REF \
     --repo-version=$REPO_VERSION"
 
-sh ./lerna.sh --script publish.sh --since ${TARGET_REF}
+sh ./lerna.sh --script=publish.sh --since=${TARGET_REF}
 
-sh ./lerna.sh --run-cmd \
+sh ./lerna.sh --run-cmd=\
 "lerna publish \
     --yes \
     --exact \

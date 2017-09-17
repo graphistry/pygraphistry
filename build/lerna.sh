@@ -5,28 +5,28 @@ cd $(dirname "$0")/../ > /dev/null
 
 LERNA_LS_COMMAND="lerna exec --loglevel=error"
 
-while [[ ${1} ]]; do
-    case "${1}" in
-    --build)
+for ARG in "$@"; do
+    case $ARG in
+    --build=*)
         SHOULD_BUILD_LERNA=1
         shift
         ;;
-    --run-cmd)
+    --run-cmd=*)
         SHOULD_RUN_LERNA_CMD=1
-        LERNA_CMD_TO_RUN="${2}"
-        shift; shift;
+        LERNA_CMD_TO_RUN="${ARG#*=}"
+        shift
         ;;
-    --script)
+    --script=*)
         SHOULD_RUN_SCRIPT=1
-        SCRIPT_TO_RUN="${2}"
-        shift; shift;
+        SCRIPT_TO_RUN="${ARG#*=}"
+        shift
         ;;
-    --since)
-        LERNA_LS_COMMAND="$LERNA_LS_COMMAND --since ${2}"
-        shift; shift;
+    --since=*)
+        LERNA_LS_COMMAND="$LERNA_LS_COMMAND --since ${ARG#*=}"
+        shift
         ;;
     *)
-        echo "Unknown argument ${1}"
+        echo "Unknown argument $ARG"
         exit 1
         ;;
     esac
@@ -64,5 +64,5 @@ do
         echo "no $PROJECT_SCRIPT found, skipping..."
         continue
     fi
-    CONTAINER_NAME="$GRAPHISTRY_NAMESPACE/$PROJECT" sh ${PROJECT_SCRIPT}
+    CONTAINER_NAME="$GRAPHISTRY_NAMESPACE/$PROJECT" ${PROJECT_SCRIPT}
 done
