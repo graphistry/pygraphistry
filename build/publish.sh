@@ -14,7 +14,6 @@ if [ -z $BUILD_NUMBER         ]; then export BUILD_NUMBER=$(jq -r .version ../le
 if [ -z $COMMIT_ID   ]; then export COMMIT_ID=$(git rev-parse --short HEAD); fi
 if [ -z $BRANCH_NAME ]; then export BRANCH_NAME=$(git name-rev --name-only HEAD); fi
 if [ -z $BUILD_TAG   ]; then export BUILD_TAG=${BUILD_TAG:-test}-${BUILD_NUMBER}; fi
-if [ -z $TARGET_REF  ]; then export TARGET_REF=${CHANGE_TARGET:-refs/heads/master}; fi
 
 MAJOR_MINOR=$(jq -r .version ../lerna.json | cut -d '.' -f 1,2)
 REPO_VERSION=${MAJOR_MINOR}.${BUILD_NUMBER}
