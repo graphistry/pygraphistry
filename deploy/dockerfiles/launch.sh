@@ -37,8 +37,9 @@ DB_BACKUP_DIRECTORY=${DB_BACKUP_DIRECTORY:-$PWD/../.pgbackup-$GRAPHISTRY_NETWORK
 PG_USER=${PG_USER:-graphistry}
 PG_PASS=${PG_PASS:-graphtheplanet}
 PG_BOX_NAME=${GRAPHISTRY_NETWORK}-pg
+PG_PORT=5432
 
-if (docker exec $PG_BOX_NAME psql -c "select 'database is up' as healthcheck" postgresql://${PG_USER}:${PG_PASS}@${PG_BOX_NAME}:5432) ; then
+if (docker exec $PG_BOX_NAME psql -c "select 'database is up' as healthcheck" postgresql://${PG_USER}:${PG_PASS}@${PG_BOX_NAME}:${PG_PORT}) ; then
   echo Keeping db.
 else
   echo Bringing up db.
@@ -75,7 +76,23 @@ MONGO_USERNAME=graphistry
 MONGO_PASSWORD=graphtheplanet
 docker exec $MONGO_BOX_NAME bash -c "mongo --eval '2+2' -u $MONGO_USERNAME -p $MONGO_PASSWORD localhost/$MONGO_NAME || (mongo --eval \"db.createUser({user: '$MONGO_USERNAME', pwd: '$MONGO_PASSWORD', roles: ['readWrite']})\" localhost/$MONGO_NAME && mongo --eval 'db.gpu_monitor.createIndex({updated: 1}, {expireAfterSeconds: 30})'  -u $MONGO_USERNAME -p $MONGO_PASSWORD localhost/$MONGO_NAME && mongo --eval 'db.node_monitor.createIndex({updated: 1}, {expireAfterSeconds: 30})' -u $MONGO_USERNAME -p $MONGO_PASSWORD localhost/$MONGO_NAME )"
 
-### 4. Stop app, make log directories, start app.
+### 4. User service
+USER_BOX_NAME=${GRAPHISTRY_NETWORK}-user-service
+docker rm -f -v $USER_BOX_NAME || true
+docker run \
+    --net $GRAPHISTRY_NETWORK \
+    --restart=unless-stopped \
+    --name $USER_BOX_NAME \
+    --link=${PG_BOX_NAME}:pg \
+    -e DBUSER=${PG_USER} \
+    -e DBPASSWORD=${PG_PASS} \
+    -e DBHOST=${PG_BOX_NAME} \
+    -e DBPORT=${PG_PORT} \
+    -e DBNAME=graphistry \
+    -e GRAPHISTRY_SECRET=${DB_BU_SECRET}
+
+
+### 5. Stop app, make log directories, start app.
 
 VIZAPP_BOX_NAME=${GRAPHISTRY_NETWORK}-viz
 
@@ -118,7 +135,7 @@ $RUNTIME run \
     -v ${PWD}/supervisor:/var/log/supervisor \
     graphistry/central-and-vizservers:$1${HTTPD_IMAGE_SUFFIX}
 
-### 4a. Start pivot-app.
+### 5a. Start pivot-app.
 
 PIVOTAPP_BOX_NAME=${GRAPHISTRY_NETWORK}-pivot
 
@@ -144,7 +161,7 @@ docker run -d \
     --network=$GRAPHISTRY_NETWORK \
     graphistry/pivot-app:$2
 
-### 5. Nginx, maybe with ssl.
+### 6. Nginx, maybe with ssl.
 
 NGINX_BOX_NAME=${GRAPHISTRY_NETWORK}-nginx
 NGINX_HTTP_PORT=${NGINX_HTTP_PORT:-80}
@@ -162,7 +179,7 @@ fi
 
 docker run --net $GRAPHISTRY_NETWORK -p $NGINX_HTTP_PORT:80 -p $NGINX_HTTPS_PORT:443 --link=${VIZAPP_BOX_NAME}:vizapp --link=${PIVOTAPP_BOX_NAME}:pivotapp --restart=unless-stopped --name $NGINX_BOX_NAME -d -v ${PWD}/nginx:/var/log/nginx $SSL_MOUNT graphistry/nginx-central-vizservers:1.4.0.32${NGINX_IMAGE_SUFFIX}
 
-### 6. Splunk.
+### 7. Splunk.
 
 SPLUNK_BOX_NAME=${GRAPHISTRY_NETWORK}-splunk
 

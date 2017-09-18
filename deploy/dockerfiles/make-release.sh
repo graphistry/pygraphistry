@@ -8,10 +8,11 @@ C5=mongo:2
 C6=postgres:9-alpine
 C7=graphistry/s3cmd-postgres:latest
 C8=graphistry/pivot-app:${PIVOT_VERSION}
+C9=graphistry/user-service:latest
 BUCKET=s3://graphistry-releases/
-for i in    $C1 $C2 $C3 $C4 $C4a $C5 $C6 $C7 $C8 ; do (docker rmi $i || true) ; docker pull $i ; done
-docker save $C1 $C2 $C3 $C4 $C4a $C5 $C6 $C7 $C8 | pigz -b500 > containers.lxc.gz
-for i in    $C1 $C2 $C3 $C4 $C4a $C5 $C6 $C7 $C8 ; do docker rmi $i ; done
+for i in    $C1 $C2 $C3 $C4 $C4a $C5 $C6 $C7 $C8 $C9 ; do (docker rmi $i || true) ; docker pull $i ; done
+docker save $C1 $C2 $C3 $C4 $C4a $C5 $C6 $C7 $C8 $C9 | pigz -b500 > containers.lxc.gz
+for i in    $C1 $C2 $C3 $C4 $C4a $C5 $C6 $C7 $C8 $C9 ; do docker rmi $i ; done
 sed -i -e 's_$1_'${VIZ_VERSION}'_' launch.sh
 sed -i -e 's_$2_'${PIVOT_VERSION}'_' launch.sh
 cp ../documentation/certs.txt .
