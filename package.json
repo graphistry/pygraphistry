@@ -1,10 +1,9 @@
 {
   "scripts": {
     "lerna": "lerna",
+    "test": "./build/test.sh",
     "build": "npm run bootstrap",
-    "bootstrap": "lerna bootstrap --concurrency=1",
-    "test": "cross-env NODE_ENV=production MOCHA_COLORS=true lerna run test --concurrency=1",
-    "compile": "cross-env NODE_ENV=production MOCHA_COLORS=true lerna run build --concurrency=1"
+    "bootstrap": "lerna bootstrap --concurrency=1"
   },
   "dependencies": {
     "cross-env": "5.0.5",
