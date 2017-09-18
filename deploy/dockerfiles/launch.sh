@@ -42,7 +42,7 @@ if (docker exec $PG_BOX_NAME psql -c "select 'database is up' as healthcheck" po
   echo Keeping db.
 else
   echo Bringing up db.
-  docker run -d --restart=unless-stopped --net none --name ${PG_BOX_NAME} -e POSTGRES_USER=${PG_USER} -e POSTGRESS_PASSWORD=${PG_PASS} postgres:9-alpine
+  docker run -d --restart=unless-stopped --net none --name ${PG_BOX_NAME} -e POSTGRES_USER=${PG_USER} -e POSTGRES_PASSWORD=${PG_PASS} postgres:9-alpine
   if [ -z $DB_RESTORE ] ; then
     echo Nothing to restore.
   else
