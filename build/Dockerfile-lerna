@@ -1,0 +1,11 @@
+FROM node:8.4.0-alpine
+
+RUN apk add --no-cache git
+
+ARG NAMESPACE=graphistry
+
+WORKDIR /${NAMESPACE}
+
+RUN npm i -g lerna
+
+CMD ["sh", "-c", "lerna exec --loglevel=error -- echo \${PWD##*/}"]
