@@ -4,10 +4,13 @@
 
 1. Install [Docker](https://www.docker.com/docker-mac)
 1. Install [`jq`](https://stedolan.github.io/jq/):
+
     ```sh
     brew install jq
     ```
+
 1. Clone the [wholly inoccuous files](https://github.com/graphistry/wholly-innocuous) repo and create a `WHOLLY_INOCCUOUS` environment variable:
+
     ```sh
     SHELL_PROFILE="$HOME/.bash_profile" &&
     INOCCUOUS_DIR="\$HOME/graphistry/wholly-innocuous" && \
@@ -17,6 +20,17 @@
         echo "export WHOLLY_INOCCUOUS=\"$INOCCUOUS_DIR\"" \
             >> $SHELL_PROFILE && source $SHELL_PROFILE
     ```
+
+## Run the tests (uses Docker)
+
+From the project root:
+
+```sh
+npm test
+# alternatively
+./build/test.sh
+```
+
 
 ## How to import existing git repositories into this repo
 We have a script to fetch, rewrite, and merge the commit history of existing repositories.
