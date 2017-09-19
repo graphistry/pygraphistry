@@ -89,7 +89,6 @@ docker run \
     -e DBHOST=${PG_BOX_NAME} \
     -e DBPORT=${PG_PORT} \
     -e DBNAME=graphistry \
-    -e GRAPHISTRY_SECRET=${DB_BU_SECRET} \
     graphistry/user-service:$1
 
 
