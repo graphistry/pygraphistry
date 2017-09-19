@@ -119,6 +119,7 @@ $RUNTIME run \
     --name $VIZAPP_BOX_NAME \
     --link=${PG_BOX_NAME}:pg \
     --link=${MONGO_BOX_NAME}:mongo  \
+    --link=${USER_BOX_NAME}:user-service \
     -e "GRAPHISTRY_CENTRAL_CONFIG=${CENTRAL_MERGED_CONFIG}" \
     -e "GRAPHISTRY_VIZWORKER_CONFIG=${VIZWORKER_MERGED_CONFIG}" \
     -d \
