@@ -118,8 +118,7 @@ $RUNTIME run \
     --restart=unless-stopped \
     --name $VIZAPP_BOX_NAME \
     --link=${PG_BOX_NAME}:pg \
-    --link=${MONGO_BOX_NAME}:mongo  \
-    --link=${USER_BOX_NAME}:user-service \
+    --link=${MONGO_BOX_NAME}:mongo \
     -e "GRAPHISTRY_CENTRAL_CONFIG=${CENTRAL_MERGED_CONFIG}" \
     -e "GRAPHISTRY_VIZWORKER_CONFIG=${VIZWORKER_MERGED_CONFIG}" \
     -d \
@@ -143,7 +142,7 @@ PIVOTAPP_BOX_NAME=${GRAPHISTRY_NETWORK}-pivot
 docker rm -f -v $PIVOTAPP_BOX_NAME || true
 
 mkdir -p pivot-app
-echo "${PIVOT_APP_CONFIG:-"{}"}" > ./pivot-config.json
+echo "${PIVOT_APP_CONFIG:-{}}" > ./pivot-config.json
 [[ -d ../pivot-config.json ]] && rm -rf ../pivot-config.json
 stat ../pivot-config.json || (echo '{}' > ../pivot-config.json)
 PIVOT_LOG_LEVEL=${PIVOT_LOG_LEVEL:-debug}
@@ -178,7 +177,7 @@ else
     NGINX_IMAGE_SUFFIX=".httponly"
 fi
 
-docker run --net $GRAPHISTRY_NETWORK -p $NGINX_HTTP_PORT:80 -p $NGINX_HTTPS_PORT:443 --link=${VIZAPP_BOX_NAME}:vizapp --link=${PIVOTAPP_BOX_NAME}:pivotapp --restart=unless-stopped --name $NGINX_BOX_NAME -d -v ${PWD}/nginx:/var/log/nginx $SSL_MOUNT graphistry/nginx-central-vizservers:1.4.0.32${NGINX_IMAGE_SUFFIX}
+docker run --net $GRAPHISTRY_NETWORK -p $NGINX_HTTP_PORT:80 -p $NGINX_HTTPS_PORT:443 --link=${VIZAPP_BOX_NAME}:vizapp --link=${PIVOTAPP_BOX_NAME}:pivotapp --link=${USER_BOX_NAME}:user-service --restart=unless-stopped --name $NGINX_BOX_NAME -d -v ${PWD}/nginx:/var/log/nginx $SSL_MOUNT graphistry/nginx-central-vizservers:1.4.0.32${NGINX_IMAGE_SUFFIX}
 
 ### 7. Splunk.
 
