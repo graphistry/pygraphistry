@@ -73,7 +73,7 @@ GRAPHISTRY_APP_CONFIG='{"API":{"CANARY":"123","SECRET":"456"}}' ./launch.sh
 
 An API key, created for a user-identifying string (often in practice an email address), is that string, salted with a global salt, and then encrypted with a global password. The salt is `.API.CANARY`, and the password is `.API.SECRET`.
 
-To avoid setting JSON configuration in the environment every time, write it to the file `httpd-config.json` in the parent directory of the release (so `echo '{"API:{"CANARY":"123","SECRET":"456"}}' > ../httpd-config.json`, for example).
+To avoid setting JSON configuration in the environment every time, write it to the file `httpd-config.json` in the parent directory of the release (so `echo '{"API":{"CANARY":"123","SECRET":"456"}}' > ../httpd-config.json`, for example).
 
 ## 5 Start The Graphistry Services
 Once the containers are loaded and a new password has been written to config on disk, the app can be started (or restarted) with
