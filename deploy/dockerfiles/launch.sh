@@ -77,20 +77,20 @@ MONGO_PASSWORD=graphtheplanet
 docker exec $MONGO_BOX_NAME bash -c "mongo --eval '2+2' -u $MONGO_USERNAME -p $MONGO_PASSWORD localhost/$MONGO_NAME || (mongo --eval \"db.createUser({user: '$MONGO_USERNAME', pwd: '$MONGO_PASSWORD', roles: ['readWrite']})\" localhost/$MONGO_NAME && mongo --eval 'db.gpu_monitor.createIndex({updated: 1}, {expireAfterSeconds: 30})'  -u $MONGO_USERNAME -p $MONGO_PASSWORD localhost/$MONGO_NAME && mongo --eval 'db.node_monitor.createIndex({updated: 1}, {expireAfterSeconds: 30})' -u $MONGO_USERNAME -p $MONGO_PASSWORD localhost/$MONGO_NAME )"
 
 ### 4. User service
-USER_BOX_NAME=${GRAPHISTRY_NETWORK}-user-service
-docker rm -f -v $USER_BOX_NAME || true
-docker run \
+USER_SERVICE_BOX_NAME=${GRAPHISTRY_NETWORK}-user-service
+docker rm -f -v $USER_SERVICE_BOX_NAME || true
+docker run
     --net $GRAPHISTRY_NETWORK \
     --restart=unless-stopped \
-    --name $USER_BOX_NAME \
+    --name $USER_SERVICE_BOX_NAME \
     --link=${PG_BOX_NAME}:pg \
+    -d \
     -e DBUSER=${PG_USER} \
     -e DBPASSWORD=${PG_PASS} \
     -e DBHOST=${PG_BOX_NAME} \
     -e DBPORT=${PG_PORT} \
     -e DBNAME=graphistry \
     graphistry/user-service:$1
-
 
 ### 5. Stop app, make log directories, start app.
 
@@ -177,7 +177,18 @@ else
     NGINX_IMAGE_SUFFIX=".httponly"
 fi
 
-docker run --net $GRAPHISTRY_NETWORK -p $NGINX_HTTP_PORT:80 -p $NGINX_HTTPS_PORT:443 --link=${VIZAPP_BOX_NAME}:vizapp --link=${PIVOTAPP_BOX_NAME}:pivotapp --link=${USER_BOX_NAME}:user-service --restart=unless-stopped --name $NGINX_BOX_NAME -d -v ${PWD}/nginx:/var/log/nginx $SSL_MOUNT graphistry/nginx-central-vizservers:1.4.0.32${NGINX_IMAGE_SUFFIX}
+docker run \
+    --net $GRAPHISTRY_NETWORK \
+    --restart=unless-stopped \
+    --name $NGINX_BOX_NAME \
+    -d \
+    -p $NGINX_HTTP_PORT:80 \
+    -p $NGINX_HTTPS_PORT:443 \
+    --link=${VIZAPP_BOX_NAME}:vizapp \
+    --link=${PIVOTAPP_BOX_NAME}:pivotapp \
+    --link=${USER_SERVICE_BOX_NAME}:user-service \
+    -v ${PWD}/nginx:/var/log/nginx $SSL_MOUNT \
+    graphistry/nginx-central-vizservers:1.4.0.32${NGINX_IMAGE_SUFFIX}
 
 ### 7. Splunk.
 
