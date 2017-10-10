@@ -3,10 +3,12 @@
     "lerna": "lerna",
     "test": "./build/test.sh",
     "build": "npm run bootstrap",
-    "bootstrap": "lerna bootstrap --concurrency=1"
+    "bootstrap": "lerna bootstrap --concurrency=1",
+    "format": "prettier --config .prettierrc --write '{,!(node_modules)/}**/*.{js,json,less,css}'"
   },
   "dependencies": {
     "cross-env": "5.0.5",
-    "lerna": "2.1.2"
+    "lerna": "2.1.2",
+    "prettier": "^1.7.4"
   }
 }
