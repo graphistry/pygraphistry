@@ -4,7 +4,8 @@
     "test": "./build/test.sh",
     "build": "npm run bootstrap",
     "bootstrap": "lerna bootstrap --concurrency=1",
-    "format": "./node_modules/.bin/prettier --config .prettierrc --write './**/*.{js,json,less,css}'"
+    "format":
+      "./node_modules/.bin/prettier --config .prettierrc --write '{,!(node_modules)/}**/*.{js,json,less,css}'"
   },
   "dependencies": {
     "cross-env": "5.0.5",
