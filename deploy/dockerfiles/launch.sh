@@ -48,7 +48,13 @@ else
     echo Nothing to restore.
   else
     echo Restoring db with the contents of ${DB_RESTORE}.
-    for i in {1..100} ; do docker exec $PG_BOX_NAME psql -U${PG_USER} -c "select 'database is up' as healthcheck" || sleep 5 ; done
+    for i in {1..100} ; do
+        if [[ $(docker exec $PG_BOX_NAME psql -U${PG_USER} -c "select 'database is up' as healthcheck") ]]; then
+            break
+        else
+            sleep 5
+        fi
+    done
     gzip -cd ${DB_RESTORE} | docker exec -i $PG_BOX_NAME psql -U${PG_USER}
   fi
   docker network disconnect none $PG_BOX_NAME
@@ -70,7 +76,7 @@ MONGO_BOX_NAME=${GRAPHISTRY_NETWORK}-mongo
 docker rm -f -v $MONGO_BOX_NAME || true
 docker run --net $GRAPHISTRY_NETWORK --restart=unless-stopped --name $MONGO_BOX_NAME -d mongo:2
 
-for i in {1..50} ; do echo $i; docker exec $MONGO_BOX_NAME mongo --eval "2+2" || sleep $i ; done
+for i in {1..50} ; do echo $i; docker exec $MONGO_BOX_NAME mongo --eval "2+2" || sleep $i; done
 MONGO_NAME=cluster
 MONGO_USERNAME=graphistry
 MONGO_PASSWORD=graphtheplanet
@@ -79,7 +85,7 @@ docker exec $MONGO_BOX_NAME bash -c "mongo --eval '2+2' -u $MONGO_USERNAME -p $M
 ### 4. User service
 USER_SERVICE_BOX_NAME=${GRAPHISTRY_NETWORK}-user-service
 docker rm -f -v $USER_SERVICE_BOX_NAME || true
-docker run
+docker run \
     --net $GRAPHISTRY_NETWORK \
     --restart=unless-stopped \
     --name $USER_SERVICE_BOX_NAME \
