@@ -4,9 +4,7 @@
     "test": "./build/test.sh",
     "build": "npm run bootstrap",
     "bootstrap": "lerna bootstrap --concurrency=1",
-    "format":
-      "prettier --config .prettierrc --write '{,!(node_modules)/}**/*.{js,json,less,css}'",
-    "commit": "commit-wizard"
+    "format": "prettier --config .prettierrc --write '{,!(node_modules)/}**/*.{js,json,less,css}'"
   },
   "dependencies": {
     "cross-env": "5.0.5",
@@ -19,8 +17,6 @@
   },
   "config": {
     "pre-git": {
-      "enabled": true,
-      "commit-msg": "simple",
       "pre-commit": [],
       "pre-push": ["npm run format"],
       "post-commit": [],
