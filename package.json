@@ -18,9 +18,14 @@
   "config": {
     "pre-git": {
       "pre-commit": [],
-      "pre-push": ["npm run format"],
+      "pre-push": [
+        "npm run format"
+      ],
       "post-commit": [],
-      "post-checkout": ["npm install", "npm run bootstrap"],
+      "post-checkout": [
+        "npm install",
+        "npm run bootstrap"
+      ],
       "post-merge": []
     }
   }
