@@ -20,7 +20,7 @@
       "pre-commit": [],
       "pre-push": ["npm run format"],
       "post-commit": [],
-      "post-checkout": ["npm install", "npm run bootstrap"],
+      "post-checkout": [],
       "post-merge": []
     }
   }
