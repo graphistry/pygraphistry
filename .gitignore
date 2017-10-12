@@ -4,6 +4,7 @@ config.json
 npm-debug.log
 package-lock.json
 lerna-debug.log
+package-lock.json
 .happypack
 coverage
 test-results
