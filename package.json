@@ -9,6 +9,19 @@
   "dependencies": {
     "cross-env": "5.0.5",
     "lerna": "2.1.2",
+    "pre-git": "^3.15.3",
     "prettier": "^1.7.4"
+  },
+  "release": {
+    "analyzeCommits": "simple-commit-message"
+  },
+  "config": {
+    "pre-git": {
+      "pre-commit": [],
+      "pre-push": ["npm run format"],
+      "post-commit": [],
+      "post-checkout": [],
+      "post-merge": []
+    }
   }
 }
