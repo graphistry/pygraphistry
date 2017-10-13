@@ -2,6 +2,7 @@
   "lerna": "2.1.2",
   "packages": [
     "packages/*",
+    "packages/lib/*",
     "packages/legacy/*"
   ],
   "version": "2.12.0"
