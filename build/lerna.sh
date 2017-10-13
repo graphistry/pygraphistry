@@ -3,6 +3,8 @@
 # silently cd into the project's root directory
 cd $(dirname "$0")/../ > /dev/null
 
+if [ -z $GRAPHISTRY_NAMESPACE ]; then export GRAPHISTRY_NAMESPACE=graphistry; fi
+
 LERNA_LS_COMMAND="lerna exec --loglevel=error"
 
 for ARG in "$@"; do
@@ -36,8 +38,8 @@ done
 PROJECTS=packages
 # The lerna container name
 LERNA_CONTAINER="$GRAPHISTRY_NAMESPACE/lerna"
-# The lerna command to list project names
-LERNA_LS_COMMAND="$LERNA_LS_COMMAND -- echo \${PWD##*/}"
+# The lerna command to list project folders under the $PROJECTS dir, e.g. viz-app, legacy/config, etc.
+LERNA_LS_COMMAND="$LERNA_LS_COMMAND -- echo \${PWD##*/$PROJECTS/}"
 
 if [ $SHOULD_BUILD_LERNA ]; then
     docker build \
@@ -54,15 +56,19 @@ fi
 
 if [ ! $SHOULD_RUN_SCRIPT ]; then exit 0; fi
 
-for PROJECT in $(docker run --rm \
+PROJECT_DIRS=$(docker run --rm \
     -v "${PWD}":/${GRAPHISTRY_NAMESPACE} \
     ${LERNA_CONTAINER} ${LERNA_LS_COMMAND})
+
+echo Attempting to execute $SCRIPT_TO_RUN in [ $PROJECT_DIRS ]
+
+for PROJECT_DIR in $PROJECT_DIRS
 do
-    PROJECT_BUILD_DIR="$PROJECTS/$PROJECT/build"
+    PROJECT_BUILD_DIR="$PROJECTS/$PROJECT_DIR/build"
     PROJECT_SCRIPT="$PROJECT_BUILD_DIR/$SCRIPT_TO_RUN"
     if [ ! -f "$PROJECT_SCRIPT" ]; then
         echo "no $PROJECT_SCRIPT found, skipping..."
         continue
     fi
-    CONTAINER_NAME="$GRAPHISTRY_NAMESPACE/$PROJECT" ${PROJECT_SCRIPT}
+    CONTAINER_NAME="$GRAPHISTRY_NAMESPACE/$PROJECT_DIR" ${PROJECT_SCRIPT}
 done
