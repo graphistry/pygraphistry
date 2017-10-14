@@ -9,16 +9,10 @@ export NODE_ENV=production
 MAJOR_MINOR=$(jq -r .version ../lerna.json | cut -d '.' -f 1,2)
 REPO_VERSION=${MAJOR_MINOR}.${BUILD_NUMBER}
 
-sh ./lerna.sh --build=true
-
-sh ./lerna.sh --run-cmd=\
-"lerna publish \
-    --yes \
-    --exact \
-    --skip-git \
-    --skip-npm \
-    --repo-version=$REPO_VERSION"
-
-sh ./lerna.sh --script=publish.sh
+./lerna.sh \
+    --run-script=publish.sh \
+    --run-cmd="lerna publish --yes --exact \
+                             --skip-git --skip-npm \
+                             --repo-version=$REPO_VERSION"
 
 echo "publish finished"

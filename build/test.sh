@@ -10,7 +10,7 @@ export NODE_ENV=test
 docker network inspect ${GRAPHISTRY_NETWORK} ||
     docker network create ${GRAPHISTRY_NETWORK}
 
-./lerna.sh --build=true --script=test.sh
+./lerna.sh --run-script=test.sh
 
 docker network rm ${GRAPHISTRY_NETWORK}
 
