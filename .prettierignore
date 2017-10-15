@@ -1,3 +1,4 @@
 packages/docs
+**/test/appdata
 **/node_modules
 **/www
