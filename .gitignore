@@ -13,12 +13,12 @@ dist
 tmp
 www
 test_results
-.npmrc
+RELEASE
+artifact.tar
 packages/viz-app/config/z-*
 packages/viz-app/config/graphistryInternal.json
 packages/viz-app/package-lock.json
 packages/viz-app/yarn.lock
-packages/*/build/artifact.tar
 
 .vscode
 .cache-loader
