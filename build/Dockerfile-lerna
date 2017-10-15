@@ -8,4 +8,4 @@ WORKDIR /${NAMESPACE}
 
 RUN npm i -g lerna
 
-CMD ["sh", "-c", "lerna exec --loglevel=error -- echo \${PWD##*/}"]
+CMD ["npx", "lerna", "exec", "--loglevel=error", "--", "echo", "\${PWD##*/}"]

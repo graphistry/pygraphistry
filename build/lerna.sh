@@ -49,7 +49,7 @@ if [[ ! $SHOULD_RUN_LERNA_CMD && ! $SHOULD_RUN_SCRIPT ]]; then
     exit 0
 fi
 
-trap "rv=\$?; docker rm -f lerna || true; exit \$rv" ERR EXIT
+trap "rv=\$?; docker rm -f lerna || true; exit \$rv" EXIT
 
 docker rm -f lerna > /dev/null || true
 docker run -i -d --name lerna -v "${PWD}":/${G_NS} ${LERNA_CONTAINER} sh
