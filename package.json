@@ -1,27 +1,26 @@
 {
     "scripts": {
-        "lerna": "lerna",
         "test": "./build/test.sh",
-        "build": "npm run bootstrap",
-        "bootstrap": "lerna bootstrap --concurrency=1",
-        "format": "prettier --config .prettierrc --write '**/*.{js,json,less,css,ts}'"
+        "build": "./build/lerna.sh --run-script=build.sh",
+        "postinstall": "lerna bootstrap --skip-git-check",
+        "format": "prettier --config .prettierrc --write '**/*.{js,json,less,css,ts}'",
+        "prepublishOnly": "echo \"please don't run 'npm publish' in here thanks\" && exit 1"
     },
     "lint-staged": {
         "*.{js,json,less,css,ts}": ["prettier --config .prettierrc --write", "git add"]
     },
     "dependencies": {
-        "cross-env": "5.0.5",
         "lerna": "2.1.2",
-        "lint-staged": "^4.2.3",
-        "pre-git": "^3.15.3",
-        "prettier": "^1.7.4"
+        "lint-staged": "4.2.3",
+        "pre-git": "3.15.3",
+        "prettier": "1.7.4"
     },
     "release": {
         "analyzeCommits": "simple-commit-message"
     },
     "config": {
         "pre-git": {
-            "pre-commit": ["lint-staged"],
+            "pre-commit": ["npx lint-staged"],
             "pre-push": [],
             "post-commit": [],
             "post-checkout": [],

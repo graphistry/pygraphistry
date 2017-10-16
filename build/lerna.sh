@@ -3,7 +3,8 @@
 # silently cd into the project's root directory
 cd $(dirname "$0")/../ > /dev/null
 
-if [ -z $GRAPHISTRY_NAMESPACE ]; then export GRAPHISTRY_NAMESPACE=graphistry; fi
+# init build environment variables or defaults
+source ./build/env.sh
 
 LERNA_LS_COMMAND="lerna exec --loglevel=error"
 
@@ -18,7 +19,7 @@ for ARG in "$@"; do
         LERNA_CMD_TO_RUN="${ARG#*=}"
         shift
         ;;
-    --script=*)
+    --run-script=*)
         SHOULD_RUN_SCRIPT=1
         SCRIPT_TO_RUN="${ARG#*=}"
         shift
@@ -34,41 +35,46 @@ for ARG in "$@"; do
     esac
 done
 
-# Path of the lerna "packages" folder, relative to the project root
-PROJECTS=packages
+# graphistry dockerhub account/container namespace ("graphistry")
+G_NS="$GRAPHISTRY_NAMESPACE"
 # The lerna container name
-LERNA_CONTAINER="$GRAPHISTRY_NAMESPACE/lerna"
-# The lerna command to list project folders under the $PROJECTS dir, e.g. viz-app, legacy/config, etc.
-LERNA_LS_COMMAND="$LERNA_LS_COMMAND -- echo \${PWD##*/$PROJECTS/}"
+LERNA_CONTAINER="$G_NS/lerna"
 
-if [ $SHOULD_BUILD_LERNA ]; then
-    docker build \
-        -f build/Dockerfile-lerna \
-        --build-arg NAMESPACE=${GRAPHISTRY_NAMESPACE} \
-        -t ${LERNA_CONTAINER} .
+docker build \
+    -f build/Dockerfile-lerna \
+    --build-arg NAMESPACE=${G_NS} \
+    -t ${LERNA_CONTAINER} .
+
+if [[ ! $SHOULD_RUN_LERNA_CMD && ! $SHOULD_RUN_SCRIPT ]]; then
+    exit 0
 fi
+
+trap "rv=\$?; docker rm -f lerna || true; exit \$rv" EXIT
+
+docker rm -f lerna > /dev/null || true
+docker run -i -d --name lerna -v "${PWD}":/${G_NS} ${LERNA_CONTAINER} sh
 
 if [ $SHOULD_RUN_LERNA_CMD ]; then
-    docker run --rm \
-        -v "${PWD}":/${GRAPHISTRY_NAMESPACE} \
-        ${LERNA_CONTAINER} ${LERNA_CMD_TO_RUN}
+    docker exec -t lerna sh -c "$LERNA_CMD_TO_RUN"
 fi
 
-if [ ! $SHOULD_RUN_SCRIPT ]; then exit 0; fi
-
-PROJECT_DIRS=$(docker run --rm \
-    -v "${PWD}":/${GRAPHISTRY_NAMESPACE} \
-    ${LERNA_CONTAINER} ${LERNA_LS_COMMAND})
-
-echo Attempting to execute $SCRIPT_TO_RUN in [ $PROJECT_DIRS ]
-
-for PROJECT_DIR in $PROJECT_DIRS
-do
-    PROJECT_BUILD_DIR="$PROJECTS/$PROJECT_DIR/build"
-    PROJECT_SCRIPT="$PROJECT_BUILD_DIR/$SCRIPT_TO_RUN"
-    if [ ! -f "$PROJECT_SCRIPT" ]; then
-        echo "no $PROJECT_SCRIPT found, skipping..."
-        continue
-    fi
-    CONTAINER_NAME="$GRAPHISTRY_NAMESPACE/$PROJECT_DIR" ${PROJECT_SCRIPT}
-done
+if [ $SHOULD_RUN_SCRIPT ]; then
+    # get module package paths e.g. packages/viz-app, packages/legacy/config, etc.
+    PACKAGE_PATHS=($(docker exec -t lerna $LERNA_LS_COMMAND -- echo \${PWD##*/$G_NS/} | tr -d '\r'))
+    # get module package names e.g. @graphistry/viz-app, @graphistry/config, etc.
+    PACKAGE_NAMES=($(docker exec -t lerna $LERNA_LS_COMMAND -- echo \$LERNA_PACKAGE_NAME | tr -d '\r'))
+    for ((i=0; $i<${#PACKAGE_PATHS[*]}; i++)); do
+        PACKAGE_PATH="${PACKAGE_PATHS[i]}"
+        PACKAGE_NAME="${PACKAGE_NAMES[i]}"
+        if [ ! -f "$PACKAGE_PATH/build/$SCRIPT_TO_RUN" ]; then
+            continue
+        fi
+        # strip the package scope prefix and trailing slash from the
+        # package name (e.g. "@graphistry/") to construct CONTAINER_NAME
+        ROOT_PATH="$PWD" \
+        PACKAGE_PATH="$PACKAGE_PATH" \
+        PACKAGE_NAME="$PACKAGE_NAME" \
+        CONTAINER_NAME="$G_NS/${PACKAGE_NAME##*@*/}" \
+            ./"$PACKAGE_PATH/build/$SCRIPT_TO_RUN"
+    done
+fi
