@@ -51,7 +51,7 @@ fi
 
 trap "rv=\$?; docker rm -f lerna || true; exit \$rv" EXIT
 
-docker rm -f lerna > /dev/null || true
+docker rm -f lerna || true
 docker run -i -d --name lerna -v "${PWD}":/${G_NS} ${LERNA_CONTAINER} sh
 
 if [ $SHOULD_RUN_LERNA_CMD ]; then
