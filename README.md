@@ -67,6 +67,8 @@ It supports unusually large graphs for interactive visualization. The client's c
      graphistry.bind(source='src', destination='dst', node='nodeid').plot(graph)
      ```
 
+     ([Notebook demo](demos/more/networkx/networkx.ipynb))
+
 - **Great for Events, CSVs, and more:** Not sure if your data is graph-friendly? PyGraphistry's `hypergraph` transform helps turn any sample data like CSVs, SQL results, and event data into a graph for pattern analysis:
 
      ```python
