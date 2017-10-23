@@ -4,7 +4,10 @@
         "build": "./build/lerna.sh --run-script=build.sh",
         "postinstall": "lerna bootstrap --skip-git-check",
         "format": "prettier --config .prettierrc --write '**/*.{js,json,less,css,ts}'",
-        "prepublishOnly": "echo \"please don't run 'npm publish' in here thanks\" && exit 1"
+        "prepublishOnly": "echo \"please don't run 'npm publish' in here thanks\" && exit 1",
+        "local:build_server": "./deploy/tools/build_server.sh",
+        "local:stop": "docker stop $(docker ps -q) && docker rm -v $(docker ps -aq)",
+        "local:start": "NV_GPU=-1 ./deploy/dockerfiles/launch.sh latest latest"
     },
     "lint-staged": {
         "*.{js,json,less,css,ts}": ["prettier --config .prettierrc --write", "git add"]
