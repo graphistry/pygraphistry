@@ -10,10 +10,7 @@
         "local:start": "NV_GPU=-1 ./deploy/dockerfiles/launch.sh latest latest"
     },
     "lint-staged": {
-        "*.{js,json,less,css,ts}": [
-            "prettier --config .prettierrc --write",
-            "git add"
-        ]
+        "*.{js,json,less,css,ts}": ["prettier --config .prettierrc --write", "git add"]
     },
     "dependencies": {
         "lerna": "2.1.2",
@@ -26,9 +23,7 @@
     },
     "config": {
         "pre-git": {
-            "pre-commit": [
-                "npx lint-staged"
-            ],
+            "pre-commit": ["npx lint-staged"],
             "pre-push": [],
             "post-commit": [],
             "post-checkout": [],
