@@ -7,7 +7,8 @@
         "prepublishOnly": "echo \"please don't run 'npm publish' in here thanks\" && exit 1",
         "local:build_server": "./deploy/tools/build_server.sh",
         "local:stop": "docker stop $(docker ps -q) && docker rm -v $(docker ps -aq)",
-        "local:start": "NV_GPU=-1 ./deploy/dockerfiles/launch.sh latest latest"
+        "local:start": "cd ./deploy/dockerfiles && NV_GPU=-1 ./launch.sh latest latest",
+        "local:clean": "cd ./deploy && rm -rf .pgbackup-monolith-network dockerfiles/central-app dockerfiles/data_cache dockerfiles/graphistry-json dockerfiles/pivot-app dockerfiles/reaper dockerfiles/supervisor dockerfiles/worker dockerfiles/nginx/access.log dockerfiles/nginx/error.log dockerfiles/httpd-config.json dockerfiles/pivot-config.json dockerfiles/viz-app-config.json httpd-config.json pivot-config.json viz-app-config.json"
     },
     "lint-staged": {
         "*.{js,less,css,ts}": [
