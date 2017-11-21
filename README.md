@@ -75,9 +75,11 @@ Caution: If you deploy a branch, staging will be on that branch for everyone els
             >> $SHELL_PROFILE && source $SHELL_PROFILE
     ```
 
+1. Log into Graphistry Docker account: see wholly inoccuous
+
 ## Build
 
-Mysteries!
+```npm run build```
 
 ## Run
 
