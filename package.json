@@ -27,6 +27,7 @@
     },
     "config": {
         "pre-git": {
+            "allow-untracked-files": true,
             "pre-commit": [
                 "npx lint-staged"
             ],
