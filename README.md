@@ -133,7 +133,7 @@ If you do not already have Jupyter Notebook, you can quickly start via our prebu
 ##### IPython (Jupyter) Notebook Integration
 
 ### API Key
-An API key gives each visualization access to our GPU cluster. We currently ask for API keys to make sure our servers are not melting :) To get your own, email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com). Set your key after the `import graphistry` statement and you are good to go:
+An API key gives each visualization access to our GPU cluster. We currently ask for API keys to make sure our servers are not melting :) You can [sign up for free access here](http://www.graphistry.com/api-request). Set your key after the `import graphistry` statement and you are good to go:
 
 ```python
 import graphistry
@@ -210,7 +210,7 @@ plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 
 ## Next Steps
 
-1. Email [pygraphistry@graphistry.com](mailto:pygraphistry@graphistry.com) for an API key!
+1. [Sign up](http://www.graphistry.com/api-request) for a free API key!
 2. Read our advanced tutorials:
 	-  [Creating a node table + controlling sizes and colors (HoneyPot)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%201%20(Honey%20Pot).html)
 	-  [Aggregating edges and creating multiple views of the same data (Apache Logs)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%202%20(Apache%20Logs).html)
