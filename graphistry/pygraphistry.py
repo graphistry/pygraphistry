@@ -373,7 +373,7 @@ class PyGraphistry(object):
         if jres['success'] is not True:
             raise ValueError('Server reported error:', jres['msg'])
         else:
-            return {'name': jres['dataset'], 'viztoken': jres['viztoken'], 'type': 'vgraph'}
+            return {'name': jres['dataset'], 'viztoken': jres['viztoken'], 'type': 'vgraph', 'edges': jres['edges'], 'labels': jres['labels']}
 
 
     @staticmethod
