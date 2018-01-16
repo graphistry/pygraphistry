@@ -1,0 +1,4 @@
+git@github.com:debitoor/heroku-buildpack-npmrc.git
+git@github.com:graphistry/deis-buildpack-rebase-build-dir.git
+https://github.com/heroku/heroku-buildpack-nodejs.git
+git@github.com:chrismytton/heroku-buildpack-jq.git
