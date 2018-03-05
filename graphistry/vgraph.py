@@ -5,7 +5,6 @@ from builtins import zip
 from builtins import next
 from builtins import str
 
-import sys
 import random
 import numpy
 import pandas
@@ -174,12 +173,8 @@ def numericEncoder(vg, series, dtype):
         rep_type = dtype
 
     vec = typemap[rep_type.name].add()
-    if sys.version_info < (3,):
-        for val in series:
-            vec.values.append(val)
-    else:
-        for val in series:
-            vec.values.append(val.item()) # Cast to Python native int? Loss of precision?
+    for val in series:
+        vec.values.append(val)
 
     variance = series.var()
     stddev = series.std()
@@ -198,7 +193,7 @@ def numericEncoder(vg, series, dtype):
 def boolEncoder(vg, series, dtype):
     vec = vg.bool_vectors.add()
     for val in series:
-        vec.values.append(val.item())
+        vec.values.append(True if val else False)
     return (vec, {
         'ctype': 'bool'
     })
@@ -206,10 +201,9 @@ def boolEncoder(vg, series, dtype):
 
 def datetimeEncoder(vg, series, dtype):
     vec = vg.int32_vectors.add()
-    util.warn('Casting dates to UNIX epoch (resolution of 1 second)')
     series32 = series.astype('int64').map(lambda x: x / 1e9).astype(numpy.int32)
     for val in series32:
-        vec.values.append(val.item())
+        vec.values.append(val)
 
     info = {
         'ctype': 'datetime32[s]',

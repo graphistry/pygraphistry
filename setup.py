@@ -44,15 +44,16 @@ setup(
     download_url= 'https://pypi.python.org/pypi/graphistry/',
     author='The Graphistry Team',
     author_email='pygraphistry@graphistry.com',
-    setup_requires=['numpy'],
+    setup_requires=['numpy', 'pytest-runner'],
     install_requires=['numpy', 'pandas >= 0.17.0', 'requests', 'future >= 0.15.0', 'protobuf >= 2.6.0'],
     extras_require={
         'igraph': ['python-igraph'],
         'networkx': ['networkx'],
-        'pandas-extra': ['numexpr', 'Bottleneck'],
-        'all': ['python-igraph', 'networkx', 'numexpr', 'Bottleneck', 'colorlover']
+        'all': ['python-igraph', 'networkx', 'colorlover']
     },
-    test_suite = 'nose.collector',
+    tests_require=        
+        ['pytest', 'mock', 'ipython', 
+        'python-igraph', 'networkx', 'colorlover'],
     cmdclass=versioneer.get_cmdclass(),
     license='BSD',
     classifiers=[

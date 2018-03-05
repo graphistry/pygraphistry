@@ -360,9 +360,7 @@ class Plotter(object):
         import igraph
         self._check_mandatory_bindings(False)
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
-        if self._node is None:
-            util.warn('"node" is unbound, automatically binding it to "%s".' % Plotter._defaultNodeId)
-
+        
         self._node = self._node or Plotter._defaultNodeId
         eattribs = edges.columns.values.tolist()
         eattribs.remove(self._source)
@@ -401,7 +399,6 @@ class Plotter(object):
 
         self._check_mandatory_bindings(False)
         if self._node is None:
-            util.warn('"node" is unbound, automatically binding it to "%s".' % Plotter._defaultNodeId)
             ig.vs[Plotter._defaultNodeId] = [v.index for v in ig.vs]
             self._node = Plotter._defaultNodeId
         elif self._node not in ig.vs.attributes():
@@ -415,7 +412,21 @@ class Plotter(object):
         return (edges, nodes)
 
 
+    def networkx_checkoverlap(self, g):
+
+        import networkx as nx
+        [x, y] = [int(x) for x in nx.__version__.split('.')]
+
+        vattribs = None
+        if x == 1:
+            vattribs = g.nodes(data=True)[0][1] if g.number_of_nodes() > 0 else []
+        else:
+            vattribs = g.nodes(data=True) if g.number_of_nodes() > 0 else []
+        if not (self._node is None) and self._node in vattribs:
+            util.error('Vertex attribute "%s" already exists.' % self._node)
+
     def networkx2pandas(self, g):
+
         def get_nodelist(g):
             for n in g.nodes(data=True):
                 yield dict({self._node: n[0]}, **n[1])
@@ -424,12 +435,8 @@ class Plotter(object):
                 yield dict({self._source: e[0], self._destination: e[1]}, **e[2])
 
         self._check_mandatory_bindings(False)
-        vattribs = g.nodes(data=True)[0][1] if g.number_of_nodes() > 0 else []
-        if self._node is None:
-            util.warn('"node" is unbound, automatically binding it to "%s".' % Plotter._defaultNodeId)
-        elif self._node in vattribs:
-            util.error('Vertex attribute "%s" already exists.' % self._node)
-
+        self.networkx_checkoverlap(g)
+        
         self._node = self._node or Plotter._defaultNodeId
         nodes = pandas.DataFrame(get_nodelist(g))
         edges = pandas.DataFrame(get_edgelist(g))

@@ -83,7 +83,7 @@ class TestEtl2Metadata(NoAuthTestCase):
 
         for attrib in ['testDate', 'testDate2']:
             for entry in list(dataset['attributes']['edges'][attrib]['aggregations'].values()):
-                self.assertFalse(isinstance(entry, pandas.tslib.NaTType))
+                self.assertFalse(isinstance(entry, type(pandas.NaT)))
 
 
 @patch('webbrowser.open')

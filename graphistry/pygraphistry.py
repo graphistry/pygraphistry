@@ -81,7 +81,8 @@ class PyGraphistry(object):
         """Authenticate via already provided configuration.
         This is called once automatically per session when uploading and rendering a visualization."""
         key = PyGraphistry.api_key()
-        if key is None:
+        #Mocks may set to True, so bypass in that case
+        if (key is None) and PyGraphistry._is_authenticated == False:
             util.error('API key not set explicitly in `register()` or available at ' + EnvVarNames['api_key'])
         if not PyGraphistry._is_authenticated:
             PyGraphistry._check_key_and_version()

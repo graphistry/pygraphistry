@@ -4,14 +4,23 @@ python:
     - 2.7.13
     - 3.6
 install:
-    - pip install flake8  # pytest  # add another testing frameworks later
+    - pip install flake8 pytest  # pytest  # add another testing frameworks later
+before_install:
+    - pip install --upgrade pip setuptools wheel
+    - pip install --only-binary=numpy,pandas numpy pandas
+    - sudo add-apt-repository ppa:igraph/ppa -y
+    - sudo apt-get update -q
+    - sudo apt-get install python-igraph -y      
+    - if [[ $TRAVIS_PYTHON_VERSION == 2.7.13 ]]; then pip install IPython==5.0; fi
+    - if [[ $TRAVIS_PYTHON_VERSION == 3.6 ]]; then pip install --only-binary ipython; fi    
+    - "python setup.py install"
 before_script:
     # stop the build if there are Python syntax errors or undefined names
     - time flake8 . --count --select=E901,E999,F821,F822,F823 --show-source --statistics
     # exit-zero treats all errors as warnings.  The GitHub editor is 127 chars wide
     - time flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 script:
-    - true  # add other tests here
+    - python setup.py test
 notifications:
     on_success: change
     on_failure: always
