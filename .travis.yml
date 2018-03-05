@@ -10,6 +10,9 @@ before_install:
     - sudo apt-get install -y python-numpy
     - if [[ $TRAVIS_PYTHON_VERSION == 2.7.13 ]]; then pip install IPython==5.0; fi
     - if [[ $TRAVIS_PYTHON_VERSION == 3.6 ]]; then pip install ipython; fi
+    - sudo add-apt-repository ppa:igraph/ppa
+    - sudo apt-get update
+    - sudo apt-get install python-igraph    
     - "pip install -U pip"
     - "python setup.py install"
 before_script:
