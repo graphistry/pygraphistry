@@ -52,7 +52,9 @@ setup(
         'pandas-extra': ['numexpr', 'Bottleneck'],
         'all': ['python-igraph', 'networkx', 'numexpr', 'Bottleneck', 'colorlover']
     },
-    tests_require=['pytest', 'mock', 'ipython'],
+    tests_require=        
+        ['pytest', 'mock', 'ipython', 
+        'numpy', 'python-igraph', 'networkx', 'numexpr', 'Bottleneck', 'colorlover'],
     cmdclass=versioneer.get_cmdclass(),
     license='BSD',
     classifiers=[
