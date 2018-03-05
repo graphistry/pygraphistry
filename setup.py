@@ -49,12 +49,11 @@ setup(
     extras_require={
         'igraph': ['python-igraph'],
         'networkx': ['networkx'],
-        'pandas-extra': ['numexpr', 'Bottleneck'],
-        'all': ['python-igraph', 'networkx', 'numexpr', 'Bottleneck', 'colorlover']
+        'all': ['python-igraph', 'networkx', 'colorlover']
     },
     tests_require=        
         ['pytest', 'mock', 'ipython', 
-        'numpy', 'python-igraph', 'networkx', 'numexpr', 'Bottleneck', 'colorlover'],
+        'python-igraph', 'networkx', 'colorlover'],
     cmdclass=versioneer.get_cmdclass(),
     license='BSD',
     classifiers=[
