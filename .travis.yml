@@ -6,6 +6,8 @@ python:
 install:
     - pip install flake8 pytest  # pytest  # add another testing frameworks later
 before_install:
+    - sudo apt-get -qq update
+    - sudo apt-get install -y python-numpy    
     - "pip install -U pip"
     - "python setup.py install"
 before_script:
