@@ -360,9 +360,7 @@ class Plotter(object):
         import igraph
         self._check_mandatory_bindings(False)
         self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
-        if self._node is None:
-            util.warn('"node" is unbound, automatically binding it to "%s".' % Plotter._defaultNodeId)
-
+        
         self._node = self._node or Plotter._defaultNodeId
         eattribs = edges.columns.values.tolist()
         eattribs.remove(self._source)
@@ -401,7 +399,6 @@ class Plotter(object):
 
         self._check_mandatory_bindings(False)
         if self._node is None:
-            util.warn('"node" is unbound, automatically binding it to "%s".' % Plotter._defaultNodeId)
             ig.vs[Plotter._defaultNodeId] = [v.index for v in ig.vs]
             self._node = Plotter._defaultNodeId
         elif self._node not in ig.vs.attributes():
