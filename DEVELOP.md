@@ -20,7 +20,7 @@ Travis CI automatically runs on every branch (with a Travis CI file). To configu
 
 Uninstall the local checkout (useful to rollback to packaged version) with `./setup.py develop --uninstall`
 
-# Release Procedure
+# Release Procedure: Tag, Package, & Upload
 1. Tag the repository with a new version number. We use semantic version numbers of the form *X.Y.Z*.
 
 	```sh
@@ -28,11 +28,5 @@ Uninstall the local checkout (useful to rollback to packaged version) with `./se
 	git push --tags
 	```
 
-2. In the [graphistry/config](https://github.com/graphistry/config) repository, update `PYGRAPHISTRY.latestVersion` in *index.js*
-3. Bump the config's package version
-4. Publish config to npm using `npm publish`
-5. Update the config dependency version in both common (dep + package versions) and viz-app (common/config deps, NOT package)
-
-### Package & Upload
-1. Login to [Graphistry's Jenkins](http://deploy.graphistry.com/view/Package/job/Package%20PyGraphistry%20to%20PIP/build).
-2. Fill the `tag` parameter with version number you have just used to tag the repository, then click *Build*.
+2. Login to [Graphistry's Jenkins](http://deploy.graphistry.com/view/Package/job/Package%20PyGraphistry%20to%20PIP/build).
+3. Fill the `tag` parameter with version number you have just used to tag the repository, then click *Build*.
