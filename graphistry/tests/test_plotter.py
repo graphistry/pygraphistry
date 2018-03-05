@@ -5,7 +5,7 @@ import pandas
 import requests
 import IPython
 import igraph
-import networkx
+import networkx as nx
 import graphistry
 from mock import patch
 from common import NoAuthTestCase
@@ -176,9 +176,14 @@ class TestPlotterConversions(NoAuthTestCase):
 
 
     def test_networkx2igraph(self):
-        ng = networkx.complete_graph(3)
-        networkx.set_node_attributes(ng, 'vattrib', 0)
-        networkx.set_edge_attributes(ng, 'eattrib', 1)
+        ng = nx.complete_graph(3)
+        [x, y] = [int(x) for x in nx.__version__.split('.')]
+        if x == 1:
+            nx.set_node_attributes(ng, 'vattrib', 0)
+            nx.set_edge_attributes(ng, 'eattrib', 1)
+        else:
+            nx.set_node_attributes(ng, 0, 'vattrib')
+            nx.set_edge_attributes(ng, 1, 'eattrib')
         (e, n) = graphistry.bind(source='src', destination='dst').networkx2pandas(ng)
 
         edges = pandas.DataFrame({
