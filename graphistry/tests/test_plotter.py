@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*- 
+
 from builtins import object
 
 import unittest
@@ -20,7 +22,8 @@ triangleNodesRich = pandas.DataFrame({
     'a2': ['red', 'blue', 'green'],
     'a3': [True, False, False],
     'a4': [0.5, 1.5, 1000.3],
-    'a5': [dt.datetime.fromtimestamp(x) for x in [1440643875, 1440644191, 1440645638]]    
+    'a5': [dt.datetime.fromtimestamp(x) for x in [1440643875, 1440644191, 1440645638]],
+    'a6': [u'æski ēˈmōjē', u'😋', 's']
 })
 
 class Fake_Response(object):

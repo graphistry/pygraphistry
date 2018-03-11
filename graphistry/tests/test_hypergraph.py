@@ -11,9 +11,12 @@ from common import NoAuthTestCase
 
 nid = graphistry.plotter.Plotter._defaultNodeId
 
-triangleNodes = pd.DataFrame({'id': ['a', 'b', 'c'], 'a1': [1, 2, 3], 'a2': ['red', 'blue', 'green']})
-
-
+triangleNodes = pd.DataFrame({
+    'id': ['a', 'b', 'c'], 
+    'a1': [1, 2, 3], 
+    'a2': ['red', 'blue', 'green'],
+    'a6': ['æski ēˈmōjē', '😋', 's']
+})
 
 
 def assertFrameEqual(df1, df2, **kwds ):
@@ -33,11 +36,15 @@ class TestHypergraphPlain(NoAuthTestCase):
         self.assertEqual(len(h.keys()), len(['entities', 'nodes', 'edges', 'events', 'graph']))
 
         edges = pd.DataFrame({
-            'edgeType': ['a1', 'a1', 'a1', 'a2', 'a2', 'a2', 'id', 'id', 'id'],
-            'attribID': ['a1::1', 'a1::2', 'a1::3', 'a2::red', 'a2::blue', 'a2::green', 'id::a', 'id::b', 'id::c'],
-            'EventID': ['EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2']})
+            'edgeType': ['a1', 'a1', 'a1', 'a2', 'a2', 'a2', 'a6', 'a6', 'a6', 'id', 'id', 'id'],
+            'attribID': [
+                'a1::1', 'a1::2', 'a1::3', 
+                'a2::red', 'a2::blue', 'a2::green', 
+                'a6::æski ēˈmōjē', 'a6::😋', 'a6::s',
+                'id::a', 'id::b', 'id::c'],
+            'EventID': ['EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2']})
 
 
         assertFrameEqual(h['edges'], edges)
-        for (k, v) in [('entities', 9), ('nodes', 12), ('edges', 9), ('events', 3)]:
+        for (k, v) in [('entities', 12), ('nodes', 15), ('edges', 12), ('events', 3)]:
             self.assertEqual(len(h[k]), v)
