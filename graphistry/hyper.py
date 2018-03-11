@@ -32,7 +32,7 @@ def make_reverse_lookup(categories):
 def valToSafeStr (v): 
     if sys.version_info < (3,0):        
         t = type(v)
-        if t is unicode:
+        if t is unicode: # noqa: F821
             return v
         elif t is str:
             return v
