@@ -79,7 +79,7 @@ DEFS_HYPER = {
 def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
     cat_lookup = make_reverse_lookup(defs['CATEGORIES'])
     subframes = []
-    for col in entity_types:
+    for col in sorted(entity_types):
         raw = events[[col, defs['EVENTID']]].copy()
         if drop_na:
             raw = raw.dropna()[[col, defs['EVENTID']]].copy()
