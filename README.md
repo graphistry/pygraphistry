@@ -193,7 +193,7 @@ plotter = plotter.bind(edge_label="label")
 plotter.plot(links)
 ```
 
-### Controlling Node Size and Color
+### Controlling Node Size, Color, and Location
 Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). [IGraph](http://igraph.org/python/) already has these algorithms implemented for us. If IGraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
 
 We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we create two new node attributes (*pagerank* & *community*).
@@ -205,6 +205,8 @@ ig.vs['community'] = ig.community_infomap().membership
 
 plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 ```
+
+To control the location, add `x` and `y` columns to the node tables ([see demos](https://github.com/graphistry/pygraphistry/tree/master/demos/more/external_layout)).
 
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
