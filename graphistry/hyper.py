@@ -79,7 +79,7 @@ DEFS_HYPER = {
 def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
     cat_lookup = make_reverse_lookup(defs['CATEGORIES'])
     subframes = []
-    for col in entity_types:
+    for col in sorted(entity_types):
         raw = events[[col, defs['EVENTID']]].copy()
         if drop_na:
             raw = raw.dropna()[[col, defs['EVENTID']]].copy()
@@ -89,7 +89,7 @@ def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
             raw[defs['ATTRIBID']] = raw.apply(lambda r: col2cat(cat_lookup, col) + defs['DELIM'] + valToSafeStr(r[col]), axis=1)
             subframes.append(raw)
     if len(subframes):
-        return pd.concat(subframes).reset_index(drop=True)[[defs['EDGETYPE'], defs['ATTRIBID'], defs['EVENTID']]]
+        return pd.concat(subframes, ignore_index=True).reset_index(drop=True)[[defs['EDGETYPE'], defs['ATTRIBID'], defs['EVENTID']]]
     return pd.DataFrame([])
 
 def format_hypernodes(events, defs, drop_na):
@@ -101,7 +101,7 @@ def format_hypernodes(events, defs, drop_na):
     return event_nodes
 
 def hyperbinding(g, defs, entities, event_entities, edges):
-    nodes = pd.concat([entities, event_entities]).reset_index(drop=True)
+    nodes = pd.concat([entities, event_entities], ignore_index=True).reset_index(drop=True)
     return {
         'entities': entities,
         'events': event_entities,
