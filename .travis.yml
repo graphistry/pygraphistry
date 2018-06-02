@@ -12,7 +12,6 @@ before_install:
     - sudo apt-get update -q
     - sudo apt-get install python-igraph -y      
     - if [[ $TRAVIS_PYTHON_VERSION == 2.7.13 ]]; then pip install IPython==5.0; fi
-    - if [[ $TRAVIS_PYTHON_VERSION == 3.6 ]]; then pip install --only-binary ipython; fi    
     - "python setup.py install"
 before_script:
     # stop the build if there are Python syntax errors or undefined names
