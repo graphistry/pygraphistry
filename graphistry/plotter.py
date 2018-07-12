@@ -266,7 +266,7 @@ class Plotter(object):
         return res
 
 
-    def plot(self, graph=None, nodes=None, name=None, render=None):
+    def plot(self, graph=None, nodes=None, name=None, render=None, skip_upload=False):
         """Upload data to the Graphistry server and show as an iframe of it.
 
         name, Uses the currently bound schema structure and visual encodings.
@@ -282,6 +282,9 @@ class Plotter(object):
 
         :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
         :type render: Boolean
+
+        :param skip_upload: Return node/edge/bindings that would have been uploaded. By default, upload happens.
+        :type skip_upload: Boolean. 
 
         **Example: Simple**
             ::
@@ -318,9 +321,13 @@ class Plotter(object):
         api_version = PyGraphistry.api_version()
         if (api_version == 1):
             dataset = self._plot_dispatch(g, n, name, 'json')
+            if skip_upload:
+                return dataset
             info = PyGraphistry._etl1(dataset)
         elif (api_version == 2):
             dataset = self._plot_dispatch(g, n, name, 'vgraph')
+            if skip_upload:
+                return dataset
             info = PyGraphistry._etl2(dataset)
 
         viz_url = PyGraphistry._viz_url(info, self._url_params)
