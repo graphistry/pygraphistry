@@ -66,8 +66,10 @@ setup(
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',        
         'Topic :: Scientific/Engineering :: Visualization',
         'Topic :: Scientific/Engineering :: Information Analysis',
     ],
-    keywords=['Graph', 'Network', 'Plot', 'Visualization', 'Pandas', 'Igraph']
+    keywords=['Graph', 'Network', 'Plot', 'Visualization', 'Pandas', 'Igraph', 'Jupyter', 'Notebook']
 )
