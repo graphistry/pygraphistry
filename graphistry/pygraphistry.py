@@ -197,13 +197,13 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def hypergraph(raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=True, verbose=True):
+    def hypergraph(raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=False, verbose=True):
         """Transform a dataframe into a hypergraph.
 
         :param Dataframe raw_events: Dataframe to transform
         :param List entity_types: Optional list of columns (strings) to turn into nodes, None signifies all
         :param Dict opts: See below
-        :param bool drop_edge_attrs: Reserved, currently no effect
+        :param bool drop_edge_attrs: Whether to include each row's attributes on its edges, defaults to False (include)
         :param bool verbose: Whether to print size information
 
         Create a graph out of the dataframe, and return the graph components as dataframes, 
