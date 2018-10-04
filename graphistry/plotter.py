@@ -1,7 +1,6 @@
 from __future__ import print_function
 from __future__ import absolute_import
 from builtins import str
-from builtins import range
 from builtins import object
 import copy
 import numpy
@@ -9,7 +8,6 @@ import pandas
 
 from .pygraphistry import PyGraphistry
 from . import util
-
 
 class Plotter(object):
     """Graph plotting class.
@@ -46,6 +44,8 @@ class Plotter(object):
         self._height = 500
         self._render = True
         self._url_params = {'info': 'true'}
+        # Integrations
+        self._bolt_driver = None
 
 
     def __repr__(self):
@@ -164,6 +164,7 @@ class Plotter(object):
         res._point_label = point_label or self._point_label
         res._point_color = point_color or self._point_color
         res._point_size = point_size or self._point_size
+
         return res
 
 
@@ -547,7 +548,6 @@ class Plotter(object):
             elif default:
                 df[pbname] = df[default]
 
-
         nodeid = self._node or Plotter._defaultNodeId
         (elist, nlist) = self._sanitize_dataset(edges, nodes, nodeid)
         self._check_dataset_size(elist, nlist)
@@ -653,3 +653,49 @@ class Plotter(object):
         dataset = vgraph.create(elist, filtered_nlist, sources, dests, nodeid, node_map, name)
         dataset['encodings'] = encodings
         return dataset
+
+
+    def bolt(self, driver):
+        from neo4j import GraphDatabase, Driver
+        if driver is not None and isinstance(driver, Driver) == False:
+            driver = GraphDatabase.driver(**driver)
+        res = copy.copy(self)
+        res._bolt_driver = driver
+        return res
+
+
+    def cypher(self, query, params={}):
+        res = copy.copy(self)
+        driver = self._bolt_driver or PyGraphistry._config['bolt_driver']
+        with driver.session() as session:
+            graph = session.run(query, **params).graph()
+            edges = Plotter._bolt_graph_to_dataframe(graph)
+            res._edges = edges
+        return res.bind(\
+            edge_title='_bolt_relationship_id',\
+            source='_bolt_source_id',\
+            destination='_bolt_destination_id'
+        )
+
+
+    @staticmethod
+    def _bolt_graph_to_dataframe(graph):
+        import pandas as pd
+        return pd.DataFrame([
+            Plotter.merge_two_dicts(
+                { key: value for (key, value) in relationship.items() },
+                {
+                    u'_bolt_relationship_id': relationship.id,
+                    u'_bolt_source_id': relationship.start_node.id,
+                    u'_bolt_destination_id': relationship.end_node.id
+                }
+            )
+            for relationship in graph.relationships
+        ])
+
+
+    @staticmethod
+    def merge_two_dicts(a, b):
+        c = a.copy()
+        c.update(b)
+        return c
