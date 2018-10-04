@@ -65,5 +65,14 @@ demos/data/BIOGRID-IDENTIFIERS-3.3.123.tab.txt
 # Ignore local Python virtualenv folders (used by Jenkins when running tests, etc.)
 /.pyenv*/
 
+# Ignore IDE stuff
+.idea
+.ipynb_checkpoints
+.ipython
+.jupyter
+.local/share/jupyter
+.pycharmenv
+.vscode
+
 # Ignore the 'test_results' folder, which is where Jenkins, et al, writes `nose` test results
 /test_results

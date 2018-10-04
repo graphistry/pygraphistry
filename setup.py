@@ -49,11 +49,12 @@ setup(
     extras_require={
         'igraph': ['python-igraph'],
         'networkx': ['networkx'],
-        'all': ['python-igraph', 'networkx', 'colorlover']
+        'bolt': ['neo4j'],
+        'all': ['python-igraph', 'networkx', 'colorlover', 'neo4j']
     },
-    tests_require=        
+    tests_require=
         ['pytest', 'mock', 'ipython', 
-        'python-igraph', 'networkx', 'colorlover'],
+        'python-igraph', 'networkx', 'colorlover', 'neo4j'],
     cmdclass=versioneer.get_cmdclass(),
     license='BSD',
     classifiers=[
@@ -71,5 +72,5 @@ setup(
         'Topic :: Scientific/Engineering :: Visualization',
         'Topic :: Scientific/Engineering :: Information Analysis',
     ],
-    keywords=['Graph', 'Network', 'Plot', 'Visualization', 'Pandas', 'Igraph', 'Jupyter', 'Notebook']
+    keywords=['Graph', 'Network', 'Plot', 'Visualization', 'Pandas', 'Igraph', 'Jupyter', 'Notebook', 'Neo4j']
 )
