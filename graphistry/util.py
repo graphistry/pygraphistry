@@ -81,3 +81,8 @@ def error(msg):
     except:
             'ok'
     raise ValueError(msg)
+
+def merge_two_dicts(a, b):
+    c = a.copy()
+    c.update(b)
+    return c

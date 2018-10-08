@@ -7,7 +7,9 @@ import numpy
 import pandas
 
 from .pygraphistry import PyGraphistry
-from . import util
+from .pygraphistry import util
+from .pygraphistry import bolt_util
+
 
 class Plotter(object):
     """Graph plotting class.
@@ -656,11 +658,8 @@ class Plotter(object):
 
 
     def bolt(self, driver):
-        from neo4j import GraphDatabase, Driver
-        if driver is not None and isinstance(driver, Driver) == False:
-            driver = GraphDatabase.driver(**driver)
         res = copy.copy(self)
-        res._bolt_driver = driver
+        res._bolt_driver = bolt_util._to_bolt_driver(driver)
         return res
 
 
@@ -669,33 +668,10 @@ class Plotter(object):
         driver = self._bolt_driver or PyGraphistry._config['bolt_driver']
         with driver.session() as session:
             graph = session.run(query, **params).graph()
-            edges = Plotter._bolt_graph_to_dataframe(graph)
+            edges = bolt_util._bolt_graph_to_dataframe(graph)
             res._edges = edges
         return res.bind(\
             edge_title='_bolt_relationship_id',\
             source='_bolt_source_id',\
             destination='_bolt_destination_id'
         )
-
-
-    @staticmethod
-    def _bolt_graph_to_dataframe(graph):
-        import pandas as pd
-        return pd.DataFrame([
-            Plotter.merge_two_dicts(
-                { key: value for (key, value) in relationship.items() },
-                {
-                    u'_bolt_relationship_id': relationship.id,
-                    u'_bolt_source_id': relationship.start_node.id,
-                    u'_bolt_destination_id': relationship.end_node.id
-                }
-            )
-            for relationship in graph.relationships
-        ])
-
-
-    @staticmethod
-    def merge_two_dicts(a, b):
-        c = a.copy()
-        c.update(b)
-        return c

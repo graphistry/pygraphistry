@@ -23,7 +23,8 @@ import requests
 import pandas
 import numpy
 
-from . import util
+from .pygraphistry import util
+from .pygraphistry import bolt_util
 
 
 EnvVarNames = {
@@ -161,11 +162,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def set_bolt_driver(driver=None):
-        from neo4j import GraphDatabase, Driver
-        if driver is not None and isinstance(driver, Driver) == False:
-            driver = GraphDatabase.driver(**driver)
-        PyGraphistry._config['bolt_driver'] = driver
-
+        PyGraphistry._config['bolt_driver'] = bolt_util._to_bolt_driver(driver)
 
     @staticmethod
     def register(key=None, server=None, protocol=None, api=None, certificate_validation=None, bolt=None):
