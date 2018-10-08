@@ -18,7 +18,7 @@ def to_bolt_driver(driver):
         return None
 
 
-def bolt_graph_to_dataframe(graph):
+def bolt_graph_to_edges_dataframe(graph):
     import pandas as pd
     return pd.DataFrame([
         util.merge_two_dicts(
@@ -33,7 +33,7 @@ def bolt_graph_to_dataframe(graph):
     ])
 
 
-def bolt_graph_to_nodes(graph):
+def bolt_graph_to_nodes_dataframe(graph):
     import pandas as pd
     return pd.DataFrame([
         util.merge_two_dicts(

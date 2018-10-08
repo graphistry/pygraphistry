@@ -669,8 +669,8 @@ class Plotter(object):
         with driver.session() as session:
             bolt_statement = session.run(query, **params)
             graph = bolt_statement.graph()
-            edges = bolt_util.bolt_graph_to_dataframe(graph)
-            nodes = bolt_util.bolt_graph_to_nodes(graph)
+            edges = bolt_util.bolt_graph_to_edges_dataframe(graph)
+            nodes = bolt_util.bolt_graph_to_nodes_dataframe(graph)
         return res\
             .bind(\
                 node=bolt_util.node_id_key,\

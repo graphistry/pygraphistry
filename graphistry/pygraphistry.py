@@ -272,6 +272,22 @@ class PyGraphistry(object):
         :return: Plotter w/neo4j
 
         Call this to create a Plotter with an overridden neo4j driver.
+
+        **Example**
+
+                ::
+
+                    import graphistry
+                    g = graphistry.bolt({ server: 'bolt://...', auth: ('<username>', '<password>') })
+
+                ::
+
+                    import neo4j
+                    import graphistry
+
+                    driver = neo4j.GraphDatabase.driver(...)
+
+                    g = graphistry.bolt(driver)
         """
         from . import plotter
         return plotter.Plotter().bolt(driver)
@@ -286,6 +302,11 @@ class PyGraphistry(object):
         :return: Plotter with data from a cypher query. This call binds `source`, `destination`, and `node`.
 
         Call this to immediately execute a cypher query and store the graph in the resulting Plotter.
+
+                ::
+
+                    import graphistry
+                    g = graphistry.bolt({ query='MATCH (a)-[r:PAYMENT]->(b) WHERE r.USD > 7000 AND r.USD < 10000 RETURN r ORDER BY r.USD DESC', params={ "AccountId": 10 })
         """
         from . import plotter
         return plotter.Plotter().cypher(query, params)
