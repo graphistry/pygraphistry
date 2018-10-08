@@ -23,8 +23,8 @@ import requests
 import pandas
 import numpy
 
-from .pygraphistry import util
-from .pygraphistry import bolt_util
+from . import util
+from . import bolt_util
 
 
 EnvVarNames = {
@@ -162,7 +162,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def set_bolt_driver(driver=None):
-        PyGraphistry._config['bolt_driver'] = bolt_util._to_bolt_driver(driver)
+        PyGraphistry._config['bolt_driver'] = bolt_util.to_bolt_driver(driver)
 
     @staticmethod
     def register(key=None, server=None, protocol=None, api=None, certificate_validation=None, bolt=None):
