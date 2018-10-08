@@ -164,6 +164,7 @@ class PyGraphistry(object):
     def set_bolt_driver(driver=None):
         PyGraphistry._config['bolt_driver'] = bolt_util.to_bolt_driver(driver)
 
+
     @staticmethod
     def register(key=None, server=None, protocol=None, api=None, certificate_validation=None, bolt=None):
         """API key registration and server selection
