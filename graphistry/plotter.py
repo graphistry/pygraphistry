@@ -659,7 +659,7 @@ class Plotter(object):
 
     def bolt(self, driver):
         res = copy.copy(self)
-        res._bolt_driver = bolt_util._to_bolt_driver(driver)
+        res._bolt_driver = bolt_util.to_bolt_driver(driver)
         return res
 
 
@@ -667,11 +667,15 @@ class Plotter(object):
         res = copy.copy(self)
         driver = self._bolt_driver or PyGraphistry._config['bolt_driver']
         with driver.session() as session:
-            graph = session.run(query, **params).graph()
-            edges = bolt_util._bolt_graph_to_dataframe(graph)
-            res._edges = edges
-        return res.bind(\
-            edge_title='_bolt_relationship_id',\
-            source='_bolt_source_id',\
-            destination='_bolt_destination_id'
-        )
+            bolt_statement = session.run(query, **params)
+            graph = bolt_statement.graph()
+            edges = bolt_util.bolt_graph_to_dataframe(graph)
+            nodes = bolt_util.bolt_graph_to_nodes(graph)
+        return res\
+            .bind(\
+                node=bolt_util.node_id_key,\
+                source=bolt_util.start_node_id_key,\
+                destination=bolt_util.end_node_id_key
+            )\
+            .nodes(nodes)\
+            .edges(edges)

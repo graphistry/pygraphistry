@@ -1,7 +1,12 @@
 from .pygraphistry import util
 
+node_id_key = u'_bolt_node_id_key'
+start_node_id_key = u'_bolt_start_node_id_key'
+end_node_id_key = u'_bolt_end_node_id_key'
+relationship_id_key = u'_bolt_relationship_id'
 
-def _to_bolt_driver(driver):
+
+def to_bolt_driver(driver):
     if driver is None:
         return None
     try:
@@ -13,16 +18,29 @@ def _to_bolt_driver(driver):
         return None
 
 
-def _bolt_graph_to_dataframe(graph):
+def bolt_graph_to_dataframe(graph):
     import pandas as pd
     return pd.DataFrame([
         util.merge_two_dicts(
             { key: value for (key, value) in relationship.items() },
             {
-                u'_bolt_relationship_id': relationship.id,
-                u'_bolt_source_id': relationship.start_node.id,
-                u'_bolt_destination_id': relationship.end_node.id
+                relationship_id_key:    relationship.id,
+                start_node_id_key:          relationship.start_node.id,
+                end_node_id_key:     relationship.end_node.id
             }
         )
         for relationship in graph.relationships
+    ])
+
+
+def bolt_graph_to_nodes(graph):
+    import pandas as pd
+    return pd.DataFrame([
+        util.merge_two_dicts(
+            { key: value for (key, value) in node.items() },
+            {
+                node_id_key: node.id
+            }
+        )
+        for node in graph.nodes
     ])
