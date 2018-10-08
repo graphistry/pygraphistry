@@ -266,12 +266,27 @@ class PyGraphistry(object):
 
     @staticmethod
     def bolt(driver = None):
+        """
+
+        :param driver: Neo4j Driver or arguments for GraphDatabase.driver(**{...})**
+        :return: Plotter w/neo4j
+
+        Call this to create a Plotter with an overridden neo4j driver.
+        """
         from . import plotter
         return plotter.Plotter().bolt(driver)
 
 
     @staticmethod
     def cypher(query, params = None):
+        """
+
+        :param query: a cypher query
+        :param params: cypher query arguments
+        :return: Plotter with data from a cypher query. This call binds `source`, `destination`, and `node`.
+
+        Call this to immediately execute a cypher query and store the graph in the resulting Plotter.
+        """
         from . import plotter
         return plotter.Plotter().cypher(query, params)
 
