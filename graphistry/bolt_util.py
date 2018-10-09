@@ -1,0 +1,46 @@
+from .pygraphistry import util
+
+node_id_key = u'_bolt_node_id_key'
+start_node_id_key = u'_bolt_start_node_id_key'
+end_node_id_key = u'_bolt_end_node_id_key'
+relationship_id_key = u'_bolt_relationship_id'
+
+
+def to_bolt_driver(driver):
+    if driver is None:
+        return None
+    try:
+        from neo4j import GraphDatabase, Driver
+        if isinstance(driver, Driver):
+            return driver
+        return GraphDatabase.driver(**driver)
+    except ImportError:
+        return None
+
+
+def bolt_graph_to_edges_dataframe(graph):
+    import pandas as pd
+    return pd.DataFrame([
+        util.merge_two_dicts(
+            { key: value for (key, value) in relationship.items() },
+            {
+                relationship_id_key:    relationship.id,
+                start_node_id_key:          relationship.start_node.id,
+                end_node_id_key:     relationship.end_node.id
+            }
+        )
+        for relationship in graph.relationships
+    ])
+
+
+def bolt_graph_to_nodes_dataframe(graph):
+    import pandas as pd
+    return pd.DataFrame([
+        util.merge_two_dicts(
+            { key: value for (key, value) in node.items() },
+            {
+                node_id_key: node.id
+            }
+        )
+        for node in graph.nodes
+    ])

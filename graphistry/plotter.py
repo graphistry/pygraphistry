@@ -1,14 +1,14 @@
 from __future__ import print_function
 from __future__ import absolute_import
 from builtins import str
-from builtins import range
 from builtins import object
 import copy
 import numpy
 import pandas
 
 from .pygraphistry import PyGraphistry
-from . import util
+from .pygraphistry import util
+from .pygraphistry import bolt_util
 
 
 class Plotter(object):
@@ -46,6 +46,8 @@ class Plotter(object):
         self._height = 500
         self._render = True
         self._url_params = {'info': 'true'}
+        # Integrations
+        self._bolt_driver = None
 
 
     def __repr__(self):
@@ -164,6 +166,7 @@ class Plotter(object):
         res._point_label = point_label or self._point_label
         res._point_color = point_color or self._point_color
         res._point_size = point_size or self._point_size
+
         return res
 
 
@@ -547,7 +550,6 @@ class Plotter(object):
             elif default:
                 df[pbname] = df[default]
 
-
         nodeid = self._node or Plotter._defaultNodeId
         (elist, nlist) = self._sanitize_dataset(edges, nodes, nodeid)
         self._check_dataset_size(elist, nlist)
@@ -653,3 +655,27 @@ class Plotter(object):
         dataset = vgraph.create(elist, filtered_nlist, sources, dests, nodeid, node_map, name)
         dataset['encodings'] = encodings
         return dataset
+
+
+    def bolt(self, driver):
+        res = copy.copy(self)
+        res._bolt_driver = bolt_util.to_bolt_driver(driver)
+        return res
+
+
+    def cypher(self, query, params={}):
+        res = copy.copy(self)
+        driver = self._bolt_driver or PyGraphistry._config['bolt_driver']
+        with driver.session() as session:
+            bolt_statement = session.run(query, **params)
+            graph = bolt_statement.graph()
+            edges = bolt_util.bolt_graph_to_edges_dataframe(graph)
+            nodes = bolt_util.bolt_graph_to_nodes_dataframe(graph)
+        return res\
+            .bind(\
+                node=bolt_util.node_id_key,\
+                source=bolt_util.start_node_id_key,\
+                destination=bolt_util.end_node_id_key
+            )\
+            .nodes(nodes)\
+            .edges(edges)

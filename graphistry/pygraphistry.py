@@ -24,6 +24,7 @@ import pandas
 import numpy
 
 from . import util
+from . import bolt_util
 
 
 EnvVarNames = {
@@ -76,6 +77,7 @@ class PyGraphistry(object):
     _tag = util.fingerprint()
     _is_authenticated = False
 
+
     @staticmethod
     def authenticate():
         """Authenticate via already provided configuration.
@@ -87,6 +89,7 @@ class PyGraphistry(object):
         if not PyGraphistry._is_authenticated:
             PyGraphistry._check_key_and_version()
             PyGraphistry._is_authenticated = True
+
 
     @staticmethod
     def server(value=None):
@@ -107,6 +110,7 @@ class PyGraphistry(object):
         else:
             PyGraphistry._config['hostname'] = value
 
+
     @staticmethod
     def api_key(value=None):
         """Set or get the API key.
@@ -120,6 +124,7 @@ class PyGraphistry(object):
             PyGraphistry._config['api_key'] = value.strip()
             PyGraphistry._is_authenticated = False
 
+
     @staticmethod
     def protocol(value=None):
         """Set or get the protocol ('http' or 'https').
@@ -130,6 +135,7 @@ class PyGraphistry(object):
         # setter
         PyGraphistry._config['protocol'] = value
 
+
     @staticmethod
     def api_version(value=None):
         """Set or get the API version (1 or 2).
@@ -138,6 +144,7 @@ class PyGraphistry(object):
             return PyGraphistry._config['api_version']
         # setter
         PyGraphistry._config['api_version'] = value
+
 
     @staticmethod
     def certificate_validation(value=None):
@@ -152,8 +159,14 @@ class PyGraphistry(object):
             requests.packages.urllib3.disable_warnings()
         PyGraphistry._config['certificate_validation'] = v
 
+
     @staticmethod
-    def register(key=None, server=None, protocol=None, api=None, certificate_validation=None):
+    def set_bolt_driver(driver=None):
+        PyGraphistry._config['bolt_driver'] = bolt_util.to_bolt_driver(driver)
+
+
+    @staticmethod
+    def register(key=None, server=None, protocol=None, api=None, certificate_validation=None, bolt=None):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -194,6 +207,7 @@ class PyGraphistry(object):
         PyGraphistry.protocol(protocol)
         PyGraphistry.certificate_validation(certificate_validation)
         PyGraphistry.authenticate()
+        PyGraphistry.set_bolt_driver(bolt)
 
 
     @staticmethod
@@ -250,7 +264,52 @@ class PyGraphistry(object):
         return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose)
 
 
+    @staticmethod
+    def bolt(driver = None):
+        """
 
+        :param driver: Neo4j Driver or arguments for GraphDatabase.driver(**{...})**
+        :return: Plotter w/neo4j
+
+        Call this to create a Plotter with an overridden neo4j driver.
+
+        **Example**
+
+                ::
+
+                    import graphistry
+                    g = graphistry.bolt({ server: 'bolt://...', auth: ('<username>', '<password>') })
+
+                ::
+
+                    import neo4j
+                    import graphistry
+
+                    driver = neo4j.GraphDatabase.driver(...)
+
+                    g = graphistry.bolt(driver)
+        """
+        from . import plotter
+        return plotter.Plotter().bolt(driver)
+
+
+    @staticmethod
+    def cypher(query, params = None):
+        """
+
+        :param query: a cypher query
+        :param params: cypher query arguments
+        :return: Plotter with data from a cypher query. This call binds `source`, `destination`, and `node`.
+
+        Call this to immediately execute a cypher query and store the graph in the resulting Plotter.
+
+                ::
+
+                    import graphistry
+                    g = graphistry.bolt({ query='MATCH (a)-[r:PAYMENT]->(b) WHERE r.USD > 7000 AND r.USD < 10000 RETURN r ORDER BY r.USD DESC', params={ "AccountId": 10 })
+        """
+        from . import plotter
+        return plotter.Plotter().cypher(query, params)
 
 
     @staticmethod
@@ -428,6 +487,7 @@ class PyGraphistry(object):
         else:
             return {'name': jres['dataset'], 'viztoken': jres['viztoken'], 'type': 'jsonMeta'}
 
+
     @staticmethod
     def _check_key_and_version():
         params = {'text': PyGraphistry.api_key()}
@@ -458,6 +518,8 @@ nodes = PyGraphistry.nodes
 graph = PyGraphistry.graph
 settings = PyGraphistry.settings
 hypergraph = PyGraphistry.hypergraph
+bolt = PyGraphistry.bolt
+cypher = PyGraphistry.cypher
 
 
 class NumpyJSONEncoder(json.JSONEncoder):
