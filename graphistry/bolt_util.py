@@ -7,16 +7,15 @@ relationship_id_key = u'_bolt_relationship_id'
 
 
 def to_bolt_driver(driver):
-    if driver is None:
-        return None
     try:
         from neo4j import GraphDatabase, Driver
+        if driver is None:
+            return None
         if isinstance(driver, Driver):
             return driver
         return GraphDatabase.driver(**driver)
     except ImportError:
-        return None
-
+        raise BoltSupportModuleNotFound()
 
 def bolt_graph_to_edges_dataframe(graph):
     import pandas as pd
@@ -44,3 +43,9 @@ def bolt_graph_to_nodes_dataframe(graph):
         )
         for node in graph.nodes
     ])
+
+class BoltSupportModuleNotFound(Exception):
+    def __init__(self):
+        super(BoltSupportModuleNotFound, self).__init__(
+            "The neo4j module was not found but is required for pygraphistry bolt support. Try running `!pip install pygraphistry[bolt]`."
+        )
