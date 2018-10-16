@@ -53,6 +53,13 @@ It supports unusually large graphs for interactive visualization. The client's c
      graphistry.bind(source='src', destination='dst').plot(edges)
      ```
 
+  - [Neo4j](http://neo4j.com) ([notebook demo](demos/databases/neo4j/official//graphistry_bolt_tutorial_public.ipynb))
+  
+     ```python
+     graphistry.register(bolt=NEO4J_CREDS)
+     graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000  RETURN a, p, b").plot()
+     ```
+
   - [IGraph](http://igraph.org)
 
      ```python
@@ -60,12 +67,20 @@ It supports unusually large graphs for interactive visualization. The client's c
      graphistry.bind(source='src', destination='dst').plot(graph)
      ```
 
-  - [NetworkX](https://networkx.github.io) ([notebook demo](demos/more/networkx/networkx.ipynb))
+  - [NetworkX](https://networkx.github.io) ([notebook demo](demos/tutorial_advanced/networkx/networkx.ipynb))
 
      ```python
      graph = networkx.read_edgelist('facebook_combined.txt')
      graphistry.bind(source='src', destination='dst', node='nodeid').plot(graph)
      ```
+     
+  - [Splunk](https://www.splunk.com) ([notebook demo](demos/databases/splunk/splunk_demo_public.ipynb))
+    
+    ```python
+    df = splunkToPandas("index=netflow bytes > 100000 | head 100000", {})
+    graphistry.bind(source='src_ip', destination='dest_ip').plot(df)
+    graphistry.hypergraph(df, ['src_ip', 'dest_ip', 'dest_port'])['graph'].plot()
+    ```
 
 
 - **Great for Events, CSVs, and more:** Not sure if your data is graph-friendly? PyGraphistry's `hypergraph` transform helps turn any sample data like CSVs, SQL results, and event data into a graph for pattern analysis:
@@ -133,7 +148,7 @@ If you do not already have Jupyter Notebook, you can quickly start via our prebu
 ##### IPython (Jupyter) Notebook Integration
 
 ### API Key
-An API key gives each visualization access to our GPU cluster. We currently ask for API keys to make sure our servers are not melting :) You can [sign up for free access here](http://www.graphistry.com/api-request). Set your key after the `import graphistry` statement and you are good to go:
+An API key gives each visualization access to our GPU cluster. We currently ask for API keys to make sure our servers are not melting :) In many cases, such as educators, OSINT researchers,  non-profits, and enterprise users, you can [request free access here](http://www.graphistry.com/api-request). Set your key after the `import graphistry` statement and you are good to go:
 
 ```python
 import graphistry
@@ -166,7 +181,7 @@ links = pandas.read_csv('./lesmiserables.csv')
 
 ### Quick Visualization
 
-If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](https://github.com/graphistry/pygraphistry/blob/master/demos/more/malware-hypergraph/Malware%20Hypergraph.ipynb)
+If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](demos/infosec_and_netops/malware-hypergraph/Malware%20Hypergraph.ipynb)
 
 PyGraphistry can plot graphs directly from Pandas dataframes, IGraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
 
@@ -206,7 +221,7 @@ ig.vs['community'] = ig.community_infomap().membership
 plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 ```
 
-To control the location, add `x` and `y` columns to the node tables ([see demos](https://github.com/graphistry/pygraphistry/tree/master/demos/more/external_layout)).
+To control the location, add `x` and `y` columns to the node tables ([see demos](demos/tutorial_advanced/external_layout)).
 
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
@@ -214,12 +229,16 @@ To control the location, add `x` and `y` columns to the node tables ([see demos]
 
 1. [Sign up](http://www.graphistry.com/api-request) for a free API key!
 2. Read our advanced tutorials:
-	-  [Creating a node table + controlling sizes and colors (HoneyPot)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%201%20(Honey%20Pot).html)
-	-  [Aggregating edges and creating multiple views of the same data (Apache Logs)](http://graphistry.github.io/pygraphistry/html/Tutorial%20Part%202%20(Apache%20Logs).html)
-	- [Hypergraph Transform for turning Events and CSVs into Graphs](https://github.com/graphistry/pygraphistry/blob/master/demos/more/malware-hypergraph/Malware%20Hypergraph.ipynb)
-3. Check out our [demos folder](https://github.com/graphistry/pygraphistry/tree/master/demos).
+	-  [Creating a node table + controlling sizes and colors (HoneyPot)](demos/infosec_and_netops/Tutorial%20Part%201%20(Honey%20Pot).ipynb)
+	-  [Aggregating edges and creating multiple views of the same data (Apache Logs)](demos/infosec_and_netops/Tutorial%20Part%202%20(Apache%20Logs).ipynb)
+	- [Hypergraph Transform for turning Events and CSVs into Graphs](demos/infosec_and_netops/malware-hypergraph/Malware%20Hypergraph.ipynb)
+3. Check out our [demos folder](demos).
 
-## API Reference
+## References
 
-Full Python (including IPython/Juypter) [API documentation](http://pygraphistry.readthedocs.org/en/latest/).
+* Graphistry [UI Guide](https://labs.graphistry.com/graphistry/ui.html)
+* Full Python (including IPython/Juypter) [API documentation](http://pygraphistry.readthedocs.org/en/latest/).
+* Within a notebook, you can always run `help(graphistry)`, `help(graphistry.hypergraph)`, etc.
+* Additional [Graphistry API docs](https://labs.graphistry.com/graphistry/docs.html)
+* Predefined [color palette values](https://labs.graphistry.com/graphistry/docs/palette.html) (color brewer)
 
