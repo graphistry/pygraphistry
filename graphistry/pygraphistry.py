@@ -294,7 +294,7 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def cypher(query, params = None):
+    def cypher(query, params = {}):
         """
 
         :param query: a cypher query
