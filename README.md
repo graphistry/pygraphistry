@@ -51,13 +51,24 @@ It supports unusually large graphs for interactive visualization. The client's c
      ```python
      edges = pandas.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
      graphistry.bind(source='src', destination='dst').plot(edges)
+     
+     table_rows = pandas.read_csv('honeypot.csv')
+     graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'])['graph'].plot()
+     
+     graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'], 
+         direct=True, 
+         opts={'EDGES': {
+	         'attackerIP': ['victimIP', 'victimPort', 'vulnName'], 
+	         'victimIP': ['victimPort', 'vulnName'],
+	         'victimPort': ['vulnName']
+	 }})['graph'].plot()
      ```
 
   - [Neo4j](http://neo4j.com) ([notebook demo](demos/databases/neo4j/official//graphistry_bolt_tutorial_public.ipynb))
   
      ```python
      graphistry.register(bolt=NEO4J_CREDS)
-     graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000  RETURN a, p, b").plot()
+     graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000 RETURN a, p, b").plot()
      ```
 
   - [IGraph](http://igraph.org)
@@ -77,9 +88,8 @@ It supports unusually large graphs for interactive visualization. The client's c
   - [Splunk](https://www.splunk.com) ([notebook demo](demos/databases/splunk/splunk_demo_public.ipynb))
     
     ```python
-    df = splunkToPandas("index=netflow bytes > 100000 | head 100000", {})
+    df = splunkToPandas("index=netflow bytes > 100000 | head 100000", {})    
     graphistry.bind(source='src_ip', destination='dest_ip').plot(df)
-    graphistry.hypergraph(df, ['src_ip', 'dest_ip', 'dest_port'])['graph'].plot()
     ```
 
 
