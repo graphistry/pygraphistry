@@ -162,7 +162,10 @@ class PyGraphistry(object):
 
     @staticmethod
     def set_bolt_driver(driver=None):
-        PyGraphistry._config['bolt_driver'] = bolt_util.to_bolt_driver(driver)
+        try:
+            PyGraphistry._config['bolt_driver'] = bolt_util.to_bolt_driver(driver)
+        except bolt_util.BoltSupportModuleNotFound:
+            pass
 
 
     @staticmethod
