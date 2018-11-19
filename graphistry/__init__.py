@@ -1,5 +1,15 @@
+from graphistry.plotter import Plotter
 from ._version import get_versions
 __version__ = get_versions()['version']
 del get_versions
 
-from graphistry.pygraphistry import register, bind, edges, nodes, graph, settings, hypergraph, bolt, cypher
+def data(**data):
+    return Plotter().data(**data)
+
+
+def bind(**bindings):
+    return Plotter().bind(**bindings)
+
+
+def settings(**settings):
+    return Plotter().settings(**settings)
