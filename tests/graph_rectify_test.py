@@ -44,7 +44,7 @@ def test_rectify_node_ids():
     pass
 
 
-def _create_simple_table() -> arrow.Table:
+def _create_simple_table():
     letters = arrow.column(
         letters_column_name, [string.ascii_uppercase])
     indicies = arrow.column(

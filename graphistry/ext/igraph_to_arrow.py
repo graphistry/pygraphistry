@@ -2,30 +2,24 @@ import igraph
 import pyarrow as arrow
 import itertools
 
-from graphistry.plotter import NODE_ID, EDGE_ID, EDGE_SRC, EDGE_DST
+from graphistry.constants import BINDINGS
 
 
-def to_arrow( # TODO(cwharris): move these consts out of here
-    graph,
-    node_id_column_name=NODE_ID,
-    edge_id_column_name=EDGE_ID,
-    edge_src_column_name=EDGE_SRC,
-    edge_dst_column_name=EDGE_DST
-):
+def to_arrow(graph):
     if not isinstance(graph, igraph.Graph):
         return None
 
-    nodes: arrow.Table = arrow.Table.from_arrays(
+    nodes = arrow.Table.from_arrays(
         [column for column in itertools.chain(
-            _id_columns(graph.vs, node_id_column_name),
+            _id_columns(graph.vs, BINDINGS.NODE_ID),
             _attribute_columns(graph.vs)
         )]
     )
 
     edges = arrow.Table.from_arrays(
         [column for column in itertools.chain(
-            _id_columns(graph.es, edge_id_column_name),
-            _src_dst_columns(graph.es, edge_src_column_name, edge_dst_column_name),
+            _id_columns(graph.es, BINDINGS.EDGE_ID),
+            _src_dst_columns(graph.es),
             _attribute_columns(graph.es)
         )]
     )
@@ -46,11 +40,11 @@ def _id_columns(sequence, id_column_name):
     ])
 
 
-def _src_dst_columns(edgeSequence, edge_src_column_name, edge_dst_column_name):
-    yield arrow.column(edge_src_column_name, [
+def _src_dst_columns(edgeSequence):
+    yield arrow.column(BINDINGS.EDGE_SRC, [
         [edge.tuple[0] for edge in edgeSequence]
     ])
 
-    yield arrow.column(edge_dst_column_name, [
+    yield arrow.column(BINDINGS.EDGE_DST, [
         [edge.tuple[1] for edge in edgeSequence]
     ])

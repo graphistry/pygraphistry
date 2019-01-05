@@ -3,7 +3,7 @@ import pyarrow as arrow
 
 
 # Consider where to move to_buffer
-def table_to_buffer(table: arrow.Table) -> arrow.Buffer:
+def table_to_buffer(table):
     sink = arrow.BufferOutputStream()
     writer = arrow.RecordBatchStreamWriter(sink, table.schema)
     writer.write_table(table)
@@ -21,4 +21,3 @@ def to_arrow(source):
         return arrow.Table.from_pandas(source)
 
     raise Exception('unsupported data source type: %s' % type(source))
-

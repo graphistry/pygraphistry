@@ -1,7 +1,7 @@
 import pytest
 import igraph
 
-from graphistry.ext.igraph import to_arrow
+from graphistry.ext.igraph_to_arrow import to_arrow
 
 def test_to_arrow():
     graph = igraph.Graph.Tree(2, 10)

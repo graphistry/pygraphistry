@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import pyarrow as arrow
 
 
@@ -8,13 +6,13 @@ int64 = arrow.int64()
 
 
 def rectify(
-    edges: arrow.Table,
-    nodes: arrow.Table,
-    edge: str,
-    node: str,
-    edge_src: str,
-    edge_dst: str,
-    safe: bool = True
+    edges,
+    nodes,
+    edge,
+    node,
+    edge_src,
+    edge_dst,
+    safe = True
 ):
     return _rectify_node_ids(
         edges=_rectify_edge_ids(
@@ -31,9 +29,9 @@ def rectify(
 
 
 def _rectify_edge_ids(
-    edges: arrow.Table,
-    edge: str,
-    safe: bool = True
+    edges,
+    edge,
+    safe = True
 ):
 
     edge_column = None
@@ -62,12 +60,12 @@ def _rectify_edge_ids(
 
 
 def _rectify_node_ids(
-    edges: arrow.Table,
-    nodes: arrow.Table,
-    node: str,
-    edge_src: str,
-    edge_dst: str,
-    safe: bool = True
+    edges,
+    nodes,
+    node,
+    edge_src,
+    edge_dst,
+    safe = True
 ):
     # make sure id columns are int32, which may require one of the following:
     # - down-cast from int64
@@ -122,14 +120,15 @@ def _index_by_value(iterable):
     return keys
 
 
-def _map_column_to_index(lookup, column: arrow.Column) -> arrow.Column:
+def _map_column_to_index(lookup, column):
     indicies = [lookup[value] for value in column]
     return arrow.column(column.name, [indicies]).cast(int32, safe=False)
 
 
-def _assert_column_types_match(expected: arrow.Column, actual: arrow.Column):
+def _assert_column_types_match(expected, actual):
     if actual.type == expected.type:
         return
+
     raise Exception(
         'column types mismatch (%s/%s). expected(%s) actual(%s)' % (
             expected.name,

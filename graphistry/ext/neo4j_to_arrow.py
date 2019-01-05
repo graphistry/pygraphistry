@@ -2,49 +2,22 @@ import neo4j
 import pyarrow as arrow
 import itertools
 
-from graphistry.plotter import NODE_ID, EDGE_ID, EDGE_SRC, EDGE_DST
+from graphistry.constants import BINDINGS
 
-def to_arrow( # TODO(cwharris): move these consts out of here
-    graph,
-    node_id=NODE_ID,
-    edge_id=EDGE_ID,
-    edge_src=EDGE_SRC,
-    edge_dst=EDGE_DST,
-    neo4j_type="__neo4j_type__",
-    neo4j_label="__neo4j_label__"
-):
-    edge_table = _edge_table(
-        graph.relationships,
-        edge_id,
-        edge_src,
-        edge_dst,
-        neo4j_type
+
+def to_arrow(graph):
+    return (
+        _edge_table(graph.relationships),
+        _node_table(graph.nodes)
     )
 
-    node_table = _node_table(
-        graph.nodes,
-        node_id,
-        neo4j_label
-    )
 
-    return (edge_table, node_table)
-
-def _edge_table(
-    relationships,
-    edge_id,
-    edge_src,
-    edge_dst,
-    neo4j_type
-):
+def _edge_table(relationships):
     attribute_names = _attributes_for_entities(relationships)
     return arrow.Table.from_arrays(
         [column for column in itertools.chain(
             _intrinsic_edge_columns(
-                relationships=relationships,
-                edge_id=edge_id,
-                edge_src=edge_src,
-                edge_dst=edge_dst,
-                neo4j_type=neo4j_type
+                relationships=relationships
             ),
             _columns_for_entity(
                 entities=relationships,
@@ -53,19 +26,12 @@ def _edge_table(
         )]
     )
 
-def _node_table(
-    nodes,
-    node_id,
-    neo4j_label
-):
+
+def _node_table(nodes):
     attribute_names = _attributes_for_entities(nodes)
     return arrow.Table.from_arrays(
         [column for column in itertools.chain(
-            _intrinsic_node_columns(
-                nodes=nodes,
-                node_id=node_id,
-                neo4j_label=neo4j_label
-            ),
+            _intrinsic_node_columns(nodes=nodes),
             _columns_for_entity(
                 entities=nodes,
                 entity_attributes=attribute_names
@@ -73,10 +39,12 @@ def _node_table(
         )]
     )
 
+
 def _attributes_for_entities(entities):
     return set(
         key for entity in entities for key in entity.keys()
     )
+
 
 def _columns_for_entity(
     entities,
@@ -87,42 +55,34 @@ def _columns_for_entity(
             [entity[attribute] if attribute in entity else None for entity in entities]
         ])
 
-def _intrinsic_edge_columns(
-    relationships,
-    edge_id,
-    edge_src,
-    edge_dst,
-    neo4j_type
-):
+
+def _intrinsic_edge_columns(relationships):
     # TODO(cwharris): remove the string conversion once server can haandle non-ascending integers.
     # currently, ids will be remapped as part of pre-plot rectification.
-    yield arrow.column(edge_id, [
+    yield arrow.column(BINDINGS.EDGE_ID, [
         [str(relationship.id) for relationship in relationships]
     ])
 
-    yield arrow.column(edge_src, [
+    yield arrow.column(BINDINGS.EDGE_SRC, [
         [str(relationship.start_node.id) for relationship in relationships]
     ])
 
-    yield arrow.column(edge_dst, [
+    yield arrow.column(BINDINGS.EDGE_DST, [
         [str(relationship.end_node.id) for relationship in relationships]
     ])
 
-    yield arrow.column(neo4j_type, [
+    yield arrow.column(BINDINGS.NEO4J_TYPE, [
         [relationship.type for relationship in relationships]
     ])
 
-def _intrinsic_node_columns(
-    nodes,
-    node_id,
-    neo4j_label
-):
+
+def _intrinsic_node_columns(nodes):
     # TODO(cwharris): remove the string conversion once server can haandle non-ascending integers.
     # currently, ids will be remapped as part of pre-plot rectification.
-    yield arrow.column(NODE_ID, [
+    yield arrow.column(BINDINGS.NODE_ID, [
         [str(node.id) for node in nodes]
     ])
 
-    yield arrow.column(neo4j_label, [
+    yield arrow.column(BINDINGS.NEO4J_LABEL, [
         [list(node.labels) for node in nodes]
     ])

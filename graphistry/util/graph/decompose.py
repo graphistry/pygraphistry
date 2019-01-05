@@ -15,14 +15,15 @@ def decompose(graph):
 
 
 def _decompose_igraph(graph):
-    from graphistry.ext.igraph import to_arrow
+    from graphistry.ext.igraph_to_arrow import to_arrow
     return to_arrow(graph)
 
 
 def _decompose_networkx(graph):
-    from graphistry.ext.networkx import to_arrow
+    from graphistry.ext.networkx_to_arrow import to_arrow
     return to_arrow(graph)
 
+
 def _decompose_neo4j(graph):
-    from graphistry.ext.neo4j import to_arrow
+    from graphistry.ext.neo4j_to_arrow import to_arrow
     return to_arrow(graph)
