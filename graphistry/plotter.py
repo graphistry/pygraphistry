@@ -143,7 +143,7 @@ class Plotter(object):
         }
         
         response = requests.post(
-            'http://streamgl-datasets/datasets', # TODO(cwharris): configurable via env + graphistry.register(...) 'GRAPHISTRY_HOSTNAME'
+            'http://nginx/datasets', # TODO(cwharris): configurable via env + graphistry.register(...) 'GRAPHISTRY_HOSTNAME'
             # 'http://localhost/datasets',
             files=files,
             data=data,

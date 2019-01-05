@@ -4,7 +4,7 @@ import pyarrow as arrow
 import graphistry
 
 def get_graph(query, args={}):
-    driver = neo4j.GraphDatabase.driver("bolt://localhost:7687")
+    driver = neo4j.GraphDatabase.driver("bolt://neo4j:7687")
     with driver.session() as session:
         return session.run(query, args).graph()
 
@@ -17,8 +17,9 @@ def test_hey():
             edge_id='__edge_id__',
             edge_src='__edge_src__',
             edge_dst='__edge_dst__'
-        ) \
-        .plot()
+        )
+
+    plotter.plot()
 
     for column in plotter._data['edges']:
         for value in column:
