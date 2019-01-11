@@ -14,7 +14,7 @@ def to_bolt_driver(driver=None):
         if isinstance(driver, Driver):
             return driver
         return GraphDatabase.driver(**driver)
-    except (ModuleNotFoundError, ImportError) as err:
+    except ImportError:
         raise BoltSupportModuleNotFound()
 
 def bolt_graph_to_edges_dataframe(graph):
