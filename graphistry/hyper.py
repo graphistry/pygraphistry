@@ -85,7 +85,7 @@ def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
         fields = list(set([defs['EVENTID']] + ([x for x in events.columns] if not drop_edge_attrs else [col])))
         raw = events[ fields ]
         if drop_na:
-            raw = raw.dropna()
+            raw = raw.dropna(axis=0, subset=[col])            
         raw = raw.copy()
         if len(raw):            
             if is_using_categories:
