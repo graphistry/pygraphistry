@@ -73,3 +73,18 @@ class TestHypergraphPlain(NoAuthTestCase):
         assertFrameEqual(h['edges'], edges)
         for (k, v) in [('entities', 12), ('nodes', 15), ('edges', 12), ('events', 3)]:
             self.assertEqual(len(h[k]), v)
+
+
+    def test_skip_na_hyperedge(self, mock_open):
+    
+        nans_df = pd.DataFrame({
+          'x': ['a', 'b', 'c'],
+          'y': ['aa', None, 'cc']
+        })
+        expected_hits = ['a', 'b', 'c', 'aa', 'cc']
+
+        skip_attr_h_edges = graphistry.hypergraph(nans_df, drop_edge_attrs=True)['edges']
+        self.assertEqual(len(skip_attr_h_edges), len(expected_hits))
+
+        default_h_edges = graphistry.hypergraph(nans_df)['edges']
+        self.assertEqual(len(default_h_edges), len(expected_hits))
