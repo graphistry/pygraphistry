@@ -6,15 +6,15 @@ end_node_id_key = u'_bolt_end_node_id_key'
 relationship_id_key = u'_bolt_relationship_id'
 
 
-def to_bolt_driver(driver):
+def to_bolt_driver(driver=None):
+    if driver is None:
+        return None
     try:
         from neo4j import GraphDatabase, Driver
-        if driver is None:
-            return None
         if isinstance(driver, Driver):
             return driver
         return GraphDatabase.driver(**driver)
-    except ImportError:
+    except (ModuleNotFoundError, ImportError) as err:
         raise BoltSupportModuleNotFound()
 
 def bolt_graph_to_edges_dataframe(graph):
