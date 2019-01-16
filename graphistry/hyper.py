@@ -56,7 +56,7 @@ def format_entities(events, entity_types, defs, drop_na):
                     defs['NODEID']: col2cat(cat_lookup, col) + defs['DELIM'] + valToSafeStr(v)
                 } 
                 for v in events[col].unique() if not drop_na or valToSafeStr(v) != 'nan'] for col in entity_types], [])
-    df = pd.DataFrame(lst)
+    df = pd.DataFrame(lst).drop_duplicates([defs['NODEID']])
     df[defs['CATEGORY']] = df[defs['NODETYPE']].apply(lambda col: col2cat(cat_lookup, col))
     return df
 
