@@ -211,7 +211,7 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def hypergraph(raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=False, verbose=True):
+    def hypergraph(raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=False, verbose=True, direct=False):
         """Transform a dataframe into a hypergraph.
 
         :param Dataframe raw_events: Dataframe to transform
@@ -219,14 +219,15 @@ class PyGraphistry(object):
         :param Dict opts: See below
         :param bool drop_edge_attrs: Whether to include each row's attributes on its edges, defaults to False (include)
         :param bool verbose: Whether to print size information
+        :param bool direct: Omit hypernode and instead strongly connect nodes in an event
 
         Create a graph out of the dataframe, and return the graph components as dataframes, 
         and the renderable result Plotter. It reveals relationships between the rows and between column values.
         This transform is useful for lists of events, samples, relationships, and other structured high-dimensional data.
 
         The transform creates a node for every row, and turns a row's column entries into node attributes. 
-        Every unique value within a column is also turned into a node. 
-        Edges are added to connect a row's node to each of its column nodes. 
+        If direct=False (default), every unique value within a column is also turned into a node. 
+        Edges are added to connect a row's nodes to each of its column nodes, or if direct=True, to one another.
         Nodes are given the attribute 'type' corresponding to the originating column name, or in the case of a row, 'EventID'.
 
 
@@ -246,6 +247,7 @@ class PyGraphistry(object):
         * 'CATEGORIES': Dictionary mapping a category name to inhabiting columns. E.g., {'IP': ['srcAddress', 'dstAddress']}.  If the same IP appears in both columns, this makes the transform generate one node for it, instead of one for each column.
         * 'DELIM': When creating node IDs, defines the separator used between the column name and node value
         * 'SKIP': List of column names to not turn into nodes. For example, dates and numbers are often skipped.
+        * 'EDGES': For direct=True, instead of making all edges, pick column pairs. E.g., {'a': ['b', 'd'], 'd': ['d']} creates edges between columns a->b and a->d, and self-edges d->d.
 
 
         :returns: {'entities': DF, 'events': DF, 'edges': DF, 'nodes': DF, 'graph': Plotter}
@@ -261,7 +263,7 @@ class PyGraphistry(object):
 
         """
         from . import hyper
-        return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose)
+        return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct)
 
 
     @staticmethod

@@ -56,7 +56,7 @@ def format_entities(events, entity_types, defs, drop_na):
                     defs['NODEID']: col2cat(cat_lookup, col) + defs['DELIM'] + valToSafeStr(v)
                 } 
                 for v in events[col].unique() if not drop_na or valToSafeStr(v) != 'nan'] for col in entity_types], [])
-    df = pd.DataFrame(lst)
+    df = pd.DataFrame(lst).drop_duplicates([defs['NODEID']])
     df[defs['CATEGORY']] = df[defs['NODETYPE']].apply(lambda col: col2cat(cat_lookup, col))
     return df
 
@@ -66,6 +66,8 @@ DEFS_HYPER = {
     'NODEID': 'nodeID',
     'ATTRIBID': 'attribID',
     'EVENTID': 'EventID',
+    'SOURCE': 'src',
+    'DESTINATION': 'dst',    
     'CATEGORY': 'category',
     'NODETYPE': 'type',
     'EDGETYPE': 'edgeType',
@@ -94,8 +96,6 @@ def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
             else:
                 raw[defs['EDGETYPE']] = raw.apply(lambda r: col, axis=1)
             raw[defs['ATTRIBID']] = raw.apply(lambda r: col2cat(cat_lookup, col) + defs['DELIM'] + valToSafeStr(r[col]), axis=1)
-            if drop_edge_attrs:
-                raw = raw.drop([col], axis=1)
             subframes.append(raw)
 
     if len(subframes):
@@ -110,6 +110,55 @@ def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
     else:
         return pd.DataFrame([])
 
+
+# [ str ] * {?'EDGES' : ?{str: [ str ] }} -> {str: [ str ]}
+def direct_edgelist_shape(entity_types, defs):  
+  if 'EDGES' in defs and not defs['EDGES'] is None:
+      return defs['EDGES']
+  else:
+      out = {}
+      for entity_i in range(len(entity_types)):
+        out[ entity_types[entity_i] ] = entity_types[(entity_i + 1):]
+      return out
+  
+      
+#ex output: pd.DataFrame([{'edgeType': 'state', 'attribID': 'state::CA', 'eventID': 'eventID::0'}])
+def format_direct_edges(events, entity_types, defs, edge_shape, drop_na, drop_edge_attrs):
+    is_using_categories = len(defs['CATEGORIES'].keys()) > 0
+    cat_lookup = make_reverse_lookup(defs['CATEGORIES'])
+
+    subframes = []
+    for col1 in sorted(edge_shape.keys()):
+      for col2 in edge_shape[col1]:
+          fields = list(set([defs['EVENTID']] + ([x for x in events.columns] if not drop_edge_attrs else [col1, col2])))
+          raw = events[ fields ]
+          if drop_na:
+              raw = raw.dropna(axis=0, subset=[col1, col2])            
+          raw = raw.copy()
+          if len(raw):            
+              if not drop_edge_attrs:
+                  if is_using_categories:
+                      raw[defs['EDGETYPE']] = raw.apply(lambda r: col2cat(cat_lookup, col1) + defs['DELIM'] + col2cat(cat_lookup, col2), axis=1)
+                      raw[defs['CATEGORY']] = raw.apply(lambda r: col1 + defs['DELIM'] + col2, axis=1)
+                  else:
+                      raw[defs['EDGETYPE']] = raw.apply(lambda r: col1 + defs['DELIM'] + col2, axis=1)
+              raw[defs['SOURCE']] = raw.apply(lambda r: col2cat(cat_lookup, col1) + defs['DELIM'] + valToSafeStr(r[col1]), axis=1)
+              raw[defs['DESTINATION']] = raw.apply(lambda r: col2cat(cat_lookup, col2) + defs['DELIM'] + valToSafeStr(r[col2]), axis=1)
+              subframes.append(raw)
+
+    if len(subframes):
+        result_cols = list(set(
+            ([x for x in events.columns.tolist() if not x == defs['NODETYPE']] 
+                if not drop_edge_attrs 
+                else [])
+            + [defs['EDGETYPE'], defs['SOURCE'], defs['DESTINATION'], defs['EVENTID']]
+            + ([defs['CATEGORY']] if is_using_categories else []) ))
+        out = pd.concat(subframes, ignore_index=True).reset_index(drop=True)[ result_cols ]
+        return out
+    else:
+        return pd.DataFrame([])
+
+
 def format_hypernodes(events, defs, drop_na):
     event_nodes = events.copy()
     event_nodes[defs['NODETYPE']] = defs['EVENTID']
@@ -118,7 +167,7 @@ def format_hypernodes(events, defs, drop_na):
     event_nodes[defs['TITLE']] = event_nodes[defs['EVENTID']]    
     return event_nodes
 
-def hyperbinding(g, defs, entities, event_entities, edges):
+def hyperbinding(g, defs, entities, event_entities, edges, source, destination):
     nodes = pd.concat([entities, event_entities], ignore_index=True).reset_index(drop=True)
     return {
         'entities': entities,
@@ -126,16 +175,16 @@ def hyperbinding(g, defs, entities, event_entities, edges):
         'edges': edges,
         'nodes': nodes,
         'graph': g\
-            .bind(source=defs['ATTRIBID'], destination=defs['EVENTID']).edges(edges)\
+            .bind(source=source, destination=destination).edges(edges)\
             .bind(node=defs['NODEID'], point_title=defs['TITLE']).nodes(nodes)
-    }    
+    } 
 
 ###########        
 
 class Hypergraph(object):        
 
     @staticmethod
-    def hypergraph(g, raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=False, verbose=True):
+    def hypergraph(g, raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=False, verbose=True, direct=False):
         defs = makeDefs(DEFS_HYPER, opts)
         entity_types = screen_entities(raw_events, entity_types, defs)
         events = raw_events.copy().reset_index(drop=True)
@@ -148,11 +197,22 @@ class Hypergraph(object):
                 lambda r: defs['EVENTID'] + defs['DELIM'] + valToSafeStr(r['index']),
                 axis=1)
         events[defs['NODETYPE']] = 'event'
+        
         entities = format_entities(events, entity_types, defs, drop_na)
-        event_entities = format_hypernodes(events, defs, drop_na)
-        edges = format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs)
+        event_entities = None
+        edges = None
+        if direct:
+            edge_shape = direct_edgelist_shape(entity_types, opts)
+            event_entities = pd.DataFrame()
+            edges = format_direct_edges(events, entity_types, defs, edge_shape, drop_na, drop_edge_attrs)
+        else:        
+            event_entities = format_hypernodes(events, defs, drop_na)
+            edges = format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs)
         if verbose:
             print('# links', len(edges))
-            print('# event entities', len(events))
+            print('# events', len(events))
             print('# attrib entities', len(entities))
-        return hyperbinding(g, defs, entities, event_entities, edges)
+        return hyperbinding(
+            g, defs, entities, event_entities, edges,
+            defs['SOURCE'] if direct else defs['ATTRIBID'],
+            defs['DESTINATION'] if direct else defs['EVENTID'])

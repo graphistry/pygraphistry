@@ -19,6 +19,8 @@ triangleNodesDict = {
 }
 triangleNodes = pd.DataFrame(triangleNodesDict)
 
+hyper_df = pd.DataFrame({'aa': [0, 1, 2], 'bb': ['a', 'b', 'c'], 'cc': ['b', 0, 1]})
+
 
 def assertFrameEqual(df1, df2, **kwds ):
     """ Assert that two dataframes are equal, ignoring ordering of columns"""
@@ -53,6 +55,29 @@ class TestHypergraphPlain(NoAuthTestCase):
         assertFrameEqual(h['edges'], edges)
         for (k, v) in [('entities', 12), ('nodes', 15), ('edges', 12), ('events', 3)]:
             self.assertEqual(len(h[k]), v)
+
+    def test_hyperedges_direct(self, mock_open):
+
+        h = graphistry.hypergraph(hyper_df, verbose=False, direct=True)
+        
+        self.assertEqual(len(h['edges']), 9)
+        self.assertEqual(len(h['nodes']), 9)
+
+    def test_hyperedges_direct_categories(self, mock_open):
+
+        h = graphistry.hypergraph(hyper_df, verbose=False, direct=True, opts={'CATEGORIES': {'n': ['aa', 'bb', 'cc']}})
+        
+        self.assertEqual(len(h['edges']), 9)
+        self.assertEqual(len(h['nodes']), 6)
+
+    def test_hyperedges_direct_manual_shaping(self, mock_open):
+
+        h1 = graphistry.hypergraph(hyper_df, verbose=False, direct=True, opts={'EDGES': {'aa': ['cc'], 'cc': ['cc']}})
+        self.assertEqual(len(h1['edges']), 6)
+
+        h2 = graphistry.hypergraph(hyper_df, verbose=False, direct=True, opts={'EDGES': {'aa': ['cc', 'bb', 'aa'], 'cc': ['cc']}})
+        self.assertEqual(len(h2['edges']), 12)
+
 
     def test_drop_edge_attrs(self, mock_open):
     
