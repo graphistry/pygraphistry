@@ -54,13 +54,21 @@ It supports unusually large graphs for interactive visualization. The client's c
      
      table_rows = pandas.read_csv('honeypot.csv')
      graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'])['graph'].plot()
+     
+     graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'], 
+         direct=True, 
+         opts={'EDGES': {
+	         'attackerIP': ['victimIP', 'victimPort', 'vulnName'], 
+	         'victimIP': ['victimPort', 'vulnName'],
+	         'victimPort': ['vulnName']
+	 }})['graph'].plot()
      ```
 
   - [Neo4j](http://neo4j.com) ([notebook demo](demos/databases/neo4j/official//graphistry_bolt_tutorial_public.ipynb))
   
      ```python
      graphistry.register(bolt=NEO4J_CREDS)
-     graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000  RETURN a, p, b").plot()
+     graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000 RETURN a, p, b").plot()
      ```
 
   - [IGraph](http://igraph.org)
