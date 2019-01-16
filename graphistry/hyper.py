@@ -176,7 +176,8 @@ def hyperbinding(g, defs, entities, event_entities, edges, source, destination):
         'nodes': nodes,
         'graph': g\
             .bind(source=source, destination=destination).edges(edges)\
-            .bind(node=defs['NODEID'], point_title=defs['TITLE']).nodes(nodes) 
+            .bind(node=defs['NODEID'], point_title=defs['TITLE']).nodes(nodes)
+    } 
 
 ###########        
 
