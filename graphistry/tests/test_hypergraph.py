@@ -70,6 +70,15 @@ class TestHypergraphPlain(NoAuthTestCase):
         self.assertEqual(len(h['edges']), 9)
         self.assertEqual(len(h['nodes']), 6)
 
+    def test_hyperedges_direct_manual_shaping(self, mock_open):
+
+        h1 = graphistry.hypergraph(hyper_df, verbose=False, direct=True, opts={'EDGES': {'aa': ['cc'], 'cc': ['cc']}})
+        self.assertEqual(len(h1['edges']), 6)
+
+        h2 = graphistry.hypergraph(hyper_df, verbose=False, direct=True, opts={'EDGES': {'aa': ['cc', 'bb', 'aa'], 'cc': ['cc']}})
+        self.assertEqual(len(h2['edges']), 12)
+
+
     def test_drop_edge_attrs(self, mock_open):
     
         h = graphistry.hypergraph(triangleNodes, verbose=False, drop_edge_attrs=True)
