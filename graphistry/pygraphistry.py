@@ -247,6 +247,7 @@ class PyGraphistry(object):
         * 'CATEGORIES': Dictionary mapping a category name to inhabiting columns. E.g., {'IP': ['srcAddress', 'dstAddress']}.  If the same IP appears in both columns, this makes the transform generate one node for it, instead of one for each column.
         * 'DELIM': When creating node IDs, defines the separator used between the column name and node value
         * 'SKIP': List of column names to not turn into nodes. For example, dates and numbers are often skipped.
+        * 'EDGES': For direct=True, instead of making all edges, pick column pairs. E.g., {'a': ['b', 'd'], 'd': ['d']} creates edges between columns a->b and a->d, and self-edges d->d.
 
 
         :returns: {'entities': DF, 'events': DF, 'edges': DF, 'nodes': DF, 'graph': Plotter}
