@@ -58,7 +58,7 @@ class TestHypergraphPlain(NoAuthTestCase):
 
     def test_hyperedges_direct(self, mock_open):
 
-        h = graphistry.hypergraph(hyper_df, verbose=False)
+        h = graphistry.hypergraph(hyper_df, verbose=False, direct=True)
         
         self.assertEqual(len(h['edges']), 9)
         self.assertEqual(len(h['nodes']), 9)
