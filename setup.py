@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 import versioneer
 
-long_description =
+long_description = \
     """
     **PyGraphistry** is a visual graph analytics library to extract, transform, and
     load big graphs into `Graphistry's <http://www.graphistry.com>`_ GPU-cloud-accelerated
