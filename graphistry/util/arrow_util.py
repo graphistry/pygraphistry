@@ -7,6 +7,7 @@ def table_to_buffer(table):
     sink = arrow.BufferOutputStream()
     writer = arrow.RecordBatchStreamWriter(sink, table.schema)
     writer.write_table(table)
+    writer.close()
     return sink.getvalue()
 
 
