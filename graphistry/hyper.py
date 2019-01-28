@@ -68,16 +68,6 @@ def valToSafeStr(value):
 #ex output: pd.DataFrame([{'val::state': 'CA', 'nodeType': 'state', 'nodeID': 'state::CA'}])
 def format_entities(events, entity_types, defs, drop_na):
     cat_lookup = make_reverse_lookup(defs['CATEGORIES'])
-    # lst = sum([[{
-    #                 col: v,
-    #                 defs[BINDINGS.NODE_TITLE]: v,
-    #                 defs['NODETYPE']: col,
-    #                 defs[BINDINGS.NODE_ID]: col2cat(cat_lookup, col) + defs['DELIM'] + valToSafeStr(v)
-    #             }
-    #             for v in events[col].unique() if not drop_na or valToSafeStr(v) != 'nan'] for col in entity_types], [])
-    # df = pd.DataFrame(lst).drop_duplicates([defs[BINDINGS.NODE_ID]])
-    # df[defs['CATEGORY']] = df[defs['NODETYPE']].apply(lambda col: col2cat(cat_lookup, col))
-
     df = pd.DataFrame([
         node for node in events_to_nodes(events, entity_types, cat_lookup, defs, drop_na)
     ])

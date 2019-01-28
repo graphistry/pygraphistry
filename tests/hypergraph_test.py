@@ -16,8 +16,7 @@ def test_hypergraph():
         .read_csv(
             path.join(path.dirname(__file__), 'hypergraph_test.csv'),
             encoding='utf8'
-        ) \
-        .drop('value', axis=1)
+        )
     
     hg = graphistry.hypergraph(df[:50])
     g = hg['graph']
