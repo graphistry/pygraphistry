@@ -1,25 +1,33 @@
 language: python
 cache: pip
 python:
-    - 2.7.13
-    - 3.6
+- 2.7.13
+- 3.6
 install:
-    - pip install flake8 pytest  # pytest  # add another testing frameworks later
+- pip install flake8 pytest
 before_install:
-    - pip install --upgrade pip setuptools wheel
-    - pip install --only-binary=numpy,pandas numpy pandas
-    - sudo add-apt-repository ppa:igraph/ppa -y
-    - sudo apt-get update -q
-    - sudo apt-get install python-igraph -y      
-    - if [[ $TRAVIS_PYTHON_VERSION == 2.7.13 ]]; then pip install IPython==5.0; fi
-    - "python setup.py install"
+- pip install --upgrade pip setuptools wheel
+- pip install --only-binary=numpy,pandas numpy pandas
+- sudo add-apt-repository ppa:igraph/ppa -y
+- sudo apt-get update -q
+- sudo apt-get install python-igraph -y
+- if [[ $TRAVIS_PYTHON_VERSION == 2.7.13 ]]; then pip install IPython==5.0; fi
+- python setup.py install
 before_script:
     # stop the build if there are Python syntax errors or undefined names
-    - time flake8 . --count --select=E901,E999,F821,F822,F823 --show-source --statistics
+- time flake8 . --count --select=E901,E999,F821,F822,F823 --show-source --statistics
     # exit-zero treats all errors as warnings.  The GitHub editor is 127 chars wide
-    - time flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+- time flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 script:
-    - python setup.py test
+- python setup.py test
 notifications:
-    on_success: change
-    on_failure: always
+  on_success: change
+  on_failure: always
+deploy:
+  provider: pypi
+  skip_existing: true
+  on:
+    tags: true
+  user: graphistryAccount
+  password:
+    secure: OXoDh79/a5YYbxVDESVn7c4sPCGMSpTYmdFw9Uqj4vR9mIh1G9n565vPZ3ZHm3H6rZ6WxgkPbAR31YzCJV967x8hzHv+Wlzo3mE34fgVQZzbTResXYpDxfHRhHNN7Vt4mvA8vWcvpn9rBzycvVphHzIco8RgqaZM4bZkOaJLNGSb3traox1RFI1nqW/ZPqBfYpPn/RZ0oSXpxNXl/ysMIP5leCgVed7Ycz7jc3W/15/PTnP+1I9LcOuAldYVS6LaC6pZM6+v+lNFjw55ECMi24/S5DCysM4VpWDBizD1++dLSINiokQR/jFEPMt3q7zJy0vcG502+8bPpzOl8COUa6BL9WduhsS95khV30Z12wMkSyp43NJnyDgynCikZJEHKTV8/fx0cX9owP/GCWsoWnTRq5kNMpOjGC8O5zwCyoGaG6MZU+2U8i4WGxjjYzzLz4jVHI+Y+NsvIIpjOHXIOaosB/r3UfIwlYSBl1PSqKuLHLaEm6UrG72vzLWNw/B3pcW44kfx89AaFFeVnXy9UR5uZpepp56rxYTSpeKf3bd8zJo6Yp2Mdgb15yYohmmOjZetIVOfnDxGsXutqnMJTpo65z8Bye4VXehe9xBFDEMqmAb/tECKB3yOEb7de0kZtidjtkajGn/XR+7yJ3BnVVXKkEyOkxoU2fIQ69YqQkE=
