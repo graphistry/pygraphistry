@@ -4,7 +4,6 @@ import json
 
 from os import path
 
-
 def test_hypergraph():
     graphistry.register(
         protocol = 'http',
@@ -20,4 +19,3 @@ def test_hypergraph():
     
     hg = graphistry.hypergraph(df[:50])
     g = hg['graph']
-    g.plot()
