@@ -4,8 +4,7 @@ python:
 - 2.7.13
 - 3.6
 install:
-- pip install flake8 pytest
-- pip install python-openssl
+- pip install flake8 pytest pyopenssl
 before_install:
 - pip install --upgrade pip setuptools wheel
 - pip install --only-binary=numpy,pandas numpy pandas
