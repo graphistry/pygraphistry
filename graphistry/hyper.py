@@ -3,6 +3,7 @@ import sys
 
 from graphistry.constants import BINDINGS
 
+
 DEFS_HYPER = {
     BINDINGS.NODE_TITLE: BINDINGS.NODE_TITLE,
     'DELIM': '::',
@@ -65,11 +66,11 @@ def valToSafeStr(value):
             return repr(value)
 
 
-#ex output: pd.DataFrame([{'val::state': 'CA', 'nodeType': 'state', 'nodeID': 'state::CA'}])
-def format_entities(events, entity_types, defs, drop_na):
+# ex output: pd.DataFrame([{'val::state': 'CA', 'nodeType': 'state', 'nodeID': 'state::CA'}])
+def format_entities(events, entity_types, defs, drop_node_attributes):
     cat_lookup = make_reverse_lookup(defs['CATEGORIES'])
     df = pd.DataFrame([
-        node for node in events_to_nodes(events, entity_types, cat_lookup, defs, drop_na)
+        node for node in events_to_nodes(events, entity_types, cat_lookup, defs, drop_node_attributes)
     ])
 
     return df
@@ -81,13 +82,19 @@ def events_to_nodes(events, entity_types, category_lookup, defs, drop_node_attri
         for value in events[column].unique():
             if valToSafeStr(value) == 'nan':
                 continue
-            yield {
-                column: value,
-                defs[BINDINGS.NODE_ID]: category + defs['DELIM'] + valToSafeStr(value),
-                defs[BINDINGS.NODE_TITLE]: value,
-                defs['NODETYPE']: column,
-                defs['CATEGORY']: category
-            }
+            node_id = category + defs['DELIM'] + valToSafeStr(value)
+            if drop_node_attributes:
+                yield {
+                    defs[BINDINGS.NODE_ID]: node_id,
+                }
+            else:
+                yield {
+                    column: value,
+                    defs[BINDINGS.NODE_ID]: node_id,
+                    defs[BINDINGS.NODE_TITLE]: value,
+                    defs['NODETYPE']: column,
+                    defs['CATEGORY']: category
+                }
 
 #ex output: pd.DataFrame([{'edgeType': 'state', 'attribID': 'state::CA', 'eventID': 'eventID::0'}])
 def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
@@ -171,7 +178,7 @@ def format_direct_edges(events, entity_types, defs, edge_shape, drop_na, drop_ed
         return pd.DataFrame([])
 
 
-def format_hypernodes(events, defs, drop_na):
+def format_hypernodes(events, defs):
     event_nodes = events.copy()
     event_nodes[defs['NODETYPE']] = defs['EVENTID']
     event_nodes[defs['CATEGORY']] = 'event'
@@ -239,7 +246,7 @@ class Hypergraph(object):
             event_entities = pd.DataFrame()
             edges = format_direct_edges(events, entity_types, defs, edge_shape, drop_na, drop_edge_attrs)
         else:
-            event_entities = format_hypernodes(events, defs, drop_na)
+            event_entities = format_hypernodes(events, defs)
             edges = format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs)
 
         if verbose:

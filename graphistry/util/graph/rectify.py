@@ -65,7 +65,7 @@ def _rectify_node_ids(
     node,
     edge_src,
     edge_dst,
-    safe = True
+    safe=True
 ):
     # make sure id columns are int32, which may require one of the following:
     # - down-cast from int64
