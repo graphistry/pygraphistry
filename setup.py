@@ -51,7 +51,7 @@ setup(
     ],
     install_requires=[
         'pandas >= 0.17.0',
-        'pyarrow == 0.11.1',
+        'pyarrow == 0.10.0',
         'requests',
         'future >= 0.15.0',
     ],
