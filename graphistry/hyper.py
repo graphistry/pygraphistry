@@ -1,7 +1,7 @@
 import pandas as pd
 import sys
 
-from graphistry.constants import BINDINGS
+from .constants import BINDINGS
 
 
 DEFS_HYPER = {

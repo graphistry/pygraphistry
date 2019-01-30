@@ -1,2 +1,2 @@
-from graphistry.util.graph.decompose import decompose
-from graphistry.util.graph.rectify import rectify
+from .decompose import decompose
+from .rectify import rectify

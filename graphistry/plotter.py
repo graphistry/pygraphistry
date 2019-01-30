@@ -1,8 +1,8 @@
 import requests
 import os
 
-from graphistry.util import arrow_util, dict_util, graph as graph_util
-from graphistry.constants import BINDINGS
+from .util import arrow_util, dict_util, graph as graph_util
+from .constants import BINDINGS
 
 
 class AssignableSettings(object):

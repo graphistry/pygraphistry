@@ -1,8 +1,8 @@
-from graphistry.plotter import Plotter
-
 from ._version import get_versions
 __version__ = get_versions()['version']
 del get_versions
+
+from .plotter import Plotter
 
 _plotter = Plotter()
 
@@ -77,7 +77,7 @@ def hypergraph(
     """
     global _plotter
 
-    from graphistry.hyper import Hypergraph
+    from .hyper import Hypergraph
 
     return Hypergraph().hypergraph(
         _plotter,

@@ -1,1 +1,1 @@
-from graphistry.constants import bindings as BINDINGS
+from . import bindings as BINDINGS

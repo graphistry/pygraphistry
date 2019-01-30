@@ -2,7 +2,7 @@ import pyarrow
 import networkx
 import itertools
 
-from graphistry.constants import BINDINGS
+from ..constants import BINDINGS
 
 
 def to_arrow(graph):

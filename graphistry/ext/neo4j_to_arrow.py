@@ -2,7 +2,7 @@ import neo4j
 import pyarrow as arrow
 import itertools
 
-from graphistry.constants import BINDINGS
+from ..constants import BINDINGS
 
 
 def to_arrow(graph):
