@@ -6,7 +6,7 @@ from graphistry.constants import BINDINGS
 
 
 def to_arrow(graph):
-    return None if not isinstance(graph, networkx.Graph) else (
+    return None if not isinstance(graph, networkx.classes.graph.Graph) else (
         pyarrow.Table.from_arrays([column for column in _edge_columns(graph)]),
         pyarrow.Table.from_arrays([column for column in _node_columns(graph)])
     )
