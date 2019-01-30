@@ -37,7 +37,7 @@ long_description = \
 setup(
     name='graphistry',
     version=versioneer.get_version(),
-    packages = ['graphistry'],
+    packages=find_packages(),
     platforms='any',
     description = 'Visualize node-link graphs using Graphistry\'s cloud',
     long_description=long_description,
