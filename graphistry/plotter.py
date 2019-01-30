@@ -49,7 +49,7 @@ class Plotter(object):
 
     __default_settings = {
         'protocol': 'https',
-        'server': 'labs.graphistry.com',
+        'server': 'alpha.graphistry.com',
         'key': None,
         'certificate_validation': None,
         'bolt': None,
@@ -214,7 +214,7 @@ class Plotter(object):
         from IPython.core.display import HTML
 
         return HTML(
-            _make_iframe("%s/graph/graph.html?dataset={jres['revisionId']}" % graphistry_uri, self._settings.get('height'))
+            _make_iframe("%s/graph/graph.html?dataset=%s" % (graphistry_uri, jres['revisionId']), self._settings.get('height'))
         )
 
     def bolt(self, driver_or_config):
