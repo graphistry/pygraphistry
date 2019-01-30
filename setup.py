@@ -52,7 +52,7 @@ setup(
     install_requires=[
         'pandas >= 0.17.0',
         'pyarrow == 0.10.0',
-        'requests',
+        'requests == 2.20.1',
         'future >= 0.15.0',
     ],
     extras_require={
