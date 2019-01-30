@@ -4,7 +4,7 @@ python:
 - 2.7.13
 - 3.6
 install:
-- pip install flake8 pytest
+- pip install flake8 pytest pyopenssl
 before_install:
 - pip install --upgrade pip setuptools wheel
 - pip install --only-binary=numpy,pandas numpy pandas
@@ -14,7 +14,9 @@ before_install:
 - if [[ $TRAVIS_PYTHON_VERSION == 2.7.13 ]]; then pip install IPython==5.0; fi
 - python setup.py install
 before_script:
+    # stop the build if there are Python syntax errors or undefined names
 - time flake8 . --count --select=E901,E999,F821,F822,F823 --show-source --statistics
+    # exit-zero treats all errors as warnings.  The GitHub editor is 127 chars wide
 - time flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 script:
 - python setup.py test
@@ -28,4 +30,4 @@ deploy:
     tags: true
   user: graphistryAccount
   password:
-    secure: OXoDh79/a5YYbxVDESVn7c4sPCGMSpTYmdFw9Uqj4vR9mIh1G9n565vPZ3ZHm3H6rZ6WxgkPbAR31YzCJV967x8hzHv+Wlzo3mE34fgVQZzbTResXYpDxfHRhHNN7Vt4mvA8vWcvpn9rBzycvVphHzIco8RgqaZM4bZkOaJLNGSb3traox1RFI1nqW/ZPqBfYpPn/RZ0oSXpxNXl/ysMIP5leCgVed7Ycz7jc3W/15/PTnP+1I9LcOuAldYVS6LaC6pZM6+v+lNFjw55ECMi24/S5DCysM4VpWDBizD1++dLSINiokQR/jFEPMt3q7zJy0vcG502+8bPpzOl8COUa6BL9WduhsS95khV30Z12wMkSyp43NJnyDgynCikZJEHKTV8/fx0cX9owP/GCWsoWnTRq5kNMpOjGC8O5zwCyoGaG6MZU+2U8i4WGxjjYzzLz4jVHI+Y+NsvIIpjOHXIOaosB/r3UfIwlYSBl1PSqKuLHLaEm6UrG72vzLWNw/B3pcW44kfx89AaFFeVnXy9UR5uZpepp56rxYTSpeKf3bd8zJo6Yp2Mdgb15yYohmmOjZetIVOfnDxGsXutqnMJTpo65z8Bye4VXehe9xBFDEMqmAb/tECKB3yOEb7de0kZtidjtkajGn/XR+7yJ3BnVVXKkEyOkxoU2fIQ69YqQkE=
+    secure: iJ+xTpVYYLT1srCvn/b0+uiHLjGnBPI6dHBnISiSRRjyaGrZEtwqM2omf03IA1/LVoRTN6lSuCTcDpqisaMpHRkQWHEZFs7cuXbVxV5jvIlCY14PuAJG0K6AEcbnij2MkfR06Tqycp2H64A1UhASu9B27TnD/lngRSZzTlS0WpivGKsaNHuKTNv6GKE3RhB+5SahmpIzmWKSx6jmeEMARxx0XawZKBI4my4DgsMB+6/UIYazDQJTnPsWQnoJm5zVu2ZANCL7f+xnwLSsUZ6CeSdUi1CPwMr3KYvRlMOZnpxO2ZwYFt1niAcvnnTrEL3VZv+gxjp8dSMC2ZdiOdUgfWDJPxeH51IkpXckiVlK2F20109ovfeNPAK8MitDuOdB9jpCYyAh9ELqgJ0qOwSwkY5sgipUHEebqO7RRrZ45TtAkXp4nNzW9h9agXHvx9WTnwCE+2bXALCt79nmr9Q58kEUtyalTPhJWecVocFLJ/z05lu3AwlvYjwiI9rJpMnyVVHCTfpNgbIcUQwesCZrTTabQI2fl0yvRaZxJ/dcZgjfZnyfz0+miaAV9He19fQnxYdyfERo6yGv0okERuugvQx7MDPqdtIKELCg7+aKP9OTEpFvX87Bo4065v/fx6aPXHkEoZqjhhKFpIiGt4aqaWifTDGX2/aw9ODgbLXauCE=
