@@ -17,6 +17,21 @@ def data(**data):
 
 
 def bind(**bindings):
+    """
+    Keyword arguments:
+        node_id (str): nodeId
+        edge_id (str): edgeId
+        edge_src (str): source
+        edge_dst (str): destination
+        edge_color (str): edgeColor
+        edge_label (str): edgeLabel
+        edge_title (str): edgeTitle
+        edge_weight (str): edgeWeight
+        node_color (str): pointColor
+        node_label (str): pointLabel
+        node_title (str): pointTitle
+        node_size (str): pointSize
+    """
     global _plotter
     return _plotter.bind(**bindings)
 
