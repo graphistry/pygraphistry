@@ -175,19 +175,14 @@ class Plotter(object):
             safe=True
         )
 
-        import io
+        import pyarrow
 
         nodeBuffer = arrow_util.table_to_buffer(nodes)
         edgeBuffer = arrow_util.table_to_buffer(edges)
 
-        import pyarrow as arrow
-
-        nodeBuffer.read = lambda: return nodeBuffer
-        edgeBuffer.read = lambda: return edgeBuffer
-
         files = {
-            'nodes': ('nodes', nodeBuffer, 'application/octet-stream'),
-            'edges': ('edges', edgeBuffer, 'application/octet-stream')
+            'nodes': ('nodes', nodeBuffer.to_pybytes(), 'application/octet-stream'),
+            'edges': ('edges', edgeBuffer.to_pybytes(), 'application/octet-stream')
         }
 
         data = {
