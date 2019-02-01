@@ -175,8 +175,10 @@ class Plotter(object):
             safe=True
         )
 
-        nodeBuffer = arrow_util.table_to_buffer(nodes)
-        edgeBuffer = arrow_util.table_to_buffer(edges)
+        import io
+
+        nodeBuffer = io.BytesIO(arrow_util.table_to_buffer(nodes))
+        edgeBuffer = io.BytesIO(arrow_util.table_to_buffer(edges))
 
         import pyarrow as arrow
 
