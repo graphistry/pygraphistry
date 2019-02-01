@@ -1,22 +1,24 @@
 import pandas as pd
 import sys
 
-from graphistry.constants import BINDINGS
+from graphistry.constants import BINDING, BINDING_DEFAULT
 
 
 DEFS_HYPER = {
-    BINDINGS.NODE_TITLE: BINDINGS.NODE_TITLE,
-    'DELIM': '::',
-    BINDINGS.NODE_ID: BINDINGS.NODE_ID,
-    'ATTRIBID': 'attribID',
-    'EVENTID': 'EventID',
-    BINDINGS.EDGE_SRC: BINDINGS.EDGE_SRC,
-    BINDINGS.EDGE_DST: BINDINGS.EDGE_DST,
-    'CATEGORY': 'category',
-    'NODETYPE': 'type',
-    'EDGETYPE': 'edgeType',
-    'SKIP': [],
-    'CATEGORIES': {} # { 'categoryName': ['colName', ...], ... }
+    BINDING.NODE_ID:    BINDING_DEFAULT.NODE_ID,
+    BINDING.NODE_TITLE: BINDING_DEFAULT.NODE_TITLE,
+    BINDING.EDGE_SRC:   BINDING_DEFAULT.EDGE_SRC,
+    BINDING.EDGE_DST:   BINDING_DEFAULT.EDGE_DST,
+    'DELIM':            '::',
+    'ATTRIBID':         'attribID',
+    'EVENTID':          'EventID',
+    'CATEGORY':         'category',
+    'NODETYPE':         'type',
+    'EDGETYPE':         'edgeType',
+    'SKIP': [
+    ],
+    'CATEGORIES': { # { 'categoryName': ['colName', ...], ... }
+    } 
 }
 
 
@@ -85,13 +87,13 @@ def events_to_nodes(events, entity_types, category_lookup, defs, drop_node_attri
             node_id = category + defs['DELIM'] + valToSafeStr(value)
             if drop_node_attributes:
                 yield {
-                    defs[BINDINGS.NODE_ID]: node_id,
+                    defs[BINDING.NODE_ID]: node_id,
                 }
             else:
                 yield {
                     column: value,
-                    defs[BINDINGS.NODE_ID]: node_id,
-                    defs[BINDINGS.NODE_TITLE]: value,
+                    defs[BINDING.NODE_ID]: node_id,
+                    defs[BINDING.NODE_TITLE]: value,
                     defs['NODETYPE']: column,
                     defs['CATEGORY']: category
                 }
@@ -161,8 +163,8 @@ def format_direct_edges(events, entity_types, defs, edge_shape, drop_na, drop_ed
                       raw[defs['CATEGORY']] = raw.apply(lambda r: col1 + defs['DELIM'] + col2, axis=1)
                   else:
                       raw[defs['EDGETYPE']] = raw.apply(lambda r: col1 + defs['DELIM'] + col2, axis=1)
-              raw[defs[BINDINGS.EDGE_SRC]] = raw.apply(lambda r: col2cat(cat_lookup, col1) + defs['DELIM'] + valToSafeStr(r[col1]), axis=1)
-              raw[defs[BINDINGS.EDGE_DST]] = raw.apply(lambda r: col2cat(cat_lookup, col2) + defs['DELIM'] + valToSafeStr(r[col2]), axis=1)
+              raw[defs[BINDING.EDGE_SRC]] = raw.apply(lambda r: col2cat(cat_lookup, col1) + defs['DELIM'] + valToSafeStr(r[col1]), axis=1)
+              raw[defs[BINDING.EDGE_DST]] = raw.apply(lambda r: col2cat(cat_lookup, col2) + defs['DELIM'] + valToSafeStr(r[col2]), axis=1)
               subframes.append(raw)
 
     if len(subframes):
@@ -170,7 +172,7 @@ def format_direct_edges(events, entity_types, defs, edge_shape, drop_na, drop_ed
             ([x for x in events.columns.tolist() if not x == defs['NODETYPE']]
                 if not drop_edge_attrs
                 else [])
-            + [defs['EDGETYPE'], defs[BINDINGS.EDGE_SRC], defs[BINDINGS.EDGE_DST], defs['EVENTID']]
+            + [defs['EDGETYPE'], defs[BINDING.EDGE_SRC], defs[BINDING.EDGE_DST], defs['EVENTID']]
             + ([defs['CATEGORY']] if is_using_categories else []) ))
         out = pd.concat(subframes, ignore_index=True, sort=True).reset_index(drop=True)[ result_cols ]
         return out
@@ -182,8 +184,8 @@ def format_hypernodes(events, defs):
     event_nodes = events.copy()
     event_nodes[defs['NODETYPE']] = defs['EVENTID']
     event_nodes[defs['CATEGORY']] = 'event'
-    event_nodes[defs[BINDINGS.NODE_ID]] = event_nodes[defs['EVENTID']]
-    event_nodes[defs[BINDINGS.NODE_TITLE]] = event_nodes[defs['EVENTID']]
+    event_nodes[defs[BINDING.NODE_ID]] = event_nodes[defs['EVENTID']]
+    event_nodes[defs[BINDING.NODE_TITLE]] = event_nodes[defs['EVENTID']]
     event_nodes.loc[:, event_nodes.dtypes == object] = event_nodes.loc[:, event_nodes.dtypes == object].where(pd.notnull(event_nodes), None)
     return event_nodes
 
@@ -208,10 +210,10 @@ def hyperbinding(plotter, defs, entities, event_entities, edges, source, destina
         'nodes': nodes,
         'graph': plotter\
             .bind(
-                edge_src=source,
-                edge_dst=destination,
-                node_id=defs[BINDINGS.NODE_ID],
-                node_title=defs[BINDINGS.NODE_TITLE]
+                source=source,
+                destination=destination,
+                nodeID=defs[BINDING.NODE_ID],
+                pointTitle=defs[BINDING.NODE_TITLE]
             ) \
             .data(
                 edges=edges,
@@ -260,6 +262,6 @@ class Hypergraph(object):
             entities,
             event_entities,
             edges,
-            defs[BINDINGS.EDGE_SRC] if direct else defs['ATTRIBID'],
-            defs[BINDINGS.EDGE_DST] if direct else defs['EVENTID']
+            defs[BINDING.EDGE_SRC] if direct else defs['ATTRIBID'],
+            defs[BINDING.EDGE_DST] if direct else defs['EVENTID']
         )

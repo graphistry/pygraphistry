@@ -2,7 +2,7 @@ import igraph
 import pyarrow as arrow
 import itertools
 
-from graphistry.constants import BINDINGS
+from graphistry.constants import BINDING_DEFAULT
 
 
 def to_arrow(graph):
@@ -11,14 +11,14 @@ def to_arrow(graph):
 
     nodes = arrow.Table.from_arrays(
         [column for column in itertools.chain(
-            _id_columns(graph.vs, BINDINGS.NODE_ID),
+            _id_columns(graph.vs, BINDING_DEFAULT.NODE_ID),
             _attribute_columns(graph.vs)
         )]
     )
 
     edges = arrow.Table.from_arrays(
         [column for column in itertools.chain(
-            _id_columns(graph.es, BINDINGS.EDGE_ID),
+            _id_columns(graph.es, BINDING_DEFAULT.EDGE_ID),
             _src_dst_columns(graph.es),
             _attribute_columns(graph.es)
         )]
@@ -41,10 +41,10 @@ def _id_columns(sequence, id_column_name):
 
 
 def _src_dst_columns(edgeSequence):
-    yield arrow.column(BINDINGS.EDGE_SRC, [
+    yield arrow.column(BINDING_DEFAULT.EDGE_SRC, [
         [edge.tuple[0] for edge in edgeSequence]
     ])
 
-    yield arrow.column(BINDINGS.EDGE_DST, [
+    yield arrow.column(BINDING_DEFAULT.EDGE_DST, [
         [edge.tuple[1] for edge in edgeSequence]
     ])

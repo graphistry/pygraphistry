@@ -2,7 +2,7 @@ import neo4j
 import pyarrow as arrow
 import itertools
 
-from graphistry.constants import BINDINGS
+from graphistry.constants import BINDING_DEFAULT
 
 
 def to_arrow(graph):
@@ -59,19 +59,19 @@ def _columns_for_entity(
 def _intrinsic_edge_columns(relationships):
     # TODO(cwharris): remove the string conversion once server can haandle non-ascending integers.
     # currently, ids will be remapped as part of pre-plot rectification.
-    yield arrow.column(BINDINGS.EDGE_ID, [
+    yield arrow.column(BINDING_DEFAULT.EDGE_ID, [
         [str(relationship.id) for relationship in relationships]
     ])
 
-    yield arrow.column(BINDINGS.EDGE_SRC, [
+    yield arrow.column(BINDING_DEFAULT.EDGE_SRC, [
         [str(relationship.start_node.id) for relationship in relationships]
     ])
 
-    yield arrow.column(BINDINGS.EDGE_DST, [
+    yield arrow.column(BINDING_DEFAULT.EDGE_DST, [
         [str(relationship.end_node.id) for relationship in relationships]
     ])
 
-    yield arrow.column(BINDINGS.NEO4J_TYPE, [
+    yield arrow.column(BINDING_DEFAULT.NEO4J_TYPE, [
         [relationship.type for relationship in relationships]
     ])
 
@@ -79,10 +79,10 @@ def _intrinsic_edge_columns(relationships):
 def _intrinsic_node_columns(nodes):
     # TODO(cwharris): remove the string conversion once server can haandle non-ascending integers.
     # currently, ids will be remapped as part of pre-plot rectification.
-    yield arrow.column(BINDINGS.NODE_ID, [
+    yield arrow.column(BINDING_DEFAULT.NODE_ID, [
         [str(node.id) for node in nodes]
     ])
 
-    yield arrow.column(BINDINGS.NEO4J_LABEL, [
+    yield arrow.column(BINDING_DEFAULT.NEO4J_LABEL, [
         [list(node.labels) for node in nodes]
     ])

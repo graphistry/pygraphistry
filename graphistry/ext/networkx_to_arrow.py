@@ -2,7 +2,7 @@ import pyarrow
 import networkx
 import itertools
 
-from graphistry.constants import BINDINGS
+from graphistry.constants import BINDING_DEFAULT
 
 
 def to_arrow(graph):
@@ -19,11 +19,11 @@ def _edge_columns(graph):
         for key in edgeAttributes.keys()
     )
 
-    yield pyarrow.column(BINDINGS.EDGE_SRC, [
+    yield pyarrow.column(BINDING_DEFAULT.EDGE_SRC, [
         [srcId for srcId, _ in graph.edges()]
     ])
 
-    yield pyarrow.column(BINDINGS.EDGE_DST, [
+    yield pyarrow.column(BINDING_DEFAULT.EDGE_DST, [
         [dstId for _, dstId in graph.edges()]
     ])
 
@@ -42,7 +42,7 @@ def _node_columns(graph):
         for key in nodeAttributes.keys()
     )
 
-    yield pyarrow.column(BINDINGS.NODE_ID, [ # TODO(cwharris): make this name configurable
+    yield pyarrow.column(BINDING_DEFAULT.NODE_ID, [ # TODO(cwharris): make this name configurable
         [nodeId for nodeId in graph.nodes()]
     ])
 

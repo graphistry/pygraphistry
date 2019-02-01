@@ -2,7 +2,7 @@ import requests
 import os
 
 from graphistry.util import arrow_util, dict_util, graph as graph_util
-from graphistry.constants import BINDINGS
+from graphistry.constants import BINDING, BINDING_DEFAULT
 
 
 class AssignableSettings(object):
@@ -58,24 +58,24 @@ class Plotter(object):
 
     __default_bindings = {
         # node : data
-        'node_id': BINDINGS.NODE_ID,
+        BINDING.NODE_ID: BINDING_DEFAULT.NODE_ID,
 
         # edge : data
-        'edge_id': BINDINGS.EDGE_ID,
-        'edge_src': BINDINGS.EDGE_SRC,
-        'edge_dst': BINDINGS.EDGE_DST,
+        BINDING.EDGE_ID: BINDING_DEFAULT.EDGE_ID,
+        BINDING.EDGE_SRC: BINDING_DEFAULT.EDGE_SRC,
+        BINDING.EDGE_DST: BINDING_DEFAULT.EDGE_DST,
 
         # node : visualization
-        'node_title': None,
-        'node_label': None,
-        'node_color': None,
-        'node_size': None,
+        BINDING.NODE_TITLE: None,
+        BINDING.NODE_LABEL: None,
+        BINDING.NODE_COLOR: None,
+        BINDING.NODE_SIZE: None,
 
         # edge : visualization
-        'edge_title': None,
-        'edge_label': None,
-        'edge_color': None,
-        'edge_weight': None,
+        BINDING.EDGE_TITLE: None,
+        BINDING.EDGE_LABEL: None,
+        BINDING.EDGE_COLOR: None,
+        BINDING.EDGE_WEIGHT: None,
     }
 
     _data = {
@@ -84,18 +84,18 @@ class Plotter(object):
     }
 
     _bindings_map = {
-        'node_id':     'nodeId',
-        'edge_id':     'edgeId',
-        'edge_src':    'source',
-        'edge_dst':    'destination',
-        'edge_color':  'edgeColor',
-        'edge_label':  'edgeLabel',
-        'edge_title':  'edgeTitle',
-        'edge_weight': 'edgeWeight',
-        'node_color':  'pointColor',
-        'node_label':  'pointLabel',
-        'node_title':  'pointTitle',
-        'node_size':   'pointSize'
+        BINDING.NODE_ID:     BINDING.NODE_ID,
+        BINDING.NODE_COLOR:  BINDING.NODE_COLOR,
+        BINDING.NODE_LABEL:  BINDING.NODE_LABEL,
+        BINDING.NODE_TITLE:  BINDING.NODE_TITLE,
+        BINDING.NODE_SIZE:   BINDING.NODE_SIZE,
+        BINDING.EDGE_ID:     BINDING.EDGE_ID,
+        BINDING.EDGE_SRC:    BINDING.EDGE_SRC,
+        BINDING.EDGE_DST:    BINDING.EDGE_DST,
+        BINDING.EDGE_COLOR:  BINDING.EDGE_COLOR,
+        BINDING.EDGE_LABEL:  BINDING.EDGE_LABEL,
+        BINDING.EDGE_TITLE:  BINDING.EDGE_TITLE,
+        BINDING.EDGE_WEIGHT: BINDING.EDGE_WEIGHT,
     }
 
     _bindings = AssignableSettings(__default_bindings)
@@ -168,10 +168,10 @@ class Plotter(object):
         (edges, nodes) = graph_util.rectify(
             edges=self._data['edges'],
             nodes=self._data['nodes'],
-            edge=self._bindings.get('edge_id'),
-            node=self._bindings.get('node_id'),
-            edge_src=self._bindings.get('edge_src'),
-            edge_dst=self._bindings.get('edge_dst'),
+            edge=self._bindings.get(BINDING.EDGE_ID),
+            node=self._bindings.get(BINDING.NODE_ID),
+            edge_src=self._bindings.get(BINDING.EDGE_SRC),
+            edge_dst=self._bindings.get(BINDING.EDGE_DST),
             safe=True
         )
 
