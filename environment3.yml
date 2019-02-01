@@ -1,4 +1,4 @@
-name: graphistry
+name: graphistry37
 channels:
   - conda-forge/label/cf201901
 dependencies:
