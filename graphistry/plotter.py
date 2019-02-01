@@ -177,13 +177,13 @@ class Plotter(object):
 
         import io
 
-        nodeBuffer = io.BytesIO(arrow_util.table_to_buffer(nodes))
-        edgeBuffer = io.BytesIO(arrow_util.table_to_buffer(edges))
+        nodeBuffer = arrow_util.table_to_buffer(nodes)
+        edgeBuffer = arrow_util.table_to_buffer(edges)
 
         import pyarrow as arrow
 
-        a = arrow.open_stream(nodeBuffer)
-        b = arrow.open_stream(edgeBuffer)
+        nodeBuffer.read = lambda: return nodeBuffer
+        edgeBuffer.read = lambda: return edgeBuffer
 
         files = {
             'nodes': ('nodes', nodeBuffer, 'application/octet-stream'),
