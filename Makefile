@@ -2,7 +2,6 @@ COMPOSE_FILE=$(CURDIR)/compose/docker-compose.yml
 
 include ./.env
 
-conda: conda.2 conda.3
 conda.2:
 	conda env create -f environment2.yml -p .conda/envs/graphistry27
 
