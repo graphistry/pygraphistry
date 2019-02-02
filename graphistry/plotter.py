@@ -217,10 +217,19 @@ class Plotter(object):
 
         jres = response.json()
 
+        import calendar
+        import time
+
         from IPython.core.display import HTML
 
         return HTML(
-            _make_iframe("%s/graph/graph.html?dataset=%s" % (graphistry_uri, jres['revisionId']), self._settings.get('height'))
+            _make_iframe(
+                "%s/graph/graph.html?dataset=%s&splashAfter=%s" % (
+                    graphistry_uri,
+                    jres['revisionId'],
+                    int(calendar.timegm(time.gmtime())) + 15
+                ),
+                self._settings.get('height'))
         )
 
     def bolt(self, driver_or_config):
