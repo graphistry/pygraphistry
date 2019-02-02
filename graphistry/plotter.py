@@ -162,12 +162,23 @@ class Plotter(object):
         return self.data(graph=graph)
 
 
-    def plot(self):
+    def plot(self, edgesOrGraph=None):
         # TODO(cwharris): verify required bindings
 
+        edges=self._data['edges']
+        nodes=self._data['nodes']
+
+        if edgesOrGraph is not None:
+            # is it a graph we support?
+            try:
+                (edges, nodes) = graph_util.decompose(edgesOrGraph)
+            except TypeError:
+                # if we don't support it as a graph, assume it's edges.
+                edges = arrow_util.to_arrow(edgesOrGraph)
+
         (edges, nodes) = graph_util.rectify(
-            edges=self._data['edges'],
-            nodes=self._data['nodes'],
+            edges=edges,
+            nodes=nodes,
             edge=self._bindings.get(BINDING.EDGE_ID),
             node=self._bindings.get(BINDING.NODE_ID),
             edge_src=self._bindings.get(BINDING.EDGE_SRC),
