@@ -212,7 +212,7 @@ def hyperbinding(plotter, defs, entities, event_entities, edges, source, destina
             .bind(
                 source=source,
                 destination=destination,
-                nodeID=defs[BINDING.NODE_ID],
+                nodeId=defs[BINDING.NODE_ID],
                 pointTitle=defs[BINDING.NODE_TITLE]
             ) \
             .data(
