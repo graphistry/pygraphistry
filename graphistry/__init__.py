@@ -46,6 +46,21 @@ def cypher(*kwargs):
     return _plotter.cypher(*kwargs)
 
 
+def edges(edges):
+    global _plotter
+    return _plotter.data(edges=edges)
+
+
+def nodes(nodes):
+    global _plotter
+    return _plotter.data(nodes=nodes)
+
+
+def graph(graph):
+    global _plotter
+    return _plotter.data(graph=graph)
+
+
 def hypergraph(
     raw_events,
     entity_types=None,
