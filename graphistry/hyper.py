@@ -126,7 +126,7 @@ def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
                 else [])
             + [defs['EDGETYPE'], defs['ATTRIBID'], defs['EVENTID']]
             + ([defs['CATEGORY']] if is_using_categories else []) ))
-        out = pd.concat(subframes, ignore_index=True, sort=True).reset_index(drop=True)[ result_cols ]
+        out = pd.concat(subframes, ignore_index=True).reset_index(drop=True)[ result_cols ]
         return out
     else:
         return pd.DataFrame([])
@@ -174,7 +174,7 @@ def format_direct_edges(events, entity_types, defs, edge_shape, drop_na, drop_ed
                 else [])
             + [defs['EDGETYPE'], defs[BINDING.EDGE_SRC], defs[BINDING.EDGE_DST], defs['EVENTID']]
             + ([defs['CATEGORY']] if is_using_categories else []) ))
-        out = pd.concat(subframes, ignore_index=True, sort=True).reset_index(drop=True)[ result_cols ]
+        out = pd.concat(subframes, ignore_index=True).reset_index(drop=True)[ result_cols ]
         return out
     else:
         return pd.DataFrame([])
@@ -191,7 +191,7 @@ def format_hypernodes(events, defs):
 
 
 def hyperbinding(plotter, defs, entities, event_entities, edges, source, destination):
-    nodes = pd.concat([entities, event_entities], ignore_index=True, sort=True).reset_index(drop=True)
+    nodes = pd.concat([entities, event_entities], ignore_index=True).reset_index(drop=True)
 
     # For any column containing object types, replace all NaN values with None (pyarrow doesn't convert it automatically)
 
