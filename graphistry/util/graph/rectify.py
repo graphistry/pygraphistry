@@ -67,20 +67,49 @@ def _rectify_node_ids(
     edge_dst,
     safe=True
 ):
+    edge_src_name = edge_src
+    edge_dst_name = edge_dst
+    edge_src = edges.schema.get_field_index(edge_src_name)
+    edge_dst = edges.schema.get_field_index(edge_dst_name)
+    edge_src_column = edges.column(edge_src)
+    edge_dst_column = edges.column(edge_dst)
+    _assert_column_types_match(
+        edge_src_column,
+        edge_dst_column
+    )
+
+    ##########
+
+    import pandas
+
+    edges_as_dataframe = edges.to_pandas()
+
+    unique_node_ids = pandas.Series(pandas.unique(edges_as_dataframe[[edge_dst_name, edge_src_name]].values.ravel('K')))
+
+    if nodes is None:
+        nodes_dataframe = pandas.DataFrame({ node: unique_node_ids })
+    else:
+        nodes_dataframe = nodes.to_pandas()
+        missing_node_ids = unique_node_ids[~unique_node_ids.isin(nodes_dataframe[node])]
+        missing_nodes = pandas.DataFrame({ node: missing_node_ids })
+        nodes_dataframe = nodes_dataframe.append(missing_nodes)
+
+    nodes = arrow.Table.from_pandas(nodes_dataframe)
+
+    # 1) create a node table if it doesn't exist already.
+    #    - will need to know what type of column to use. This will be the same as the 
+    # 2) back-fill the node table with unique ids from source and destination columns.
+
+
     # make sure id columns are int32, which may require one of the following:
     # - down-cast from int64
     # - create index via node column and map src/dst/node to an index.
     # - dictionary encode the column (not server support yet)
     node = nodes.schema.get_field_index(node)
-    edge_src = edges.schema.get_field_index(edge_src)
-    edge_dst = edges.schema.get_field_index(edge_dst)
 
     node_column = nodes.column(node)
-    edge_src_column = edges.column(edge_src)
-    edge_dst_column = edges.column(edge_dst)
 
-    _assert_column_types_match(node_column, edge_src_column)
-    _assert_column_types_match(node_column, edge_dst_column)
+    _assert_column_types_match(edge_src_column, node_column)
 
     # already good to go.
     if node_column.type == int32:

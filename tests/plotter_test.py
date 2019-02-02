@@ -25,3 +25,47 @@ def test_pandas_with_edges_and_nodes():
             destination='d'
         ) \
         .plot()
+
+@skip_if_travis
+def test_pandas_with_edges_only():
+    graphistry.register(
+        protocol='http',
+        server='nginx'
+    )
+
+    graphistry \
+        .data(
+            edges=pandas.DataFrame({
+                's': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] * 100,
+                'd': [1, 2, 3, 4, 5] * 200
+            })
+        ) \
+        .bind(
+            source='s',
+            destination='d'
+        ) \
+        .plot()
+
+@skip_if_travis
+def test_pandas_with_edges_and_some_nodes():
+    graphistry.register(
+        protocol='http',
+        server='nginx'
+    )
+
+    graphistry \
+        .data(
+            edges=pandas.DataFrame({
+                's': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] * 100,
+                'd': [1, 2, 3, 4, 5] * 200
+            }),
+            nodes=pandas.DataFrame({
+                'n': [3, 4, 5]
+            })
+        ) \
+        .bind(
+            nodeId='n',
+            source='s',
+            destination='d'
+        ) \
+        .plot()
