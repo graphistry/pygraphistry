@@ -53,7 +53,8 @@ class Plotter(object):
         'key': None,
         'certificate_validation': None,
         'bolt': None,
-        'height': 600
+        'height': 600,
+        'url_params': {}
     }
 
     __default_bindings = {
@@ -222,12 +223,27 @@ class Plotter(object):
 
         from IPython.core.display import HTML
 
+        url_params = self._settings.get('url_params') or {}
+        url_params = {
+            k: v for k, v in url_params if v is not None
+        }
+
+        if 'workbook' in url_params:
+            import warnings
+            warnings.warn(
+                'url parameter deprecated: "workbook"',
+                DeprecationWarning
+            )
+
+        query_string = _url_encode(url_params)
+
         return HTML(
             _make_iframe(
-                "%s/graph/graph.html?dataset=%s&splashAfter=%s" % (
+                "%s/graph/graph.html?dataset=%s&splashAfter=%s&%s" % (
                     graphistry_uri,
                     jres['revisionId'],
-                    int(calendar.timegm(time.gmtime())) + 15
+                    int(calendar.timegm(time.gmtime())) + 15,
+                    query_string
                 ),
                 self._settings.get('height'))
         )
@@ -249,6 +265,15 @@ class Plotter(object):
             bolt_statement = session.run(query, **params)
             graph = bolt_statement.graph()
             return self.data(graph=graph)
+
+def _url_encode(query_params):
+    import sys
+    import urllib
+
+    if sys.version_info[0] < 3:
+        return urllib.urlencode(query_params)
+
+    return urllib.parse.urlencode(query_params)
 
 
 def _make_iframe(raw_url, height):
