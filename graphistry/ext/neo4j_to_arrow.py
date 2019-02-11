@@ -6,6 +6,9 @@ from graphistry.constants import BINDING_DEFAULT
 
 
 def to_arrow(graph):
+    if not isinstance(graph, neo4j.types.graph.Graph):
+        return None
+
     return (
         _edge_table(graph.relationships),
         _node_table(graph.nodes)
