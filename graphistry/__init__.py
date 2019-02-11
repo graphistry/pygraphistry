@@ -61,6 +61,11 @@ def graph(graph):
     return _plotter.data(graph=graph)
 
 
+def plot(graph):
+    global _plotter
+    return _plotter.plot(graph)
+
+
 def hypergraph(
     raw_events,
     entity_types=None,
