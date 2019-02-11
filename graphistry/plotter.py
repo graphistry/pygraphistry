@@ -224,6 +224,7 @@ class Plotter(object):
         from IPython.core.display import HTML
 
         url_params = self._settings.get('url_params') or {}
+        url_params = url_params.items()
         url_params = {
             k: v for k, v in url_params if v is not None
         }
