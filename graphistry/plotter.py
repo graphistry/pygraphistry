@@ -163,7 +163,7 @@ class Plotter(object):
         return self.data(graph=graph)
 
 
-    def plot(self, edgesOrGraph=None):
+    def plot(self, edgesOrGraph=None, render=True, skip_upload=False):
         # TODO(cwharris): verify required bindings
 
         edges=self._data['edges']
@@ -176,6 +176,9 @@ class Plotter(object):
             except TypeError:
                 # if we don't support it as a graph, assume it's edges.
                 edges = arrow_util.to_arrow(edgesOrGraph)
+
+        if skip_upload:
+            raise NotImplementedError()
 
         (edges, nodes) = graph_util.rectify(
             edges=edges,
@@ -221,8 +224,6 @@ class Plotter(object):
         import calendar
         import time
 
-        from IPython.core.display import HTML
-
         url_params = self._settings.get('url_params') or {}
         url_params = url_params.items()
         url_params = {
@@ -238,16 +239,24 @@ class Plotter(object):
 
         query_string = _url_encode(url_params)
 
-        return HTML(
-            _make_iframe(
-                "%s/graph/graph.html?dataset=%s&splashAfter=%s&%s" % (
-                    graphistry_uri,
-                    jres['revisionId'],
-                    int(calendar.timegm(time.gmtime())) + 15,
-                    query_string
-                ),
-                self._settings.get('height'))
+        url = "%s/graph/graph.html?dataset=%s&splashAfter=%s&%s" % (
+            graphistry_uri,
+            jres['revisionId'],
+            int(calendar.timegm(time.gmtime())) + 15,
+            query_string
         )
+
+        if render is not True:
+            return url
+        
+        if _in_ipython():
+            from IPython.core.display import HTML
+            iframe_html = _make_iframe(url, self._settings.get('height'))
+            return HTML(iframe_html)
+
+        import webbrowser
+        webbrowser.open(url)
+        return url
 
     def bolt(self, driver_or_config):
         return self.settings({
@@ -275,6 +284,13 @@ def _url_encode(query_params):
         return urllib.urlencode(query_params)
 
     return urllib.parse.urlencode(query_params)
+
+def _in_ipython():
+    try:
+        __IPYTHON__
+        return True
+    except NameError:
+        return False
 
 
 def _make_iframe(raw_url, height):
