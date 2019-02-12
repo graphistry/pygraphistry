@@ -54,7 +54,8 @@ class Plotter(object):
         'certificate_validation': None,
         'bolt': None,
         'height': 600,
-        'url_params': {}
+        'url_params': {},
+        'render': True
     }
 
     __default_bindings = {
@@ -163,8 +164,11 @@ class Plotter(object):
         return self.data(graph=graph)
 
 
-    def plot(self, edgesOrGraph=None, render=True, skip_upload=False):
+    def plot(self, edgesOrGraph=None, render=None, skip_upload=False):
         # TODO(cwharris): verify required bindings
+
+        if render is None:
+            render = self._settings.get('render')
 
         edges=self._data['edges']
         nodes=self._data['nodes']
@@ -248,7 +252,7 @@ class Plotter(object):
 
         if render is not True:
             return url
-        
+
         if _in_ipython():
             from IPython.core.display import HTML
             iframe_html = _make_iframe(url, self._settings.get('height'))
