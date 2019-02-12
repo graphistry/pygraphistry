@@ -190,38 +190,6 @@ def format_hypernodes(events, defs):
     return event_nodes
 
 
-def hyperbinding(plotter, defs, entities, event_entities, edges, source, destination):
-    nodes = pd.concat([entities, event_entities], ignore_index=True).reset_index(drop=True)
-
-    # For any column containing object types, replace all NaN values with None (pyarrow doesn't convert it automatically)
-
-    nodes.loc[:, nodes.dtypes == object] = nodes.loc[:, nodes.dtypes == object] \
-        .where(pd.notnull(nodes), None) \
-        .astype(str)
-
-    edges.loc[:, edges.dtypes == object] = edges.loc[:, edges.dtypes == object] \
-        .where(pd.notnull(edges), None) \
-        .astype(str)
-
-    return {
-        'entities': entities,
-        'events': event_entities,
-        'edges': edges,
-        'nodes': nodes,
-        'graph': plotter\
-            .bind(
-                source=source,
-                destination=destination,
-                nodeId=defs[BINDING.NODE_ID],
-                pointTitle=defs[BINDING.NODE_TITLE]
-            ) \
-            .data(
-                edges=edges,
-                nodes=nodes
-            )
-    }
-
-
 class Hypergraph(object):
 
     @staticmethod
@@ -255,6 +223,41 @@ class Hypergraph(object):
             print('# links', len(edges))
             print('# events', len(events))
             print('# attrib entities', len(entities))
+
+
+        nodes = pd.concat([entities, event_entities], ignore_index=True).reset_index(drop=True)
+
+        # For any column containing object types, replace all NaN values with None (pyarrow doesn't convert it automatically)
+
+        nodes.loc[:, nodes.dtypes == object] = nodes.loc[:, nodes.dtypes == object] \
+            .where(pd.notnull(nodes), None) \
+            .astype(str)
+
+        edges.loc[:, edges.dtypes == object] = edges.loc[:, edges.dtypes == object] \
+            .where(pd.notnull(edges), None) \
+            .astype(str)
+
+        plotter = plotter \
+            .data(edges=edges, nodes=nodes) \
+            .bind(
+                source =      defs[BINDING.EDGE_SRC] if direct else defs['ATTRIBID'],
+                destination = defs[BINDING.EDGE_DST] if direct else defs['EVENTID'],
+                nodeId =      defs[BINDING.NODE_ID]
+            )
+
+        if not direct:
+            plotter = plotter.bind(
+                pointTitle = defs[BINDING.NODE_TITLE]
+            )
+
+
+        return {
+            'entities': entities,
+            'events': event_entities,
+            'edges': edges,
+            'nodes': nodes,
+            'graph': plotter
+        }
 
         return hyperbinding(
             plotter,
