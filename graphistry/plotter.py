@@ -12,6 +12,13 @@ class AssignableSettings(object):
         self._settings = settings
 
 
+    def __iter__(self):
+        for key in self._defaults:
+            value = self.get(key)
+            if value is not None:
+                yield (key, value)
+
+
     def get(self, key, fallback_to_defaults=True):
         if fallback_to_defaults:
             return self._settings[key] if key in self._settings else self._defaults[key]
@@ -181,9 +188,6 @@ class Plotter(object):
                 # if we don't support it as a graph, assume it's edges.
                 edges = arrow_util.to_arrow(edgesOrGraph)
 
-        if skip_upload:
-            raise NotImplementedError()
-
         (edges, nodes) = graph_util.rectify(
             edges=edges,
             nodes=nodes,
@@ -193,6 +197,13 @@ class Plotter(object):
             edge_dst=self._bindings.get(BINDING.EDGE_DST),
             safe=True
         )
+
+        if skip_upload:
+            return {
+                'bindings': { key: value for (key, value) in self._bindings },
+                'edges': edges,
+                'nodes': nodes
+            }
 
         nodeBuffer = arrow_util.table_to_buffer(nodes)
         edgeBuffer = arrow_util.table_to_buffer(edges)

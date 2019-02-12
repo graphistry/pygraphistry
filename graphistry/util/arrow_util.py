@@ -19,6 +19,6 @@ def to_arrow(source):
         return source
 
     if isinstance(source, pandas.DataFrame):
-        return arrow.Table.from_pandas(source)
+        return arrow.Table.from_pandas(source, preserve_index=False)
 
     raise Exception('unsupported data source type: %s' % type(source))

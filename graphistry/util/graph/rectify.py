@@ -94,7 +94,7 @@ def _rectify_node_ids(
         missing_nodes = pandas.DataFrame({ node: missing_node_ids })
         nodes_dataframe = nodes_dataframe.append(missing_nodes)
 
-    nodes = arrow.Table.from_pandas(nodes_dataframe)
+    nodes = arrow.Table.from_pandas(nodes_dataframe, preserve_index=False)
 
     # 1) create a node table if it doesn't exist already.
     #    - will need to know what type of column to use. This will be the same as the 
