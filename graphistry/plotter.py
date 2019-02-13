@@ -191,7 +191,7 @@ class Plotter(object):
         if edgesOrGraph is not None:
             # is it a graph we support?
             try:
-                (edges, nodes) = graph_util.decompose(edgesOrGraph)
+                (edges, nodes) = graph_util.decompose(edgesOrGraph, self._bindings)
             except TypeError:
                 # if we don't support it as a graph, assume it's edges.
                 edges = arrow_util.to_arrow(edgesOrGraph)
