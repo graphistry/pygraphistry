@@ -154,6 +154,12 @@ class Plotter(object):
 
 
     def bind(self,  **bindings):
+        if 'node' in bindings:
+            # 'nodeId' supercedes 'node', because it is more explicit.
+            if BINDING.NODE_ID not in bindings:
+                bindings[BINDING.NODE_ID] = bindings['node']
+            del bindings['node']
+
         return Plotter(
             self,
             bindings=self._bindings.with_assignments(bindings)
