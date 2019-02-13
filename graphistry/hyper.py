@@ -258,13 +258,3 @@ class Hypergraph(object):
             'nodes': nodes,
             'graph': plotter
         }
-
-        return hyperbinding(
-            plotter,
-            defs,
-            entities,
-            event_entities,
-            edges,
-            defs[BINDING.EDGE_SRC] if direct else defs['ATTRIBID'],
-            defs[BINDING.EDGE_DST] if direct else defs['EVENTID']
-        )
