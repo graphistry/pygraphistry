@@ -1,5 +1,6 @@
 import requests
 import os
+import warnings
 
 from graphistry.util import arrow_util, dict_util, graph as graph_util
 from graphistry.constants import BINDING, BINDING_DEFAULT
@@ -154,6 +155,15 @@ class Plotter(object):
 
 
     def bind(self,  **bindings):
+        # this is the appropriate place to remap bindings, but it could be better.
+        if 'node' in bindings:
+            if BINDING.NODE_ID in bindings:
+                warnings.warn('bind(...): "nodeId" takes precedence over "node". "node" will be ignored.')
+            else:
+                bindings[BINDING.NODE_ID] = bindings['node']
+
+            del bindings['node']
+
         return Plotter(
             self,
             bindings=self._bindings.with_assignments(bindings)
