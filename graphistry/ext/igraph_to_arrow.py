@@ -2,24 +2,28 @@ import igraph
 import pyarrow as arrow
 import itertools
 
-from graphistry.constants import BINDING_DEFAULT
+from graphistry.constants import BINDING
 
 
-def to_arrow(graph):
+def to_arrow(graph, bindings):
     if not isinstance(graph, igraph.Graph):
         return None
 
     nodes = arrow.Table.from_arrays(
         [column for column in itertools.chain(
-            _id_columns(graph.vs, BINDING_DEFAULT.NODE_ID),
+            _id_columns(graph.vs, bindings.get(BINDING.NODE_ID)),
             _attribute_columns(graph.vs)
         )]
     )
 
     edges = arrow.Table.from_arrays(
         [column for column in itertools.chain(
-            _id_columns(graph.es, BINDING_DEFAULT.EDGE_ID),
-            _src_dst_columns(graph.es),
+            _id_columns(graph.es, bindings.get(BINDING.EDGE_ID)),
+            _src_dst_columns(
+                graph.es,
+                bindings.get(BINDING.EDGE_SRC),
+                bindings.get(BINDING.EDGE_DST)
+            ),
             _attribute_columns(graph.es)
         )]
     )
@@ -40,11 +44,15 @@ def _id_columns(sequence, id_column_name):
     ])
 
 
-def _src_dst_columns(edgeSequence):
-    yield arrow.column(BINDING_DEFAULT.EDGE_SRC, [
+def _src_dst_columns(
+    edgeSequence,
+    src_column_name,
+    dst_column_name
+):
+    yield arrow.column(src_column_name, [
         [edge.tuple[0] for edge in edgeSequence]
     ])
 
-    yield arrow.column(BINDING_DEFAULT.EDGE_DST, [
+    yield arrow.column(dst_column_name, [
         [edge.tuple[1] for edge in edgeSequence]
     ])

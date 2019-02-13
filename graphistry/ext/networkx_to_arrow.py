@@ -2,28 +2,28 @@ import pyarrow
 import networkx
 import itertools
 
-from graphistry.constants import BINDING_DEFAULT
+from graphistry.constants import BINDING
 
 
-def to_arrow(graph):
+def to_arrow(graph, bindings):
     return None if not isinstance(graph, networkx.classes.graph.Graph) else (
-        pyarrow.Table.from_arrays([column for column in _edge_columns(graph)]),
-        pyarrow.Table.from_arrays([column for column in _node_columns(graph)])
+        pyarrow.Table.from_arrays([column for column in _edge_columns(graph, bindings)]),
+        pyarrow.Table.from_arrays([column for column in _node_columns(graph, bindings)])
     )
 
 
-def _edge_columns(graph):
+def _edge_columns(graph, bindings):
     attribute_names = set(
         key
         for _, _, edgeAttributes in graph.edges(data=True)
         for key in edgeAttributes.keys()
     )
 
-    yield pyarrow.column(BINDING_DEFAULT.EDGE_SRC, [
+    yield pyarrow.column(bindings.get(BINDING.EDGE_SRC), [
         [srcId for srcId, _ in graph.edges()]
     ])
 
-    yield pyarrow.column(BINDING_DEFAULT.EDGE_DST, [
+    yield pyarrow.column(bindings.get(BINDING.EDGE_DST), [
         [dstId for _, dstId in graph.edges()]
     ])
 
@@ -35,14 +35,14 @@ def _edge_columns(graph):
         ])
 
 
-def _node_columns(graph):
+def _node_columns(graph, bindings):
     attribute_names = set(
         key
         for _, nodeAttributes in graph.nodes(data=True)
         for key in nodeAttributes.keys()
     )
 
-    yield pyarrow.column(BINDING_DEFAULT.NODE_ID, [ # TODO(cwharris): make this name configurable
+    yield pyarrow.column(bindings.get(BINDING.NODE_ID), [
         [nodeId for nodeId in graph.nodes()]
     ])
 

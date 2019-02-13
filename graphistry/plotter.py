@@ -19,9 +19,9 @@ class AssignableSettings(object):
                 yield (key, value)
 
 
-    def get(self, key, fallback_to_defaults=True):
+    def get(self, key, default=None, fallback_to_defaults=True):
         if fallback_to_defaults:
-            return self._settings[key] if key in self._settings else self._defaults[key]
+            return self._settings[key] if key in self._settings else self._defaults[key] or default
         else:
             return self._settings[key]
 
@@ -53,6 +53,14 @@ class Plotter(object):
         Plotter.__default_settings.update(
             (key, value) for key, value in settings.items() if key in Plotter.__default_settings
         )
+
+    @staticmethod
+    def get_base_settings():
+        return Plotter._settings
+
+    @staticmethod
+    def get_base_bindings():
+        return Plotter._bindings
 
     __default_settings = {
         'protocol': 'https',
@@ -127,7 +135,7 @@ class Plotter(object):
 
     def data(self,  **data):
         if 'graph' in data:
-            (edges, nodes) = graph_util.decompose(data['graph'])
+            (edges, nodes) = graph_util.decompose(data['graph'], self._bindings)
             return self.data(
                 edges=edges,
                 nodes=nodes
