@@ -5,6 +5,20 @@ start_node_id_key = u'_bolt_start_node_id_key'
 end_node_id_key = u'_bolt_end_node_id_key'
 relationship_id_key = u'_bolt_relationship_id'
 
+def isNeotime(v):
+    try:
+        return v.__module__ == 'neotime'
+    except:
+        return False
+
+
+def stringifyNeotimes(df):
+    #Otherwise currently encountering a toString error
+    import neotime
+    df2 = df.copy()
+    for c in df.columns:
+        df2[c] = df[c].apply(lambda v: str(v) if isNeotime(v) else v)
+    return df2  
 
 def to_bolt_driver(driver=None):
     if driver is None:
@@ -19,7 +33,7 @@ def to_bolt_driver(driver=None):
 
 def bolt_graph_to_edges_dataframe(graph):
     import pandas as pd
-    return pd.DataFrame([
+    df = pd.DataFrame([
         util.merge_two_dicts(
             { key: value for (key, value) in relationship.items() },
             {
@@ -30,11 +44,12 @@ def bolt_graph_to_edges_dataframe(graph):
         )
         for relationship in graph.relationships
     ])
+    return stringifyNeotimes(df)
 
 
 def bolt_graph_to_nodes_dataframe(graph):
     import pandas as pd
-    return pd.DataFrame([
+    df = pd.DataFrame([
         util.merge_two_dicts(
             { key: value for (key, value) in node.items() },
             {
@@ -43,6 +58,7 @@ def bolt_graph_to_nodes_dataframe(graph):
         )
         for node in graph.nodes
     ])
+    return stringifyNeotimes(df)
 
 class BoltSupportModuleNotFound(Exception):
     def __init__(self):

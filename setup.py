@@ -45,12 +45,12 @@ setup(
     author='The Graphistry Team',
     author_email='pygraphistry@graphistry.com',
     setup_requires=['numpy', 'pytest-runner'],
-    install_requires=['numpy', 'pandas >= 0.17.0', 'requests', 'future >= 0.15.0', 'protobuf >= 2.6.0'],
+    install_requires=['numpy', 'pandas >= 0.17.0', 'requests', 'future >= 0.15.0', 'protobuf >= 2.6.0', 'neotime >= 1.7.0'],
     extras_require={
         'igraph': ['python-igraph'],
         'networkx': ['networkx'],
-        'bolt': ['neo4j'],
-        'all': ['python-igraph', 'networkx', 'colorlover', 'neo4j']
+        'bolt': ['neo4j', 'neotime'],
+        'all': ['python-igraph', 'networkx', 'colorlover', 'neo4j', 'neotime']
     },
     tests_require=
         ['pytest', 'mock', 'ipython', 
@@ -72,5 +72,5 @@ setup(
         'Topic :: Scientific/Engineering :: Visualization',
         'Topic :: Scientific/Engineering :: Information Analysis',
     ],
-    keywords=['Graph', 'Network', 'Plot', 'Visualization', 'Pandas', 'Igraph', 'Jupyter', 'Notebook', 'Neo4j']
+    keywords=['Graph', 'Network', 'Plot', 'Visualization', 'Pandas', 'Igraph', 'Jupyter', 'Notebook', 'Neo4j', 'Gremlin', 'Tinkerpop', 'RDF', 'GraphX', 'NetworkX', 'Splunk', 'Spark']
 )
