@@ -45,7 +45,7 @@ setup(
     author='The Graphistry Team',
     author_email='pygraphistry@graphistry.com',
     setup_requires=['numpy', 'pytest-runner'],
-    install_requires=['numpy', 'pandas >= 0.17.0', 'requests', 'future >= 0.15.0', 'protobuf >= 2.6.0', 'neotime >= 1.7.0'],
+    install_requires=['numpy', 'pandas >= 0.17.0', 'requests', 'future >= 0.15.0', 'protobuf >= 2.6.0'],
     extras_require={
         'igraph': ['python-igraph'],
         'networkx': ['networkx'],
@@ -54,7 +54,8 @@ setup(
     },
     tests_require=
         ['pytest', 'mock', 'ipython', 
-        'python-igraph', 'networkx', 'colorlover', 'neo4j'],
+        'python-igraph', 'networkx', 'colorlover', 
+        'neo4j', 'neotime'],
     cmdclass=versioneer.get_cmdclass(),
     license='BSD',
     classifiers=[
