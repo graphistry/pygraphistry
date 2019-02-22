@@ -1,9 +1,12 @@
 from .pygraphistry import util
 
 node_id_key = u'_bolt_node_id_key'
+node_type_key = u'type'
+node_label_prefix_key = u'_lbl_'
 start_node_id_key = u'_bolt_start_node_id_key'
 end_node_id_key = u'_bolt_end_node_id_key'
 relationship_id_key = u'_bolt_relationship_id'
+relationship_type_key = u'type'
 
 def is_neotime(v):
     try:
@@ -38,6 +41,7 @@ def bolt_graph_to_edges_dataframe(graph):
             { key: value for (key, value) in relationship.items() },
             {
                 relationship_id_key:    relationship.id,
+                relationship_type_key:      relationship.type,           
                 start_node_id_key:          relationship.start_node.id,
                 end_node_id_key:     relationship.end_node.id
             }
@@ -52,10 +56,12 @@ def bolt_graph_to_nodes_dataframe(graph):
     df = pd.DataFrame([
         util.merge_two_dicts(
             { key: value for (key, value) in node.items() },
-            {
-                node_id_key: node.id
-            }
-        )
+            util.merge_two_dicts(
+                { 
+                    node_id_key: node.id, 
+                    node_type_key: ",".join(sorted([str(label) for label in node.labels])) 
+                },
+                { node_label_prefix_key + str(label): True for label in node.labels }))
         for node in graph.nodes
     ])
     return stringify_neotimes(df)
