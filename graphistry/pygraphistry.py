@@ -33,6 +33,7 @@ EnvVarNames = {
     'dataset_prefix': 'GRAPHISTRY_DATASET_PREFIX',
     'hostname': 'GRAPHISTRY_HOSTNAME',
     'protocol': 'GRAPHISTRY_PROTOCOL',
+    'client_protocol_hostname': 'GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME',
     'certificate_validation': 'GRAPHISTRY_CERTIFICATE_VALIDATION'
 }
 
@@ -48,6 +49,7 @@ default_config = {
     'dataset_prefix': 'PyGraphistry/',
     'hostname': 'labs.graphistry.com',
     'protocol': 'https',
+    'client_protocol_hostname': None,
     'certificate_validation': True
 }
 
@@ -384,8 +386,10 @@ class PyGraphistry(object):
     def _viz_url(info, url_params):
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = '&'.join([ k + '=' + str(v) for k,v in list(url_params.items())])
-        pattern = '//%s/graph/graph.html?dataset=%s&type=%s&viztoken=%s&usertag=%s&splashAfter=%s&%s'
-        return pattern % (PyGraphistry._config['hostname'], info['name'], info['type'],
+        cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
+        cph = ('//' + PyGraphistry._config['hostname']) if cfg_client_protocol_hostname is None else cfg_client_protocol_hostname
+        pattern = '%s/graph/graph.html?dataset=%s&type=%s&viztoken=%s&usertag=%s&splashAfter=%s&%s'
+        return pattern % (cph, info['name'], info['type'],
                           info['viztoken'], PyGraphistry._tag, splash_time, extra)
 
 
