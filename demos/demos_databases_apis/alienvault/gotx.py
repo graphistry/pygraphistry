@@ -66,9 +66,9 @@ class G_OTX:
      
       
     def industrymap(self, pulses_df, include_indicators=False):
-        expanded_df = GraphistryHelpers.ungroup(df, {'industries': 'industry',  'targeted_countries': 'country'}).dropna(subset=['industry', 'country'])
+        expanded_df = GraphistryHelpers.ungroup(pulses_df, {'industries': 'industry',  'targeted_countries': 'country'}).dropna(subset=['industry', 'country'])
         for c in ['industry', 'country']:
-          expanded_df[c] = expanded_df[c].str.lower()
+            expanded_df[c] = expanded_df[c].str.lower()
         #print('# rows', len(expanded_df))
         #print('# Reports with industry<>country', len(expanded_df['id'].unique()))
         #expanded_df[:3]
