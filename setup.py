@@ -54,7 +54,7 @@ setup(
     },
     tests_require=
         ['pytest', 'mock', 'ipython', 
-        'python-igraph', 'networkx', 'colorlover', 
+        'python-igraph', 'networkx==2.2', 'colorlover', 
         'neo4j', 'neotime'],
     cmdclass=versioneer.get_cmdclass(),
     license='BSD',
