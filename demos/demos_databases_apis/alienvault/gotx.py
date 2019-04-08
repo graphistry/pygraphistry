@@ -74,7 +74,7 @@ class G_OTX:
         #expanded_df[:3]
         hg = None
         if include_indicators:
-            hg = graphistry.hypergraph(
+            hg = self.graphistry.hypergraph(
                 expanded_df.astype(str),
                 ['industry', 'country', 'id'], 
                 direct=True,
@@ -124,7 +124,7 @@ class G_OTX:
           indicators_df[col] = indicators_df[col].astype(str)
               
 
-      hg = graphistry.hypergraph(
+      hg = self.graphistry.hypergraph(
           indicators_df,
           ['indicator', 'pulse_name'],
           direct=True)
