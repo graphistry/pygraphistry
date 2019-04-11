@@ -44,7 +44,7 @@ It supports unusually large graphs for interactive visualization. The client's c
 
 -  **Notebook Friendly:** PyGraphistry plays well with interactive notebooks like [IPython/Juypter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com): Process, visualize, and drill into with graphs directly within your notebooks.
 
-- **Batteries Included:** PyGraphistry works out-of-the-box with popular data science and graph analytics libraries. It is also very easy to use. To create the visualization shown above, download  [this dataset](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/facebook_combined.txt) of Facebook communities from [SNAP](http://snap.stanford.edu) and load it with your favorite library:
+- **Batteries Included:** PyGraphistry works out-of-the-box with popular data science and graph analytics libraries. It is also very easy to turn arbitrary data into insightful graphs:
 
   - [Pandas](http://pandas.pydata.org)
 
@@ -64,7 +64,7 @@ It supports unusually large graphs for interactive visualization. The client's c
 	 }})['graph'].plot()
      ```
 
-  - [Neo4j](http://neo4j.com) ([notebook demo](demos/databases/neo4j/official//graphistry_bolt_tutorial_public.ipynb))
+  - [Neo4j](http://neo4j.com) ([notebook demo](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
   
      ```python
      graphistry.register(bolt=NEO4J_CREDS)
@@ -78,14 +78,14 @@ It supports unusually large graphs for interactive visualization. The client's c
      graphistry.bind(source='src', destination='dst').plot(graph)
      ```
 
-  - [NetworkX](https://networkx.github.io) ([notebook demo](demos/tutorial_advanced/networkx/networkx.ipynb))
+  - [NetworkX](https://networkx.github.io) ([notebook demo](demos/demos_databases_apis/networkx/networkx.ipynb))
 
      ```python
      graph = networkx.read_edgelist('facebook_combined.txt')
      graphistry.bind(source='src', destination='dst', node='nodeid').plot(graph)
      ```
      
-  - [Splunk](https://www.splunk.com) ([notebook demo](demos/databases/splunk/splunk_demo_public.ipynb))
+  - [Splunk](https://www.splunk.com) ([notebook demo](demos/demos_databases_apis/splunk/splunk_demo_public.ipynb))
     
     ```python
     df = splunkToPandas("index=netflow bytes > 100000 | head 100000", {})    
@@ -172,7 +172,7 @@ Optionally, for convenience, you may set your API key in your system environment
 ## Tutorial: Les Misérables
 
 Let's visualize relationships between the characters in [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
-For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [IGraph](http://igraph.org) to run a community detection algorithm. You can [view](http://graphistry.github.io/pygraphistry/html/Quickstart%20(Les%20Miserables).html) and [download](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/MiserablesDemo.ipynb) the IPython notebook containing this example.
+For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [IGraph](http://igraph.org) to run a community detection algorithm. You can [view](demos/more_examples/simple/MarvelTutorial.ipynb) the Jupyter notebook containing this example.
 
 Our [dataset is a CSV file](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/lesmiserables.csv) that looks like this:
 
@@ -191,7 +191,7 @@ links = pandas.read_csv('./lesmiserables.csv')
 
 ### Quick Visualization
 
-If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](demos/infosec_and_netops/malware-hypergraph/Malware%20Hypergraph.ipynb)
+If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](demos/demos_by_use_case/logs/malware-hypergraph/malware-hypergraph/Malware%20Hypergraph.ipynb)
 
 PyGraphistry can plot graphs directly from Pandas dataframes, IGraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
 
@@ -231,7 +231,7 @@ ig.vs['community'] = ig.community_infomap().membership
 plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 ```
 
-To control the location, add `x` and `y` columns to the node tables ([see demos](demos/tutorial_advanced/external_layout)).
+To control the location, add `x` and `y` columns to the node tables ([see demos](demos/more_examples/graphistry_features/external_layout)).
 
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
@@ -239,9 +239,9 @@ To control the location, add `x` and `y` columns to the node tables ([see demos]
 
 1. [Sign up](http://www.graphistry.com/api-request) for a free API key!
 2. Read our advanced tutorials:
-	-  [Creating a node table + controlling sizes and colors (HoneyPot)](demos/infosec_and_netops/Tutorial%20Part%201%20(Honey%20Pot).ipynb)
-	-  [Aggregating edges and creating multiple views of the same data (Apache Logs)](demos/infosec_and_netops/Tutorial%20Part%202%20(Apache%20Logs).ipynb)
-	- [Hypergraph Transform for turning Events and CSVs into Graphs](demos/infosec_and_netops/malware-hypergraph/Malware%20Hypergraph.ipynb)
+	-  [Creating a node table + controlling sizes and colors (HoneyPot)](demos/demos_by_use_case/logs/Tutorial%20Part%201%20(Honey%20Pot).ipynb)
+	-  [Aggregating edges and creating multiple views of the same data (Apache Logs)](demos/demos_by_use_case/logs/Tutorial%20Part%202%20(Apache%20Logs).ipynb)
+	- [Hypergraph Transform for turning Events and CSVs into Graphs](demos/demos_by_use_case/logs/malware-hypergraph/Malware%20Hypergraph.ipynb)
 3. Check out our [demos folder](demos).
 
 ## References
