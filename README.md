@@ -155,10 +155,10 @@ If you do not already have Jupyter Notebook, you can quickly start via our prebu
 
 
 
-##### IPython (Jupyter) Notebook Integration
+##### Jupyter Notebook Integration
 
 ### API Key
-An API key gives each visualization access to our GPU cluster. We currently ask for API keys to make sure our servers are not melting :) In many cases, such as educators, OSINT researchers,  non-profits, and enterprise users, you can [request free access here](http://www.graphistry.com/api-request). Set your key after the `import graphistry` statement and you are good to go:
+An API key gives each visualization access to your Graphistry GPU server. In limited cases, such as educators, you can [request free access here](http://www.graphistry.com/api-request) for Graphistry Cloud for non-sensitive & non-commercial data. Set your key after the `import graphistry` statement and you are good to go:
 
 ```python
 import graphistry
