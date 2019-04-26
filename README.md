@@ -237,7 +237,7 @@ To control the location, add `x` and `y` columns to the node tables ([see demos]
 
 ## Next Steps
 
-1. [Sign up](http://www.graphistry.com/api-request) for a free API key!
+1. If you don't have an API key, [one-click launch a Graphistry GPU server](https://www.graphistry.com/get-started)
 2. Read our advanced tutorials:
 	-  [Creating a node table + controlling sizes and colors (HoneyPot)](demos/demos_by_use_case/logs/Tutorial%20Part%201%20(Honey%20Pot).ipynb)
 	-  [Aggregating edges and creating multiple views of the same data (Apache Logs)](demos/demos_by_use_case/logs/Tutorial%20Part%202%20(Apache%20Logs).ipynb)
