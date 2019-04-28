@@ -122,7 +122,22 @@ We recommend two options for installing PyGraphistry:
 1. Pip: If you already have Jupyter Notebook installed, or are a heavy Graphistry user, install the PyGraphistry pip package
 2. Docker: For quickly trying Graphistry when you do not have Jupyter Notebook installed and find doing so difficult, use our complete Docker image
 
-### Option 1: PyGraphistry pip package for Python or Jupyter Notebook users
+### Option 1: New users - Graphistry AWS AMI
+
+For new users who have AWS accounts, simply [launch the Graphistry AMI](https://www.graphistry.com/get-started).
+
+It provides several benefits for getting started:
+
+* PyGraphistry is preinstalled
+* Jupyter is preinstalled
+* Starter examples of using with different files, databases, and Nvidia RAPIDS are provided
+* Preconfigured backend server: Nvidia drivers, `nvidia-docker`, Graphistry server, etc.
+* Running in your private AWS means you can safely explore your regular data there
+
+The server gracefully stops/starts: to limit AWS spending, simply stop the server when not using it.
+
+
+### Option 2: PyGraphistry pip package for Python or Jupyter Notebook users
 **Dependencies for non-Docker installation**
 [Python](https://www.python.org) 2.7 or 3.4 (experimental).
 
@@ -135,7 +150,7 @@ Once you have Jupyter notebooks, the simplest way to install PyGraphistry is wit
 - Pandas only: `pip install graphistry`
 - Pandas, IGraph, and NetworkX: `pip install "graphistry[all]"`
 
-### Option 2: Full Docker container for PyGraphistry, Jupyter Notebook, and Scipy/numpy/pandas
+### Option 3: Full Docker container for PyGraphistry, Jupyter Notebook, and Scipy/numpy/pandas
 
 If you do not already have Jupyter Notebook, you can quickly start via our prebuilt Docker container:
 
@@ -237,7 +252,7 @@ To control the location, add `x` and `y` columns to the node tables ([see demos]
 
 ## Next Steps
 
-1. If you don't have an API key, [one-click launch a Graphistry GPU server](https://www.graphistry.com/get-started)
+1. If you don't have an API key, [one-click launch a Graphistry AWS GPU server](https://www.graphistry.com/get-started)
 2. Read our advanced tutorials:
 	-  [Creating a node table + controlling sizes and colors (HoneyPot)](demos/demos_by_use_case/logs/Tutorial%20Part%201%20(Honey%20Pot).ipynb)
 	-  [Aggregating edges and creating multiple views of the same data (Apache Logs)](demos/demos_by_use_case/logs/Tutorial%20Part%202%20(Apache%20Logs).ipynb)
