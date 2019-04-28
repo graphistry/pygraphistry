@@ -252,18 +252,14 @@ To control the location, add `x` and `y` columns to the node tables ([see demos]
 
 ## Next Steps
 
-1. If you don't have an API key, [one-click launch a Graphistry AWS GPU server](https://www.graphistry.com/get-started)
-2. Read our advanced tutorials:
-	-  [Creating a node table + controlling sizes and colors (HoneyPot)](demos/demos_by_use_case/logs/Tutorial%20Part%201%20(Honey%20Pot).ipynb)
-	-  [Aggregating edges and creating multiple views of the same data (Apache Logs)](demos/demos_by_use_case/logs/Tutorial%20Part%202%20(Apache%20Logs).ipynb)
-	- [Hypergraph Transform for turning Events and CSVs into Graphs](demos/demos_by_use_case/logs/malware-hypergraph/Malware%20Hypergraph.ipynb)
-3. Check out our [demos folder](demos).
+1. If you don't have an API key to a Graphistry server, [one-click launch Graphistry in AWS](https://www.graphistry.com/get-started)
+2. Check out the [analyst](demos/for_analysis.ipynb) and [developer](demos/for_developers.ipynb) introductions, or [try your own CSV](demos/upload_csv_miniapp.ipynb)
+3. Explore the [demos folder](demos) for your favorite file format, database, API, or kind of analysis
 
 ## References
 
 * Graphistry [UI Guide](https://labs.graphistry.com/graphistry/ui.html)
 * Full Python (including IPython/Juypter) [API documentation](http://pygraphistry.readthedocs.org/en/latest/).
 * Within a notebook, you can always run `help(graphistry)`, `help(graphistry.hypergraph)`, etc.
-* Additional [Graphistry API docs](https://labs.graphistry.com/graphistry/docs.html)
-* Predefined [color palette values](https://labs.graphistry.com/graphistry/docs/palette.html) (color brewer)
+* Additional [Graphistry API docs](https://labs.graphistry.com/graphistry/docs.html), including the predefined [color palette values](https://labs.graphistry.com/graphistry/docs/palette.html) (color brewer)
 
