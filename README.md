@@ -6,9 +6,11 @@
 
 # PyGraphistry: Explore Relationships
 
-PyGraphistry is a visual graph analytics library to extract, transform, and load big graphs into [Graphistry's](http://www.graphistry.com) cloud-based graph explorer.
+PyGraphistry is a Python visual graph analytics library to extract, transform, and load big graphs into [Graphistry's](http://www.graphistry.com) visual graph analytics platform. It is typically used by data scientists, developers, and operational analysts on problems like visually mapping the behavior of devices and users. 
 
-It supports unusually large graphs for interactive visualization. The client's custom WebGL rendering engine renders up to 8MM nodes and edges at a time, and most older client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside OpenCL analytics engine supports even bigger graphs.
+The Python client makes it easy to go from your existing data to a Graphistry server. Through strong notebook support, data scientists can quickly go from data to accelerated visual explorations, and developers can quickly prototype stunning solutions with their users.
+
+Graphistry supports unusually large graphs for interactive visualization. The client's custom WebGL rendering engine renders up to 8MM nodes and edges at a time, and most older client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside GPU analytics engine supports even bigger graphs.
 
 1. [Interactive Demo](#demo-of-friendship-communities-on-facebook)
 2. [Graph Gallery](#gallery)
@@ -42,7 +44,7 @@ It supports unusually large graphs for interactive visualization. The client's c
 
 - **Fast & Gorgeous:** Cluster, filter, and inspect large amounts of data at interactive speed. We layout graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
 
--  **Notebook Friendly:** PyGraphistry plays well with interactive notebooks like [IPython/Juypter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com): Process, visualize, and drill into with graphs directly within your notebooks.
+-  **Notebook Friendly:** PyGraphistry plays well with interactive notebooks like [Juypter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com): Process, visualize, and drill into with graphs directly within your notebooks.
 
 - **Batteries Included:** PyGraphistry works out-of-the-box with popular data science and graph analytics libraries. It is also very easy to turn arbitrary data into insightful graphs:
 
