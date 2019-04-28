@@ -119,10 +119,11 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 
 ## Installation
 
-We recommend two options for installing PyGraphistry:
+We recommend four options for installing PyGraphistry:
 
-1. Pip: If you already have Jupyter Notebook installed, or are a heavy Graphistry user, install the PyGraphistry pip package
-2. Docker: For quickly trying Graphistry when you do not have Jupyter Notebook installed and find doing so difficult, use our complete Docker image
+1. [Graphistry AMI](https://www.graphistry.com/get-started): One-click launch with Graphistry, PyGraphistry, and Jupyter notebooks preinstalled and ready to go out-of-the-box
+2. `pip install graphistry`: If you already have Jupyter Notebook installed or are using a system like Google Colab, install the PyGraphistry pip package. (Requires a Graphistry server.)
+3. Docker: For quickly trying PyGraphistry when you do not have Jupyter Notebook installed and find doing so difficult, use our complete Docker image. (Requires a Graphistry server.)
 
 ### Option 1: New users - Graphistry AWS AMI
 
@@ -134,25 +135,29 @@ It provides several benefits for getting started:
 * Jupyter is preinstalled
 * Starter examples of using with different files, databases, and Nvidia RAPIDS are provided
 * Preconfigured backend server: Nvidia drivers, `nvidia-docker`, Graphistry server, etc.
-* Running in your private AWS means you can safely explore your regular data there
+* Running in your private AWS means you can safely explore private data there
 
-The server gracefully stops/starts: to limit AWS spending, simply stop the server when not using it.
+The server gracefully stops/starts: Control AWS spending by simply stopping the server when not using it.
 
 
-### Option 2: PyGraphistry pip package for Python or Jupyter Notebook users
+### Option 2: PyGraphistry pip package for Python or Notebook users
+
+(Requires a Graphistry server.)
+
 **Dependencies for non-Docker installation**
 [Python](https://www.python.org) 2.7 or 3.4 (experimental).
 
-- If you already have Python, install IPython (Jupyter): `pip install "ipython[notebook]"`
-- Launch notebook server: `ipython notebook`
+- If you already have Python, install [Jupyter](https://jupyter.org/) or [Google Colab](https://colab.research.google.com)
 
+Once you have a notebook server, the simplest way to install PyGraphistry is with Python's pip package manager:
 
-Once you have Jupyter notebooks, the simplest way to install PyGraphistry is with Python's pip package manager:
-
-- Pandas only: `pip install graphistry`
-- Pandas, IGraph, and NetworkX: `pip install "graphistry[all]"`
+- Pandas only (recommended): `pip install graphistry`
+- Pandas + neo4j: `pip install "graphistry[bolt]"`
+- Pandas, IGraph, NetworkX, Neo4j: `pip install "graphistry[all]"`
 
 ### Option 3: Full Docker container for PyGraphistry, Jupyter Notebook, and Scipy/numpy/pandas
+
+(Requires a Graphistry server.)
 
 If you do not already have Jupyter Notebook, you can quickly start via our prebuilt Docker container:
 
