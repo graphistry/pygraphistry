@@ -334,13 +334,14 @@ class Plotter(object):
             info = PyGraphistry._etl2(dataset)
 
         viz_url = PyGraphistry._viz_url(info, self._url_params)
-        full_url = '%s:%s' % (PyGraphistry._config['protocol'], viz_url)
+        cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
+        full_url = ('%s:%s' % (PyGraphistry._config['protocol'], viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
         if render == False or (render == None and not self._render):
             return full_url
         elif util.in_ipython():
             from IPython.core.display import HTML
-            return HTML(util.make_iframe(viz_url, self._height, PyGraphistry._config['protocol']))
+            return HTML(util.make_iframe(full_url, self._height))
         else:
             import webbrowser
             webbrowser.open(full_url)
