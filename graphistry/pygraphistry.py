@@ -534,7 +534,7 @@ class NumpyJSONEncoder(json.JSONEncoder):
                 return obj.tolist()
         elif isinstance(obj, numpy.generic):
             return obj.item()
-        elif isinstance(obj, pandas.tslib.NaTType):
+        elif isinstance(obj, type(pandas.NaT)):
             return None
         elif isinstance(obj, datetime):
             return obj.isoformat()
