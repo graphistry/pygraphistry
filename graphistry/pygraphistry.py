@@ -22,6 +22,7 @@ import json
 import requests
 import pandas
 import numpy
+import warnings
 
 from . import util
 from . import bolt_util
@@ -394,10 +395,27 @@ class PyGraphistry(object):
 
 
     @staticmethod
+    def _coerce_str(v):
+        try:
+            return str(v)
+        except UnicodeDecodeError:
+            print('UnicodeDecodeError')
+            print('=', v, '=')
+            x = v.decode('utf-8')
+            print('x', x)
+            return x
+
+    @staticmethod
     def _get_data_file(dataset, mode):
         out_file = io.BytesIO()
         if mode == 'json':
-            json_dataset = json.dumps(dataset, ensure_ascii=False, cls=NumpyJSONEncoder)
+            json_dataset = None
+            try:
+                json_dataset = json.dumps(dataset, ensure_ascii=False, cls=NumpyJSONEncoder)
+            except TypeError:
+                warnings.warn("JSON: Switching from NumpyJSONEncoder to str()")                
+                json_dataset = json.dumps(dataset, default=PyGraphistry._coerce_str)
+
             with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
                 if sys.version_info < (3,0) and isinstance(json_dataset, bytes):
                     f.write(json_dataset)
@@ -534,7 +552,7 @@ class NumpyJSONEncoder(json.JSONEncoder):
                 return obj.tolist()
         elif isinstance(obj, numpy.generic):
             return obj.item()
-        elif isinstance(obj, pandas.tslib.NaTType):
+        elif isinstance(obj, type(pandas.NaT)):
             return None
         elif isinstance(obj, datetime):
             return obj.isoformat()

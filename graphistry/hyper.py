@@ -177,8 +177,17 @@ def hyperbinding(g, defs, entities, event_entities, edges, source, destination):
         'graph': g\
             .bind(source=source, destination=destination).edges(edges)\
             .bind(node=defs['NODEID'], point_title=defs['TITLE']).nodes(nodes)
-    } 
+    }     
 
+#turn lists etc to strs, and preserve nulls
+def flatten_objs_inplace(df, cols):
+   for c in cols:
+        name = df[c].dtype.name
+        if name == 'category':
+            df[c] = df[c].where(df[c].isnull(), df[c].astype(str))
+        elif name == 'object':
+            df[c] = df[c].where(df[c].isnull(), df[c].astype(str))
+ 
 ###########        
 
 class Hypergraph(object):        
@@ -188,6 +197,8 @@ class Hypergraph(object):
         defs = makeDefs(DEFS_HYPER, opts)
         entity_types = screen_entities(raw_events, entity_types, defs)
         events = raw_events.copy().reset_index(drop=True)
+        flatten_objs_inplace(events, entity_types)
+
         if defs['EVENTID'] in events.columns:
             events[defs['EVENTID']] = events.apply(
                 lambda r: defs['EVENTID'] + defs['DELIM'] + valToSafeStr(r[defs['EVENTID']]), 

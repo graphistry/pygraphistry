@@ -4,6 +4,8 @@ from __future__ import division
 from builtins import zip
 from builtins import next
 from builtins import str
+import warnings
+
 
 import random
 import numpy
@@ -60,9 +62,14 @@ def addEdges(vg, sources, dests, node_map):
 
 def storeEdgeAttributes(vg, df):
     edge_types = {}
-
-    coltypes = df.columns.to_series().groupby(df.dtypes)
-    for dtype, cols in list(coltypes.groups.items()):
+    dtype_to_col_names = {
+        dtype: [
+            c for c in df.columns 
+            if str(df[c].dtype) == str(dtype)
+        ]
+        for dtype in set(df.dtypes)
+    }
+    for (dtype, cols) in dtype_to_col_names.items():
         for col in cols:
             enc_type = storeValueVector(vg, df, col, dtype, EDGE)
             edge_types[col] = enc_type
@@ -97,6 +104,7 @@ def storeNodeAttributes(vg, df, nodeid, node_map):
 def storeValueVector(vg, df, col, dtype, target):
     encoders = {
         'object': objectEncoder,
+        'category': categoryEncoder,
         'bool': boolEncoder,
         'int8': numericEncoder,
         'int16': numericEncoder,
@@ -106,34 +114,41 @@ def storeValueVector(vg, df, col, dtype, target):
         'float32': numericEncoder,
         'float64': numericEncoder,
         'datetime64[ns]': datetimeEncoder,
+        'timedelta64[ns]': datetimeEncoder
     }
     df_col = df[col]
     (vec, info) = encoders[dtype.name](vg, df_col, dtype)
     vec.name = str(col)
     vec.target = target
 
-    if 'aggregations' not in info:
-        info['aggregations'] = {}
-    aggregations = info['aggregations']
-    if 'valid' not in aggregations:
-        aggregations['valid'] = nanGuard(df_col.count())
-        aggregations['missing'] = nanGuard(df_col.size - aggregations['valid'])
-    if 'distinct' not in aggregations:
-        aggregations['distinct'] = nanGuard(df_col.nunique())
-    if 'min' not in aggregations:
-        aggregations['min'] = nanGuard(df_col.min())
-    if 'max' not in aggregations:
-        aggregations['max'] = nanGuard(df_col.max())
-
     return info
 
+# returns tuple() of StringAttributeVector and object with type info.
+def categoryEncoder(vg, series, dtype):
+    # vec is a string[] submessage within a repeated
+    vec = vg.string_vectors.add()
+    str_series = None    
+    try:
+        str_series = series.astype('unicode')
+    except UnicodeDecodeError:
+        warnings.warn("Warning: escaping unicode")
+        str_series = series.apply(lambda v: v.decode('utf-8'))
+    for val in str_series:
+        vec.values.append(val)
+    return (vec, {'ctype': 'utf8'})
 
 # returns tuple() of StringAttributeVector and object with type info.
 def objectEncoder(vg, series, dtype):
     series.where(pandas.notnull(series), '\0', inplace=True)
     # vec is a string[] submessage within a repeated
     vec = vg.string_vectors.add()
-    for val in series.astype('unicode'):
+    str_series = None    
+    try:
+        str_series = series.astype('unicode')
+    except UnicodeDecodeError:
+        warnings.warn("Warning: escaping unicode")
+        str_series = series.apply(lambda v: v.decode('utf-8'))
+    for val in str_series:
         vec.values.append(val)
     return (vec, {'ctype': 'utf8'})
 
