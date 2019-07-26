@@ -105,7 +105,7 @@ def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
                 else [])
             + [defs['EDGETYPE'], defs['ATTRIBID'], defs['EVENTID']]
             + ([defs['CATEGORY']] if is_using_categories else []) ))
-        out = pd.concat(subframes, ignore_index=True).reset_index(drop=True)[ result_cols ]
+        out = pd.concat(subframes, ignore_index=True, sort=False).reset_index(drop=True)[ result_cols ]
         return out
     else:
         return pd.DataFrame([])
@@ -168,7 +168,7 @@ def format_hypernodes(events, defs, drop_na):
     return event_nodes
 
 def hyperbinding(g, defs, entities, event_entities, edges, source, destination):
-    nodes = pd.concat([entities, event_entities], ignore_index=True).reset_index(drop=True)
+    nodes = pd.concat([entities, event_entities], ignore_index=True, sort=False).reset_index(drop=True)
     return {
         'entities': entities,
         'events': event_entities,
@@ -184,7 +184,8 @@ def flatten_objs_inplace(df, cols):
    for c in cols:
         name = df[c].dtype.name
         if name == 'category':
-            df[c] = df[c].where(df[c].isnull(), df[c].astype(str))
+            #Avoid warning
+            df[c] = df[c].astype(str).where(~df[c].isnull(), df[c])
         elif name == 'object':
             df[c] = df[c].where(df[c].isnull(), df[c].astype(str))
  
