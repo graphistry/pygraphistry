@@ -346,6 +346,169 @@ class PyGraphistry(object):
 
 
     @staticmethod
+    def tigergraph(
+        protocol = 'http',
+        server = 'localhost',
+        web_port = 14240,
+        api_port = 9000,
+        db = None,
+        user = 'tigergraph',
+        pwd = 'tigergraph',
+        verbose = False
+    ):
+        """Register Tigergraph connection setting defaults
+    
+        :param protocol: Protocol used to contact the database.
+        :type protocol: Optional string.
+        :param server: Domain of the database
+        :type server: Optional string.
+        :param web_port: 
+        :type web_port: Optional integer.
+        :param api_port: 
+        :type api_port: Optional integer.
+        :param db: Name of the database
+        :type db: Optional string.    
+        :param user:
+        :type user: Optional string.    
+        :param pwd: 
+        :type pwd: Optional string.
+        :param verbose: Whether to print operations
+        :type verbose: Optional bool.         
+        :returns: Plotter.
+        :rtype: Plotter.
+
+
+        **Example: Standard**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph(protocol='https', server='acme.com', db='my_db', user='alice', pwd='tigergraph2')                    
+
+        """
+        from . import plotter
+        return plotter.Plotter().tigergraph(protocol, server, web_port, api_port, db, user, pwd, verbose)
+
+
+    @staticmethod
+    def gsql_endpoint(self, method_name, args = {}, bindings = None, db = None, dry_run = False):
+        """Invoke Tigergraph stored procedure at a user-definend endpoint and return transformed Plottable
+    
+        :param method_name: Stored procedure name
+        :type method_name: String.
+        :param args: Named endpoint arguments
+        :type args: Optional dictionary.
+        :param bindings: Mapping defining names of returned 'edges' and/or 'nodes', defaults to @@nodeList and @@edgeList
+        :type bindings: Optional dictionary.
+        :param db: Name of the database, defaults to value set in .tigergraph(...)
+        :type db: Optional string.
+        :param dry_run: Return target URL without running
+        :type dry_run: Bool, defaults to False            
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Minimal**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph(db='my_db')
+                    tg.gsql_endpoint('neighbors').plot()
+
+        **Example: Full**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph()
+                    tg.gsql_endpoint('neighbors', {'k': 2}, {'edges': 'my_edge_list'}, 'my_db').plot()
+
+        **Example: Read data**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph()
+                    out = tg.gsql_endpoint('neighbors')
+                    (nodes_df, edges_df) = (out._nodes, out._edges)
+
+        """
+        from . import plotter
+        return plotter.Plotter().gsql_endpoint(method_name, args, bindings, db, dry_run)
+
+
+
+    @staticmethod
+    def gsql(query, bindings = None, dry_run = False):
+        """Run Tigergraph query in interpreted mode and return transformed Plottable
+    
+        :param query: Code to run
+        :type query: String.
+        :param bindings: Mapping defining names of returned 'edges' and/or 'nodes', defaults to @@nodeList and @@edgeList
+        :type bindings: Optional dictionary.
+        :param dry_run: Return target URL without running
+        :type dry_run: Bool, defaults to False        
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Minimal**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph()
+                    tg.gsql(\"\"\"
+INTERPRET QUERY () FOR GRAPH Storage { 
+    
+    OrAccum<BOOL> @@stop;
+    ListAccum<EDGE> @@edgeList;
+    SetAccum<vertex> @@set;
+    
+    @@set += to_vertex("61921", "Pool");
+
+    Start = @@set;
+
+    while Start.size() > 0 and @@stop == false do
+
+      Start = select t from Start:s-(:e)-:t
+      where e.goUpper == TRUE
+      accum @@edgeList += e
+      having t.type != "Service";
+    end;
+
+    print @@edgeList;
+  }
+                    \"\"\").plot()
+
+       **Example: Full**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph()
+                    tg.gsql(\"\"\"
+INTERPRET QUERY () FOR GRAPH Storage { 
+    
+    OrAccum<BOOL> @@stop;
+    ListAccum<EDGE> @@edgeList;
+    SetAccum<vertex> @@set;
+    
+    @@set += to_vertex("61921", "Pool");
+
+    Start = @@set;
+
+    while Start.size() > 0 and @@stop == false do
+
+      Start = select t from Start:s-(:e)-:t
+      where e.goUpper == TRUE
+      accum @@edgeList += e
+      having t.type != "Service";
+    end;
+
+    print @@my_edge_list;
+  }
+                    \"\"\", {'edges': 'my_edge_list'}).plot()
+        """
+        from . import plotter
+        return plotter.Plotter().gsql(query, bindings, dry_run)
+
+
+
+    @staticmethod
     def nodes(nodes):
         from . import plotter
         return plotter.Plotter().nodes(nodes)
@@ -544,6 +707,9 @@ settings = PyGraphistry.settings
 hypergraph = PyGraphistry.hypergraph
 bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
+tigergraph = PyGraphistry.tigergraph
+gsql_endpoint = PyGraphistry.gsql_endpoint
+gsql = PyGraphistry.gsql
 
 
 class NumpyJSONEncoder(json.JSONEncoder):
