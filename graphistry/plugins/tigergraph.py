@@ -1,6 +1,9 @@
 import requests
 import pandas as pd
 
+def merge_dicts(x, y):
+    return dict(list(x.items()) + list(y.items()))
+
 class Tigeristry(object):
     """Tigergraph bindings class
 
@@ -164,13 +167,13 @@ class Tigeristry(object):
             url = json
             return url
 
-        bindings = {
-            **{
+        bindings = merge_dicts(
+            {
               'edges': '@@edgeList',
               'nodes': '@@nodeList'
             },
-            **bindings
-        }      
+            bindings
+        )   
 
         return self.__json_to_graphistry(graphistry, json, bindings)
 
@@ -185,12 +188,12 @@ class Tigeristry(object):
             url = json
             return url
 
-        bindings = {
-            **{
+        bindings = merge_dicts(
+            {
               'edges': '@@edgeList',
               'nodes': '@@nodeList'
             },
-            **bindings
-        }      
+            bindings
+        )      
 
         return self.__json_to_graphistry(graphistry, json, bindings)
