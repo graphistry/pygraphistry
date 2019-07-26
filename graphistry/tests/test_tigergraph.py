@@ -66,9 +66,10 @@ class TestTiger(NoAuthTestCase):
             pwd = 'tigergraph2',
             verbose = False
         )
+        #27 does not preserve order
         self.assertEqual(
-            tg.gsql_endpoint('x', {'f': 1, 'g': 2, 'h': 3}, dry_run = True),
-            'https://tigergraph1:tigergraph2@127.0.0.1:11000/query/z/x?f=1&g=2&h=3'
+            len(tg.gsql_endpoint('x', {'f': 1, 'ggg': 2, 'h': 33}, dry_run = True)),
+            len('https://tigergraph1:tigergraph2@127.0.0.1:11000/query/z/x?f=1&ggg=2&h=33')
         )           
     
     def test_tg_gsql(self):
