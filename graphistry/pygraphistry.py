@@ -509,7 +509,8 @@ INTERPRET QUERY () FOR GRAPH Storage {
 
 
     @staticmethod
-    def nodes(nodes):        
+    def nodes(nodes):
+        from . import plotter
         return plotter.Plotter().nodes(nodes)
 
 
