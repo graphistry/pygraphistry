@@ -10,7 +10,7 @@ from .pygraphistry import PyGraphistry
 from .pygraphistry import util
 from .pygraphistry import bolt_util
 
-from .plugins import tigergraph 
+from graphistry.plugins.tigergraph import Tigeristry
 
 
 class Plotter(object):
@@ -724,7 +724,7 @@ class Plotter(object):
 
         """
         res = copy.copy(self)
-        res._tigergraph = tigergraph.Tigeristry(self, protocol, server, web_port, api_port, db, user, pwd, verbose)
+        res._tigergraph = Tigeristry(self, protocol, server, web_port, api_port, db, user, pwd, verbose)
         return res
 
 
