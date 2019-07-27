@@ -10,7 +10,7 @@ from .pygraphistry import PyGraphistry
 from .pygraphistry import util
 from .pygraphistry import bolt_util
 
-from .tigergraph import Tigeristry
+from .tigeristry import Tigeristry
 
 
 class Plotter(object):
