@@ -73,6 +73,16 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
      graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000 RETURN a, p, b").plot()
      ```
 
+  - [TigerGaph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
+
+      ```python
+      g = graphistry.tigergraph(protocol='https', server='', user='', password='')
+      g2 = g.gsql("...", {'edges': '@@eList'})
+      g2.plot()
+      print('# edges', len(g2._edges))
+      g.endpoint('my_fn', {'arg': 'val'}, {'edges': '@@eList'}).plot()      
+      ```
+
   - [IGraph](http://igraph.org)
 
      ```python
