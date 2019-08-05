@@ -8,9 +8,8 @@ install:
 before_install:
 - pip install --upgrade pip setuptools wheel
 - pip install --only-binary=numpy,pandas numpy pandas
-- sudo add-apt-repository ppa:igraph/ppa -y
-- sudo apt-get update -q
-- sudo apt-get install python-igraph -y
+- sudo apt-get install build-essential python-dev libxml2 libxml2-dev zlib1g-dev
+- pip install python-igraph
 - if [[ $TRAVIS_PYTHON_VERSION == 2.7.13 ]]; then pip install IPython==5.0; fi
 - python setup.py install
 before_script:
