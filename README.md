@@ -46,15 +46,22 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 
 -  **Notebook Friendly:** PyGraphistry plays well with interactive notebooks like [Juypter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com): Process, visualize, and drill into with graphs directly within your notebooks.
 
+- **Great for Events, CSVs, and more:** Not sure if your data is graph-friendly? PyGraphistry's `hypergraph` transform helps turn any sample data like CSVs, SQL results, and event data into a graph for pattern analysis:
+
+     ```python
+     rows = pandas.read_csv('transactions.csv')[:1000]
+     graphistry.hypergraph(rows)['graph'].plot()
+     ```
+
 - **Batteries Included:** PyGraphistry works out-of-the-box with popular data science and graph analytics libraries. It is also very easy to turn arbitrary data into insightful graphs:
 
   - [Pandas](http://pandas.pydata.org)
 
      ```python
-     edges = pandas.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
+     edges = pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
      graphistry.bind(source='src', destination='dst').plot(edges)
      
-     table_rows = pandas.read_csv('honeypot.csv')
+     table_rows = pd.read_csv('honeypot.csv')
      graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'])['graph'].plot()
      
      graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'], 
@@ -76,7 +83,7 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
   - [TigerGaph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
 
       ```python
-      g = graphistry.tigergraph(protocol='https', server='', user='', password='')
+      g = graphistry.tigergraph(protocol='https', ...)
       g2 = g.gsql("...", {'edges': '@@eList'})
       g2.plot()
       print('# edges', len(g2._edges))
@@ -96,21 +103,21 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
      graph = networkx.read_edgelist('facebook_combined.txt')
      graphistry.bind(source='src', destination='dst', node='nodeid').plot(graph)
      ```
+  - [HyperNetX](https://github.com/pnnl/HyperNetX) ([notebook demo](demos/demos_databases_apis/hypernetx/hypernetx.ipynb))
+
+     ```python
+     hg.hypernetx_to_graphistry_nodes(H).plot()
+     hg.hypernetx_to_graphistry_bipartite(H.dual()).plot()     
+     ```
      
   - [Splunk](https://www.splunk.com) ([notebook demo](demos/demos_databases_apis/splunk/splunk_demo_public.ipynb))
     
-    ```python
-    df = splunkToPandas("index=netflow bytes > 100000 | head 100000", {})    
-    graphistry.bind(source='src_ip', destination='dest_ip').plot(df)
-    ```
-
-
-- **Great for Events, CSVs, and more:** Not sure if your data is graph-friendly? PyGraphistry's `hypergraph` transform helps turn any sample data like CSVs, SQL results, and event data into a graph for pattern analysis:
-
      ```python
-     rows = pandas.read_csv('transactions.csv')[:1000]
-     graphistry.hypergraph(rows)['graph'].plot()
+     df = splunkToPandas("index=netflow bytes > 100000 | head 100000", {})    
+     graphistry.bind(source='src_ip', destination='dest_ip').plot(df)
      ```
+
+
 
 ### Gallery
 
