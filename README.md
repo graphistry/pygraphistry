@@ -142,14 +142,14 @@ We recommend four options for installing PyGraphistry:
 2. `pip install graphistry`: If you already have Jupyter Notebook installed or are using a system like Google Colab, install the PyGraphistry pip package. (Requires a Graphistry server.)
 3. Docker: For quickly trying PyGraphistry when you do not have Jupyter Notebook installed and find doing so difficult, use our complete Docker image. (Requires a Graphistry server.)
 
-### Option 1: New users - Graphistry AWS AMI
+### Option 1: New users - Graphistry AWS Server with Preinstalled PyGraphistry client
 
-For new users who have AWS accounts, simply [launch the Graphistry AMI](https://www.graphistry.com/get-started).
+For new users who have AWS accounts, simply [launch the self-serve Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core).
 
 It provides several benefits for getting started:
 
 * PyGraphistry is preinstalled
-* Jupyter is preinstalled
+* Jupyter notebooks is preinstalled
 * Starter examples of using with different files, databases, and Nvidia RAPIDS are provided
 * Preconfigured backend server: Nvidia drivers, `nvidia-docker`, Graphistry server, etc.
 * Running in your private AWS means you can safely explore private data there
@@ -157,42 +157,17 @@ It provides several benefits for getting started:
 The server gracefully stops/starts: Control AWS spending by simply stopping the server when not using it.
 
 
-### Option 2: PyGraphistry pip package for Python or Notebook users
+### Option 2: PyGraphistry pip package 
 
-(Requires a Graphistry server.)
+Install PyGraphistry into your own Python app or data science notebook environment such as [Jupyter](https://jupyter.org/) and [Google Colab](https://colab.research.google.com). Requires a Graphistry server such as the self-serve [Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core)
 
-**Dependencies for non-Docker installation**
-[Python](https://www.python.org) 2.7 or 3.4 (experimental).
-
-- If you already have Python, install [Jupyter](https://jupyter.org/) or [Google Colab](https://colab.research.google.com)
-
-Once you have a notebook server, the simplest way to install PyGraphistry is with Python's pip package manager:
+Install PyGraphistry with Python's `pip` package manager:
 
 - Pandas only (recommended): `pip install graphistry`
-- Pandas + neo4j: `pip install "graphistry[bolt]"`
-- Pandas, IGraph, NetworkX, Neo4j: `pip install "graphistry[all]"`
+- + neo4j: `pip install "graphistry[bolt]"`
+- + IGraph, NetworkX, Neo4j: `pip install "graphistry[all]"`
 
-### Option 3: Full Docker container for PyGraphistry, Jupyter Notebook, and Scipy/numpy/pandas
-
-(Requires a Graphistry server.)
-
-If you do not already have Jupyter Notebook, you can quickly start via our prebuilt Docker container:
-
-1. Install [Docker](https://www.docker.com)
-2. Install and run the Jupyter Notebook + Graphistry container:
-
-  `docker run -it --rm -p 8888:8888  graphistry/jupyter-notebook`
- 
-  If you would like to open data in the current folder `$PWD` or save results to the current folder `$PWD`, instead run:
-
-  `docker run -it --rm -p 8888:8888 -v "$PWD":/home/jovyan/work/myPWDFolder graphistry/jupyter-notebook`
- 
-3. After you run the above command, you will be provided a link. Go to it in a web browser:
-
-	 `http://localhost:8888/?token=< generated token value >`
- 
-
-
+The latter two can be skipped if you already have the third-party Python packages at the appropriate versions installed.
 
 ##### Jupyter Notebook Integration
 
