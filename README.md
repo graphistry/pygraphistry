@@ -79,6 +79,14 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
      graphistry.register(bolt=NEO4J_CREDS)
      graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000 RETURN a, p, b").plot()
      ```
+     
+     or
+     
+     ```python
+     from neo4j import GraphDatabase, Driver
+     graphistry.register(bolt=GraphDatabase.driver(**NEO4J_CREDS))
+     graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000 RETURN a, p, b").plot()
+     ```
 
   - [TigerGaph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
 
