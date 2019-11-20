@@ -76,8 +76,11 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
   - [Neo4j](http://neo4j.com) ([notebook demo](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
   
      ```python
+     NEO4J_CREDS = {'uri': 'bolt://my.site.ngo:7687', 'auth': ('neo4j', 'mypwd')}
      graphistry.register(bolt=NEO4J_CREDS)
      graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000 RETURN a, p, b").plot()
+     
+     graphistry.cypher("CALL db.schema()").plot()
      ```
      
      or
