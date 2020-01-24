@@ -8,16 +8,11 @@ from common import NoAuthTestCase
 
 class TestNodexlBindings(NoAuthTestCase):
 
-    @classmethod
-    def setUpClass(cls):
-        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.register(api=2)
-
     def test_from_xls_default(self):
         xls = pd.ExcelFile('graphistry/tests/data/NodeXLWorkbook-220237-twitter.xlsx', engine='openpyxl')
         nodes_df = pd.read_excel(xls, 'Vertices')
         edges_df = pd.read_excel(xls, 'Edges')
-        g = graphistry.bind().nodexl(xls)
+        g = graphistry.nodexl(xls)
         self.assertEqual(len(g._nodes), len(nodes_df) - 1)
         self.assertEqual(len(g._edges), len(edges_df) - 1)
         self.assertEqual(g._node, 'Vertex')
@@ -28,7 +23,7 @@ class TestNodexlBindings(NoAuthTestCase):
         xls = pd.ExcelFile('graphistry/tests/data/NodeXLWorkbook-220237-twitter.xlsx', engine='openpyxl')
         nodes_df = pd.read_excel(xls, 'Vertices')
         edges_df = pd.read_excel(xls, 'Edges')
-        g = graphistry.bind().nodexl(xls, 'twitter')
+        g = graphistry.nodexl(xls, 'twitter')
         self.assertEqual(len(g._nodes), len(nodes_df) - 1)
         self.assertEqual(len(g._edges), len(edges_df) - 1)
         self.assertEqual(g._node, 'Vertex')
