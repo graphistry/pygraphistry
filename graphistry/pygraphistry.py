@@ -323,7 +323,7 @@ class PyGraphistry(object):
 
         :param xls_or_url: file/http path string to a nodexl-generated xls, or a pandas ExcelFile() object
         :param source: optionally activate binding by string name for a known nodexl data source ('twitter', 'wikimedia')
-        :param engine: optionally set a pandas excel engine to override default of 'xlrd'
+        :param engine: optionally set a pandas Excel engine
         :param verbose: optionally enable printing progress by overriding to True
 
         """
