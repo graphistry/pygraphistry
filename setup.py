@@ -49,13 +49,14 @@ setup(
     extras_require={
         'igraph': ['python-igraph'],
         'networkx': ['networkx'],
-        'bolt': ['neo4j'],
+        'bolt': ['neo4j', 'neotime'],
         'nodexl': ['openpyxl', 'xlrd'],
         'all': ['python-igraph', 'networkx', 'colorlover', 'neo4j', 'openpyxl']
     },
     tests_require=
         ['pytest', 'mock', 'ipython', 
-        'python-igraph', 'networkx', 'colorlover', 'neo4j',
+        'python-igraph', 'networkx==2.2', 'colorlover',
+        'neo4j', 'neotime',
         'openpyxl'],
     cmdclass=versioneer.get_cmdclass(),
     license='BSD',
@@ -74,5 +75,5 @@ setup(
         'Topic :: Scientific/Engineering :: Visualization',
         'Topic :: Scientific/Engineering :: Information Analysis',
     ],
-    keywords=['Graph', 'Network', 'Plot', 'Visualization', 'Pandas', 'Igraph', 'Jupyter', 'Notebook', 'Neo4j']
+    keywords=['Graph', 'Network', 'Plot', 'Visualization', 'Pandas', 'Igraph', 'Jupyter', 'Notebook', 'Neo4j', 'Gremlin', 'Tinkerpop', 'RDF', 'GraphX', 'NetworkX', 'Splunk', 'Spark']
 )
