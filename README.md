@@ -128,6 +128,20 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
      graphistry.bind(source='src_ip', destination='dest_ip').plot(df)
      ```
 
+  - [NodeXL](https://www.nodexl.com) ([notebook demo](demos/demos_databases_apis/nodexl/official/nodexl_graphistry.ipynb))
+
+     ```python
+    graphistry.nodexl('/my/file.xls').plot()
+    ```
+    ```python
+    graphistry.nodexl('https://file.xls').plot()
+    ```
+    ```python
+    graphistry.nodexl('https://file.xls', 'twitter').plot()
+    graphistry.nodexl('https://file.xls', verbose=True).plot()
+    graphistry.nodexl('https://file.xls', engine='xlsxwriter').plot()
+    graphistry.nodexl('https://file.xls')._nodes
+    ```  
 
 
 ### Gallery
