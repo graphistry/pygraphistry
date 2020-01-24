@@ -10,7 +10,7 @@ from .pygraphistry import PyGraphistry
 from .pygraphistry import util
 from .pygraphistry import bolt_util
 
-from .nodexl import NodeXLGraphistry
+from .nodexlistry import NodeXLGraphistry
 
 from .tigeristry import Tigeristry
 
