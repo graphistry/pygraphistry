@@ -10,6 +10,8 @@ from .pygraphistry import PyGraphistry
 from .pygraphistry import util
 from .pygraphistry import bolt_util
 
+from .nodexlistry import NodeXLGraphistry
+
 from .tigeristry import Tigeristry
 
 
@@ -683,6 +685,11 @@ class Plotter(object):
             )\
             .nodes(nodes)\
             .edges(edges)
+
+    def nodexl(self, xls_or_url, source='default', engine=None, verbose=False):
+        #TODO intern instance
+        return NodeXLGraphistry(self, engine).xls(xls_or_url, source, verbose)
+
 
     def tigergraph(self,
         protocol = 'http',

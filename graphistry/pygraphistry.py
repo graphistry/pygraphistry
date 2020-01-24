@@ -318,6 +318,21 @@ class PyGraphistry(object):
 
 
     @staticmethod
+    def nodexl(xls_or_url, source='default', engine=None, verbose=False):
+        """
+
+        :param xls_or_url: file/http path string to a nodexl-generated xls, or a pandas ExcelFile() object
+        :param source: optionally activate binding by string name for a known nodexl data source ('twitter', 'wikimedia')
+        :param engine: optionally set a pandas Excel engine
+        :param verbose: optionally enable printing progress by overriding to True
+
+        """
+
+        from . import plotter
+        return plotter.Plotter().nodexl(xls_or_url, source, engine, verbose)
+
+
+    @staticmethod
     def bind(node=None, source=None, destination=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
              point_title=None, point_label=None, point_color=None, point_size=None):
@@ -707,6 +722,7 @@ settings = PyGraphistry.settings
 hypergraph = PyGraphistry.hypergraph
 bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
+nodexl = PyGraphistry.nodexl
 tigergraph = PyGraphistry.tigergraph
 gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
