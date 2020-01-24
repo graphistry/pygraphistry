@@ -60,10 +60,12 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
      ```python
      edges = pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
      graphistry.bind(source='src', destination='dst').plot(edges)
-     
+     ```
+     ```python
      table_rows = pd.read_csv('honeypot.csv')
      graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'])['graph'].plot()
-     
+     ```
+     ```python
      graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'], 
          direct=True, 
          opts={'EDGES': {
@@ -79,12 +81,10 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
      NEO4J_CREDS = {'uri': 'bolt://my.site.ngo:7687', 'auth': ('neo4j', 'mypwd')}
      graphistry.register(bolt=NEO4J_CREDS)
      graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000 RETURN a, p, b").plot()
-     
-     graphistry.cypher("CALL db.schema()").plot()
      ```
-     
-     or
-     
+     ```python
+     graphistry.cypher("CALL db.schema()").plot()
+     ```          
      ```python
      from neo4j import GraphDatabase, Driver
      graphistry.register(bolt=GraphDatabase.driver(**NEO4J_CREDS))
@@ -98,6 +98,8 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
       g2 = g.gsql("...", {'edges': '@@eList'})
       g2.plot()
       print('# edges', len(g2._edges))
+      ```
+      ```python
       g.endpoint('my_fn', {'arg': 'val'}, {'edges': '@@eList'}).plot()      
       ```
 
@@ -118,6 +120,8 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 
      ```python
      hg.hypernetx_to_graphistry_nodes(H).plot()
+     ```
+     ```python
      hg.hypernetx_to_graphistry_bipartite(H.dual()).plot()     
      ```
      
