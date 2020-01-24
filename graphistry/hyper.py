@@ -119,7 +119,7 @@ def format_hypernodes(events, defs, drop_na):
     return event_nodes
 
 def hyperbinding(g, defs, entities, event_entities, edges):
-    nodes = pd.concat([entities, event_entities], ignore_index=True).reset_index(drop=True)
+    nodes = pd.concat([entities, event_entities], ignore_index=True, sort=False).reset_index(drop=True)
     return {
         'entities': entities,
         'events': event_entities,
