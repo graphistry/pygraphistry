@@ -12,7 +12,7 @@ import string
 from distutils.version import LooseVersion, StrictVersion
 
 
-def make_iframe(raw_url, height, protocol):
+def make_iframe(url, height):
     id = uuid.uuid4()
 
     scrollbug_workaround='''
@@ -29,7 +29,7 @@ def make_iframe(raw_url, height, protocol):
                     oallowfullscreen="true" msallowfullscreen="true"
                     style="width:100%%; height:%dpx; border: 1px solid #DDD">
             </iframe>
-        ''' % (id, protocol + ':' + raw_url, height)
+        ''' % (id, url, height)
 
     return iframe + scrollbug_workaround
 

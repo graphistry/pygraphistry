@@ -29,5 +29,6 @@ Uninstall the local checkout (useful to rollback to packaged version) with `./se
 	git push --tags
 	```
 
-2. Login to [Graphistry's Jenkins](http://deploy.graphistry.com/view/Package/job/Package%20PyGraphistry%20to%20PIP/build).
-3. Fill the `tag` parameter with version number you have just used to tag the repository, then click *Build*.
+2. Get `pypirc` from your friendly colleagues
+
+3. Run `./pipupload.sh`

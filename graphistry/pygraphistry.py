@@ -22,6 +22,7 @@ import json
 import requests
 import pandas
 import numpy
+import warnings
 
 from . import util
 from . import bolt_util
@@ -33,6 +34,7 @@ EnvVarNames = {
     'dataset_prefix': 'GRAPHISTRY_DATASET_PREFIX',
     'hostname': 'GRAPHISTRY_HOSTNAME',
     'protocol': 'GRAPHISTRY_PROTOCOL',
+    'client_protocol_hostname': 'GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME',
     'certificate_validation': 'GRAPHISTRY_CERTIFICATE_VALIDATION'
 }
 
@@ -48,6 +50,7 @@ default_config = {
     'dataset_prefix': 'PyGraphistry/',
     'hostname': 'labs.graphistry.com',
     'protocol': 'https',
+    'client_protocol_hostname': None,
     'certificate_validation': True
 }
 
@@ -211,7 +214,7 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def hypergraph(raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=False, verbose=True):
+    def hypergraph(raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=False, verbose=True, direct=False):
         """Transform a dataframe into a hypergraph.
 
         :param Dataframe raw_events: Dataframe to transform
@@ -219,14 +222,15 @@ class PyGraphistry(object):
         :param Dict opts: See below
         :param bool drop_edge_attrs: Whether to include each row's attributes on its edges, defaults to False (include)
         :param bool verbose: Whether to print size information
+        :param bool direct: Omit hypernode and instead strongly connect nodes in an event
 
         Create a graph out of the dataframe, and return the graph components as dataframes, 
         and the renderable result Plotter. It reveals relationships between the rows and between column values.
         This transform is useful for lists of events, samples, relationships, and other structured high-dimensional data.
 
         The transform creates a node for every row, and turns a row's column entries into node attributes. 
-        Every unique value within a column is also turned into a node. 
-        Edges are added to connect a row's node to each of its column nodes. 
+        If direct=False (default), every unique value within a column is also turned into a node. 
+        Edges are added to connect a row's nodes to each of its column nodes, or if direct=True, to one another.
         Nodes are given the attribute 'type' corresponding to the originating column name, or in the case of a row, 'EventID'.
 
 
@@ -246,6 +250,7 @@ class PyGraphistry(object):
         * 'CATEGORIES': Dictionary mapping a category name to inhabiting columns. E.g., {'IP': ['srcAddress', 'dstAddress']}.  If the same IP appears in both columns, this makes the transform generate one node for it, instead of one for each column.
         * 'DELIM': When creating node IDs, defines the separator used between the column name and node value
         * 'SKIP': List of column names to not turn into nodes. For example, dates and numbers are often skipped.
+        * 'EDGES': For direct=True, instead of making all edges, pick column pairs. E.g., {'a': ['b', 'd'], 'd': ['d']} creates edges between columns a->b and a->d, and self-edges d->d.
 
 
         :returns: {'entities': DF, 'events': DF, 'edges': DF, 'nodes': DF, 'graph': Plotter}
@@ -261,7 +266,7 @@ class PyGraphistry(object):
 
         """
         from . import hyper
-        return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose)
+        return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct)
 
 
     @staticmethod
@@ -358,6 +363,169 @@ class PyGraphistry(object):
 
 
     @staticmethod
+    def tigergraph(
+        protocol = 'http',
+        server = 'localhost',
+        web_port = 14240,
+        api_port = 9000,
+        db = None,
+        user = 'tigergraph',
+        pwd = 'tigergraph',
+        verbose = False
+    ):
+        """Register Tigergraph connection setting defaults
+    
+        :param protocol: Protocol used to contact the database.
+        :type protocol: Optional string.
+        :param server: Domain of the database
+        :type server: Optional string.
+        :param web_port: 
+        :type web_port: Optional integer.
+        :param api_port: 
+        :type api_port: Optional integer.
+        :param db: Name of the database
+        :type db: Optional string.    
+        :param user:
+        :type user: Optional string.    
+        :param pwd: 
+        :type pwd: Optional string.
+        :param verbose: Whether to print operations
+        :type verbose: Optional bool.         
+        :returns: Plotter.
+        :rtype: Plotter.
+
+
+        **Example: Standard**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph(protocol='https', server='acme.com', db='my_db', user='alice', pwd='tigergraph2')                    
+
+        """
+        from . import plotter
+        return plotter.Plotter().tigergraph(protocol, server, web_port, api_port, db, user, pwd, verbose)
+
+
+    @staticmethod
+    def gsql_endpoint(self, method_name, args = {}, bindings = None, db = None, dry_run = False):
+        """Invoke Tigergraph stored procedure at a user-definend endpoint and return transformed Plottable
+    
+        :param method_name: Stored procedure name
+        :type method_name: String.
+        :param args: Named endpoint arguments
+        :type args: Optional dictionary.
+        :param bindings: Mapping defining names of returned 'edges' and/or 'nodes', defaults to @@nodeList and @@edgeList
+        :type bindings: Optional dictionary.
+        :param db: Name of the database, defaults to value set in .tigergraph(...)
+        :type db: Optional string.
+        :param dry_run: Return target URL without running
+        :type dry_run: Bool, defaults to False            
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Minimal**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph(db='my_db')
+                    tg.gsql_endpoint('neighbors').plot()
+
+        **Example: Full**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph()
+                    tg.gsql_endpoint('neighbors', {'k': 2}, {'edges': 'my_edge_list'}, 'my_db').plot()
+
+        **Example: Read data**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph()
+                    out = tg.gsql_endpoint('neighbors')
+                    (nodes_df, edges_df) = (out._nodes, out._edges)
+
+        """
+        from . import plotter
+        return plotter.Plotter().gsql_endpoint(method_name, args, bindings, db, dry_run)
+
+
+
+    @staticmethod
+    def gsql(query, bindings = None, dry_run = False):
+        """Run Tigergraph query in interpreted mode and return transformed Plottable
+    
+        :param query: Code to run
+        :type query: String.
+        :param bindings: Mapping defining names of returned 'edges' and/or 'nodes', defaults to @@nodeList and @@edgeList
+        :type bindings: Optional dictionary.
+        :param dry_run: Return target URL without running
+        :type dry_run: Bool, defaults to False        
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Minimal**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph()
+                    tg.gsql(\"\"\"
+INTERPRET QUERY () FOR GRAPH Storage { 
+    
+    OrAccum<BOOL> @@stop;
+    ListAccum<EDGE> @@edgeList;
+    SetAccum<vertex> @@set;
+    
+    @@set += to_vertex("61921", "Pool");
+
+    Start = @@set;
+
+    while Start.size() > 0 and @@stop == false do
+
+      Start = select t from Start:s-(:e)-:t
+      where e.goUpper == TRUE
+      accum @@edgeList += e
+      having t.type != "Service";
+    end;
+
+    print @@edgeList;
+  }
+                    \"\"\").plot()
+
+       **Example: Full**
+                ::
+
+                    import graphistry
+                    tg = graphistry.tigergraph()
+                    tg.gsql(\"\"\"
+INTERPRET QUERY () FOR GRAPH Storage { 
+    
+    OrAccum<BOOL> @@stop;
+    ListAccum<EDGE> @@edgeList;
+    SetAccum<vertex> @@set;
+    
+    @@set += to_vertex("61921", "Pool");
+
+    Start = @@set;
+
+    while Start.size() > 0 and @@stop == false do
+
+      Start = select t from Start:s-(:e)-:t
+      where e.goUpper == TRUE
+      accum @@edgeList += e
+      having t.type != "Service";
+    end;
+
+    print @@my_edge_list;
+  }
+                    \"\"\", {'edges': 'my_edge_list'}).plot()
+        """
+        from . import plotter
+        return plotter.Plotter().gsql(query, bindings, dry_run)
+
+
+
+    @staticmethod
     def nodes(nodes):
         from . import plotter
         return plotter.Plotter().nodes(nodes)
@@ -399,16 +567,35 @@ class PyGraphistry(object):
     def _viz_url(info, url_params):
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = '&'.join([ k + '=' + str(v) for k,v in list(url_params.items())])
-        pattern = '//%s/graph/graph.html?dataset=%s&type=%s&viztoken=%s&usertag=%s&splashAfter=%s&%s'
-        return pattern % (PyGraphistry._config['hostname'], info['name'], info['type'],
+        cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
+        cph = ('//' + PyGraphistry._config['hostname']) if cfg_client_protocol_hostname is None else cfg_client_protocol_hostname
+        pattern = '%s/graph/graph.html?dataset=%s&type=%s&viztoken=%s&usertag=%s&splashAfter=%s&%s'
+        return pattern % (cph, info['name'], info['type'],
                           info['viztoken'], PyGraphistry._tag, splash_time, extra)
 
+
+    @staticmethod
+    def _coerce_str(v):
+        try:
+            return str(v)
+        except UnicodeDecodeError:
+            print('UnicodeDecodeError')
+            print('=', v, '=')
+            x = v.decode('utf-8')
+            print('x', x)
+            return x
 
     @staticmethod
     def _get_data_file(dataset, mode):
         out_file = io.BytesIO()
         if mode == 'json':
-            json_dataset = json.dumps(dataset, ensure_ascii=False, cls=NumpyJSONEncoder)
+            json_dataset = None
+            try:
+                json_dataset = json.dumps(dataset, ensure_ascii=False, cls=NumpyJSONEncoder)
+            except TypeError:
+                warnings.warn("JSON: Switching from NumpyJSONEncoder to str()")                
+                json_dataset = json.dumps(dataset, default=PyGraphistry._coerce_str)
+
             with gzip.GzipFile(fileobj=out_file, mode='w', compresslevel=9) as f:
                 if sys.version_info < (3,0) and isinstance(json_dataset, bytes):
                     f.write(json_dataset)
@@ -538,6 +725,10 @@ hypergraph = PyGraphistry.hypergraph
 bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
 nodexl = PyGraphistry.nodexl
+tigergraph = PyGraphistry.tigergraph
+gsql_endpoint = PyGraphistry.gsql_endpoint
+gsql = PyGraphistry.gsql
+
 
 class NumpyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -545,7 +736,7 @@ class NumpyJSONEncoder(json.JSONEncoder):
                 return obj.tolist()
         elif isinstance(obj, numpy.generic):
             return obj.item()
-        elif isinstance(obj, pandas.tslib.NaTType):
+        elif isinstance(obj, type(pandas.NaT)):
             return None
         elif isinstance(obj, datetime):
             return obj.isoformat()
