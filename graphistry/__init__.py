@@ -7,5 +7,6 @@ from graphistry.pygraphistry import (
 register, bind, edges, nodes, graph, settings, 
 hypergraph, 
 bolt, cypher,
-tigergraph, gsql, gsql_endpoint
+tigergraph, gsql, gsql_endpoint,
+nodexl
 )
