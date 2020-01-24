@@ -50,11 +50,13 @@ setup(
         'igraph': ['python-igraph'],
         'networkx': ['networkx'],
         'bolt': ['neo4j'],
-        'all': ['python-igraph', 'networkx', 'colorlover', 'neo4j']
+        'nodexl': ['openpyxl', 'xlrd'],
+        'all': ['python-igraph', 'networkx', 'colorlover', 'neo4j', 'openpyxl']
     },
     tests_require=
         ['pytest', 'mock', 'ipython', 
-        'python-igraph', 'networkx', 'colorlover', 'neo4j'],
+        'python-igraph', 'networkx', 'colorlover', 'neo4j',
+        'openpyxl'],
     cmdclass=versioneer.get_cmdclass(),
     license='BSD',
     classifiers=[

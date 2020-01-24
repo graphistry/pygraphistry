@@ -311,6 +311,23 @@ class PyGraphistry(object):
         from . import plotter
         return plotter.Plotter().cypher(query, params)
 
+    @staticmethod
+    def nodexl(xls_or_url, source='default', engine=None, verbose=False):
+        """
+
+        :param xls_or_url: file/http path string to a nodexl-generated xls, or a pandas ExcelFile() object
+        :param source: optionally activate binding by string name for a known nodexl data source ('twitter', 'wikimedia')
+        :param engine: optionally set a pandas excel engine to override default of 'xlrd'
+        :param verbose: optionally enable printing progress by overriding to True
+
+        """
+
+        from . import plotter
+        return plotter.Plotter().nodexl(xls_or_url, source, engine, verbose)
+
+
+
+
 
     @staticmethod
     def bind(node=None, source=None, destination=None,
@@ -520,7 +537,7 @@ settings = PyGraphistry.settings
 hypergraph = PyGraphistry.hypergraph
 bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
-
+nodexl = PyGraphistry.nodexl
 
 class NumpyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
