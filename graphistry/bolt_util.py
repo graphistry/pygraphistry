@@ -69,5 +69,5 @@ def bolt_graph_to_nodes_dataframe(graph):
 class BoltSupportModuleNotFound(Exception):
     def __init__(self):
         super(BoltSupportModuleNotFound, self).__init__(
-            "The neo4j module was not found but is required for pygraphistry bolt support. Try running `!pip install pygraphistry[bolt]`."
+            "The neo4j module was not found but is required for pygraphistry bolt support. Try running `!pip install --user graphistry[bolt]`."
         )
