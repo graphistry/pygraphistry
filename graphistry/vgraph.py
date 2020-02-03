@@ -216,7 +216,7 @@ def boolEncoder(vg, series, dtype):
 
 def datetimeEncoder(vg, series, dtype):
     vec = vg.int32_vectors.add()
-    series32 = series.astype('int64').map(lambda x: x / 1e9).astype(numpy.int32)
+    series32 = series.view('int64').map(lambda x: x / 1e9).astype(numpy.int32)
     for val in series32:
         vec.values.append(val)
 
