@@ -328,6 +328,9 @@ class PyGraphistry(object):
 
         """
 
+        if not (engine is None):
+            print('WARNING: Engine currently ignored, please contact if critical')
+
         from . import plotter
         return plotter.Plotter().nodexl(xls_or_url, source, engine, verbose)
 

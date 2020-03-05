@@ -687,7 +687,10 @@ class Plotter(object):
             .edges(edges)
 
     def nodexl(self, xls_or_url, source='default', engine=None, verbose=False):
-        #TODO intern instance
+        
+        if not (engine is None):
+            print('WARNING: Engine currently ignored, please contact if critical')
+        
         return NodeXLGraphistry(self, engine).xls(xls_or_url, source, verbose)
 
 
