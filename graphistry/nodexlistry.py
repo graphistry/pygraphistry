@@ -6,7 +6,11 @@ class NodeXLGraphistryBase(object):
     verbose = False
     graphistry = None
 
-    def __init__(self, schema = {}, graphistry_binder = None, engine=None, verbose=None):  
+    def __init__(self, schema = {}, graphistry_binder = None, engine=None, verbose=None):
+
+        if not (engine is None):
+            print('WARNING: Engine currently ignored, please contact if critical')
+
         default_bindings = {
             'edges_df_transformer': NodeXLGraphistryBase.edges_df_transformer_default,
             'edge_bindings': NodeXLGraphistryBase.edge_bindings_default,
@@ -83,7 +87,7 @@ class NodeXLGraphistryBase(object):
     def xls_to_edges_df(self, xls, edges_df_transformer = None):
         if edges_df_transformer is None:
             edges_df_transformer = NodeXLGraphistryBase.edges_df_transformer_default
-        raw_edges_df = pd.read_excel(xls, 'Edges', engine=xls.engine)
+        raw_edges_df = pd.read_excel(xls, 'Edges')
         edge_header_dict = raw_edges_df[0:1].to_dict()
         edge_header_mapping = {x: edge_header_dict[x][0] for x in edge_header_dict.keys()}
         edges_df = raw_edges_df.rename(columns=edge_header_mapping)
@@ -110,7 +114,7 @@ class NodeXLGraphistryBase(object):
     def xls_to_nodes_df(self, xls, nodes_df_transformer = None):
         if nodes_df_transformer is None:
             nodes_df_transformer = NodeXLGraphistryBase.nodes_df_transformer_default
-        raw_nodes_df = pd.read_excel(xls, 'Vertices', engine=xls.engine)
+        raw_nodes_df = pd.read_excel(xls, 'Vertices')
         node_header_dict = raw_nodes_df[0:1].to_dict()
         node_header_mapping = {x: node_header_dict[x][0] for x in node_header_dict.keys()}
 
@@ -134,7 +138,7 @@ class NodeXLGraphistryBase(object):
         bindings = self.source_to_mappings[source] if type(source) == str else source
         
         p('Fetching...')
-        xls = pd.ExcelFile(xls_or_url, engine=self.engine or 'xlrd') if type(xls_or_url) == str else xls_or_url
+        xls = pd.ExcelFile(xls_or_url) if type(xls_or_url) == str else xls_or_url
 
         p('Formatting edges')
         edges_df = self.xls_to_edges_df(xls, bindings['edges_df_transformer'])
@@ -154,6 +158,10 @@ class NodeXLGraphistryBase(object):
 class NodeXLGraphistry(NodeXLGraphistryBase):
 
     def __init__(self, graphistry_binder=None, engine=None, verbose=None):
+
+        if not (engine is None):
+            print('WARNING: Engine currently ignored, please contact if critical')
+
         super().__init__({
                 'simple': {
                     'edges_df_transformer': NodeXLGraphistry.simple_edges_df_transformer,
