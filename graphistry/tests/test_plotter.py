@@ -1,15 +1,11 @@
 # -*- coding: utf-8 -*- 
 
+import datetime as dt, IPython, pandas as pd, pyarrow as pa, requests, unittest
 from builtins import object
 
-import unittest
-import pandas as pd
-import requests
-import IPython
-import graphistry
-import datetime as dt
-from mock import patch
 from common import NoAuthTestCase
+import graphistry
+from mock import patch
 
 
 triangleEdges = pd.DataFrame({'src': ['a', 'b', 'c'], 'dst': ['b', 'c', 'a']})
@@ -341,3 +337,54 @@ class TestPlotterConversions(NoAuthTestCase):
 
         assertFrameEqual(e, edges)
         assertFrameEqual(n, nodes)
+
+
+class TestPlotterPandasConversions(NoAuthTestCase):
+
+    def test_table_to_pandas_from_none(self):
+        plotter = graphistry.bind()
+        assert plotter._table_to_pandas(None) is None
+
+    def test_table_to_pandas_from_pandas(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': []})
+        assert isinstance(plotter._table_to_pandas(df), pd.DataFrame)
+
+    def test_table_to_pandas_from_arrow(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': []})
+        arr = pa.Table.from_pandas(df)
+        assert isinstance(plotter._table_to_pandas(arr), pd.DataFrame)
+
+
+class TestPlotterArrowConversions(NoAuthTestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        graphistry.register(api=3)
+
+    def test_table_to_arrow_from_none(self):
+        plotter = graphistry.bind()
+        assert plotter._table_to_arrow(None) is None
+
+    def test_table_to_arrow_from_pandas(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': []})
+        assert isinstance(plotter._table_to_arrow(df), pa.Table)
+
+    def test_table_to_arrow_from_arrow(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': []})
+        arr = pa.Table.from_pandas(df)
+        assert isinstance(plotter._table_to_arrow(arr), pa.Table)
+
+    def test_api3_plot_from_pandas(self):
+        g = graphistry.edges(pd.DataFrame({'s': [0], 'd': [0]})).bind(source='s', destination='d')
+        ds = g.plot(skip_upload=True)
+        assert isinstance(ds.edges, pa.Table)
+
+    def test_api3_plot_from_arrow(self):
+        g = graphistry.edges(pa.Table.from_pandas(pd.DataFrame({'s': [0], 'd': [0]}))).bind(source='s', destination='d')
+        ds = g.plot(skip_upload=True)
+        assert isinstance(ds.edges, pa.Table)         
