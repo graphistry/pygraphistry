@@ -6,8 +6,6 @@ import unittest
 import pandas as pd
 import requests
 import IPython
-import igraph
-import networkx as nx
 import graphistry
 import datetime as dt
 from mock import patch
@@ -291,6 +289,7 @@ class TestPlotterCallChaining(NoAuthTestCase):
 class TestPlotterConversions(NoAuthTestCase):
 
     def test_igraph2pandas(self):
+        import igraph
         ig = igraph.Graph.Tree(4, 2)
         ig.vs['vattrib'] = 0
         ig.es['eattrib'] = 1
@@ -319,6 +318,7 @@ class TestPlotterConversions(NoAuthTestCase):
 
 
     def test_networkx2igraph(self):
+        import networkx as nx
         ng = nx.complete_graph(3)
         [x, y] = [int(x) for x in nx.__version__.split('.')]
         if x == 1:
