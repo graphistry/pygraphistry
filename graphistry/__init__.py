@@ -8,5 +8,6 @@ register, bind, edges, nodes, graph, settings,
 hypergraph, 
 bolt, cypher,
 tigergraph, gsql, gsql_endpoint,
-nodexl
+nodexl,
+ArrowUploader
 )
