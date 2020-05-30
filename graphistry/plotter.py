@@ -659,8 +659,11 @@ class Plotter(object):
 
 
     def _make_dataset(self, edges, nodes, name, mode):
-        if len(edges.index) == 0:
-            util.error('Graph has no edges (at least 1 edge required)')
+        try:
+            if len(edges) == 0:
+                util.warn('Graph has no edges, may have rendering issues')
+        except:
+            1
 
         if mode == 'json':
             edges_df = self._table_to_pandas(edges)
