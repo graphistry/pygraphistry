@@ -7,7 +7,6 @@ import numpy
 import datetime
 import graphistry
 import graphistry.plotter
-from mock import patch
 from common import NoAuthTestCase
 
 nid = graphistry.plotter.Plotter._defaultNodeId
@@ -64,11 +63,10 @@ def assertFrameEqual(df1, df2, **kwds ):
     return assert_frame_equal(df1.sort_index(axis=1), df2.sort_index(axis=1), check_names=True, **kwds)
 
 
-@patch('webbrowser.open')
 class TestHypergraphPlain(NoAuthTestCase):
 
   
-    def test_hyperedges(self, mock_open):
+    def test_hyperedges(self):
 
         h = graphistry.hypergraph(triangleNodes, verbose=False)
         
@@ -91,21 +89,21 @@ class TestHypergraphPlain(NoAuthTestCase):
         for (k, v) in [('entities', 12), ('nodes', 15), ('edges', 12), ('events', 3)]:
             self.assertEqual(len(h[k]), v)
 
-    def test_hyperedges_direct(self, mock_open):
+    def test_hyperedges_direct(self):
 
         h = graphistry.hypergraph(hyper_df, verbose=False, direct=True)
         
         self.assertEqual(len(h['edges']), 9)
         self.assertEqual(len(h['nodes']), 9)
 
-    def test_hyperedges_direct_categories(self, mock_open):
+    def test_hyperedges_direct_categories(self):
 
         h = graphistry.hypergraph(hyper_df, verbose=False, direct=True, opts={'CATEGORIES': {'n': ['aa', 'bb', 'cc']}})
         
         self.assertEqual(len(h['edges']), 9)
         self.assertEqual(len(h['nodes']), 6)
 
-    def test_hyperedges_direct_manual_shaping(self, mock_open):
+    def test_hyperedges_direct_manual_shaping(self):
 
         h1 = graphistry.hypergraph(hyper_df, verbose=False, direct=True, opts={'EDGES': {'aa': ['cc'], 'cc': ['cc']}})
         self.assertEqual(len(h1['edges']), 6)
@@ -114,7 +112,7 @@ class TestHypergraphPlain(NoAuthTestCase):
         self.assertEqual(len(h2['edges']), 12)
 
 
-    def test_drop_edge_attrs(self, mock_open):
+    def test_drop_edge_attrs(self):
     
         h = graphistry.hypergraph(triangleNodes, verbose=False, drop_edge_attrs=True)
 
@@ -135,7 +133,7 @@ class TestHypergraphPlain(NoAuthTestCase):
             self.assertEqual(len(h[k]), v)
 
 
-    def test_skip_na_hyperedge(self, mock_open):
+    def test_skip_na_hyperedge(self):
     
         nans_df = pd.DataFrame({
           'x': ['a', 'b', 'c'],
@@ -149,5 +147,5 @@ class TestHypergraphPlain(NoAuthTestCase):
         default_h_edges = graphistry.hypergraph(nans_df)['edges']
         self.assertEqual(len(default_h_edges), len(expected_hits))
 
-    def test_hyper_evil(self, mock_open):
+    def test_hyper_evil(self):
         graphistry.hypergraph(squareEvil)
