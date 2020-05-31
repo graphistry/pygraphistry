@@ -724,6 +724,7 @@ class Plotter(object):
 
     def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str) -> ArrowUploader:
         au = ArrowUploader(
+            server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
             edges=edges, nodes=nodes, name=name,
             metadata={
                 'usertag': PyGraphistry._tag,
