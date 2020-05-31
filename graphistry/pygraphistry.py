@@ -95,7 +95,10 @@ class PyGraphistry(object):
     def login(username, password, fail_silent=False):
         """Authenticate and set token for reuse (api=3). Periodically call if risk of token going stale."""
 
-        token = ArrowUploader().login(username, password).token
+        token = ArrowUploader(
+            server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+            certificate_validation=PyGraphistry.certificate_validation())\
+                .login(username, password).token
         PyGraphistry.api_token(token)
         PyGraphistry._is_authenticated = True
 
@@ -228,15 +231,15 @@ class PyGraphistry(object):
                     graphistry.register()
         """
         PyGraphistry.api_key(key)
-        if not (username is None) and not (password is None):
-            PyGraphistry.login(username, password)
-        PyGraphistry.api_token(token)
         PyGraphistry.server(server)
         PyGraphistry.api_version(api)
         PyGraphistry.protocol(protocol)
         PyGraphistry.certificate_validation(certificate_validation)
         PyGraphistry.authenticate()
         PyGraphistry.set_bolt_driver(bolt)
+        if not (username is None) and not (password is None):
+            PyGraphistry.login(username, password)
+        PyGraphistry.api_token(token)
 
 
     @staticmethod
