@@ -733,7 +733,7 @@ class Plotter(object):
                 'apiversion' : '3',
                 'agentversion': sys.modules['graphistry'].__version__,
             },
-            certificate_validation=PyGraphistry._config['certificate_validation'])
+            certificate_validation=PyGraphistry.certificate_validation())
         au.edge_encodings = au.g_to_edge_encodings(self)
         au.node_encodings = au.g_to_node_encodings(self)
         return au
