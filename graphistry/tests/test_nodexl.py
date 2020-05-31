@@ -3,7 +3,6 @@
 import unittest
 import pandas as pd
 import graphistry
-from mock import patch
 from common import NoAuthTestCase
 
 class TestNodexlBindings(NoAuthTestCase):

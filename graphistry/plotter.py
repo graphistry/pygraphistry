@@ -1,19 +1,20 @@
-from __future__ import print_function
-from __future__ import absolute_import
-from builtins import str
-from builtins import object
-import copy
-import numpy
-import pandas
+from __future__ import absolute_import, print_function
+from builtins import object, str
+import copy, numpy, pandas, pyarrow as pa, sys, uuid
 
 from .pygraphistry import PyGraphistry
 from .pygraphistry import util
 from .pygraphistry import bolt_util
-
 from .nodexlistry import NodeXLGraphistry
-
 from .tigeristry import Tigeristry
+from .arrow_uploader import ArrowUploader
 
+maybe_cudf = None
+try:
+    import cudf
+    maybe_cudf = cudf
+except ImportError:
+    1
 
 class Plotter(object):
     """Graph plotting class.
@@ -327,16 +328,28 @@ class Plotter(object):
         self._check_mandatory_bindings(not isinstance(n, type(None)))
 
         api_version = PyGraphistry.api_version()
-        if (api_version == 1):
+        if api_version == 1:
             dataset = self._plot_dispatch(g, n, name, 'json')
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl1(dataset)
-        elif (api_version == 2):
+        elif api_version == 2:
             dataset = self._plot_dispatch(g, n, name, 'vgraph')
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl2(dataset)
+        elif api_version == 3:
+            dataset = self._plot_dispatch(g, n, name, 'arrow')
+            if skip_upload:
+                return dataset
+            #fresh
+            dataset.token = PyGraphistry.api_token()
+            dataset.post()
+            info = {
+                'name': dataset.dataset_id,
+                'type': 'arrow',
+                'viztoken': str(uuid.uuid4())
+            }
 
         viz_url = PyGraphistry._viz_url(info, self._url_params)
         cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
@@ -475,7 +488,10 @@ class Plotter(object):
 
 
     def _plot_dispatch(self, graph, nodes, name, mode='json'):
-        if isinstance(graph, pandas.core.frame.DataFrame):
+
+        if isinstance(graph, pandas.core.frame.DataFrame) \
+            or isinstance(graph, pa.Table) \
+            or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ):
             return self._make_dataset(graph, nodes, name, mode)
 
         try:
@@ -497,7 +513,7 @@ class Plotter(object):
         except ImportError:
             pass
 
-        util.error('Expected Pandas dataframe(s) or Igraph/NetworkX graph.')
+        util.error('Expected Pandas/Arrow/cuDF dataframe(s) or Igraph/NetworkX graph.')
 
 
     # Sanitize node/edge dataframe by
@@ -609,15 +625,59 @@ class Plotter(object):
         }
         return (elist, nlist, encodings)
 
+    def _table_to_pandas(self, table) -> pandas.DataFrame:
+
+        if table is None:
+            return table
+
+        if isinstance(table, pandas.DataFrame):
+            return table
+
+        if isinstance(table, pa.Table):
+            return table.to_pandas()
+        
+        if not (maybe_cudf is None) and isinstance(table, maybe_cudf.DataFrame):
+            return table.to_pandas()
+        
+        raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
+
+    def _table_to_arrow(self, table) -> pa.Table:
+
+        if table is None:
+            return table
+
+        if isinstance(table, pa.Table):
+            return table
+        
+        if isinstance(table, pandas.DataFrame):
+            return pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
+
+        if not (maybe_cudf is None) and isinstance(table, maybe_cudf.DataFrame):
+            return table.to_arrow()
+        
+        raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
+
 
     def _make_dataset(self, edges, nodes, name, mode):
-        if len(edges.index) == 0:
-            util.error('Graph has no edges (at least 1 edge required)')
+        try:
+            if len(edges) == 0:
+                util.warn('Graph has no edges, may have rendering issues')
+        except:
+            1
 
         if mode == 'json':
-            return self._make_json_dataset(edges, nodes, name)
+            edges_df = self._table_to_pandas(edges)
+            nodes_df = self._table_to_pandas(nodes)
+            return self._make_json_dataset(edges_df, nodes_df, name)
         elif mode == 'vgraph':
-            return self._make_vgraph_dataset(edges, nodes, name)
+            edges_df = self._table_to_pandas(edges)
+            nodes_df = self._table_to_pandas(nodes)
+            return self._make_vgraph_dataset(edges_df, nodes_df, name)
+        elif mode == 'arrow':
+            edges_arr = self._table_to_arrow(edges)
+            nodes_arr = self._table_to_arrow(nodes)
+            return self._make_arrow_dataset(edges_arr, nodes_arr, name)
+            #token=None, dataset_id=None, url_params = None)
         else:
             raise ValueError('Unknown mode: ' + mode)
 
@@ -662,6 +722,21 @@ class Plotter(object):
         dataset['encodings'] = encodings
         return dataset
 
+    def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str) -> ArrowUploader:
+        au = ArrowUploader(
+            server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+            edges=edges, nodes=nodes, name=name,
+            metadata={
+                'usertag': PyGraphistry._tag,
+                'key': PyGraphistry.api_key(),
+                'agent': 'pygraphistry',
+                'apiversion' : '3',
+                'agentversion': sys.modules['graphistry'].__version__,
+            },
+            certificate_validation=PyGraphistry.certificate_validation())
+        au.edge_encodings = au.g_to_edge_encodings(self)
+        au.node_encodings = au.g_to_node_encodings(self)
+        return au
 
     def bolt(self, driver):
         res = copy.copy(self)

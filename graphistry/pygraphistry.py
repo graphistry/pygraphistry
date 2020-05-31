@@ -4,25 +4,16 @@ from __future__ import absolute_import
 from __future__ import print_function
 from future import standard_library
 standard_library.install_aliases()
-from builtins import object
-from builtins import str
-from builtins import bytes
+from builtins import bytes, object, str
 from past.utils import old_div
 from past.builtins import basestring
 
-import os
-import sys
-import calendar
-import time
+import calendar, gzip, io, json, os, numpy, pandas, requests, sys, time, warnings
+
 from datetime import datetime
 from distutils.util import strtobool
-import gzip
-import io
-import json
-import requests
-import pandas
-import numpy
-import warnings
+
+from .arrow_uploader import ArrowUploader
 
 from . import util
 from . import bolt_util
@@ -30,6 +21,9 @@ from . import bolt_util
 
 EnvVarNames = {
     'api_key': 'GRAPHISTRY_API_KEY',
+    #'api_token': 'GRAPHISTRY_API_TOKEN',
+    #'username': 'GRAPHISTRY_USERNAME',
+    #'password': 'GRAPHISTRY_PASSWORD',
     'api_version': 'GRAPHISTRY_API_VERSION',
     'dataset_prefix': 'GRAPHISTRY_DATASET_PREFIX',
     'hostname': 'GRAPHISTRY_HOSTNAME',
@@ -46,6 +40,9 @@ config_paths = [
 
 default_config = {
     'api_key': None, # Dummy key
+    'api_token': None,
+    #'username': None,
+    #'password': None,
     'api_version': 1,
     'dataset_prefix': 'PyGraphistry/',
     'hostname': 'labs.graphistry.com',
@@ -83,7 +80,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def authenticate():
-        """Authenticate via already provided configuration.
+        """Authenticate via already provided configuration (api=1,2).
         This is called once automatically per session when uploading and rendering a visualization."""
         key = PyGraphistry.api_key()
         #Mocks may set to True, so bypass in that case
@@ -92,6 +89,19 @@ class PyGraphistry(object):
         if not PyGraphistry._is_authenticated:
             PyGraphistry._check_key_and_version()
             PyGraphistry._is_authenticated = True
+
+
+    @staticmethod
+    def login(username, password, fail_silent=False):
+        """Authenticate and set token for reuse (api=3). Periodically call if risk of token going stale."""
+
+        token = ArrowUploader(
+            server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+            certificate_validation=PyGraphistry.certificate_validation())\
+                .login(username, password).token
+        PyGraphistry.api_token(token)
+        PyGraphistry._is_authenticated = True
+
 
 
     @staticmethod
@@ -125,6 +135,20 @@ class PyGraphistry(object):
         # setter
         if value is not PyGraphistry._config['api_key']:
             PyGraphistry._config['api_key'] = value.strip()
+            PyGraphistry._is_authenticated = False
+
+
+    @staticmethod
+    def api_token(value=None):
+        """Set or get the API token.
+        Also set via environment variable GRAPHISTRY_API_TOKEN."""
+
+        if value is None:
+            return PyGraphistry._config['api_token']
+
+        # setter
+        if value is not PyGraphistry._config['api_token']:
+            PyGraphistry._config['api_token'] = value.strip()
             PyGraphistry._is_authenticated = False
 
 
@@ -169,10 +193,12 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def register(key=None, server=None, protocol=None, api=None, certificate_validation=None, bolt=None):
+    def register(key=None, username=None, password=None, token=None, server=None, protocol=None, api=None, certificate_validation=None, bolt=None):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
+
+        Provide one of key (api=1,2) or username/password (api=3) or token (api=3). 
 
         :param key: API key.
         :type key: String.
@@ -211,6 +237,9 @@ class PyGraphistry(object):
         PyGraphistry.certificate_validation(certificate_validation)
         PyGraphistry.authenticate()
         PyGraphistry.set_bolt_driver(bolt)
+        if not (username is None) and not (password is None):
+            PyGraphistry.login(username, password)
+        PyGraphistry.api_token(token)
 
 
     @staticmethod
