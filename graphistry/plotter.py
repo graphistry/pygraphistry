@@ -42,11 +42,17 @@ class Plotter(object):
         self._edge_title = None
         self._edge_label = None
         self._edge_color = None
+        self._edge_size = None
         self._edge_weight = None
+        self._edge_icon = None
+        self._edge_opacity = None
         self._point_title = None
         self._point_label = None
         self._point_color = None
         self._point_size = None
+        self._point_weight = None
+        self._point_icon = None
+        self._point_opacity = None
         # Settings
         self._height = 500
         self._render = True
@@ -57,9 +63,9 @@ class Plotter(object):
 
 
     def __repr__(self):
-        bindings = ['edges', 'nodes', 'source', 'destination', 'node', 'edge_title',
-                    'edge_label', 'edge_color', 'edge_weight', 'point_title',
-                    'point_label', 'point_color', 'point_size']
+        bindings = ['edges', 'nodes', 'source', 'destination', 'node', 
+                    'edge_label', 'edge_color', 'edge_size', 'edge_weight', 'edge_title', 'edge_icon', 'edge_opacity',
+                    'point_label', 'point_color', 'point_size', 'point_weight', 'point_title', 'point_icon', 'point_opacity']
         settings = ['height', 'url_params']
 
         rep = {'bindings': dict([(f, getattr(self, '_' + f)) for f in bindings]),
@@ -72,8 +78,8 @@ class Plotter(object):
 
 
     def bind(self, source=None, destination=None, node=None,
-             edge_title=None, edge_label=None, edge_color=None, edge_weight=None,
-             point_title=None, point_label=None, point_color=None, point_size=None):
+             edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
+             point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None):
         """Relate data attributes to graph structure and visual representation.
 
         To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
@@ -166,12 +172,18 @@ class Plotter(object):
         res._edge_title = edge_title or self._edge_title
         res._edge_label = edge_label or self._edge_label
         res._edge_color = edge_color or self._edge_color
+        res._edge_size = edge_size or self._edge_size
         res._edge_weight = edge_weight or self._edge_weight
+        res._edge_icon = edge_icon or self._edge_icon
+        res._edge_opacity = edge_opacity or self._edge_opacity
 
         res._point_title = point_title or self._point_title
         res._point_label = point_label or self._point_label
         res._point_color = point_color or self._point_color
         res._point_size = point_size or self._point_size
+        res._point_weight = point_weight or self._point_weight
+        res._point_opacity = point_opacity or self._point_opacity
+        res._point_icon = point_icon or self._point_icon
 
         return res
 
@@ -579,11 +591,17 @@ class Plotter(object):
         bind(elist, 'edgeColor', '_edge_color')
         bind(elist, 'edgeLabel', '_edge_label')
         bind(elist, 'edgeTitle', '_edge_title')
+        bind(elist, 'edgeSize', '_edge_size')
         bind(elist, 'edgeWeight', '_edge_weight')
+        bind(elist, 'edgeOpacity', '_edge_opacity')
+        bind(elist, 'edgeIcon', '_edge_icon')
         bind(nlist, 'pointColor', '_point_color')
         bind(nlist, 'pointLabel', '_point_label')
         bind(nlist, 'pointTitle', '_point_title', nodeid)
         bind(nlist, 'pointSize', '_point_size')
+        bind(nlist, 'pointWeight', '_point_weight')
+        bind(nlist, 'pointOpacity', '_point_opacity')
+        bind(nlist, 'pointIcon', '_point_icon')
         return (elist, nlist)
 
     # Bind attributes for ETL2 by an encodings map storing the visual semantic of
@@ -613,11 +631,17 @@ class Plotter(object):
         bind(edge_encodings, elist, 'edgeColor', '_edge_color')
         bind(edge_encodings, elist, 'edgeLabel', '_edge_label')
         bind(edge_encodings, elist, 'edgeTitle', '_edge_title')
+        bind(edge_encodings, elist, 'edgeSize', '_edge_size')
         bind(edge_encodings, elist, 'edgeWeight', '_edge_weight')
+        bind(edge_encodings, elist, 'edgeOpacity', '_edge_opacity')
+        bind(edge_encodings, elist, 'edgeIcon', '_edge_icon')
         bind(node_encodings, nlist, 'pointColor', '_point_color')
         bind(node_encodings, nlist, 'pointLabel', '_point_label')
         bind(node_encodings, nlist, 'pointTitle', '_point_title', nodeid)
         bind(node_encodings, nlist, 'pointSize', '_point_size')
+        bind(node_encodings, nlist, 'pointWeight', '_point_weight')
+        bind(node_encodings, nlist, 'pointOpacity', '_point_opacity')
+        bind(node_encodings, nlist, 'pointIcon', '_point_icon')
 
         encodings = {
             'nodes': node_encodings,
