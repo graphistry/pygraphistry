@@ -58,7 +58,9 @@ class TestArrowUploader_Core(unittest.TestCase):
         assert au.g_to_node_encodings(g) == {}
 
     def test_au_n_enc_full(self):        
-        g = graphistry.bind(node='n', point_color='c', point_size='s', point_title='t', point_label='l')
+        g = graphistry.bind(node='n',
+            point_color='c', point_size='s', point_title='t', point_label='l',
+            point_weight='w', point_opacity='o', point_icon='i')
         au = ArrowUploader()
         assert au.g_to_node_encodings(g) == \
             {
@@ -66,7 +68,10 @@ class TestArrowUploader_Core(unittest.TestCase):
                 'node_color': 'c',
                 'node_size': 's',
                 'node_title': 't',
-                'node_label': 'l'
+                'node_label': 'l',
+                'node_weight': 'w',
+                'node_opacity': 'o',
+                'node_icon': 'i'
             }
 
     def test_au_e_enc_mt(self):
@@ -75,7 +80,9 @@ class TestArrowUploader_Core(unittest.TestCase):
         assert au.g_to_edge_encodings(g) == {}
 
     def test_au_e_enc_full(self):        
-        g = graphistry.bind(source='s', destination='d', edge_color='c', edge_title='t', edge_label='l', edge_weight='w')
+        g = graphistry.bind(source='s', destination='d',
+            edge_color='c', edge_title='t', edge_label='l', edge_weight='w',
+            edge_opacity='o', edge_icon='i', edge_size='s')
         au = ArrowUploader()
         assert au.g_to_edge_encodings(g) == \
             {
@@ -84,7 +91,10 @@ class TestArrowUploader_Core(unittest.TestCase):
                 'edge_color': 'c',
                 'edge_title': 't',
                 'edge_label': 'l',
-                'edge_weight': 'w'
+                'edge_weight': 'w',
+                'edge_opacity': 'o',
+                'edge_icon': 'i',
+                'edge_size': 's'
             }
 
 
