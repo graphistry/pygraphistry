@@ -209,7 +209,8 @@ class ArrowUploader:
                     ['_point_opacity', 'node_opacity'],
                     ['_point_size', 'node_size'],
                     ['_point_title', 'node_title'],
-                    ['_point_weight', 'node_weight']
+                    ['_point_weight', 'node_weight'],
+                    ['_point_icon', 'node_icon']
                 ])
         if not (g._nodes is None):
             if 'x' in g._nodes:
@@ -230,7 +231,8 @@ class ArrowUploader:
                     ['_edge_opacity', 'edge_opacity'],
                     ['_edge_size', 'edge_size'],
                     ['_edge_title', 'edge_title'],
-                    ['_edge_weight', 'edge_weight']
+                    ['_edge_weight', 'edge_weight'],
+                    ['_edge_icon', 'edge_icon']
                 ])
         return edge_encodings
 
