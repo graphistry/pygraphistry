@@ -51,7 +51,7 @@ def format_entities(events, entity_types, defs, drop_na):
     cat_lookup = make_reverse_lookup(defs['CATEGORIES'])
     lst = sum([[{
                     col: v,
-                    defs['TITLE']: v,
+                    defs['TITLE']: valToSafeStr(v),
                     defs['NODETYPE']: col, 
                     defs['NODEID']: col2cat(cat_lookup, col) + defs['DELIM'] + valToSafeStr(v)
                 } 
