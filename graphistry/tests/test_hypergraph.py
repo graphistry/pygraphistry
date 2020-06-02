@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
 
-import unittest
-import pandas as pd
-import datetime as dt
-import numpy
-import datetime
-import graphistry
-import graphistry.plotter
+import datetime as dt, numpy, pandas as pd, pyarrow as pa, unittest
+
+import graphistry, graphistry.plotter
 from common import NoAuthTestCase
 
 nid = graphistry.plotter.Plotter._defaultNodeId
@@ -133,6 +129,30 @@ class TestHypergraphPlain(NoAuthTestCase):
             self.assertEqual(len(h[k]), v)
 
 
+    def test_drop_na_hyper(self):
+
+        df = pd.DataFrame({
+            'a': ['a', None, 'c'],
+            'i': [1, 2, None]
+        })
+
+        hg = graphistry.hypergraph(df, drop_na=True)
+
+        assert len(hg['graph']._nodes) == 7
+        assert len(hg['graph']._edges) == 4
+
+    def test_drop_na_direct(self):
+
+        df = pd.DataFrame({
+            'a': ['a', None, 'a'],
+            'i': [1, 1, None]
+        })
+
+        hg = graphistry.hypergraph(df, drop_na=True, direct=True)
+
+        assert len(hg['graph']._nodes) == 2
+        assert len(hg['graph']._edges) == 1
+
     def test_skip_na_hyperedge(self):
     
         nans_df = pd.DataFrame({
@@ -149,3 +169,44 @@ class TestHypergraphPlain(NoAuthTestCase):
 
     def test_hyper_evil(self):
         graphistry.hypergraph(squareEvil)
+
+    def test_hyper_to_pa_vanilla(self):
+
+        df = pd.DataFrame({
+            'x': ['a', 'b', 'c'],
+            'y': ['d', 'e', 'f']
+        })
+
+        hg = graphistry.hypergraph(df)
+        nodes_arr = pa.Table.from_pandas(hg['graph']._nodes)
+        assert len(nodes_arr) == 9
+        edges_err = pa.Table.from_pandas(hg['graph']._edges)
+        assert len(edges_err) == 6
+
+    def test_hyper_to_pa_mixed(self):
+
+        df = pd.DataFrame({
+            'x': ['a', 'b', 'c'],
+            'y': [1, 2, 3]
+        })
+
+        hg = graphistry.hypergraph(df)
+        nodes_arr = pa.Table.from_pandas(hg['graph']._nodes)
+        assert len(nodes_arr) == 9
+        edges_err = pa.Table.from_pandas(hg['graph']._edges)
+        assert len(edges_err) == 6
+
+    def test_hyper_to_pa_na(self):
+
+        df = pd.DataFrame({
+            'x': ['a', None, 'c'],
+            'y': [1, 2, None]
+        })
+
+        hg = graphistry.hypergraph(df, drop_na=False)
+        nodes_arr = pa.Table.from_pandas(hg['graph']._nodes)
+        assert len(hg['graph']._nodes) == 9
+        assert len(nodes_arr) == 9
+        edges_err = pa.Table.from_pandas(hg['graph']._edges)
+        assert len(hg['graph']._edges) == 6
+        assert len(edges_err) == 6
