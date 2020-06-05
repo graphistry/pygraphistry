@@ -9,5 +9,5 @@ sudo docker run \
     --gpus all \
     -v ${PWD}:/opt/pygraphistry:ro \
     -w /opt/pygraphistry \
-    graphistry/graphistry-forge-base:v2.29.5 \
+    graphistry/graphistry-forge-base:v2.29.7 \
     /opt/pygraphistry/test.sh --maxfail=5 --timeout=10 $@
