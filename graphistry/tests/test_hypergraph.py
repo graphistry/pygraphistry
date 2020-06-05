@@ -149,11 +149,11 @@ class TestHypergraphPlain(NoAuthTestCase):
         edges = pd.DataFrame({
             'edgeType': ['id::a1', 'id::a1', 'id::a1', 'a1::🙈', 'a1::🙈', 'a1::🙈'],
             'src': [
-                'id::a', 'id::b', 'id::c',
-                'a1::1', 'a1::2', 'a1::3'],
-            'dst': [
                 'a1::1', 'a1::2', 'a1::3',
-                '🙈::æski ēˈmōjē', '🙈::😋', '🙈::s'],
+                'id::a', 'id::b', 'id::c'],
+            'dst': [
+                '🙈::æski ēˈmōjē', '🙈::😋', '🙈::s',
+                'a1::1', 'a1::2', 'a1::3'],
             'EventID': [
                 'EventID::0', 'EventID::1', 'EventID::2',
                 'EventID::0', 'EventID::1', 'EventID::2']})
