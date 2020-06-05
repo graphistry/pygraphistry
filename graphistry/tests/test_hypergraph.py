@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 
-import datetime as dt, numpy, pandas as pd, pyarrow as pa, unittest
+import datetime as dt, logging, numpy, pandas as pd, pyarrow as pa, unittest
 
 import graphistry, graphistry.plotter
 from common import NoAuthTestCase
+
+logger = logging.getLogger(__name__)
 
 nid = graphistry.plotter.Plotter._defaultNodeId
 
@@ -110,22 +112,56 @@ class TestHypergraphPlain(NoAuthTestCase):
 
     def test_drop_edge_attrs(self):
     
-        h = graphistry.hypergraph(triangleNodes, verbose=False, drop_edge_attrs=True)
+        h = graphistry.hypergraph(triangleNodes, ['id', 'a1', '🙈'], verbose=False, drop_edge_attrs=True)
 
         self.assertEqual(len(h.keys()), len(['entities', 'nodes', 'edges', 'events', 'graph']))
 
         edges = pd.DataFrame({
-            'edgeType': ['a1', 'a1', 'a1', 'a2', 'a2', 'a2', 'id', 'id', 'id', '🙈', '🙈', '🙈'],
+            'edgeType': ['a1', 'a1', 'a1', 'id', 'id', 'id', '🙈', '🙈', '🙈'],
             'attribID': [
                 'a1::1', 'a1::2', 'a1::3', 
-                'a2::red', 'a2::blue', 'a2::green',                 
                 'id::a', 'id::b', 'id::c',
                 '🙈::æski ēˈmōjē', '🙈::😋', '🙈::s'],
-            'EventID': ['EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2']})
+            'EventID': ['EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2']})
 
 
         assertFrameEqual(h['edges'], edges)
-        for (k, v) in [('entities', 12), ('nodes', 15), ('edges', 12), ('events', 3)]:
+        for (k, v) in [('entities', 9), ('nodes', 12), ('edges', 9), ('events', 3)]:
+            self.assertEqual(len(h[k]), v)
+
+    def test_drop_edge_attrs_direct(self):
+        
+        h = graphistry.hypergraph(triangleNodes,
+            ['id', 'a1', '🙈'],
+            verbose=False, direct=True, drop_edge_attrs=True,
+            opts = {
+                'EDGES': {
+                    'id': ['a1'],
+                    'a1': ['🙈']
+                }
+            })
+
+        logger.debug('h.nodes: %s', h['graph']._nodes)
+        logger.debug('h.edges: %s', h['graph']._edges)
+
+        self.assertEqual(len(h.keys()), len(['entities', 'nodes', 'edges', 'events', 'graph']))
+
+        edges = pd.DataFrame({
+            'edgeType': ['a1::🙈', 'a1::🙈', 'a1::🙈', 'id::a1', 'id::a1', 'id::a1'],
+            'src': [
+                'a1::1', 'a1::2', 'a1::3',
+                'id::a', 'id::b', 'id::c'],
+            'dst': [
+                '🙈::æski ēˈmōjē', '🙈::😋', '🙈::s',
+                'a1::1', 'a1::2', 'a1::3'],
+            'EventID': [
+                'EventID::0', 'EventID::1', 'EventID::2',
+                'EventID::0', 'EventID::1', 'EventID::2']})
+
+        assertFrameEqual(h['edges'], edges)
+        for (k, v) in [('entities', 9), ('nodes', 9), ('edges', 6), ('events', 0)]:
+            logger.error('testing: %s', k)
+            logger.error('actual: %s', h[k])
             self.assertEqual(len(h[k]), v)
 
 
@@ -210,3 +246,21 @@ class TestHypergraphPlain(NoAuthTestCase):
         edges_err = pa.Table.from_pandas(hg['graph']._edges)
         assert len(hg['graph']._edges) == 6
         assert len(edges_err) == 6
+
+    def test_hyper_to_pa_all(self):
+        hg = graphistry.hypergraph(triangleNodes, ['id', 'a1', '🙈'])
+        nodes_arr = pa.Table.from_pandas(hg['graph']._nodes)
+        assert len(hg['graph']._nodes) == 12
+        assert len(nodes_arr) == 12
+        edges_err = pa.Table.from_pandas(hg['graph']._edges)
+        assert len(hg['graph']._edges) == 9
+        assert len(edges_err) == 9
+
+    def test_hyper_to_pa_all_direct(self):
+        hg = graphistry.hypergraph(triangleNodes, ['id', 'a1', '🙈'], direct=True)
+        nodes_arr = pa.Table.from_pandas(hg['graph']._nodes)
+        assert len(hg['graph']._nodes) == 9
+        assert len(nodes_arr) == 9
+        edges_err = pa.Table.from_pandas(hg['graph']._edges)
+        assert len(hg['graph']._edges) == 9
+        assert len(edges_err) == 9
