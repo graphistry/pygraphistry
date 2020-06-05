@@ -147,7 +147,7 @@ class TestHypergraphPlain(NoAuthTestCase):
         self.assertEqual(len(h.keys()), len(['entities', 'nodes', 'edges', 'events', 'graph']))
 
         edges = pd.DataFrame({
-            'edgeType': ['id::a1', 'id::a1', 'id::a1', 'a1::🙈', 'a1::🙈', 'a1::🙈'],
+            'edgeType': ['a1::🙈', 'a1::🙈', 'a1::🙈', 'id::a1', 'id::a1', 'id::a1'],
             'src': [
                 'a1::1', 'a1::2', 'a1::3',
                 'id::a', 'id::b', 'id::c'],
