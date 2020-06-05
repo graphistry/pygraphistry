@@ -27,7 +27,10 @@ Travis CI automatically runs on every branch (with a Travis CI file). To configu
 
 Uninstall the local checkout (useful to rollback to packaged version) with `./setup.py develop --uninstall`
 
-# Release Procedure: Tag, Package, & Upload
+# Release Procedure: Merge, Tag, Package, & Upload
+
+0. Merge the desired PR to master and switch to master head (`git checkout master && git pull`)
+
 1. Tag the repository with a new version number. We use semantic version numbers of the form *X.Y.Z*.
 
 	```sh
