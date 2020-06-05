@@ -129,21 +129,21 @@ def format_direct_edges(events, entity_types, defs, edge_shape, drop_na, drop_ed
 
     subframes = []
     for col1 in sorted(edge_shape.keys()):
-      for col2 in edge_shape[col1]:
-        fields = list(set([defs['EVENTID']] + ([x for x in events.columns] if not drop_edge_attrs else [col1, col2])))
-        raw = events[ fields ]
-        if drop_na:
-            raw = raw.dropna(axis=0, subset=[col1, col2])
-        raw = raw.copy()
-        if len(raw):
-            if is_using_categories:
-                raw[defs['EDGETYPE']] = raw.apply(lambda r: col2cat(cat_lookup, col1) + defs['DELIM'] + col2cat(cat_lookup, col2), axis=1)
-                raw[defs['CATEGORY']] = raw.apply(lambda r: col1 + defs['DELIM'] + col2, axis=1)
-            else:
-                raw[defs['EDGETYPE']] = raw.apply(lambda r: col1 + defs['DELIM'] + col2, axis=1)
-            raw[defs['SOURCE']] = raw.apply(lambda r: col2cat(cat_lookup, col1) + defs['DELIM'] + valToSafeStr(r[col1]), axis=1)
-            raw[defs['DESTINATION']] = raw.apply(lambda r: col2cat(cat_lookup, col2) + defs['DELIM'] + valToSafeStr(r[col2]), axis=1)
-            subframes.append(raw)
+        for col2 in sorted(edge_shape[col1]):
+            fields = list(set([defs['EVENTID']] + ([x for x in events.columns] if not drop_edge_attrs else [col1, col2])))
+            raw = events[ fields ]
+            if drop_na:
+                raw = raw.dropna(axis=0, subset=[col1, col2])
+            raw = raw.copy()
+            if len(raw):
+                if is_using_categories:
+                    raw[defs['EDGETYPE']] = raw.apply(lambda r: col2cat(cat_lookup, col1) + defs['DELIM'] + col2cat(cat_lookup, col2), axis=1)
+                    raw[defs['CATEGORY']] = raw.apply(lambda r: col1 + defs['DELIM'] + col2, axis=1)
+                else:
+                    raw[defs['EDGETYPE']] = raw.apply(lambda r: col1 + defs['DELIM'] + col2, axis=1)
+                raw[defs['SOURCE']] = raw.apply(lambda r: col2cat(cat_lookup, col1) + defs['DELIM'] + valToSafeStr(r[col1]), axis=1)
+                raw[defs['DESTINATION']] = raw.apply(lambda r: col2cat(cat_lookup, col2) + defs['DELIM'] + valToSafeStr(r[col2]), axis=1)
+                subframes.append(raw)
 
     if len(subframes):
         result_cols = list(set(
