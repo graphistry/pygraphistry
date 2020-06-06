@@ -42,6 +42,8 @@ class Plotter(object):
         self._edge_title = None
         self._edge_label = None
         self._edge_color = None
+        self._edge_source_color = None
+        self._edge_destination_color = None
         self._edge_size = None
         self._edge_weight = None
         self._edge_icon = None
@@ -53,6 +55,8 @@ class Plotter(object):
         self._point_weight = None
         self._point_icon = None
         self._point_opacity = None
+        self._point_x = None
+        self._point_y = None
         # Settings
         self._height = 500
         self._render = True
@@ -65,7 +69,9 @@ class Plotter(object):
     def __repr__(self):
         bindings = ['edges', 'nodes', 'source', 'destination', 'node', 
                     'edge_label', 'edge_color', 'edge_size', 'edge_weight', 'edge_title', 'edge_icon', 'edge_opacity',
-                    'point_label', 'point_color', 'point_size', 'point_weight', 'point_title', 'point_icon', 'point_opacity']
+                    'edge_source_color', 'edge_destination_color',
+                    'point_label', 'point_color', 'point_size', 'point_weight', 'point_title', 'point_icon', 'point_opacity',
+                    'point_x', 'point_y']
         settings = ['height', 'url_params']
 
         rep = {'bindings': dict([(f, getattr(self, '_' + f)) for f in bindings]),
@@ -79,7 +85,9 @@ class Plotter(object):
 
     def bind(self, source=None, destination=None, node=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
-             point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None):
+             edge_source_color=None, edge_destination_color=None,
+             point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
+             point_x=None, point_y=None):
         """Relate data attributes to graph structure and visual representation.
 
         To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
@@ -100,8 +108,14 @@ class Plotter(object):
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
         :type edge_label: HtmlString.
 
-        :param edge_color: Attribute overriding edge's color. `See palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
-        :type edge_color: String.
+        :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
+        :type edge_color: int32 | int64.
+
+        :param edge_source_color: Attribute overriding edge's source color if no edge_color, as an rgba int64 value.
+        :type edge_source_color: int64.
+
+        :param edge_destination_color: Attribute overriding edge's destination color if no edge_color, as an rgba int64 value.
+        :type edge_destination_color: int64.
 
         :param edge_weight: Attribute overriding edge weight. Default is 1. Advanced layout controls will relayout edges based on this value.
         :type edge_weight: String.
@@ -112,11 +126,17 @@ class Plotter(object):
         :param point_label: Attribute overriding node's expanded label text. By default, scrollable list of attribute/value mappings.
         :type point_label: HtmlString.
 
-        :param point_color: Attribute overriding node's color. `See palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
-        :type point_color: Integer.
+        :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
+        :type point_color: int32 | int64.
 
         :param point_size: Attribute overriding node's size. By default, uses the node degree. The visualization will normalize point sizes and adjust dynamically using semantic zoom.
         :type point_size: HtmlString.
+
+        :param point_x: Attribute overriding node's initial x position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
+        :type point_x: number.
+
+        :param point_y: Attribute overriding node's initial y position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
+        :type point_y: number.
 
         :returns: Plotter.
         :rtype: Plotter.
@@ -172,6 +192,8 @@ class Plotter(object):
         res._edge_title = edge_title or self._edge_title
         res._edge_label = edge_label or self._edge_label
         res._edge_color = edge_color or self._edge_color
+        res._edge_source_color = edge_source_color or self._edge_source_color
+        res._edge_destination_color = edge_destination_color or self._edge_destination_color
         res._edge_size = edge_size or self._edge_size
         res._edge_weight = edge_weight or self._edge_weight
         res._edge_icon = edge_icon or self._edge_icon
@@ -184,7 +206,9 @@ class Plotter(object):
         res._point_weight = point_weight or self._point_weight
         res._point_opacity = point_opacity or self._point_opacity
         res._point_icon = point_icon or self._point_icon
-
+        res._point_x = point_x or self._point_x
+        res._point_y = point_y or self._point_y
+        
         return res
 
 
@@ -589,6 +613,8 @@ class Plotter(object):
         self._check_dataset_size(elist, nlist)
 
         bind(elist, 'edgeColor', '_edge_color')
+        bind(elist, 'edgeSourceColor', '_edge_source_color')
+        bind(elist, 'edgeDestinationColor', '_edge_destination_color')
         bind(elist, 'edgeLabel', '_edge_label')
         bind(elist, 'edgeTitle', '_edge_title')
         bind(elist, 'edgeSize', '_edge_size')
@@ -602,6 +628,8 @@ class Plotter(object):
         bind(nlist, 'pointWeight', '_point_weight')
         bind(nlist, 'pointOpacity', '_point_opacity')
         bind(nlist, 'pointIcon', '_point_icon')
+        bind(nlist, 'pointX', '_point_x')
+        bind(nlist, 'pointY', '_point_y')
         return (elist, nlist)
 
     # Bind attributes for ETL2 by an encodings map storing the visual semantic of
@@ -629,6 +657,8 @@ class Plotter(object):
             'nodeId': {'attributes': [nodeid]}
         }
         bind(edge_encodings, elist, 'edgeColor', '_edge_color')
+        bind(edge_encodings, elist, 'edgeSourceColor', '_edge_source_color')
+        bind(edge_encodings, elist, 'edgeDestinationColor', '_edge_destination_color')
         bind(edge_encodings, elist, 'edgeLabel', '_edge_label')
         bind(edge_encodings, elist, 'edgeTitle', '_edge_title')
         bind(edge_encodings, elist, 'edgeSize', '_edge_size')
@@ -642,6 +672,8 @@ class Plotter(object):
         bind(node_encodings, nlist, 'pointWeight', '_point_weight')
         bind(node_encodings, nlist, 'pointOpacity', '_point_opacity')
         bind(node_encodings, nlist, 'pointIcon', '_point_icon')
+        bind(node_encodings, nlist, 'pointX', '_point_x')
+        bind(node_encodings, nlist, 'pointY', '_point_y')
 
         encodings = {
             'nodes': node_encodings,

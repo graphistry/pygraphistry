@@ -367,7 +367,9 @@ class PyGraphistry(object):
     @staticmethod
     def bind(node=None, source=None, destination=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_icon=None, edge_size=None, edge_opacity=None,
-             point_title=None, point_label=None, point_color=None, point_weight=None, point_icon=None, point_size=None, point_opacity=None):
+             edge_source_color=None, edge_destination_color=None,
+             point_title=None, point_label=None, point_color=None, point_weight=None, point_icon=None, point_size=None, point_opacity=None,
+             point_x=None, point_y=None):
         """Create a base plotter.
 
         Typically called at start of a program. For parameters, see ``plotter.bind()`` .
@@ -387,11 +389,13 @@ class PyGraphistry(object):
 
 
         from . import plotter
-        return plotter.Plotter().bind(source, destination, node, \
+        return plotter.Plotter().bind(source=source, destination=destination, node=node, \
                               edge_title=edge_title, edge_label=edge_label, edge_color=edge_color, 
-                              edge_size=edge_size, edge_weight=edge_weight, edge_icon=edge_icon, edge_opacity=edge_opacity, \
+                              edge_size=edge_size, edge_weight=edge_weight, edge_icon=edge_icon, edge_opacity=edge_opacity,
+                              edge_source_color=edge_source_color, edge_destination_color=edge_destination_color,
                               point_title=point_title, point_label=point_label, point_color=point_color, 
-                              point_size=point_size, point_weight=point_weight, point_icon=point_icon, point_opacity=point_opacity)
+                              point_size=point_size, point_weight=point_weight, point_icon=point_icon, point_opacity=point_opacity,
+                              point_x=point_x, point_y=point_y)
 
 
     @staticmethod

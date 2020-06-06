@@ -210,13 +210,10 @@ class ArrowUploader:
                     ['_point_size', 'node_size'],
                     ['_point_title', 'node_title'],
                     ['_point_weight', 'node_weight'],
-                    ['_point_icon', 'node_icon']
+                    ['_point_icon', 'node_icon'],
+                    ['_point_x', 'node_x'],
+                    ['_point_y', 'node_y']
                 ])
-        if not (g._nodes is None):
-            if 'x' in g._nodes:
-                node_encodings['x'] = 'x'
-            if 'y' in g._nodes:
-                node_encodings['y'] = 'y'
 
         return node_encodings
 
@@ -227,6 +224,8 @@ class ArrowUploader:
                     ['_source', 'source'],
                     ['_destination', 'destination'],
                     ['_edge_color', 'edge_color'],
+                    ['_edge_source_color', 'edge_source_color'],
+                    ['_edge_destination_color', 'edge_destination_color'],
                     ['_edge_label', 'edge_label'],
                     ['_edge_opacity', 'edge_opacity'],
                     ['_edge_size', 'edge_size'],
