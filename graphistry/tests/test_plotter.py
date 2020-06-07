@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*- 
 
-import datetime as dt, IPython, pandas as pd, pyarrow as pa, requests, unittest
+import datetime as dt, IPython, pandas as pd, pyarrow as pa, pytest, requests, unittest
 from builtins import object
 
 from common import NoAuthTestCase
@@ -284,6 +284,7 @@ class TestPlotterCallChaining(NoAuthTestCase):
 
 class TestPlotterConversions(NoAuthTestCase):
 
+    @pytest.mark.xfail(raises=ModuleNotFoundError)
     def test_igraph2pandas(self):
         import igraph
         ig = igraph.Graph.Tree(4, 2)
@@ -304,7 +305,7 @@ class TestPlotterConversions(NoAuthTestCase):
         assertFrameEqual(e, edges)
         assertFrameEqual(n, nodes)
 
-
+    @pytest.mark.xfail(raises=ModuleNotFoundError)
     def test_pandas2igraph(self):
         plotter = graphistry.bind(source='src', destination='dst', node='id')
         ig = plotter.pandas2igraph(triangleEdges)
@@ -312,7 +313,7 @@ class TestPlotterConversions(NoAuthTestCase):
         assertFrameEqual(e, triangleEdges[['src', 'dst']])
         assertFrameEqual(n, triangleNodes[['id']])
 
-
+    @pytest.mark.xfail(raises=ModuleNotFoundError)
     def test_networkx2igraph(self):
         import networkx as nx
         ng = nx.complete_graph(3)

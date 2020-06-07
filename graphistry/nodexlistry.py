@@ -52,14 +52,14 @@ class NodeXLGraphistryBase(object):
     @staticmethod
     def edges_df_transformer_default(edges_df):
         #FIXME weird pandas bug forcing here vs post, otherwise color col is offset one with last row as null
-        edges_df = edges_df.assign(ColorInt=pd.Series(edges_df['Color'].factorize()[0]).apply(lambda r: r % 12))
+        edges_df = edges_df.assign(ColorInt=pd.Series(edges_df['Color'].factorize()[0]).apply(lambda r: r % 12).astype('int32'))
         return edges_df
 
     @staticmethod
     def nodes_df_transformer_default(nodes_df):
         ##TODO factor out
         #FIXME weird pandas bug forcing here vs later, otherwise color col is offset one with last row as null
-        nodes_df = nodes_df.assign(Color2=pd.Series(nodes_df['Vertex Group'].factorize()[0]).apply(lambda r: r % 12))
+        nodes_df = nodes_df.assign(Color2=pd.Series(nodes_df['Vertex Group'].factorize()[0]).apply(lambda r: r % 12).astype('int32'))
         nodes_df = nodes_df[1:]
         nodes_df = nodes_df.assign(**{
             'Custom Menu Item': nodes_df.apply(lambda row: '<a href="%s" target="_blank">%s</a>' % ( row['Custom Menu Item Action'], row['Custom Menu Item Text']), axis=1)
@@ -181,7 +181,11 @@ class NodeXLGraphistry(NodeXLGraphistryBase):
                 'simple2': { },
 
                 'twitter': {
-                    'nodes_df_transformer': NodeXLGraphistry.twitter_nodes_df_transformer
+                    'nodes_df_transformer': NodeXLGraphistry.twitter_nodes_df_transformer,
+                    'edge_bindings': {
+                        **(NodeXLGraphistryBase.edge_bindings_default),
+                        'edge_title': 'Relationship'
+                    }
                 },
                 'mediawiki': {
                     'nodes_df_transformer': NodeXLGraphistry.mediawiki_nodes_df_transformer    
