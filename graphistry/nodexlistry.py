@@ -181,7 +181,11 @@ class NodeXLGraphistry(NodeXLGraphistryBase):
                 'simple2': { },
 
                 'twitter': {
-                    'nodes_df_transformer': NodeXLGraphistry.twitter_nodes_df_transformer
+                    'nodes_df_transformer': NodeXLGraphistry.twitter_nodes_df_transformer,
+                    'edge_bindings': {
+                        **(NodeXLGraphistryBase.edge_bindings_default),
+                        'edge_title': 'Relationship'
+                    }
                 },
                 'mediawiki': {
                     'nodes_df_transformer': NodeXLGraphistry.mediawiki_nodes_df_transformer    
