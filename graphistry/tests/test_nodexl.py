@@ -17,6 +17,8 @@ class TestNodexlBindings(NoAuthTestCase):
         self.assertEqual(g._node, 'Vertex')
         self.assertEqual(g._source, 'Vertex 1')
         self.assertEqual(g._destination, 'Vertex 2')
+        assert g._nodes['Color2'].dtype.name == 'int32'
+        assert g._edges['ColorInt'].dtype.name == 'int32'
 
     def test_from_xls_twitter(self):
         xls = pd.ExcelFile('graphistry/tests/data/NodeXLWorkbook-220237-twitter.xlsx', engine='openpyxl')
@@ -28,3 +30,5 @@ class TestNodexlBindings(NoAuthTestCase):
         self.assertEqual(g._node, 'Vertex')
         self.assertEqual(g._source, 'Vertex 1')
         self.assertEqual(g._destination, 'Vertex 2')
+        assert g._nodes['Color2'].dtype.name == 'int32'
+        assert g._edges['ColorInt'].dtype.name == 'int32'
