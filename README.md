@@ -168,9 +168,9 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 You need to install the PyGraphistry client somewhere and connect it to a Graphistry server. We recommend the following options:
 
 1. [Private Graphistry Server](https://www.graphistry.com/get-started): One-click launch with Graphistry, PyGraphistry, and Jupyter Notebooks preinstalled and ready to go out-of-the-box (AWS and Azure)
-2. `pip install graphistry`: If you already have Jupyter Notebook installed or are using a system like Google Colab, install the PyGraphistry pip package. Connect it to [https://www.graphistry.com/get-started](your private Graphistry server) or a free [Graphistry Hub](https://www.graphistry.com) account.
+2. `pip install graphistry`: If you already have Jupyter Notebook installed or are using a system like Google Colab, install the PyGraphistry pip package. Connect it to a free [Graphistry Hub](https://www.graphistry.com/get-started) account or [a private Graphistry server](https://www.graphistry.com/get-started).
 
-### Option 1: New users - Graphistry AWS/Azure Server with Preinstalled PyGraphistry client
+### Option 1: New users - Private Graphistry AWS/Azure Server with Preinstalled PyGraphistry client
 
 For new users who have AWS accounts, simply [launch the self-serve Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core). See [GrNaphistr.com](https://www.graphistry.com/get-started) for additional quick launch modes.
 
@@ -185,9 +185,9 @@ A private server provides several benefits for getting started:
 The server gracefully stops/starts: Control potential server utility fees by simply stopping the server when not using it.
 
 
-### Option 2: PyGraphistry pip package 
+### Option 2: PyGraphistry pip package - With Graphistry Hub or a private server
 
-Install PyGraphistry into your own Python app or data science notebook environment such as [Jupyter](https://jupyter.org/) and [Google Colab](https://colab.research.google.com). Requires a Graphistry server such as the self-serve [Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core) or a free [Graphistry Hub](https://www.graphistry.com/get-started) account.
+Install PyGraphistry into your own Python app or data science notebook environment such as [Jupyter](https://jupyter.org/) and [Google Colab](https://colab.research.google.com). Connect it to a Graphistry server such as the self-serve [Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core) or a free [Graphistry Hub](https://www.graphistry.com/get-started) account.
 
 Install PyGraphistry with Python's `pip` package manager:
 
@@ -217,12 +217,13 @@ Optionally, for convenience, you may set your API key in your system environment
 
 ### Server
 
-To connect to a Graphistry server, specify where to reach it:
+Specify which Graphistry to reach:
 
 ```python
 graphistry.register(protocol='https', server='hub.graphistry.com')
 ```
 
+Preconfigure private Graphistry servers to fill in this data for you.
 
 ## Tutorial: Les Misérables
 
