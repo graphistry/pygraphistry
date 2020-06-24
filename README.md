@@ -1,8 +1,8 @@
 [![Build Status](https://travis-ci.org/graphistry/pygraphistry.svg?branch=master)](https://travis-ci.org/graphistry/pygraphistry) 
+[![Documentation Status](https://readthedocs.org/projects/pygraphistry/badge/?version=latest)](https://pygraphistry.readthedocs.io/en/latest/)
 [![Latest Version](https://img.shields.io/pypi/v/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
 [![Latest Version](https://img.shields.io/pypi/pyversions/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
 [![License](https://img.shields.io/pypi/l/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
-
 
 # PyGraphistry: Explore Relationships
 
@@ -298,8 +298,9 @@ To control the location, add `x` and `y` columns to the node tables ([see demos]
 
 ## References
 
-* Graphistry [UI Guide](https://labs.graphistry.com/graphistry/ui.html)
-* Full Python (including IPython/Juypter) [API documentation](http://pygraphistry.readthedocs.org/en/latest/).
+* Graphistry [UI Guide](https://hub.graphistry.com/docs/ui/index/)
+* [API docs](https://hub.graphistry.com/docs/api/): REST API, embedding URLs, JS, and more
+* [Python API ReadTheDocs](http://pygraphistry.readthedocs.org/en/latest/)
 * Within a notebook, you can always run `help(graphistry)`, `help(graphistry.hypergraph)`, etc.
-* Additional [Graphistry API docs](https://labs.graphistry.com/graphistry/docs.html), including the predefined [color palette values](https://labs.graphistry.com/graphistry/docs/palette.html) (color brewer)
+* Additional [Graphistry API docs](https://hub.graphistry.com/docs/), including the predefined [color palette values](https://hub.graphistry.com/docs/api/api-color-palettes/) (color brewer)
 
