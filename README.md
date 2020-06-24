@@ -165,52 +165,64 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 
 ## Installation
 
-We recommend four options for installing PyGraphistry:
+You need to install the PyGraphistry client somewhere and connect it to a Graphistry server. We recommend the following options:
 
-1. [Graphistry AMI](https://www.graphistry.com/get-started): One-click launch with Graphistry, PyGraphistry, and Jupyter notebooks preinstalled and ready to go out-of-the-box
-2. `pip install graphistry`: If you already have Jupyter Notebook installed or are using a system like Google Colab, install the PyGraphistry pip package. (Requires a Graphistry server.)
-3. Docker: For quickly trying PyGraphistry when you do not have Jupyter Notebook installed and find doing so difficult, use our complete Docker image. (Requires a Graphistry server.)
+1. [Private Graphistry Server](https://www.graphistry.com/get-started): One-click launch with Graphistry, PyGraphistry, and Jupyter Notebooks preinstalled and ready to go out-of-the-box (AWS and Azure)
+2. `pip install graphistry`: If you already have Jupyter Notebook installed or are using a system like Google Colab, install the PyGraphistry pip package. Connect it to [https://www.graphistry.com/get-started](your private Graphistry server) or a free [Graphistry Hub](https://www.graphistry.com) account.
 
-### Option 1: New users - Graphistry AWS Server with Preinstalled PyGraphistry client
+### Option 1: New users - Graphistry AWS/Azure Server with Preinstalled PyGraphistry client
 
-For new users who have AWS accounts, simply [launch the self-serve Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core).
+For new users who have AWS accounts, simply [launch the self-serve Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core). See [GrNaphistr.com](https://www.graphistry.com/get-started) for additional quick launch modes.
 
-It provides several benefits for getting started:
+A private server provides several benefits for getting started:
 
 * PyGraphistry is preinstalled
-* Jupyter notebooks is preinstalled
+* Jupyter Notebook is preinstalled
 * Starter examples of using with different files, databases, and Nvidia RAPIDS are provided
-* Preconfigured backend server: Nvidia drivers, `nvidia-docker`, Graphistry server, etc.
-* Running in your private AWS means you can safely explore private data there
+* Preconfigured backend server: Nvidia drivers, `nvidia-docker`, Graphistry server, RAPIDS environment, etc.
+* Running in your private server means you can safely explore private data there
 
-The server gracefully stops/starts: Control AWS spending by simply stopping the server when not using it.
+The server gracefully stops/starts: Control potential server utility fees by simply stopping the server when not using it.
 
 
 ### Option 2: PyGraphistry pip package 
 
-Install PyGraphistry into your own Python app or data science notebook environment such as [Jupyter](https://jupyter.org/) and [Google Colab](https://colab.research.google.com). Requires a Graphistry server such as the self-serve [Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core)
+Install PyGraphistry into your own Python app or data science notebook environment such as [Jupyter](https://jupyter.org/) and [Google Colab](https://colab.research.google.com). Requires a Graphistry server such as the self-serve [Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core) or a free [Graphistry Hub](https://www.graphistry.com/get-started) account.
 
 Install PyGraphistry with Python's `pip` package manager:
 
-- Pandas only (recommended): `pip install graphistry`
-- + neo4j: `pip install "graphistry[bolt]"`
-- + IGraph, NetworkX, Neo4j: `pip install "graphistry[all]"`
+- Pandas only (recommended): `pip install --user graphistry`
+- + neo4j: `pip install --user "graphistry[bolt]"`
+- + IGraph, NetworkX, Neo4j: `pip install --user "graphistry[all]"`
 
 The latter two can be skipped if you already have the third-party Python packages at the appropriate versions installed.
 
 ##### Jupyter Notebook Integration
 
-### API Key
-An API key gives each visualization access to your Graphistry GPU server. Set your key after the `import graphistry` statement and you are good to go:
+### API Credentials
+Provide your API credentials to upload data to your Graphistry GPU server:
 
 ```python
 import graphistry
-graphistry.register(key='Your key')
+#graphistry.register(key='Your key') # 1.0 API
+#graphistry.register(api=3, username='your name', password='your pwd') # 2.0 API, logged out after 1hr
+#graphistry.register(api=3, token='your JWT token') # 2.0 API, expires after 1hr
 ```
+
+For the 2.0 API, your username/password are the same as your Graphistry account, and your session expires after 1hr. The temporary JWT token (1hr) can be generated via the REST API using your login credentials, or by visiting your landing page.
 
 Optionally, for convenience, you may set your API key in your system environment and thereby skip the register step in all your notebooks. In your `.profile` or `.bash_profile`, add the following and reload your environment:
 
 ```export GRAPHISTRY_API_KEY="Your key"```
+
+### Server
+
+To connect to a Graphistry server, specify where to reach it:
+
+```python
+graphistry.register(protocol='https', server='hub.graphistry.com')
+```
+
 
 ## Tutorial: Les Misérables
 
@@ -242,7 +254,7 @@ To define the graph, we <code>bind</code> *source* and *destination* to the colu
 
 ```python
 import graphistry
-graphistry.register(key='YOUR_API_KEY_HERE')
+graphistry.register(protocol='https', server='hub.graphistry.com', token='YOUR_JWT_TOKEN_HERE')
 
 plotter = graphistry.bind(source="source", destination="target")
 plotter.plot(links)
