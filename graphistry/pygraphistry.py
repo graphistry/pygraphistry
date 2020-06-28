@@ -178,7 +178,7 @@ class PyGraphistry(object):
         if value is None:
             cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
             #skip doing protocol by default to match notebook's protocol
-            cph = ('//' + PyGraphistry._config['hostname']) if cfg_client_protocol_hostname is None else cfg_client_protocol_hostname
+            cph = ('//' + PyGraphistry.server()) if cfg_client_protocol_hostname is None else cfg_client_protocol_hostname
             return cph
         else:
             PyGraphistry._config['client_protocol_hostname'] = value
