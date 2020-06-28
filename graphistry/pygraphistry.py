@@ -107,15 +107,14 @@ class PyGraphistry(object):
         if PyGraphistry.api_version() == 3:
             if not (PyGraphistry.api_token() is None):
                 jwt_refresh_tick()
-            return
-
-        key = PyGraphistry.api_key()
-        #Mocks may set to True, so bypass in that case
-        if (key is None) and PyGraphistry._is_authenticated == False:
-            util.error('In api=1 / api=2 mode, API key not set explicitly in `register()` or available at ' + EnvVarNames['api_key'])
-        if not PyGraphistry._is_authenticated:
-            PyGraphistry._check_key_and_version()
-            PyGraphistry._is_authenticated = True
+        else:
+            key = PyGraphistry.api_key()
+            #Mocks may set to True, so bypass in that case
+            if (key is None) and PyGraphistry._is_authenticated == False:
+                util.error('In api=1 / api=2 mode, API key not set explicitly in `register()` or available at ' + EnvVarNames['api_key'])
+            if not PyGraphistry._is_authenticated:
+                PyGraphistry._check_key_and_version()
+                PyGraphistry._is_authenticated = True
 
 
     @staticmethod
@@ -144,7 +143,7 @@ class PyGraphistry(object):
             token = ArrowUploader(
                 server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
                 certificate_validation=PyGraphistry.certificate_validation())\
-                    .refresh(PyGraphistry.api_token())
+                    .refresh(PyGraphistry.api_token()).token
             PyGraphistry.api_token(token)
             PyGraphistry._is_authenticated = True
             return PyGraphistry.api_token()
@@ -313,7 +312,7 @@ class PyGraphistry(object):
         PyGraphistry.set_bolt_driver(bolt)
         if not (username is None) and not (password is None):
             PyGraphistry.login(username, password)
-        PyGraphistry.api_token(token)
+        PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         PyGraphistry.api_token_refresh_ms(token_refresh_ms)
         PyGraphistry.authenticate()
 
