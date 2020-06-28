@@ -185,7 +185,7 @@ class ArrowUploader:
             raise Exception(out.text)
             
         self.token = out.json()['token']        
-        return self        
+        return self
     
     def create_dataset(self, json):
         tok = self.token 
