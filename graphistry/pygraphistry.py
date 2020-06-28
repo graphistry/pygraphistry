@@ -49,7 +49,7 @@ default_config = {
     #'password': None,
     'api_version': 1,
     'dataset_prefix': 'PyGraphistry/',
-    'hostname': 'labs.graphistry.com',
+    'hostname': 'hub.graphistry.com',
     'protocol': 'https',
     'client_protocol_hostname': None,
     'certificate_validation': True
@@ -135,22 +135,44 @@ class PyGraphistry(object):
         return PyGraphistry.api_token()
 
     @staticmethod
-    def refresh(fail_silent=False):
-        """Use current JWT token to get a fresher one"""
+    def refresh(token=None, fail_silent=False):
+        """Use self or provided JWT token to get a fresher one. If self token, internalize upon refresh."""
+        using_self_token = token is None
         try:
             logger.debug('JWT refresh')
-            PyGraphistry._is_authenticated = False
+            if using_self_token:
+                PyGraphistry._is_authenticated = False
             token = ArrowUploader(
                 server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
                 certificate_validation=PyGraphistry.certificate_validation())\
-                    .refresh(PyGraphistry.api_token()).token
-            PyGraphistry.api_token(token)
-            PyGraphistry._is_authenticated = True
+                    .refresh(PyGraphistry.api_token() if using_self_token else token).token
+            if using_self_token:
+                PyGraphistry.api_token(token)
+                PyGraphistry._is_authenticated = True
             return PyGraphistry.api_token()
         except Exception as e:
-            PyGraphistry._is_authenticated = False
             if not fail_silent:
                 util.error('Failed to refresh token: %s' % str(e))
+
+    @staticmethod
+    def verify_token(token=None, fail_silent=False) -> bool:
+        """Return True iff current or provided token is still valid"""
+        using_self_token = token is None
+        try:
+            logger.debug('JWT refresh')
+            if using_self_token:
+                PyGraphistry._is_authenticated = False
+            ok = ArrowUploader(
+                server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+                certificate_validation=PyGraphistry.certificate_validation())\
+                    .verify(PyGraphistry.api_token() if using_self_token else token)
+            if using_self_token:
+                PyGraphistry._is_authenticated = ok
+            return ok
+        except Exception as e:
+            if not fail_silent:
+                util.error('Failed to verify token: %s' % str(e))
+
 
     @staticmethod
     def server(value=None):
@@ -868,6 +890,8 @@ protocol = PyGraphistry.protocol
 register = PyGraphistry.register
 login = PyGraphistry.login
 refresh = PyGraphistry.refresh
+api_token = PyGraphistry.api_token
+verify_token = PyGraphistry.verify_token
 bind = PyGraphistry.bind
 name = PyGraphistry.name
 description = PyGraphistry.description
