@@ -173,6 +173,21 @@ class PyGraphistry(object):
 
 
     @staticmethod
+    def client_protocol_hostname(value=None):
+        """Get/set the client protocol+hostname for when display urls (distinct from uploading).
+        Also set via environment variable GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
+        Defaults to hostname and no protocol (reusing environment protocol)"""
+
+        if value is None:
+            cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
+            #skip doing protocol by default to match notebook's protocol
+            cph = ('//' + PyGraphistry._config['hostname']) if cfg_client_protocol_hostname is None else cfg_client_protocol_hostname
+            return cph
+        else:
+            PyGraphistry._config['client_protocol_hostname'] = value
+
+
+    @staticmethod
     def api_key(value=None):
         """Set or get the API key.
         Also set via environment variable GRAPHISTRY_API_KEY."""
@@ -255,7 +270,7 @@ class PyGraphistry(object):
     @staticmethod
     def register(key=None, username=None, password=None, token=None,
             server=None, protocol=None, api=None, certificate_validation=None, bolt=None,
-            token_refresh_ms=10*60*1000):
+            token_refresh_ms=10*60*1000, client_protocol_hostname=None):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -282,32 +297,35 @@ class PyGraphistry(object):
         :type token_refresh_ms: 
         :returns: None.
         :rtype: None.
+        :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
+        :type client_protocol_hostname: Optional string.
 
-
-        **Example: Standard**
-                ::
-
-                    import graphistry
-                    graphistry.register(key="my api key")
-
-        **Example: Developer**
-                ::
-
-                    import graphistry
-                    graphistry.register('my api key', server='staging', protocol='https')
-
-
-        **Example: Through environment variable**
-                ::
-                    export GRAPHISTRY_API_KEY = 'my api key'
+        **Example: Standard (2.0 api by username/password)**
                 ::
                     import graphistry
-                    graphistry.register()
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', username='person', password='pwd')
+
+        **Example: Standard (2.0 api by token)**
+                ::
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', token='abc')
+
+        **Example: Remote browser to Graphistry-provided notebook server (2.0)**
+                ::
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='nginx', client_protocol_hostname='https://my.site.com', token='abc')
+
+        **Example: Standard (1.0)**
+                ::
+                    import graphistry
+                    graphistry.register(api=1, key="my api key")
+
         """
         PyGraphistry.api_version(api)
         PyGraphistry.api_key(key)
         PyGraphistry.server(server)
         PyGraphistry.protocol(protocol)
+        PyGraphistry.client_protocol_hostname(client_protocol_hostname)
         PyGraphistry.certificate_validation(certificate_validation)
         PyGraphistry.set_bolt_driver(bolt)
         if not (username is None) and not (password is None):
@@ -699,8 +717,7 @@ INTERPRET QUERY () FOR GRAPH Storage {
     def _viz_url(info, url_params):
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = '&'.join([ k + '=' + str(v) for k,v in list(url_params.items())])
-        cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
-        cph = ('//' + PyGraphistry._config['hostname']) if cfg_client_protocol_hostname is None else cfg_client_protocol_hostname
+        cph = PyGraphistry.client_protocol_hostname()
         pattern = '%s/graph/graph.html?dataset=%s&type=%s&viztoken=%s&usertag=%s&splashAfter=%s&%s'
         return pattern % (cph, info['name'], info['type'],
                           info['viztoken'], PyGraphistry._tag, splash_time, extra)
@@ -847,6 +864,10 @@ INTERPRET QUERY () FOR GRAPH Storage {
         except Exception as e:
             util.warn('Could not contact %s. Are you connected to the Internet?' % PyGraphistry._config['hostname'])
 
+
+client_protocol_hostname = PyGraphistry.client_protocol_hostname
+server = PyGraphistry.server
+protocol = PyGraphistry.protocol
 register = PyGraphistry.register
 login = PyGraphistry.login
 refresh = PyGraphistry.refresh
