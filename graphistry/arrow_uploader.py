@@ -148,7 +148,7 @@ class ArrowUploader:
         self.__metadata = metadata
         self.__certificate_validation = certificate_validation
     
-    def login(self, username, password):   
+    def login(self, username, password):
         base_path = self.server_base_path
         out = requests.post(
             f'{base_path}/api-token-auth/',
@@ -165,6 +165,27 @@ class ArrowUploader:
             
         self.token = out.json()['token']        
         return self
+
+    def refresh(self, token=None):
+        if token is None:
+            token = self.token
+
+        base_path = self.server_base_path
+        out = requests.post(
+            f'{base_path}/api-token-refresh/',
+            verify=self.certificate_validation,
+            json={'token': token})
+        json_response = None
+        try:
+            json_response = out.json()
+            if not ('token' in json_response):
+                raise Exception(out.text)
+        except Exception:
+            logger.error('Error: %s', out, exc_info=True)
+            raise Exception(out.text)
+            
+        self.token = out.json()['token']        
+        return self        
     
     def create_dataset(self, json):
         tok = self.token 
