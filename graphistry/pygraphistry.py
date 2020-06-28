@@ -365,6 +365,27 @@ class PyGraphistry(object):
 
 
     @staticmethod
+    def name(name):
+        """Upload name
+
+        :param name: Upload name
+        :type name: str"""
+
+        from . import plotter
+        return plotter.Plotter().name(name)
+
+    @staticmethod
+    def description(description):
+        """Upload description
+
+        :param description: Upload description
+        :type description: str"""
+
+        from . import plotter
+        return plotter.Plotter().description(description)
+
+
+    @staticmethod
     def bind(node=None, source=None, destination=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_icon=None, edge_size=None, edge_opacity=None,
              edge_source_color=None, edge_destination_color=None,
@@ -753,6 +774,8 @@ INTERPRET QUERY () FOR GRAPH Storage {
 
 register = PyGraphistry.register
 bind = PyGraphistry.bind
+name = PyGraphistry.name
+description = PyGraphistry.description
 edges = PyGraphistry.edges
 nodes = PyGraphistry.nodes
 graph = PyGraphistry.graph
