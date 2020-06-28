@@ -340,6 +340,17 @@ class TestPlotterConversions(NoAuthTestCase):
         assertFrameEqual(n, nodes)
 
 
+class TestPlotterNameBindings(NoAuthTestCase):
+
+    def test_bind_name(self):
+        plotter = graphistry.bind().name('n')
+        assert plotter._name == 'n'
+
+    def test_bind_description(self):
+        plotter = graphistry.bind().description('d')
+        assert plotter._description == 'd'
+
+
 class TestPlotterPandasConversions(NoAuthTestCase):
 
     def test_table_to_pandas_from_none(self):

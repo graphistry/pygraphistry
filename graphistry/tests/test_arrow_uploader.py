@@ -28,6 +28,7 @@ class TestArrowUploader_Core(unittest.TestCase):
         sbp = "s"
         vbp = "v"
         name = "n"
+        des = "d"
         t = "t"
         d = "d"
         ne = {"point_color": "c"}
@@ -36,6 +37,7 @@ class TestArrowUploader_Core(unittest.TestCase):
         ce = False
         au = ArrowUploader(server_base_path=sbp, view_base_path=vbp,
             name = name,
+            description = des,
             edges = e, nodes = n,
             node_encodings = ne, edge_encodings = ee,
             token = t, dataset_id = d,
@@ -44,6 +46,7 @@ class TestArrowUploader_Core(unittest.TestCase):
         assert au.server_base_path == sbp
         assert au.view_base_path == vbp
         assert au.name == name
+        assert au.description == des
         assert au.edges is e
         assert au.nodes is n
         assert au.edge_encodings == ee

@@ -86,6 +86,16 @@ class ArrowUploader:
     def name(self, name):
         self.__name = name
 
+    @property
+    def description(self) -> str:
+        if self.__description is None:
+            return ""
+        return self.__description
+
+    @description.setter
+    def description(self, description):
+        self.__description = description
+
 
     @property
     def metadata(self):
@@ -119,12 +129,14 @@ class ArrowUploader:
     def __init__(self, 
             server_base_path='http://nginx', view_base_path='http://localhost',
             name = None,
+            description = None,
             edges = None, nodes = None,
             node_encodings = None, edge_encodings = None,
             token = None, dataset_id = None,
             metadata = None,
             certificate_validation = True):
         self.__name = name
+        self.__description = description
         self.__server_base_path = server_base_path
         self.__view_base_path = view_base_path
         self.__token = token
@@ -241,7 +253,8 @@ class ArrowUploader:
             "node_encodings": {"bindings": self.node_encodings},
             "edge_encodings": {"bindings": self.edge_encodings},
             "metadata": self.metadata,
-            "name": self.name
+            "name": self.name,
+            "description": self.description
         })
         
         self.post_edges_arrow()
@@ -289,12 +302,14 @@ class ArrowUploader:
     ###########################################
 
 
-    def post_g(self, g, name=None):
+    def post_g(self, g, name=None, description=None):
 
         self.edge_encodings = self.g_to_edge_encodings(g)
         self.node_encodings = self.g_to_node_encodings(g)
         if not (name is None):
             self.name = name
+        if not (description is None):
+            self.description = description
 
         self.edges = pa.Table.from_pandas(g._edges, preserve_index=False).replace_schema_metadata({})
         if not (g._nodes is None):
