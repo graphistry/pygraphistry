@@ -187,6 +187,17 @@ class ArrowUploader:
         self.token = out.json()['token']        
         return self
     
+    def verify(self, token=None) -> bool:
+        if token is None:
+            token = self.token
+
+        base_path = self.server_base_path
+        out = requests.post(
+            f'{base_path}/api-token-verify/',
+            verify=self.certificate_validation,
+            json={'token': token})
+        return out.status_code == requests.codes.ok
+
     def create_dataset(self, json):
         tok = self.token 
         
