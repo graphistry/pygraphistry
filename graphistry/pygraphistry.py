@@ -155,15 +155,12 @@ class PyGraphistry(object):
     @staticmethod
     def server(value=None):
         """Get the hostname of the server or set the server using hostname or aliases.
-        Supported aliases: 'localhost', 'staging', 'labs'.
         Also set via environment variable GRAPHISTRY_HOSTNAME."""
         if value is None:
             return PyGraphistry._config['hostname']
 
         # setter
-        shortcuts = {'dev': 'localhost:3000',
-                     'staging': 'staging.graphistry.com',
-                     'labs': 'labs.graphistry.com'}
+        shortcuts = {}
         if value in shortcuts:
             resolved = shortcuts[value]
             PyGraphistry._config['hostname'] = resolved
