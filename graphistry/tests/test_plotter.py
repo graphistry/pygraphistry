@@ -374,6 +374,8 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     @classmethod
     def setUpClass(cls):
         graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
+        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
         graphistry.register(api=3)
 
     def test_table_to_arrow_from_none(self):

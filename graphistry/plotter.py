@@ -405,6 +405,7 @@ class Plotter(object):
                 return dataset
             info = PyGraphistry._etl2(dataset)
         elif api_version == 3:
+            PyGraphistry.refresh()
             dataset = self._plot_dispatch(g, n, name, description, 'arrow')
             if skip_upload:
                 return dataset
