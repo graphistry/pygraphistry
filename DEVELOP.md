@@ -38,6 +38,6 @@ Uninstall the local checkout (useful to rollback to packaged version) with `./se
 	git push --tags
 	```
 
-2. Get `pypirc` from your friendly colleagues
+2. Ensure a packaged release happens @ https://github.com/graphistry/pygraphistry/tags, manually if needed
 
-3. Run `./pipupload.sh`
+3. Ensure a docs release happens @ https://readthedocs.org/projects/pygraphistry/
