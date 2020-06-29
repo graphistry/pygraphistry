@@ -6,6 +6,7 @@ del get_versions
 from graphistry.pygraphistry import (
 client_protocol_hostname, protocol, server,
 register, login, refresh, api_token, verify_token,
+store_token_creds_in_memory,
 name, description,
 bind, edges, nodes, graph, settings, 
 hypergraph, 
