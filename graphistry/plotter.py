@@ -61,6 +61,9 @@ class Plotter(object):
         self._height = 500
         self._render = True
         self._url_params = {'info': 'true'}
+        # Metadata
+        self._name = None
+        self._description = None
         # Integrations
         self._bolt_driver = None
         self._tigergraph = None
@@ -245,6 +248,26 @@ class Plotter(object):
         res._nodes = nodes
         return res
 
+    def name(self, name):
+        """Upload name
+
+        :param name: Upload name
+        :type name: str"""
+
+        res = copy.copy(self)
+        res._name = name
+        return res
+
+    def description(self, description):
+        """Upload description
+
+        :param description: Upload description
+        :type description: str"""
+
+        res = copy.copy(self)
+        res._description = description
+        return res
+
 
     def edges(self, edges):
         """Specify edge list data and associated edge attribute values.
@@ -311,10 +334,10 @@ class Plotter(object):
         return res
 
 
-    def plot(self, graph=None, nodes=None, name=None, render=None, skip_upload=False):
+    def plot(self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False):
         """Upload data to the Graphistry server and show as an iframe of it.
 
-        name, Uses the currently bound schema structure and visual encodings.
+        Uses the currently bound schema structure and visual encodings.
         Optional parameters override the current bindings.
 
         When used in a notebook environment, will also show an iframe of the visualization.
@@ -324,6 +347,12 @@ class Plotter(object):
 
         :param nodes: Nodes table.
         :type nodes: Pandas dataframe.
+
+        :param name: Upload name.
+        :type name: Optional str.
+
+        :param description: Upload description.
+        :type description: Optional str.
 
         :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
         :type render: Boolean
@@ -359,23 +388,25 @@ class Plotter(object):
         else:
             g = graph
         n = self._nodes if nodes is None else nodes
-        name = name or util.random_string(10)
+        name = name or self._name or ("Untitled " + util.random_string(10))
+        description = description or self._description or ("")
 
         self._check_mandatory_bindings(not isinstance(n, type(None)))
 
         api_version = PyGraphistry.api_version()
         if api_version == 1:
-            dataset = self._plot_dispatch(g, n, name, 'json')
+            dataset = self._plot_dispatch(g, n, name, description, 'json')
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl1(dataset)
         elif api_version == 2:
-            dataset = self._plot_dispatch(g, n, name, 'vgraph')
+            dataset = self._plot_dispatch(g, n, name, description, 'vgraph')
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl2(dataset)
         elif api_version == 3:
-            dataset = self._plot_dispatch(g, n, name, 'arrow')
+            PyGraphistry.refresh()
+            dataset = self._plot_dispatch(g, n, name, description, 'arrow')
             if skip_upload:
                 return dataset
             #fresh
@@ -523,18 +554,18 @@ class Plotter(object):
                 util.error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
 
-    def _plot_dispatch(self, graph, nodes, name, mode='json'):
+    def _plot_dispatch(self, graph, nodes, name, description, mode='json'):
 
         if isinstance(graph, pandas.core.frame.DataFrame) \
             or isinstance(graph, pa.Table) \
             or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ):
-            return self._make_dataset(graph, nodes, name, mode)
+            return self._make_dataset(graph, nodes, name, description, mode)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
                 (e, n) = self.igraph2pandas(graph)
-                return self._make_dataset(e, n, name, mode)
+                return self._make_dataset(e, n, name, description, mode)
         except ImportError:
             pass
 
@@ -545,7 +576,7 @@ class Plotter(object):
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
                 (e, n) = self.networkx2pandas(graph)
-                return self._make_dataset(e, n, name, mode)
+                return self._make_dataset(e, n, name, description, mode)
         except ImportError:
             pass
 
@@ -714,7 +745,7 @@ class Plotter(object):
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
 
-    def _make_dataset(self, edges, nodes, name, mode):
+    def _make_dataset(self, edges, nodes, name, description, mode):
         try:
             if len(edges) == 0:
                 util.warn('Graph has no edges, may have rendering issues')
@@ -732,7 +763,7 @@ class Plotter(object):
         elif mode == 'arrow':
             edges_arr = self._table_to_arrow(edges)
             nodes_arr = self._table_to_arrow(nodes)
-            return self._make_arrow_dataset(edges_arr, nodes_arr, name)
+            return self._make_arrow_dataset(edges_arr, nodes_arr, name, description)
             #token=None, dataset_id=None, url_params = None)
         else:
             raise ValueError('Unknown mode: ' + mode)
@@ -778,10 +809,11 @@ class Plotter(object):
         dataset['encodings'] = encodings
         return dataset
 
-    def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str) -> ArrowUploader:
+    def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str) -> ArrowUploader:
         au = ArrowUploader(
             server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
-            edges=edges, nodes=nodes, name=name,
+            edges=edges, nodes=nodes,
+            name=name, description=description,
             metadata={
                 'usertag': PyGraphistry._tag,
                 'key': PyGraphistry.api_key(),

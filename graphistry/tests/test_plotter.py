@@ -340,6 +340,17 @@ class TestPlotterConversions(NoAuthTestCase):
         assertFrameEqual(n, nodes)
 
 
+class TestPlotterNameBindings(NoAuthTestCase):
+
+    def test_bind_name(self):
+        plotter = graphistry.bind().name('n')
+        assert plotter._name == 'n'
+
+    def test_bind_description(self):
+        plotter = graphistry.bind().description('d')
+        assert plotter._description == 'd'
+
+
 class TestPlotterPandasConversions(NoAuthTestCase):
 
     def test_table_to_pandas_from_none(self):
@@ -363,6 +374,8 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     @classmethod
     def setUpClass(cls):
         graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
+        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
         graphistry.register(api=3)
 
     def test_table_to_arrow_from_none(self):

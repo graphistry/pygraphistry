@@ -8,7 +8,7 @@ from builtins import bytes, object, str
 from past.utils import old_div
 from past.builtins import basestring
 
-import calendar, gzip, io, json, os, numpy, pandas, requests, sys, time, warnings
+import calendar, gzip, io, json, os, numpy, pandas, requests, sched, sys, time, warnings
 
 from datetime import datetime
 from distutils.util import strtobool
@@ -17,6 +17,9 @@ from .arrow_uploader import ArrowUploader
 
 from . import util
 from . import bolt_util
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 EnvVarNames = {
@@ -41,14 +44,14 @@ config_paths = [
 default_config = {
     'api_key': None, # Dummy key
     'api_token': None,
-    #'username': None,
-    #'password': None,
+    'api_token_refresh_ms': None,
     'api_version': 1,
     'dataset_prefix': 'PyGraphistry/',
-    'hostname': 'labs.graphistry.com',
+    'hostname': 'hub.graphistry.com',
     'protocol': 'https',
     'client_protocol_hostname': None,
-    'certificate_validation': True
+    'certificate_validation': True,
+    'store_token_creds_in_memory': False
 }
 
 
@@ -72,6 +75,7 @@ def _get_initial_config():
     return config
 
 
+
 class PyGraphistry(object):
     _config = _get_initial_config()
     _tag = util.fingerprint()
@@ -81,19 +85,37 @@ class PyGraphistry(object):
     @staticmethod
     def authenticate():
         """Authenticate via already provided configuration (api=1,2).
-        This is called once automatically per session when uploading and rendering a visualization."""
-        key = PyGraphistry.api_key()
-        #Mocks may set to True, so bypass in that case
-        if (key is None) and PyGraphistry._is_authenticated == False:
-            util.error('API key not set explicitly in `register()` or available at ' + EnvVarNames['api_key'])
-        if not PyGraphistry._is_authenticated:
-            PyGraphistry._check_key_and_version()
-            PyGraphistry._is_authenticated = True
+        This is called once automatically per session when uploading and rendering a visualization.
+        In api=3, if token_refresh_ms > 0 (defaults to 10min), this starts an automatic refresh loop.
+        In that case, note that a manual .login() is still required every 24hr by default.
+        """
+
+        if PyGraphistry.api_version() == 3:
+            if not (PyGraphistry.api_token() is None):
+                PyGraphistry.refresh()
+        else:
+            key = PyGraphistry.api_key()
+            #Mocks may set to True, so bypass in that case
+            if (key is None) and PyGraphistry._is_authenticated == False:
+                util.error('In api=1 / api=2 mode, API key not set explicitly in `register()` or available at ' + EnvVarNames['api_key'])
+            if not PyGraphistry._is_authenticated:
+                PyGraphistry._check_key_and_version()
+                PyGraphistry._is_authenticated = True
 
 
     @staticmethod
+    def not_implemented_thunk():
+        raise Exception('Must call login() first')
+
+    relogin = lambda: PyGraphistry.not_implemented_thunk()
+
+    @staticmethod
     def login(username, password, fail_silent=False):
-        """Authenticate and set token for reuse (api=3). Periodically call if risk of token going stale."""
+        """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
+        By default, must be reinvoked within 24hr."""
+
+        if PyGraphistry._config['store_token_creds_in_memory']:
+            PyGraphistry.relogin = lambda: PyGraphistry.login(username, password, fail_silent)
 
         token = ArrowUploader(
             server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
@@ -102,26 +124,92 @@ class PyGraphistry(object):
         PyGraphistry.api_token(token)
         PyGraphistry._is_authenticated = True
 
+        #starts auth loop
+        PyGraphistry.authenticate()
+
+        return PyGraphistry.api_token()
+
+    @staticmethod
+    def refresh(token=None, fail_silent=False):
+        """Use self or provided JWT token to get a fresher one. If self token, internalize upon refresh."""
+        using_self_token = token is None
+        try:
+            if PyGraphistry.store_token_creds_in_memory():
+                logger.debug('JWT refresh via creds')
+                return PyGraphistry.relogin()
+
+            logger.debug('JWT refresh via token')
+            if using_self_token:
+                PyGraphistry._is_authenticated = False
+            token = ArrowUploader(
+                server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+                certificate_validation=PyGraphistry.certificate_validation())\
+                    .refresh(PyGraphistry.api_token() if using_self_token else token).token
+            if using_self_token:
+                PyGraphistry.api_token(token)
+                PyGraphistry._is_authenticated = True
+            return PyGraphistry.api_token()
+        except Exception as e:
+            if not fail_silent:
+                util.error('Failed to refresh token: %s' % str(e))
+
+    @staticmethod
+    def verify_token(token=None, fail_silent=False) -> bool:
+        """Return True iff current or provided token is still valid"""
+        using_self_token = token is None
+        try:
+            logger.debug('JWT refresh')
+            if using_self_token:
+                PyGraphistry._is_authenticated = False
+            ok = ArrowUploader(
+                server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+                certificate_validation=PyGraphistry.certificate_validation())\
+                    .verify(PyGraphistry.api_token() if using_self_token else token)
+            if using_self_token:
+                PyGraphistry._is_authenticated = ok
+            return ok
+        except Exception as e:
+            if not fail_silent:
+                util.error('Failed to verify token: %s' % str(e))
 
 
     @staticmethod
     def server(value=None):
         """Get the hostname of the server or set the server using hostname or aliases.
-        Supported aliases: 'localhost', 'staging', 'labs'.
         Also set via environment variable GRAPHISTRY_HOSTNAME."""
         if value is None:
             return PyGraphistry._config['hostname']
 
         # setter
-        shortcuts = {'dev': 'localhost:3000',
-                     'staging': 'staging.graphistry.com',
-                     'labs': 'labs.graphistry.com'}
+        shortcuts = {}
         if value in shortcuts:
             resolved = shortcuts[value]
             PyGraphistry._config['hostname'] = resolved
             util.warn('Resolving alias %s to %s' % (value, resolved))
         else:
             PyGraphistry._config['hostname'] = value
+
+    @staticmethod
+    def store_token_creds_in_memory(value=None):
+        """Cache credentials for JWT token access. Default off due to not being safe."""
+        if value is None:
+            return PyGraphistry._config['store_token_creds_in_memory']
+        else:
+            PyGraphistry._config['store_token_creds_in_memory'] = value
+
+    @staticmethod
+    def client_protocol_hostname(value=None):
+        """Get/set the client protocol+hostname for when display urls (distinct from uploading).
+        Also set via environment variable GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
+        Defaults to hostname and no protocol (reusing environment protocol)"""
+
+        if value is None:
+            cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
+            #skip doing protocol by default to match notebook's protocol
+            cph = ('//' + PyGraphistry.server()) if cfg_client_protocol_hostname is None else cfg_client_protocol_hostname
+            return cph
+        else:
+            PyGraphistry._config['client_protocol_hostname'] = value
 
 
     @staticmethod
@@ -151,6 +239,18 @@ class PyGraphistry(object):
             PyGraphistry._config['api_token'] = value.strip()
             PyGraphistry._is_authenticated = False
 
+    @staticmethod
+    def api_token_refresh_ms(value=None):
+        """Set or get the API token refresh interval in milliseconds.
+        None and 0 interpreted as no refreshing."""
+
+        if value is None:
+            return PyGraphistry._config['api_token_refresh_ms']
+
+        # setter
+        if value is not PyGraphistry._config['api_token_refresh_ms']:
+            PyGraphistry._config['api_token_refresh_ms'] = int(value)
+
 
     @staticmethod
     def protocol(value=None):
@@ -165,7 +265,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def api_version(value=None):
-        """Set or get the API version (1 or 2).
+        """Set or get the API version: 1 or 2 for 1.0 (deprecated), 3 for 2.0
         Also set via environment variable GRAPHISTRY_API_VERSION."""
         if value is None:
             return PyGraphistry._config['api_version']
@@ -193,53 +293,77 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def register(key=None, username=None, password=None, token=None, server=None, protocol=None, api=None, certificate_validation=None, bolt=None):
+    def register(key=None, username=None, password=None, token=None,
+            server=None, protocol=None, api=None, certificate_validation=None, bolt=None,
+            token_refresh_ms=10*60*1000, store_token_creds_in_memory=None, client_protocol_hostname=None):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
 
         Provide one of key (api=1,2) or username/password (api=3) or token (api=3). 
 
-        :param key: API key.
-        :type key: String.
+        :param key: API key (1.0 API).
+        :type key: Optional string.
+        :param username: Account username (2.0 API).
+        :type username: Optional string.
+        :param password: Account password (2.0 API).
+        :type password: Optional string.
+        :param token: Valid Account JWT token (2.0). Provide token, or username/password, but not both.
+        :type token: Optional string.
         :param server: URL of the visualization server.
         :type server: Optional string.
-        :param protocol: Protocol used to contact visualization server
+        :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
+        :type certificate_validation: Optional bool.
+        :param bolt: Neo4j bolt information.
+        :type bolt: Optional driver or named constructor arguments for instantiating a new one.
+        :param protocol: Protocol used to contact visualization server, defaults to "https".
         :type protocol: Optional string.
+        :param token_refresh_ms: Ignored for now; JWT token auto-refreshed on plot() calls.
+        :type token_refresh_ms:
+        :param store_token_creds_in_memory: Store username/password in-memory for JWT token refreshes. Unsafe; not recommended.
+        :type store_token_creds_in_memory: Optional bool.
+        :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
+        :type client_protocol_hostname: Optional string.
         :returns: None.
         :rtype: None.
 
-
-        **Example: Standard**
-                ::
-
-                    import graphistry
-                    graphistry.register(key="my api key")
-
-        **Example: Developer**
-                ::
-
-                    import graphistry
-                    graphistry.register('my api key', server='staging', protocol='https')
-
-
-        **Example: Through environment variable**
-                ::
-                    export GRAPHISTRY_API_KEY = 'my api key'
+        **Example: Standard (2.0 api by username/password)**
                 ::
                     import graphistry
-                    graphistry.register()
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', username='person', password='pwd')
+
+        **Example: Standard (2.0 api by token)**
+                ::
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', token='abc')
+
+        **Example: Remote browser to Graphistry-provided notebook server (2.0)**
+                ::
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='nginx', client_protocol_hostname='https://my.site.com', token='abc')
+
+        **Example: Standard (1.0)**
+                ::
+                    import graphistry
+                    graphistry.register(api=1, key="my api key")
+
         """
+        PyGraphistry.api_version(api)
+        PyGraphistry.api_token_refresh_ms(token_refresh_ms)
         PyGraphistry.api_key(key)
         PyGraphistry.server(server)
-        PyGraphistry.api_version(api)
         PyGraphistry.protocol(protocol)
+        PyGraphistry.client_protocol_hostname(client_protocol_hostname)
         PyGraphistry.certificate_validation(certificate_validation)
-        PyGraphistry.authenticate()
-        PyGraphistry.set_bolt_driver(bolt)
+
+        if not (store_token_creds_in_memory is None):
+            PyGraphistry.store_token_creds_in_memory(bool(store_token_creds_in_memory))
         if not (username is None) and not (password is None):
             PyGraphistry.login(username, password)
-        PyGraphistry.api_token(token)
+        PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
+        PyGraphistry.authenticate()
+
+        PyGraphistry.set_bolt_driver(bolt)
 
 
     @staticmethod
@@ -362,6 +486,27 @@ class PyGraphistry(object):
 
         from . import plotter
         return plotter.Plotter().nodexl(xls_or_url, source, engine, verbose)
+
+
+    @staticmethod
+    def name(name):
+        """Upload name
+
+        :param name: Upload name
+        :type name: str"""
+
+        from . import plotter
+        return plotter.Plotter().name(name)
+
+    @staticmethod
+    def description(description):
+        """Upload description
+
+        :param description: Upload description
+        :type description: str"""
+
+        from . import plotter
+        return plotter.Plotter().description(description)
 
 
     @staticmethod
@@ -603,8 +748,7 @@ INTERPRET QUERY () FOR GRAPH Storage {
     def _viz_url(info, url_params):
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = '&'.join([ k + '=' + str(v) for k,v in list(url_params.items())])
-        cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
-        cph = ('//' + PyGraphistry._config['hostname']) if cfg_client_protocol_hostname is None else cfg_client_protocol_hostname
+        cph = PyGraphistry.client_protocol_hostname()
         pattern = '%s/graph/graph.html?dataset=%s&type=%s&viztoken=%s&usertag=%s&splashAfter=%s&%s'
         return pattern % (cph, info['name'], info['type'],
                           info['viztoken'], PyGraphistry._tag, splash_time, extra)
@@ -751,8 +895,19 @@ INTERPRET QUERY () FOR GRAPH Storage {
         except Exception as e:
             util.warn('Could not contact %s. Are you connected to the Internet?' % PyGraphistry._config['hostname'])
 
+
+client_protocol_hostname = PyGraphistry.client_protocol_hostname
+store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
+server = PyGraphistry.server
+protocol = PyGraphistry.protocol
 register = PyGraphistry.register
+login = PyGraphistry.login
+refresh = PyGraphistry.refresh
+api_token = PyGraphistry.api_token
+verify_token = PyGraphistry.verify_token
 bind = PyGraphistry.bind
+name = PyGraphistry.name
+description = PyGraphistry.description
 edges = PyGraphistry.edges
 nodes = PyGraphistry.nodes
 graph = PyGraphistry.graph
