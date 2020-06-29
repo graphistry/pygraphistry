@@ -84,7 +84,7 @@ def jwt_refresh_tick():
     if not (refresh_ms is None) and refresh_ms > 0:
         jwt_refresh_loop = sched.scheduler(time.time, time.sleep)
         jwt_refresh_loop.enter(refresh_ms / 1000, 1, jwt_refresh_tick, ())
-        jwt_refresh_loop.run(blocking=False)
+        jwt_refresh_loop.run(blocking=True)
 
 class PyGraphistry(object):
     _config = _get_initial_config()
