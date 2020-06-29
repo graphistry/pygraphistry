@@ -76,19 +76,15 @@ def _get_initial_config():
     return config
 
 
-jwt_refresh_loop = None
 def jwt_refresh_tick():
 
     PyGraphistry.refresh()
 
     refresh_ms = PyGraphistry.api_token_refresh_ms()
     if not (refresh_ms is None) and refresh_ms > 0:
-        global jwt_refresh_loop
-        if jwt_refresh_loop is None:
-            jwt_refresh_loop = sched.scheduler(time.time, time.sleep)
-            jwt_refresh_loop.run()
+        jwt_refresh_loop = sched.scheduler(time.time, time.sleep)
         jwt_refresh_loop.enter(refresh_ms / 1000, 1, jwt_refresh_tick, ())
-
+        jwt_refresh_loop.run(blocking=False)
 
 class PyGraphistry(object):
     _config = _get_initial_config()
@@ -341,17 +337,19 @@ class PyGraphistry(object):
 
         """
         PyGraphistry.api_version(api)
+        PyGraphistry.api_token_refresh_ms(token_refresh_ms)
         PyGraphistry.api_key(key)
         PyGraphistry.server(server)
         PyGraphistry.protocol(protocol)
         PyGraphistry.client_protocol_hostname(client_protocol_hostname)
         PyGraphistry.certificate_validation(certificate_validation)
-        PyGraphistry.set_bolt_driver(bolt)
+
         if not (username is None) and not (password is None):
             PyGraphistry.login(username, password)
         PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
-        PyGraphistry.api_token_refresh_ms(token_refresh_ms)
         PyGraphistry.authenticate()
+
+        PyGraphistry.set_bolt_driver(bolt)
 
 
     @staticmethod
