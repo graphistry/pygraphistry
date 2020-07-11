@@ -257,8 +257,8 @@ To define the graph, we <code>bind</code> *source* and *destination* to the colu
 import graphistry
 graphistry.register(protocol='https', server='hub.graphistry.com', token='YOUR_JWT_TOKEN_HERE')
 
-plotter = graphistry.bind(source="source", destination="target")
-plotter.plot(links)
+g = graphistry.bind(source="source", destination="target")
+g.plot(links)
 ```
 
 You should see a beautiful graph like this one:
@@ -270,37 +270,58 @@ Let's add labels to edges in order to show how many times each pair of character
 
 ```python
 links["label"] = links.value.map(lambda v: "#Meetings: %d" % v)
-plotter = plotter.bind(edge_label="label")
-plotter.plot(links)
+g = g.bind(edge_label="label")
+g.plot(links)
 ```
 
-### Controlling Node Title, Size, Color, and Location
-Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). [IGraph](http://igraph.org/python/) already has these algorithms implemented for us. If IGraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
+### Controlling Node Title, Size, Color, and Position
+Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). 
 
-We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we create two new node attributes (*pagerank* & *community*).
+
+#### Warmup: IGraph for computing statistics
+[IGraph](http://igraph.org/python/) already has these algorithms implemented for us. If IGraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
+
+We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
 
 ```python
-ig = plotter.pandas2igraph(links)
+ig = graphistry.pandas2igraph(links)
 ig.vs['pagerank'] = ig.pagerank()
 ig.vs['community'] = ig.community_infomap().membership
-
-plotter.bind(point_color='community', point_size='pagerank').plot(ig)
 ```
 
-To control the location, add `x` and `y` columns to the node tables ([see demos](demos/more_examples/graphistry_features/external_layout)). You may also want to bind `point_title`.
+#### Bind node data to visual node attributes
+
+We can then bind the node `community` and `pagerank` columns to visualization attributes:
+
+```python
+g.bind(point_color='community', point_size='pagerank').plot(ig)
+```
+
+See the [color palette documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2) for specifying color values. 
+
+
+To control the position, we can add `.bind(point_x='colA', point_y='colB').settings(url_params={'play': 0})` ([see demos](demos/more_examples/graphistry_features/external_layout) and [additional url parameters](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)]). In `api=1`, you created columns named `x` and `y`. 
+
+You may also want to bind `point_title`: `.bind(point_title='colA')`. 
 
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
+### Add edge colors and weights
+
+By default, edges get colored as a gradient between their source/destination node colors. You can override this by setting `.bind(edge_color='colA')`, similar to how node colors function. ([See color documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2).)
+
+Similarly, you can bind the edge weight, where higher weights cause nodes to cluster closer together: `.bind(edge_weight='colA')`. [See tutorial](demos/more_examples/graphistry_features/edge-weights.ipynb).
+
 ## Next Steps
 
-1. If you don't have an API key to a Graphistry server, [one-click launch Graphistry in AWS](https://www.graphistry.com/get-started)
+1. Create a free public data [Graphistry Hub](https://www.graphistry.com/get-started) account or [one-click launch a private Graphistry instance in AWS](https://www.graphistry.com/get-started)
 2. Check out the [analyst](demos/for_analysis.ipynb) and [developer](demos/for_developers.ipynb) introductions, or [try your own CSV](demos/upload_csv_miniapp.ipynb)
 3. Explore the [demos folder](demos) for your favorite file format, database, API, or kind of analysis
 
 ## References
 
 * Graphistry [UI Guide](https://hub.graphistry.com/docs/ui/index/)
-* [API docs](https://hub.graphistry.com/docs/api/): REST API, embedding URLs, JS, and more
+* [API docs](https://hub.graphistry.com/docs/api/): Bindings and colors, REST API, embedding URLs and URL parameters, dynamic JS API, and more
 * [Python API ReadTheDocs](http://pygraphistry.readthedocs.org/en/latest/)
 * Within a notebook, you can always run `help(graphistry)`, `help(graphistry.hypergraph)`, etc.
 * Additional [Graphistry API docs](https://hub.graphistry.com/docs/), including the predefined [color palette values](https://hub.graphistry.com/docs/api/api-color-palettes/) (color brewer)
