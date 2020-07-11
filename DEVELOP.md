@@ -38,6 +38,6 @@ Uninstall the local checkout (useful to rollback to packaged version) with `./se
 	git push --tags
 	```
 
-2. Ensure a packaged release happens @ https://github.com/graphistry/pygraphistry/tags, manually if needed
+2. Toggle version as active at [ReadTheDocs](https://readthedocs.org/projects/pygraphistry/versions/)
 
-3. Ensure a docs release happens @ https://readthedocs.org/projects/pygraphistry/
+3. Confirm PyPI picked up the [release](https://pypi.org/project/graphistry/)
