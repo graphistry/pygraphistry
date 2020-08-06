@@ -61,6 +61,7 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
      ```python
      edges = pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
      graphistry.bind(source='src', destination='dst').edges(edges).plot()
+     ```
      
      ```python
      table_rows = pd.read_csv('honeypot.csv')
@@ -77,6 +78,7 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
      ```
 
      ```python
+     ### Override smart defaults with custom settings
      g1 = graphistry.bind(source='src', destination='dst').edges(edges)
      g2 = g1.nodes(nodes).bind(node='col2')
      g3 = g2.bind(point_color='col3')
@@ -85,9 +87,11 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
      ```
      
     ```python
-    enriched_edges = my_function1(g._edges)
-    enriched_nodes = my_function2(g._nodes)
-    g.edges(enriched_edges).nodes(enriched_nodes).plot()```    
+    ### Read back data and create modified variants
+    enriched_edges = my_function1(g1._edges)
+    enriched_nodes = my_function2(g1._nodes)
+    g2 = g1.edges(enriched_edges).nodes(enriched_nodes)
+    g2.plot()```
     
     
   - GPU [RAPIDS.ai](https://www.rapids.ai)
@@ -197,13 +201,13 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 You need to install the PyGraphistry client somewhere and connect it to a Graphistry server. 
 
 1. Graphistry server & account:
-  * Create a free [Graphistry Hub account](https://www.graphistry.com/get-started) for open data, or [one-click launch your own private AWS/Azure instance](https://www.graphistry.com/get-started)
-  * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private enterprise Docker instance ((contact))[https://www.graphistry.com/demo-request]
+    * Create a free [Graphistry Hub account](https://www.graphistry.com/get-started) for open data, or [one-click launch your own private AWS/Azure instance](https://www.graphistry.com/get-started)
+    * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private enterprise Docker instance ((contact))[https://www.graphistry.com/demo-request]
 
 2. PyGraphistry:
-  * `pip install --user graphistry` (or go direct via [RESTful HTTP calls](https://hub.graphistry.com/docs/api/))
-    * Use `pip install --user graphistry[all]` for optional dependencies such as Neo4j drivers
-  * To use from a notebook environment, run your own [Jupyter](https://jupyter.org/) server ([one-click launch your own private AWS/Azure instance](https://www.graphistry.com/get-started)) or another such as [Google Colab](https://colab.research.google.com)
+    * `pip install --user graphistry` (or go direct via [RESTful HTTP calls](https://hub.graphistry.com/docs/api/))
+        * Use `pip install --user graphistry[all]` for optional dependencies such as Neo4j drivers
+    * To use from a notebook environment, run your own [Jupyter](https://jupyter.org/) server ([one-click launch your own private AWS/Azure instance](https://www.graphistry.com/get-started)) or another such as [Google Colab](https://colab.research.google.com)
   
 
 ### Configure
@@ -236,7 +240,7 @@ Preconfigure private Graphistry servers to fill in this data for you.
 
 #### Client
 
-In cases such as when the notebook server is the same as the Graphistry server, you may want your Python code to  *upload* to a known local Graphistry address (e.g., `nginx` or `localhost`), and generate and embed URLs to a different public address (e.g., `https://acme.ngo/graphistry`). In this case, explicitly set a different client (browser) location:
+In cases such as when the notebook server is the same as the Graphistry server, you may want your Python code to  *upload* to a known local Graphistry address (e.g., `nginx` or `localhost`), and generate and embed URLs to a different public address (e.g., `https://graphistry.acme.ngo`). In this case, explicitly set a different client (browser) location:
 
 ```
 graphistry.register(
@@ -244,9 +248,11 @@ graphistry.register(
     protocol='http', server='nginx', 
   
     ### shareable public URL for browsers
-    client_protocol_hostname='https://graphistry.commysite.ngo'
+    client_protocol_hostname='https://graphistry.acme.ngo'
 )
 ```
+
+Prebuilt Graphistry servers are already setup to do this out-of-the-box.
 
 
 ## Tutorial: Les Misérables
