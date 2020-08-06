@@ -14,11 +14,12 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 
 1. [Interactive Demo](#demo-of-friendship-communities-on-facebook)
 2. [Graph Gallery](#gallery)
-3. [Installation](#installation)
+3. [Install](#install)
 4. [Tutorial](#tutorial-les-misérables)
-5. [API Reference](#api-reference)
+5. [Next Steps](#next-steps)
+5. [Resources](#resources)
 
-### Demo of Friendship Communities on Facebook
+## Demo of Friendship Communities on Facebook
 
 <table style="width:100%;">
   <tr valign="top">
@@ -40,7 +41,7 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 </table>
 -->
 
-### PyGraphistry is...
+## PyGraphistry is...
 
 - **Fast & Gorgeous:** Cluster, filter, and inspect large amounts of data at interactive speed. We layout graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
 
@@ -59,8 +60,8 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 
      ```python
      edges = pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
-     graphistry.bind(source='src', destination='dst').plot(edges)
-     ```
+     graphistry.bind(source='src', destination='dst').edges(edges).plot()
+     
      ```python
      table_rows = pd.read_csv('honeypot.csv')
      graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'])['graph'].plot()
@@ -75,6 +76,33 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 	 }})['graph'].plot()
      ```
 
+     ```python
+     g1 = graphistry.bind(source='src', destination='dst').edges(edges)
+     g2 = g1.nodes(nodes).bind(node='col2')
+     g3 = g2.bind(point_color='col3')
+     g4 = g3.settings(url_params={'edgeInfluence': 1.0, play: 2000})
+     url = g4.plot(render=False)
+     ```
+     
+    ```python
+    enriched_edges = my_function1(g._edges)
+    enriched_nodes = my_function2(g._nodes)
+    g.edges(enriched_edges).nodes(enriched_nodes).plot()```    
+    
+    
+  - GPU [RAPIDS.ai](https://www.rapids.ai)
+  
+    ```python
+    edges = cudf.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
+    graphstistry.edges(edges).bind(source='src', destination='dst').plot()
+    ```
+  - [Apache Arrow](https://arrow.apache.org/)
+  
+    ```python
+     edges = pa.Table.from_pandas(pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst']))
+     graphstistry.edges(edges).bind(source='src', destination='dst').plot()
+    ```
+    
   - [Neo4j](http://neo4j.com) ([notebook demo](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
   
      ```python
@@ -163,43 +191,24 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
     </tr>
 </table>
 
-## Installation
+## Install
 
-You need to install the PyGraphistry client somewhere and connect it to a Graphistry server. We recommend the following options:
+### Get
+You need to install the PyGraphistry client somewhere and connect it to a Graphistry server. 
 
-1. [Private Graphistry Server](https://www.graphistry.com/get-started): One-click launch with Graphistry, PyGraphistry, and Jupyter Notebooks preinstalled and ready to go out-of-the-box (AWS and Azure)
-2. `pip install graphistry`: If you already have Jupyter Notebook installed or are using a system like Google Colab, install the PyGraphistry pip package. Connect it to a free [Graphistry Hub](https://www.graphistry.com/get-started) account or [a private Graphistry server](https://www.graphistry.com/get-started).
+1. Graphistry server & account:
+  * Create a free [Graphistry Hub account](https://www.graphistry.com/get-started) for open data, or [one-click launch your own private AWS/Azure instance](https://www.graphistry.com/get-started)
+  * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private enterprise Docker instance ((contact))[https://www.graphistry.com/demo-request]
 
-### Option 1: New users - Private Graphistry AWS/Azure Server with Preinstalled PyGraphistry client
+2. PyGraphistry:
+  * `pip install --user graphistry` (or go direct via [RESTful HTTP calls](https://hub.graphistry.com/docs/api/))
+    * Use `pip install --user graphistry[all]` for optional dependencies such as Neo4j drivers
+  * To use from a notebook environment, run your own [Jupyter](https://jupyter.org/) server ([one-click launch your own private AWS/Azure instance](https://www.graphistry.com/get-started)) or another such as [Google Colab](https://colab.research.google.com)
+  
 
-For new users who have AWS accounts, simply [launch the self-serve Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core). See [GrNaphistr.com](https://www.graphistry.com/get-started) for additional quick launch modes.
+### Configure
 
-A private server provides several benefits for getting started:
-
-* PyGraphistry is preinstalled
-* Jupyter Notebook is preinstalled
-* Starter examples of using with different files, databases, and Nvidia RAPIDS are provided
-* Preconfigured backend server: Nvidia drivers, `nvidia-docker`, Graphistry server, RAPIDS environment, etc.
-* Running in your private server means you can safely explore private data there
-
-The server gracefully stops/starts: Control potential server utility fees by simply stopping the server when not using it.
-
-
-### Option 2: PyGraphistry pip package - With Graphistry Hub or a private server
-
-Install PyGraphistry into your own Python app or data science notebook environment such as [Jupyter](https://jupyter.org/) and [Google Colab](https://colab.research.google.com). Connect it to a Graphistry server such as the self-serve [Graphistry AMI](https://aws.amazon.com/marketplace/pp/B07Q88KH8C?ref=_ptnr_pygraphistry_ste_core) or a free [Graphistry Hub](https://www.graphistry.com/get-started) account.
-
-Install PyGraphistry with Python's `pip` package manager:
-
-- Pandas only (recommended): `pip install --user graphistry`
-- + neo4j: `pip install --user "graphistry[bolt]"`
-- + IGraph, NetworkX, Neo4j: `pip install --user "graphistry[all]"`
-
-The latter two can be skipped if you already have the third-party Python packages at the appropriate versions installed.
-
-##### Jupyter Notebook Integration
-
-### API Credentials
+#### API Credentials
 Provide your API credentials to upload data to your Graphistry GPU server:
 
 ```python
@@ -215,7 +224,7 @@ Optionally, for convenience, you may set your API key in your system environment
 
 ```export GRAPHISTRY_API_KEY="Your key"```
 
-### Server
+#### Server
 
 Specify which Graphistry to reach:
 
@@ -224,6 +233,21 @@ graphistry.register(protocol='https', server='hub.graphistry.com')
 ```
 
 Preconfigure private Graphistry servers to fill in this data for you.
+
+#### Client
+
+In cases such as when the notebook server is the same as the Graphistry server, you may want your Python code to  *upload* to a known local Graphistry address (e.g., `nginx` or `localhost`), and generate and embed URLs to a different public address (e.g., `https://acme.ngo/graphistry`). In this case, explicitly set a different client (browser) location:
+
+```
+graphistry.register(
+    ### fast local notebook<>graphistry upload
+    protocol='http', server='nginx', 
+  
+    ### shareable public URL for browsers
+    client_protocol_hostname='https://graphistry.commysite.ngo'
+)
+```
+
 
 ## Tutorial: Les Misérables
 
@@ -258,7 +282,7 @@ import graphistry
 graphistry.register(protocol='https', server='hub.graphistry.com', token='YOUR_JWT_TOKEN_HERE')
 
 g = graphistry.bind(source="source", destination="target")
-g.plot(links)
+g.edges(links).plot()
 ```
 
 You should see a beautiful graph like this one:
@@ -271,7 +295,7 @@ Let's add labels to edges in order to show how many times each pair of character
 ```python
 links["label"] = links.value.map(lambda v: "#Meetings: %d" % v)
 g = g.bind(edge_label="label")
-g.plot(links)
+g.edges(links).plot()
 ```
 
 ### Controlling Node Title, Size, Color, and Position
@@ -297,7 +321,7 @@ We can then bind the node `community` and `pagerank` columns to visualization at
 g.bind(point_color='community', point_size='pagerank').plot(ig)
 ```
 
-See the [color palette documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2) for specifying color values. 
+See the [color palette documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2) for specifying color values by using built-in ColorBrewer palettes (`int32`) or custom RGB values (`int64`).
 
 
 To control the position, we can add `.bind(point_x='colA', point_y='colB').settings(url_params={'play': 0})` ([see demos](demos/more_examples/graphistry_features/external_layout) and [additional url parameters](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)]). In `api=1`, you created columns named `x` and `y`. 
@@ -318,11 +342,17 @@ Similarly, you can bind the edge weight, where higher weights cause nodes to clu
 2. Check out the [analyst](demos/for_analysis.ipynb) and [developer](demos/for_developers.ipynb) introductions, or [try your own CSV](demos/upload_csv_miniapp.ipynb)
 3. Explore the [demos folder](demos) for your favorite file format, database, API, or kind of analysis
 
-## References
+## Resources
 
 * Graphistry [UI Guide](https://hub.graphistry.com/docs/ui/index/)
-* [API docs](https://hub.graphistry.com/docs/api/): Bindings and colors, REST API, embedding URLs and URL parameters, dynamic JS API, and more
-* [Python API ReadTheDocs](http://pygraphistry.readthedocs.org/en/latest/)
-* Within a notebook, you can always run `help(graphistry)`, `help(graphistry.hypergraph)`, etc.
-* Additional [Graphistry API docs](https://hub.graphistry.com/docs/), including the predefined [color palette values](https://hub.graphistry.com/docs/api/api-color-palettes/) (color brewer)
-
+* [General and REST API docs](https://hub.graphistry.com/docs/api/): 
+  * [URL settings](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)
+  * [Authentication](https://hub.graphistry.com/docs/api/1/rest/auth/)
+  * [Uploading](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2), including multiple file formats and settings
+  * [Color bindings](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2) and [color palettes](https://hub.graphistry.com/docs/api/api-color-palettes/) (ColorBrewer)
+  * Bindings and colors, REST API, embedding URLs and URL parameters, dynamic JS API, and more
+  * JavaScript and more!
+* Python-specific
+  * [Python API ReadTheDocs](http://pygraphistry.readthedocs.org/en/latest/)
+  * Within a notebook, you can always run `help(graphistry)`, `help(graphistry.hypergraph)`, etc.
+* [Administration docs](https://github.com/graphistry/graphistry-cli) for sizing, installing, configuring, managing, and updating Graphistry servers
