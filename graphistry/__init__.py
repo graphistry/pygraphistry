@@ -13,5 +13,6 @@ hypergraph,
 bolt, cypher,
 tigergraph, gsql, gsql_endpoint,
 nodexl,
-ArrowUploader
+ArrowUploader,
+PyGraphistry
 )
