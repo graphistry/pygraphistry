@@ -51,6 +51,12 @@ setup(
         'networkx': ['networkx'],
         'bolt': ['neo4j', 'neotime'],
         'nodexl': ['openpyxl', 'xlrd'],
+        'dev': [
+          'pytest', 'mock', 'ipython',
+          'python-igraph', 'networkx==2.2', 'colorlover',
+          'neo4j', 'neotime',
+          'openpyxl', 'xlrd'
+        ],
         'all': ['python-igraph', 'networkx', 'colorlover', 'neo4j', 'neotime']
     },
     tests_require=

@@ -1,0 +1,41 @@
+version: "3.5"
+
+networks:
+  grph_net:
+    name: grph_net
+
+x-production-options:
+  &production_opts
+  restart: unless-stopped
+  networks:
+    - grph_net
+
+
+x-build-kwargs:
+  &build_kwargs
+  args:
+    - DOCKER_TAG=${DOCKER_TAG:-latest}
+    - BUILDKIT_INLINE_CACHE=1    
+
+
+############################################################
+##
+## SERVICES
+##
+############################################################
+
+services:
+  test-cpu:
+    << : *production_opts
+    image: graphistry/test-cpu:${DOCKER_TAG:-latest}
+    build:
+      << : *build_kwargs
+      context: ..
+      dockerfile: ./docker/test-cpu.Dockerfile
+      cache_from:
+        - graphistry/test-cpu:${DOCKER_TAG:-latest}
+    container_name: "test-cpu"
+    #ports:
+    #  - "8501:8501"
+    #volumes:
+    #  - ../python:/apps
