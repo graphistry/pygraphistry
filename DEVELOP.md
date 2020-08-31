@@ -1,4 +1,22 @@
 # Development Setup
+
+Dev is moving towards docker for easier tasks like CI automation integrations and reliable local dev
+
+## Docker
+
+### Install
+
+```bash
+cd docker && docker-compose build && docker-compose up -d
+```
+### Run local tests without rebuild
+
+```bash
+cd docker && ./test-cpu-local.sh
+```
+
+
+## Local (non-docker) - DEPRECATED
 ### Install Git Checkout:
 
 1. Remove any version installed with pip
@@ -14,12 +32,16 @@
 4. To duplicate CI tests, in python2 and 3, run ` time flake8 . --count --select=E901,E999,F821,F822,F823 --show-source --statistics`
 
 
-### Via Docker
+### Via Docker (GPU)
 
 1. "docker pull graphistry/graphistry-forge-base:v<latest>"
 2. ./test-docker.sh
 
-### CI
+## CI
+
+We intend to move to Github Actions / DockerHub Automated Builds for CPU and TBD for GPU
+
+### Travis
 
 Travis CI automatically runs on every branch (with a Travis CI file). To configure, go to the [Travis CI account](https://travis-ci.org/graphistry/pygraphistry) .
 
@@ -27,7 +49,7 @@ Travis CI automatically runs on every branch (with a Travis CI file). To configu
 
 Uninstall the local checkout (useful to rollback to packaged version) with `./setup.py develop --uninstall`
 
-# Release Procedure: Merge, Tag, Package, & Upload
+## Release Procedure: Merge, Tag, Package, & Upload
 
 0. Merge the desired PR to master and switch to master head (`git checkout master && git pull`)
 

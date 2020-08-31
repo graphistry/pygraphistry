@@ -32,7 +32,8 @@ EnvVarNames = {
     'hostname': 'GRAPHISTRY_HOSTNAME',
     'protocol': 'GRAPHISTRY_PROTOCOL',
     'client_protocol_hostname': 'GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME',
-    'certificate_validation': 'GRAPHISTRY_CERTIFICATE_VALIDATION'
+    'certificate_validation': 'GRAPHISTRY_CERTIFICATE_VALIDATION',
+    'store_token_creds_in_memory': 'GRAPHISTRY_STORE_CREDS_IN_MEMORY'
 }
 
 config_paths = [
@@ -51,7 +52,7 @@ default_config = {
     'protocol': 'https',
     'client_protocol_hostname': None,
     'certificate_validation': True,
-    'store_token_creds_in_memory': False
+    'store_token_creds_in_memory': True
 }
 
 
@@ -62,7 +63,7 @@ def _get_initial_config():
             with open(path) as config_file:
                 config.update(json.load(config_file))
         except ValueError as e:
-            util.warn('Syntax error in %s, skipping. (%s)' % (path, e.message))
+            util.warn('Syntax error in %s, skipping. (%s)' % (path, e))
             pass
         except IOError:
             pass
@@ -117,15 +118,13 @@ class PyGraphistry(object):
         if PyGraphistry._config['store_token_creds_in_memory']:
             PyGraphistry.relogin = lambda: PyGraphistry.login(username, password, fail_silent)
 
+        PyGraphistry._is_authenticated = False
         token = ArrowUploader(
             server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
             certificate_validation=PyGraphistry.certificate_validation())\
                 .login(username, password).token
         PyGraphistry.api_token(token)
         PyGraphistry._is_authenticated = True
-
-        #starts auth loop
-        PyGraphistry.authenticate()
 
         return PyGraphistry.api_token()
 
@@ -195,7 +194,8 @@ class PyGraphistry(object):
         if value is None:
             return PyGraphistry._config['store_token_creds_in_memory']
         else:
-            PyGraphistry._config['store_token_creds_in_memory'] = value
+            v = bool(strtobool(value)) if isinstance(value, basestring) else value
+            PyGraphistry._config['store_token_creds_in_memory'] = v
 
     @staticmethod
     def client_protocol_hostname(value=None):
@@ -320,8 +320,8 @@ class PyGraphistry(object):
         :type protocol: Optional string.
         :param token_refresh_ms: Ignored for now; JWT token auto-refreshed on plot() calls.
         :type token_refresh_ms:
-        :param store_token_creds_in_memory: Store username/password in-memory for JWT token refreshes. Unsafe; not recommended.
-        :type store_token_creds_in_memory: Optional bool.
+        :param store_token_creds_in_memory: Store username/password in-memory for JWT token refreshes (Token-originated have a hard limit, so always-on requires creds somewhere)
+        :type store_token_creds_in_memory: Optional bool. Default-on.
         :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
         :type client_protocol_hostname: Optional string.
         :returns: None.
@@ -355,9 +355,7 @@ class PyGraphistry(object):
         PyGraphistry.protocol(protocol)
         PyGraphistry.client_protocol_hostname(client_protocol_hostname)
         PyGraphistry.certificate_validation(certificate_validation)
-
-        if not (store_token_creds_in_memory is None):
-            PyGraphistry.store_token_creds_in_memory(bool(store_token_creds_in_memory))
+        PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
         if not (username is None) and not (password is None):
             PyGraphistry.login(username, password)
         PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
