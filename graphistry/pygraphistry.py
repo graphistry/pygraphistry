@@ -51,7 +51,7 @@ default_config = {
     'protocol': 'https',
     'client_protocol_hostname': None,
     'certificate_validation': True,
-    'store_token_creds_in_memory': False
+    'store_token_creds_in_memory': True
 }
 
 
@@ -117,15 +117,13 @@ class PyGraphistry(object):
         if PyGraphistry._config['store_token_creds_in_memory']:
             PyGraphistry.relogin = lambda: PyGraphistry.login(username, password, fail_silent)
 
+        PyGraphistry._is_authenticated = False
         token = ArrowUploader(
             server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
             certificate_validation=PyGraphistry.certificate_validation())\
                 .login(username, password).token
         PyGraphistry.api_token(token)
         PyGraphistry._is_authenticated = True
-
-        #starts auth loop
-        PyGraphistry.authenticate()
 
         return PyGraphistry.api_token()
 
@@ -320,8 +318,8 @@ class PyGraphistry(object):
         :type protocol: Optional string.
         :param token_refresh_ms: Ignored for now; JWT token auto-refreshed on plot() calls.
         :type token_refresh_ms:
-        :param store_token_creds_in_memory: Store username/password in-memory for JWT token refreshes. Unsafe; not recommended.
-        :type store_token_creds_in_memory: Optional bool.
+        :param store_token_creds_in_memory: Store username/password in-memory for JWT token refreshes
+        :type store_token_creds_in_memory: Optional bool. Default-on.
         :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
         :type client_protocol_hostname: Optional string.
         :returns: None.
