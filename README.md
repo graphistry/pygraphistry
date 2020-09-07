@@ -45,18 +45,39 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 
 ## PyGraphistry is...
 
-- **Fast & Gorgeous:** Cluster, filter, and inspect large amounts of data at interactive speed. We layout graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
+- **Fast & gorgeous:** Cluster, filter, and inspect large amounts of data at interactive speed. We layout graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
 
--  **Notebook Friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com): Process, visualize, and drill into with graphs directly within your notebooks.
+- **Easy to install:** `pip install` the client in your notebook or web app, and then connect to a [free Graphistry Hub account](https://www.graphistry.com/get-started) or [launch your own private GPU server](https://www.graphistry.com/get-started)
+   ```python
+  # pip install --user graphistry
+  import graphistry
+  graphistry.register(api=3, username='abc', password='xyz')
+  #graphistry.register(..., protocol='http', host='my.site.ngo')
+  ```
 
-- **Great for Events, CSVs, and more:** Not sure if your data is graph-friendly? PyGraphistry's `hypergraph` transform helps turn any sample data like CSVs, SQL results, and event data into a graph for pattern analysis:
+-  **Notebook friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:
+
+    ```python
+    graphistry
+      .edges(pd.read_csv('rows.csv'))
+      .bind(source='col_a', destination='col_b')
+      .plot()
+    ```
+
+-  **Embeddable:** Drop live views into your web dashboards and apps:
+    ```python
+    iframe_url = g.plot(render=False)
+    print(f'<iframe src="{ iframe_url }"></iframe>')
+    ```
+
+- **Great for events, CSVs, and more:** Not sure if your data is graph-friendly? PyGraphistry's `hypergraph` transform helps turn any sample data like CSVs, SQL results, and event data into a graph for pattern analysis:
 
      ```python
      rows = pandas.read_csv('transactions.csv')[:1000]
      graphistry.hypergraph(rows)['graph'].plot()
      ```
 
-- **Batteries Included:** PyGraphistry works out-of-the-box with popular data science and graph analytics libraries. It is also very easy to turn arbitrary data into insightful graphs:
+- **Batteries included:** PyGraphistry works out-of-the-box with popular data science and graph analytics libraries. It is also very easy to turn arbitrary data into insightful graphs:
 
   - [Pandas](http://pandas.pydata.org)
 
@@ -69,6 +90,7 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
      table_rows = pd.read_csv('honeypot.csv')
      graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'])['graph'].plot()
      ```
+     
      ```python
      graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'], 
          direct=True, 
@@ -181,6 +203,41 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
     graphistry.nodexl('https://file.xls')._nodes
     ```  
 
+  - **Quickly configurable:** Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of options](https://hub.graphistry.com/docs/api/1/rest/url/):
+  
+ 
+  ```python
+    g
+      .bind(
+        point_color='col_a',
+	    point_size='col_b',
+	    point_title='col_c',
+	    point_x='col_d',
+	    point_y='col_e')
+      .bind(
+        edge_color='col_m',
+	    edge_weight='col_n',
+	    edge_title='col_o')
+      .settings(url_params={
+        'play': 2000,
+	    'menu': True, 'info': True,
+	    'bg': '%23FFFFFF',
+	    'showArrows': True,
+	    'pointSize': 2.0, 'edgeCurvature': 0.5,
+	    'edgeOpacity': 1.0, 'pointOpacity': 1.0,
+	    'lockedX': False, 'lockedY': False, 'lockedR': False,
+	    'linLog': False, 'strongGravity': False, 'dissuadeHubs': False,
+	    'edgeInfluence': 1.0, 'precisionVsSpeed': 1.0, 'gravity': 1.0, 'scalingRatio': 1.0,
+	    'showLabels': True, 'showLabelOnHover': True,
+	    'showPointsOfInterest': True, 'showPointsOfInterestLabel': True, 'showLabelPropertiesOnHover': True,
+	    'pointsOfInterestMax': 5
+      }).plot()
+  ````
+	
+      
+      
+
+    
 
 ### Gallery
 
