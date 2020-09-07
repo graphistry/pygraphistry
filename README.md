@@ -115,7 +115,8 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
     enriched_edges = my_function1(g1._edges)
     enriched_nodes = my_function2(g1._nodes)
     g2 = g1.edges(enriched_edges).nodes(enriched_nodes)
-    g2.plot()```
+    g2.plot()
+    ```
     
     
   - GPU [RAPIDS.ai](https://www.rapids.ai)
