@@ -48,13 +48,15 @@ Uninstall the local checkout (useful to rollback to packaged version) with `./se
 
 1. Merge the desired PR to master and switch to master head (`git checkout master && git pull`)
 
-2. Tag the repository with a new version number. We use semantic version numbers of the form *X.Y.Z*.
+2. Manually update CHANGELOG.md
+
+1. Tag the repository with a new version number. We use semantic version numbers of the form *X.Y.Z*.
 
 	```sh
 	git tag X.Y.Z
 	git push --tags
 	```
 
-3. Toggle version as active at [ReadTheDocs](https://readthedocs.org/projects/pygraphistry/versions/)
+1. Toggle version as active at [ReadTheDocs](https://readthedocs.org/projects/pygraphistry/versions/)
 
-4. Confirm PyPI picked up the [release](https://pypi.org/project/graphistry/)
+1. Confirm PyPI picked up the [release](https://pypi.org/project/graphistry/)
