@@ -119,12 +119,10 @@ def neo_val_to_pd_val(v):
     try:
         v_mod = v.__module__
     except:
-        logger.warning('no mod: %s', v)
         return v
 
     #neo4j 3
     if v_mod == 'neotime':
-        logger.warning('neotime: %s', v)
         return str(v)
 
     #neo4j 4
@@ -142,8 +140,6 @@ def neo_val_to_pd_val(v):
             return str(v)
 
     #handle neo4j.spatial.* later
-
-    #logger.warning('unknown t for: %s', v)
 
     return v
 
