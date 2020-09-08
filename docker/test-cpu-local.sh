@@ -2,7 +2,7 @@
 
 # Run tests using local mounts
 
-#docker-compose build
+docker-compose build
 
 TEST_CPU_VERSION=${TEST_CPU_VERSION:-latest}
 

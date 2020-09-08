@@ -1,3 +1,3 @@
 #!/bin/bash
 
-python -B -O -m pytest -v  graphistry/tests $@
+python -B -O -m pytest -vv  graphistry/tests $@
