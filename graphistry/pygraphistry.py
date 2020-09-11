@@ -508,6 +508,50 @@ class PyGraphistry(object):
 
 
     @staticmethod
+    def addStyle(bg=None, fg=None, logo=None, page=None):
+        """Creates a base plotter with some style settings.
+        
+        For parameters, see ``plotter.addStyle``.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+
+            ::
+
+                import graphistry
+                graphistry.addStyle(bg={'color': 'black'})
+        """
+
+        from . import plotter
+        return plotter.Plotter().addStyle(bg=bg, fg=fg, logo=logo, page=page)
+
+
+
+    @staticmethod
+    def style(bg=None, fg=None, logo=None, page=None):
+        """Creates a base plotter with some style settings.
+        
+        For parameters, see ``plotter.style``.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+
+            ::
+
+                import graphistry
+                graphistry.style(bg={'color': 'black'})
+        """
+
+        from . import plotter
+        return plotter.Plotter().style(bg=bg, fg=fg, logo=logo, page=page)
+
+
+
+    @staticmethod
     def bind(node=None, source=None, destination=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_icon=None, edge_size=None, edge_opacity=None,
              edge_source_color=None, edge_destination_color=None,
@@ -904,6 +948,8 @@ refresh = PyGraphistry.refresh
 api_token = PyGraphistry.api_token
 verify_token = PyGraphistry.verify_token
 bind = PyGraphistry.bind
+addStyle = PyGraphistry.addStyle
+style = PyGraphistry.style
 name = PyGraphistry.name
 description = PyGraphistry.description
 edges = PyGraphistry.edges

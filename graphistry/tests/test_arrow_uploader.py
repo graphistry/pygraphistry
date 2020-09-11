@@ -137,4 +137,3 @@ class TestArrowUploader_Comms(unittest.TestCase):
         tok = au.login(username="u", password="p").token
 
         assert tok == "123"
-

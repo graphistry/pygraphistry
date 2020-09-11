@@ -99,15 +99,14 @@ class ArrowUploader:
 
     @property
     def metadata(self):
-        if self.__metadata is None:
-            return {
-                #'usertag': PyGraphistry._tag,
-                #'key': PyGraphistry.api_key()
-                'agent': 'pygraphistry',
-                'apiversion' : '3',
-                'agentversion': sys.modules['graphistry'].__version__,
-            }
-        return self.__metadata
+        return {
+            #'usertag': PyGraphistry._tag,
+            #'key': PyGraphistry.api_key()
+            'agent': 'pygraphistry',
+            'apiversion' : '3',
+            'agentversion': sys.modules['graphistry'].__version__,
+            **(self.__metadata if not (self.__metadata is None) else {})
+        }
     
     @metadata.setter
     def metadata(self, metadata):

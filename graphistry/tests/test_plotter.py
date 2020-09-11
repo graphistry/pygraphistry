@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*- 
 
-import datetime as dt, IPython, pandas as pd, pyarrow as pa, pytest, requests, unittest
+import copy, datetime as dt, IPython, pandas as pd, pyarrow as pa, pytest, requests, unittest
 from builtins import object
 
 from common import NoAuthTestCase
@@ -401,4 +401,117 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     def test_api3_plot_from_arrow(self):
         g = graphistry.edges(pa.Table.from_pandas(pd.DataFrame({'s': [0], 'd': [0]}))).bind(source='s', destination='d')
         ds = g.plot(skip_upload=True)
-        assert isinstance(ds.edges, pa.Table)         
+        assert isinstance(ds.edges, pa.Table)
+
+
+class TestPlotterStylesArrow(NoAuthTestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
+        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
+        graphistry.register(api=3)
+
+    def test_init(self):
+        g = graphistry.bind()
+        assert g._style == None
+
+    def test_style_good(self):
+        g = graphistry.bind()
+
+        bg = {'color': 'red'}
+        fg = {'blendMode': 1}
+        logo = {'url': 'zzz'}
+        page = {'title': 'zzz'}
+
+        assert g.style()._style == {}
+
+        g.style(fg={'blendMode': 'screen'})
+        assert g.style()._style == {}
+
+        assert g.style(bg=copy.deepcopy(bg))._style == {'bg': bg}
+        assert g.style(bg={'color': 'blue'}).style(bg=copy.deepcopy(bg))._style == {'bg': bg}
+        assert g.style(bg={'image': {'url': 'http://asdf.com/b.png'}}).style(bg=copy.deepcopy(bg))._style == {'bg': bg}
+        assert g.style(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), logo=copy.deepcopy(logo), page=copy.deepcopy(page))._style == {
+            'bg': bg, 'fg': fg, 'logo': logo, 'page': page
+        }
+        assert g.style(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), logo=copy.deepcopy(logo), page=copy.deepcopy(page))\
+                .style(bg={'color': 'green'})._style == {'bg': {'color': 'green'}, 'fg': fg, 'logo': logo, 'page': page}
+
+        g2 = graphistry.edges(pd.DataFrame({'s': [0], 'd': [0]})).bind(source='s', destination='d')
+        ds = g2.style(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), page=copy.deepcopy(page), logo=copy.deepcopy(logo)).plot(skip_upload=True)
+        assert ds.metadata['metadata']['bg'] == bg
+        assert ds.metadata['metadata']['fg'] == fg
+        assert ds.metadata['metadata']['logo'] == logo
+        assert ds.metadata['metadata']['page'] == page
+
+    def test_addStyle_good(self):
+        g = graphistry.bind()
+
+        bg = {'color': 'red'}
+        fg = {'blendMode': 1}
+        logo = {'url': 'zzz'}
+        page = {'title': 'zzz'}
+
+        assert g.addStyle()._style == {}
+
+        g.addStyle(fg={'blendMode': 'screen'})
+        assert g.addStyle()._style == {}
+
+        assert g.addStyle(bg=copy.deepcopy(bg))._style == {'bg': bg}
+        assert g.addStyle(bg={'color': 'blue'}).addStyle(bg=copy.deepcopy(bg))._style == {'bg': bg}
+        assert g.addStyle(bg={'image': {'url': 'http://asdf.com/b.png'}}).addStyle(bg=copy.deepcopy(bg))._style == {'bg': {**bg, 'image': {'url': 'http://asdf.com/b.png'}}}
+        assert g.addStyle(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), logo=copy.deepcopy(logo), page=copy.deepcopy(page))._style == {
+            'bg': bg, 'fg': fg, 'logo': logo, 'page': page
+        }
+        assert g.addStyle(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), logo=copy.deepcopy(logo), page=copy.deepcopy(page))\
+                .addStyle(bg={'color': 'green'})._style == {'bg': {'color': 'green'}, 'fg': fg, 'logo': logo, 'page': page}
+
+        g2 = graphistry.edges(pd.DataFrame({'s': [0], 'd': [0]})).bind(source='s', destination='d')
+        ds = g2.addStyle(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), page=copy.deepcopy(page), logo=copy.deepcopy(logo)).plot(skip_upload=True)
+        assert ds.metadata['metadata']['bg'] == bg
+        assert ds.metadata['metadata']['fg'] == fg
+        assert ds.metadata['metadata']['logo'] == logo
+        assert ds.metadata['metadata']['page'] == page
+
+class TestPlotterStylesJSON(NoAuthTestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
+        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
+        graphistry.register(api=1)
+
+    def test_styleApi_reject(self):
+        bg = {'color': 'red'}
+        fg = {'blendMode': 1}
+        logo = {'url': 'zzz'}
+        page = {'title': 'zzz'}
+        g2 = graphistry.edges(pd.DataFrame({'s': [0], 'd': [0]})).bind(source='s', destination='d')
+        g3 = g2.addStyle(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), page=copy.deepcopy(page), logo=copy.deepcopy(logo))
+        
+        with pytest.raises(ValueError):
+          g3.plot(skip_upload=True)
+
+
+class TestPlotterStylesVgraph(NoAuthTestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
+        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
+        graphistry.register(api=2)
+
+    def test_styleApi_reject(self):
+        bg = {'color': 'red'}
+        fg = {'blendMode': 1}
+        logo = {'url': 'zzz'}
+        page = {'title': 'zzz'}
+        g2 = graphistry.edges(pd.DataFrame({'s': [0], 'd': [0]})).bind(source='s', destination='d')
+        g3 = g2.addStyle(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), page=copy.deepcopy(page), logo=copy.deepcopy(logo))
+        
+        with pytest.raises(ValueError):
+          g3.plot(skip_upload=True)
