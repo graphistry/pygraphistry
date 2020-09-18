@@ -65,6 +65,10 @@ class Plotter(object):
         self._name = None
         self._description = None
         self._style = None
+        self._complex_encodings = {
+            'node_encodings': {'current': {}, 'default': {} },
+            'edge_encodings': {'current': {}, 'default': {} }
+        }
         # Integrations
         self._bolt_driver = None
         self._tigergraph = None
@@ -860,17 +864,23 @@ class Plotter(object):
         except:
             1
 
-        if mode == 'json':
+        #compatibility checks
+        if (mode =='json') or (mode == 'vgraph'):
             if not (metadata is None):
                 if ('bg' in metadata) or ('fg' in metadata) or ('logo' in metadata) or ('page' in metadata):
-                    raise ValueError('Cannot set bg/fg/logo/page in api=1; try using api=3')
+                    raise ValueError('Cannot set bg/fg/logo/page in api=1, api=2; try using api=3')
+            if not (self._complex_encodings is None \
+                or self._complex_encodings == {
+                    'node_encodings': {'current': {}, 'default': {} },
+                    'edge_encodings': {'current': {}, 'default': {} }
+                }):
+                    raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1, api=2; try using api=3 or .bind()')
+
+        if mode == 'json':
             edges_df = self._table_to_pandas(edges)
             nodes_df = self._table_to_pandas(nodes)
             return self._make_json_dataset(edges_df, nodes_df, name)
         elif mode == 'vgraph':
-            if not (metadata is None):
-                if ('bg' in metadata) or ('fg' in metadata) or ('logo' in metadata) or ('page' in metadata):
-                    raise ValueError('Cannot set bg/fg/logo/page in api=2; try using api=3')
             edges_df = self._table_to_pandas(edges)
             nodes_df = self._table_to_pandas(nodes)
             return self._make_vgraph_dataset(edges_df, nodes_df, name)

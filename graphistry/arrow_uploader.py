@@ -59,7 +59,7 @@ class ArrowUploader:
     @property
     def node_encodings(self):
         if self.__node_encodings is None:
-            return {}
+            return {'bindings': {}}
         return self.__node_encodings
 
     @node_encodings.setter
@@ -69,7 +69,7 @@ class ArrowUploader:
     @property
     def edge_encodings(self):
         if self.__edge_encodings is None:
-            return {}
+            return {'bindings': {}}
         return self.__edge_encodings
     
     @edge_encodings.setter
@@ -242,8 +242,8 @@ class ArrowUploader:
         logger.debug('bindings: %s', out)
         return out
 
-    def g_to_node_encodings(self, g):
-        node_encodings = self.maybe_bindings(
+    def g_to_node_bindings(self, g):
+        bindings = self.maybe_bindings(
                 g,
                 [
                     ['_node', 'node'],
@@ -258,10 +258,22 @@ class ArrowUploader:
                     ['_point_y', 'node_y']
                 ])
 
-        return node_encodings
+        return bindings
 
-    def g_to_edge_encodings(self, g):
-        edge_encodings = self.maybe_bindings(
+    def g_to_node_encodings(self, g):
+        encodings = {
+            'bindings': self.g_to_node_bindings(g)
+        }
+        for mode in ['current', 'default']:
+            if len(g._complex_encodings['node_encodings'][mode].keys()) > 0:
+                if not ('complex' in encodings):
+                    encodings['complex'] = {}
+                encodings['complex'][mode] = g._complex_encodings['node_encodings'][mode]
+        return encodings
+
+
+    def g_to_edge_bindings(self, g):
+        bindings = self.maybe_bindings(
                 g,
                 [
                     ['_source', 'source'],
@@ -276,13 +288,25 @@ class ArrowUploader:
                     ['_edge_weight', 'edge_weight'],
                     ['_edge_icon', 'edge_icon']
                 ])
-        return edge_encodings
+        return bindings
 
-    
+
+    def g_to_edge_encodings(self, g):
+        encodings = {
+            'bindings': self.g_to_edge_bindings(g)
+        }
+        for mode in ['current', 'default']:
+            if len(g._complex_encodings['edge_encodings'][mode].keys()) > 0:
+                if not ('complex' in encodings):
+                    encodings['complex'] = {}
+                encodings['complex'][mode] = g._complex_encodings['edge_encodings'][mode]
+        return encodings
+
+
     def post(self):
         self.create_dataset({
-            "node_encodings": {"bindings": self.node_encodings},
-            "edge_encodings": {"bindings": self.edge_encodings},
+            "node_encodings": self.node_encodings,
+            "edge_encodings": self.edge_encodings,
             "metadata": self.metadata,
             "name": self.name,
             "description": self.description
