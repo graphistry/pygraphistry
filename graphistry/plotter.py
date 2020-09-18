@@ -64,6 +64,11 @@ class Plotter(object):
         # Metadata
         self._name = None
         self._description = None
+        self._style = None
+        self._complex_encodings = {
+            'node_encodings': {'current': {}, 'default': {} },
+            'edge_encodings': {'current': {}, 'default': {} }
+        }
         # Integrations
         self._bolt_driver = None
         self._tigergraph = None
@@ -84,6 +89,407 @@ class Plotter(object):
             return pretty(rep)
         else:
             return str(rep)
+
+    def addStyle(self, fg=None, bg=None, page=None, logo=None):
+        """Set general visual styles
+        
+        See .bind() and .settings(url_params={}) for additional styling options, and style() for another way to set the same attributes.
+
+        To facilitate reuse and replayable notebooks, the addStyle() call is chainable. Invocation does not effect the old style: it instead returns a new Plotter instance with the new styles added to the existing ones. Both the old and new styles can then be used for different graphs.
+
+        addStyle() will extend the existing style settings, while style() will replace any in the same group
+
+        :param fg: Dictionary {'blendMode': str} of any valid CSS blend mode
+        :type fg: dict.
+
+        :param bg: Nested dictionary of page background properties. {'color': str, 'gradient': {'kind': str, 'position': str, 'stops': list }, 'image': { 'url': str, 'width': int, 'height': int, 'blendMode': str }
+        :type bg: dict.
+
+        :param logo: Nested dictionary of logo properties. { 'url': str, 'autoInvert': bool, 'position': str, 'dimensions': { 'maxWidth': int, 'maxHeight': int }, 'crop': { 'top': int, 'left': int, 'bottom': int, 'right': int }, 'padding': { 'top': int, 'left': int, 'bottom': int, 'right': int}, 'style': str}        
+        :type logo: dict.
+
+        :param page: Dictionary of page metadata settings. { 'favicon': str, 'title': str } 
+        :type page: dict.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Chained merge - results in color, blendMode, and url being set**
+            ::
+                g2 =  g.addStyle(bg={'color': 'black'}, fg={'blendMode': 'screen'})
+                g3 = g2.addStyle(bg={'image': {'url': 'http://site.com/watermark.png'}})
+                
+        **Example: Overwrite - results in blendMode multiply**
+            ::
+                g2 =  g.addStyle(fg={'blendMode': 'screen'})
+                g3 = g2.addStyle(fg={'blendMode': 'multiply'})
+
+        **Example: Gradient background**
+            ::
+              g.addStyle(bg={'gradient': {'kind': 'linear', 'position': 45, 'stops': [['rgb(0,0,0)', '0%'], ['rgb(255,255,255)', '100%']]}})
+              
+        **Example: Page settings**
+            ::
+              g.addStyle(page={'title': 'Site - {{ name }}', 'favicon': 'http://site.com/logo.ico'})
+
+        """
+        style = copy.deepcopy(self._style or {})
+        o = {'fg': fg, 'bg': bg, 'page': page, 'logo': logo}
+        for k, v in o.items():
+            if not (v is None):
+                if isinstance(v, dict):
+                    if not (k in style) or (style[k] is None):
+                        style[k] = {}
+                    for k2, v2 in v.items():
+                        style[k][k2] = v2
+                else:
+                    style[k] = v
+        res = self.bind()
+        res._style = style
+        return res
+        
+
+
+    def style(self, fg=None, bg=None, page=None, logo=None):
+        """Set general visual styles
+        
+        See .bind() and .settings(url_params={}) for additional styling options, and addStyle() for another way to set the same attributes.
+
+        To facilitate reuse and replayable notebooks, the style() call is chainable. Invocation does not effect the old style: it instead returns a new Plotter instance with the new styles added to the existing ones. Both the old and new styles can then be used for different graphs.
+
+        style() will fully replace any defined parameter in the existing style settings, while addStyle() will merge over previous values
+
+        :param fg: Dictionary {'blendMode': str} of any valid CSS blend mode
+        :type fg: dict.
+
+        :param bg: Nested dictionary of page background properties. {'color': str, 'gradient': {'kind': str, 'position': str, 'stops': list }, 'image': { 'url': str, 'width': int, 'height': int, 'blendMode': str }
+        :type bg: dict.
+
+        :param logo: Nested dictionary of logo properties. { 'url': str, 'autoInvert': bool, 'position': str, 'dimensions': { 'maxWidth': int, 'maxHeight': int }, 'crop': { 'top': int, 'left': int, 'bottom': int, 'right': int }, 'padding': { 'top': int, 'left': int, 'bottom': int, 'right': int}, 'style': str}        
+        :type logo: dict.
+
+        :param page: Dictionary of page metadata settings. { 'favicon': str, 'title': str } 
+        :type page: dict.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Chained merge - results in url and blendMode being set, while color is dropped**
+            ::
+                g2 =  g.style(bg={'color': 'black'}, fg={'blendMode': 'screen'})
+                g3 = g2.style(bg={'image': {'url': 'http://site.com/watermark.png'}})
+                
+        **Example: Gradient background**
+            ::
+              g.style(bg={'gradient': {'kind': 'linear', 'position': 45, 'stops': [['rgb(0,0,0)', '0%'], ['rgb(255,255,255)', '100%']]}})
+              
+        **Example: Page settings**
+            ::
+              g.style(page={'title': 'Site - {{ name }}', 'favicon': 'http://site.com/logo.ico'})
+
+        """        
+        style = copy.deepcopy(self._style or {})
+        o = {'fg': fg, 'bg': bg, 'page': page, 'logo': logo}
+        for k, v in o.items():
+            if not (v is None):
+                style[k] = v
+        res = self.bind()
+        res._style = style
+        return res
+
+
+    def encode_point_color(self, column,
+            palette=None, as_categorical=None, as_continuous=None, categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set point color with more control than bind()
+
+        :param column: Data column name
+        :type column: str.
+
+        :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
+        :type palette: list, optional.
+
+        :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
+        :type as_categorical: bool, optional.
+
+        :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
+        :type as_continuous: bool, optional.
+
+        :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
+        :type default_mapping: str, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a palette-valued column for the color, same as bind(point_color='my_column')**
+            ::
+                g2a = g.encode_point_color('my_int32_palette_column')
+                g2b = g.encode_point_color('my_int64_rgb_column')
+
+        **Example: Set a cold-to-hot gradient of along the spectrum blue, yellow, red**
+            ::
+                g2 = g.encode_point_color('my_numeric_col', palette=["blue", "yellow", "red"], as_continuous=True)
+
+        **Example: Round-robin sample from 5 colors in hex format**
+            ::
+                g2 = g.encode_point_color('my_distinctly_valued_col', palette=["#000", "#00F", "#0F0", "#0FF", "#FFF"], as_categorical=True)
+
+        **Example: Map specific values to specific colors, including with a default**
+            ::
+                g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'})
+                g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'}, default_mapping='gray')
+
+        """
+        return self.__encode('point', 'color', 'pointColorEncoding',
+            column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+
+    def encode_edge_color(self, column,
+            palette=None, as_categorical=None, as_continuous=None, categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set edge color with more control than bind()
+
+        :param column: Data column name
+        :type column: str.
+
+        :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
+        :type palette: list, optional.
+
+        :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
+        :type as_categorical: bool, optional.
+
+        :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
+        :type as_continuous: bool, optional.
+
+        :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
+        :type default_mapping: str, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: See encode_point_color**
+        """
+
+        return self.__encode('edge', 'color',  'edgeColorEncoding',
+            column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_point_size(self, column,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set point size with more control than bind()
+
+        :param column: Data column name
+        :type column: str.
+
+        :param categorical_mapping: Mapping from column values to numbers. Ex: {"car": 100, "truck": 200}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
+        :type default_mapping: numeric, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a numerically-valued column for the size, same as bind(point_size='my_column')**
+            ::
+                g2a = g.encode_point_size('my_numeric_column')
+
+        **Example: Map specific values to specific colors, including with a default**
+            ::
+                g2a = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200})
+                g2b = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200}, default_mapping=50)
+
+        """
+        return self.__encode('point', 'size',  'pointSizeEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+
+    def encode_point_icon(self, column,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
+
+        :param column: Data column name
+        :type column: str.
+
+        :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
+        :type default_mapping: numeric, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a string column of icons for the point icons, same as bind(point_icon='my_column')**
+            ::
+                g2a = g.encode_point_icon('my_icons_column')
+
+        **Example: Map specific values to specific icons, including with a default**
+            ::
+                g2a = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
+                g2b = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
+
+        """
+
+        return self.__encode('point', 'icon',  'pointIconEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_edge_icon(self, column,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
+
+        :param column: Data column name
+        :type column: str.
+
+        :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
+        :type default_mapping: numeric, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a string column of icons for the edge icons, same as bind(edge_icon='my_column')**
+            ::
+                g2a = g.encode_edge_icon('my_icons_column')
+
+        **Example: Map specific values to specific icons, including with a default**
+            ::
+                g2a = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
+                g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
+
+        """
+        return self.__encode('edge', 'icon',   'edgeIconEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def __encode(self, graph_type, feature, feature_binding,
+            column,
+            palette=None,
+            as_categorical=None, as_continuous=None,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+
+        if for_default is None:
+            for_default = True
+        if for_current is None:
+            for_current = False
+
+        #TODO check set to api=3?
+
+        if not (graph_type in ['point', 'edge']):
+            raise ValueError({
+                    'message': 'graph_type must be "point" or "edge"',
+                    'data': {'graph_type': graph_type } })
+
+        if (categorical_mapping is None) and (palette is None):
+            return self.bind(**{f'{graph_type}_{feature}': column})
+
+        transform = None
+        if not (categorical_mapping is None):
+            if not (isinstance(categorical_mapping, dict)):
+                raise ValueError({
+                    'message': 'categorical mapping should be a dict mapping column names to values',
+                    'data': { 'categorical_mapping': categorical_mapping, 'type': str(type(categorical_mapping)) }})
+            transform = {
+                'variation': 'categorical',
+                'mapping': {
+                    'categorical': {
+                        'fixed': categorical_mapping,
+                        **({} if default_mapping is None else {'other': default_mapping})
+                    }
+                }
+            }
+        elif not (palette is None):
+
+            #TODO ensure that it is a color? Unclear behavior for sizes, weights, etc.
+
+            if not (isinstance(palette, list)) or not all([isinstance(x, str) for x in palette]):
+                raise ValueError({
+                    'message': 'palette should be a list of color-like strings: ["#FFFFFF", "white", ...]',
+                    'data': { 'palette': palette, 'type': str(type(palette)) }})
+
+            is_categorical = None
+            if not (as_categorical is None):
+                is_categorical = as_categorical
+            elif not (as_continuous is None):
+                is_categorical = not as_continuous
+            else:
+                raise ValueError({'message': 'Must pass in at least one of as_categorical, as_continuous, or categorical_mapping'})
+
+            transform = {
+                'variation': 'categorical' if is_categorical else 'continuous',
+                'colors': palette
+            }
+        else:
+            raise ValueError({'message': 'Must pass one of parameters palette or categorical_mapping'})
+
+        encoding = {
+            'graphType': graph_type,
+            'encodingType': feature,
+            'attribute': column,
+            **transform
+        }
+
+        complex_encodings = copy.deepcopy(self._complex_encodings)
+
+        #point -> node
+        graph_type_2 = 'node' if graph_type == 'point' else graph_type
+
+        #NOTE: parameter feature_binding for cases like Legend
+        if for_current:
+            complex_encodings[f'{graph_type_2}_encodings']['current'][feature_binding] = encoding
+        if for_default:
+            complex_encodings[f'{graph_type_2}_encodings']['default'][feature_binding] = encoding
+
+        res = copy.copy(self)
+        res._complex_encodings = complex_encodings
+        return res
 
 
     def bind(self, source=None, destination=None, node=None,
@@ -395,18 +801,18 @@ class Plotter(object):
 
         api_version = PyGraphistry.api_version()
         if api_version == 1:
-            dataset = self._plot_dispatch(g, n, name, description, 'json')
+            dataset = self._plot_dispatch(g, n, name, description, 'json', self._style)
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl1(dataset)
         elif api_version == 2:
-            dataset = self._plot_dispatch(g, n, name, description, 'vgraph')
+            dataset = self._plot_dispatch(g, n, name, description, 'vgraph', self._style)
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl2(dataset)
         elif api_version == 3:
             PyGraphistry.refresh()
-            dataset = self._plot_dispatch(g, n, name, description, 'arrow')
+            dataset = self._plot_dispatch(g, n, name, description, 'arrow', self._style)
             if skip_upload:
                 return dataset
             #fresh
@@ -554,18 +960,18 @@ class Plotter(object):
                 util.error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
 
-    def _plot_dispatch(self, graph, nodes, name, description, mode='json'):
+    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None):
 
         if isinstance(graph, pandas.core.frame.DataFrame) \
             or isinstance(graph, pa.Table) \
             or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ):
-            return self._make_dataset(graph, nodes, name, description, mode)
+            return self._make_dataset(graph, nodes, name, description, mode, metadata)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
                 (e, n) = self.igraph2pandas(graph)
-                return self._make_dataset(e, n, name, description, mode)
+                return self._make_dataset(e, n, name, description, mode, metadata)
         except ImportError:
             pass
 
@@ -576,7 +982,7 @@ class Plotter(object):
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
                 (e, n) = self.networkx2pandas(graph)
-                return self._make_dataset(e, n, name, description, mode)
+                return self._make_dataset(e, n, name, description, mode, metadata)
         except ImportError:
             pass
 
@@ -745,12 +1151,24 @@ class Plotter(object):
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
 
-    def _make_dataset(self, edges, nodes, name, description, mode):
+    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None):
         try:
             if len(edges) == 0:
                 util.warn('Graph has no edges, may have rendering issues')
         except:
             1
+
+        #compatibility checks
+        if (mode =='json') or (mode == 'vgraph'):
+            if not (metadata is None):
+                if ('bg' in metadata) or ('fg' in metadata) or ('logo' in metadata) or ('page' in metadata):
+                    raise ValueError('Cannot set bg/fg/logo/page in api=1, api=2; try using api=3')
+            if not (self._complex_encodings is None \
+                or self._complex_encodings == {
+                    'node_encodings': {'current': {}, 'default': {} },
+                    'edge_encodings': {'current': {}, 'default': {} }
+                }):
+                    raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1, api=2; try using api=3 or .bind()')
 
         if mode == 'json':
             edges_df = self._table_to_pandas(edges)
@@ -763,7 +1181,7 @@ class Plotter(object):
         elif mode == 'arrow':
             edges_arr = self._table_to_arrow(edges)
             nodes_arr = self._table_to_arrow(nodes)
-            return self._make_arrow_dataset(edges_arr, nodes_arr, name, description)
+            return self._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
             #token=None, dataset_id=None, url_params = None)
         else:
             raise ValueError('Unknown mode: ' + mode)
@@ -809,7 +1227,7 @@ class Plotter(object):
         dataset['encodings'] = encodings
         return dataset
 
-    def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str) -> ArrowUploader:
+    def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata) -> ArrowUploader:
         au = ArrowUploader(
             server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
             edges=edges, nodes=nodes,
@@ -820,6 +1238,7 @@ class Plotter(object):
                 'agent': 'pygraphistry',
                 'apiversion' : '3',
                 'agentversion': sys.modules['graphistry'].__version__,
+                **(metadata or {})
             },
             certificate_validation=PyGraphistry.certificate_validation())
         au.edge_encodings = au.g_to_edge_encodings(self)

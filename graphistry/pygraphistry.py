@@ -508,6 +508,275 @@ class PyGraphistry(object):
 
 
     @staticmethod
+    def addStyle(bg=None, fg=None, logo=None, page=None):
+        """Creates a base plotter with some style settings.
+        
+        For parameters, see ``plotter.addStyle``.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+
+            ::
+
+                import graphistry
+                graphistry.addStyle(bg={'color': 'black'})
+        """
+
+        from . import plotter
+        return plotter.Plotter().addStyle(bg=bg, fg=fg, logo=logo, page=page)
+
+
+
+    @staticmethod
+    def style(bg=None, fg=None, logo=None, page=None):
+        """Creates a base plotter with some style settings.
+        
+        For parameters, see ``plotter.style``.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+
+            ::
+
+                import graphistry
+                graphistry.style(bg={'color': 'black'})
+        """
+
+        from . import plotter
+        return plotter.Plotter().style(bg=bg, fg=fg, logo=logo, page=page)
+
+
+
+
+    @staticmethod
+    def encode_point_color(column,
+            palette=None, as_categorical=None, as_continuous=None, categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set point color with more control than bind()
+
+        :param column: Data column name
+        :type column: str.
+
+        :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
+        :type palette: list, optional.
+
+        :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
+        :type as_categorical: bool, optional.
+
+        :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
+        :type as_continuous: bool, optional.
+
+        :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
+        :type default_mapping: str, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a palette-valued column for the color, same as bind(point_color='my_column')**
+            ::
+                g2a = g.encode_point_color('my_int32_palette_column')
+                g2b = g.encode_point_color('my_int64_rgb_column')
+
+        **Example: Set a cold-to-hot gradient of along the spectrum blue, yellow, red**
+            ::
+                g2 = g.encode_point_color('my_numeric_col', palette=["blue", "yellow", "red"], as_continuous=True)
+
+        **Example: Round-robin sample from 5 colors in hex format**
+            ::
+                g2 = g.encode_point_color('my_distinctly_valued_col', palette=["#000", "#00F", "#0F0", "#0FF", "#FFF"], as_categorical=True)
+
+        **Example: Map specific values to specific colors, including with a default**
+            ::
+                g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'})
+                g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'}, default_mapping='gray')
+
+        """
+
+        from . import plotter
+        return plotter.Plotter().encode_point_color(
+            column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+
+    @staticmethod
+    def encode_edge_color(column,
+            palette=None, as_categorical=None, as_continuous=None, categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set edge color with more control than bind()
+
+        :param column: Data column name
+        :type column: str.
+
+        :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
+        :type palette: list, optional.
+
+        :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
+        :type as_categorical: bool, optional.
+
+        :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
+        :type as_continuous: bool, optional.
+
+        :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
+        :type default_mapping: str, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: See encode_point_color**
+        """
+
+        from . import plotter
+        return plotter.Plotter().encode_edge_color(
+            column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    @staticmethod
+    def encode_point_size(column,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set point size with more control than bind()
+
+        :param column: Data column name
+        :type column: str.
+
+        :param categorical_mapping: Mapping from column values to numbers. Ex: {"car": 100, "truck": 200}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
+        :type default_mapping: numeric, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a numerically-valued column for the size, same as bind(point_size='my_column')**
+            ::
+                g2a = g.encode_point_size('my_numeric_column')
+
+        **Example: Map specific values to specific colors, including with a default**
+            ::
+                g2a = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200})
+                g2b = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200}, default_mapping=50)
+
+        """
+        from . import plotter
+        return plotter.Plotter().encode_point_size(column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+
+    @staticmethod
+    def encode_point_icon(column,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
+
+        :param column: Data column name
+        :type column: str.
+
+        :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
+        :type default_mapping: numeric, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a string column of icons for the point icons, same as bind(point_icon='my_column')**
+            ::
+                g2a = g.encode_point_icon('my_icons_column')
+
+        **Example: Map specific values to specific icons, including with a default**
+            ::
+                g2a = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
+                g2b = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
+
+        """
+
+        from . import plotter
+        return plotter.Plotter().encode_point_icon(column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+
+    @staticmethod
+    def encode_edge_icon(column,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
+
+        :param column: Data column name
+        :type column: str.
+
+        :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
+        :type default_mapping: numeric, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a string column of icons for the edge icons, same as bind(edge_icon='my_column')**
+            ::
+                g2a = g.encode_edge_icon('my_icons_column')
+
+        **Example: Map specific values to specific icons, including with a default**
+            ::
+                g2a = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
+                g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
+
+        """
+        from . import plotter
+        return plotter.Plotter().encode_edge_icon(column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+
+
+    @staticmethod
     def bind(node=None, source=None, destination=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_icon=None, edge_size=None, edge_opacity=None,
              edge_source_color=None, edge_destination_color=None,
@@ -904,6 +1173,13 @@ refresh = PyGraphistry.refresh
 api_token = PyGraphistry.api_token
 verify_token = PyGraphistry.verify_token
 bind = PyGraphistry.bind
+addStyle = PyGraphistry.addStyle
+style = PyGraphistry.style
+encode_point_color = PyGraphistry.encode_point_color
+encode_edge_color = PyGraphistry.encode_edge_color
+encode_point_size = PyGraphistry.encode_point_size
+encode_point_icon = PyGraphistry.encode_point_icon
+encode_edge_icon = PyGraphistry.encode_edge_icon
 name = PyGraphistry.name
 description = PyGraphistry.description
 edges = PyGraphistry.edges

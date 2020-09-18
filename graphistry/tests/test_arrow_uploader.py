@@ -17,8 +17,8 @@ class TestArrowUploader_Core(unittest.TestCase):
             au.dataset_id
         assert au.edges is None
         assert au.nodes is None
-        assert au.node_encodings == {}
-        assert au.edge_encodings == {}
+        assert au.node_encodings == {'bindings': {}}
+        assert au.edge_encodings == {'bindings': {}}
         assert len(au.name) > 0
         assert not (au.metadata is None)
     
@@ -58,15 +58,16 @@ class TestArrowUploader_Core(unittest.TestCase):
     def test_au_n_enc_mt(self):
         g = graphistry.bind()
         au = ArrowUploader()
-        assert au.g_to_node_encodings(g) == {}
+        assert au.g_to_node_encodings(g) == {'bindings': {}}
 
     def test_au_n_enc_full(self):        
         g = graphistry.bind(node='n',
             point_color='c', point_size='s', point_title='t', point_label='l',
             point_weight='w', point_opacity='o', point_icon='i', point_x='x', point_y='y')
+        g = g.encode_point_color('c', ["green"], as_categorical=True)
         au = ArrowUploader()
-        assert au.g_to_node_encodings(g) == \
-            {
+        assert au.g_to_node_encodings(g) == {
+            'bindings': {
                 'node': 'n',
                 'node_color': 'c',
                 'node_size': 's',
@@ -77,20 +78,33 @@ class TestArrowUploader_Core(unittest.TestCase):
                 'node_icon': 'i',
                 'node_x': 'x',
                 'node_y': 'y',
+            },
+            'complex': {
+                'default': {
+                    'pointColorEncoding': {
+                        'graphType': 'point',
+                        'encodingType': 'color',
+                        'attribute': 'c',
+                        'variation': 'categorical',
+                        'colors': ['green']
+                    }
+                }
             }
+        }
 
     def test_au_e_enc_mt(self):
         g = graphistry.bind()
         au = ArrowUploader()
-        assert au.g_to_edge_encodings(g) == {}
+        assert au.g_to_edge_encodings(g) == {'bindings': {}}
 
     def test_au_e_enc_full(self):        
         g = graphistry.bind(source='s', destination='d',
             edge_color='c', edge_title='t', edge_label='l', edge_weight='w',
             edge_opacity='o', edge_icon='i', edge_size='s', edge_source_color='sc', edge_destination_color='dc')
+        g = g.encode_edge_color('c', ["green"], as_categorical=True)
         au = ArrowUploader()
-        assert au.g_to_edge_encodings(g) == \
-            {
+        assert au.g_to_edge_encodings(g) == {
+            'bindings': {
                 'source': 's',
                 'destination': 'd',
                 'edge_color': 'c',
@@ -102,7 +116,19 @@ class TestArrowUploader_Core(unittest.TestCase):
                 'edge_size': 's',
                 'edge_source_color': 'sc',
                 'edge_destination_color': 'dc'
+            },
+            'complex': {
+                'default': {
+                    'edgeColorEncoding': {
+                        'graphType': 'edge',
+                        'encodingType': 'color',
+                        'attribute': 'c',
+                        'variation': 'categorical',
+                        'colors': ['green']
+                    }
+                }
             }
+        }
 
 
 class TestArrowUploader_Comms(unittest.TestCase):
@@ -137,4 +163,3 @@ class TestArrowUploader_Comms(unittest.TestCase):
         tok = au.login(username="u", password="p").token
 
         assert tok == "123"
-
