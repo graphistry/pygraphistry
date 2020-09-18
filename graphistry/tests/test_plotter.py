@@ -441,10 +441,10 @@ class TestPlotterStylesArrow(NoAuthTestCase):
 
         g2 = graphistry.edges(pd.DataFrame({'s': [0], 'd': [0]})).bind(source='s', destination='d')
         ds = g2.style(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), page=copy.deepcopy(page), logo=copy.deepcopy(logo)).plot(skip_upload=True)
-        assert ds.metadata['metadata']['bg'] == bg
-        assert ds.metadata['metadata']['fg'] == fg
-        assert ds.metadata['metadata']['logo'] == logo
-        assert ds.metadata['metadata']['page'] == page
+        assert ds.metadata['bg'] == bg
+        assert ds.metadata['fg'] == fg
+        assert ds.metadata['logo'] == logo
+        assert ds.metadata['page'] == page
 
     def test_addStyle_good(self):
         g = graphistry.bind()
@@ -470,10 +470,10 @@ class TestPlotterStylesArrow(NoAuthTestCase):
 
         g2 = graphistry.edges(pd.DataFrame({'s': [0], 'd': [0]})).bind(source='s', destination='d')
         ds = g2.addStyle(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), page=copy.deepcopy(page), logo=copy.deepcopy(logo)).plot(skip_upload=True)
-        assert ds.metadata['metadata']['bg'] == bg
-        assert ds.metadata['metadata']['fg'] == fg
-        assert ds.metadata['metadata']['logo'] == logo
-        assert ds.metadata['metadata']['page'] == page
+        assert ds.metadata['bg'] == bg
+        assert ds.metadata['fg'] == fg
+        assert ds.metadata['logo'] == logo
+        assert ds.metadata['page'] == page
 
 class TestPlotterStylesJSON(NoAuthTestCase):
 

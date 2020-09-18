@@ -1238,7 +1238,7 @@ class Plotter(object):
                 'agent': 'pygraphistry',
                 'apiversion' : '3',
                 'agentversion': sys.modules['graphistry'].__version__,
-                'metadata': metadata or {}
+                **(metadata or {})
             },
             certificate_validation=PyGraphistry.certificate_validation())
         au.edge_encodings = au.g_to_edge_encodings(self)
