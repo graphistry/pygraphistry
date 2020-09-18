@@ -515,3 +515,247 @@ class TestPlotterStylesVgraph(NoAuthTestCase):
         
         with pytest.raises(ValueError):
           g3.plot(skip_upload=True)
+
+
+
+
+class TestPlotterEncodings(NoAuthTestCase):
+
+    COMPLEX_EMPTY = {
+        'node_encodings': {'current': {}, 'default': {} },
+        'edge_encodings': {'current': {}, 'default': {} }
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
+        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
+        graphistry.register(api=3)
+
+    def test_init_mt(self):
+        assert graphistry.bind()._complex_encodings == TestPlotterEncodings.COMPLEX_EMPTY
+
+    def test_point_color(self):
+        assert graphistry.bind().encode_point_color('z')._point_color == 'z'
+        assert graphistry.bind().encode_point_color('z', ["red", "blue"], as_continuous=True)._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointColorEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'color',
+                            'attribute': 'z',
+                            'variation': 'continuous',
+                            'colors': ['red', 'blue']
+                        }
+                    },
+                    'current': {}
+                }
+            }
+        assert graphistry.bind().encode_point_color('z', ["red", "blue"], as_categorical=True)._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointColorEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'color',
+                            'attribute': 'z',
+                            'variation': 'categorical',
+                            'colors': ['red', 'blue']
+                        }
+                    },
+                    'current': {}
+                }
+            }
+        assert graphistry.bind().encode_point_color('z', categorical_mapping={'truck': 'red'})._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointColorEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'color',
+                            'attribute': 'z',
+                            'variation': 'categorical',
+                            'mapping': { 'categorical': { 'fixed': { 'truck': 'red' } } }
+                        }
+                    },
+                    'current': {}
+                }
+            }
+        assert graphistry.bind().encode_point_color('z', categorical_mapping={'truck': 'red'}, default_mapping='blue')._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointColorEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'color',
+                            'attribute': 'z',
+                            'variation': 'categorical',
+                            'mapping': {
+                                'categorical': {
+                                    'fixed': { 'truck': 'red' },
+                                    'other': 'blue'
+                                }
+                            }
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
+
+    def test_point_size(self):
+        assert graphistry.bind().encode_point_size('z')._point_size == 'z'
+
+    def test_point_icon(self):
+        assert graphistry.bind().encode_point_icon('z')._point_icon == 'z'
+
+    def test_edge_icon(self):
+        assert graphistry.bind().encode_edge_icon('z')._edge_icon == 'z'
+
+    def test_edge_color(self):
+        assert graphistry.bind().encode_edge_color('z')._edge_color == 'z'
+
+    def test_set_mode(self):
+        assert graphistry.bind().encode_point_color('z', categorical_mapping={'a': 'b'})._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointColorEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'color',
+                            'attribute': 'z',
+                            'variation': 'categorical',
+                            'mapping': { 'categorical': {'fixed': { 'a': 'b' } } }
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
+        assert graphistry.bind().encode_point_color('z', categorical_mapping={'a': 'b'}, for_default=False, for_current=False)._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {},
+                    'current': {}
+                }
+            }
+
+        assert graphistry.bind().encode_point_color('z', categorical_mapping={'a': 'b'}, for_default=True, for_current=False)._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointColorEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'color',
+                            'attribute': 'z',
+                            'variation': 'categorical',
+                            'mapping': { 'categorical': {'fixed': { 'a': 'b' } } }
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
+        assert graphistry.bind().encode_point_color('z', categorical_mapping={'a': 'b'}, for_default=False, for_current=True)._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': { },
+                    'current': {
+                        'pointColorEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'color',
+                            'attribute': 'z',
+                            'variation': 'categorical',
+                            'mapping': { 'categorical': { 'fixed': { 'a': 'b' } } }
+                        }
+                    }
+                }
+            }
+
+        assert graphistry.bind().encode_point_color('z', categorical_mapping={'a': 'b'}, for_default=True, for_current=True)._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointColorEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'color',
+                            'attribute': 'z',
+                            'variation': 'categorical',
+                            'mapping': { 'categorical': { 'fixed': { 'a': 'b' } } }
+                        }
+                    },
+                    'current': {
+                        'pointColorEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'color',
+                            'attribute': 'z',
+                            'variation': 'categorical',
+                            'mapping': { 'categorical': { 'fixed': { 'a': 'b' } } }
+                        }
+                    }
+                }
+            }
+
+
+    def test_composition(self):
+        # chaining + overriding
+        out = graphistry.bind()\
+                .encode_point_size('z', categorical_mapping={'m': 2})\
+                .encode_point_color('z', categorical_mapping={'a': 'b'}, for_current=True)\
+                .encode_point_color('z', categorical_mapping={'a': 'b2'})\
+                .encode_edge_color( 'z', categorical_mapping={'x': 'y'}, for_current=True)\
+                ._complex_encodings
+        assert out['edge_encodings']['default'] == {
+                'edgeColorEncoding': {
+                    'graphType': 'edge',
+                    'encodingType': 'color',
+                    'attribute': 'z',
+                    'variation': 'categorical',
+                    'mapping': { 'categorical': { 'fixed': { 'x': 'y' } } }
+                }
+        }
+        assert out['edge_encodings']['current'] == {
+                'edgeColorEncoding': {
+                    'graphType': 'edge',
+                    'encodingType': 'color',
+                    'attribute': 'z',
+                    'variation': 'categorical',
+                    'mapping': { 'categorical': { 'fixed': { 'x': 'y' } } }
+                }
+            }
+        assert out['node_encodings']['default'] == {
+                'pointSizeEncoding': {
+                    'graphType': 'point',
+                    'encodingType': 'size',
+                    'attribute': 'z',
+                    'variation': 'categorical',
+                    'mapping': { 'categorical': { 'fixed': { 'm': 2 } } }
+                },
+                'pointColorEncoding': {
+                    'graphType': 'point',
+                    'encodingType': 'color',
+                    'attribute': 'z',
+                    'variation': 'categorical',
+                    'mapping': { 'categorical': { 'fixed': { 'a': 'b2' } } }
+                }
+            }
+        assert out['node_encodings']['current'] == {
+                'pointColorEncoding': {
+                    'graphType': 'point',
+                    'encodingType': 'color',
+                    'attribute': 'z',
+                    'variation': 'categorical',
+                    'mapping': { 'categorical': { 'fixed': { 'a': 'b' } } }
+                }
+            }

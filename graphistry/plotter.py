@@ -198,6 +198,300 @@ class Plotter(object):
         return res
 
 
+    def encode_point_color(self, column,
+            palette=None, as_categorical=None, as_continuous=None, categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set point color with more control than bind()
+
+        :param column: Data column name
+        :type column: str.
+
+        :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
+        :type palette: list, optional.
+
+        :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
+        :type as_categorical: bool, optional.
+
+        :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
+        :type as_continuous: bool, optional.
+
+        :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
+        :type default_mapping: str, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a palette-valued column for the color, same as bind(point_color='my_column')**
+            ::
+                g2a = g.encode_point_color('my_int32_palette_column')
+                g2b = g.encode_point_color('my_int64_rgb_column')
+
+        **Example: Set a cold-to-hot gradient of along the spectrum blue, yellow, red**
+            ::
+                g2 = g.encode_point_color('my_numeric_col', palette=["blue", "yellow", "red"], as_continuous=True)
+
+        **Example: Round-robin sample from 5 colors in hex format**
+            ::
+                g2 = g.encode_point_color('my_distinctly_valued_col', palette=["#000", "#00F", "#0F0", "#0FF", "#FFF"], as_categorical=True)
+
+        **Example: Map specific values to specific colors, including with a default**
+            ::
+                g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'})
+                g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'}, default_mapping='gray')
+
+        """
+        return self.__encode('point', 'color', 'pointColorEncoding',
+            column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+
+    def encode_edge_color(self, column,
+            palette=None, as_categorical=None, as_continuous=None, categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set edge color with more control than bind()
+
+        :param column: Data column name
+        :type column: str.
+
+        :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
+        :type palette: list, optional.
+
+        :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
+        :type as_categorical: bool, optional.
+
+        :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
+        :type as_continuous: bool, optional.
+
+        :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
+        :type default_mapping: str, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: See encode_point_color**
+        """
+
+        return self.__encode('edge', 'color',  'edgeColorEncoding',
+            column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_point_size(self, column,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set point size with more control than bind()
+
+        :param column: Data column name
+        :type column: str.
+
+        :param categorical_mapping: Mapping from column values to numbers. Ex: {"car": 100, "truck": 200}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
+        :type default_mapping: numeric, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a numerically-valued column for the size, same as bind(point_size='my_column')**
+            ::
+                g2a = g.encode_point_size('my_numeric_column')
+
+        **Example: Map specific values to specific colors, including with a default**
+            ::
+                g2a = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200})
+                g2b = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200}, default_mapping=50)
+
+        """
+        return self.__encode('point', 'size',  'pointSizeEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+
+    def encode_point_icon(self, column,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
+
+        :param column: Data column name
+        :type column: str.
+
+        :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
+        :type default_mapping: numeric, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a string column of icons for the point icons, same as bind(point_icon='my_column')**
+            ::
+                g2a = g.encode_point_icon('my_icons_column')
+
+        **Example: Map specific values to specific icons, including with a default**
+            ::
+                g2a = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
+                g2b = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
+
+        """
+
+        return self.__encode('point', 'icon',  'pointIconEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_edge_icon(self, column,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+        """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
+
+        :param column: Data column name
+        :type column: str.
+
+        :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
+        :type categorical_mapping: dict, optional.
+
+        :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
+        :type default_mapping: numeric, optional.
+
+        :param for_default: Use encoding for when no user override is set. Default on.
+        :type for_default: bool, optional.
+
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :type for_current: bool, optional.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example: Set a string column of icons for the edge icons, same as bind(edge_icon='my_column')**
+            ::
+                g2a = g.encode_edge_icon('my_icons_column')
+
+        **Example: Map specific values to specific icons, including with a default**
+            ::
+                g2a = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
+                g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
+
+        """
+        return self.__encode('edge', 'icon',   'edgeIconEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def __encode(self, graph_type, feature, feature_binding,
+            column,
+            palette=None,
+            as_categorical=None, as_continuous=None,
+            categorical_mapping=None, default_mapping=None,
+            for_default=True, for_current=False):
+
+        if for_default is None:
+            for_default = True
+        if for_current is None:
+            for_current = False
+
+        #TODO check set to api=3?
+
+        if not (graph_type in ['point', 'edge']):
+            raise ValueError({
+                    'message': 'graph_type must be "point" or "edge"',
+                    'data': {'graph_type': graph_type } })
+
+        if (categorical_mapping is None) and (palette is None):
+            return self.bind(**{f'{graph_type}_{feature}': column})
+
+        transform = None
+        if not (categorical_mapping is None):
+            if not (isinstance(categorical_mapping, dict)):
+                raise ValueError({
+                    'message': 'categorical mapping should be a dict mapping column names to values',
+                    'data': { 'categorical_mapping': categorical_mapping, 'type': str(type(categorical_mapping)) }})
+            transform = {
+                'variation': 'categorical',
+                'mapping': {
+                    'categorical': {
+                        'fixed': categorical_mapping,
+                        **({} if default_mapping is None else {'other': default_mapping})
+                    }
+                }
+            }
+        elif not (palette is None):
+
+            #TODO ensure that it is a color? Unclear behavior for sizes, weights, etc.
+
+            if not (isinstance(palette, list)) or not all([isinstance(x, str) for x in palette]):
+                raise ValueError({
+                    'message': 'palette should be a list of color-like strings: ["#FFFFFF", "white", ...]',
+                    'data': { 'palette': palette, 'type': str(type(palette)) }})
+
+            is_categorical = None
+            if not (as_categorical is None):
+                is_categorical = as_categorical
+            elif not (as_continuous is None):
+                is_categorical = not as_continuous
+            else:
+                raise ValueError({'message': 'Must pass in at least one of as_categorical, as_continuous, or categorical_mapping'})
+
+            transform = {
+                'variation': 'categorical' if is_categorical else 'continuous',
+                'colors': palette
+            }
+        else:
+            raise ValueError({'message': 'Must pass one of parameters palette or categorical_mapping'})
+
+        encoding = {
+            'graphType': graph_type,
+            'encodingType': feature,
+            'attribute': column,
+            **transform
+        }
+
+        complex_encodings = copy.deepcopy(self._complex_encodings)
+
+        #point -> node
+        graph_type_2 = 'node' if graph_type == 'point' else graph_type
+
+        #NOTE: parameter feature_binding for cases like Legend
+        if for_current:
+            complex_encodings[f'{graph_type_2}_encodings']['current'][feature_binding] = encoding
+        if for_default:
+            complex_encodings[f'{graph_type_2}_encodings']['default'][feature_binding] = encoding
+
+        res = copy.copy(self)
+        res._complex_encodings = complex_encodings
+        return res
+
+
     def bind(self, source=None, destination=None, node=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
              edge_source_color=None, edge_destination_color=None,

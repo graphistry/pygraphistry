@@ -235,11 +235,6 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
       }).plot()
   ````
 	
-      
-      
-
-    
-
 ### Gallery
 
 <table>
@@ -277,9 +272,9 @@ Provide your API credentials to upload data to your Graphistry GPU server:
 
 ```python
 import graphistry
-#graphistry.register(key='Your key') # 1.0 API
+#graphistry.register(api=1, key='Your key') # 1.0 API; key is different from token
 #graphistry.register(api=3, username='your name', password='your pwd') # 2.0 API, logged out after 1hr
-#graphistry.register(api=3, token='your JWT token') # 2.0 API, expires after 1hr
+#graphistry.register(api=3, token='your JWT token') # 2.0 API, warning: must refresh within 1hr
 ```
 
 For the 2.0 API, your username/password are the same as your Graphistry account, and your session expires after 1hr. The temporary JWT token (1hr) can be generated via the REST API using your login credentials, or by visiting your landing page.
@@ -337,15 +332,15 @@ links = pandas.read_csv('./lesmiserables.csv')
 
 ### Quick Visualization
 
-If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](demos/demos_by_use_case/logs/malware-hypergraph/Malware%20Hypergraph.ipynb)
+If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](demos/demos_by_use_case/logs/malware-hypergraph/Malware%20Hypergraph.ipynb) for creating graphs from rows of data (logs, samples, records, ...).
 
-PyGraphistry can plot graphs directly from Pandas dataframes, IGraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
+PyGraphistry can plot graphs directly from Pandas data frames, Arrow tables, cuGraph GPU data frames, IGraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
 
 To define the graph, we <code>bind</code> *source* and *destination* to the columns indicating the start and end nodes of each edges:
 
 ```python
 import graphistry
-graphistry.register(protocol='https', server='hub.graphistry.com', token='YOUR_JWT_TOKEN_HERE')
+graphistry.register(protocol='https', server='hub.graphistry.com', username='YOUR_ACCOUNT_HERE', password='YOUR_PASSWORD_HERE')
 
 g = graphistry.bind(source="source", destination="target")
 g.edges(links).plot()
@@ -369,7 +364,7 @@ Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank
 
 
 #### Warmup: IGraph for computing statistics
-[IGraph](http://igraph.org/python/) already has these algorithms implemented for us. If IGraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
+[IGraph](http://igraph.org/python/) already has these algorithms implemented for us for small graphs. (See our cuGraph examples for big graphs.) If IGraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
 
 We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
 
@@ -401,6 +396,41 @@ You may also want to bind `point_title`: `.bind(point_title='colA')`.
 By default, edges get colored as a gradient between their source/destination node colors. You can override this by setting `.bind(edge_color='colA')`, similar to how node colors function. ([See color documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2).)
 
 Similarly, you can bind the edge weight, where higher weights cause nodes to cluster closer together: `.bind(edge_weight='colA')`. [See tutorial](demos/more_examples/graphistry_features/edge-weights.ipynb).
+
+### More advanced color, size, and icon controls
+
+You may want more controls like using gradients or maping specific values:
+
+```python
+g.encode_edge_color('time_col', ["blue", "red"], as_continuous=True)
+g.encode_edge_color('type_col', ["#000", "#F00", "#F0F", "#0FF"], as_categorical=True)
+g.encode_edge_color('brand', categorical_mapping={'toyota': 'red', 'ford': 'blue'}, default_mapping='#CCC')
+g.encode_point_size('criticality', categorical_mapping={'critical': 200, 'ok': 100}, default_mapping=50)
+
+#icons: https://fontawesome.com/v4.7.0/icons/
+g.encode_point_icon('device', categorical_mapping={'macbook': 'laptop', 'mac': 'server'})
+```
+
+### Theming
+
+You can customize several style options to match your theme:
+
+```python
+g.addStyle(bg={'color': 'red'})
+g.addStyle(bg={
+  'color': '#333',
+  'gradient': {'kind': 'radial', 'stops': [ ["rgba(255,255,255, 0.1)", "10%", "rgba(0,0,0,0)", "20%"] ]}})
+g.addStyle(bg={'image': {'url': 'http://site.com/cool.png', 'blendMode': 'multiply'}})
+g.addStyle(fg={'blendMode': 'color-burn'})
+g.addStyle(page={'title': 'My site'})
+g.addStyle(page={'favicon': 'http://site.com/favicon.ico'})
+g.addStyle(logo={'url': 'http://www.site.com/transparent_logo.png'})
+g.addStyle(logo={
+  'url': 'http://www.site.com/transparent_logo.png',
+  'dimensions': {'maxHeight': 200, 'maxWidth': 200},
+  'style': {'opacity': 0.5}
+})
+```
 
 ## Next Steps
 
