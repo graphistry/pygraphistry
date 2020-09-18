@@ -4,7 +4,7 @@
 [![Latest Version](https://img.shields.io/pypi/pyversions/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
 [![License](https://img.shields.io/pypi/l/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
 
-![PyPI - Downloads](https://img.shields.io/pypi/dm/graphistry) ![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)
+[![Downloads](https://pepy.tech/badge/graphistry/month)](https://pepy.tech/project/graphistry/month) ![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)
 
 # PyGraphistry: Explore Relationships
 
