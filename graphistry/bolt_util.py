@@ -46,6 +46,14 @@ def bolt_graph_to_edges_dataframe(graph):
         )
         for relationship in graph.relationships
     ])
+    if len(df) == 0:
+        logger.warning('Query returned no edges; may have surprising visual results or need to add missing columns for encodings')
+        return pd.DataFrame({
+            relationship_id_key: pd.Series([], dtype='int32'),
+            relationship_type_key: pd.Series([], dtype='int32'),
+            start_node_id_key: pd.Series([], dtype='int32'),
+            end_node_id_key: pd.Series([], dtype='int32')
+        })
     return neo_df_to_pd_df(df)
 
 
@@ -61,6 +69,12 @@ def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
                 { node_label_prefix_key + str(label): True for label in node.labels }))
         for node in graph.nodes
     ])
+    if len(df) == 0:
+        logger.warning('Query returned no nodes')
+        return pd.DataFrame({
+            node_id_key: pd.Series([], dtype='int32'),
+            node_type_key: pd.Series([], dtype='object')
+        })
     return neo_df_to_pd_df(df)
 
 
