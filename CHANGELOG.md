@@ -5,6 +5,25 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
+## [Development]
+
+### Breaking
+* Warnings: Standardizing on Python's warnings.warn
+
+### Fixing
+* Neo4j: Improve handling of empty query results
+
+### Adding
+* Gremlin / AWS Neptune
+* Icons: Add new as_text, blend_mode, border, and style options (Graphistry 2.32+)
+* Badges: Add new badge encodings (Graphistry 2.32.+)
+* Python 3.8, 3.9 in test matrix
+
+### Changing
+* Python 2.7: Removed __future__ (Python 2.7 has already been EOL so not breaking)
+* Imports: Refactoring for more expected style
+* Testing: Fixed most warnings in preperation for treating them as errors
+
 ## [0.13.0] - 2020-09-17
 
 ### Added
