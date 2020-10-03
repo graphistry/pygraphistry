@@ -1,16 +1,9 @@
-from __future__ import print_function
-from past.builtins import cmp
-from builtins import str
-from builtins import range
+def cmp(x, y):
+    return (x > y) - (x < y)
 
-import sys
-import platform as p
-import uuid
-import hashlib
-import random
-import string
+import hashlib, platform as p, random, string, sys, uuid, warnings
+
 from distutils.version import LooseVersion, StrictVersion
-
 
 def make_iframe(url, height):
     id = uuid.uuid4()
@@ -56,30 +49,23 @@ def compare_versions(v1, v2):
 
 def in_ipython():
         try:
-            __IPYTHON__
-            return True
+            return hasattr(__builtins__, '__IPYTHON__')
         except NameError:
             return False
 
 
 def warn(msg):
     try:
-        if in_ipython:
+        if in_ipython():
             import IPython
             IPython.utils.warn.warn(msg)
             return
     except:
         'ok'
-    print('WARNING: ', msg, file=sys.stderr)
+    warnings.warn(RuntimeWarning(msg))
 
 
 def error(msg):
-    try:
-        if in_ipython:
-            import IPython
-            IPython.utils.warn.error(msg)
-    except:
-            'ok'
     raise ValueError(msg)
 
 def merge_two_dicts(a, b):

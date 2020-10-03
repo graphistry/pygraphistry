@@ -1,13 +1,18 @@
-from __future__ import absolute_import, print_function
-from builtins import object, str
 import copy, numpy, pandas, pyarrow as pa, sys, uuid
 
-from .pygraphistry import PyGraphistry
-from .pygraphistry import util
-from .pygraphistry import bolt_util
+from .util import (error, in_ipython, make_iframe, random_string, warn)
+
+from .bolt_util import (
+    bolt_graph_to_edges_dataframe,
+    bolt_graph_to_nodes_dataframe,
+    node_id_key,
+    start_node_id_key,
+    end_node_id_key,
+    to_bolt_driver)
+
+from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
-from .arrow_uploader import ArrowUploader
 
 maybe_cudf = None
 try:
@@ -84,7 +89,7 @@ class Plotter(object):
 
         rep = {'bindings': dict([(f, getattr(self, '_' + f)) for f in bindings]),
                'settings': dict([(f, getattr(self, '_' + f)) for f in settings])}
-        if util.in_ipython():
+        if in_ipython():
             from IPython.lib.pretty import pretty
             return pretty(rep)
         else:
@@ -789,16 +794,17 @@ class Plotter(object):
 
         if graph is None:
             if self._edges is None:
-                util.error('Graph/edges must be specified.')
+                error('Graph/edges must be specified.')
             g = self._edges
         else:
             g = graph
         n = self._nodes if nodes is None else nodes
-        name = name or self._name or ("Untitled " + util.random_string(10))
+        name = name or self._name or ("Untitled " + random_string(10))
         description = description or self._description or ("")
 
         self._check_mandatory_bindings(not isinstance(n, type(None)))
 
+        from .pygraphistry import PyGraphistry
         api_version = PyGraphistry.api_version()
         if api_version == 1:
             dataset = self._plot_dispatch(g, n, name, description, 'json', self._style)
@@ -830,9 +836,9 @@ class Plotter(object):
 
         if render == False or (render == None and not self._render):
             return full_url
-        elif util.in_ipython():
+        elif in_ipython():
             from IPython.core.display import HTML
-            return HTML(util.make_iframe(full_url, self._height))
+            return HTML(make_iframe(full_url, self._height))
         else:
             import webbrowser
             webbrowser.open(full_url)
@@ -904,7 +910,7 @@ class Plotter(object):
             ig.vs[Plotter._defaultNodeId] = [v.index for v in ig.vs]
             self._node = Plotter._defaultNodeId
         elif self._node not in ig.vs.attributes():
-            util.error('Vertex attribute "%s" bound to "node" does not exist.' % self._node)
+            error('Vertex attribute "%s" bound to "node" does not exist.' % self._node)
 
         edata = get_edgelist(ig)
         ndata = [v.attributes() for v in ig.vs]
@@ -925,7 +931,7 @@ class Plotter(object):
         else:
             vattribs = g.nodes(data=True) if g.number_of_nodes() > 0 else []
         if not (self._node is None) and self._node in vattribs:
-            util.error('Vertex attribute "%s" already exists.' % self._node)
+            error('Vertex attribute "%s" already exists.' % self._node)
 
     def networkx2pandas(self, g):
 
@@ -947,9 +953,9 @@ class Plotter(object):
 
     def _check_mandatory_bindings(self, node_required):
         if self._source is None or self._destination is None:
-            util.error('Both "source" and "destination" must be bound before plotting.')
+            error('Both "source" and "destination" must be bound before plotting.')
         if node_required and self._node is None:
-            util.error('Node identifier must be bound when using node dataframe.')
+            error('Node identifier must be bound when using node dataframe.')
 
 
     def _check_bound_attribs(self, df, attribs, typ):
@@ -957,7 +963,7 @@ class Plotter(object):
         for a in attribs:
             b = getattr(self, '_' + a)
             if b not in cols:
-                util.error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
+                error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
 
     def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None):
@@ -986,7 +992,7 @@ class Plotter(object):
         except ImportError:
             pass
 
-        util.error('Expected Pandas/Arrow/cuDF dataframe(s) or Igraph/NetworkX graph.')
+        error('Expected Pandas/Arrow/cuDF dataframe(s) or Igraph/NetworkX graph.')
 
 
     # Sanitize node/edge dataframe by
@@ -1025,11 +1031,11 @@ class Plotter(object):
         node_count = len(nlist.index)
         graph_size = edge_count + node_count
         if edge_count > 8e6:
-            util.error('Maximum number of edges (8M) exceeded: %d.' % edge_count)
+            error('Maximum number of edges (8M) exceeded: %d.' % edge_count)
         if node_count > 8e6:
-            util.error('Maximum number of nodes (8M) exceeded: %d.' % node_count)
+            error('Maximum number of nodes (8M) exceeded: %d.' % node_count)
         if graph_size > 1e6:
-            util.warn('Large graph: |nodes| + |edges| = %d. Layout/rendering might be slow.' % graph_size)
+            warn('Large graph: |nodes| + |edges| = %d. Layout/rendering might be slow.' % graph_size)
 
 
     # Bind attributes for ETL1 by creating a copy of the designated column renamed
@@ -1041,7 +1047,7 @@ class Plotter(object):
                 if bound in df.columns.tolist():
                     df[pbname] = df[bound]
                 else:
-                    util.warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
+                    warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
             elif default:
                 df[pbname] = df[default]
 
@@ -1078,7 +1084,7 @@ class Plotter(object):
                 if bound in df.columns.tolist():
                     enc[pbname] = {'attributes' : [bound]}
                 else:
-                    util.warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
+                    warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
             elif default:
                 enc[pbname] = {'attributes': [default]}
 
@@ -1154,7 +1160,7 @@ class Plotter(object):
     def _make_dataset(self, edges, nodes, name, description, mode, metadata=None):
         try:
             if len(edges) == 0:
-                util.warn('Graph has no edges, may have rendering issues')
+                warn('Graph has no edges, may have rendering issues')
         except:
             1
 
@@ -1189,6 +1195,9 @@ class Plotter(object):
 
     # Main helper for creating ETL1 payload
     def _make_json_dataset(self, edges, nodes, name):
+
+        from .pygraphistry import PyGraphistry
+
         (elist, nlist) = self._bind_attributes_v1(edges, nodes)
         edict = elist.where((pandas.notnull(elist)), None).to_dict(orient='records')
 
@@ -1228,6 +1237,9 @@ class Plotter(object):
         return dataset
 
     def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata) -> ArrowUploader:
+
+        from .pygraphistry import PyGraphistry
+
         au = ArrowUploader(
             server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
             edges=edges, nodes=nodes,
@@ -1247,23 +1259,26 @@ class Plotter(object):
 
     def bolt(self, driver):
         res = copy.copy(self)
-        res._bolt_driver = bolt_util.to_bolt_driver(driver)
+        res._bolt_driver = to_bolt_driver(driver)
         return res
 
 
     def cypher(self, query, params={}):
+
+        from .pygraphistry import PyGraphistry
+
         res = copy.copy(self)
         driver = self._bolt_driver or PyGraphistry._config['bolt_driver']
         with driver.session() as session:
             bolt_statement = session.run(query, **params)
             graph = bolt_statement.graph()
-            edges = bolt_util.bolt_graph_to_edges_dataframe(graph)
-            nodes = bolt_util.bolt_graph_to_nodes_dataframe(graph)
+            edges = bolt_graph_to_edges_dataframe(graph)
+            nodes = bolt_graph_to_nodes_dataframe(graph)
         return res\
             .bind(\
-                node=bolt_util.node_id_key,\
-                source=bolt_util.start_node_id_key,\
-                destination=bolt_util.end_node_id_key
+                node=node_id_key,\
+                source=start_node_id_key,\
+                destination=end_node_id_key
             )\
             .nodes(nodes)\
             .edges(edges)

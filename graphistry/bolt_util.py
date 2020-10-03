@@ -32,6 +32,7 @@ def to_bolt_driver(driver=None):
     except ImportError:
         raise BoltSupportModuleNotFound()
 
+#TODO catch additional encodings
 def bolt_graph_to_edges_dataframe(graph):
     df = pd.DataFrame([
         util.merge_two_dicts(

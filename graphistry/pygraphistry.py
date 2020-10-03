@@ -1,13 +1,4 @@
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-
-from __future__ import absolute_import
-from __future__ import print_function
-from future import standard_library
-standard_library.install_aliases()
-from builtins import bytes, object, str
-from past.utils import old_div
-from past.builtins import basestring
-
 import calendar, gzip, io, json, os, numpy, pandas, requests, sched, sys, time, warnings
 
 from datetime import datetime
@@ -17,6 +8,7 @@ from .arrow_uploader import ArrowUploader
 
 from . import util
 from . import bolt_util
+from .plotter import Plotter
 
 import logging
 logger = logging.getLogger(__name__)
@@ -194,7 +186,7 @@ class PyGraphistry(object):
         if value is None:
             return PyGraphistry._config['store_token_creds_in_memory']
         else:
-            v = bool(strtobool(value)) if isinstance(value, basestring) else value
+            v = bool(strtobool(value)) if isinstance(value, str) else value
             PyGraphistry._config['store_token_creds_in_memory'] = v
 
     @staticmethod
@@ -281,7 +273,7 @@ class PyGraphistry(object):
             return PyGraphistry._config['certificate_validation']
 
         # setter
-        v = bool(strtobool(value)) if isinstance(value, basestring) else value
+        v = bool(strtobool(value)) if isinstance(value, str) else value
         if v == False:
             requests.packages.urllib3.disable_warnings()
         PyGraphistry._config['certificate_validation'] = v
@@ -445,8 +437,7 @@ class PyGraphistry(object):
 
                     g = graphistry.bolt(driver)
         """
-        from . import plotter
-        return plotter.Plotter().bolt(driver)
+        return Plotter().bolt(driver)
 
 
     @staticmethod
@@ -464,8 +455,7 @@ class PyGraphistry(object):
                     import graphistry
                     g = graphistry.bolt({ query='MATCH (a)-[r:PAYMENT]->(b) WHERE r.USD > 7000 AND r.USD < 10000 RETURN r ORDER BY r.USD DESC', params={ "AccountId": 10 })
         """
-        from . import plotter
-        return plotter.Plotter().cypher(query, params)
+        return Plotter().cypher(query, params)
 
 
     @staticmethod
@@ -482,8 +472,7 @@ class PyGraphistry(object):
         if not (engine is None):
             print('WARNING: Engine currently ignored, please contact if critical')
 
-        from . import plotter
-        return plotter.Plotter().nodexl(xls_or_url, source, engine, verbose)
+        return Plotter().nodexl(xls_or_url, source, engine, verbose)
 
 
     @staticmethod
@@ -493,8 +482,7 @@ class PyGraphistry(object):
         :param name: Upload name
         :type name: str"""
 
-        from . import plotter
-        return plotter.Plotter().name(name)
+        return Plotter().name(name)
 
     @staticmethod
     def description(description):
@@ -503,8 +491,7 @@ class PyGraphistry(object):
         :param description: Upload description
         :type description: str"""
 
-        from . import plotter
-        return plotter.Plotter().description(description)
+        return Plotter().description(description)
 
 
     @staticmethod
@@ -524,8 +511,7 @@ class PyGraphistry(object):
                 graphistry.addStyle(bg={'color': 'black'})
         """
 
-        from . import plotter
-        return plotter.Plotter().addStyle(bg=bg, fg=fg, logo=logo, page=page)
+        return Plotter().addStyle(bg=bg, fg=fg, logo=logo, page=page)
 
 
 
@@ -546,8 +532,7 @@ class PyGraphistry(object):
                 graphistry.style(bg={'color': 'black'})
         """
 
-        from . import plotter
-        return plotter.Plotter().style(bg=bg, fg=fg, logo=logo, page=page)
+        return Plotter().style(bg=bg, fg=fg, logo=logo, page=page)
 
 
 
@@ -605,8 +590,7 @@ class PyGraphistry(object):
 
         """
 
-        from . import plotter
-        return plotter.Plotter().encode_point_color(
+        return Plotter().encode_point_color(
             column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
@@ -648,8 +632,7 @@ class PyGraphistry(object):
         **Example: See encode_point_color**
         """
 
-        from . import plotter
-        return plotter.Plotter().encode_edge_color(
+        return Plotter().encode_edge_color(
             column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
@@ -688,8 +671,8 @@ class PyGraphistry(object):
                 g2b = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200}, default_mapping=50)
 
         """
-        from . import plotter
-        return plotter.Plotter().encode_point_size(column=column,
+
+        return Plotter().encode_point_size(column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
 
@@ -729,8 +712,7 @@ class PyGraphistry(object):
 
         """
 
-        from . import plotter
-        return plotter.Plotter().encode_point_icon(column=column,
+        return Plotter().encode_point_icon(column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
 
@@ -769,8 +751,8 @@ class PyGraphistry(object):
                 g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
         """
-        from . import plotter
-        return plotter.Plotter().encode_edge_icon(column=column,
+
+        return Plotter().encode_edge_icon(column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
 
@@ -798,10 +780,7 @@ class PyGraphistry(object):
 
         """
 
-
-
-        from . import plotter
-        return plotter.Plotter().bind(source=source, destination=destination, node=node, \
+        return Plotter().bind(source=source, destination=destination, node=node, \
                               edge_title=edge_title, edge_label=edge_label, edge_color=edge_color, 
                               edge_size=edge_size, edge_weight=edge_weight, edge_icon=edge_icon, edge_opacity=edge_opacity,
                               edge_source_color=edge_source_color, edge_destination_color=edge_destination_color,
@@ -850,8 +829,8 @@ class PyGraphistry(object):
                     tg = graphistry.tigergraph(protocol='https', server='acme.com', db='my_db', user='alice', pwd='tigergraph2')                    
 
         """
-        from . import plotter
-        return plotter.Plotter().tigergraph(protocol, server, web_port, api_port, db, user, pwd, verbose)
+
+        return Plotter().tigergraph(protocol, server, web_port, api_port, db, user, pwd, verbose)
 
 
     @staticmethod
@@ -894,8 +873,8 @@ class PyGraphistry(object):
                     (nodes_df, edges_df) = (out._nodes, out._edges)
 
         """
-        from . import plotter
-        return plotter.Plotter().gsql_endpoint(method_name, args, bindings, db, dry_run)
+
+        return Plotter().gsql_endpoint(method_name, args, bindings, db, dry_run)
 
 
 
@@ -968,33 +947,33 @@ INTERPRET QUERY () FOR GRAPH Storage {
   }
                     \"\"\", {'edges': 'my_edge_list'}).plot()
         """
-        from . import plotter
-        return plotter.Plotter().gsql(query, bindings, dry_run)
+
+        return Plotter().gsql(query, bindings, dry_run)
 
 
 
     @staticmethod
     def nodes(nodes):
-        from . import plotter
-        return plotter.Plotter().nodes(nodes)
+
+        return Plotter().nodes(nodes)
 
 
     @staticmethod
     def edges(edges):
-        from . import plotter
-        return plotter.Plotter().edges(edges)
+
+        return Plotter().edges(edges)
 
 
     @staticmethod
     def graph(ig):
-        from . import plotter
-        return plotter.Plotter().graph(ig)
+
+        return Plotter().graph(ig)
 
 
     @staticmethod
     def settings(height=None, url_params={}, render=None):
-        from . import plotter
-        return plotter.Plotter().settings(height, url_params, render)
+
+        return Plotter().settings(height, url_params, render)
 
 
     @staticmethod
@@ -1055,12 +1034,10 @@ INTERPRET QUERY () FOR GRAPH Storage {
         else:
             raise ValueError('Unknown mode:', mode)
 
-        size = old_div(len(out_file.getvalue()), 1024)
-        if size >= 5 * 1024:
-            print('Uploading %d kB. This may take a while...' % size)
+        kb_size = len(out_file.getvalue()) // 1024
+        if kb_size >= 5 * 1024:
+            print('Uploading %d kB. This may take a while...' % kb_size)
             sys.stdout.flush()
-        elif size > 50 * 1024:
-            util.error('Dataset is too large (%d kB)!' % size)
 
         return out_file
 

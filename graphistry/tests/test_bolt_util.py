@@ -24,7 +24,7 @@ def test_neo_df_to_pd_df_basics():
         'd': 'object',
         'mt': 'object'
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == rec
     pa.Table.from_pandas(df2)
 
@@ -47,7 +47,7 @@ def test_neo_df_to_pd_df_basics_na():
         'd': 'object',
         'mt': 'object'
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {k: recs[k][0] for k in recs.keys()}
     pa.Table.from_pandas(df2)
 
@@ -66,7 +66,7 @@ def test_dates_homogeneous():
         't': 'timedelta64[ns]',
         'dur': 'object'
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'd': dt.datetime(2020, 10, 20),
         'dt': dt.datetime(2020, 10, 20, 3, 4, 5),
@@ -90,14 +90,14 @@ def test_dates_homogeneous_na():
         't': 'timedelta64[ns]',
         'dur': 'object'
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'd': dt.datetime(2020, 10, 20),
         'dt': dt.datetime(2020, 10, 20, 3, 4, 5),
         't': pd.to_timedelta('10:20:30'),
         'dur': 'P1Y3M14D'
     }
-    assert df2.to_dict(orient='record')[1] == {
+    assert df2.to_dict(orient='records')[1] == {
         'd': pd.NaT,
         'dt': pd.NaT,
         't': pd.NaT,
@@ -126,14 +126,14 @@ def test_dates_heterogeneous():
         't': 'object',
         'dur': 'object'
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'd': dt.datetime(2020, 10, 20),
         'dt': dt.datetime(2020, 10, 20, 3, 4, 5),
         't': pd.to_timedelta('10:20:30'),
         'dur': 'P1Y3M14D'
     }
-    assert df2.to_dict(orient='record')[1] == {
+    assert df2.to_dict(orient='records')[1] == {
         'd': 1,
         'dt': 1,
         't': 1,
@@ -173,7 +173,7 @@ def test_spatial_homogenous():
         'w_latitude': 'int64',
         'w_srid': 'int64',
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'p': 'POINT(1 2 3 4)',
         'p_srid': None,
@@ -229,7 +229,7 @@ def test_spatial_homogenous_na():
         'w_latitude': 'float64',
         'w_srid': 'float64',
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'p': 'POINT(1 2 3 4)',
         'p_srid': None,
@@ -253,7 +253,7 @@ def test_spatial_homogenous_na():
         'w_srid': 4326
     }
 
-    d2 = df2.to_dict(orient='record')[1]
+    d2 = df2.to_dict(orient='records')[1]
     assert d2['p_srid'] == None
     for k in d2.keys():
         if not k in ['p', 'c', 'c2', 'w', 'p_srid']:
@@ -277,14 +277,14 @@ def test_spatial_heterogeneous():
         'c2': 'object',
         'w': 'object',
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'p': 'POINT(1 2 3 4)',
         'c': 'POINT(1 2)',
         'c2': 'POINT(1 2 3)',
         'w': 'POINT(4 5)',
     }
-    assert df2.to_dict(orient='record')[1] == {
+    assert df2.to_dict(orient='records')[1] == {
         'p': 1,
         'c': 1,
         'c2': 1,

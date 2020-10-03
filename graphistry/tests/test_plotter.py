@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*- 
 
-import copy, datetime as dt, IPython, pandas as pd, pyarrow as pa, pytest, requests, unittest
-from builtins import object
+import copy, datetime as dt, graphistry, IPython, logging, pandas as pd, pyarrow as pa, pytest, requests, unittest
 
 from common import NoAuthTestCase
-import graphistry
 from mock import patch
+
 
 
 triangleEdges = pd.DataFrame({'src': ['a', 'b', 'c'], 'dst': ['b', 'c', 'a']})
@@ -66,12 +65,11 @@ class Fake_Response(object):
 def assertFrameEqual(df1, df2, **kwds ):
     """ Assert that two dataframes are equal, ignoring ordering of columns"""
 
-    from pandas.util.testing import assert_frame_equal
+    from pandas.testing import assert_frame_equal
     return assert_frame_equal(df1.sort_index(axis=1), df2.sort_index(axis=1), check_names=True, **kwds)
 
 
 @patch('webbrowser.open')
-@patch.object(graphistry.util, 'warn')
 @patch.object(graphistry.pygraphistry.PyGraphistry, '_etl1')
 class TestPlotterBindings_API_1(NoAuthTestCase):
 
@@ -81,7 +79,7 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
         graphistry.register(api=1)
 
 
-    def test_no_src_dst(self, mock_etl, mock_warn, mock_open):
+    def test_no_src_dst(self, mock_etl, mock_open):
         with self.assertRaises(ValueError):
             graphistry.bind().plot(triangleEdges)
         with self.assertRaises(ValueError):
@@ -92,72 +90,64 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
             graphistry.bind(source='doesnotexist', destination='dst').plot(triangleEdges)
 
 
-    def test_no_nodeid(self, mock_etl, mock_warn, mock_open):
+    def test_no_nodeid(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         with self.assertRaises(ValueError):
             plotter.plot(triangleEdges, triangleNodes)
 
 
-    def test_triangle_edges(self, mock_etl, mock_warn, mock_open):
+    def test_triangle_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
 
-    def test_bind_edges(self, mock_etl, mock_warn, mock_open):
+    def test_bind_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', edge_title='src')
         plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
 
-    def test_bind_nodes(self, mock_etl, mock_warn, mock_open):
+    def test_bind_nodes(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='a2')
         plotter.plot(triangleEdges, triangleNodes)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
 
-    def test_bind_nodes_rich(self, mock_etl, mock_warn, mock_open):
+    def test_bind_nodes_rich(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='a2')
         plotter.plot(triangleEdges, triangleNodesRich)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
-    def test_bind_edges_rich_2(self, mock_etl, mock_warn, mock_open):
+    def test_bind_edges_rich_2(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         plotter.plot(squareEvil)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
-    def test_unknown_col_edges(self, mock_etl, mock_warn, mock_open):
+    def test_unknown_col_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', edge_title='doesnotexist')
-        plotter.plot(triangleEdges)
+        with pytest.warns(RuntimeWarning):
+            plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertTrue(mock_warn.called)
 
 
-    def test_unknown_col_nodes(self, mock_etl, mock_warn, mock_open):
+    def test_unknown_col_nodes(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='doesnotexist')
-        plotter.plot(triangleEdges, triangleNodes)
+        with pytest.warns(RuntimeWarning):
+            plotter.plot(triangleEdges, triangleNodes)
         self.assertTrue(mock_etl.called)
-        self.assertTrue(mock_warn.called)
 
 
-    @patch.object(graphistry.util, 'error')
-    def test_empty_graph(self, mock_error, mock_etl, mock_warn, mock_open):
-        mock_error.side_effect = ValueError('error')
+    @patch('requests.post', return_value=Fake_Response())
+    def test_empty_graph(self, mock_post, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
-        with self.assertRaises(ValueError):
-            plotter.plot(pd.DataFrame([]))
-        self.assertFalse(mock_etl.called)
-        self.assertTrue(mock_error.called)
+        with pytest.warns(RuntimeWarning):
+            plotter.plot(pd.DataFrame({'src': [], 'dst': []}))
+        self.assertTrue(mock_etl.called)
 
 
 @patch('webbrowser.open')
-@patch.object(graphistry.util, 'warn')
-@patch.object(graphistry.pygraphistry.PyGraphistry, '_etl2')
+@patch('graphistry.pygraphistry.PyGraphistry._etl2')
 class TestPlotterBindings_API_2(NoAuthTestCase):
 
     @classmethod
@@ -166,7 +156,7 @@ class TestPlotterBindings_API_2(NoAuthTestCase):
         graphistry.register(api=2)
 
 
-    def test_no_src_dst(self, mock_etl, mock_warn, mock_open):
+    def test_no_src_dst(self, mock_etl, mock_open):
         with self.assertRaises(ValueError):
             graphistry.bind().plot(triangleEdges)
         with self.assertRaises(ValueError):
@@ -177,67 +167,58 @@ class TestPlotterBindings_API_2(NoAuthTestCase):
             graphistry.bind(source='doesnotexist', destination='dst').plot(triangleEdges)
 
 
-    def test_no_nodeid(self, mock_etl, mock_warn, mock_open):
+    def test_no_nodeid(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         with self.assertRaises(ValueError):
             plotter.plot(triangleEdges, triangleNodes)
 
 
-    def test_triangle_edges(self, mock_etl, mock_warn, mock_open):
+    def test_triangle_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
 
-    def test_bind_edges(self, mock_etl, mock_warn, mock_open):
+    def test_bind_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', edge_title='src')
         plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
 
-    def test_bind_nodes(self, mock_etl, mock_warn, mock_open):
+    def test_bind_nodes(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='a2')
         plotter.plot(triangleEdges, triangleNodes)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
-
-    def test_bind_nodes_rich(self, mock_etl, mock_warn, mock_open):
+    def test_bind_nodes_rich(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='a2')
         plotter.plot(triangleEdges, triangleNodesRich)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
-    def test_bind_edges_rich_2(self, mock_etl, mock_warn, mock_open):
+    def test_bind_edges_rich_2(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         plotter.plot(squareEvil)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
-    def test_unknown_col_edges(self, mock_etl, mock_warn, mock_open):
+    def test_unknown_col_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', edge_title='doesnotexist')
-        plotter.plot(triangleEdges)
+        with pytest.warns(RuntimeWarning):
+            plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertTrue(mock_warn.called)
 
 
-    def test_unknown_col_nodes(self, mock_etl, mock_warn, mock_open):
+    def test_unknown_col_nodes(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='doesnotexist')
-        plotter.plot(triangleEdges, triangleNodes)
+        with pytest.warns(RuntimeWarning):
+            plotter.plot(triangleEdges, triangleNodes)            
         self.assertTrue(mock_etl.called)
-        self.assertTrue(mock_warn.called)
 
 
-    @patch.object(graphistry.util, 'error')
-    def test_empty_graph(self, mock_error, mock_etl, mock_warn, mock_open):
-        mock_error.side_effect = ValueError('error')
+    def test_empty_graph(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
-        with self.assertRaises(ValueError):
-            plotter.plot(pd.DataFrame([]))
-        self.assertFalse(mock_etl.called)
-        self.assertTrue(mock_error.called)
+        with pytest.warns(RuntimeWarning):
+            with self.assertRaises(ValueError):
+                plotter.plot(pd.DataFrame([]))
 
 
 
@@ -245,7 +226,9 @@ class TestPlotterBindings_API_2(NoAuthTestCase):
 @patch('requests.post', return_value=Fake_Response())
 class TestPlotterReturnValue(NoAuthTestCase):
 
-    def test_no_ipython(self, mock_post, mock_open):
+    @patch('graphistry.plotter.in_ipython')
+    def test_no_ipython(self, mock_in_ipython, mock_post, mock_open):
+        mock_in_ipython.return_value = False
         url = graphistry.bind(source='src', destination='dst').plot(triangleEdges)
         self.assertIn('fakedatasetname', url)
         self.assertIn('faketoken', url)
@@ -253,8 +236,9 @@ class TestPlotterReturnValue(NoAuthTestCase):
         self.assertTrue(mock_post.called)
 
 
-    @patch.object(graphistry.util, 'in_ipython', return_value=True)
-    def test_ipython(self, mock_util, mock_post, mock_open):
+    @patch('graphistry.plotter.in_ipython')
+    def test_ipython(self, mock_in_ipython, mock_post, mock_open):
+        mock_in_ipython.return_value = True
         widget = graphistry.bind(source='src', destination='dst').plot(triangleEdges)
         self.assertIsInstance(widget, IPython.core.display.HTML)
 
