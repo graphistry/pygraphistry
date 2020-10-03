@@ -11,7 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Warnings: Standardizing on Python's warnings.warn
 
 ### Fixing
-* Neo4j: Improve handling of empty query results
+* Neo4j: Improve handling of empty query results (https://github.com/graphistry/pygraphistry/issues/178)
 
 ### Adding
 * Gremlin / AWS Neptune
