@@ -680,7 +680,7 @@ class PyGraphistry(object):
     @staticmethod
     def encode_point_icon(column,
             categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
+            for_default=True, for_current=False, as_text=False, blend_mode=None, style=None, border=None):
         """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
         :param column: Data column name
@@ -698,6 +698,18 @@ class PyGraphistry(object):
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
         :type for_current: bool, optional.
 
+        :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
+        :type as_text: bool, optional.
+
+        :param blend_mode: CSS blend mode
+        :type blend_mode: str, optional.
+
+        :param style: CSS filter properties - opacity, saturation, luminosity, grayscale, and more
+        :type style: dict, optional
+
+        :param border: Border properties - 'width', 'color', and 'storke'
+        :type border: dict, optional
+
         :returns: Plotter.
         :rtype: Plotter.
 
@@ -710,17 +722,28 @@ class PyGraphistry(object):
                 g2a = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
+        **Example: Map countries to abbreviations**
+            ::
+                g2b = g.encode_point_icon('country_abbrev', as_text=True)
+                g2b = g.encode_point_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
+
+        **Example: Border**
+            ::
+                g2b = g.encode_point_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
+
         """
 
         return Plotter().encode_point_icon(column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+            for_default=for_default, for_current=for_current,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
 
 
     @staticmethod
     def encode_edge_icon(column,
             categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
+            for_default=True, for_current=False,
+            as_text=False, blend_mode=None, style=None, border=None):
         """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
         :param column: Data column name
@@ -738,6 +761,18 @@ class PyGraphistry(object):
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
         :type for_current: bool, optional.
 
+        :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
+        :type as_text: bool, optional.
+
+        :param blend_mode: CSS blend mode
+        :type blend_mode: str, optional.
+
+        :param style: CSS filter properties - opacity, saturation, luminosity, grayscale, and more
+        :type style: dict, optional
+
+        :param border: Border properties - 'width', 'color', and 'storke'
+        :type border: dict, optional
+
         :returns: Plotter.
         :rtype: Plotter.
 
@@ -750,11 +785,21 @@ class PyGraphistry(object):
                 g2a = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
+        **Example: Map countries to abbreviations**
+            ::
+                g2a = g.encode_edge_icon('country_abbrev', as_text=True)
+                g2b = g.encode_edge_icon('country', categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
+
+        **Example: Border**
+            ::
+                g2b = g.encode_edge_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
+
         """
 
         return Plotter().encode_edge_icon(column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+            for_default=for_default, for_current=for_current,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
 
 
 

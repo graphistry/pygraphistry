@@ -340,8 +340,11 @@ class Plotter(object):
 
     def encode_point_icon(self, column,
             categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
-        """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
+            for_default=True, for_current=False,
+            as_text=False, blend_mode=None, style=None, border=None):
+        """Set node icon with more control than bind().
+        Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
+        When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
         :type column: str.
@@ -357,6 +360,18 @@ class Plotter(object):
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
         :type for_current: bool, optional.
+
+        :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
+        :type as_text: bool, optional.
+
+        :param blend_mode: CSS blend mode
+        :type blend_mode: str, optional.
+
+        :param style: CSS filter properties - opacity, saturation, luminosity, grayscale, and more
+        :type style: dict, optional
+
+        :param border: Border properties - 'width', 'color', and 'storke'
+        :type border: dict, optional
 
         :returns: Plotter.
         :rtype: Plotter.
@@ -370,16 +385,29 @@ class Plotter(object):
                 g2a = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
+        **Example: Map countries to abbreviations**
+            ::
+                g2b = g.encode_point_icon('country_abbrev', as_text=True)
+                g2b = g.encode_point_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
+
+        **Example: Border**
+            ::
+                g2b = g.encode_point_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
+
         """
 
         return self.__encode('point', 'icon',  'pointIconEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+            for_default=for_default, for_current=for_current,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
 
     def encode_edge_icon(self, column,
             categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
-        """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
+            for_default=True, for_current=False,
+            as_text=False, blend_mode=None, style=None, border=None):
+        """Set edge icon with more control than bind()
+        Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
+        When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
         :type column: str.
@@ -396,6 +424,9 @@ class Plotter(object):
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
         :type for_current: bool, optional.
 
+        :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
+        :type as_text: bool, optional.
+
         :returns: Plotter.
         :rtype: Plotter.
 
@@ -408,17 +439,28 @@ class Plotter(object):
                 g2a = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
+        **Example: Map countries to abbreviations**
+            ::
+                g2a = g.encode_edge_icon('country_abbrev', as_text=True)
+                g2b = g.encode_edge_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
+
+        **Example: Border**
+            ::
+                g2b = g.encode_edge_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
+
         """
         return self.__encode('edge', 'icon',   'edgeIconEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+            for_default=for_default, for_current=for_current,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
 
     def __encode(self, graph_type, feature, feature_binding,
             column,
             palette=None,
             as_categorical=None, as_continuous=None,
             categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
+            for_default=True, for_current=False,
+            as_text=None, blend_mode=None, style=None, border=None):
 
         if for_default is None:
             for_default = True
@@ -478,7 +520,11 @@ class Plotter(object):
             'graphType': graph_type,
             'encodingType': feature,
             'attribute': column,
-            **transform
+            **transform,
+            **({'asText': as_text} if not (as_text is None) else {}),
+            **({'blendMode': blend_mode} if not (blend_mode is None) else {}),
+            **({'style': style} if not (style is None) else {}),
+            **({'border': border} if not (border is None) else {})
         }
 
         complex_encodings = copy.deepcopy(self._complex_encodings)
