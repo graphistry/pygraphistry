@@ -621,6 +621,59 @@ class TestPlotterEncodings(NoAuthTestCase):
     def test_edge_color(self):
         assert graphistry.bind().encode_edge_color('z')._edge_color == 'z'
 
+
+    def test_point_badge(self):
+        assert graphistry.bind().encode_point_badge('z', position='Top',
+            continuous_binning=[[None, 'a']], default_mapping='zz', comparator='<=',
+            color='red', bg={'color': 'green'}, fg={'style': {'opacity': 0.5}},
+            dimensions={'maxHeight': 20}, as_text=True, blend_mode='color-dodge', style={'opacity': 0.5},
+            border={'width': 10, 'color': 'green', 'stroke': 'dotted'})._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointBadgeTopEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'badge',
+                            'attribute': 'z',
+                            'variation': 'continuous',
+                            'mapping': { 
+                                'continuous': {
+                                    'bins': [[None, 'a']],
+                                    'comparator': '<=',
+                                    'other': 'zz'
+                                }
+                            },
+                            'color': 'red',
+                            'bg': {'color': 'green'},
+                            'fg': {'style': {'opacity': 0.5}},
+                            'dimensions': {'maxHeight': 20}, 'asText': True, 'blendMode': 'color-dodge',
+                            'style': {'opacity': 0.5},
+                            'border': {'width': 10, 'color': 'green', 'stroke': 'dotted'}
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
+        assert graphistry.bind().encode_edge_badge('z', position='Right', 
+            categorical_mapping={'a': 'b'}, for_default=False, for_current=True)._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'edge_encodings': {
+                    'default': {},
+                    'current': {
+                        'edgeBadgeRightEncoding': {
+                            'graphType': 'edge',
+                            'encodingType': 'badge',
+                            'attribute': 'z',
+                            'variation': 'categorical',
+                            'mapping': { 'categorical': {'fixed': {'a': 'b'}}}
+                        }
+                    }
+                }
+            }
+
     def test_set_mode(self):
         assert graphistry.bind().encode_point_color('z', categorical_mapping={'a': 'b'})._complex_encodings \
             == {

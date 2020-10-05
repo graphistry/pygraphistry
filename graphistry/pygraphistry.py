@@ -802,6 +802,31 @@ class PyGraphistry(object):
             as_text=as_text, blend_mode=blend_mode, style=style, border=border)
 
 
+    @staticmethod
+    def encode_edge_badge(column, position='TopRight',
+            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
+            color=None, bg=None, fg=None, dimensions=None,
+            for_current=False, for_default=True,
+            as_text=None, blend_mode=None, style=None, border=None):
+
+        return Plotter().encode_edge_badge(column=column,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
+            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            for_current=for_current, for_default=for_default,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+
+    @staticmethod
+    def encode_point_badge(column, position='TopRight',
+            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
+            color=None, bg=None, fg=None, dimensions=None,
+            for_current=False, for_default=True,
+            as_text=None, blend_mode=None, style=None, border=None):
+
+        return Plotter().encode_point_badge(column=column,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
+            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            for_current=for_current, for_default=for_default,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
 
     @staticmethod
     def bind(node=None, source=None, destination=None,
@@ -1202,6 +1227,8 @@ encode_edge_color = PyGraphistry.encode_edge_color
 encode_point_size = PyGraphistry.encode_point_size
 encode_point_icon = PyGraphistry.encode_point_icon
 encode_edge_icon = PyGraphistry.encode_edge_icon
+encode_point_badge = PyGraphistry.encode_point_badge
+encode_edge_badge = PyGraphistry.encode_edge_badge
 name = PyGraphistry.name
 description = PyGraphistry.description
 edges = PyGraphistry.edges

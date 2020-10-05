@@ -454,13 +454,64 @@ class Plotter(object):
             for_default=for_default, for_current=for_current,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border)
 
+
+    def encode_point_badge(self, column, position='TopRight',
+            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
+            color=None, bg=None, fg=None, dimensions=None,
+            for_current=False, for_default=True,
+            as_text=None, blend_mode=None, style=None, border=None):
+
+        return self.__encode_badge('point', column, position,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
+            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            for_current=for_current, for_default=for_default,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+
+
+    def encode_edge_badge(self, column, position='TopRight',
+            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
+            color=None, bg=None, fg=None, dimensions=None,
+            for_current=False, for_default=True,
+            as_text=None, blend_mode=None, style=None, border=None):
+
+        return self.__encode_badge('edge', column, position,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
+            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            for_current=for_current, for_default=for_default,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+
+    def __encode_badge(self, graph_type, column, position='TopRight',
+            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
+            color=None, bg=None, fg=None, dimensions=None,
+            for_current=False, for_default=True,
+            as_text=None, blend_mode=None, style=None, border=None):
+
+        #TODO allow column mapping for set icons? 
+        if (continuous_binning is None) and (categorical_mapping is None):
+            raise ValueError("Badge encodings require one of 'continuous_binning' or 'categorical_mapping'")
+
+        return self.__encode(graph_type, 'badge', f'{graph_type}Badge{position}Encoding',
+            column,
+            as_categorical=not (categorical_mapping is None),
+            as_continuous=not (continuous_binning is None),
+            categorical_mapping=categorical_mapping,
+            default_mapping=default_mapping,
+            for_current=for_current, for_default=for_default,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border,
+            continuous_binning=continuous_binning, ##new
+            comparator=comparator, ##new
+            color=color, bg=bg, fg=fg, dimensions=dimensions)
+
+
     def __encode(self, graph_type, feature, feature_binding,
             column,
             palette=None,
             as_categorical=None, as_continuous=None,
             categorical_mapping=None, default_mapping=None,
             for_default=True, for_current=False,
-            as_text=None, blend_mode=None, style=None, border=None):
+            as_text=None, blend_mode=None, style=None, border=None,
+            continuous_binning=None, comparator=None,
+            **kwargs):
 
         if for_default is None:
             for_default = True
@@ -474,7 +525,7 @@ class Plotter(object):
                     'message': 'graph_type must be "point" or "edge"',
                     'data': {'graph_type': graph_type } })
 
-        if (categorical_mapping is None) and (palette is None):
+        if (categorical_mapping is None) and (palette is None) and (continuous_binning is None):
             return self.bind(**{f'{graph_type}_{feature}': column})
 
         transform = None
@@ -513,10 +564,32 @@ class Plotter(object):
                 'variation': 'categorical' if is_categorical else 'continuous',
                 'colors': palette
             }
+        elif not (continuous_binning is None):
+            if not (isinstance(continuous_binning, list)):
+                raise ValueError({
+                    'message': 'continous_binning should be a list of [comparable or None, mapped_value]',
+                    'data': { 'continuous_binning': continuous_binning, 'type': str(type(continuous_binning)) }})
+
+            if as_categorical:
+                raise ValueError({'message': 'as_categorical cannot be True when continuous_binning is provided'})
+            if as_continuous == False:
+                raise ValueError({'message': 'as_continuous cannot be False when continuous_binning is set'})
+
+            transform = {
+                'variation': 'continuous',
+                'mapping': {
+                    'continuous': {
+                        'bins': continuous_binning,
+                        **({} if comparator is None else {'comparator': comparator}),
+                        **({} if default_mapping is None else {'other': default_mapping})
+                    }
+                }
+            }
         else:
             raise ValueError({'message': 'Must pass one of parameters palette or categorical_mapping'})
 
         encoding = {
+            **{k: kwargs[k] for k in kwargs if not (kwargs[k] is None)},
             'graphType': graph_type,
             'encodingType': feature,
             'attribute': column,
