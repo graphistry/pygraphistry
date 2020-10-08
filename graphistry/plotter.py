@@ -341,7 +341,7 @@ class Plotter(object):
     def encode_point_icon(self, column,
             categorical_mapping=None, default_mapping=None,
             for_default=True, for_current=False,
-            as_text=False, blend_mode=None, style=None, border=None):
+            as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set node icon with more control than bind().
         Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
         When as_text=True is enabled, values are instead interpreted as raw strings.
@@ -399,12 +399,12 @@ class Plotter(object):
         return self.__encode('point', 'icon',  'pointIconEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     def encode_edge_icon(self, column,
             categorical_mapping=None, default_mapping=None,
             for_default=True, for_current=False,
-            as_text=False, blend_mode=None, style=None, border=None):
+            as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set edge icon with more control than bind()
         Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
         When as_text=True is enabled, values are instead interpreted as raw strings.
@@ -452,45 +452,45 @@ class Plotter(object):
         return self.__encode('edge', 'icon',   'edgeIconEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
     def encode_point_badge(self, column, position='TopRight',
             categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None,
+            color=None, bg=None, fg=None,
             for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None):
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
 
         return self.__encode_badge('point', column, position,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
-            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            color=color, bg=bg, fg=fg,
             for_current=for_current, for_default=for_default,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
     def encode_edge_badge(self, column, position='TopRight',
             categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None,
+            color=None, bg=None, fg=None,
             for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None):
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
 
         return self.__encode_badge('edge', column, position,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
-            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            color=color, bg=bg, fg=fg,
             for_current=for_current, for_default=for_default,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     def __encode_badge(self, graph_type, column, position='TopRight',
             categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None,
+            color=None, bg=None, fg=None,
             for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None):
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
 
         #TODO allow column mapping for set icons? 
         if (continuous_binning is None) and (categorical_mapping is None):
             raise ValueError("Badge encodings require one of 'continuous_binning' or 'categorical_mapping'")
 
-        return self.__encode(graph_type, 'badge', f'{graph_type}Badge{position}Encoding',
+        return self.__encode(graph_type, f'badge{position}', f'{graph_type}Badge{position}Encoding',
             column,
             as_categorical=not (categorical_mapping is None),
             as_continuous=not (continuous_binning is None),
@@ -500,7 +500,7 @@ class Plotter(object):
             as_text=as_text, blend_mode=blend_mode, style=style, border=border,
             continuous_binning=continuous_binning, ##new
             comparator=comparator, ##new
-            color=color, bg=bg, fg=fg, dimensions=dimensions)
+            color=color, bg=bg, fg=fg, shape=shape)
 
 
     def __encode(self, graph_type, feature, feature_binding,
@@ -511,7 +511,7 @@ class Plotter(object):
             for_default=True, for_current=False,
             as_text=None, blend_mode=None, style=None, border=None,
             continuous_binning=None, comparator=None,
-            **kwargs):
+            color=None, bg=None, fg=None, dimensions=None, shape=None):
 
         if for_default is None:
             for_default = True
@@ -589,15 +589,19 @@ class Plotter(object):
             raise ValueError({'message': 'Must pass one of parameters palette or categorical_mapping'})
 
         encoding = {
-            **{k: kwargs[k] for k in kwargs if not (kwargs[k] is None)},
             'graphType': graph_type,
             'encodingType': feature,
             'attribute': column,
             **transform,
-            **({'asText': as_text} if not (as_text is None) else {}),
+            **({'bg':        bg} if not         (bg is None) else {}),
+            **({'color':     color} if not      (color is None) else {}),
+            **({'fg':        fg} if not         (fg is None) else {}),
+
+            **({'asText':    as_text} if not    (as_text is None) else {}),
             **({'blendMode': blend_mode} if not (blend_mode is None) else {}),
-            **({'style': style} if not (style is None) else {}),
-            **({'border': border} if not (border is None) else {})
+            **({'style':     style} if not      (style is None) else {}),
+            **({'border':    border} if not     (border is None) else {}),
+            **({'shape':     shape} if not      (shape is None) else {})
         }
 
         complex_encodings = copy.deepcopy(self._complex_encodings)

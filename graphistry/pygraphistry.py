@@ -680,7 +680,7 @@ class PyGraphistry(object):
     @staticmethod
     def encode_point_icon(column,
             categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False, as_text=False, blend_mode=None, style=None, border=None):
+            for_default=True, for_current=False, as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
         :param column: Data column name
@@ -736,14 +736,14 @@ class PyGraphistry(object):
         return Plotter().encode_point_icon(column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
     @staticmethod
     def encode_edge_icon(column,
             categorical_mapping=None, default_mapping=None,
             for_default=True, for_current=False,
-            as_text=False, blend_mode=None, style=None, border=None):
+            as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
         :param column: Data column name
@@ -799,34 +799,34 @@ class PyGraphistry(object):
         return Plotter().encode_edge_icon(column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
     @staticmethod
     def encode_edge_badge(column, position='TopRight',
             categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None,
+            color=None, bg=None, fg=None,
             for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None):
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
 
         return Plotter().encode_edge_badge(column=column,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
-            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            color=color, bg=bg, fg=fg,
             for_current=for_current, for_default=for_default,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     @staticmethod
     def encode_point_badge(column, position='TopRight',
             categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None,
+            color=None, bg=None, fg=None,
             for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None):
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
 
         return Plotter().encode_point_badge(column=column,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
-            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            color=color, bg=bg, fg=fg,
             for_current=for_current, for_default=for_default,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     @staticmethod
     def bind(node=None, source=None, destination=None,

@@ -626,7 +626,7 @@ class TestPlotterEncodings(NoAuthTestCase):
         assert graphistry.bind().encode_point_badge('z', position='Top',
             continuous_binning=[[None, 'a']], default_mapping='zz', comparator='<=',
             color='red', bg={'color': 'green'}, fg={'style': {'opacity': 0.5}},
-            dimensions={'maxHeight': 20}, as_text=True, blend_mode='color-dodge', style={'opacity': 0.5},
+            as_text=True, blend_mode='color-dodge', style={'opacity': 0.5},
             border={'width': 10, 'color': 'green', 'stroke': 'dotted'})._complex_encodings \
             == {
                 **TestPlotterEncodings.COMPLEX_EMPTY,
@@ -634,7 +634,7 @@ class TestPlotterEncodings(NoAuthTestCase):
                     'default': {
                         'pointBadgeTopEncoding': {
                             'graphType': 'point',
-                            'encodingType': 'badge',
+                            'encodingType': 'badgeTop',
                             'attribute': 'z',
                             'variation': 'continuous',
                             'mapping': { 
@@ -647,7 +647,7 @@ class TestPlotterEncodings(NoAuthTestCase):
                             'color': 'red',
                             'bg': {'color': 'green'},
                             'fg': {'style': {'opacity': 0.5}},
-                            'dimensions': {'maxHeight': 20}, 'asText': True, 'blendMode': 'color-dodge',
+                            'asText': True, 'blendMode': 'color-dodge',
                             'style': {'opacity': 0.5},
                             'border': {'width': 10, 'color': 'green', 'stroke': 'dotted'}
                         }
@@ -665,7 +665,7 @@ class TestPlotterEncodings(NoAuthTestCase):
                     'current': {
                         'edgeBadgeRightEncoding': {
                             'graphType': 'edge',
-                            'encodingType': 'badge',
+                            'encodingType': 'badgeRight',
                             'attribute': 'z',
                             'variation': 'categorical',
                             'mapping': { 'categorical': {'fixed': {'a': 'b'}}}
