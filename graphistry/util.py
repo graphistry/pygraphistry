@@ -10,9 +10,9 @@ def make_iframe(url, height):
 
     scrollbug_workaround='''
             <script>
-                $("#%s").bind('mousewheel', function(e) {
-                e.preventDefault();
-                });
+                try {
+                  $("#%s").bind('mousewheel', function(e) { e.preventDefault(); });
+                } catch (e) { console.error('exn catching scroll', e); }
             </script>
         ''' % id
 
