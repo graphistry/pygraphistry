@@ -864,7 +864,7 @@ class Plotter(object):
         res = copy.copy(self)
         res._height = height or self._height
         res._url_params = dict(self._url_params, **url_params)
-        res._render = self._render if render == None else render
+        res._render = self._render if render is None else render
         return res
 
 
@@ -957,9 +957,9 @@ class Plotter(object):
         cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
         full_url = ('%s:%s' % (PyGraphistry._config['protocol'], viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
-        if render == False or (render == None and not self._render):
+        if (render == False) or ((render is None) and not self._render):
             return full_url
-        elif in_ipython():
+        elif (render == True) or in_ipython():
             from IPython.core.display import HTML
             return HTML(make_iframe(full_url, self._height))
         else:

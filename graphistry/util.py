@@ -48,11 +48,19 @@ def compare_versions(v1, v2):
 
 
 def in_ipython():
-        try:
-            return hasattr(__builtins__, '__IPYTHON__')
-        except NameError:
-            return False
-
+    try:
+        if hasattr(__builtins__, '__IPYTHON__'):
+            return True
+    except NameError:
+        pass
+    try:
+        from IPython import get_ipython
+        cfg = get_ipython()
+        if not (cfg is None) and ('IPKernelApp' in get_ipython().config):
+            return True
+    except ImportError:
+        pass
+    return False
 
 def warn(msg):
     try:
