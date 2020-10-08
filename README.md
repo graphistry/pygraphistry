@@ -123,13 +123,13 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
   
     ```python
     edges = cudf.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
-    graphstistry.edges(edges).bind(source='src', destination='dst').plot()
+    graphistry.edges(edges).bind(source='src', destination='dst').plot()
     ```
   - [Apache Arrow](https://arrow.apache.org/)
   
     ```python
      edges = pa.Table.from_pandas(pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst']))
-     graphstistry.edges(edges).bind(source='src', destination='dst').plot()
+     graphistry.edges(edges).bind(source='src', destination='dst').plot()
     ```
     
   - [Neo4j](http://neo4j.com) ([notebook demo](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
