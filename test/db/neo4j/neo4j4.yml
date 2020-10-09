@@ -1,0 +1,27 @@
+version: "3.5"
+services:
+  neo4j:
+    container_name: neo4j4-test
+    image: neo4j:4.1
+    ports:
+      - "10004:7687"
+      - "10005:7473"
+      - "10006:7474"
+    environment:
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,algo.*
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=2G
+      - NEO4J_apoc_uuid_enabled=true
+      - NEO4J_dbms_default__listen__address=0.0.0.0
+      - NEO4J_dbms_allow__upgrade=true
+      - NEO4J_dbms_default__database=neo4j
+      - NEO4J_AUTH=neo4j/test
+    networks: ["grph_net"]
+    restart: unless-stopped
+
+
+networks:
+  grph_net:
+    name: grph_net

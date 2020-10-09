@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 
-import datetime as dt, logging, neo4j, numpy, pandas as pd, pyarrow as pa, pytest, unittest
+import datetime as dt, graphistry, logging, neo4j, numpy, os, pandas as pd, pyarrow as pa, pytest, unittest
 from common import NoAuthTestCase
 
-from graphistry.bolt_util import neo_df_to_pd_df
+from graphistry.bolt_util import (
+    neo_df_to_pd_df,
+    node_id_key, node_type_key, node_label_prefix_key,
+    start_node_id_key, end_node_id_key, relationship_id_key, relationship_type_key
+)
+
 
 def test_neo_df_to_pd_df_basics():
     rec = {
@@ -291,4 +296,57 @@ def test_spatial_heterogeneous():
         'w': 1,
     }
     with pytest.raises(pa.lib.ArrowTypeError):
-        pa.Table.from_pandas(df2)    
+        pa.Table.from_pandas(df2)
+
+@pytest.mark.skipif(not ('WITH_NEO4J' in os.environ) or os.environ['WITH_NEO4J'] != '1', reason='No WITH_NEO4J=1')
+class Test_Neo4jConnector:
+
+    @classmethod
+    def setup_class(cls):
+        from neo4j import GraphDatabase, Driver
+        NEO4J_CREDS = {'uri': 'bolt://neo4j4-test:7687', 'auth': ('neo4j', 'test')}
+        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        graphistry.register(api=3, bolt=GraphDatabase.driver(**NEO4J_CREDS))
+
+    def test_neo4j_conn_setup(self):
+        assert True == True
+
+    def test_neo4j_ready(self):
+
+        g = graphistry.cypher("MATCH (a)-[b]-(c) WHERE a <> c RETURN a, b, c LIMIT 1")
+        assert len(g._nodes) == 2
+
+    def test_neo4j_no_edges(self):
+
+        with pytest.warns(RuntimeWarning):
+            g = graphistry.cypher("MATCH (a) RETURN a LIMIT 1")
+
+        assert len(g._nodes) == 1
+        assert len(g._edges) == 0
+        for col in [node_id_key, node_type_key]:
+            assert col in g._nodes
+        for col in [start_node_id_key, end_node_id_key, relationship_id_key, relationship_type_key]:
+            assert col in g._edges
+
+    def test_neo4j_no_nodes(self):
+        with pytest.warns(RuntimeWarning):
+            g = graphistry.cypher("MATCH (a) WHERE a.x = 123 RETURN a LIMIT 1")
+
+        assert len(g._nodes) == 0
+        assert len(g._edges) == 0
+        for col in [node_id_key, node_type_key]:
+            assert col in g._nodes
+        for col in [start_node_id_key, end_node_id_key, relationship_id_key, relationship_type_key]:
+            assert col in g._edges
+
+    def test_neo4j_some_edges(self):
+
+        g = graphistry.cypher("MATCH (a)-[b]-(c) WHERE a <> c RETURN a, b, c LIMIT 1")
+        assert len(g._nodes) == 2
+        assert len(g._edges) == 1
+
+        for col in [node_id_key, node_type_key]:
+            assert col in g._nodes
+        
+        for col in [start_node_id_key, end_node_id_key, relationship_id_key, relationship_type_key]:
+            assert col in g._edges
