@@ -1023,15 +1023,78 @@ INTERPRET QUERY () FOR GRAPH Storage {
 
 
     @staticmethod
-    def nodes(nodes):
+    def nodes(nodes, node=None):
+        """Specify the set of nodes and associated data.
 
-        return Plotter().nodes(nodes)
+        Must include any nodes referenced in the edge list.
+
+        :param nodes: Nodes and their attributes.
+        :type point_size: Pandas dataframe
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+            ::
+
+                import graphistry
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(es)
+
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                g = g.bind(node='v').nodes(vs)
+
+                g.plot()
+
+        **Example**
+            ::
+
+                import graphistry
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = graphistry.edges(es, 'src', 'dst')
+
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                g = g.nodes(vs, 'v)
+
+                g.plot()
+        """
+        return Plotter().nodes(nodes, node)
 
 
     @staticmethod
-    def edges(edges):
+    def edges(edges, source=None, destination=None):
+        """Specify edge list data and associated edge attribute values.
 
-        return Plotter().edges(edges)
+        :param edges: Edges and their attributes.
+        :type point_size: Pandas dataframe, NetworkX graph, or IGraph graph.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+            ::
+
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(df)
+                    .plot()
+
+        **Example**
+            ::
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .edges(df, 'src', 'dst')
+                    .plot()
+
+        """
+        return Plotter().edges(edges, source, destination)
 
 
     @staticmethod

@@ -749,7 +749,7 @@ class Plotter(object):
         return res
 
 
-    def nodes(self, nodes):
+    def nodes(self, nodes, node=None):
         """Specify the set of nodes and associated data.
 
         Must include any nodes referenced in the edge list.
@@ -775,10 +775,22 @@ class Plotter(object):
 
                 g.plot()
 
+        **Example**
+            ::
+
+                import graphistry
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = graphistry.edges(es, 'src', 'dst')
+
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                g = g.nodes(vs, 'v)
+
+                g.plot()
         """
 
-
-        res = copy.copy(self)
+        base = self.bind(node=node) if not node is None else self
+        res = copy.copy(base)
         res._nodes = nodes
         return res
 
@@ -803,7 +815,7 @@ class Plotter(object):
         return res
 
 
-    def edges(self, edges):
+    def edges(self, edges, source=None, destination=None):
         """Specify edge list data and associated edge attribute values.
 
         :param edges: Edges and their attributes.
@@ -822,9 +834,23 @@ class Plotter(object):
                     .edges(df)
                     .plot()
 
+        **Example**
+            ::
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .edges(df, 'src', 'dst')
+                    .plot()
+
         """
 
-        res = copy.copy(self)
+        base = self
+        if not (source is None):
+            base = base.bind(source=source)
+        if not (destination is None):
+            base = base.bind(destination=destination)
+
+        res = copy.copy(base)
         res._edges = edges
         return res
 

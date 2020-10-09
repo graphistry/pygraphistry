@@ -107,6 +107,20 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
         plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
 
+    def test_bind_graph_short(self, mock_etl, mock_open):
+        g = graphistry\
+                .nodes(pd.DataFrame({'n': []}), 'n')\
+                .edges(pd.DataFrame({'a': [], 'b': []}), 'a', 'b')
+        assert g._node == 'n'
+        assert g._source == 'a'
+        assert g._destination == 'b'
+        g2 = graphistry\
+                .bind(source='a', destination='b', node='n')\
+                .nodes(pd.DataFrame({'n': []}))\
+                .edges(pd.DataFrame({'a': [], 'b': []}))
+        assert g2._node == 'n'
+        assert g2._source == 'a'
+        assert g2._destination == 'b'
 
     def test_bind_nodes(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='a2')
