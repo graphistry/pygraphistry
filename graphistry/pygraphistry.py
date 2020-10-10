@@ -679,7 +679,8 @@ class PyGraphistry(object):
 
     @staticmethod
     def encode_point_icon(column,
-            categorical_mapping=None, default_mapping=None,
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
             for_default=True, for_current=False, as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
@@ -734,14 +735,16 @@ class PyGraphistry(object):
         """
 
         return Plotter().encode_point_icon(column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
             for_default=for_default, for_current=for_current,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
     @staticmethod
     def encode_edge_icon(column,
-            categorical_mapping=None, default_mapping=None,
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
             for_default=True, for_current=False,
             as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
@@ -797,7 +800,8 @@ class PyGraphistry(object):
         """
 
         return Plotter().encode_edge_icon(column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
             for_default=for_default, for_current=for_current,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 

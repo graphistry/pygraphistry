@@ -629,6 +629,22 @@ class TestPlotterEncodings(NoAuthTestCase):
                 }
             }
 
+        assert graphistry.bind().encode_point_icon('z', continuous_binning=[], comparator='<=', as_text=True, blend_mode='color-dodge')\
+            ._complex_encodings['node_encodings'] == {
+                'current': {},
+                'default': {
+                    'pointIconEncoding': {
+                        'graphType': 'point',
+                        'encodingType': 'icon',
+                        'attribute': 'z',
+                        'variation': 'continuous',
+                        'mapping': { 'continuous': {'bins': [], 'comparator': '<=' }},
+                        'asText': True,
+                        'blendMode': 'color-dodge'
+                    }
+                }
+            }
+
     def test_edge_icon(self):
         assert graphistry.bind().encode_edge_icon('z')._edge_icon == 'z'
 

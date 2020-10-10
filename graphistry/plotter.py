@@ -339,7 +339,8 @@ class Plotter(object):
 
 
     def encode_point_icon(self, column,
-            categorical_mapping=None, default_mapping=None,
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
             for_default=True, for_current=False,
             as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set node icon with more control than bind().
@@ -397,12 +398,14 @@ class Plotter(object):
         """
 
         return self.__encode('point', 'icon',  'pointIconEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
             for_default=for_default, for_current=for_current,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     def encode_edge_icon(self, column,
-            categorical_mapping=None, default_mapping=None,
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
             for_default=True, for_current=False,
             as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set edge icon with more control than bind()
@@ -450,7 +453,8 @@ class Plotter(object):
 
         """
         return self.__encode('edge', 'icon',   'edgeIconEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
             for_default=for_default, for_current=for_current,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
