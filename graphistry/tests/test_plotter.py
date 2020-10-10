@@ -636,7 +636,40 @@ class TestPlotterEncodings(NoAuthTestCase):
         assert graphistry.bind().encode_edge_color('z')._edge_color == 'z'
 
 
-    def test_point_badge(self):
+    def test_badge(self):
+
+        assert graphistry.bind().encode_point_badge('z', position='Top')._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointBadgeTopEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'badgeTop',
+                            'attribute': 'z',
+                            'variation': 'categorical'
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
+        assert graphistry.bind().encode_edge_badge('z', position='Top')._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'edge_encodings': {
+                    'default': {
+                        'edgeBadgeTopEncoding': {
+                            'graphType': 'edge',
+                            'encodingType': 'badgeTop',
+                            'attribute': 'z',
+                            'variation': 'categorical'
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
         assert graphistry.bind().encode_point_badge('z', position='Top',
             continuous_binning=[[None, 'a']], default_mapping='zz', comparator='<=',
             color='red', bg={'color': 'green'}, fg={'style': {'opacity': 0.5}},

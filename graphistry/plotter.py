@@ -485,11 +485,7 @@ class Plotter(object):
             color=None, bg=None, fg=None,
             for_current=False, for_default=True,
             as_text=None, blend_mode=None, style=None, border=None, shape=None):
-
-        #TODO allow column mapping for set icons? 
-        if (continuous_binning is None) and (categorical_mapping is None):
-            raise ValueError("Badge encodings require one of 'continuous_binning' or 'categorical_mapping'")
-
+                    
         return self.__encode(graph_type, f'badge{position}', f'{graph_type}Badge{position}Encoding',
             column,
             as_categorical=not (categorical_mapping is None),
@@ -525,7 +521,7 @@ class Plotter(object):
                     'message': 'graph_type must be "point" or "edge"',
                     'data': {'graph_type': graph_type } })
 
-        if (categorical_mapping is None) and (palette is None) and (continuous_binning is None):
+        if (categorical_mapping is None) and (palette is None) and (continuous_binning is None) and not feature.startswith('badge'):
             return self.bind(**{f'{graph_type}_{feature}': column})
 
         transform = None
@@ -585,6 +581,8 @@ class Plotter(object):
                     }
                 }
             }
+        elif feature.startswith('badge'):
+            transform = {'variation': 'categorical'}
         else:
             raise ValueError({'message': 'Must pass one of parameters palette or categorical_mapping'})
 
