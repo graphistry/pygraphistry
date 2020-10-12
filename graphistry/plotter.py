@@ -490,7 +490,7 @@ class Plotter(object):
         if (continuous_binning is None) and (categorical_mapping is None):
             raise ValueError("Badge encodings require one of 'continuous_binning' or 'categorical_mapping'")
 
-        return self.__encode(graph_type, 'badge', f'{graph_type}Badge{position}Encoding',
+        return self.__encode(graph_type, f'badge{position}', f'{graph_type}Badge{position}Encoding',
             column,
             as_categorical=not (categorical_mapping is None),
             as_continuous=not (continuous_binning is None),
