@@ -339,9 +339,10 @@ class Plotter(object):
 
 
     def encode_point_icon(self, column,
-            categorical_mapping=None, default_mapping=None,
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
             for_default=True, for_current=False,
-            as_text=False, blend_mode=None, style=None, border=None):
+            as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set node icon with more control than bind().
         Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
         When as_text=True is enabled, values are instead interpreted as raw strings.
@@ -397,14 +398,16 @@ class Plotter(object):
         """
 
         return self.__encode('point', 'icon',  'pointIconEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
             for_default=for_default, for_current=for_current,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     def encode_edge_icon(self, column,
-            categorical_mapping=None, default_mapping=None,
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
             for_default=True, for_current=False,
-            as_text=False, blend_mode=None, style=None, border=None):
+            as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set edge icon with more control than bind()
         Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
         When as_text=True is enabled, values are instead interpreted as raw strings.
@@ -450,45 +453,42 @@ class Plotter(object):
 
         """
         return self.__encode('edge', 'icon',   'edgeIconEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
             for_default=for_default, for_current=for_current,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
     def encode_point_badge(self, column, position='TopRight',
             categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None,
+            color=None, bg=None, fg=None,
             for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None):
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
 
         return self.__encode_badge('point', column, position,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
-            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            color=color, bg=bg, fg=fg,
             for_current=for_current, for_default=for_default,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
     def encode_edge_badge(self, column, position='TopRight',
             categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None,
+            color=None, bg=None, fg=None,
             for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None):
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
 
         return self.__encode_badge('edge', column, position,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
-            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            color=color, bg=bg, fg=fg,
             for_current=for_current, for_default=for_default,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     def __encode_badge(self, graph_type, column, position='TopRight',
             categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None,
+            color=None, bg=None, fg=None,
             for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None):
-
-        #TODO allow column mapping for set icons? 
-        if (continuous_binning is None) and (categorical_mapping is None):
-            raise ValueError("Badge encodings require one of 'continuous_binning' or 'categorical_mapping'")
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
 
         return self.__encode(graph_type, f'badge{position}', f'{graph_type}Badge{position}Encoding',
             column,
@@ -500,7 +500,7 @@ class Plotter(object):
             as_text=as_text, blend_mode=blend_mode, style=style, border=border,
             continuous_binning=continuous_binning, ##new
             comparator=comparator, ##new
-            color=color, bg=bg, fg=fg, dimensions=dimensions)
+            color=color, bg=bg, fg=fg, shape=shape)
 
 
     def __encode(self, graph_type, feature, feature_binding,
@@ -511,7 +511,7 @@ class Plotter(object):
             for_default=True, for_current=False,
             as_text=None, blend_mode=None, style=None, border=None,
             continuous_binning=None, comparator=None,
-            **kwargs):
+            color=None, bg=None, fg=None, dimensions=None, shape=None):
 
         if for_default is None:
             for_default = True
@@ -525,7 +525,7 @@ class Plotter(object):
                     'message': 'graph_type must be "point" or "edge"',
                     'data': {'graph_type': graph_type } })
 
-        if (categorical_mapping is None) and (palette is None) and (continuous_binning is None):
+        if (categorical_mapping is None) and (palette is None) and (continuous_binning is None) and not feature.startswith('badge'):
             return self.bind(**{f'{graph_type}_{feature}': column})
 
         transform = None
@@ -585,19 +585,25 @@ class Plotter(object):
                     }
                 }
             }
+        elif feature.startswith('badge'):
+            transform = {'variation': 'categorical'}
         else:
             raise ValueError({'message': 'Must pass one of parameters palette or categorical_mapping'})
 
         encoding = {
-            **{k: kwargs[k] for k in kwargs if not (kwargs[k] is None)},
             'graphType': graph_type,
             'encodingType': feature,
             'attribute': column,
             **transform,
-            **({'asText': as_text} if not (as_text is None) else {}),
+            **({'bg':        bg} if not         (bg is None) else {}),
+            **({'color':     color} if not      (color is None) else {}),
+            **({'fg':        fg} if not         (fg is None) else {}),
+
+            **({'asText':    as_text} if not    (as_text is None) else {}),
             **({'blendMode': blend_mode} if not (blend_mode is None) else {}),
-            **({'style': style} if not (style is None) else {}),
-            **({'border': border} if not (border is None) else {})
+            **({'style':     style} if not      (style is None) else {}),
+            **({'border':    border} if not     (border is None) else {}),
+            **({'shape':     shape} if not      (shape is None) else {})
         }
 
         complex_encodings = copy.deepcopy(self._complex_encodings)
@@ -745,7 +751,7 @@ class Plotter(object):
         return res
 
 
-    def nodes(self, nodes):
+    def nodes(self, nodes, node=None):
         """Specify the set of nodes and associated data.
 
         Must include any nodes referenced in the edge list.
@@ -771,10 +777,22 @@ class Plotter(object):
 
                 g.plot()
 
+        **Example**
+            ::
+
+                import graphistry
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = graphistry.edges(es, 'src', 'dst')
+
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                g = g.nodes(vs, 'v)
+
+                g.plot()
         """
 
-
-        res = copy.copy(self)
+        base = self.bind(node=node) if not node is None else self
+        res = copy.copy(base)
         res._nodes = nodes
         return res
 
@@ -799,7 +817,7 @@ class Plotter(object):
         return res
 
 
-    def edges(self, edges):
+    def edges(self, edges, source=None, destination=None):
         """Specify edge list data and associated edge attribute values.
 
         :param edges: Edges and their attributes.
@@ -818,9 +836,23 @@ class Plotter(object):
                     .edges(df)
                     .plot()
 
+        **Example**
+            ::
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .edges(df, 'src', 'dst')
+                    .plot()
+
         """
 
-        res = copy.copy(self)
+        base = self
+        if not (source is None):
+            base = base.bind(source=source)
+        if not (destination is None):
+            base = base.bind(destination=destination)
+
+        res = copy.copy(base)
         res._edges = edges
         return res
 
@@ -860,7 +892,7 @@ class Plotter(object):
         res = copy.copy(self)
         res._height = height or self._height
         res._url_params = dict(self._url_params, **url_params)
-        res._render = self._render if render == None else render
+        res._render = self._render if render is None else render
         return res
 
 
@@ -953,9 +985,9 @@ class Plotter(object):
         cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
         full_url = ('%s:%s' % (PyGraphistry._config['protocol'], viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
-        if render == False or (render == None and not self._render):
+        if (render == False) or ((render is None) and not self._render):
             return full_url
-        elif in_ipython():
+        elif (render == True) or in_ipython():
             from IPython.core.display import HTML
             return HTML(make_iframe(full_url, self._height))
         else:

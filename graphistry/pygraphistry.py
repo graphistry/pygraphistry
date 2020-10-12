@@ -679,8 +679,9 @@ class PyGraphistry(object):
 
     @staticmethod
     def encode_point_icon(column,
-            categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False, as_text=False, blend_mode=None, style=None, border=None):
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
+            for_default=True, for_current=False, as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
         :param column: Data column name
@@ -734,16 +735,18 @@ class PyGraphistry(object):
         """
 
         return Plotter().encode_point_icon(column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
             for_default=for_default, for_current=for_current,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
     @staticmethod
     def encode_edge_icon(column,
-            categorical_mapping=None, default_mapping=None,
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
             for_default=True, for_current=False,
-            as_text=False, blend_mode=None, style=None, border=None):
+            as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
         :param column: Data column name
@@ -797,36 +800,37 @@ class PyGraphistry(object):
         """
 
         return Plotter().encode_edge_icon(column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
             for_default=for_default, for_current=for_current,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
     @staticmethod
     def encode_edge_badge(column, position='TopRight',
             categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None,
+            color=None, bg=None, fg=None,
             for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None):
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
 
         return Plotter().encode_edge_badge(column=column,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
-            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            color=color, bg=bg, fg=fg,
             for_current=for_current, for_default=for_default,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     @staticmethod
     def encode_point_badge(column, position='TopRight',
             categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
-            color=None, bg=None, fg=None, dimensions=None,
+            color=None, bg=None, fg=None,
             for_current=False, for_default=True,
-            as_text=None, blend_mode=None, style=None, border=None):
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
 
         return Plotter().encode_point_badge(column=column,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
-            color=color, bg=bg, fg=fg, dimensions=dimensions,
+            color=color, bg=bg, fg=fg,
             for_current=for_current, for_default=for_default,
-            as_text=as_text, blend_mode=blend_mode, style=style, border=border)
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     @staticmethod
     def bind(node=None, source=None, destination=None,
@@ -1023,15 +1027,78 @@ INTERPRET QUERY () FOR GRAPH Storage {
 
 
     @staticmethod
-    def nodes(nodes):
+    def nodes(nodes, node=None):
+        """Specify the set of nodes and associated data.
 
-        return Plotter().nodes(nodes)
+        Must include any nodes referenced in the edge list.
+
+        :param nodes: Nodes and their attributes.
+        :type point_size: Pandas dataframe
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+            ::
+
+                import graphistry
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(es)
+
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                g = g.bind(node='v').nodes(vs)
+
+                g.plot()
+
+        **Example**
+            ::
+
+                import graphistry
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = graphistry.edges(es, 'src', 'dst')
+
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                g = g.nodes(vs, 'v)
+
+                g.plot()
+        """
+        return Plotter().nodes(nodes, node)
 
 
     @staticmethod
-    def edges(edges):
+    def edges(edges, source=None, destination=None):
+        """Specify edge list data and associated edge attribute values.
 
-        return Plotter().edges(edges)
+        :param edges: Edges and their attributes.
+        :type point_size: Pandas dataframe, NetworkX graph, or IGraph graph.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+            ::
+
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(df)
+                    .plot()
+
+        **Example**
+            ::
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .edges(df, 'src', 'dst')
+                    .plot()
+
+        """
+        return Plotter().edges(edges, source, destination)
 
 
     @staticmethod

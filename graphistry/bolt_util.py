@@ -47,7 +47,7 @@ def bolt_graph_to_edges_dataframe(graph):
         for relationship in graph.relationships
     ])
     if len(df) == 0:
-        logger.warning('Query returned no edges; may have surprising visual results or need to add missing columns for encodings')
+        util.warn('Query returned no edges; may have surprising visual results or need to add missing columns for encodings')
         return pd.DataFrame({
             relationship_id_key: pd.Series([], dtype='int32'),
             relationship_type_key: pd.Series([], dtype='int32'),
@@ -70,7 +70,7 @@ def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
         for node in graph.nodes
     ])
     if len(df) == 0:
-        logger.warning('Query returned no nodes')
+        util.warn('Query returned no nodes')
         return pd.DataFrame({
             node_id_key: pd.Series([], dtype='int32'),
             node_type_key: pd.Series([], dtype='object')
