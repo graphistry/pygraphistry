@@ -107,6 +107,20 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
         plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
 
+    def test_bind_graph_short(self, mock_etl, mock_open):
+        g = graphistry\
+                .nodes(pd.DataFrame({'n': []}), 'n')\
+                .edges(pd.DataFrame({'a': [], 'b': []}), 'a', 'b')
+        assert g._node == 'n'
+        assert g._source == 'a'
+        assert g._destination == 'b'
+        g2 = graphistry\
+                .bind(source='a', destination='b', node='n')\
+                .nodes(pd.DataFrame({'n': []}))\
+                .edges(pd.DataFrame({'a': [], 'b': []}))
+        assert g2._node == 'n'
+        assert g2._source == 'a'
+        assert g2._destination == 'b'
 
     def test_bind_nodes(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='a2')
@@ -615,6 +629,22 @@ class TestPlotterEncodings(NoAuthTestCase):
                 }
             }
 
+        assert graphistry.bind().encode_point_icon('z', continuous_binning=[], comparator='<=', as_text=True, blend_mode='color-dodge')\
+            ._complex_encodings['node_encodings'] == {
+                'current': {},
+                'default': {
+                    'pointIconEncoding': {
+                        'graphType': 'point',
+                        'encodingType': 'icon',
+                        'attribute': 'z',
+                        'variation': 'continuous',
+                        'mapping': { 'continuous': {'bins': [], 'comparator': '<=' }},
+                        'asText': True,
+                        'blendMode': 'color-dodge'
+                    }
+                }
+            }
+
     def test_edge_icon(self):
         assert graphistry.bind().encode_edge_icon('z')._edge_icon == 'z'
 
@@ -622,11 +652,44 @@ class TestPlotterEncodings(NoAuthTestCase):
         assert graphistry.bind().encode_edge_color('z')._edge_color == 'z'
 
 
-    def test_point_badge(self):
+    def test_badge(self):
+
+        assert graphistry.bind().encode_point_badge('z', position='Top')._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointBadgeTopEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'badgeTop',
+                            'attribute': 'z',
+                            'variation': 'categorical'
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
+        assert graphistry.bind().encode_edge_badge('z', position='Top')._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'edge_encodings': {
+                    'default': {
+                        'edgeBadgeTopEncoding': {
+                            'graphType': 'edge',
+                            'encodingType': 'badgeTop',
+                            'attribute': 'z',
+                            'variation': 'categorical'
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
         assert graphistry.bind().encode_point_badge('z', position='Top',
             continuous_binning=[[None, 'a']], default_mapping='zz', comparator='<=',
             color='red', bg={'color': 'green'}, fg={'style': {'opacity': 0.5}},
-            dimensions={'maxHeight': 20}, as_text=True, blend_mode='color-dodge', style={'opacity': 0.5},
+            as_text=True, blend_mode='color-dodge', style={'opacity': 0.5},
             border={'width': 10, 'color': 'green', 'stroke': 'dotted'})._complex_encodings \
             == {
                 **TestPlotterEncodings.COMPLEX_EMPTY,
@@ -634,7 +697,7 @@ class TestPlotterEncodings(NoAuthTestCase):
                     'default': {
                         'pointBadgeTopEncoding': {
                             'graphType': 'point',
-                            'encodingType': 'badge',
+                            'encodingType': 'badgeTop',
                             'attribute': 'z',
                             'variation': 'continuous',
                             'mapping': { 
@@ -647,7 +710,7 @@ class TestPlotterEncodings(NoAuthTestCase):
                             'color': 'red',
                             'bg': {'color': 'green'},
                             'fg': {'style': {'opacity': 0.5}},
-                            'dimensions': {'maxHeight': 20}, 'asText': True, 'blendMode': 'color-dodge',
+                            'asText': True, 'blendMode': 'color-dodge',
                             'style': {'opacity': 0.5},
                             'border': {'width': 10, 'color': 'green', 'stroke': 'dotted'}
                         }
@@ -665,7 +728,7 @@ class TestPlotterEncodings(NoAuthTestCase):
                     'current': {
                         'edgeBadgeRightEncoding': {
                             'graphType': 'edge',
-                            'encodingType': 'badge',
+                            'encodingType': 'badgeRight',
                             'attribute': 'z',
                             'variation': 'categorical',
                             'mapping': { 'categorical': {'fixed': {'a': 'b'}}}
