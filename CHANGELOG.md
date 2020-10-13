@@ -9,22 +9,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Adding
 * Gremlin / AWS Neptune <-- not for this release
+* Examples for icons, badges, and new node/edge bindings
+
+### Fixed
+* Python test matrix: Removed 3.9
 
 ## [0.14.0] - 2020-10-12
 
 ### Breaking
 * Warnings: Standardizing on Python's warnings.warn
 
-### Fixing
+### Fixed
 * Neo4j: Improve handling of empty query results (https://github.com/graphistry/pygraphistry/issues/178)
 
-### Adding
+### Added
 * Icons: Add new as_text, blend_mode, border, and style options (Graphistry 2.32+)
 * Badges: Add new badge encodings (Graphistry 2.32.+)
 * Python 3.8, 3.9 in test matrix
 * New binding shortcuts `g.nodes(df, col)` and `g.nodes(df, src_col, dst_col)`
 
-### Changing
+### Changed
 * Python 2.7: Removed __future__ (Python 2.7 has already been EOL so not breaking)
 * Redid ipython detection
 * Imports: Refactoring for more expected style
