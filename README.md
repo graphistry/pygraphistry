@@ -214,6 +214,11 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
  
   ```python
     g
+      .edges(df, 'col_a', 'col_b')
+      .edges(my_transform1(g._edges))
+      .nodes(df, 'col_c')
+      .nodes(my_transform2(g._nodes))
+      .bind(source='col_a', destination='col_b', node='col_c')
       .bind(
         point_color='col_a',
 	    point_size='col_b',
@@ -241,7 +246,6 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 	    'showPointsOfInterest': True, 'showPointsOfInterestLabel': True, 'showLabelPropertiesOnHover': True,
 	    'pointsOfInterestMax': 5
       })
-      
       .plot()
   ````
 	
@@ -282,9 +286,11 @@ Provide your API credentials to upload data to your Graphistry GPU server:
 
 ```python
 import graphistry
-#graphistry.register(api=1, key='Your key') # 1.0 API; key is different from token
-#graphistry.register(api=3, username='your name', password='your pwd') # 2.0 API, logged out after 1hr
-#graphistry.register(api=3, token='your JWT token') # 2.0 API, warning: must refresh within 1hr
+#graphistry.register(api=3, username='username', password='your password') # 2.0 API
+#graphistry.register(api=3, token='recent_2-0_token') # 2.0 API, warning: must refresh every 1hr
+
+### Deprecated
+#graphistry.register(api=1, key='Your key') # 1.0 API; note that 'key' is different from token
 ```
 
 For the 2.0 API, your username/password are the same as your Graphistry account, and your session expires after 1hr. The temporary JWT token (1hr) can be generated via the REST API using your login credentials, or by visiting your landing page.
@@ -301,7 +307,11 @@ Specify which Graphistry to reach:
 graphistry.register(protocol='https', server='hub.graphistry.com')
 ```
 
-Preconfigure private Graphistry servers to fill in this data for you.
+Private Graphistry notebook environments are preconfigured to fill in this data for you:
+
+```python
+graphistry.register(protocol='http', server='nginx', client_protocol_hostname='')
+```
 
 #### Client
 
@@ -426,7 +436,8 @@ g.encode_point_size('criticality',
 
 You can add a main icon and multiple peripherary badges to provide more visual information. Use column `type` for the icon type to appear visually in the legend. The glyph system supports text, icons, flags, and images, as well as multiple mapping and style controls.
 
-Main icon:
+#### Main icon
+
 ```python
 g.encode_point_icon(
   'some_column',
@@ -441,17 +452,23 @@ g.encode_point_icon(
 g.encode_point_icon(
   'another_column',
   continuous_binning=[
-    [20, 'info'], [80, 'exclamation-circle'], [null, 'exclamation-triangle']
+    [20, 'info'],
+    [80, 'exclamation-circle'],
+    [None, 'exclamation-triangle']
   ]
 )
 g.encode_point_icon(
   'another_column',
   as_text=True,
-  categorical_mapping={'Canada': 'CA', 'United States': 'US'}
+  categorical_mapping={
+    'Canada': 'CA',
+    'United States': 'US'
+    }
 )
 ```
 
-Badges:
+#### Badges
+
 ```python
 # see icons examples for mappings and glyphs
 g.encode_point_badge('another_column', 'TopRight', categorical_mapping=...)
