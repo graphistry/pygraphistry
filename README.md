@@ -58,10 +58,7 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 -  **Notebook friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:
 
     ```python
-    graphistry
-      .edges(pd.read_csv('rows.csv'))
-      .bind(source='col_a', destination='col_b')
-      .plot()
+    graphistry.edges(pd.read_csv('rows.csv'), 'col_a', 'col_b').plot()
     ```
 
 -  **Embeddable:** Drop live views into your web dashboards and apps:
@@ -83,7 +80,7 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 
      ```python
      edges = pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
-     graphistry.bind(source='src', destination='dst').edges(edges).plot()
+     graphistry.edges(edges, 'src', 'dst').plot()
      ```
      
      ```python
@@ -123,30 +120,38 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
   
     ```python
     edges = cudf.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
-    graphistry.edges(edges).bind(source='src', destination='dst').plot()
+    graphistry.edges(edges, 'src', 'dst').plot()
     ```
   - [Apache Arrow](https://arrow.apache.org/)
   
     ```python
      edges = pa.Table.from_pandas(pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst']))
-     graphistry.edges(edges).bind(source='src', destination='dst').plot()
+     graphistry.edges(edges, 'src', 'dst').plot()
     ```
     
   - [Neo4j](http://neo4j.com) ([notebook demo](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
   
-     ```python
-     NEO4J_CREDS = {'uri': 'bolt://my.site.ngo:7687', 'auth': ('neo4j', 'mypwd')}
-     graphistry.register(bolt=NEO4J_CREDS)
-     graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000 RETURN a, p, b").plot()
-     ```
-     ```python
-     graphistry.cypher("CALL db.schema()").plot()
-     ```          
-     ```python
-     from neo4j import GraphDatabase, Driver
-     graphistry.register(bolt=GraphDatabase.driver(**NEO4J_CREDS))
-     graphistry.cypher("MATCH (a)-[p:PAYMENT]->(b) WHERE p.USD > 7000 AND p.USD < 10000 RETURN a, p, b").plot()
-     ```
+    ```python
+    NEO4J_CREDS = {'uri': 'bolt://my.site.ngo:7687', 'auth': ('neo4j', 'mypwd')}
+    graphistry.register(bolt=NEO4J_CREDS)
+    graphistry.cypher("MATCH (n1)-[r1]->(n2) RETURN n1, r1, n2 LIMIT 1000").plot()
+    ```
+
+    ```python
+    graphistry.cypher("CALL db.schema()").plot()
+    ```          
+
+    ```python
+    from neo4j import GraphDatabase, Driver
+    graphistry.register(bolt=GraphDatabase.driver(**NEO4J_CREDS))
+    g = graphistry.cypher("""
+      MATCH (a)-[p:PAYMENT]->(b)
+      WHERE p.USD > 7000 AND p.USD < 10000
+      RETURN a, p, b
+      LIMIT 100000""")
+    print(g._edges.columns)
+    g.plot()
+    ```
 
   - [TigerGaph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
 
@@ -186,7 +191,7 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
     
      ```python
      df = splunkToPandas("index=netflow bytes > 100000 | head 100000", {})    
-     graphistry.bind(source='src_ip', destination='dest_ip').plot(df)
+     graphistry.edges(df, 'src_ip', 'dest_ip').plot()
      ```
 
   - [NodeXL](https://www.nodexl.com) ([notebook demo](demos/demos_databases_apis/nodexl/official/nodexl_graphistry.ipynb))
@@ -204,11 +209,16 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
     graphistry.nodexl('https://file.xls')._nodes
     ```  
 
-  - **Quickly configurable:** Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of options](https://hub.graphistry.com/docs/api/1/rest/url/):
+  - **Quickly configurable:** Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/):
   
  
   ```python
     g
+      .edges(df, 'col_a', 'col_b')
+      .edges(my_transform1(g._edges))
+      .nodes(df, 'col_c')
+      .nodes(my_transform2(g._nodes))
+      .bind(source='col_a', destination='col_b', node='col_c')
       .bind(
         point_color='col_a',
 	    point_size='col_b',
@@ -219,6 +229,9 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
         edge_color='col_m',
 	    edge_weight='col_n',
 	    edge_title='col_o')
+      .encode_edge_color('timestamp', ["blue", "yellow", "red"], as_continuous=True)
+      .encode_point_icon('device_type', categorical_mapping={'macbook': 'laptop', ...})
+      .encode_point_badge('passport', 'TopRight', categorical_mapping={'Canada': 'flag-icon-ca', ...})
       .settings(url_params={
         'play': 2000,
 	    'menu': True, 'info': True,
@@ -232,7 +245,8 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
 	    'showLabels': True, 'showLabelOnHover': True,
 	    'showPointsOfInterest': True, 'showPointsOfInterestLabel': True, 'showLabelPropertiesOnHover': True,
 	    'pointsOfInterestMax': 5
-      }).plot()
+      })
+      .plot()
   ````
 	
 ### Gallery
@@ -272,9 +286,11 @@ Provide your API credentials to upload data to your Graphistry GPU server:
 
 ```python
 import graphistry
-#graphistry.register(api=1, key='Your key') # 1.0 API; key is different from token
-#graphistry.register(api=3, username='your name', password='your pwd') # 2.0 API, logged out after 1hr
-#graphistry.register(api=3, token='your JWT token') # 2.0 API, warning: must refresh within 1hr
+#graphistry.register(api=3, username='username', password='your password') # 2.0 API
+#graphistry.register(api=3, token='recent_2-0_token') # 2.0 API, warning: must refresh every 1hr
+
+### Deprecated
+#graphistry.register(api=1, key='Your key') # 1.0 API; note that 'key' is different from token
 ```
 
 For the 2.0 API, your username/password are the same as your Graphistry account, and your session expires after 1hr. The temporary JWT token (1hr) can be generated via the REST API using your login credentials, or by visiting your landing page.
@@ -291,7 +307,11 @@ Specify which Graphistry to reach:
 graphistry.register(protocol='https', server='hub.graphistry.com')
 ```
 
-Preconfigure private Graphistry servers to fill in this data for you.
+Private Graphistry notebook environments are preconfigured to fill in this data for you:
+
+```python
+graphistry.register(protocol='http', server='nginx', client_protocol_hostname='')
+```
 
 #### Client
 
@@ -397,18 +417,67 @@ By default, edges get colored as a gradient between their source/destination nod
 
 Similarly, you can bind the edge weight, where higher weights cause nodes to cluster closer together: `.bind(edge_weight='colA')`. [See tutorial](demos/more_examples/graphistry_features/edge-weights.ipynb).
 
-### More advanced color, size, and icon controls
+### More advanced color and size controls
 
 You may want more controls like using gradients or maping specific values:
 
 ```python
 g.encode_edge_color('time_col', ["blue", "red"], as_continuous=True)
 g.encode_edge_color('type_col', ["#000", "#F00", "#F0F", "#0FF"], as_categorical=True)
-g.encode_edge_color('brand', categorical_mapping={'toyota': 'red', 'ford': 'blue'}, default_mapping='#CCC')
-g.encode_point_size('criticality', categorical_mapping={'critical': 200, 'ok': 100}, default_mapping=50)
+g.encode_edge_color('brand',
+  categorical_mapping={'toyota': 'red', 'ford': 'blue'},
+  default_mapping='#CCC')
+g.encode_point_size('criticality',
+  categorical_mapping={'critical': 200, 'ok': 100},
+  default_mapping=50)
+```
 
-#icons: https://fontawesome.com/v4.7.0/icons/
-g.encode_point_icon('device', categorical_mapping={'macbook': 'laptop', 'mac': 'server'})
+### Custom icons and badges
+
+You can add a main icon and multiple peripherary badges to provide more visual information. Use column `type` for the icon type to appear visually in the legend. The glyph system supports text, icons, flags, and images, as well as multiple mapping and style controls.
+
+#### Main icon
+
+```python
+g.encode_point_icon(
+  'some_column',
+  shape="circle", #clip excess
+  categorical_mapping={
+      'macbook': 'laptop', #https://fontawesome.com/v4.7.0/icons/
+      'Canada': 'flag-icon-ca', #ISO3611-Alpha-2: https://github.com/datasets/country-codes/blob/master/data/country-codes.csv
+      'embedded_smile': 'data:svg...',
+      'external_logo': 'http://..../img.png'
+  },
+  default_mapping="question")
+g.encode_point_icon(
+  'another_column',
+  continuous_binning=[
+    [20, 'info'],
+    [80, 'exclamation-circle'],
+    [None, 'exclamation-triangle']
+  ]
+)
+g.encode_point_icon(
+  'another_column',
+  as_text=True,
+  categorical_mapping={
+    'Canada': 'CA',
+    'United States': 'US'
+    }
+)
+```
+
+#### Badges
+
+```python
+# see icons examples for mappings and glyphs
+g.encode_point_badge('another_column', 'TopRight', categorical_mapping=...)
+
+g.encode_point_badge('another_column', 'TopRight', categorical_mapping=...,
+  shape="circle",
+  border={'width': 2, 'color': 'white', 'stroke': 'solid'},
+  color={'mapping': {'categorical': {'fixed': {}, 'other': 'white'}}},
+  bg={'color': {'mapping': {'continuous': {'bins': [], 'other': 'black'}}}})
 ```
 
 ### Theming
@@ -419,7 +488,9 @@ You can customize several style options to match your theme:
 g.addStyle(bg={'color': 'red'})
 g.addStyle(bg={
   'color': '#333',
-  'gradient': {'kind': 'radial', 'stops': [ ["rgba(255,255,255, 0.1)", "10%", "rgba(0,0,0,0)", "20%"] ]}})
+  'gradient': {
+    'kind': 'radial',
+    'stops': [ ["rgba(255,255,255, 0.1)", "10%", "rgba(0,0,0,0)", "20%"] ]}})
 g.addStyle(bg={'image': {'url': 'http://site.com/cool.png', 'blendMode': 'multiply'}})
 g.addStyle(fg={'blendMode': 'color-burn'})
 g.addStyle(page={'title': 'My site'})
