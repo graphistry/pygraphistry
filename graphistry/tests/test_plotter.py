@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*- 
 
-import copy, datetime as dt, IPython, pandas as pd, pyarrow as pa, pytest, requests, unittest
-from builtins import object
+import copy, datetime as dt, graphistry, IPython, logging, pandas as pd, pyarrow as pa, pytest, requests, unittest
 
 from common import NoAuthTestCase
-import graphistry
 from mock import patch
+
 
 
 triangleEdges = pd.DataFrame({'src': ['a', 'b', 'c'], 'dst': ['b', 'c', 'a']})
@@ -66,12 +65,11 @@ class Fake_Response(object):
 def assertFrameEqual(df1, df2, **kwds ):
     """ Assert that two dataframes are equal, ignoring ordering of columns"""
 
-    from pandas.util.testing import assert_frame_equal
+    from pandas.testing import assert_frame_equal
     return assert_frame_equal(df1.sort_index(axis=1), df2.sort_index(axis=1), check_names=True, **kwds)
 
 
 @patch('webbrowser.open')
-@patch.object(graphistry.util, 'warn')
 @patch.object(graphistry.pygraphistry.PyGraphistry, '_etl1')
 class TestPlotterBindings_API_1(NoAuthTestCase):
 
@@ -81,7 +79,7 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
         graphistry.register(api=1)
 
 
-    def test_no_src_dst(self, mock_etl, mock_warn, mock_open):
+    def test_no_src_dst(self, mock_etl, mock_open):
         with self.assertRaises(ValueError):
             graphistry.bind().plot(triangleEdges)
         with self.assertRaises(ValueError):
@@ -92,72 +90,78 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
             graphistry.bind(source='doesnotexist', destination='dst').plot(triangleEdges)
 
 
-    def test_no_nodeid(self, mock_etl, mock_warn, mock_open):
+    def test_no_nodeid(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         with self.assertRaises(ValueError):
             plotter.plot(triangleEdges, triangleNodes)
 
 
-    def test_triangle_edges(self, mock_etl, mock_warn, mock_open):
+    def test_triangle_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
 
-    def test_bind_edges(self, mock_etl, mock_warn, mock_open):
+    def test_bind_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', edge_title='src')
         plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
+    def test_bind_graph_short(self, mock_etl, mock_open):
+        g = graphistry\
+                .nodes(pd.DataFrame({'n': []}), 'n')\
+                .edges(pd.DataFrame({'a': [], 'b': []}), 'a', 'b')
+        assert g._node == 'n'
+        assert g._source == 'a'
+        assert g._destination == 'b'
+        g2 = graphistry\
+                .bind(source='a', destination='b', node='n')\
+                .nodes(pd.DataFrame({'n': []}))\
+                .edges(pd.DataFrame({'a': [], 'b': []}))
+        assert g2._node == 'n'
+        assert g2._source == 'a'
+        assert g2._destination == 'b'
 
-    def test_bind_nodes(self, mock_etl, mock_warn, mock_open):
+    def test_bind_nodes(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='a2')
         plotter.plot(triangleEdges, triangleNodes)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
 
-    def test_bind_nodes_rich(self, mock_etl, mock_warn, mock_open):
+    def test_bind_nodes_rich(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='a2')
         plotter.plot(triangleEdges, triangleNodesRich)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
-    def test_bind_edges_rich_2(self, mock_etl, mock_warn, mock_open):
+    def test_bind_edges_rich_2(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         plotter.plot(squareEvil)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
-    def test_unknown_col_edges(self, mock_etl, mock_warn, mock_open):
+    def test_unknown_col_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', edge_title='doesnotexist')
-        plotter.plot(triangleEdges)
+        with pytest.warns(RuntimeWarning):
+            plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertTrue(mock_warn.called)
 
 
-    def test_unknown_col_nodes(self, mock_etl, mock_warn, mock_open):
+    def test_unknown_col_nodes(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='doesnotexist')
-        plotter.plot(triangleEdges, triangleNodes)
+        with pytest.warns(RuntimeWarning):
+            plotter.plot(triangleEdges, triangleNodes)
         self.assertTrue(mock_etl.called)
-        self.assertTrue(mock_warn.called)
 
 
-    @patch.object(graphistry.util, 'error')
-    def test_empty_graph(self, mock_error, mock_etl, mock_warn, mock_open):
-        mock_error.side_effect = ValueError('error')
+    @patch('requests.post', return_value=Fake_Response())
+    def test_empty_graph(self, mock_post, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
-        with self.assertRaises(ValueError):
-            plotter.plot(pd.DataFrame([]))
-        self.assertFalse(mock_etl.called)
-        self.assertTrue(mock_error.called)
+        with pytest.warns(RuntimeWarning):
+            plotter.plot(pd.DataFrame({'src': [], 'dst': []}))
+        self.assertTrue(mock_etl.called)
 
 
 @patch('webbrowser.open')
-@patch.object(graphistry.util, 'warn')
-@patch.object(graphistry.pygraphistry.PyGraphistry, '_etl2')
+@patch('graphistry.pygraphistry.PyGraphistry._etl2')
 class TestPlotterBindings_API_2(NoAuthTestCase):
 
     @classmethod
@@ -166,7 +170,7 @@ class TestPlotterBindings_API_2(NoAuthTestCase):
         graphistry.register(api=2)
 
 
-    def test_no_src_dst(self, mock_etl, mock_warn, mock_open):
+    def test_no_src_dst(self, mock_etl, mock_open):
         with self.assertRaises(ValueError):
             graphistry.bind().plot(triangleEdges)
         with self.assertRaises(ValueError):
@@ -177,67 +181,58 @@ class TestPlotterBindings_API_2(NoAuthTestCase):
             graphistry.bind(source='doesnotexist', destination='dst').plot(triangleEdges)
 
 
-    def test_no_nodeid(self, mock_etl, mock_warn, mock_open):
+    def test_no_nodeid(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         with self.assertRaises(ValueError):
             plotter.plot(triangleEdges, triangleNodes)
 
 
-    def test_triangle_edges(self, mock_etl, mock_warn, mock_open):
+    def test_triangle_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
 
-    def test_bind_edges(self, mock_etl, mock_warn, mock_open):
+    def test_bind_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', edge_title='src')
         plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
 
-    def test_bind_nodes(self, mock_etl, mock_warn, mock_open):
+    def test_bind_nodes(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='a2')
         plotter.plot(triangleEdges, triangleNodes)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
-
-    def test_bind_nodes_rich(self, mock_etl, mock_warn, mock_open):
+    def test_bind_nodes_rich(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='a2')
         plotter.plot(triangleEdges, triangleNodesRich)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
-    def test_bind_edges_rich_2(self, mock_etl, mock_warn, mock_open):
+    def test_bind_edges_rich_2(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
         plotter.plot(squareEvil)
         self.assertTrue(mock_etl.called)
-        self.assertFalse(mock_warn.called)
 
-    def test_unknown_col_edges(self, mock_etl, mock_warn, mock_open):
+    def test_unknown_col_edges(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', edge_title='doesnotexist')
-        plotter.plot(triangleEdges)
+        with pytest.warns(RuntimeWarning):
+            plotter.plot(triangleEdges)
         self.assertTrue(mock_etl.called)
-        self.assertTrue(mock_warn.called)
 
 
-    def test_unknown_col_nodes(self, mock_etl, mock_warn, mock_open):
+    def test_unknown_col_nodes(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst', node='id', point_title='doesnotexist')
-        plotter.plot(triangleEdges, triangleNodes)
+        with pytest.warns(RuntimeWarning):
+            plotter.plot(triangleEdges, triangleNodes)            
         self.assertTrue(mock_etl.called)
-        self.assertTrue(mock_warn.called)
 
 
-    @patch.object(graphistry.util, 'error')
-    def test_empty_graph(self, mock_error, mock_etl, mock_warn, mock_open):
-        mock_error.side_effect = ValueError('error')
+    def test_empty_graph(self, mock_etl, mock_open):
         plotter = graphistry.bind(source='src', destination='dst')
-        with self.assertRaises(ValueError):
-            plotter.plot(pd.DataFrame([]))
-        self.assertFalse(mock_etl.called)
-        self.assertTrue(mock_error.called)
+        with pytest.warns(RuntimeWarning):
+            with self.assertRaises(ValueError):
+                plotter.plot(pd.DataFrame([]))
 
 
 
@@ -245,7 +240,9 @@ class TestPlotterBindings_API_2(NoAuthTestCase):
 @patch('requests.post', return_value=Fake_Response())
 class TestPlotterReturnValue(NoAuthTestCase):
 
-    def test_no_ipython(self, mock_post, mock_open):
+    @patch('graphistry.plotter.in_ipython')
+    def test_no_ipython(self, mock_in_ipython, mock_post, mock_open):
+        mock_in_ipython.return_value = False
         url = graphistry.bind(source='src', destination='dst').plot(triangleEdges)
         self.assertIn('fakedatasetname', url)
         self.assertIn('faketoken', url)
@@ -253,8 +250,9 @@ class TestPlotterReturnValue(NoAuthTestCase):
         self.assertTrue(mock_post.called)
 
 
-    @patch.object(graphistry.util, 'in_ipython', return_value=True)
-    def test_ipython(self, mock_util, mock_post, mock_open):
+    @patch('graphistry.plotter.in_ipython')
+    def test_ipython(self, mock_in_ipython, mock_post, mock_open):
+        mock_in_ipython.return_value = True
         widget = graphistry.bind(source='src', destination='dst').plot(triangleEdges)
         self.assertIsInstance(widget, IPython.core.display.HTML)
 
@@ -615,11 +613,129 @@ class TestPlotterEncodings(NoAuthTestCase):
     def test_point_icon(self):
         assert graphistry.bind().encode_point_icon('z')._point_icon == 'z'
 
+        assert graphistry.bind().encode_point_icon('z', categorical_mapping={}, as_text=True, blend_mode='color-dodge')\
+            ._complex_encodings['node_encodings'] == {
+                'current': {},
+                'default': {
+                    'pointIconEncoding': {
+                        'graphType': 'point',
+                        'encodingType': 'icon',
+                        'attribute': 'z',
+                        'variation': 'categorical',
+                        'mapping': { 'categorical': {'fixed': {} }},
+                        'asText': True,
+                        'blendMode': 'color-dodge'
+                    }
+                }
+            }
+
+        assert graphistry.bind().encode_point_icon('z', continuous_binning=[], comparator='<=', as_text=True, blend_mode='color-dodge')\
+            ._complex_encodings['node_encodings'] == {
+                'current': {},
+                'default': {
+                    'pointIconEncoding': {
+                        'graphType': 'point',
+                        'encodingType': 'icon',
+                        'attribute': 'z',
+                        'variation': 'continuous',
+                        'mapping': { 'continuous': {'bins': [], 'comparator': '<=' }},
+                        'asText': True,
+                        'blendMode': 'color-dodge'
+                    }
+                }
+            }
+
     def test_edge_icon(self):
         assert graphistry.bind().encode_edge_icon('z')._edge_icon == 'z'
 
     def test_edge_color(self):
         assert graphistry.bind().encode_edge_color('z')._edge_color == 'z'
+
+
+    def test_badge(self):
+
+        assert graphistry.bind().encode_point_badge('z', position='Top')._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointBadgeTopEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'badgeTop',
+                            'attribute': 'z',
+                            'variation': 'categorical'
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
+        assert graphistry.bind().encode_edge_badge('z', position='Top')._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'edge_encodings': {
+                    'default': {
+                        'edgeBadgeTopEncoding': {
+                            'graphType': 'edge',
+                            'encodingType': 'badgeTop',
+                            'attribute': 'z',
+                            'variation': 'categorical'
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
+        assert graphistry.bind().encode_point_badge('z', position='Top',
+            continuous_binning=[[None, 'a']], default_mapping='zz', comparator='<=',
+            color='red', bg={'color': 'green'}, fg={'style': {'opacity': 0.5}},
+            as_text=True, blend_mode='color-dodge', style={'opacity': 0.5},
+            border={'width': 10, 'color': 'green', 'stroke': 'dotted'})._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'node_encodings': {
+                    'default': {
+                        'pointBadgeTopEncoding': {
+                            'graphType': 'point',
+                            'encodingType': 'badgeTop',
+                            'attribute': 'z',
+                            'variation': 'continuous',
+                            'mapping': { 
+                                'continuous': {
+                                    'bins': [[None, 'a']],
+                                    'comparator': '<=',
+                                    'other': 'zz'
+                                }
+                            },
+                            'color': 'red',
+                            'bg': {'color': 'green'},
+                            'fg': {'style': {'opacity': 0.5}},
+                            'asText': True, 'blendMode': 'color-dodge',
+                            'style': {'opacity': 0.5},
+                            'border': {'width': 10, 'color': 'green', 'stroke': 'dotted'}
+                        }
+                    },
+                    'current': {}
+                }
+            }
+
+        assert graphistry.bind().encode_edge_badge('z', position='Right', 
+            categorical_mapping={'a': 'b'}, for_default=False, for_current=True)._complex_encodings \
+            == {
+                **TestPlotterEncodings.COMPLEX_EMPTY,
+                'edge_encodings': {
+                    'default': {},
+                    'current': {
+                        'edgeBadgeRightEncoding': {
+                            'graphType': 'edge',
+                            'encodingType': 'badgeRight',
+                            'attribute': 'z',
+                            'variation': 'categorical',
+                            'mapping': { 'categorical': {'fixed': {'a': 'b'}}}
+                        }
+                    }
+                }
+            }
 
     def test_set_mode(self):
         assert graphistry.bind().encode_point_color('z', categorical_mapping={'a': 'b'})._complex_encodings \

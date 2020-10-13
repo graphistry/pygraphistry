@@ -1,13 +1,18 @@
-from __future__ import absolute_import, print_function
-from builtins import object, str
 import copy, numpy, pandas, pyarrow as pa, sys, uuid
 
-from .pygraphistry import PyGraphistry
-from .pygraphistry import util
-from .pygraphistry import bolt_util
+from .util import (error, in_ipython, make_iframe, random_string, warn)
+
+from .bolt_util import (
+    bolt_graph_to_edges_dataframe,
+    bolt_graph_to_nodes_dataframe,
+    node_id_key,
+    start_node_id_key,
+    end_node_id_key,
+    to_bolt_driver)
+
+from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
-from .arrow_uploader import ArrowUploader
 
 maybe_cudf = None
 try:
@@ -84,7 +89,7 @@ class Plotter(object):
 
         rep = {'bindings': dict([(f, getattr(self, '_' + f)) for f in bindings]),
                'settings': dict([(f, getattr(self, '_' + f)) for f in settings])}
-        if util.in_ipython():
+        if in_ipython():
             from IPython.lib.pretty import pretty
             return pretty(rep)
         else:
@@ -334,9 +339,13 @@ class Plotter(object):
 
 
     def encode_point_icon(self, column,
-            categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
-        """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
+            for_default=True, for_current=False,
+            as_text=False, blend_mode=None, style=None, border=None, shape=None):
+        """Set node icon with more control than bind().
+        Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
+        When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
         :type column: str.
@@ -352,6 +361,18 @@ class Plotter(object):
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
         :type for_current: bool, optional.
+
+        :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
+        :type as_text: bool, optional.
+
+        :param blend_mode: CSS blend mode
+        :type blend_mode: str, optional.
+
+        :param style: CSS filter properties - opacity, saturation, luminosity, grayscale, and more
+        :type style: dict, optional
+
+        :param border: Border properties - 'width', 'color', and 'storke'
+        :type border: dict, optional
 
         :returns: Plotter.
         :rtype: Plotter.
@@ -365,16 +386,31 @@ class Plotter(object):
                 g2a = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
+        **Example: Map countries to abbreviations**
+            ::
+                g2b = g.encode_point_icon('country_abbrev', as_text=True)
+                g2b = g.encode_point_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
+
+        **Example: Border**
+            ::
+                g2b = g.encode_point_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
+
         """
 
         return self.__encode('point', 'icon',  'pointIconEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
+            for_default=for_default, for_current=for_current,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     def encode_edge_icon(self, column,
-            categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
-        """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
+            for_default=True, for_current=False,
+            as_text=False, blend_mode=None, style=None, border=None, shape=None):
+        """Set edge icon with more control than bind()
+        Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
+        When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
         :type column: str.
@@ -391,6 +427,9 @@ class Plotter(object):
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
         :type for_current: bool, optional.
 
+        :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
+        :type as_text: bool, optional.
+
         :returns: Plotter.
         :rtype: Plotter.
 
@@ -403,17 +442,76 @@ class Plotter(object):
                 g2a = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
+        **Example: Map countries to abbreviations**
+            ::
+                g2a = g.encode_edge_icon('country_abbrev', as_text=True)
+                g2b = g.encode_edge_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
+
+        **Example: Border**
+            ::
+                g2b = g.encode_edge_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
+
         """
         return self.__encode('edge', 'icon',   'edgeIconEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
+            for_default=for_default, for_current=for_current,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
+
+
+    def encode_point_badge(self, column, position='TopRight',
+            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
+            color=None, bg=None, fg=None,
+            for_current=False, for_default=True,
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
+
+        return self.__encode_badge('point', column, position,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
+            color=color, bg=bg, fg=fg,
+            for_current=for_current, for_default=for_default,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
+
+
+    def encode_edge_badge(self, column, position='TopRight',
+            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
+            color=None, bg=None, fg=None,
+            for_current=False, for_default=True,
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
+
+        return self.__encode_badge('edge', column, position,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
+            color=color, bg=bg, fg=fg,
+            for_current=for_current, for_default=for_default,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
+
+    def __encode_badge(self, graph_type, column, position='TopRight',
+            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
+            color=None, bg=None, fg=None,
+            for_current=False, for_default=True,
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
+
+        return self.__encode(graph_type, f'badge{position}', f'{graph_type}Badge{position}Encoding',
+            column,
+            as_categorical=not (categorical_mapping is None),
+            as_continuous=not (continuous_binning is None),
+            categorical_mapping=categorical_mapping,
+            default_mapping=default_mapping,
+            for_current=for_current, for_default=for_default,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border,
+            continuous_binning=continuous_binning, ##new
+            comparator=comparator, ##new
+            color=color, bg=bg, fg=fg, shape=shape)
+
 
     def __encode(self, graph_type, feature, feature_binding,
             column,
             palette=None,
             as_categorical=None, as_continuous=None,
             categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
+            for_default=True, for_current=False,
+            as_text=None, blend_mode=None, style=None, border=None,
+            continuous_binning=None, comparator=None,
+            color=None, bg=None, fg=None, dimensions=None, shape=None):
 
         if for_default is None:
             for_default = True
@@ -427,7 +525,7 @@ class Plotter(object):
                     'message': 'graph_type must be "point" or "edge"',
                     'data': {'graph_type': graph_type } })
 
-        if (categorical_mapping is None) and (palette is None):
+        if (categorical_mapping is None) and (palette is None) and (continuous_binning is None) and not feature.startswith('badge'):
             return self.bind(**{f'{graph_type}_{feature}': column})
 
         transform = None
@@ -466,6 +564,29 @@ class Plotter(object):
                 'variation': 'categorical' if is_categorical else 'continuous',
                 'colors': palette
             }
+        elif not (continuous_binning is None):
+            if not (isinstance(continuous_binning, list)):
+                raise ValueError({
+                    'message': 'continous_binning should be a list of [comparable or None, mapped_value]',
+                    'data': { 'continuous_binning': continuous_binning, 'type': str(type(continuous_binning)) }})
+
+            if as_categorical:
+                raise ValueError({'message': 'as_categorical cannot be True when continuous_binning is provided'})
+            if as_continuous == False:
+                raise ValueError({'message': 'as_continuous cannot be False when continuous_binning is set'})
+
+            transform = {
+                'variation': 'continuous',
+                'mapping': {
+                    'continuous': {
+                        'bins': continuous_binning,
+                        **({} if comparator is None else {'comparator': comparator}),
+                        **({} if default_mapping is None else {'other': default_mapping})
+                    }
+                }
+            }
+        elif feature.startswith('badge'):
+            transform = {'variation': 'categorical'}
         else:
             raise ValueError({'message': 'Must pass one of parameters palette or categorical_mapping'})
 
@@ -473,7 +594,16 @@ class Plotter(object):
             'graphType': graph_type,
             'encodingType': feature,
             'attribute': column,
-            **transform
+            **transform,
+            **({'bg':        bg} if not         (bg is None) else {}),
+            **({'color':     color} if not      (color is None) else {}),
+            **({'fg':        fg} if not         (fg is None) else {}),
+
+            **({'asText':    as_text} if not    (as_text is None) else {}),
+            **({'blendMode': blend_mode} if not (blend_mode is None) else {}),
+            **({'style':     style} if not      (style is None) else {}),
+            **({'border':    border} if not     (border is None) else {}),
+            **({'shape':     shape} if not      (shape is None) else {})
         }
 
         complex_encodings = copy.deepcopy(self._complex_encodings)
@@ -621,7 +751,7 @@ class Plotter(object):
         return res
 
 
-    def nodes(self, nodes):
+    def nodes(self, nodes, node=None):
         """Specify the set of nodes and associated data.
 
         Must include any nodes referenced in the edge list.
@@ -647,10 +777,22 @@ class Plotter(object):
 
                 g.plot()
 
+        **Example**
+            ::
+
+                import graphistry
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = graphistry.edges(es, 'src', 'dst')
+
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                g = g.nodes(vs, 'v)
+
+                g.plot()
         """
 
-
-        res = copy.copy(self)
+        base = self.bind(node=node) if not node is None else self
+        res = copy.copy(base)
         res._nodes = nodes
         return res
 
@@ -675,7 +817,7 @@ class Plotter(object):
         return res
 
 
-    def edges(self, edges):
+    def edges(self, edges, source=None, destination=None):
         """Specify edge list data and associated edge attribute values.
 
         :param edges: Edges and their attributes.
@@ -694,9 +836,23 @@ class Plotter(object):
                     .edges(df)
                     .plot()
 
+        **Example**
+            ::
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .edges(df, 'src', 'dst')
+                    .plot()
+
         """
 
-        res = copy.copy(self)
+        base = self
+        if not (source is None):
+            base = base.bind(source=source)
+        if not (destination is None):
+            base = base.bind(destination=destination)
+
+        res = copy.copy(base)
         res._edges = edges
         return res
 
@@ -736,7 +892,7 @@ class Plotter(object):
         res = copy.copy(self)
         res._height = height or self._height
         res._url_params = dict(self._url_params, **url_params)
-        res._render = self._render if render == None else render
+        res._render = self._render if render is None else render
         return res
 
 
@@ -789,16 +945,17 @@ class Plotter(object):
 
         if graph is None:
             if self._edges is None:
-                util.error('Graph/edges must be specified.')
+                error('Graph/edges must be specified.')
             g = self._edges
         else:
             g = graph
         n = self._nodes if nodes is None else nodes
-        name = name or self._name or ("Untitled " + util.random_string(10))
+        name = name or self._name or ("Untitled " + random_string(10))
         description = description or self._description or ("")
 
         self._check_mandatory_bindings(not isinstance(n, type(None)))
 
+        from .pygraphistry import PyGraphistry
         api_version = PyGraphistry.api_version()
         if api_version == 1:
             dataset = self._plot_dispatch(g, n, name, description, 'json', self._style)
@@ -828,11 +985,11 @@ class Plotter(object):
         cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
         full_url = ('%s:%s' % (PyGraphistry._config['protocol'], viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
-        if render == False or (render == None and not self._render):
+        if (render == False) or ((render is None) and not self._render):
             return full_url
-        elif util.in_ipython():
+        elif (render == True) or in_ipython():
             from IPython.core.display import HTML
-            return HTML(util.make_iframe(full_url, self._height))
+            return HTML(make_iframe(full_url, self._height))
         else:
             import webbrowser
             webbrowser.open(full_url)
@@ -904,7 +1061,7 @@ class Plotter(object):
             ig.vs[Plotter._defaultNodeId] = [v.index for v in ig.vs]
             self._node = Plotter._defaultNodeId
         elif self._node not in ig.vs.attributes():
-            util.error('Vertex attribute "%s" bound to "node" does not exist.' % self._node)
+            error('Vertex attribute "%s" bound to "node" does not exist.' % self._node)
 
         edata = get_edgelist(ig)
         ndata = [v.attributes() for v in ig.vs]
@@ -925,7 +1082,7 @@ class Plotter(object):
         else:
             vattribs = g.nodes(data=True) if g.number_of_nodes() > 0 else []
         if not (self._node is None) and self._node in vattribs:
-            util.error('Vertex attribute "%s" already exists.' % self._node)
+            error('Vertex attribute "%s" already exists.' % self._node)
 
     def networkx2pandas(self, g):
 
@@ -947,9 +1104,9 @@ class Plotter(object):
 
     def _check_mandatory_bindings(self, node_required):
         if self._source is None or self._destination is None:
-            util.error('Both "source" and "destination" must be bound before plotting.')
+            error('Both "source" and "destination" must be bound before plotting.')
         if node_required and self._node is None:
-            util.error('Node identifier must be bound when using node dataframe.')
+            error('Node identifier must be bound when using node dataframe.')
 
 
     def _check_bound_attribs(self, df, attribs, typ):
@@ -957,7 +1114,7 @@ class Plotter(object):
         for a in attribs:
             b = getattr(self, '_' + a)
             if b not in cols:
-                util.error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
+                error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
 
     def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None):
@@ -986,7 +1143,7 @@ class Plotter(object):
         except ImportError:
             pass
 
-        util.error('Expected Pandas/Arrow/cuDF dataframe(s) or Igraph/NetworkX graph.')
+        error('Expected Pandas/Arrow/cuDF dataframe(s) or Igraph/NetworkX graph.')
 
 
     # Sanitize node/edge dataframe by
@@ -1025,11 +1182,11 @@ class Plotter(object):
         node_count = len(nlist.index)
         graph_size = edge_count + node_count
         if edge_count > 8e6:
-            util.error('Maximum number of edges (8M) exceeded: %d.' % edge_count)
+            error('Maximum number of edges (8M) exceeded: %d.' % edge_count)
         if node_count > 8e6:
-            util.error('Maximum number of nodes (8M) exceeded: %d.' % node_count)
+            error('Maximum number of nodes (8M) exceeded: %d.' % node_count)
         if graph_size > 1e6:
-            util.warn('Large graph: |nodes| + |edges| = %d. Layout/rendering might be slow.' % graph_size)
+            warn('Large graph: |nodes| + |edges| = %d. Layout/rendering might be slow.' % graph_size)
 
 
     # Bind attributes for ETL1 by creating a copy of the designated column renamed
@@ -1041,7 +1198,7 @@ class Plotter(object):
                 if bound in df.columns.tolist():
                     df[pbname] = df[bound]
                 else:
-                    util.warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
+                    warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
             elif default:
                 df[pbname] = df[default]
 
@@ -1078,7 +1235,7 @@ class Plotter(object):
                 if bound in df.columns.tolist():
                     enc[pbname] = {'attributes' : [bound]}
                 else:
-                    util.warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
+                    warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
             elif default:
                 enc[pbname] = {'attributes': [default]}
 
@@ -1154,7 +1311,7 @@ class Plotter(object):
     def _make_dataset(self, edges, nodes, name, description, mode, metadata=None):
         try:
             if len(edges) == 0:
-                util.warn('Graph has no edges, may have rendering issues')
+                warn('Graph has no edges, may have rendering issues')
         except:
             1
 
@@ -1189,6 +1346,9 @@ class Plotter(object):
 
     # Main helper for creating ETL1 payload
     def _make_json_dataset(self, edges, nodes, name):
+
+        from .pygraphistry import PyGraphistry
+
         (elist, nlist) = self._bind_attributes_v1(edges, nodes)
         edict = elist.where((pandas.notnull(elist)), None).to_dict(orient='records')
 
@@ -1228,6 +1388,9 @@ class Plotter(object):
         return dataset
 
     def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata) -> ArrowUploader:
+
+        from .pygraphistry import PyGraphistry
+
         au = ArrowUploader(
             server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
             edges=edges, nodes=nodes,
@@ -1247,23 +1410,26 @@ class Plotter(object):
 
     def bolt(self, driver):
         res = copy.copy(self)
-        res._bolt_driver = bolt_util.to_bolt_driver(driver)
+        res._bolt_driver = to_bolt_driver(driver)
         return res
 
 
     def cypher(self, query, params={}):
+
+        from .pygraphistry import PyGraphistry
+
         res = copy.copy(self)
         driver = self._bolt_driver or PyGraphistry._config['bolt_driver']
         with driver.session() as session:
             bolt_statement = session.run(query, **params)
             graph = bolt_statement.graph()
-            edges = bolt_util.bolt_graph_to_edges_dataframe(graph)
-            nodes = bolt_util.bolt_graph_to_nodes_dataframe(graph)
+            edges = bolt_graph_to_edges_dataframe(graph)
+            nodes = bolt_graph_to_nodes_dataframe(graph)
         return res\
             .bind(\
-                node=bolt_util.node_id_key,\
-                source=bolt_util.start_node_id_key,\
-                destination=bolt_util.end_node_id_key
+                node=node_id_key,\
+                source=start_node_id_key,\
+                destination=end_node_id_key
             )\
             .nodes(nodes)\
             .edges(edges)

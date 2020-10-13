@@ -1,25 +1,18 @@
-from __future__ import print_function
-from past.builtins import cmp
-from builtins import str
-from builtins import range
+def cmp(x, y):
+    return (x > y) - (x < y)
 
-import sys
-import platform as p
-import uuid
-import hashlib
-import random
-import string
+import hashlib, platform as p, random, string, sys, uuid, warnings
+
 from distutils.version import LooseVersion, StrictVersion
-
 
 def make_iframe(url, height):
     id = uuid.uuid4()
 
     scrollbug_workaround='''
             <script>
-                $("#%s").bind('mousewheel', function(e) {
-                e.preventDefault();
-                });
+                try {
+                  $("#%s").bind('mousewheel', function(e) { e.preventDefault(); });
+                } catch (e) { console.error('exn catching scroll', e); }
             </script>
         ''' % id
 
@@ -55,31 +48,32 @@ def compare_versions(v1, v2):
 
 
 def in_ipython():
-        try:
-            __IPYTHON__
+    try:
+        if hasattr(__builtins__, '__IPYTHON__'):
             return True
-        except NameError:
-            return False
-
+    except NameError:
+        pass
+    try:
+        from IPython import get_ipython
+        cfg = get_ipython()
+        if not (cfg is None) and ('IPKernelApp' in get_ipython().config):
+            return True
+    except ImportError:
+        pass
+    return False
 
 def warn(msg):
     try:
-        if in_ipython:
+        if in_ipython():
             import IPython
             IPython.utils.warn.warn(msg)
             return
     except:
         'ok'
-    print('WARNING: ', msg, file=sys.stderr)
+    warnings.warn(RuntimeWarning(msg))
 
 
 def error(msg):
-    try:
-        if in_ipython:
-            import IPython
-            IPython.utils.warn.error(msg)
-    except:
-            'ok'
     raise ValueError(msg)
 
 def merge_two_dicts(a, b):

@@ -17,5 +17,6 @@ RUN \
 
 COPY docker/test-cpu-entrypoint.sh /entrypoint/test-cpu-entrypoint.sh
 COPY graphistry ./graphistry
+COPY pytest.ini .
 
 ENTRYPOINT /entrypoint/test-cpu-entrypoint.sh

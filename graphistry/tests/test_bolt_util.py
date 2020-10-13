@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 
-import datetime as dt, logging, neo4j, numpy, pandas as pd, pyarrow as pa, pytest, unittest
+import datetime as dt, graphistry, logging, neo4j, numpy, os, pandas as pd, pyarrow as pa, pytest, unittest
 from common import NoAuthTestCase
 
-from graphistry.bolt_util import neo_df_to_pd_df
+from graphistry.bolt_util import (
+    neo_df_to_pd_df,
+    node_id_key, node_type_key, node_label_prefix_key,
+    start_node_id_key, end_node_id_key, relationship_id_key, relationship_type_key
+)
+
 
 def test_neo_df_to_pd_df_basics():
     rec = {
@@ -24,7 +29,7 @@ def test_neo_df_to_pd_df_basics():
         'd': 'object',
         'mt': 'object'
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == rec
     pa.Table.from_pandas(df2)
 
@@ -47,7 +52,7 @@ def test_neo_df_to_pd_df_basics_na():
         'd': 'object',
         'mt': 'object'
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {k: recs[k][0] for k in recs.keys()}
     pa.Table.from_pandas(df2)
 
@@ -66,7 +71,7 @@ def test_dates_homogeneous():
         't': 'timedelta64[ns]',
         'dur': 'object'
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'd': dt.datetime(2020, 10, 20),
         'dt': dt.datetime(2020, 10, 20, 3, 4, 5),
@@ -90,14 +95,14 @@ def test_dates_homogeneous_na():
         't': 'timedelta64[ns]',
         'dur': 'object'
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'd': dt.datetime(2020, 10, 20),
         'dt': dt.datetime(2020, 10, 20, 3, 4, 5),
         't': pd.to_timedelta('10:20:30'),
         'dur': 'P1Y3M14D'
     }
-    assert df2.to_dict(orient='record')[1] == {
+    assert df2.to_dict(orient='records')[1] == {
         'd': pd.NaT,
         'dt': pd.NaT,
         't': pd.NaT,
@@ -126,14 +131,14 @@ def test_dates_heterogeneous():
         't': 'object',
         'dur': 'object'
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'd': dt.datetime(2020, 10, 20),
         'dt': dt.datetime(2020, 10, 20, 3, 4, 5),
         't': pd.to_timedelta('10:20:30'),
         'dur': 'P1Y3M14D'
     }
-    assert df2.to_dict(orient='record')[1] == {
+    assert df2.to_dict(orient='records')[1] == {
         'd': 1,
         'dt': 1,
         't': 1,
@@ -173,7 +178,7 @@ def test_spatial_homogenous():
         'w_latitude': 'int64',
         'w_srid': 'int64',
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'p': 'POINT(1 2 3 4)',
         'p_srid': None,
@@ -229,7 +234,7 @@ def test_spatial_homogenous_na():
         'w_latitude': 'float64',
         'w_srid': 'float64',
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'p': 'POINT(1 2 3 4)',
         'p_srid': None,
@@ -253,7 +258,7 @@ def test_spatial_homogenous_na():
         'w_srid': 4326
     }
 
-    d2 = df2.to_dict(orient='record')[1]
+    d2 = df2.to_dict(orient='records')[1]
     assert d2['p_srid'] == None
     for k in d2.keys():
         if not k in ['p', 'c', 'c2', 'w', 'p_srid']:
@@ -277,18 +282,71 @@ def test_spatial_heterogeneous():
         'c2': 'object',
         'w': 'object',
     }
-    d = df2.to_dict(orient='record')[0]
+    d = df2.to_dict(orient='records')[0]
     assert d == {
         'p': 'POINT(1 2 3 4)',
         'c': 'POINT(1 2)',
         'c2': 'POINT(1 2 3)',
         'w': 'POINT(4 5)',
     }
-    assert df2.to_dict(orient='record')[1] == {
+    assert df2.to_dict(orient='records')[1] == {
         'p': 1,
         'c': 1,
         'c2': 1,
         'w': 1,
     }
     with pytest.raises(pa.lib.ArrowTypeError):
-        pa.Table.from_pandas(df2)    
+        pa.Table.from_pandas(df2)
+
+@pytest.mark.skipif(not ('WITH_NEO4J' in os.environ) or os.environ['WITH_NEO4J'] != '1', reason='No WITH_NEO4J=1')
+class Test_Neo4jConnector:
+
+    @classmethod
+    def setup_class(cls):
+        from neo4j import GraphDatabase, Driver
+        NEO4J_CREDS = {'uri': 'bolt://neo4j4-test:7687', 'auth': ('neo4j', 'test')}
+        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
+        graphistry.register(api=3, bolt=GraphDatabase.driver(**NEO4J_CREDS))
+
+    def test_neo4j_conn_setup(self):
+        assert True == True
+
+    def test_neo4j_ready(self):
+
+        g = graphistry.cypher("MATCH (a)-[b]-(c) WHERE a <> c RETURN a, b, c LIMIT 1")
+        assert len(g._nodes) == 2
+
+    def test_neo4j_no_edges(self):
+
+        with pytest.warns(RuntimeWarning):
+            g = graphistry.cypher("MATCH (a) RETURN a LIMIT 1")
+
+        assert len(g._nodes) == 1
+        assert len(g._edges) == 0
+        for col in [node_id_key, node_type_key]:
+            assert col in g._nodes
+        for col in [start_node_id_key, end_node_id_key, relationship_id_key, relationship_type_key]:
+            assert col in g._edges
+
+    def test_neo4j_no_nodes(self):
+        with pytest.warns(RuntimeWarning):
+            g = graphistry.cypher("MATCH (a) WHERE a.x = 123 RETURN a LIMIT 1")
+
+        assert len(g._nodes) == 0
+        assert len(g._edges) == 0
+        for col in [node_id_key, node_type_key]:
+            assert col in g._nodes
+        for col in [start_node_id_key, end_node_id_key, relationship_id_key, relationship_type_key]:
+            assert col in g._edges
+
+    def test_neo4j_some_edges(self):
+
+        g = graphistry.cypher("MATCH (a)-[b]-(c) WHERE a <> c RETURN a, b, c LIMIT 1")
+        assert len(g._nodes) == 2
+        assert len(g._edges) == 1
+
+        for col in [node_id_key, node_type_key]:
+            assert col in g._nodes
+        
+        for col in [start_node_id_key, end_node_id_key, relationship_id_key, relationship_type_key]:
+            assert col in g._edges

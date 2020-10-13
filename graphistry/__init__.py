@@ -1,4 +1,3 @@
-from __future__ import absolute_import
 from ._version import get_versions
 __version__ = get_versions()['version']
 del get_versions
@@ -11,6 +10,7 @@ name, description,
 bind, style, addStyle, edges, nodes, graph, settings,
 encode_point_color, encode_point_size, encode_point_icon,
 encode_edge_color, encode_edge_icon,
+encode_point_badge, encode_edge_color,
 hypergraph, 
 bolt, cypher,
 tigergraph, gsql, gsql_endpoint,

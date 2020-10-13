@@ -1,13 +1,4 @@
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-
-from __future__ import absolute_import
-from __future__ import print_function
-from future import standard_library
-standard_library.install_aliases()
-from builtins import bytes, object, str
-from past.utils import old_div
-from past.builtins import basestring
-
 import calendar, gzip, io, json, os, numpy, pandas, requests, sched, sys, time, warnings
 
 from datetime import datetime
@@ -17,6 +8,7 @@ from .arrow_uploader import ArrowUploader
 
 from . import util
 from . import bolt_util
+from .plotter import Plotter
 
 import logging
 logger = logging.getLogger(__name__)
@@ -194,7 +186,7 @@ class PyGraphistry(object):
         if value is None:
             return PyGraphistry._config['store_token_creds_in_memory']
         else:
-            v = bool(strtobool(value)) if isinstance(value, basestring) else value
+            v = bool(strtobool(value)) if isinstance(value, str) else value
             PyGraphistry._config['store_token_creds_in_memory'] = v
 
     @staticmethod
@@ -281,7 +273,7 @@ class PyGraphistry(object):
             return PyGraphistry._config['certificate_validation']
 
         # setter
-        v = bool(strtobool(value)) if isinstance(value, basestring) else value
+        v = bool(strtobool(value)) if isinstance(value, str) else value
         if v == False:
             requests.packages.urllib3.disable_warnings()
         PyGraphistry._config['certificate_validation'] = v
@@ -445,8 +437,7 @@ class PyGraphistry(object):
 
                     g = graphistry.bolt(driver)
         """
-        from . import plotter
-        return plotter.Plotter().bolt(driver)
+        return Plotter().bolt(driver)
 
 
     @staticmethod
@@ -464,8 +455,7 @@ class PyGraphistry(object):
                     import graphistry
                     g = graphistry.bolt({ query='MATCH (a)-[r:PAYMENT]->(b) WHERE r.USD > 7000 AND r.USD < 10000 RETURN r ORDER BY r.USD DESC', params={ "AccountId": 10 })
         """
-        from . import plotter
-        return plotter.Plotter().cypher(query, params)
+        return Plotter().cypher(query, params)
 
 
     @staticmethod
@@ -482,8 +472,7 @@ class PyGraphistry(object):
         if not (engine is None):
             print('WARNING: Engine currently ignored, please contact if critical')
 
-        from . import plotter
-        return plotter.Plotter().nodexl(xls_or_url, source, engine, verbose)
+        return Plotter().nodexl(xls_or_url, source, engine, verbose)
 
 
     @staticmethod
@@ -493,8 +482,7 @@ class PyGraphistry(object):
         :param name: Upload name
         :type name: str"""
 
-        from . import plotter
-        return plotter.Plotter().name(name)
+        return Plotter().name(name)
 
     @staticmethod
     def description(description):
@@ -503,8 +491,7 @@ class PyGraphistry(object):
         :param description: Upload description
         :type description: str"""
 
-        from . import plotter
-        return plotter.Plotter().description(description)
+        return Plotter().description(description)
 
 
     @staticmethod
@@ -524,8 +511,7 @@ class PyGraphistry(object):
                 graphistry.addStyle(bg={'color': 'black'})
         """
 
-        from . import plotter
-        return plotter.Plotter().addStyle(bg=bg, fg=fg, logo=logo, page=page)
+        return Plotter().addStyle(bg=bg, fg=fg, logo=logo, page=page)
 
 
 
@@ -546,8 +532,7 @@ class PyGraphistry(object):
                 graphistry.style(bg={'color': 'black'})
         """
 
-        from . import plotter
-        return plotter.Plotter().style(bg=bg, fg=fg, logo=logo, page=page)
+        return Plotter().style(bg=bg, fg=fg, logo=logo, page=page)
 
 
 
@@ -605,8 +590,7 @@ class PyGraphistry(object):
 
         """
 
-        from . import plotter
-        return plotter.Plotter().encode_point_color(
+        return Plotter().encode_point_color(
             column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
@@ -648,8 +632,7 @@ class PyGraphistry(object):
         **Example: See encode_point_color**
         """
 
-        from . import plotter
-        return plotter.Plotter().encode_edge_color(
+        return Plotter().encode_edge_color(
             column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
@@ -688,16 +671,17 @@ class PyGraphistry(object):
                 g2b = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200}, default_mapping=50)
 
         """
-        from . import plotter
-        return plotter.Plotter().encode_point_size(column=column,
+
+        return Plotter().encode_point_size(column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
 
 
     @staticmethod
     def encode_point_icon(column,
-            categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
+            for_default=True, for_current=False, as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
         :param column: Data column name
@@ -715,6 +699,18 @@ class PyGraphistry(object):
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
         :type for_current: bool, optional.
 
+        :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
+        :type as_text: bool, optional.
+
+        :param blend_mode: CSS blend mode
+        :type blend_mode: str, optional.
+
+        :param style: CSS filter properties - opacity, saturation, luminosity, grayscale, and more
+        :type style: dict, optional
+
+        :param border: Border properties - 'width', 'color', and 'storke'
+        :type border: dict, optional
+
         :returns: Plotter.
         :rtype: Plotter.
 
@@ -727,18 +723,30 @@ class PyGraphistry(object):
                 g2a = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
+        **Example: Map countries to abbreviations**
+            ::
+                g2b = g.encode_point_icon('country_abbrev', as_text=True)
+                g2b = g.encode_point_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
+
+        **Example: Border**
+            ::
+                g2b = g.encode_point_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
+
         """
 
-        from . import plotter
-        return plotter.Plotter().encode_point_icon(column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+        return Plotter().encode_point_icon(column=column,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
+            for_default=for_default, for_current=for_current,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
     @staticmethod
     def encode_edge_icon(column,
-            categorical_mapping=None, default_mapping=None,
-            for_default=True, for_current=False):
+            categorical_mapping=None, continuous_binning=None, default_mapping=None,
+            comparator=None,
+            for_default=True, for_current=False,
+            as_text=False, blend_mode=None, style=None, border=None, shape=None):
         """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
         :param column: Data column name
@@ -756,6 +764,18 @@ class PyGraphistry(object):
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
         :type for_current: bool, optional.
 
+        :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
+        :type as_text: bool, optional.
+
+        :param blend_mode: CSS blend mode
+        :type blend_mode: str, optional.
+
+        :param style: CSS filter properties - opacity, saturation, luminosity, grayscale, and more
+        :type style: dict, optional
+
+        :param border: Border properties - 'width', 'color', and 'storke'
+        :type border: dict, optional
+
         :returns: Plotter.
         :rtype: Plotter.
 
@@ -768,13 +788,49 @@ class PyGraphistry(object):
                 g2a = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
+        **Example: Map countries to abbreviations**
+            ::
+                g2a = g.encode_edge_icon('country_abbrev', as_text=True)
+                g2b = g.encode_edge_icon('country', categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
+
+        **Example: Border**
+            ::
+                g2b = g.encode_edge_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
+
         """
-        from . import plotter
-        return plotter.Plotter().encode_edge_icon(column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+
+        return Plotter().encode_edge_icon(column=column,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
+            comparator=comparator,
+            for_default=for_default, for_current=for_current,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
 
+    @staticmethod
+    def encode_edge_badge(column, position='TopRight',
+            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
+            color=None, bg=None, fg=None,
+            for_current=False, for_default=True,
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
+
+        return Plotter().encode_edge_badge(column=column,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
+            color=color, bg=bg, fg=fg,
+            for_current=for_current, for_default=for_default,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
+
+    @staticmethod
+    def encode_point_badge(column, position='TopRight',
+            categorical_mapping=None, continuous_binning=None, default_mapping=None, comparator=None,
+            color=None, bg=None, fg=None,
+            for_current=False, for_default=True,
+            as_text=None, blend_mode=None, style=None, border=None, shape=None):
+
+        return Plotter().encode_point_badge(column=column,
+            categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping, comparator=comparator,
+            color=color, bg=bg, fg=fg,
+            for_current=for_current, for_default=for_default,
+            as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
     @staticmethod
     def bind(node=None, source=None, destination=None,
@@ -798,10 +854,7 @@ class PyGraphistry(object):
 
         """
 
-
-
-        from . import plotter
-        return plotter.Plotter().bind(source=source, destination=destination, node=node, \
+        return Plotter().bind(source=source, destination=destination, node=node, \
                               edge_title=edge_title, edge_label=edge_label, edge_color=edge_color, 
                               edge_size=edge_size, edge_weight=edge_weight, edge_icon=edge_icon, edge_opacity=edge_opacity,
                               edge_source_color=edge_source_color, edge_destination_color=edge_destination_color,
@@ -850,8 +903,8 @@ class PyGraphistry(object):
                     tg = graphistry.tigergraph(protocol='https', server='acme.com', db='my_db', user='alice', pwd='tigergraph2')                    
 
         """
-        from . import plotter
-        return plotter.Plotter().tigergraph(protocol, server, web_port, api_port, db, user, pwd, verbose)
+
+        return Plotter().tigergraph(protocol, server, web_port, api_port, db, user, pwd, verbose)
 
 
     @staticmethod
@@ -894,8 +947,8 @@ class PyGraphistry(object):
                     (nodes_df, edges_df) = (out._nodes, out._edges)
 
         """
-        from . import plotter
-        return plotter.Plotter().gsql_endpoint(method_name, args, bindings, db, dry_run)
+
+        return Plotter().gsql_endpoint(method_name, args, bindings, db, dry_run)
 
 
 
@@ -968,33 +1021,96 @@ INTERPRET QUERY () FOR GRAPH Storage {
   }
                     \"\"\", {'edges': 'my_edge_list'}).plot()
         """
-        from . import plotter
-        return plotter.Plotter().gsql(query, bindings, dry_run)
+
+        return Plotter().gsql(query, bindings, dry_run)
 
 
 
     @staticmethod
-    def nodes(nodes):
-        from . import plotter
-        return plotter.Plotter().nodes(nodes)
+    def nodes(nodes, node=None):
+        """Specify the set of nodes and associated data.
+
+        Must include any nodes referenced in the edge list.
+
+        :param nodes: Nodes and their attributes.
+        :type point_size: Pandas dataframe
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+            ::
+
+                import graphistry
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(es)
+
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                g = g.bind(node='v').nodes(vs)
+
+                g.plot()
+
+        **Example**
+            ::
+
+                import graphistry
+
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                g = graphistry.edges(es, 'src', 'dst')
+
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                g = g.nodes(vs, 'v)
+
+                g.plot()
+        """
+        return Plotter().nodes(nodes, node)
 
 
     @staticmethod
-    def edges(edges):
-        from . import plotter
-        return plotter.Plotter().edges(edges)
+    def edges(edges, source=None, destination=None):
+        """Specify edge list data and associated edge attribute values.
+
+        :param edges: Edges and their attributes.
+        :type point_size: Pandas dataframe, NetworkX graph, or IGraph graph.
+
+        :returns: Plotter.
+        :rtype: Plotter.
+
+        **Example**
+            ::
+
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .bind(source='src', destination='dst')
+                    .edges(df)
+                    .plot()
+
+        **Example**
+            ::
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                graphistry
+                    .edges(df, 'src', 'dst')
+                    .plot()
+
+        """
+        return Plotter().edges(edges, source, destination)
 
 
     @staticmethod
     def graph(ig):
-        from . import plotter
-        return plotter.Plotter().graph(ig)
+
+        return Plotter().graph(ig)
 
 
     @staticmethod
     def settings(height=None, url_params={}, render=None):
-        from . import plotter
-        return plotter.Plotter().settings(height, url_params, render)
+
+        return Plotter().settings(height, url_params, render)
 
 
     @staticmethod
@@ -1055,12 +1171,10 @@ INTERPRET QUERY () FOR GRAPH Storage {
         else:
             raise ValueError('Unknown mode:', mode)
 
-        size = old_div(len(out_file.getvalue()), 1024)
-        if size >= 5 * 1024:
-            print('Uploading %d kB. This may take a while...' % size)
+        kb_size = len(out_file.getvalue()) // 1024
+        if kb_size >= 5 * 1024:
+            print('Uploading %d kB. This may take a while...' % kb_size)
             sys.stdout.flush()
-        elif size > 50 * 1024:
-            util.error('Dataset is too large (%d kB)!' % size)
 
         return out_file
 
@@ -1180,6 +1294,8 @@ encode_edge_color = PyGraphistry.encode_edge_color
 encode_point_size = PyGraphistry.encode_point_size
 encode_point_icon = PyGraphistry.encode_point_icon
 encode_edge_icon = PyGraphistry.encode_edge_icon
+encode_point_badge = PyGraphistry.encode_point_badge
+encode_edge_badge = PyGraphistry.encode_edge_badge
 name = PyGraphistry.name
 description = PyGraphistry.description
 edges = PyGraphistry.edges

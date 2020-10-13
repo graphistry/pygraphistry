@@ -1,25 +1,11 @@
-from __future__ import print_function
-from __future__ import absolute_import
-from __future__ import division
-from builtins import zip
-from builtins import next
-from builtins import str
-import warnings
+from builtins import next, str, zip
 
+import numpy, pandas, random, warnings
 
-import random
-import numpy
-import pandas
-
-from . import pygraphistry
-from . import util
-from . import graph_vector_pb2
 from .graph_vector_pb2 import VectorGraph
 
-
-EDGE = graph_vector_pb2.VectorGraph.EDGE
-VERTEX = graph_vector_pb2.VectorGraph.VERTEX
-
+EDGE = VectorGraph.EDGE
+VERTEX = VectorGraph.VERTEX
 
 # Creates the ETL2 protobuf vgraph from
 #  - edge_df: the edge dataframe
@@ -30,7 +16,7 @@ VERTEX = graph_vector_pb2.VectorGraph.VERTEX
 #  - node_map: A map from nodeId to a dense integer range [0, #nodes -1]
 #  - name: The name of the dataset.
 def create(edge_df, node_df, sources, dests, nodeid, node_map, name):
-    vg = graph_vector_pb2.VectorGraph()
+    vg = VectorGraph()
     vg.version = 1
     vg.type = VectorGraph.DIRECTED
     vg.vertexCount = len(node_map)
