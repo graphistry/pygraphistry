@@ -2,7 +2,9 @@ Extracts .RST from parent .PY and converts into .HTML
 
 To run:
 
-   docs $ ./build.sh
+   docs $ sudo ./docker.sh
+
+This is a shim to `build.sh`
 
 Makes 
 
