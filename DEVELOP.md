@@ -32,6 +32,12 @@ cd docker && ./test-cpu-local.sh
 4. To duplicate CI tests, in python2 and 3, run ` time flake8 . --count --select=E901,E999,F821,F822,F823 --show-source --statistics`
 
 
+## Docs
+
+Automatically build via ReadTheDocs from inline definitions.
+
+To manually build, see `docs/`.
+
 ## CI
 
 We intend to move to Github Actions / DockerHub Automated Builds for CPU and TBD for GPU
