@@ -1545,26 +1545,26 @@ class Plotter(object):
                     import graphistry
                     tg = graphistry.tigergraph()
                     tg.gsql(\"\"\"
-INTERPRET QUERY () FOR GRAPH Storage { 
-    
-    OrAccum<BOOL> @@stop;
-    ListAccum<EDGE> @@edgeList;
-    SetAccum<vertex> @@set;
-    
-    @@set += to_vertex("61921", "Pool");
+                    INTERPRET QUERY () FOR GRAPH Storage { 
+                        
+                        OrAccum<BOOL> @@stop;
+                        ListAccum<EDGE> @@edgeList;
+                        SetAccum<vertex> @@set;
+                        
+                        @@set += to_vertex("61921", "Pool");
 
-    Start = @@set;
+                        Start = @@set;
 
-    while Start.size() > 0 and @@stop == false do
+                        while Start.size() > 0 and @@stop == false do
 
-      Start = select t from Start:s-(:e)-:t
-      where e.goUpper == TRUE
-      accum @@edgeList += e
-      having t.type != "Service";
-    end;
+                        Start = select t from Start:s-(:e)-:t
+                        where e.goUpper == TRUE
+                        accum @@edgeList += e
+                        having t.type != "Service";
+                        end;
 
-    print @@edgeList;
-  }
+                        print @@edgeList;
+                    }
                     \"\"\").plot()
 
        **Example: Full**
@@ -1573,26 +1573,26 @@ INTERPRET QUERY () FOR GRAPH Storage {
                     import graphistry
                     tg = graphistry.tigergraph()
                     tg.gsql(\"\"\"
-INTERPRET QUERY () FOR GRAPH Storage { 
-    
-    OrAccum<BOOL> @@stop;
-    ListAccum<EDGE> @@edgeList;
-    SetAccum<vertex> @@set;
-    
-    @@set += to_vertex("61921", "Pool");
+                    INTERPRET QUERY () FOR GRAPH Storage { 
+                        
+                        OrAccum<BOOL> @@stop;
+                        ListAccum<EDGE> @@edgeList;
+                        SetAccum<vertex> @@set;
+                        
+                        @@set += to_vertex("61921", "Pool");
 
-    Start = @@set;
+                        Start = @@set;
 
-    while Start.size() > 0 and @@stop == false do
+                        while Start.size() > 0 and @@stop == false do
 
-      Start = select t from Start:s-(:e)-:t
-      where e.goUpper == TRUE
-      accum @@edgeList += e
-      having t.type != "Service";
-    end;
+                        Start = select t from Start:s-(:e)-:t
+                        where e.goUpper == TRUE
+                        accum @@edgeList += e
+                        having t.type != "Service";
+                        end;
 
-    print @@my_edge_list;
-  }
+                        print @@my_edge_list;
+                    }
                     \"\"\", {'edges': 'my_edge_list'}).plot()
         """        
         return self._tigergraph.gsql(self, query, bindings, dry_run)
