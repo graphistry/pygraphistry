@@ -232,10 +232,10 @@ Graphistry supports unusually large graphs for interactive visualization. The cl
       .encode_edge_color('timestamp', ["blue", "yellow", "red"], as_continuous=True)
       .encode_point_icon('device_type', categorical_mapping={'macbook': 'laptop', ...})
       .encode_point_badge('passport', 'TopRight', categorical_mapping={'Canada': 'flag-icon-ca', ...})
+      .addStyle(bg={'color': 'red'}, fg={}, page={'title': 'My Graph'}, logo={})
       .settings(url_params={
         'play': 2000,
 	    'menu': True, 'info': True,
-	    'bg': '%23FFFFFF',
 	    'showArrows': True,
 	    'pointSize': 2.0, 'edgeCurvature': 0.5,
 	    'edgeOpacity': 1.0, 'pointOpacity': 1.0,
