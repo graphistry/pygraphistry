@@ -13,6 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 * Python test matrix: Removed 3.9
+* Propagate misformatted etl1/2 server errors 
 
 ## [0.14.0] - 2020-10-12
 
