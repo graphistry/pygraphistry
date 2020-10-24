@@ -1194,7 +1194,11 @@ class PyGraphistry(object):
                                  verify=PyGraphistry._config['certificate_validation'])
         response.raise_for_status()
 
-        jres = response.json()
+        try:
+            jres = response.json()
+        except Exception:
+            raise ValueError('Unexpected server response', response)
+
         if jres['success'] is not True:
             raise ValueError('Server reported error:', jres['msg'])
         else:
@@ -1246,7 +1250,11 @@ class PyGraphistry(object):
                                  verify=PyGraphistry._config['certificate_validation'])
         response.raise_for_status()
 
-        jres = response.json()
+        try:
+            jres = response.json()
+        except:
+            raise ValueError('Unexpected server response', response)
+
         if jres['success'] is not True:
             raise ValueError('Server reported error:', jres['msg'] if 'msg' in jres else 'No Message')
         else:
