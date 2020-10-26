@@ -3,8 +3,11 @@
 [![Latest Version](https://img.shields.io/pypi/v/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
 [![Latest Version](https://img.shields.io/pypi/pyversions/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
 [![License](https://img.shields.io/pypi/l/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
+[![Downloads](https://pepy.tech/badge/graphistry/month)](https://pepy.tech/project/graphistry/month) 
 
-[![Downloads](https://pepy.tech/badge/graphistry/month)](https://pepy.tech/project/graphistry/month) ![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)
+
+[<img src="https://img.shields.io/badge/slack-Graphistry%20chat-yellow.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g) 
+![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)
 
 # PyGraphistry: Explore Relationships
 
