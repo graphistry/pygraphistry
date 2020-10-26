@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Adding
 * Gremlin / AWS Neptune <-- not for this release
 * Examples for icons, badges, and new node/edge bindings
+* Slack link
 
 ### Fixed
 * Python test matrix: Removed 3.9
