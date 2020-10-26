@@ -11,11 +11,19 @@
 
 # PyGraphistry: Explore Relationships
 
-PyGraphistry is a Python visual graph analytics library to extract, transform, and load big graphs into [Graphistry's](http://www.graphistry.com) visual graph analytics platform. It is typically used by data scientists, developers, and operational analysts on problems like visually mapping the behavior of devices and users. 
+PyGraphistry is a Python visual graph analytics library to extract, transform, and load big graphs into [Graphistry](https://www.graphistry.com) end-to-end GPU  visual graph analytics sessions.
 
-The Python client makes it easy to go from your existing data to a Graphistry server. Through strong notebook support, data scientists can quickly go from data to accelerated visual explorations, and developers can quickly prototype stunning solutions with their users.
+Graphistry gets used on problems like visually mapping the behavior of devices and users and inspecting machine learning results. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside GPU analytics engine supports even bigger graphs.
 
-Graphistry supports unusually large graphs for interactive visualization. The client's custom WebGL rendering engine renders up to 8MM nodes and edges at a time, and most older client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside GPU analytics engine supports even bigger graphs.
+The PyGraphistry Python client helps several kinds of usage modes:
+* **Data scientists**: Go from data to accelerated visual explorations in a couple lines, share live results, build up more advanced views over time, and do it all from notebook environments like Jupyter and Google Colab
+* **Developers**: Quickly prototype stunning Python solutions with PyGraphistry, embed in a language-neutral way with the [REST APIs](https://hub.graphistry.com/docs/api/), and go deep on customizations like colors, icons, layouts, JavaScript, and more
+* **Analysts**: Every Graphistry session is a point-and-click environment with interactive search, filters, timebars, histograms, and more
+* **Dashboarding**: See our sister project [Graph-App-Kit](https://github.com/graphistry/graph-app-kit) for quickly building interactive graph dashboards through a batteries-included framework built on PyGraphistry, StreamLit, Docker, and ready recipes for integrating with common graph libraries
+
+PyGraphistry is a friendly and optimized PyData-native interface to the language-neutral [Graphistry REST APIs](https://hub.graphistry.com/docs/api/).
+You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Neo4j, Splunk, and more (see below). Wrangle data however you want, and with especially good support for Pandas dataframes, Apache Arrow tables, and Nvidia RAPIDS cuDF dataframes. 
+
 
 1. [Interactive Demo](#demo-of-friendship-communities-on-facebook)
 2. [Graph Gallery](#gallery)
