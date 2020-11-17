@@ -420,6 +420,9 @@ To control the position, we can add `.bind(point_x='colA', point_y='colB').setti
 
 You may also want to bind `point_title`: `.bind(point_title='colA')`. 
 
+For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb) and [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb).
+
+
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
 ### Add edge colors and weights
@@ -427,6 +430,9 @@ You may also want to bind `point_title`: `.bind(point_title='colA')`.
 By default, edges get colored as a gradient between their source/destination node colors. You can override this by setting `.bind(edge_color='colA')`, similar to how node colors function. ([See color documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2).)
 
 Similarly, you can bind the edge weight, where higher weights cause nodes to cluster closer together: `.bind(edge_weight='colA')`. [See tutorial](demos/more_examples/graphistry_features/edge-weights.ipynb).
+
+For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb) and [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb).
+
 
 ### More advanced color and size controls
 
@@ -442,6 +448,8 @@ g.encode_point_size('criticality',
   categorical_mapping={'critical': 200, 'ok': 100},
   default_mapping=50)
 ```
+
+For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb).
 
 ### Custom icons and badges
 
@@ -478,6 +486,8 @@ g.encode_point_icon(
 )
 ```
 
+For more in-depth examples, check out the tutorials on [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb).
+
 #### Badges
 
 ```python
@@ -490,6 +500,8 @@ g.encode_point_badge('another_column', 'TopRight', categorical_mapping=...,
   color={'mapping': {'categorical': {'fixed': {}, 'other': 'white'}}},
   bg={'color': {'mapping': {'continuous': {'bins': [], 'other': 'black'}}}})
 ```
+
+For more in-depth examples, check out the tutorials on [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb).
 
 ### Theming
 
@@ -518,7 +530,8 @@ g.addStyle(logo={
 
 1. Create a free public data [Graphistry Hub](https://www.graphistry.com/get-started) account or [one-click launch a private Graphistry instance in AWS](https://www.graphistry.com/get-started)
 2. Check out the [analyst](demos/for_analysis.ipynb) and [developer](demos/for_developers.ipynb) introductions, or [try your own CSV](demos/upload_csv_miniapp.ipynb)
-3. Explore the [demos folder](demos) for your favorite file format, database, API, or kind of analysis
+3. Explore the [demos folder](demos) for your favorite [file format, database, API](demos/demos_databases_apis), use case domain, kind of analysis, and [visual analytics feature](demos/more_examples/graphistry_features)
+
 
 ## Resources
 
@@ -534,3 +547,4 @@ g.addStyle(logo={
   * [Python API ReadTheDocs](http://pygraphistry.readthedocs.org/en/latest/)
   * Within a notebook, you can always run `help(graphistry)`, `help(graphistry.hypergraph)`, etc.
 * [Administration docs](https://github.com/graphistry/graphistry-cli) for sizing, installing, configuring, managing, and updating Graphistry servers
+* [Graph-App-Kit](https://github.com/graphistry/graph-app-kit) dashboarding
