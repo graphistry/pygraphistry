@@ -9,7 +9,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Adding
 * Gremlin / AWS Neptune <-- not for this release
+
+## [0.14.1] - 2020-11-16
+
+### Added
 * Examples for icons, badges, and new node/edge bindings
+* graph-app-kit links
 * Slack link
 
 ### Fixed
