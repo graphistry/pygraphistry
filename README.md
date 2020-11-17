@@ -16,10 +16,11 @@ PyGraphistry is a Python visual graph analytics library to extract, transform, a
 Graphistry gets used on problems like visually mapping the behavior of devices and users and inspecting machine learning results. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside GPU analytics engine supports even bigger graphs.
 
 The PyGraphistry Python client helps several kinds of usage modes:
+
 * **Data scientists**: Go from data to accelerated visual explorations in a couple lines, share live results, build up more advanced views over time, and do it all from notebook environments like Jupyter and Google Colab
 * **Developers**: Quickly prototype stunning Python solutions with PyGraphistry, embed in a language-neutral way with the [REST APIs](https://hub.graphistry.com/docs/api/), and go deep on customizations like colors, icons, layouts, JavaScript, and more
 * **Analysts**: Every Graphistry session is a point-and-click environment with interactive search, filters, timebars, histograms, and more
-* **Dashboarding**: See our sister project [Graph-App-Kit](https://github.com/graphistry/graph-app-kit) for quickly building interactive graph dashboards through a batteries-included framework built on PyGraphistry, StreamLit, Docker, and ready recipes for integrating with common graph libraries
+* **Dashboarding**: Embed into your favorite framework. Additionally, see our sister project [Graph-App-Kit](https://github.com/graphistry/graph-app-kit) for quickly building interactive graph dashboards by launching a stack built on PyGraphistry, StreamLit, Docker, and ready recipes for integrating with common graph libraries
 
 PyGraphistry is a friendly and optimized PyData-native interface to the language-neutral [Graphistry REST APIs](https://hub.graphistry.com/docs/api/).
 You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Neo4j, Splunk, and more (see below). Wrangle data however you want, and with especially good support for Pandas dataframes, Apache Arrow tables, and Nvidia RAPIDS cuDF dataframes. 
@@ -36,29 +37,19 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 
 <table style="width:100%;">
   <tr valign="top">
-    <td align="center">Click to open interactive version! <em>(For server-backed interactive analytics, use an API key)</em><a href="http://labs.graphistry.com/graph/graph.html?dataset=Facebook&usertag=github&info=true&static=true&contentKey=Facebook_Github_Demo&play=7000&center=false&menu=true&goLive=false&left=-2.02e+4&right=1.51e+4&top=-1.07e+4&bottom=9.15e+3&legend={%22nodes%22:%20%22People%20(Names%20are%20fake).%3Cbr/%3E%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%20%22edges%22:%20%22Friendships%22,%20%22subtitle%22:%20%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%20%22title%22:%20%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22}" target="_blank"><img src="http://i.imgur.com/Ows4rK4.png" title="Click to open."></a>
+    <td align="center">Click to open interactive version! <em>(For server-backed interactive analytics, use an API key)</em><a href="http://hub.graphistry.com/graph/graph.html?dataset=Facebook&splashAfter=true" target="_blank"><img src="http://i.imgur.com/Ows4rK4.png" title="Click to open."></a>
     <em>Source data: <a href="http://snap.stanford.edu" target="_blank">SNAP</a></em>
 	</td>
   </tr>
 </table>
 
-<!-- IFRAME VERSION
-### The Demo:
-
-<table style="width:100%;">
-  <tr valign="top">
-    <td align="center"><b>Friendship Communities on Facebook.</b> (Read-only interactive version.)<br><iframe width="100%" height="500" src="http://labs.graphistry.com/graph/graph.html?dataset=PyGraphistry/VAXME5LTUN&usertag=github&info=true&static=true&contentKey=Facebook_Github_Demo&play=0&center=false&menu=true&goLive=false&left=-2.02e+4&right=1.51e+4&top=-1.07e+4&bottom=9.15e+3&legend={%22nodes%22:%20%22People%20(Names%20are%20fake).%3Cbr/%3E%20Color%20indicates%20community%20and%20size%20shows%20popularity.%22,%20%22edges%22:%20%22Friendships%22,%20%22subtitle%22:%20%22%3Cp%3ECreate%20your%20own%20visualizations%20with%20%3Ca%20href=\%22https://github.com/graphistry/pygraphistry/\%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22,%20%22title%22:%20%22%3Ch3%3EFacebook%20Friendships%20(Read-only%20Mode)%3C/h3%3E%22}" target="_blank"></iframe><br></a>
-    <em>Source data: <a href="http://snap.stanford.edu" target="_blank">SNAP</a></em>
-	</td>
-  </tr>
-</table>
--->
 
 ## PyGraphistry is...
 
-- **Fast & gorgeous:** Cluster, filter, and inspect large amounts of data at interactive speed. We layout graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
+- **Fast & gorgeous:** Interactively cluster, filter, inspect large amounts of data, and zip through timebars. It clusters large graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
 
 - **Easy to install:** `pip install` the client in your notebook or web app, and then connect to a [free Graphistry Hub account](https://www.graphistry.com/get-started) or [launch your own private GPU server](https://www.graphistry.com/get-started)
+
    ```python
   # pip install --user graphistry
   import graphistry
@@ -66,16 +57,10 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
   #graphistry.register(..., protocol='http', host='my.site.ngo')
   ```
 
--  **Notebook friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:
+-  **Notebook-friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:
 
     ```python
     graphistry.edges(pd.read_csv('rows.csv'), 'col_a', 'col_b').plot()
-    ```
-
--  **Embeddable:** Drop live views into your web dashboards and apps:
-    ```python
-    iframe_url = g.plot(render=False)
-    print(f'<iframe src="{ iframe_url }"></iframe>')
     ```
 
 - **Great for events, CSVs, and more:** Not sure if your data is graph-friendly? PyGraphistry's `hypergraph` transform helps turn any sample data like CSVs, SQL results, and event data into a graph for pattern analysis:
@@ -85,7 +70,18 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
      graphistry.hypergraph(rows)['graph'].plot()
      ```
 
-- **Batteries included:** PyGraphistry works out-of-the-box with popular data science and graph analytics libraries. It is also very easy to turn arbitrary data into insightful graphs:
+-  **Embeddable:** Drop live views into your web dashboards and apps:
+    ```python
+    iframe_url = g.plot(render=False)
+    print(f'<iframe src="{ iframe_url }"></iframe>')
+    ```
+    
+-  **Configurable:** In-tool or via the declarative APIs, use the powerful encodings systems for tasks like coloring by time, sizing by score, clustering by weight, show icons by type, and more.
+
+
+### Explore any data as a graph
+
+It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes with many built-in connectors, and by supporting Python dataframes (Pandas, Arrow, RAPIDS), it's easy to bring standard Python data libraries. If the data comes as a table instead of a graph, PyGraphistry will help you extract and explore the relationships.
 
   - [Pandas](http://pandas.pydata.org)
 
@@ -220,7 +216,9 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
     graphistry.nodexl('https://file.xls')._nodes
     ```  
 
-  - **Quickly configurable:** Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/):
+### Quickly configurable
+
+Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/). Check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb), [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb), [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb), [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb), and [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb):
   
  
   ```python
@@ -258,20 +256,20 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 	    'pointsOfInterestMax': 5
       })
       .plot()
-  ````
+  ```
 	
 ### Gallery
 
 <table>
     <tr valign="top">
-        <td width="33%" align="center"><a href="http://labs.graphistry.com/graph/graph.html?dataset=Twitter&info=true&play=3000&static=true&contentKey=Twitter_Github_Demo&center=false&menu=true&goLive=false&left=-1.92e+3&right=1.68e+3&top=-1.03e+3&bottom=985&usertag=github&legend={%22title%22:%22%3Ch3%3ECriminal%20Twitter%20Botnet%3C/h3%3E%22,%22subtitle%22:%22%3Cp%3EThe%20botnet%20(right%20layer),%20%20launders%20Twitter%20retweets%20through%20an%20indirection%20layer%20(middle)%20%20in%20order%20to%20build%20social%20rank%20for%20fraudsters%20(left).%20%20Twitter%27s%20core%20targeting%20algorithm%20then%20routes%20the%20artificially%20trending%20tweets%20%20to%20potential%20victims%20in%20the%20precise%20demographic%20of%20FIFA/Madden%20gamers.%3C/p%3E%20%3Cp%3EMany%20victims%20have%20been%20tricked%20into%20revealing%20their%20credit%20cards%20and%20passports.%3C/p%3E%22,%22nodes%22:%22Twitter%20accounts%22,%22edges%22:%22Follow%20relationship%22}" target="_blank">Twitter Botnet<br><img width="266" src="http://i.imgur.com/qm5MCqS.jpg"></a></td>
+        <td width="33%" align="center"><a href="http://hub.graphistry.com/graph/graph.html?dataset=Twitter&splashAfter=true" target="_blank">Twitter Botnet<br><img width="266" src="http://i.imgur.com/qm5MCqS.jpg"></a></td>
         <td width="33%" align="center">Edit Wars on Wikipedia<br><a href="http://i.imgur.com/074zFve.png" target="_blank"><img width="266" src="http://i.imgur.com/074zFve.png"></a><em>Source: <a href="http://snap.stanford.edu" target="_blank">SNAP</a></em></td>
-        <td width="33%" align="center"><a href="https://labs.graphistry.com/graph/graph.html?dataset=bitC&static=true&play=20000" target="_blank">100,000 Bitcoin Transactions<br><img width="266" height="266" src="http://imgur.com/download/axIkjfd"></a></td>
+        <td width="33%" align="center"><a href="https://hub.graphistry.com/graph/graph.html?dataset=bitC&splashAfter=true" target="_blank">100,000 Bitcoin Transactions<br><img width="266" height="266" src="http://imgur.com/download/axIkjfd"></a></td>
     </tr>
     <tr valign="top">
         <td width="33%" align="center">Port Scan Attack<br><a href="http://i.imgur.com/vKUDySw.png" target="_blank"><img width="266" src="http://i.imgur.com/vKUDySw.png"></a></td>
-        <td width="33%" align="center"><a href="http://labs.graphistry.com/graph/graph.html?dataset=PyGraphistry/M9RL4PQFSF&usertag=github&info=true&static=true&contentKey=Biogrid_Github_Demo&play=3000&center=false&menu=true&goLive=false&left=-2.58e+4&right=4.35e+4&top=-1.72e+4&bottom=2.16e+4&legend={%22title%22:%22%3Ch3%3EBioGRID%20Repository%20of%20Protein%20Interactions%3C/h3%3E%22,%22subtitle%22:%22%3Cp%3EEach%20color%20represents%20an%20organism.%20Humans%20are%20in%20light%20blue.%3C/p%3E%22,%22nodes%22:%22Proteins/Genes%22,%22edges%22:%22Interactions%20reported%20in%20scientific%20publications%22}" target="_blank">Protein Interactions <br><img width="266" src="http://i.imgur.com/nrUHLFz.png" target="_blank"></a><em>Source: <a href="http://thebiogrid.org" target="_blank">BioGRID</a></em></td>
-        <td width="33%" align="center"><a href="http://labs.graphistry.com/graph/graph.html?&dataset=PyGraphistry/PC7D53HHS5&info=true&static=true&contentKey=SocioPlt_Github_Demo&play=3000&center=false&menu=true&goLive=false&left=-236&right=265&top=-145&bottom=134&usertag=github&legend=%7B%22nodes%22%3A%20%22%3Cspan%20style%3D%5C%22color%3A%23a6cee3%3B%5C%22%3ELanguages%3C/span%3E%20/%20%3Cspan%20style%3D%5C%22color%3Argb%28106%2C%2061%2C%20154%29%3B%5C%22%3EStatements%3C/span%3E%22%2C%20%22edges%22%3A%20%22Strong%20Correlations%22%2C%20%22subtitle%22%3A%20%22%3Cp%3EFor%20more%20information%2C%20check%20out%20the%20%3Ca%20target%3D%5C%22_blank%5C%22%20href%3D%5C%22https%3A//lmeyerov.github.io/projects/socioplt/viz/index.html%5C%22%3ESocio-PLT%3C/a%3E%20project.%20Make%20your%20own%20visualizations%20with%20%3Ca%20target%3D%5C%22_blank%5C%22%20href%3D%5C%22https%3A//github.com/graphistry/pygraphistry%5C%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22%2C%20%22title%22%3A%20%22%3Ch3%3ECorrelation%20Between%20Statements%20about%20Programming%20Languages%3C/h3%3E%22%7D" target="_blank">Programming Languages<br><img width="266" src="http://i.imgur.com/0T0EKmD.png"></a><em>Source: <a href="http://lmeyerov.github.io/projects/socioplt/viz/index.html" target="_blank">Socio-PLT project</a></em></td>
+        <td width="33%" align="center"><a href="http://hub.graphistry.com/graph/graph.html?dataset=PyGraphistry/M9RL4PQFSF&usertag=github&info=true&static=true&contentKey=Biogrid_Github_Demo&play=3000&center=false&menu=true&goLive=false&left=-2.58e+4&right=4.35e+4&top=-1.72e+4&bottom=2.16e+4&legend={%22title%22:%22%3Ch3%3EBioGRID%20Repository%20of%20Protein%20Interactions%3C/h3%3E%22,%22subtitle%22:%22%3Cp%3EEach%20color%20represents%20an%20organism.%20Humans%20are%20in%20light%20blue.%3C/p%3E%22,%22nodes%22:%22Proteins/Genes%22,%22edges%22:%22Interactions%20reported%20in%20scientific%20publications%22}" target="_blank">Protein Interactions <br><img width="266" src="http://i.imgur.com/nrUHLFz.png" target="_blank"></a><em>Source: <a href="http://thebiogrid.org" target="_blank">BioGRID</a></em></td>
+        <td width="33%" align="center"><a href="http://hub.graphistry.com/graph/graph.html?&dataset=PyGraphistry/PC7D53HHS5&info=true&static=true&contentKey=SocioPlt_Github_Demo&play=3000&center=false&menu=true&goLive=false&left=-236&right=265&top=-145&bottom=134&usertag=github&legend=%7B%22nodes%22%3A%20%22%3Cspan%20style%3D%5C%22color%3A%23a6cee3%3B%5C%22%3ELanguages%3C/span%3E%20/%20%3Cspan%20style%3D%5C%22color%3Argb%28106%2C%2061%2C%20154%29%3B%5C%22%3EStatements%3C/span%3E%22%2C%20%22edges%22%3A%20%22Strong%20Correlations%22%2C%20%22subtitle%22%3A%20%22%3Cp%3EFor%20more%20information%2C%20check%20out%20the%20%3Ca%20target%3D%5C%22_blank%5C%22%20href%3D%5C%22https%3A//lmeyerov.github.io/projects/socioplt/viz/index.html%5C%22%3ESocio-PLT%3C/a%3E%20project.%20Make%20your%20own%20visualizations%20with%20%3Ca%20target%3D%5C%22_blank%5C%22%20href%3D%5C%22https%3A//github.com/graphistry/pygraphistry%5C%22%3EPyGraphistry%3C/a%3E.%3C/p%3E%22%2C%20%22title%22%3A%20%22%3Ch3%3ECorrelation%20Between%20Statements%20about%20Programming%20Languages%3C/h3%3E%22%7D" target="_blank">Programming Languages<br><img width="266" src="http://i.imgur.com/0T0EKmD.png"></a><em>Source: <a href="http://lmeyerov.github.io/projects/socioplt/viz/index.html" target="_blank">Socio-PLT project</a></em></td>
     </tr>
 </table>
 
@@ -386,12 +384,13 @@ Let's add labels to edges in order to show how many times each pair of character
 
 ```python
 links["label"] = links.value.map(lambda v: "#Meetings: %d" % v)
-g = g.bind(edge_label="label")
+g = g.bind(edge_title="label")
 g.edges(links).plot()
 ```
 
 ### Controlling Node Title, Size, Color, and Position
 Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). 
+
 
 
 #### Warmup: IGraph for computing statistics
@@ -420,6 +419,9 @@ To control the position, we can add `.bind(point_x='colA', point_y='colB').setti
 
 You may also want to bind `point_title`: `.bind(point_title='colA')`. 
 
+For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb) and [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb).
+
+
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
 ### Add edge colors and weights
@@ -427,6 +429,9 @@ You may also want to bind `point_title`: `.bind(point_title='colA')`.
 By default, edges get colored as a gradient between their source/destination node colors. You can override this by setting `.bind(edge_color='colA')`, similar to how node colors function. ([See color documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2).)
 
 Similarly, you can bind the edge weight, where higher weights cause nodes to cluster closer together: `.bind(edge_weight='colA')`. [See tutorial](demos/more_examples/graphistry_features/edge-weights.ipynb).
+
+For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb) and [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb).
+
 
 ### More advanced color and size controls
 
@@ -442,6 +447,8 @@ g.encode_point_size('criticality',
   categorical_mapping={'critical': 200, 'ok': 100},
   default_mapping=50)
 ```
+
+For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb).
 
 ### Custom icons and badges
 
@@ -478,6 +485,8 @@ g.encode_point_icon(
 )
 ```
 
+For more in-depth examples, check out the tutorials on [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb).
+
 #### Badges
 
 ```python
@@ -490,6 +499,8 @@ g.encode_point_badge('another_column', 'TopRight', categorical_mapping=...,
   color={'mapping': {'categorical': {'fixed': {}, 'other': 'white'}}},
   bg={'color': {'mapping': {'continuous': {'bins': [], 'other': 'black'}}}})
 ```
+
+For more in-depth examples, check out the tutorials on [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb).
 
 ### Theming
 
@@ -518,7 +529,8 @@ g.addStyle(logo={
 
 1. Create a free public data [Graphistry Hub](https://www.graphistry.com/get-started) account or [one-click launch a private Graphistry instance in AWS](https://www.graphistry.com/get-started)
 2. Check out the [analyst](demos/for_analysis.ipynb) and [developer](demos/for_developers.ipynb) introductions, or [try your own CSV](demos/upload_csv_miniapp.ipynb)
-3. Explore the [demos folder](demos) for your favorite file format, database, API, or kind of analysis
+3. Explore the [demos folder](demos) for your favorite [file format, database, API](demos/demos_databases_apis), use case domain, kind of analysis, and [visual analytics feature](demos/more_examples/graphistry_features)
+
 
 ## Resources
 
@@ -534,3 +546,4 @@ g.addStyle(logo={
   * [Python API ReadTheDocs](http://pygraphistry.readthedocs.org/en/latest/)
   * Within a notebook, you can always run `help(graphistry)`, `help(graphistry.hypergraph)`, etc.
 * [Administration docs](https://github.com/graphistry/graphistry-cli) for sizing, installing, configuring, managing, and updating Graphistry servers
+* [Graph-App-Kit](https://github.com/graphistry/graph-app-kit) dashboarding
