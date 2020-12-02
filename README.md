@@ -301,6 +301,8 @@ For more advanced configuration, read on for:
 * Private servers: PyGraphistry defaults to using the free [Graphistry Hub](https://hub.graphistry.com) public API
 
   * Connect to a [private Graphistry server](https://www.graphistry.com/get-started) and provide optional settings specific to it via `protocol`, `server`, and in some cases, `client_protocol_hostname`
+  
+Non-Python users may want to explore the underlying language-neutral [authentication REST API docs](https://hub.graphistry.com/docs/api/1/rest/auth/).
 
 #### Advanced Login
 
