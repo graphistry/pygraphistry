@@ -290,26 +290,28 @@ You need to install the PyGraphistry client somewhere and connect it to a Graphi
 
 ### Configure
 
-Configure account settings using `graphistry.register(api=3, username='abc', password='xyz', ...)`:
+Most users connect to their account via `graphistry.register(api=3, username='abc', password='xyz')` or  `graphistry.register(api=3, username='abc', password='xyz', protocol='http', server='my.private_server.org')`.
 
-* Use protocol `api=3`, which will soon become the default
+For more advanced configuration, read on for:
 
-* Connect to a GPU server by providing a `username='abc'`/`password='xyz'` or a 1-hour-only `token='abc123'`
+* Version: Use protocol `api=3`, which will soon become the default, or a legacy version
 
-* PyGraphistry defaults to using the free [Graphistry Hub](https://hub.graphistry.com) public API
+* Tokens: Connect to a GPU server by providing a `username='abc'`/`password='xyz'`, or for advanced long-running service account software, a refresh loop using 1-hour-only JWT tokens
 
-  * Connect to a [private Graphistry server](https://www.graphistry.com/get-started) and provide optional settings specific to it via `protocol`, `server`, `client_protocol_hostname`
+* Private servers: PyGraphistry defaults to using the free [Graphistry Hub](https://hub.graphistry.com) public API
 
-#### Login
+  * Connect to a [private Graphistry server](https://www.graphistry.com/get-started) and provide optional settings specific to it via `protocol`, `server`, and in some cases, `client_protocol_hostname`
 
-**Recommended for people:** Provide your account username/password:
+#### Advanced Login
+
+* **Recommended for people:** Provide your account username/password:
 
 ```python
 import graphistry
 graphistry.register(api=3, username='username', password='your password') # 2.0 API
 ```
 
-**For code**: Long-running services may prefer to use 1-hour JWT tokens:
+* **For code**: Long-running services may prefer to use 1-hour JWT tokens:
 
 ```python
 import graphistry
@@ -326,7 +328,7 @@ assert initial_one_hour_token != fresh_token
 Alternatively, you can rerun `graphistry.register(api=3, username='username', password='your password')`, which will also fetch a fresh token.
 
 
-**Legacy: 1.0 API (WARNING: DEPRECATED)**
+* **Legacy: 1.0 API (WARNING: DEPRECATED)**
 
 ```python
 #graphistry.register(api=1, key='Your key') # 1.0 API; note parameter name 'key' is different from `token`
@@ -336,9 +338,9 @@ Optionally, for convenience in the 1.0 API, you may set your API key in your sys
 
 ```export GRAPHISTRY_API_KEY="Your key"```
 
-#### Switch Graphistry servers
+#### Advanced: Private servers
 
-Specify which Graphistry to reach:
+Specify which Graphistry server to reach:
 
 ```python
 graphistry.register(protocol='https', server='hub.graphistry.com')
@@ -350,9 +352,9 @@ Private Graphistry notebook environments are preconfigured to fill in this data 
 graphistry.register(protocol='http', server='nginx', client_protocol_hostname='')
 ```
 
-Using `'http'`/`'nginx'` ensures uploads stay within the Docker network (vs. going more slowly through an outside network), and client protocol `''` ensures the browser URLs do not show `http://nginx/`, and instead use the server's name. (See immediately following **Specify client URL** section.)
+Using `'http'`/`'nginx'` ensures uploads stay within the Docker network (vs. going more slowly through an outside network), and client protocol `''` ensures the browser URLs do not show `http://nginx/`, and instead use the server's name. (See immediately following **Switch client URL** section.)
 
-#### Specify client URL
+#### Advanced: Switch client URL
 
 In cases such as when the notebook server is the same as the Graphistry server, you may want your Python code to  *upload* to a known local Graphistry address without going outside the network (e.g., `http://nginx` or `http://localhost`), but for web viewing, generate and embed URLs to a different public address (e.g., `https://graphistry.acme.ngo/`). In this case, explicitly set a  client (browser) location different from `protocol` / `server`:
 
