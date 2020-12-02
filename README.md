@@ -290,25 +290,53 @@ You need to install the PyGraphistry client somewhere and connect it to a Graphi
 
 ### Configure
 
-#### API Credentials
-Provide your API credentials to upload data to your Graphistry GPU server:
+Configure account settings using `graphistry.register(api=3, username='abc', password='xyz', ...)`:
+
+* Use protocol `api=3`, which will soon become the default
+
+* Connect to a GPU server by providing a `username='abc'`/`password='xyz'` or a 1-hour-only `token='abc123'`
+
+* PyGraphistry defaults to using the free [Graphistry Hub](https://hub.graphistry.com) public API
+
+  * Connect to a [private Graphistry server](https://www.graphistry.com/get-started) and provide optional settings specific to it via `protocol`, `server`, `client_protocol_hostname`
+
+#### Login
+
+**Recommended for people:** Provide your account username/password:
 
 ```python
 import graphistry
-#graphistry.register(api=3, username='username', password='your password') # 2.0 API
-#graphistry.register(api=3, token='recent_2-0_token') # 2.0 API, warning: must refresh every 1hr
-
-### Deprecated
-#graphistry.register(api=1, key='Your key') # 1.0 API; note that 'key' is different from token
+graphistry.register(api=3, username='username', password='your password') # 2.0 API
 ```
 
-For the 2.0 API, your username/password are the same as your Graphistry account, and your session expires after 1hr. The temporary JWT token (1hr) can be generated via the REST API using your login credentials, or by visiting your landing page.
+**For code**: Long-running services may prefer to use 1-hour JWT tokens:
 
-Optionally, for convenience, you may set your API key in your system environment and thereby skip the register step in all your notebooks. In your `.profile` or `.bash_profile`, add the following and reload your environment:
+```python
+import graphistry
+graphistry.register(api=3, username='username', password='your password')
+initial_one_hour_token = graphistry.api_token()
+graphistry.register(api=3, token=initial_one_hour_token)
+
+# must run every 59min
+graphistry.refresh() 
+fresh_token = graphistry.api_token()
+assert initial_one_hour_token != fresh_token
+```
+
+Alternatively, you can rerun `graphistry.register(api=3, username='username', password='your password')`, which will also fetch a fresh token.
+
+
+**Legacy: 1.0 API (WARNING: DEPRECATED)**
+
+```python
+#graphistry.register(api=1, key='Your key') # 1.0 API; note parameter name 'key' is different from `token`
+```
+
+Optionally, for convenience in the 1.0 API, you may set your API key in your system environment and thereby skip the register step in all your notebooks. In your `.profile` or `.bash_profile`, add the following and reload your environment:
 
 ```export GRAPHISTRY_API_KEY="Your key"```
 
-#### Server
+#### Switch Graphistry servers
 
 Specify which Graphistry to reach:
 
@@ -322,9 +350,11 @@ Private Graphistry notebook environments are preconfigured to fill in this data 
 graphistry.register(protocol='http', server='nginx', client_protocol_hostname='')
 ```
 
-#### Client
+Using `'http'`/`'nginx'` ensures uploads stay within the Docker network (vs. going more slowly through an outside network), and client protocol `''` ensures the browser URLs do not show `http://nginx/`, and instead use the server's name. (See immediately following **Specify client URL** section.)
 
-In cases such as when the notebook server is the same as the Graphistry server, you may want your Python code to  *upload* to a known local Graphistry address (e.g., `nginx` or `localhost`), and generate and embed URLs to a different public address (e.g., `https://graphistry.acme.ngo`). In this case, explicitly set a different client (browser) location:
+#### Specify client URL
+
+In cases such as when the notebook server is the same as the Graphistry server, you may want your Python code to  *upload* to a known local Graphistry address without going outside the network (e.g., `http://nginx` or `http://localhost`), but for web viewing, generate and embed URLs to a different public address (e.g., `https://graphistry.acme.ngo/`). In this case, explicitly set a  client (browser) location different from `protocol` / `server`:
 
 ```
 graphistry.register(
@@ -369,7 +399,7 @@ To define the graph, we <code>bind</code> *source* and *destination* to the colu
 
 ```python
 import graphistry
-graphistry.register(protocol='https', server='hub.graphistry.com', username='YOUR_ACCOUNT_HERE', password='YOUR_PASSWORD_HERE')
+graphistry.register(api=3, username='YOUR_ACCOUNT_HERE', password='YOUR_PASSWORD_HERE')
 
 g = graphistry.bind(source="source", destination="target")
 g.edges(links).plot()
