@@ -896,7 +896,7 @@ class Plotter(object):
         return res
 
 
-    def plot(self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False):
+    def plot(self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False):
         """Upload data to the Graphistry server and show as an iframe of it.
 
         Uses the currently bound schema structure and visual encodings.
@@ -920,7 +920,10 @@ class Plotter(object):
         :type render: Boolean
 
         :param skip_upload: Return node/edge/bindings that would have been uploaded. By default, upload happens.
-        :type skip_upload: Boolean. 
+        :type skip_upload: Boolean.
+
+        :param files: Upload distinct node/edge files and reuse them across different visualizations. Default off, will switch to default-on when stable.
+        :type as_files: Boolean.
 
         **Example: Simple**
             ::
@@ -972,9 +975,8 @@ class Plotter(object):
             dataset = self._plot_dispatch(g, n, name, description, 'arrow', self._style)
             if skip_upload:
                 return dataset
-            #fresh
             dataset.token = PyGraphistry.api_token()
-            dataset.post()
+            dataset.post(as_files=as_files)
             info = {
                 'name': dataset.dataset_id,
                 'type': 'arrow',

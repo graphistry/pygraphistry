@@ -1,4 +1,5 @@
 import io, json, logging, pandas as pd, pyarrow as pa, requests, sys
+from .ArrowFileUploader import ArrowFileUploader
 
 logger = logging.getLogger('ArrowUploader')
 
@@ -303,19 +304,47 @@ class ArrowUploader:
         return encodings
 
 
-    def post(self):
-        self.create_dataset({
-            "node_encodings": self.node_encodings,
-            "edge_encodings": self.edge_encodings,
-            "metadata": self.metadata,
-            "name": self.name,
-            "description": self.description
-        })
-        
-        self.post_edges_arrow()
-        
-        if not (self.nodes is None):
-            self.post_nodes_arrow()
+    def post(self, as_files=True):
+        """
+            as_files deprecation plan:
+                Graphistry 2.34: Introduced
+                Graphistry 2.35: Does nothing (runtime warning); all uploads are Files
+                Graphistry 2.36: Remove flag
+        """
+
+        if as_files:
+
+            file_uploader = ArrowFileUploader(self)
+
+            e_file_id, _ = file_uploader.create_and_post_file(self.edges)
+
+            if not (self.nodes is None):
+                n_file_id, _ = file_uploader.create_and_post_file(self.nodes)
+
+            self.create_dataset({
+                "node_encodings": self.node_encodings,
+                "edge_encodings": self.edge_encodings,
+                "metadata": self.metadata,
+                "name": self.name,
+                "description": self.description,
+                "edge_files": [ e_file_id ],
+                **({"node_files": [ n_file_id ] if not (self.nodes is None) else {}})
+            })
+
+        else:
+
+            self.create_dataset({
+                "node_encodings": self.node_encodings,
+                "edge_encodings": self.edge_encodings,
+                "metadata": self.metadata,
+                "name": self.name,
+                "description": self.description
+            })
+            
+            self.post_edges_arrow()
+            
+            if not (self.nodes is None):
+                self.post_nodes_arrow()
         
         return self
 
