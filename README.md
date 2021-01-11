@@ -13,7 +13,7 @@
 
 PyGraphistry is a Python visual graph analytics library to extract, transform, and load big graphs into [Graphistry](https://www.graphistry.com) end-to-end GPU  visual graph analytics sessions.
 
-Graphistry gets used on problems like visually mapping the behavior of devices and users and inspecting machine learning results. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside GPU analytics engine supports even bigger graphs.
+Graphistry gets used on problems like visually mapping the behavior of devices and users and for analyzing machine learning results. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside GPU analytics engine supports even bigger graphs.
 
 The PyGraphistry Python client helps several kinds of usage modes:
 
