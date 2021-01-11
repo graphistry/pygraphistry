@@ -84,16 +84,19 @@ class ArrowFileUploader():
 
         try:            
             out = res.json()
+            if res.status_code != requests.codes.ok:
+                res.raise_for_status()
+            if not out['is_valid']:
+                if out['is_uploaded']:
+                    raise RuntimeError("Uploaded file but cannot parse, see errors", out['errors'])
+                else:
+                    raise RuntimeError("Erased file upon failure, see errors", out['errors'])
             logger.debug('Server create file response: %s', out)
-            if (not 'success' in out) or (not out['success']):
-                raise Exception(out)
         except Exception as e:
             logger.error('Failed creating file: %s', res.text, exc_info=True)
             raise e
         
-        self.dataset_id = out['data']['file_id']
-
-        return out
+        return out['file_id']
 
     def post_arrow(self, arr: pa.Table, file_id: str, url_opts: str = 'erase=true') -> dict:
         """
