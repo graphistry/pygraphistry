@@ -82,16 +82,11 @@ class ArrowFileUploader():
             headers={'Authorization': f'Bearer {tok}'},
             json=json_extended)
 
-        try:            
+        try:
             out = res.json()
+            logger.debug('Server create file response: %s', out)
             if res.status_code != requests.codes.ok:
                 res.raise_for_status()
-            if not out['is_valid']:
-                if out['is_uploaded']:
-                    raise RuntimeError("Uploaded file but cannot parse, see errors", out['errors'])
-                else:
-                    raise RuntimeError("Erased file upon failure, see errors", out['errors'])
-            logger.debug('Server create file response: %s', out)
         except Exception as e:
             logger.error('Failed creating file: %s', res.text, exc_info=True)
             raise e
@@ -116,15 +111,26 @@ class ArrowFileUploader():
         if len(url_opts) > 0:
             url = f'{url}?{url_opts}'
 
-        out = requests.post(
+        res = requests.post(
             url,
             verify=self.uploader.certificate_validation,
             headers={'Authorization': f'Bearer {tok}'},
-            data=buf).json()
-        
-        if not out['success']:
-            raise Exception(out)
-            
+            data=buf)
+
+        try:
+            out = res.json()
+            logger.debug('Server upload file response: %s', out)
+            if res.status_code != requests.codes.ok:
+                res.raise_for_status()
+            if not out['is_valid']:
+                if out['is_uploaded']:
+                    raise RuntimeError("Uploaded file contents but cannot parse (file_id still valid), see errors", out['errors'])
+                else:
+                    raise RuntimeError("Erased uploaded file contents upon failure (file_id still valid), see errors", out['errors'])
+        except Exception as e:
+            logger.error('Failed creating file: %s', res.text, exc_info=True)
+            raise e
+
         return out
 
     ###
