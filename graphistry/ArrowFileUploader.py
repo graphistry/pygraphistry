@@ -102,36 +102,23 @@ class ArrowFileUploader():
             See File REST API for url_opts (file upload)
         """
 
-        buf = self.uploader.arrow_to_buffer(arr)
-
+        sub_path = f'api/v2/upload/files/{file_id}'
         tok = self.uploader.token
-        base_path = self.uploader.server_base_path
 
-        url = f'{base_path}/api/v2/upload/files/{file_id}'
-        if len(url_opts) > 0:
-            url = f'{url}?{url_opts}'
-
-        res = requests.post(
-            url,
-            verify=self.uploader.certificate_validation,
-            headers={'Authorization': f'Bearer {tok}'},
-            data=buf)
+        res = self.uploader.post_arrow_generic(sub_path, tok, arr, url_opts)
 
         try:
             out = res.json()
             logger.debug('Server upload file response: %s', out)
-            if res.status_code != requests.codes.ok:
-                res.raise_for_status()
             if not out['is_valid']:
                 if out['is_uploaded']:
                     raise RuntimeError("Uploaded file contents but cannot parse (file_id still valid), see errors", out['errors'])
                 else:
                     raise RuntimeError("Erased uploaded file contents upon failure (file_id still valid), see errors", out['errors'])
+            return out
         except Exception as e:
             logger.error('Failed uploading file: %s', res.text, exc_info=True)
             raise e
-
-        return out
 
     ###
 
@@ -146,14 +133,12 @@ class ArrowFileUploader():
             See File REST API for file_opts (file create) and upload_url_opts (file upload)
         """
 
-        logger.warning('@create_and_post_file')
-        logger.warning('items: %s', [x for x in DF_TO_FILE_ID_CACHE.items()])
-
         if memoize:
             #FIXME if pa.Table was hashable, could do direct set/get map
             for wrapped_table, val in DF_TO_FILE_ID_CACHE.items():
                 logger.warning('Checking: %s', wrapped_table)
                 if wrapped_table.arr is arr:
+                    logger.debug('Memoization hit: %s', val.file_id)
                     return val.file_id, val.output
 
         if file_id is None:
