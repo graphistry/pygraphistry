@@ -20,6 +20,21 @@ graphistry.pygraphistry module
     :undoc-members:
     :show-inheritance:
 
+graphistry.arrow_uploader module
+------------------------------
+
+.. automodule:: graphistry.arrow_uploader
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+graphistry.ArrowFileUploader module
+------------------------------
+
+.. automodule:: graphistry.ArrowFileUploader
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
 Module contents
 ---------------
