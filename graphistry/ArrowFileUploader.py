@@ -128,7 +128,7 @@ class ArrowFileUploader():
                 else:
                     raise RuntimeError("Erased uploaded file contents upon failure (file_id still valid), see errors", out['errors'])
         except Exception as e:
-            logger.error('Failed creating file: %s', res.text, exc_info=True)
+            logger.error('Failed uploading file: %s', res.text, exc_info=True)
             raise e
 
         return out

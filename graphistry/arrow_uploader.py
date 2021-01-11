@@ -328,7 +328,7 @@ class ArrowUploader:
                 "name": self.name,
                 "description": self.description,
                 "edge_files": [ e_file_id ],
-                **({"node_files": [ n_file_id ] if not (self.nodes is None) else {}})
+                **({"node_files": [ n_file_id ] if not (self.nodes is None) else []})
             })
 
         else:
