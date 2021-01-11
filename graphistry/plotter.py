@@ -1343,7 +1343,7 @@ class Plotter(object):
                         logger.debug('pd->arrow memoization hit: %s', hashed)
                         return Plotter._pd_hash_to_arrow[hashed].v
                     else:
-                        logger.debug('pd->arrow memoization miss for id: %s', hashed)
+                        logger.debug('pd->arrow memoization miss for id (of %s): %s', len(Plotter._pd_hash_to_arrow), hashed)
                 except:
                     logger.debug('Failed to hash pdf', exc_info=True)
                     1
@@ -1368,7 +1368,7 @@ class Plotter(object):
                         logger.debug('cudf->arrow memoization hit: %s', hashed)
                         return Plotter._cudf_hash_to_arrow[hashed].v
                     else:
-                        logger.debug('cudf->arrow memoization miss for id: %s', hashed)
+                        logger.debug('cudf->arrow memoization miss for id (of %s): %s', len(Plotter._cudf_hash_to_arrow), hashed)
                 except:
                     logger.debug('Failed to hash cudf', exc_info=True)
                     1

@@ -139,7 +139,7 @@ class ArrowFileUploader():
                 if wrapped_table.arr is arr:
                     logger.debug('arrow->file_id memoization hit: %s', val.file_id)
                     return val.file_id, val.output
-            logger.debug('arrow->file_id memoization miss (of %s)', len(DF_TO_FILE_ID_CACHE.items()))
+            logger.debug('arrow->file_id memoization miss (of %s)', len(DF_TO_FILE_ID_CACHE))
 
         if file_id is None:
             file_id = self.create_file(file_opts)
