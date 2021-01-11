@@ -22,6 +22,10 @@ class ArrowFileUploader():
     """
         Implement file API with focus on Arrow support
 
+        Memoization in this class is based on reference equality, while plotter is based on hash.
+        That means the plotter resolves different-identity value matches, so by the time ArrowFileUploader compares,
+        identities are unified for faster reference-based checks.
+
         Example: Upload files with per-session memoization
             uploader : ArrowUploader
             arr : pa.Table
@@ -44,6 +48,7 @@ class ArrowFileUploader():
             afu.post_arrow(arr, file_id)
 
             assert file1_id != file2_id
+
     """
 
     uploader: ArrowUploader
@@ -159,6 +164,7 @@ class ArrowFileUploader():
 @lru_cache(maxsize=100)
 def cache_arr(arr):
     """
+        Hold reference to most recent memoization entries
         Hack until RAPIDS supports Arrow 2.0, when pa.Table becomes weakly referenceable
     """
     return arr

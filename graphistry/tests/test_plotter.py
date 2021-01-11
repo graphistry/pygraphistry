@@ -5,7 +5,12 @@ import copy, datetime as dt, graphistry, IPython, logging, pandas as pd, pyarrow
 from common import NoAuthTestCase
 from mock import patch
 
-
+maybe_cudf = None
+try:
+    import cudf
+    maybe_cudf = cudf
+except ImportError:
+    1
 
 triangleEdges = pd.DataFrame({'src': ['a', 'b', 'c'], 'dst': ['b', 'c', 'a']})
 triangleNodes = pd.DataFrame({'id': ['a', 'b', 'c'], 'a1': [1, 2, 3], 'a2': ['red', 'blue', 'green']})
@@ -400,6 +405,61 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         g = graphistry.edges(pa.Table.from_pandas(pd.DataFrame({'s': [0], 'd': [0]}))).bind(source='s', destination='d')
         ds = g.plot(skip_upload=True)
         assert isinstance(ds.edges, pa.Table)
+
+    def test_api3_pdf_to_arrow_memoization(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1]})
+        arr1 = plotter._table_to_arrow(df)
+        arr2 = plotter._table_to_arrow(df)
+        assert isinstance(arr1, pa.Table)
+        assert arr1 is arr2
+
+    def test_api3_pdf_to_arrow_memoization_forgets(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [0]})
+        arr1 = plotter._table_to_arrow(df)
+        for i in range(1, 110):
+            plotter._table_to_arrow(pd.DataFrame({'x': [i]}))
+
+        assert not (arr1 is plotter._table_to_arrow(df))
+
+
+    @pytest.mark.skipif(maybe_cudf is None, reason="requires cudf")
+    def test_api3_cudf_to_arrow_memoization(self):
+        maybe_cudf = None
+        try:
+            import cudf
+            maybe_cudf = cudf
+        except ImportError:
+            1
+        if maybe_cudf is None:
+            return
+
+        plotter = graphistry.bind()
+        df = maybe_cudf.DataFrame({'x': [1]})
+        arr1 = plotter._table_to_arrow(df)
+        arr2 = plotter._table_to_arrow(df)
+        assert isinstance(arr1, pa.Table)
+        assert arr1 is arr2
+
+    @pytest.mark.skipif(maybe_cudf is None, reason="requires cudf")
+    def test_api3_cudf_to_arrow_memoization_forgets(self):
+        maybe_cudf = None
+        try:
+            import cudf
+            maybe_cudf = cudf
+        except ImportError:
+            1
+        if maybe_cudf is None:
+            return
+
+        plotter = graphistry.bind()
+        df = maybe_cudf.DataFrame({'x': [0]})
+        arr1 = plotter._table_to_arrow(df)
+        for i in range(1, 110):
+            plotter._table_to_arrow(maybe_cudf.DataFrame({'x': [i]}))
+
+        assert not (arr1 is plotter._table_to_arrow(df))
 
 
 class TestPlotterStylesArrow(NoAuthTestCase):
