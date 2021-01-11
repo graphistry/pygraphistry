@@ -136,10 +136,10 @@ class ArrowFileUploader():
         if memoize:
             #FIXME if pa.Table was hashable, could do direct set/get map
             for wrapped_table, val in DF_TO_FILE_ID_CACHE.items():
-                logger.warning('Checking: %s', wrapped_table)
                 if wrapped_table.arr is arr:
-                    logger.debug('Memoization hit: %s', val.file_id)
+                    logger.debug('arrow->file_id memoization hit: %s', val.file_id)
                     return val.file_id, val.output
+            logger.debug('arrow->file_id memoization miss (of %s)', len(DF_TO_FILE_ID_CACHE.items()))
 
         if file_id is None:
             file_id = self.create_file(file_opts)
@@ -151,7 +151,7 @@ class ArrowFileUploader():
             wrapped = WrappedTable(out)
             cache_arr(wrapped)
             DF_TO_FILE_ID_CACHE[wrapped] = MemoizedFileUpload(file_id, out)
-            logger.debug('Memoized file %s', file_id)
+            logger.debug('Memoized arrow->file_id %s', file_id)
         
         return out.file_id, out.output
 

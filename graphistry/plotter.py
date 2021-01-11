@@ -1340,6 +1340,7 @@ class Plotter(object):
                 
                 try:
                     if hashed in Plotter._pd_hash_to_arrow:
+                        logger.debug('pd->arrow memoization hit: %s', hashed)
                         return Plotter._pd_hash_to_arrow[hashed].v
                     else:
                         logger.debug('pd->arrow memoization miss for id: %s', hashed)
@@ -1364,6 +1365,7 @@ class Plotter(object):
                 hashed = hashlib.sha256(table.hash_columns().tobytes()).hexdigest()
                 try:
                     if hashed in Plotter._cudf_hash_to_arrow:
+                        logger.debug('cudf->arrow memoization hit: %s', hashed)
                         return Plotter._cudf_hash_to_arrow[hashed].v
                     else:
                         logger.debug('cudf->arrow memoization miss for id: %s', hashed)
