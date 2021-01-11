@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .arrow_uploader import ArrowUploader
 
-import logging, pyarrow as pa, requests
+import logging, pyarrow as pa, requests, sys
 from functools import lru_cache
 from weakref import WeakKeyDictionary
 
@@ -71,6 +71,8 @@ class ArrowFileUploader():
 
         json_extended = {
             'file_type': 'arrow',
+            'agent_name': 'pygraphistry',
+            'agent_version': sys.modules['graphistry'].__version__,
             **file_opts
         }
 

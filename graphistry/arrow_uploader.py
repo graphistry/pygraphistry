@@ -316,10 +316,10 @@ class ArrowUploader:
 
             file_uploader = ArrowFileUploader(self)
 
-            e_file_id, _ = file_uploader.create_and_post_file(self.edges)
+            e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts={'name': self.name + ' edges'})
 
             if not (self.nodes is None):
-                n_file_id, _ = file_uploader.create_and_post_file(self.nodes)
+                n_file_id, _ = file_uploader.create_and_post_file(self.nodes, file_opts={'name': self.name + ' nodes'})
 
             self.create_dataset({
                 "node_encodings": self.node_encodings,
