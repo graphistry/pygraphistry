@@ -83,7 +83,7 @@ class ArrowFileUploader():
         try:            
             out = res.json()
             logger.debug('Server create file response: %s', out)
-            if not out['success']:
+            if (not 'success' in out) or (not out['success']):
                 raise Exception(out)
         except Exception as e:
             logger.error('Failed creating file: %s', res.text, exc_info=True)
