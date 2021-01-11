@@ -1337,16 +1337,14 @@ class Plotter(object):
             if memoize:
                 #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
                 hashed = hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
-                logger.warning('hash: %s', hashed)
                 
                 try:
-                    logger.warning('available: %s', [x for x in Plotter._pd_hash_to_arrow])
                     if hashed in Plotter._pd_hash_to_arrow:
                         return Plotter._pd_hash_to_arrow[hashed].v
                     else:
-                        logger.warning('pd->arrow memoization miss for id: %s', hashed)
+                        logger.debug('pd->arrow memoization miss for id: %s', hashed)
                 except:
-                    logger.warning('Failed to hash pdf', exc_info=True)
+                    logger.debug('Failed to hash pdf', exc_info=True)
                     1
 
             out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
@@ -1355,7 +1353,6 @@ class Plotter(object):
                 w = WeakValueWrapper(out)
                 cache_coercion(hashed, w)
                 Plotter._pd_hash_to_arrow[hashed] = w
-                logger.warning('cached: %s', [x for x in Plotter._pd_hash_to_arrow])
 
             return out
 
@@ -1363,6 +1360,7 @@ class Plotter(object):
 
             hashed = None
             if memoize:
+                #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
                 hashed = hashlib.sha256(table.hash_columns().tobytes()).hexdigest()
                 try:
                     if hashed in Plotter._cudf_hash_to_arrow:
