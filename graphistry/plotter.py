@@ -1006,7 +1006,7 @@ class Plotter(object):
             if skip_upload:
                 return dataset
             dataset.token = PyGraphistry.api_token()
-            dataset.post(as_files=as_files)
+            dataset.post(as_files=as_files, memoize=memoize)
             info = {
                 'name': dataset.dataset_id,
                 'type': 'arrow',
@@ -1323,7 +1323,9 @@ class Plotter(object):
         
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
-    def _table_to_arrow(self, table, memoize = True) -> pa.Table:
+    def _table_to_arrow(self, table: any, memoize: bool = True) -> pa.Table:
+
+        logger.debug('_table_to_arrow of %s (memoize: %s)', type(table), memoize)
 
         if table is None:
             return table
@@ -1385,7 +1387,11 @@ class Plotter(object):
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
 
-    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize=True):
+    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True):
+
+        logger.debug('_make_dataset (mode %s, memoize %s) name:[%s] des:[%s] (e::%s, n::%s) ',
+            mode, memoize, name, description, type(edges), type(nodes))
+
         try:
             if len(edges) == 0:
                 warn('Graph has no edges, may have rendering issues')

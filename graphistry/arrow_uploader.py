@@ -304,7 +304,7 @@ class ArrowUploader:
         return encodings
 
 
-    def post(self, as_files=True):
+    def post(self, as_files: bool = True, memoize: bool = True):
         """
             as_files deprecation plan:
                 Graphistry 2.34: Introduced
