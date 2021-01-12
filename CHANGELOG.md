@@ -13,9 +13,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-## [0.15.0] - 2021-01-10
+## [0.15.0] - 2021-01-11
 
-* File API: Enable via `.plot(as_files=True)`. By default, auto-skips file uploads (`.plot(memoize=True)`) for tables with same hash as those already uploaded in the same session (https://github.com/graphistry/pygraphistry/pull/195).
+* File API: Enable via `.plot(as_files=True)`. By default, auto-skips file re-uploads (disable via `.plot(memoize=False)`) for tables with same hash as those already uploaded in the same session. Use with `.register(api=3)` clients on Graphistry `2.34`+ servers. More details at  (https://github.com/graphistry/pygraphistry/pull/195) .
+* Dev: More docs and logging as part of https://github.com/graphistry/pygraphistry/pull/195
 * Auth service account docs in README.md (12.2.2020)
 
 ## [0.14.1] - 2020-11-16
