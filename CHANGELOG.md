@@ -11,10 +11,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Gremlin / AWS Neptune connector <-- not for this release
 * Compressed uploads: Snappy-compressed parquet for network-bound scenarios (https://github.com/graphistry/pygraphistry/issues/188)
 
-### Added
 
 ## [0.15.0] - 2021-01-11
 
+### Added
 * File API: Enable via `.plot(as_files=True)`. By default, auto-skips file re-uploads (disable via `.plot(memoize=False)`) for tables with same hash as those already uploaded in the same session. Use with `.register(api=3)` clients on Graphistry `2.34`+ servers. More details at  (https://github.com/graphistry/pygraphistry/pull/195) .
 * Dev: More docs and logging as part of https://github.com/graphistry/pygraphistry/pull/195
 * Auth service account docs in README.md (12.2.2020)
