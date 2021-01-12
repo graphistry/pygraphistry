@@ -1,4 +1,7 @@
-import copy, numpy, pandas, pyarrow as pa, sys, uuid
+import copy, hashlib, logging, numpy, pandas as pd, pyarrow as pa, sys, uuid
+from functools import lru_cache
+from weakref import WeakValueDictionary
+logger = logging.getLogger('Plotter')
 
 from .util import (error, in_ipython, make_iframe, random_string, warn)
 
@@ -21,6 +24,28 @@ try:
 except ImportError:
     1
 
+CACHE_COERCION_SIZE = 100
+
+
+_cache_coercion_val = None
+@lru_cache(maxsize=CACHE_COERCION_SIZE)
+def cache_coercion_helper(k):
+    return _cache_coercion_val
+
+def cache_coercion(k, v):
+    """
+        Holds references to last 100 used coercions
+        Use with weak key/value dictionaries for actual lookups
+    """
+    global _cache_coercion_val
+    _cache_coercion_val = v
+
+    return cache_coercion_helper(k)
+
+class WeakValueWrapper:
+    def __init__(self, v):
+        self.v = v
+
 class Plotter(object):
     """Graph plotting class.
 
@@ -30,12 +55,14 @@ class Plotter(object):
 
     To streamline reuse and replayable notebooks, Plotter manipulations are immutable. Each chained call returns a new instance that derives from the previous one. The old plotter or the new one can then be used to create different graphs.
 
+    When using memoization, for .register(api=3) sessions with .plot(memoize=True), Pandas/cudf arrow coercions are memoized, and file uploads are skipped on same-hash dataframes.
+
     The class supports convenience methods for mixing calls across Pandas, NetworkX, and IGraph.
     """
 
-
     _defaultNodeId = '__nodeid__'
-
+    _pd_hash_to_arrow = WeakValueDictionary()
+    _cudf_hash_to_arrow = WeakValueDictionary()
 
     def __init__(self):
         # Bindings
@@ -896,7 +923,7 @@ class Plotter(object):
         return res
 
 
-    def plot(self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False):
+    def plot(self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False, memoize=True):
         """Upload data to the Graphistry server and show as an iframe of it.
 
         Uses the currently bound schema structure and visual encodings.
@@ -920,7 +947,13 @@ class Plotter(object):
         :type render: Boolean
 
         :param skip_upload: Return node/edge/bindings that would have been uploaded. By default, upload happens.
-        :type skip_upload: Boolean. 
+        :type skip_upload: Boolean.
+
+        :param as_files: Upload distinct node/edge files under the managed Files PI. Default off, will switch to default-on when stable.
+        :type as_files: Boolean.
+
+        :param memoize: Tries to memoize pandas/cudf->arrow conversion, including skipping upload. Default on.
+        :type memoize: Boolean.
 
         **Example: Simple**
             ::
@@ -958,23 +991,22 @@ class Plotter(object):
         from .pygraphistry import PyGraphistry
         api_version = PyGraphistry.api_version()
         if api_version == 1:
-            dataset = self._plot_dispatch(g, n, name, description, 'json', self._style)
+            dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl1(dataset)
         elif api_version == 2:
-            dataset = self._plot_dispatch(g, n, name, description, 'vgraph', self._style)
+            dataset = self._plot_dispatch(g, n, name, description, 'vgraph', self._style, memoize)
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl2(dataset)
         elif api_version == 3:
             PyGraphistry.refresh()
-            dataset = self._plot_dispatch(g, n, name, description, 'arrow', self._style)
+            dataset = self._plot_dispatch(g, n, name, description, 'arrow', self._style, memoize)
             if skip_upload:
                 return dataset
-            #fresh
             dataset.token = PyGraphistry.api_token()
-            dataset.post()
+            dataset.post(as_files=as_files, memoize=memoize)
             info = {
                 'name': dataset.dataset_id,
                 'type': 'arrow',
@@ -1065,9 +1097,9 @@ class Plotter(object):
 
         edata = get_edgelist(ig)
         ndata = [v.attributes() for v in ig.vs]
-        nodes = pandas.DataFrame(ndata, columns=ig.vs.attributes())
+        nodes = pd.DataFrame(ndata, columns=ig.vs.attributes())
         cols = [self._source, self._destination] + ig.es.attributes()
-        edges = pandas.DataFrame(edata, columns=cols)
+        edges = pd.DataFrame(edata, columns=cols)
         return (edges, nodes)
 
 
@@ -1097,8 +1129,8 @@ class Plotter(object):
         self.networkx_checkoverlap(g)
         
         self._node = self._node or Plotter._defaultNodeId
-        nodes = pandas.DataFrame(get_nodelist(g))
-        edges = pandas.DataFrame(get_edgelist(g))
+        nodes = pd.DataFrame(get_nodelist(g))
+        edges = pd.DataFrame(get_edgelist(g))
         return (edges, nodes)
 
 
@@ -1117,18 +1149,18 @@ class Plotter(object):
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
 
-    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None):
+    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True):
 
-        if isinstance(graph, pandas.core.frame.DataFrame) \
+        if isinstance(graph, pd.core.frame.DataFrame) \
             or isinstance(graph, pa.Table) \
             or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ):
-            return self._make_dataset(graph, nodes, name, description, mode, metadata)
+            return self._make_dataset(graph, nodes, name, description, mode, metadata, memoize)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
                 (e, n) = self.igraph2pandas(graph)
-                return self._make_dataset(e, n, name, description, mode, metadata)
+                return self._make_dataset(e, n, name, description, mode, metadata. memoize)
         except ImportError:
             pass
 
@@ -1139,7 +1171,7 @@ class Plotter(object):
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
                 (e, n) = self.networkx2pandas(graph)
-                return self._make_dataset(e, n, name, description, mode, metadata)
+                return self._make_dataset(e, n, name, description, mode, metadata, memoize)
         except ImportError:
             pass
 
@@ -1158,11 +1190,11 @@ class Plotter(object):
                      .dropna(subset=[self._source, self._destination])
 
         obj_df = elist.select_dtypes(include=[numpy.object_])
-        elist[obj_df.columns] = obj_df.apply(pandas.to_numeric, errors='ignore')
+        elist[obj_df.columns] = obj_df.apply(pd.to_numeric, errors='ignore')
 
         if nodes is None:
-            nodes = pandas.DataFrame()
-            nodes[nodeid] = pandas.concat([edges[self._source], edges[self._destination]],
+            nodes = pd.DataFrame()
+            nodes[nodeid] = pd.concat([edges[self._source], edges[self._destination]],
                                            ignore_index=True).drop_duplicates()
         else:
             self._check_bound_attribs(nodes, ['node'], 'Vertex')
@@ -1172,7 +1204,7 @@ class Plotter(object):
                      .drop_duplicates(subset=[nodeid])
 
         obj_df = nlist.select_dtypes(include=[numpy.object_])
-        nlist[obj_df.columns] = obj_df.apply(pandas.to_numeric, errors='ignore')
+        nlist[obj_df.columns] = obj_df.apply(pd.to_numeric, errors='ignore')
 
         return (elist, nlist)
 
@@ -1275,12 +1307,12 @@ class Plotter(object):
         }
         return (elist, nlist, encodings)
 
-    def _table_to_pandas(self, table) -> pandas.DataFrame:
+    def _table_to_pandas(self, table) -> pd.DataFrame:
 
         if table is None:
             return table
 
-        if isinstance(table, pandas.DataFrame):
+        if isinstance(table, pd.DataFrame):
             return table
 
         if isinstance(table, pa.Table):
@@ -1291,24 +1323,75 @@ class Plotter(object):
         
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
-    def _table_to_arrow(self, table) -> pa.Table:
+    def _table_to_arrow(self, table: any, memoize: bool = True) -> pa.Table:
+
+        logger.debug('_table_to_arrow of %s (memoize: %s)', type(table), memoize)
 
         if table is None:
             return table
 
         if isinstance(table, pa.Table):
+            #TODO: should we hash just in case there's an older-identity hash match?
             return table
         
-        if isinstance(table, pandas.DataFrame):
-            return pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
+        if isinstance(table, pd.DataFrame):
+            hashed = None
+            if memoize:
+                #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
+                hashed = hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
+                
+                try:
+                    if hashed in Plotter._pd_hash_to_arrow:
+                        logger.debug('pd->arrow memoization hit: %s', hashed)
+                        return Plotter._pd_hash_to_arrow[hashed].v
+                    else:
+                        logger.debug('pd->arrow memoization miss for id (of %s): %s', len(Plotter._pd_hash_to_arrow), hashed)
+                except:
+                    logger.debug('Failed to hash pdf', exc_info=True)
+                    1
+
+            out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
+
+            if memoize:
+                w = WeakValueWrapper(out)
+                cache_coercion(hashed, w)
+                Plotter._pd_hash_to_arrow[hashed] = w
+
+            return out
 
         if not (maybe_cudf is None) and isinstance(table, maybe_cudf.DataFrame):
-            return table.to_arrow()
+
+            hashed = None
+            if memoize:
+                #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
+                hashed = hashlib.sha256(table.hash_columns().tobytes()).hexdigest()
+                try:
+                    if hashed in Plotter._cudf_hash_to_arrow:
+                        logger.debug('cudf->arrow memoization hit: %s', hashed)
+                        return Plotter._cudf_hash_to_arrow[hashed].v
+                    else:
+                        logger.debug('cudf->arrow memoization miss for id (of %s): %s', len(Plotter._cudf_hash_to_arrow), hashed)
+                except:
+                    logger.debug('Failed to hash cudf', exc_info=True)
+                    1
+
+            out = table.to_arrow()
+
+            if memoize:
+                w = WeakValueWrapper(out)
+                cache_coercion(hashed, w)
+                Plotter._cudf_hash_to_arrow[hashed] = w
+
+            return out
         
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
 
-    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None):
+    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True):
+
+        logger.debug('_make_dataset (mode %s, memoize %s) name:[%s] des:[%s] (e::%s, n::%s) ',
+            mode, memoize, name, description, type(edges), type(nodes))
+
         try:
             if len(edges) == 0:
                 warn('Graph has no edges, may have rendering issues')
@@ -1336,8 +1419,8 @@ class Plotter(object):
             nodes_df = self._table_to_pandas(nodes)
             return self._make_vgraph_dataset(edges_df, nodes_df, name)
         elif mode == 'arrow':
-            edges_arr = self._table_to_arrow(edges)
-            nodes_arr = self._table_to_arrow(nodes)
+            edges_arr = self._table_to_arrow(edges, memoize)
+            nodes_arr = self._table_to_arrow(nodes, memoize)
             return self._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
             #token=None, dataset_id=None, url_params = None)
         else:
@@ -1350,7 +1433,7 @@ class Plotter(object):
         from .pygraphistry import PyGraphistry
 
         (elist, nlist) = self._bind_attributes_v1(edges, nodes)
-        edict = elist.where((pandas.notnull(elist)), None).to_dict(orient='records')
+        edict = elist.where((pd.notnull(elist)), None).to_dict(orient='records')
 
         bindings = {'idField': self._node or Plotter._defaultNodeId,
                     'destinationField': self._destination, 'sourceField': self._source}
@@ -1358,7 +1441,7 @@ class Plotter(object):
                    'bindings': bindings, 'type': 'edgelist', 'graph': edict}
 
         if nlist is not None:
-            ndict = nlist.where((pandas.notnull(nlist)), None).to_dict(orient='records')
+            ndict = nlist.where((pd.notnull(nlist)), None).to_dict(orient='records')
             dataset['labels'] = ndict
         return dataset
 
@@ -1375,9 +1458,9 @@ class Plotter(object):
         elist.drop([self._source, self._destination], axis=1, inplace=True)
 
         # Filter out nodes which have no edges
-        lnodes = pandas.concat([sources, dests], ignore_index=True).unique()
-        lnodes_df = pandas.DataFrame(lnodes, columns=[nodeid])
-        filtered_nlist = pandas.merge(lnodes_df, nlist, on=nodeid, how='left')
+        lnodes = pd.concat([sources, dests], ignore_index=True).unique()
+        lnodes_df = pd.DataFrame(lnodes, columns=[nodeid])
+        filtered_nlist = pd.merge(lnodes_df, nlist, on=nodeid, how='left')
 
         # Create a map from nodeId to a continuous range of integer [0, #nodes-1].
         # The vgraph protobuf format uses the continous integer ranger as internal nodeIds.
@@ -1391,7 +1474,7 @@ class Plotter(object):
 
         from .pygraphistry import PyGraphistry
 
-        au = ArrowUploader(
+        au : ArrowUploader = ArrowUploader(
             server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
             edges=edges, nodes=nodes,
             name=name, description=description,

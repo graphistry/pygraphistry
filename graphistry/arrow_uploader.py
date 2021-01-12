@@ -1,4 +1,5 @@
 import io, json, logging, pandas as pd, pyarrow as pa, requests, sys
+from .ArrowFileUploader import ArrowFileUploader
 
 logger = logging.getLogger('ArrowUploader')
 
@@ -303,19 +304,47 @@ class ArrowUploader:
         return encodings
 
 
-    def post(self):
-        self.create_dataset({
-            "node_encodings": self.node_encodings,
-            "edge_encodings": self.edge_encodings,
-            "metadata": self.metadata,
-            "name": self.name,
-            "description": self.description
-        })
-        
-        self.post_edges_arrow()
-        
-        if not (self.nodes is None):
-            self.post_nodes_arrow()
+    def post(self, as_files: bool = True, memoize: bool = True):
+        """
+            as_files deprecation plan:
+                Graphistry 2.34: Introduced
+                Graphistry 2.35: Does nothing (runtime warning); all uploads are Files
+                Graphistry 2.36: Remove flag
+        """
+
+        if as_files:
+
+            file_uploader = ArrowFileUploader(self)
+
+            e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts={'name': self.name + ' edges'})
+
+            if not (self.nodes is None):
+                n_file_id, _ = file_uploader.create_and_post_file(self.nodes, file_opts={'name': self.name + ' nodes'})
+
+            self.create_dataset({
+                "node_encodings": self.node_encodings,
+                "edge_encodings": self.edge_encodings,
+                "metadata": self.metadata,
+                "name": self.name,
+                "description": self.description,
+                "edge_files": [ e_file_id ],
+                **({"node_files": [ n_file_id ] if not (self.nodes is None) else []})
+            })
+
+        else:
+
+            self.create_dataset({
+                "node_encodings": self.node_encodings,
+                "edge_encodings": self.edge_encodings,
+                "metadata": self.metadata,
+                "name": self.name,
+                "description": self.description
+            })
+            
+            self.post_edges_arrow()
+            
+            if not (self.nodes is None):
+                self.post_nodes_arrow()
         
         return self
 
@@ -332,28 +361,40 @@ class ArrowUploader:
             arr = self.nodes
         return self.post_arrow(arr, 'nodes', opts) 
 
-    def post_arrow(self, arr, graph_type, opts=''):
-        buf = self.arrow_to_buffer(arr)
+    def post_arrow(self, arr: pa.Table, graph_type: str, opts: str = ''):
 
         dataset_id = self.dataset_id
         tok = self.token
+        sub_path = f'api/v2/upload/datasets/{dataset_id}/{graph_type}/arrow'
+
+        try:
+            resp = self.post_arrow_generic(sub_path, tok, arr, opts)
+            out = resp.json()
+            if not ('success' in out) or not out['success']:
+                raise Exception('No success indicator in server response')
+            return out
+        except Exception as e:
+            logger.error('Failed to post arrow to %s', sub_path, exc_info=True)
+            raise e
+
+    def post_arrow_generic(self, sub_path: str, tok: str, arr: pa.Table, opts='') -> requests.Response:
+        buf = self.arrow_to_buffer(arr)
+
         base_path = self.server_base_path
 
-        url = f'{base_path}/api/v2/upload/datasets/{dataset_id}/{graph_type}/arrow'
+        url = f'{base_path}/{sub_path}'
         if len(opts) > 0:
             url = f'{url}?{opts}'
-        out = requests.post(
+        resp = requests.post(
             url,
             verify=self.certificate_validation,
             headers={'Authorization': f'Bearer {tok}'},
-            data=buf).json()
-        
-        if not out['success']:
-            raise Exception(out)
-            
-        return out
+            data=buf)
+                    
+        if resp.status_code != requests.codes.ok:
+            resp.raise_for_status()
 
-
+        return resp
     ###########################################
 
 

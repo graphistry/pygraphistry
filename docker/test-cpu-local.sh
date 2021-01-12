@@ -2,7 +2,7 @@
 
 # Run tests using local mounts
 
-WITH_NEO4J=${WITH_NEO4J:-1}
+WITH_NEO4J=${WITH_NEO4J:-0}
 
 if [ "$WITH_NEO4J" == "1" ]
 then

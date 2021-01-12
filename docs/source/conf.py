@@ -55,7 +55,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'PyGraphistry'
-copyright = u'2015, Graphistry, Inc.'
+copyright = u'2021, Graphistry, Inc.'
 author = u'Graphistry, Inc.'
 
 # The version info for the project you're documenting, acts as replacement for

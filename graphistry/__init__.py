@@ -16,5 +16,6 @@ bolt, cypher,
 tigergraph, gsql, gsql_endpoint,
 nodexl,
 ArrowUploader,
+ArrowFileUploader,
 PyGraphistry
 )
