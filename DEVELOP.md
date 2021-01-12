@@ -15,6 +15,10 @@ cd docker && docker-compose build && docker-compose up -d
 cd docker && ./test-cpu-local.sh
 ```
 
+Connector tests (currently neo4j-only): `cd docker && WITH_NEO4J=1 ./test-cpu-local.sh`
+
+* Will start a local neo4j (docker) then enable+run tests against it
+
 
 ## Native - DEPRECATED
 ### Install Git Checkout - DEPRECATED
@@ -41,6 +45,12 @@ To manually build, see `docs/`.
 ## CI
 
 We intend to move to Github Actions / DockerHub Automated Builds for CPU and TBD for GPU
+
+
+## Debugging Tips
+
+* Use the unit tests
+* use the `logging` module per-file
 
 ### Travis - DEPRECATED
 
