@@ -14,8 +14,8 @@ class TestArrowFileUploader_Core(unittest.TestCase):
         afu = ArrowFileUploader(ArrowUploader(token='xx'))
 
         arr = pa.Table.from_pandas(pd.DataFrame({'x': [1,2,3]}))
-        wa = WrappedTable(arr)
-        cache_arr(wa)
-        DF_TO_FILE_ID_CACHE[ wa ] = MemoizedFileUpload('a', 'b')
+
+        #avoid directly holding references
+        DF_TO_FILE_ID_CACHE[ cache_arr(WrappedTable(arr)) ] = MemoizedFileUpload('a', 'b')
 
         assert afu.create_and_post_file(arr) == ('a', 'b')

@@ -414,6 +414,9 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         assert isinstance(arr1, pa.Table)
         assert arr1 is arr2
 
+        arr3 = plotter._table_to_arrow(pd.DataFrame({'x': [1]}))
+        assert arr1 is arr3
+
     def test_api3_pdf_to_arrow_memoization_forgets(self):
         plotter = graphistry.bind()
         df = pd.DataFrame({'x': [0]})
@@ -441,6 +444,9 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         arr2 = plotter._table_to_arrow(df)
         assert isinstance(arr1, pa.Table)
         assert arr1 is arr2
+
+        arr3 = plotter._table_to_arrow(maybe_cudf.DataFrame({'x': [1]}))
+        assert arr1 is arr3
 
     @pytest.mark.skipif(maybe_cudf is None, reason="requires cudf")
     def test_api3_cudf_to_arrow_memoization_forgets(self):

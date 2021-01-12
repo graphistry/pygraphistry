@@ -148,7 +148,7 @@ class ArrowFileUploader():
         out = MemoizedFileUpload(file_id, resp)
 
         if memoize:
-            wrapped = WrappedTable(out)
+            wrapped = WrappedTable(arr)
             cache_arr(wrapped)
             DF_TO_FILE_ID_CACHE[wrapped] = MemoizedFileUpload(file_id, out)
             logger.debug('Memoized arrow->file_id %s', file_id)
