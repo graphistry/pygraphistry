@@ -1,19 +1,39 @@
 name: CI Tests
 
 on:
+
+  #NOTE: All jobs gated by auth job
+
+  #Regular dev
   push:
-    branches: [ master ]
   pull_request:
-    branches: [ master ]
+
+  #Enable UI-driven branch testing
+  workflow_dispatch:
+
+  #Test main bidaily @ 1a
   schedule:
-    #every other day at 1am
     - cron: '0 1 1-31/2 * *'
 
 jobs:
 
+  authorize-collaborators:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: octokit/request-action@v2.0.26
+      with:
+        route: GET /repos/:repository/collaborators/${{ github.actor }}
+        repository: ${{ github.repository }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
   test-core-python:
 
+    needs: [ authorize-collaborators ]
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         python-version: [3.6, 3.7, 3.8, 3.9]
