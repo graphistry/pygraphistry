@@ -1,4 +1,4 @@
-name: Python package
+name: CI Tests
 
 on:
   push:
@@ -10,7 +10,8 @@ on:
     - cron: '0 1 1-31/2 * *'
 
 jobs:
-  build:
+
+  test-core-python:
 
     runs-on: ubuntu-latest
     strategy:
