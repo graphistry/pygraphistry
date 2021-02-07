@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Adding
 * Gremlin / AWS Neptune connector <-- not for this release
 * Compressed uploads: Snappy-compressed parquet for network-bound scenarios (https://github.com/graphistry/pygraphistry/issues/188)
+* CI: Move to GitHub Actions
 
 ### Added
 
