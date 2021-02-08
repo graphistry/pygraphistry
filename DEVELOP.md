@@ -64,7 +64,7 @@ Uninstall the local checkout (useful to rollback to packaged version) with `./se
 
 1. Merge the desired PR to master and switch to master head (`git checkout master && git pull`)
 
-2. Manually update CHANGELOG.md
+1. Manually update CHANGELOG.md
 
 1. Tag the repository with a new version number. We use semantic version numbers of the form *X.Y.Z*.
 
@@ -72,6 +72,8 @@ Uninstall the local checkout (useful to rollback to packaged version) with `./se
 	git tag X.Y.Z
 	git push --tags
 	```
+
+1. Automatically picked up by pypi. To do manually, run the Publish action from github on the master branch
 
 1. Toggle version as active at [ReadTheDocs](https://readthedocs.org/projects/pygraphistry/versions/)
 
