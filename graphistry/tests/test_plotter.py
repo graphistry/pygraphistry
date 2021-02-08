@@ -344,6 +344,10 @@ class TestPlotterConversions(NoAuthTestCase):
         assertFrameEqual(e, edges)
         assertFrameEqual(n, nodes)
 
+    def test_cypher_unconfigured(self):
+        with pytest.raises(ValueError):
+            graphistry.bind().cypher("MATCH (a)-[b]-(c) RETURN a,b,c")
+
 
 class TestPlotterNameBindings(NoAuthTestCase):
 

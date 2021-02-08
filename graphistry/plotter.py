@@ -1505,6 +1505,8 @@ class Plotter(object):
 
         res = copy.copy(self)
         driver = self._bolt_driver or PyGraphistry._config['bolt_driver']
+        if driver is None:
+            raise ValueError("BOLT connection information not provided. Must first call graphistry.register(bolt=...) or g.bolt(...).")
         with driver.session() as session:
             bolt_statement = session.run(query, **params)
             graph = bolt_statement.graph()
