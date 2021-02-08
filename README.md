@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/graphistry/pygraphistry.svg?branch=master)](https://travis-ci.org/graphistry/pygraphistry) 
+![Build Status](https://github.com/graphistry/pygraphistry/workflows/CI%20Tests/badge.svg)
 [![Documentation Status](https://readthedocs.org/projects/pygraphistry/badge/?version=latest)](https://pygraphistry.readthedocs.io/en/latest/)
 [![Latest Version](https://img.shields.io/pypi/v/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
 [![Latest Version](https://img.shields.io/pypi/pyversions/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
