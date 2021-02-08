@@ -16,8 +16,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@master
-        #with:  # fetch tag for versioneer
-        #  fetch-depth: 0
+        with:  # fetch tag for versioneer
+          fetch-depth: 0
 
       - name: Fetch tags for versioneer
         run: git fetch --prune --unshallow
