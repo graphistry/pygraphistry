@@ -72,3 +72,16 @@ jobs:
       ##pytest
       run: |
         python -B -m pytest -vv
+
+
+  test-neo4j:
+
+    needs: [ authorize-collaborators ]  # Wait on test-core-python / run flake8?
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Neo4j connector tests
+      run: |
+        cd docker && WITH_SUDO=" " ./test-cpu-local-neo4j-only.sh
