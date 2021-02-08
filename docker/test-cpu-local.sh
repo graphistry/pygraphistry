@@ -16,7 +16,7 @@ TEST_CPU_VERSION=${TEST_CPU_VERSION:-latest}
 docker run \
     -e PYTEST_CURRENT_TEST=TRUE \
     -e WITH_NEO4J=$WITH_NEO4J \
-    --rm -it \
+    --rm \
     -v ${PWD}/..:/opt/pygraphistry-mounted:ro \
     -w /opt/pygraphistry-mounted \
     --net grph_net \
