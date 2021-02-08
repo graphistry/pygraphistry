@@ -2,7 +2,7 @@ from ._version import get_versions
 __version__ = get_versions()['version']
 del get_versions
 
-from graphistry.pygraphistry import (  # noqa: E402
+from graphistry.pygraphistry import (  # noqa: E402, F401
     client_protocol_hostname, protocol, server,
     register, login, refresh, api_token, verify_token,
     store_token_creds_in_memory,

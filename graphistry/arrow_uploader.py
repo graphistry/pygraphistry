@@ -1,4 +1,4 @@
-import io, json, logging, pandas as pd, pyarrow as pa, requests, sys
+import io, logging, pyarrow as pa, requests, sys
 from .ArrowFileUploader import ArrowFileUploader
 
 logger = logging.getLogger('ArrowUploader')

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import datetime as dt, logging, numpy, pandas as pd, pyarrow as pa, unittest
+import datetime as dt, logging, pandas as pd, pyarrow as pa
 
 import graphistry, graphistry.plotter
 from common import NoAuthTestCase

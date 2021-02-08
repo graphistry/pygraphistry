@@ -1,11 +1,10 @@
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, gzip, io, json, os, numpy, pandas, requests, sched, sys, time, warnings
+import calendar, gzip, io, json, os, numpy, pandas, requests, sys, time, warnings
 
 from datetime import datetime
 from distutils.util import strtobool
 
 from .arrow_uploader import ArrowUploader
-from .ArrowFileUploader import ArrowFileUploader
 
 from . import util
 from . import bolt_util

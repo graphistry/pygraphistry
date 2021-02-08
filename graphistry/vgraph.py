@@ -1,6 +1,6 @@
 from builtins import next, str, zip
 
-import numpy, pandas, random, warnings
+import numpy, pandas, warnings
 
 from .graph_vector_pb2 import VectorGraph
 

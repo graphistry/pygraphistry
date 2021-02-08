@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 
-import mock, pandas as pd, pytest, unittest
+import unittest
 
-import graphistry
-from common import NoAuthTestCase
 from graphistry import PyGraphistry
 
 #TODO mock requests for testing actual effectful code

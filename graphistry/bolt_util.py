@@ -16,7 +16,6 @@ t0 = datetime.min.time()
 
 try:
     import neo4j
-    import neotime
 except:
     pass
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*- 
 
-import copy, datetime as dt, graphistry, IPython, logging, pandas as pd, pyarrow as pa, pytest, requests, unittest
+import copy, datetime as dt, graphistry, IPython, pandas as pd, pyarrow as pa, pytest
 
 from common import NoAuthTestCase
 from mock import patch

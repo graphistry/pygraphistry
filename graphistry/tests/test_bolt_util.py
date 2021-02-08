@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 
-import datetime as dt, graphistry, logging, neo4j, numpy, os, pandas as pd, pyarrow as pa, pytest, unittest
-from common import NoAuthTestCase
+import datetime as dt, graphistry, neo4j, os, pandas as pd, pyarrow as pa, pytest
 
 from graphistry.bolt_util import (
     neo_df_to_pd_df,
-    node_id_key, node_type_key, node_label_prefix_key,
+    node_id_key, node_type_key,
     start_node_id_key, end_node_id_key, relationship_id_key, relationship_type_key
 )
 
@@ -303,7 +302,7 @@ class Test_Neo4jConnector:
 
     @classmethod
     def setup_class(cls):
-        from neo4j import GraphDatabase, Driver
+        from neo4j import GraphDatabase
         NEO4J_CREDS = {'uri': 'bolt://neo4j4-test:7687', 'auth': ('neo4j', 'test')}
         graphistry.pygraphistry.PyGraphistry._is_authenticated = True
         graphistry.register(api=3, bolt=GraphDatabase.driver(**NEO4J_CREDS))

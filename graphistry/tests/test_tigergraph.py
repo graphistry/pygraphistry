@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import unittest
 import graphistry
-from mock import patch
 from common import NoAuthTestCase
 
 class TestTiger(NoAuthTestCase):
