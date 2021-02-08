@@ -16,7 +16,6 @@ t0 = datetime.min.time()
 
 try:
     import neo4j
-    import neotime
 except:
     pass
 
@@ -38,10 +37,10 @@ def bolt_graph_to_edges_dataframe(graph):
         util.merge_two_dicts(
             { key: value for (key, value) in relationship.items() },
             {
-                relationship_id_key:    relationship.id,
-                relationship_type_key:      relationship.type,           
-                start_node_id_key:          relationship.start_node.id,
-                end_node_id_key:     relationship.end_node.id
+                relationship_id_key:   relationship.id,  # noqa: E241
+                relationship_type_key: relationship.type,  # noqa: E241
+                start_node_id_key:     relationship.start_node.id,  # noqa: E241
+                end_node_id_key:       relationship.end_node.id  # noqa: E241
             }
         )
         for relationship in graph.relationships
@@ -78,8 +77,8 @@ def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
     return neo_df_to_pd_df(df)
 
 
-## Knowing a col is all-spatial, flatten into primitive cols
-def flatten_spatial_col(df : pd.DataFrame, col : str) -> pd.DataFrame:
+# Knowing a col is all-spatial, flatten into primitive cols
+def flatten_spatial_col(df : pd.DataFrame, col : str) -> pd.DataFrame:  # noqa: C901
     out_df = df.copy(deep=False)
 
     ####
@@ -129,7 +128,7 @@ def flatten_spatial_col(df : pd.DataFrame, col : str) -> pd.DataFrame:
 def neo_val_to_pd_val(v):
 
     if v is None:
-      return v
+        return v
 
     try:
         v_mod = v.__module__
@@ -143,14 +142,14 @@ def neo_val_to_pd_val(v):
     #neo4j 4
     if v_mod == 'neo4j.time':
         if v.__class__ == neo4j.time.DateTime:
-            return v.to_native() #datetime.datetime
-        elif v.__class__ ==  neo4j.time.Date:
-            return datetime.combine(v.to_native(), t0) #datatime.datatime
+            return v.to_native()  # datetime.datetime
+        elif v.__class__ == neo4j.time.Date:
+            return datetime.combine(v.to_native(), t0)  # datatime.datatime
         elif v.__class__ == neo4j.time.Time:
-            return pd.to_timedelta(v.iso_format()) #timedelta
+            return pd.to_timedelta(v.iso_format())  # timedelta
         elif v.__class__ == neo4j.time.Duration:
             #TODO expand out?
-            return v.iso_format() #str
+            return v.iso_format()  # str
         else:
             return str(v)
 
@@ -175,9 +174,9 @@ def get_mod(v):
         return None
 
 
-## if a col has spatials:
-##   - all: flatten into new primitive cols
-##   - some: stringify
+# if a col has spatials:
+#   - all: flatten into new primitive cols
+#   - some: stringify
 def flatten_spatial(df : pd.DataFrame, col : str) -> pd.DataFrame:
 
     any_spatial = (df[col].apply(get_mod) == 'neo4j.spatial').any()

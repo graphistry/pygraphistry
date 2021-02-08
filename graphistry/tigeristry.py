@@ -27,7 +27,7 @@ class Tigeristry(object):
             (self.tiger_config['user'] + ':' + self.tiger_config['pwd'] + '@') \
             if (not (self.tiger_config['user'] is None) and not (self.tiger_config['pwd'] is None)) \
             else ''
-        return self.tiger_config['protocol'] + '://'+ who + self.tiger_config['server'] + ':' + str(port)
+        return self.tiger_config['protocol'] + '://' + who + self.tiger_config['server'] + ':' + str(port)
       
     def __check_initialized(self, graphistry):
         if (graphistry is None) or (graphistry._tigergraph is None):
@@ -65,12 +65,13 @@ class Tigeristry(object):
              
 
     # --------------------------------------------------    
-    
+
+
     def __verify_and_unwrap_json_result(self, json):
       
         if json is None:
             raise Exception("No response!")
-        elif not 'error' in json:
+        elif 'error' not in json:
             raise Exception("Unexpected response format, no validity indicator", json)
         elif json['error']:
             raise Exception("Database returned error", json['message'] if 'message' in json else 'No message')
@@ -78,7 +79,8 @@ class Tigeristry(object):
             raise Exception("No field results in database response")
                    
         return json['results']
-    
+
+ 
     # str * ?dict * ?str => json graph
     def __gsql_endpoint(self, method_name, args = {}, db = None, dry_run = False):
 
@@ -100,6 +102,7 @@ class Tigeristry(object):
         json = resp.json()
 
         return self.__verify_and_unwrap_json_result(json)
+
 
     def __json_to_graphistry(self, graphistry, json, bindings):        
         edges_df = pd.DataFrame({'from_id': [], 'to_id': []})
@@ -134,20 +137,22 @@ class Tigeristry(object):
             from_types = nodes_df.merge(edges_df[['from_id', 'from_type']].rename(columns={'from_id': 'node_id', 'from_type': 'type'}), on='node_id', how='left')
             to_types = nodes_df.merge(edges_df[['to_id', 'to_type']].rename(columns={'to_id': 'node_id', 'to_type': 'type'}), on='node_id', how='left')
             nodes_df = nodes_df.merge(
-                pd.DataFrame({'type': 
-                              from_types.merge(to_types, left_index=True, right_index=True)\
-                                .apply(
-                                  lambda row: row['type_x'] if not pd.isna(row['type_x']) else row['type_y'],
-                                  axis=1)}),
+                pd.DataFrame(
+                    {'type': 
+                        from_types.merge(to_types, left_index=True, right_index=True)
+                        .apply(
+                            lambda row: row['type_x'] if not pd.isna(row['type_x']) else row['type_y'],
+                            axis=1)}),
                 left_index=True, right_index=True)              
         g = g.bind(node='node_id').nodes(nodes_df)
         return g
-  
+
+
     def __gsql(self, query, dry_run = False):
         base_url = self.__base_url('web')
         url = base_url + '/gsqlserver/interpreted_query'
         self.__log(url)
-        if dry_run == True:
+        if dry_run:
             return url
         response = requests.post(url, data=query)
         json = response.json()
@@ -163,7 +168,7 @@ class Tigeristry(object):
 
         json = self.__gsql_endpoint(method_name, args, db, dry_run)
 
-        if dry_run == True:
+        if dry_run:
             url = json
             return url
 
@@ -177,6 +182,7 @@ class Tigeristry(object):
 
         return self.__json_to_graphistry(graphistry, json, bindings)
 
+
     # Tigeristry * Plotter * string * ?dict => Plotter
     def gsql(self, graphistry, query, bindings = {}, dry_run = False):
 
@@ -184,7 +190,7 @@ class Tigeristry(object):
 
         json = self.__gsql(query, dry_run)
 
-        if dry_run == True:
+        if dry_run:
             url = json
             return url
 

@@ -1,8 +1,6 @@
 
-import mock, pandas as pd, pyarrow as pa, pytest, unittest
+import pandas as pd, pyarrow as pa, unittest
 
-import graphistry
-from common import NoAuthTestCase
 from graphistry.arrow_uploader import ArrowUploader
 from graphistry.ArrowFileUploader import ArrowFileUploader, DF_TO_FILE_ID_CACHE, MemoizedFileUpload, WrappedTable, cache_arr
 

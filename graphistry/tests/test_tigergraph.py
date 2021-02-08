@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import unittest
 import graphistry
-from mock import patch
 from common import NoAuthTestCase
 
 class TestTiger(NoAuthTestCase):
@@ -87,4 +85,3 @@ class TestTiger(NoAuthTestCase):
             tg.gsql('x', dry_run = True),
             'https://tigergraph1:tigergraph2@127.0.0.1:10000/gsqlserver/interpreted_query'
         )  
-

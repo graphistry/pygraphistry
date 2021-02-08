@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import datetime as dt, logging, numpy, pandas as pd, pyarrow as pa, unittest
+import datetime as dt, logging, pandas as pd, pyarrow as pa
 
 import graphistry, graphistry.plotter
 from common import NoAuthTestCase
@@ -38,11 +38,11 @@ squareEvil = pd.DataFrame({
     'num': [0.5, 1.5, 2.5, 3.5],
     'date_str': ['2018-01-01 00:00:00', '2018-01-02 00:00:00', '2018-01-03 00:00:00', '2018-01-05 00:00:00'],
     
-    ## API 1 BUG: Try with https://github.com/graphistry/pygraphistry/pull/126
+    # API 1 BUG: Try with https://github.com/graphistry/pygraphistry/pull/126
     'date': [dt.datetime(2018, 1, 1), dt.datetime(2018, 1, 1), dt.datetime(2018, 1, 1), dt.datetime(2018, 1, 1)],
     'time': [pd.Timestamp('2018-01-05'), pd.Timestamp('2018-01-05'), pd.Timestamp('2018-01-05'), pd.Timestamp('2018-01-05')],
     
-    ## API 2 BUG: Need timedelta in https://github.com/graphistry/pygraphistry/blob/master/graphistry/vgraph.py#L108
+    # API 2 BUG: Need timedelta in https://github.com/graphistry/pygraphistry/blob/master/graphistry/vgraph.py#L108
     'delta': [pd.Timedelta('1 day'), pd.Timedelta('1 day'), pd.Timedelta('1 day'), pd.Timedelta('1 day')]
 })
 for c in squareEvil.columns:

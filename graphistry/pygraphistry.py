@@ -1,5 +1,5 @@
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, gzip, io, json, os, numpy, pandas, requests, sched, sys, time, warnings
+import calendar, gzip, io, json, os, numpy, pandas, requests, sys, time, warnings
 
 from datetime import datetime
 from distutils.util import strtobool
@@ -36,7 +36,7 @@ config_paths = [
 ]
 
 default_config = {
-    'api_key': None, # Dummy key
+    'api_key': None,  # Dummy key
     'api_token': None,
     'api_token_refresh_ms': None,
     'api_version': 1,
@@ -62,7 +62,7 @@ def _get_initial_config():
             pass
 
     env_config = {k: os.environ.get(v) for k, v in EnvVarNames.items()}
-    env_override = {k: v for k, v in env_config.items() if v != None}
+    env_override = {k: v for k, v in env_config.items() if v is not None}
     config.update(env_override)
     if not config['certificate_validation']:
         requests.packages.urllib3.disable_warnings()
@@ -90,7 +90,7 @@ class PyGraphistry(object):
         else:
             key = PyGraphistry.api_key()
             #Mocks may set to True, so bypass in that case
-            if (key is None) and PyGraphistry._is_authenticated == False:
+            if (key is None) and (PyGraphistry._is_authenticated is False):
                 util.error('In api=1 / api=2 mode, API key not set explicitly in `register()` or available at ' + EnvVarNames['api_key'])
             if not PyGraphistry._is_authenticated:
                 PyGraphistry._check_key_and_version()
@@ -101,7 +101,7 @@ class PyGraphistry(object):
     def not_implemented_thunk():
         raise Exception('Must call login() first')
 
-    relogin = lambda: PyGraphistry.not_implemented_thunk()
+    relogin = lambda: PyGraphistry.not_implemented_thunk()  # noqa: E731
 
     @staticmethod
     def login(username, password, fail_silent=False):
@@ -112,10 +112,11 @@ class PyGraphistry(object):
             PyGraphistry.relogin = lambda: PyGraphistry.login(username, password, fail_silent)
 
         PyGraphistry._is_authenticated = False
-        token = ArrowUploader(
-            server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
-            certificate_validation=PyGraphistry.certificate_validation())\
-                .login(username, password).token
+        token = \
+            ArrowUploader(
+                server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+                certificate_validation=PyGraphistry.certificate_validation()) \
+            .login(username, password).token
         PyGraphistry.api_token(token)
         PyGraphistry._is_authenticated = True
 
@@ -133,10 +134,11 @@ class PyGraphistry(object):
             logger.debug('JWT refresh via token')
             if using_self_token:
                 PyGraphistry._is_authenticated = False
-            token = ArrowUploader(
-                server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
-                certificate_validation=PyGraphistry.certificate_validation())\
-                    .refresh(PyGraphistry.api_token() if using_self_token else token).token
+            token = \
+                ArrowUploader(
+                    server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+                    certificate_validation=PyGraphistry.certificate_validation()) \
+                .refresh(PyGraphistry.api_token() if using_self_token else token).token
             if using_self_token:
                 PyGraphistry.api_token(token)
                 PyGraphistry._is_authenticated = True
@@ -153,10 +155,11 @@ class PyGraphistry(object):
             logger.debug('JWT refresh')
             if using_self_token:
                 PyGraphistry._is_authenticated = False
-            ok = ArrowUploader(
-                server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
-                certificate_validation=PyGraphistry.certificate_validation())\
-                    .verify(PyGraphistry.api_token() if using_self_token else token)
+            ok = \
+                ArrowUploader(
+                    server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+                    certificate_validation=PyGraphistry.certificate_validation()) \
+                .verify(PyGraphistry.api_token() if using_self_token else token)
             if using_self_token:
                 PyGraphistry._is_authenticated = ok
             return ok
@@ -275,7 +278,7 @@ class PyGraphistry(object):
 
         # setter
         v = bool(strtobool(value)) if isinstance(value, str) else value
-        if v == False:
+        if not v:
             requests.packages.urllib3.disable_warnings()
         PyGraphistry._config['certificate_validation'] = v
 
@@ -286,9 +289,10 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def register(key=None, username=None, password=None, token=None,
+    def register(
+            key=None, username=None, password=None, token=None,
             server=None, protocol=None, api=None, certificate_validation=None, bolt=None,
-            token_refresh_ms=10*60*1000, store_token_creds_in_memory=None, client_protocol_hostname=None):
+            token_refresh_ms= 10 * 60 * 1000, store_token_creds_in_memory=None, client_protocol_hostname=None):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -855,7 +859,7 @@ class PyGraphistry(object):
 
         """
 
-        return Plotter().bind(source=source, destination=destination, node=node, \
+        return Plotter().bind(source=source, destination=destination, node=node,
                               edge_title=edge_title, edge_label=edge_label, edge_color=edge_color, 
                               edge_size=edge_size, edge_weight=edge_weight, edge_icon=edge_icon, edge_opacity=edge_opacity,
                               edge_source_color=edge_source_color, edge_destination_color=edge_destination_color,
@@ -1272,7 +1276,7 @@ class PyGraphistry(object):
             jres = response.json()
 
             cver = sys.modules['graphistry'].__version__
-            if  'pygraphistry' in jres and 'minVersion' in jres['pygraphistry'] and 'latestVersion' in jres['pygraphistry']:
+            if 'pygraphistry' in jres and 'minVersion' in jres['pygraphistry'] and 'latestVersion' in jres['pygraphistry']:
                 mver = jres['pygraphistry']['minVersion']
                 lver = jres['pygraphistry']['latestVersion']
                 if util.compare_versions(mver, cver) > 0:
@@ -1282,7 +1286,7 @@ class PyGraphistry(object):
 
             if jres['success'] is not True:
                 util.warn(jres['error'])
-        except Exception as e:
+        except Exception:
             util.warn('Could not contact %s. Are you connected to the Internet?' % PyGraphistry._config['hostname'])
 
 
@@ -1323,7 +1327,7 @@ gsql = PyGraphistry.gsql
 class NumpyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, numpy.ndarray) and obj.ndim == 1:
-                return obj.tolist()
+            return obj.tolist()
         elif isinstance(obj, numpy.generic):
             return obj.item()
         elif isinstance(obj, type(pandas.NaT)):

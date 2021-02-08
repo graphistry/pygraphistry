@@ -1,6 +1,6 @@
 from builtins import next, str, zip
 
-import numpy, pandas, random, warnings
+import numpy, pandas, warnings
 
 from .graph_vector_pb2 import VectorGraph
 
@@ -28,7 +28,7 @@ def create(edge_df, node_df, sources, dests, nodeid, node_map, name):
     edge_types = storeEdgeAttributes(vg, edge_df)
     node_types = storeNodeAttributes(vg, node_df, nodeid, node_map)
 
-    return  {
+    return {
         'name': name,
         'vgraph': vg,
         'attributes': {

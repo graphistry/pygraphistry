@@ -1,0 +1,74 @@
+name: CI Tests
+
+on:
+
+  #NOTE: All jobs gated by auth job
+
+  #Regular dev
+  push:
+  pull_request:
+
+  #Enable UI-driven branch testing
+  workflow_dispatch:
+
+  #Test main bidaily @ 1a
+  schedule:
+    - cron: '0 1 1-31/2 * *'
+
+jobs:
+
+  authorize-collaborators:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: octokit/request-action@v2.0.0
+      with:
+        route: GET /repos/:repository/collaborators/${{ github.actor }}
+        repository: ${{ github.repository }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+  test-core-python:
+
+    needs: [ authorize-collaborators ]
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: [3.6, 3.7, 3.8, 3.9]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install flake8 pytest
+        python -m pip install numpy
+        python -m pip install -e .[dev]
+    - name: Lint with flake8
+      run: |
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 graphistry --count --select=E9,F63,F7,F82 --show-source --statistics
+
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+        #TODO enable --exit-zero
+        flake8 \
+          graphistry \
+          --exit-zero \
+          --exclude graphistry/graph_vector_pb2.py,graphistry/_version.py \
+          --count \
+          --ignore=E121,E123,E128,E144,E201,E202,E203,E231,E251,E265,E301,E302,E303,E401,E501,E722,F401,W291,W293 \
+          --exit-zero \
+          --max-complexity=10 \
+          --max-line-length=127 \
+          --statistics
+
+    - name: Test with pytest
+      ##pytest
+      run: |
+        python -B -m pytest -vv

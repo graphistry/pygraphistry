@@ -42,6 +42,7 @@ setup(
     long_description=long_description,
     url='https://github.com/graphistry/pygraphistry',
     download_url= 'https://pypi.python.org/pypi/graphistry/',
+    python_requires='>=3.6',
     author='The Graphistry Team',
     author_email='pygraphistry@graphistry.com',
     setup_requires=['numpy', 'pytest-runner'],
