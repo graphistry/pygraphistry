@@ -5,6 +5,7 @@ from datetime import datetime
 from distutils.util import strtobool
 
 from .arrow_uploader import ArrowUploader
+from .ArrowFileUploader import ArrowFileUploader
 
 from . import util
 from . import bolt_util
