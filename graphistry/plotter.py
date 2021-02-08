@@ -1345,7 +1345,7 @@ class Plotter(object):
                     #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
                     hashed = hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
                 except TypeError:
-                    logger.warn('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.', exc_info=True)
+                    logger.warn('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.')
 
                 try:
                     if hashed in Plotter._pd_hash_to_arrow:
