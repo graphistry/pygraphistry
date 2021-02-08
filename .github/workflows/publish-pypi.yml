@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+  #TODO: Gate last step on release create? Unclear how to do the step's `if`
+  #release:
+  #  types: [created]
+
 jobs:
   build-n-publish:
     name: Build and publish Python 🐍 distributions 📦 to PyPI and TestPyPI
