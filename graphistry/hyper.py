@@ -1,11 +1,11 @@
 import logging, pandas as pd, sys
 logger = logging.getLogger(__name__)
 
-### COMMON TO HYPERGRAPH AND SIMPLE GRAPH
+# COMMON TO HYPERGRAPH AND SIMPLE GRAPH
 def makeDefs(DEFS, opts={}):
     defs = {key: opts[key] if key in opts else DEFS[key] for key in DEFS}    
     base_skip = opts['SKIP'] if 'SKIP' in opts else defs['SKIP']
-    skip = [x for x in base_skip] #copy
+    skip = [x for x in base_skip]  # copy
     defs['SKIP'] = skip
     for key in DEFS:
         if not defs[key] in skip:
@@ -13,8 +13,8 @@ def makeDefs(DEFS, opts={}):
     return defs
 
 def screen_entities(events, entity_types, defs):
-    base = entity_types if not entity_types == None else events.columns
-    return [x for x in base if not x in defs['SKIP']]
+    base = entity_types if entity_types is not None else events.columns
+    return [x for x in base if x not in defs['SKIP']]
 
 
 def col2cat(cat_lookup, col):
@@ -28,11 +28,10 @@ def make_reverse_lookup(categories):
     return lookup
 
 
-
-def valToSafeStr (v): 
-    if sys.version_info < (3,0):        
+def valToSafeStr(v):
+    if sys.version_info < (3,0):
         t = type(v)
-        if t is unicode: # noqa: F821
+        if t is unicode:  # noqa: F821
             return v
         elif t is str:
             return v
@@ -43,22 +42,24 @@ def valToSafeStr (v):
         if t is str:
             return v
         else:
-            return repr(v)        
+            return repr(v)
 
 
 #ex output: pd.DataFrame([{'val::state': 'CA', 'nodeType': 'state', 'nodeID': 'state::CA'}])
 def format_entities(events, entity_types, defs, drop_na):
     cat_lookup = make_reverse_lookup(defs['CATEGORIES'])
-    lst = sum([[{
-                    col: v,
-                    defs['TITLE']: valToSafeStr(v),
-                    defs['NODETYPE']: col, 
-                    defs['NODEID']: col2cat(cat_lookup, col) + defs['DELIM'] + valToSafeStr(v)
-                } 
-                for v in events[col].unique() if not drop_na or (not (v is None) and valToSafeStr(v) != 'nan')] for col in entity_types], [])
+    lst = sum([[
+        {
+            col: v,
+            defs['TITLE']: valToSafeStr(v),
+            defs['NODETYPE']: col,
+            defs['NODEID']: col2cat(cat_lookup, col) + defs['DELIM'] + valToSafeStr(v)
+        }
+        for v in events[col].unique() if not drop_na or (not (v is None) and valToSafeStr(v) != 'nan')] for col in entity_types], [])
     df = pd.DataFrame(lst).drop_duplicates([defs['NODEID']])
     df[defs['CATEGORY']] = df[defs['NODETYPE']].apply(lambda col: col2cat(cat_lookup, col))
     return df
+
 
 DEFS_HYPER = {
     'TITLE': 'nodeTitle',
@@ -67,14 +68,13 @@ DEFS_HYPER = {
     'ATTRIBID': 'attribID',
     'EVENTID': 'EventID',
     'SOURCE': 'src',
-    'DESTINATION': 'dst',    
+    'DESTINATION': 'dst',
     'CATEGORY': 'category',
     'NODETYPE': 'type',
     'EDGETYPE': 'edgeType',
     'SKIP': [],
-    'CATEGORIES': {} # { 'categoryName': ['colName', ...], ... }
+    'CATEGORIES': {}  # { 'categoryName': ['colName', ...], ... }
 }
-
 
 
 #ex output: pd.DataFrame([{'edgeType': 'state', 'attribID': 'state::CA', 'eventID': 'eventID::0'}])
@@ -103,8 +103,8 @@ def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
             ([x for x in events.columns.tolist() if not x == defs['NODETYPE']] 
                 if not drop_edge_attrs 
                 else [])
-            + [defs['EDGETYPE'], defs['ATTRIBID'], defs['EVENTID']]
-            + ([defs['CATEGORY']] if is_using_categories else []) ))
+            + [defs['EDGETYPE'], defs['ATTRIBID'], defs['EVENTID']]  # noqa: W503
+            + ([defs['CATEGORY']] if is_using_categories else []) ))  # noqa: W503
         out = pd.concat(subframes, ignore_index=True, sort=False).reset_index(drop=True)[ result_cols ]
         return out
     else:
@@ -113,13 +113,13 @@ def format_hyperedges(events, entity_types, defs, drop_na, drop_edge_attrs):
 
 # [ str ] * {?'EDGES' : ?{str: [ str ] }} -> {str: [ str ]}
 def direct_edgelist_shape(entity_types, defs):  
-  if 'EDGES' in defs and not defs['EDGES'] is None:
-      return defs['EDGES']
-  else:
-      out = {}
-      for entity_i in range(len(entity_types)):
-        out[ entity_types[entity_i] ] = entity_types[(entity_i + 1):]
-      return out
+    if 'EDGES' in defs and defs['EDGES'] is not None:
+        return defs['EDGES']
+    else:
+        out = {}
+        for entity_i in range(len(entity_types)):
+            out[ entity_types[entity_i] ] = entity_types[(entity_i + 1):]
+        return out
   
       
 #ex output: pd.DataFrame([{'edgeType': 'state', 'attribID': 'state::CA', 'eventID': 'eventID::0'}])
@@ -150,8 +150,8 @@ def format_direct_edges(events, entity_types, defs, edge_shape, drop_na, drop_ed
             ([x for x in events.columns.tolist() if not x == defs['NODETYPE']] 
                 if not drop_edge_attrs 
                 else [])
-            + [defs['EDGETYPE'], defs['SOURCE'], defs['DESTINATION'], defs['EVENTID']]
-            + ([defs['CATEGORY']] if is_using_categories else []) ))
+            + [defs['EDGETYPE'], defs['SOURCE'], defs['DESTINATION'], defs['EVENTID']]  # noqa: W503
+            + ([defs['CATEGORY']] if is_using_categories else []) ))  # noqa: W503
         out = pd.concat(subframes, ignore_index=True).reset_index(drop=True)[ result_cols ]
         return out
     else:
@@ -173,14 +173,15 @@ def hyperbinding(g, defs, entities, event_entities, edges, source, destination):
         'events': event_entities,
         'edges': edges,
         'nodes': nodes,
-        'graph': g\
-            .bind(source=source, destination=destination).edges(edges)\
+        'graph':
+            g
+            .bind(source=source, destination=destination).edges(edges)
             .bind(node=defs['NODEID'], point_title=defs['TITLE']).nodes(nodes)
     }     
 
 #turn lists etc to strs, and preserve nulls
 def flatten_objs_inplace(df, cols):
-   for c in cols:
+    for c in cols:
         name = df[c].dtype.name
         if name == 'category':
             #Avoid warning
@@ -188,7 +189,7 @@ def flatten_objs_inplace(df, cols):
         elif name == 'object':
             df[c] = df[c].where(df[c].isnull(), df[c].astype(str))
  
-###########        
+#
 
 class Hypergraph(object):        
 

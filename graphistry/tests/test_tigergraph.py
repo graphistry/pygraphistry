@@ -87,4 +87,3 @@ class TestTiger(NoAuthTestCase):
             tg.gsql('x', dry_run = True),
             'https://tigergraph1:tigergraph2@127.0.0.1:10000/gsqlserver/interpreted_query'
         )  
-

@@ -28,7 +28,7 @@ def create(edge_df, node_df, sources, dests, nodeid, node_map, name):
     edge_types = storeEdgeAttributes(vg, edge_df)
     node_types = storeNodeAttributes(vg, node_df, nodeid, node_map)
 
-    return  {
+    return {
         'name': name,
         'vgraph': vg,
         'attributes': {

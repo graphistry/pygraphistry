@@ -198,7 +198,7 @@ class ArrowUploader:
             json={'token': token})
         return out.status_code == requests.codes.ok
 
-    def create_dataset(self, json):
+    def create_dataset(self, json):  # noqa: F811
         tok = self.token 
         
         res = requests.post(
@@ -244,20 +244,20 @@ class ArrowUploader:
         return out
 
     def g_to_node_bindings(self, g):
-        bindings = self.maybe_bindings(
-                g,
-                [
-                    ['_node', 'node'],
-                    ['_point_color', 'node_color'],
-                    ['_point_label', 'node_label'],
-                    ['_point_opacity', 'node_opacity'],
-                    ['_point_size', 'node_size'],
-                    ['_point_title', 'node_title'],
-                    ['_point_weight', 'node_weight'],
-                    ['_point_icon', 'node_icon'],
-                    ['_point_x', 'node_x'],
-                    ['_point_y', 'node_y']
-                ])
+        bindings = self.maybe_bindings(  # noqa: E126
+            g,  # noqa: E126
+            [
+                ['_node', 'node'],
+                ['_point_color', 'node_color'],
+                ['_point_label', 'node_label'],
+                ['_point_opacity', 'node_opacity'],
+                ['_point_size', 'node_size'],
+                ['_point_title', 'node_title'],
+                ['_point_weight', 'node_weight'],
+                ['_point_icon', 'node_icon'],
+                ['_point_x', 'node_x'],
+                ['_point_y', 'node_y']
+            ])
 
         return bindings
 
@@ -274,8 +274,8 @@ class ArrowUploader:
 
 
     def g_to_edge_bindings(self, g):
-        bindings = self.maybe_bindings(
-                g,
+        bindings = self.maybe_bindings(  # noqa: E126
+                g,  # noqa: E126
                 [
                     ['_source', 'source'],
                     ['_destination', 'destination'],

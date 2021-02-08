@@ -1,14 +1,15 @@
+import hashlib, platform as p, random, string, sys, uuid, warnings
+from distutils.version import LooseVersion, StrictVersion
+
+
 def cmp(x, y):
     return (x > y) - (x < y)
 
-import hashlib, platform as p, random, string, sys, uuid, warnings
-
-from distutils.version import LooseVersion, StrictVersion
 
 def make_iframe(url, height):
     id = uuid.uuid4()
 
-    scrollbug_workaround='''
+    scrollbug_workaround = '''
             <script>
                 try {
                   $("#%s").bind('mousewheel', function(e) { e.preventDefault(); });

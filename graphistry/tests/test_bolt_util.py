@@ -148,7 +148,7 @@ def test_dates_heterogeneous():
         pa.Table.from_pandas(df2)
 
 def test_spatial_homogenous():
-    rec =  {
+    rec = {
         'p': neo4j.spatial.Point([1,2,3,4]),
         'c': neo4j.spatial.CartesianPoint([1,2]),
         'c2': neo4j.spatial.CartesianPoint([1,2,3]),
@@ -204,7 +204,7 @@ def test_spatial_homogenous():
     pa.Table.from_pandas(df2)
 
 def test_spatial_homogenous_na():
-    recs =  {
+    recs = {
         'p': [neo4j.spatial.Point([1,2,3,4]), None],
         'c': [neo4j.spatial.CartesianPoint([1,2]), None],
         'c2': [neo4j.spatial.CartesianPoint([1,2,3]), None],
@@ -259,16 +259,16 @@ def test_spatial_homogenous_na():
     }
 
     d2 = df2.to_dict(orient='records')[1]
-    assert d2['p_srid'] == None
+    assert d2['p_srid'] is None
     for k in d2.keys():
-        if not k in ['p', 'c', 'c2', 'w', 'p_srid']:
+        if k not in ['p', 'c', 'c2', 'w', 'p_srid']:
             assert pd.isna(d2[k])
 
     pa.Table.from_pandas(df2)
 
 
 def test_spatial_heterogeneous():
-    recs =  {
+    recs = {
         'p': [neo4j.spatial.Point([1,2,3,4]), 1],
         'c': [neo4j.spatial.CartesianPoint([1,2]), 1],
         'c2': [neo4j.spatial.CartesianPoint([1,2,3]), 1],
@@ -309,7 +309,7 @@ class Test_Neo4jConnector:
         graphistry.register(api=3, bolt=GraphDatabase.driver(**NEO4J_CREDS))
 
     def test_neo4j_conn_setup(self):
-        assert True == True
+        assert True is True
 
     def test_neo4j_ready(self):
 

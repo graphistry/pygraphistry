@@ -1,7 +1,6 @@
 import copy, hashlib, logging, numpy, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
-logger = logging.getLogger('Plotter')
 
 from .util import (error, in_ipython, make_iframe, random_string, warn)
 
@@ -23,6 +22,8 @@ try:
     maybe_cudf = cudf
 except ImportError:
     1
+
+logger = logging.getLogger('Plotter')
 
 CACHE_COERCION_SIZE = 100
 
@@ -322,7 +323,7 @@ class Plotter(object):
         **Example: See encode_point_color**
         """
 
-        return self.__encode('edge', 'color',  'edgeColorEncoding',
+        return self.__encode('edge', 'color', 'edgeColorEncoding',
             column=column, palette=palette, as_categorical=as_categorical, as_continuous=as_continuous,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
@@ -360,7 +361,7 @@ class Plotter(object):
                 g2b = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200}, default_mapping=50)
 
         """
-        return self.__encode('point', 'size',  'pointSizeEncoding', column=column,
+        return self.__encode('point', 'size', 'pointSizeEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
 
@@ -424,7 +425,7 @@ class Plotter(object):
 
         """
 
-        return self.__encode('point', 'icon',  'pointIconEncoding', column=column,
+        return self.__encode('point', 'icon', 'pointIconEncoding', column=column,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
             comparator=comparator,
             for_default=for_default, for_current=for_current,
@@ -479,7 +480,7 @@ class Plotter(object):
                 g2b = g.encode_edge_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
 
         """
-        return self.__encode('edge', 'icon',   'edgeIconEncoding', column=column,
+        return self.__encode('edge', 'icon', 'edgeIconEncoding', column=column,
             categorical_mapping=categorical_mapping, continuous_binning=continuous_binning, default_mapping=default_mapping,
             comparator=comparator,
             for_default=for_default, for_current=for_current,
@@ -525,12 +526,12 @@ class Plotter(object):
             default_mapping=default_mapping,
             for_current=for_current, for_default=for_default,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border,
-            continuous_binning=continuous_binning, ##new
-            comparator=comparator, ##new
+            continuous_binning=continuous_binning,
+            comparator=comparator,
             color=color, bg=bg, fg=fg, shape=shape)
 
 
-    def __encode(self, graph_type, feature, feature_binding,
+    def __encode(self, graph_type, feature, feature_binding,  # noqa: C901
             column,
             palette=None,
             as_categorical=None, as_continuous=None,
@@ -549,8 +550,8 @@ class Plotter(object):
 
         if not (graph_type in ['point', 'edge']):
             raise ValueError({
-                    'message': 'graph_type must be "point" or "edge"',
-                    'data': {'graph_type': graph_type } })
+                'message': 'graph_type must be "point" or "edge"',
+                'data': {'graph_type': graph_type } })
 
         if (categorical_mapping is None) and (palette is None) and (continuous_binning is None) and not feature.startswith('badge'):
             return self.bind(**{f'{graph_type}_{feature}': column})
@@ -599,7 +600,7 @@ class Plotter(object):
 
             if as_categorical:
                 raise ValueError({'message': 'as_categorical cannot be True when continuous_binning is provided'})
-            if as_continuous == False:
+            if as_continuous is False:
                 raise ValueError({'message': 'as_continuous cannot be False when continuous_binning is set'})
 
             transform = {
@@ -622,15 +623,14 @@ class Plotter(object):
             'encodingType': feature,
             'attribute': column,
             **transform,
-            **({'bg':        bg} if not         (bg is None) else {}),
-            **({'color':     color} if not      (color is None) else {}),
-            **({'fg':        fg} if not         (fg is None) else {}),
-
-            **({'asText':    as_text} if not    (as_text is None) else {}),
-            **({'blendMode': blend_mode} if not (blend_mode is None) else {}),
-            **({'style':     style} if not      (style is None) else {}),
-            **({'border':    border} if not     (border is None) else {}),
-            **({'shape':     shape} if not      (shape is None) else {})
+            **({'bg':        bg} if not         (bg is None) else {}),  # noqa: E241,E271
+            **({'color':     color} if not      (color is None) else {}),  # noqa: E241,E271
+            **({'fg':        fg} if not         (fg is None) else {}),  # noqa: E241,E271
+            **({'asText':    as_text} if not    (as_text is None) else {}),  # noqa: E241,E271
+            **({'blendMode': blend_mode} if not (blend_mode is None) else {}),  # noqa: E241,E271
+            **({'style':     style} if not      (style is None) else {}),  # noqa: E241,E271
+            **({'border':    border} if not     (border is None) else {}),  # noqa: E241,E271
+            **({'shape':     shape} if not      (shape is None) else {})  # noqa: E241,E271
         }
 
         complex_encodings = copy.deepcopy(self._complex_encodings)
@@ -818,7 +818,7 @@ class Plotter(object):
                 g.plot()
         """
 
-        base = self.bind(node=node) if not node is None else self
+        base = self.bind(node=node) if node is not None else self
         res = copy.copy(base)
         res._nodes = nodes
         return res
@@ -923,7 +923,7 @@ class Plotter(object):
         return res
 
 
-    def plot(self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False, memoize=True):
+    def plot(self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False, memoize=True):  # noqa: C901
         """Upload data to the Graphistry server and show as an iframe of it.
 
         Uses the currently bound schema structure and visual encodings.
@@ -1017,9 +1017,9 @@ class Plotter(object):
         cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
         full_url = ('%s:%s' % (PyGraphistry._config['protocol'], viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
-        if (render == False) or ((render is None) and not self._render):
+        if (render is False) or ((render is None) and not self._render):
             return full_url
-        elif (render == True) or in_ipython():
+        elif (render is True) or in_ipython():
             from IPython.core.display import HTML
             return HTML(make_iframe(full_url, self._height))
         else:
@@ -1085,8 +1085,9 @@ class Plotter(object):
             idmap = dict(enumerate(ig.vs[self._node]))
             for e in ig.es:
                 t = e.tuple
-                yield dict({self._source: idmap[t[0]], self._destination: idmap[t[1]]},
-                            **e.attributes())
+                yield dict(
+                    {self._source: idmap[t[0]], self._destination: idmap[t[1]]},
+                    **e.attributes())
 
         self._check_mandatory_bindings(False)
         if self._node is None:
@@ -1121,6 +1122,7 @@ class Plotter(object):
         def get_nodelist(g):
             for n in g.nodes(data=True):
                 yield dict({self._node: n[0]}, **n[1])
+
         def get_edgelist(g):
             for e in g.edges(data=True):
                 yield dict({self._source: e[0], self._destination: e[1]}, **e[2])
@@ -1152,8 +1154,8 @@ class Plotter(object):
     def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True):
 
         if isinstance(graph, pd.core.frame.DataFrame) \
-            or isinstance(graph, pa.Table) \
-            or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ):
+                or isinstance(graph, pa.Table) \
+                or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ):
             return self._make_dataset(graph, nodes, name, description, mode, metadata, memoize)
 
         try:
@@ -1194,8 +1196,9 @@ class Plotter(object):
 
         if nodes is None:
             nodes = pd.DataFrame()
-            nodes[nodeid] = pd.concat([edges[self._source], edges[self._destination]],
-                                           ignore_index=True).drop_duplicates()
+            nodes[nodeid] = pd.concat(
+                [edges[self._source], edges[self._destination]],
+                ignore_index=True).drop_duplicates()
         else:
             self._check_bound_attribs(nodes, ['node'], 'Vertex')
 
@@ -1323,7 +1326,7 @@ class Plotter(object):
         
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
-    def _table_to_arrow(self, table: any, memoize: bool = True) -> pa.Table:
+    def _table_to_arrow(self, table: any, memoize: bool = True) -> pa.Table:  # noqa: C901
 
         logger.debug('_table_to_arrow of %s (memoize: %s)', type(table), memoize)
 
@@ -1387,7 +1390,7 @@ class Plotter(object):
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
 
-    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True):
+    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True):  # noqa: C901
 
         logger.debug('_make_dataset (mode %s, memoize %s) name:[%s] des:[%s] (e::%s, n::%s) ',
             mode, memoize, name, description, type(edges), type(nodes))
@@ -1399,16 +1402,15 @@ class Plotter(object):
             1
 
         #compatibility checks
-        if (mode =='json') or (mode == 'vgraph'):
+        if (mode == 'json') or (mode == 'vgraph'):
             if not (metadata is None):
                 if ('bg' in metadata) or ('fg' in metadata) or ('logo' in metadata) or ('page' in metadata):
                     raise ValueError('Cannot set bg/fg/logo/page in api=1, api=2; try using api=3')
-            if not (self._complex_encodings is None \
-                or self._complex_encodings == {
+            if not (self._complex_encodings is None
+                or self._complex_encodings == {  # noqa: W503
                     'node_encodings': {'current': {}, 'default': {} },
-                    'edge_encodings': {'current': {}, 'default': {} }
-                }):
-                    raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1, api=2; try using api=3 or .bind()')
+                    'edge_encodings': {'current': {}, 'default': {} }}):
+                raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1, api=2; try using api=3 or .bind()')
 
         if mode == 'json':
             edges_df = self._table_to_pandas(edges)
@@ -1509,9 +1511,9 @@ class Plotter(object):
             edges = bolt_graph_to_edges_dataframe(graph)
             nodes = bolt_graph_to_nodes_dataframe(graph)
         return res\
-            .bind(\
-                node=node_id_key,\
-                source=start_node_id_key,\
+            .bind(
+                node=node_id_key,
+                source=start_node_id_key,
                 destination=end_node_id_key
             )\
             .nodes(nodes)\
@@ -1526,15 +1528,14 @@ class Plotter(object):
 
 
     def tigergraph(self,
-        protocol = 'http',
-        server = 'localhost',
-        web_port = 14240,
-        api_port = 9000,
-        db = None,
-        user = 'tigergraph',
-        pwd = 'tigergraph',
-        verbose = False
-    ):
+            protocol = 'http',
+            server = 'localhost',
+            web_port = 14240,
+            api_port = 9000,
+            db = None,
+            user = 'tigergraph',
+            pwd = 'tigergraph',
+            verbose = False):
         """Register Tigergraph connection setting defaults
     
         :param protocol: Protocol used to contact the database.
@@ -1679,10 +1680,3 @@ class Plotter(object):
                     \"\"\", {'edges': 'my_edge_list'}).plot()
         """        
         return self._tigergraph.gsql(self, query, bindings, dry_run)
-
-
-
-
-
-
-

@@ -46,7 +46,7 @@ class TestEtl2Metadata(NoAuthTestCase):
 
     def test_metadata_double_name(self, mock_etl2, mock_open):
         edges = triangleEdges.copy()
-        edges['a1'] = triangleNodes.a1.map(lambda x: x+10)
+        edges['a1'] = triangleNodes.a1.map(lambda x: x + 10)
         graphistry.bind(source='src', destination='dst', node='id').plot(edges, triangleNodes)
         dataset = mock_etl2.call_args[0][0]
 
@@ -58,12 +58,12 @@ class TestEtl2Metadata(NoAuthTestCase):
         edges = triangleEdges.copy()
         edges['testNone'] = triangleNodes.a1.map(lambda x: numpy.nan)
         edges['testNone'] = pandas.to_numeric(edges.testNone, errors='ignore')
-        edges['testInt'] = triangleNodes.a1.map(lambda x: numpy.nan if x%2 == 1 else 0)
-        edges['testFloat'] = triangleNodes.a1.map(lambda x: numpy.nan if x%2 == 1 else 0.5)
-        edges['testString'] = triangleNodes.a1.map(lambda x: numpy.nan if x%2 == 1 else 'foo')
-        edges['testBool'] = triangleNodes.a1.map(lambda x: numpy.nan if x%2 == 1 else True)
+        edges['testInt'] = triangleNodes.a1.map(lambda x: numpy.nan if x % 2 == 1 else 0)
+        edges['testFloat'] = triangleNodes.a1.map(lambda x: numpy.nan if x % 2 == 1 else 0.5)
+        edges['testString'] = triangleNodes.a1.map(lambda x: numpy.nan if x % 2 == 1 else 'foo')
+        edges['testBool'] = triangleNodes.a1.map(lambda x: numpy.nan if x % 2 == 1 else True)
         graphistry.bind(source='src', destination='dst', node='id').plot(edges)
-        dataset = mock_etl2.call_args[0][0]
+        mock_etl2.call_args[0][0]
 
         #for attrib in ['testInt', 'testFloat', 'testString', 'testBool', 'testNone']:
         #    for entry in list(dataset['attributes']['edges'][attrib]['aggregations'].values()):
@@ -79,7 +79,7 @@ class TestEtl2Metadata(NoAuthTestCase):
         edges['testDate'] = pandas.to_datetime(edges.testDate, errors='ignore')
         edges['testDate2'] = pandas.to_datetime(edges.testDate2, errors='ignore')
         graphistry.bind(source='src', destination='dst', node='id').plot(edges)
-        dataset = mock_etl2.call_args[0][0]
+        mock_etl2.call_args[0][0]
 
         #for attrib in ['testDate', 'testDate2']:
         #    for entry in list(dataset['attributes']['edges'][attrib]['aggregations'].values()):

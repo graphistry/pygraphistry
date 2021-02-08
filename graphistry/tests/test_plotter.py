@@ -43,11 +43,11 @@ squareEvil = pd.DataFrame({
     'num': [0.5, 1.5, 2.5, 3.5],
     'date_str': ['2018-01-01 00:00:00', '2018-01-02 00:00:00', '2018-01-03 00:00:00', '2018-01-05 00:00:00'],
     
-    ## API 1 BUG: Try with https://github.com/graphistry/pygraphistry/pull/126
+    # API 1 BUG: Try with https://github.com/graphistry/pygraphistry/pull/126
     'date': [dt.datetime(2018, 1, 1), dt.datetime(2018, 1, 1), dt.datetime(2018, 1, 1), dt.datetime(2018, 1, 1)],
     'time': [pd.Timestamp('2018-01-05'), pd.Timestamp('2018-01-05'), pd.Timestamp('2018-01-05'), pd.Timestamp('2018-01-05')],
     
-    ## API 2 BUG: Need timedelta in https://github.com/graphistry/pygraphistry/blob/master/graphistry/vgraph.py#L108
+    # API 2 BUG: Need timedelta in https://github.com/graphistry/pygraphistry/blob/master/graphistry/vgraph.py#L108
     'delta': [pd.Timedelta('1 day'), pd.Timedelta('1 day'), pd.Timedelta('1 day'), pd.Timedelta('1 day')]
 })
 for c in squareEvil.columns:
@@ -114,15 +114,16 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
 
     def test_bind_graph_short(self, mock_etl, mock_open):
         g = graphistry\
-                .nodes(pd.DataFrame({'n': []}), 'n')\
-                .edges(pd.DataFrame({'a': [], 'b': []}), 'a', 'b')
+            .nodes(pd.DataFrame({'n': []}), 'n')\
+            .edges(pd.DataFrame({'a': [], 'b': []}), 'a', 'b')
         assert g._node == 'n'
         assert g._source == 'a'
         assert g._destination == 'b'
-        g2 = graphistry\
-                .bind(source='a', destination='b', node='n')\
-                .nodes(pd.DataFrame({'n': []}))\
-                .edges(pd.DataFrame({'a': [], 'b': []}))
+        g2 = \
+            graphistry \
+            .bind(source='a', destination='b', node='n') \
+            .nodes(pd.DataFrame({'n': []})) \
+            .edges(pd.DataFrame({'a': [], 'b': []}))
         assert g2._node == 'n'
         assert g2._source == 'a'
         assert g2._destination == 'b'
@@ -479,7 +480,7 @@ class TestPlotterStylesArrow(NoAuthTestCase):
 
     def test_init(self):
         g = graphistry.bind()
-        assert g._style == None
+        assert g._style is None
 
     def test_style_good(self):
         g = graphistry.bind()
@@ -557,7 +558,7 @@ class TestPlotterStylesJSON(NoAuthTestCase):
         g3 = g2.addStyle(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), page=copy.deepcopy(page), logo=copy.deepcopy(logo))
         
         with pytest.raises(ValueError):
-          g3.plot(skip_upload=True)
+            g3.plot(skip_upload=True)
 
 
 class TestPlotterStylesVgraph(NoAuthTestCase):
@@ -578,7 +579,7 @@ class TestPlotterStylesVgraph(NoAuthTestCase):
         g3 = g2.addStyle(bg=copy.deepcopy(bg), fg=copy.deepcopy(fg), page=copy.deepcopy(page), logo=copy.deepcopy(logo))
         
         with pytest.raises(ValueError):
-          g3.plot(skip_upload=True)
+            g3.plot(skip_upload=True)
 
 
 
@@ -893,51 +894,51 @@ class TestPlotterEncodings(NoAuthTestCase):
     def test_composition(self):
         # chaining + overriding
         out = graphistry.bind()\
-                .encode_point_size('z', categorical_mapping={'m': 2})\
-                .encode_point_color('z', categorical_mapping={'a': 'b'}, for_current=True)\
-                .encode_point_color('z', categorical_mapping={'a': 'b2'})\
-                .encode_edge_color( 'z', categorical_mapping={'x': 'y'}, for_current=True)\
-                ._complex_encodings
+            .encode_point_size('z', categorical_mapping={'m': 2})\
+            .encode_point_color('z', categorical_mapping={'a': 'b'}, for_current=True)\
+            .encode_point_color('z', categorical_mapping={'a': 'b2'})\
+            .encode_edge_color( 'z', categorical_mapping={'x': 'y'}, for_current=True)\
+            ._complex_encodings
         assert out['edge_encodings']['default'] == {
-                'edgeColorEncoding': {
-                    'graphType': 'edge',
-                    'encodingType': 'color',
-                    'attribute': 'z',
-                    'variation': 'categorical',
-                    'mapping': { 'categorical': { 'fixed': { 'x': 'y' } } }
-                }
+            'edgeColorEncoding': {
+                'graphType': 'edge',
+                'encodingType': 'color',
+                'attribute': 'z',
+                'variation': 'categorical',
+                'mapping': { 'categorical': { 'fixed': { 'x': 'y' } } }
+            }
         }
         assert out['edge_encodings']['current'] == {
-                'edgeColorEncoding': {
-                    'graphType': 'edge',
-                    'encodingType': 'color',
-                    'attribute': 'z',
-                    'variation': 'categorical',
-                    'mapping': { 'categorical': { 'fixed': { 'x': 'y' } } }
-                }
+            'edgeColorEncoding': {
+                'graphType': 'edge',
+                'encodingType': 'color',
+                'attribute': 'z',
+                'variation': 'categorical',
+                'mapping': { 'categorical': { 'fixed': { 'x': 'y' } } }
             }
+        }
         assert out['node_encodings']['default'] == {
-                'pointSizeEncoding': {
-                    'graphType': 'point',
-                    'encodingType': 'size',
-                    'attribute': 'z',
-                    'variation': 'categorical',
-                    'mapping': { 'categorical': { 'fixed': { 'm': 2 } } }
-                },
-                'pointColorEncoding': {
-                    'graphType': 'point',
-                    'encodingType': 'color',
-                    'attribute': 'z',
-                    'variation': 'categorical',
-                    'mapping': { 'categorical': { 'fixed': { 'a': 'b2' } } }
-                }
+            'pointSizeEncoding': {
+                'graphType': 'point',
+                'encodingType': 'size',
+                'attribute': 'z',
+                'variation': 'categorical',
+                'mapping': { 'categorical': { 'fixed': { 'm': 2 } } }
+            },
+            'pointColorEncoding': {
+                'graphType': 'point',
+                'encodingType': 'color',
+                'attribute': 'z',
+                'variation': 'categorical',
+                'mapping': { 'categorical': { 'fixed': { 'a': 'b2' } } }
             }
+        }
         assert out['node_encodings']['current'] == {
-                'pointColorEncoding': {
-                    'graphType': 'point',
-                    'encodingType': 'color',
-                    'attribute': 'z',
-                    'variation': 'categorical',
-                    'mapping': { 'categorical': { 'fixed': { 'a': 'b' } } }
-                }
+            'pointColorEncoding': {
+                'graphType': 'point',
+                'encodingType': 'color',
+                'attribute': 'z',
+                'variation': 'categorical',
+                'mapping': { 'categorical': { 'fixed': { 'a': 'b' } } }
             }
+        }

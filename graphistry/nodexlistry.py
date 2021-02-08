@@ -24,7 +24,7 @@ class NodeXLGraphistryBase(object):
                     **default_bindings,
                     **schema[binding_name]
                 }
-               for binding_name in schema.keys()
+                for binding_name in schema.keys()
             }
         }
         if not (verbose is None):
@@ -103,7 +103,7 @@ class NodeXLGraphistryBase(object):
         g = self.graphistry.edges(edges_df).bind(**edge_bindings)
         return g
 
-    ## results of plot_edges_df and adds node bindings for richer plotter
+    # results of plot_edges_df and adds node bindings for richer plotter
     def plot_graph_df(self, edge_graph, nodes_df, node_bindings = None):
         if node_bindings is None:
             node_bindings = NodeXLGraphistryBase.node_bindings_default
@@ -124,15 +124,15 @@ class NodeXLGraphistryBase(object):
         nodes_df = nodes_df_transformer(nodes_df)
         return nodes_df
 
-    ##TODO can we infer source?
+    #TODO can we infer source?
     # str * ?(str | dict) * ?bool => graphistry
     def xls(self, xls_or_url, source='default', verbose=None):
 
         verbose = self.verbose if verbose is None else verbose        
-        p = print if verbose else (lambda x: 1)
+        p = print if verbose else (lambda x, y: 1)
 
-        ## source is either undefined, a string, or a (partial) bindings object
-        if type(source) == str and not source in self.source_to_mappings:
+        # source is either undefined, a string, or a (partial) bindings object
+        if type(source) == str and source not in self.source_to_mappings:
             p('Unknown source type', source)
             raise Exception('Unknown nodexl source type %s' % str(source))
         bindings = self.source_to_mappings[source] if type(source) == str else source
@@ -162,7 +162,8 @@ class NodeXLGraphistry(NodeXLGraphistryBase):
         if not (engine is None):
             print('WARNING: Engine currently ignored, please contact if critical')
 
-        super().__init__({
+        super().__init__(
+            {
                 'simple': {
                     'edges_df_transformer': NodeXLGraphistry.simple_edges_df_transformer,
                     'edge_bindings': {
@@ -173,6 +174,7 @@ class NodeXLGraphistry(NodeXLGraphistryBase):
                         **(NodeXLGraphistryBase.node_bindings_default)
                     }
                 },
+
                 ##################################################
                 #                                                #
                 # Default bindings used where none are provided  #
@@ -205,13 +207,13 @@ class NodeXLGraphistry(NodeXLGraphistryBase):
 
     @staticmethod
     def simple_edges_df_transformer(edges_df):
-      edges_df = NodeXLGraphistryBase.edges_df_transformer_default(edges_df)
-      return edges_df
+        edges_df = NodeXLGraphistryBase.edges_df_transformer_default(edges_df)
+        return edges_df
 
     @staticmethod
     def simple_nodes_df_transformer(nodes_df):
-      nodes_df = NodeXLGraphistryBase.nodes_df_transformer_default(nodes_df)
-      return nodes_df
+        nodes_df = NodeXLGraphistryBase.nodes_df_transformer_default(nodes_df)
+        return nodes_df
 
     #######################################################
     #                                                     #
