@@ -11,8 +11,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Gremlin / AWS Neptune connector <-- not for this release
 * Compressed uploads: Snappy-compressed parquet for network-bound scenarios (https://github.com/graphistry/pygraphistry/issues/188)
 
-### Added
+### Changed
 * Quieted memoization fail warning
+* CI: Removed TravisCI in favor of GHA
+* CD: GHA now handles PyPI publish on tag push
+* Docs: Readme install clarifies Python 3.6+
 
 ## [0.16.2 - 2021-02-08]
 
