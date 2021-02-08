@@ -318,6 +318,7 @@ class TestPlotterConversions(NoAuthTestCase):
         assertFrameEqual(n, triangleNodes[['id']])
 
     @pytest.mark.xfail(raises=ModuleNotFoundError)
+    @pytest.mark.xfail(raises=ImportError)
     def test_networkx2igraph(self):
         import networkx as nx
         ng = nx.complete_graph(3)

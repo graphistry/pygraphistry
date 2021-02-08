@@ -129,7 +129,7 @@ class NodeXLGraphistryBase(object):
     def xls(self, xls_or_url, source='default', verbose=None):
 
         verbose = self.verbose if verbose is None else verbose        
-        p = print if verbose else (lambda x, y: 1)
+        p = print if verbose else (lambda x: 1)
 
         # source is either undefined, a string, or a (partial) bindings object
         if type(source) == str and source not in self.source_to_mappings:
