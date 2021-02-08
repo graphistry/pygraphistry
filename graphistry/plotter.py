@@ -1340,9 +1340,13 @@ class Plotter(object):
         if isinstance(table, pd.DataFrame):
             hashed = None
             if memoize:
-                #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
-                hashed = hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
                 
+                try:
+                    #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
+                    hashed = hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
+                except TypeError:
+                    logger.warn('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.', exc_info=True)
+
                 try:
                     if hashed in Plotter._pd_hash_to_arrow:
                         logger.debug('pd->arrow memoization hit: %s', hashed)
@@ -1355,7 +1359,7 @@ class Plotter(object):
 
             out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
 
-            if memoize:
+            if memoize and (hashed is not None):
                 w = WeakValueWrapper(out)
                 cache_coercion(hashed, w)
                 Plotter._pd_hash_to_arrow[hashed] = w
