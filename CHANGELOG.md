@@ -11,6 +11,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Gremlin / AWS Neptune connector <-- not for this release
 * Compressed uploads: Snappy-compressed parquet for network-bound scenarios (https://github.com/graphistry/pygraphistry/issues/188)
 
+## [0.16.2 - 2021-02-08]
+
 ### Added
 
 * Friendlier error message for calling .cypher(...) without setting BOLT auth/driver (https://github.com/graphistry/pygraphistry/issues/204) 
@@ -30,6 +32,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * CI: Added Python 3.9 to test matrix
 * Infrastructure: Upgraded Versioneer to 0.19
 * Infrastructure: Fewer warnings and enforce flake8 CI checks
+
+### Breaking
+
+* None known; many small changes to fix warnings so version bump out of caution
 
 
 ## [0.15.0] - 2021-01-11
