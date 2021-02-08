@@ -13,8 +13,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+* Friendlier error message for calling .cypher(...) without setting BOLT auth/driver (https://github.com/graphistry/pygraphistry/issues/204) 
+
+### Fixed
+
+* Memoization: When memoize hashes throw exceptions, emit warning and fallback to unmemoized (b7a25c74e)
+
+## [0.16.1] - 2021-02-07
+
+### Added
+
 * Friendlier error message for api=1, 2 server non-json responses (https://github.com/graphistry/pygraphistry/pull/187)
-* CI: Moved to GitHub Actions
+* CI: Moved to GitHub Actions for CI + optional manual publish
+* CI: Added Python 3.9 to test matrix
+* Infrastructure: Upgraded Versioneer to 0.19
 * Infrastructure: Fewer warnings and enforce flake8 CI checks
 
 

@@ -2,6 +2,8 @@
 
 Dev is moving towards docker for easier tasks like CI automation integrations and reliable local dev
 
+You can still do native dev; inspect `docker/` or `.github/workflows/` for latest commands
+
 ## Docker
 
 ### Install
@@ -15,7 +17,7 @@ cd docker && docker-compose build && docker-compose up -d
 cd docker && ./test-cpu-local.sh
 ```
 
-Connector tests (currently neo4j-only): `cd docker && WITH_NEO4J=1 ./test-cpu-local.sh`
+Connector tests (currently neo4j-only): `cd docker && WITH_NEO4J=1 ./test-cpu-local.sh` (optional `WITH_SUDO=" "`)
 
 * Will start a local neo4j (docker) then enable+run tests against it
 
@@ -44,7 +46,7 @@ To manually build, see `docs/`.
 
 ## CI
 
-We intend to move to Github Actions / DockerHub Automated Builds for CPU and TBD for GPU
+GitHub Actions: See `.github/workflows`
 
 
 ## Debugging Tips
@@ -52,9 +54,6 @@ We intend to move to Github Actions / DockerHub Automated Builds for CPU and TBD
 * Use the unit tests
 * use the `logging` module per-file
 
-### Travis - DEPRECATED
-
-Travis CI automatically runs on every branch (with a Travis CI file). To configure, go to the [Travis CI account](https://travis-ci.org/graphistry/pygraphistry) .
 
 ### Native - Uninstall Git Checkout - DEPRECATED
 
@@ -73,7 +72,7 @@ Uninstall the local checkout (useful to rollback to packaged version) with `./se
 	git push --tags
 	```
 
-1. Automatically picked up by pypi. To do manually, run the Publish action from github on the master branch
+1. Check pypi automatically got the update. If not, manually run the Publish action from github on the master branch
 
 1. Toggle version as active at [ReadTheDocs](https://readthedocs.org/projects/pygraphistry/versions/)
 
