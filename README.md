@@ -276,21 +276,22 @@ Set visual attributes through [quick data bindings](https://hub.graphistry.com/d
 ## Install
 
 ### Get
-You need to install the PyGraphistry client somewhere and connect it to a Graphistry server. 
+You need to install the PyGraphistry Python client and connect it to a Graphistry GPU server of your choice:
 
-1. Graphistry server & account:
+1. Graphistry server account:
     * Create a free [Graphistry Hub account](https://www.graphistry.com/get-started) for open data, or [one-click launch your own private AWS/Azure instance](https://www.graphistry.com/get-started)
-    * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private enterprise Docker instance ((contact))[https://www.graphistry.com/demo-request]
+    * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private Docker instance ((contact)[https://www.graphistry.com/demo-request])
 
-2. PyGraphistry:
-    * `pip install --user graphistry` (or go direct via [RESTful HTTP calls](https://hub.graphistry.com/docs/api/))
+2. PyGraphistry Python client:
+    * `pip install --user graphistry` (Python 3.6+) or go direct via [RESTful HTTP calls](https://hub.graphistry.com/docs/api/))
         * Use `pip install --user graphistry[all]` for optional dependencies such as Neo4j drivers
-    * To use from a notebook environment, run your own [Jupyter](https://jupyter.org/) server ([one-click launch your own private AWS/Azure instance](https://www.graphistry.com/get-started)) or another such as [Google Colab](https://colab.research.google.com)
+    * To use from a notebook environment, run your own [Jupyter](https://jupyter.org/) server ([one-click launch your own private AWS/Azure GPU instance](https://www.graphistry.com/get-started)) or another such as [Google Colab](https://colab.research.google.com)
+    * See immediately following `configure` section for how to connect
   
 
 ### Configure
 
-Most users connect to their account via `graphistry.register(api=3, username='abc', password='xyz')` or  `graphistry.register(api=3, username='abc', password='xyz', protocol='http', server='my.private_server.org')`.
+Most users connect to a Graphistry GPU server account via `graphistry.register(api=3, username='abc', password='xyz')` (hub.graphistry.com) or  `graphistry.register(api=3, username='abc', password='xyz', protocol='http', server='my.private_server.org')`
 
 For more advanced configuration, read on for:
 
