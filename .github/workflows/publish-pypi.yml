@@ -1,8 +1,8 @@
 name: Publish Python 🐍 distributions 📦 to PyPI and TestPyPI
 
 on:
-  push:
-  pull_request:
+  #push:
+  #pull_request:
   workflow_dispatch:
 
   #TODO: Gate last step on release create? Unclear how to do the step's `if`
