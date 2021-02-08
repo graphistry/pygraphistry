@@ -19,8 +19,8 @@ jobs:
         with:  # fetch tag for versioneer
           fetch-depth: 0
 
-      - name: Fetch tags for versioneer
-        run: git fetch --prune --unshallow
+      #- name: Fetch tags for versioneer
+      #  run: git fetch --prune --unshallow
 
       - name: Set up Python 3.7
         uses: actions/setup-python@v1
