@@ -283,7 +283,7 @@ You need to install the PyGraphistry Python client and connect it to a Graphistr
     * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private Docker instance ((contact)[https://www.graphistry.com/demo-request])
 
 2. PyGraphistry Python client:
-    * `pip install --user graphistry` (Python 3.6+) or go direct via [RESTful HTTP calls](https://hub.graphistry.com/docs/api/))
+    * `pip install --user graphistry` (Python 3.6+) or [directly call the HTTP API](https://hub.graphistry.com/docs/api/)
         * Use `pip install --user graphistry[all]` for optional dependencies such as Neo4j drivers
     * To use from a notebook environment, run your own [Jupyter](https://jupyter.org/) server ([one-click launch your own private AWS/Azure GPU instance](https://www.graphistry.com/get-started)) or another such as [Google Colab](https://colab.research.google.com)
     * See immediately following `configure` section for how to connect
@@ -334,7 +334,7 @@ Alternatively, you can rerun `graphistry.register(api=3, username='username', pa
 * **Legacy: 1.0 API (WARNING: DEPRECATED)**
 
 ```python
-#graphistry.register(api=1, key='Your key') # 1.0 API; note parameter name 'key' is different from `token`
+#graphistry.register(api=1, key='Your key') # 1.0 API; note parameter name/value 'key' is different from `token`
 ```
 
 Optionally, for convenience in the 1.0 API, you may set your API key in your system environment and thereby skip the register step in all your notebooks. In your `.profile` or `.bash_profile`, add the following and reload your environment:
