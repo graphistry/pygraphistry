@@ -1,8 +1,8 @@
 name: Publish Python 🐍 distributions 📦 to PyPI and TestPyPI
 
 on:
-  push:
-  pull_request:
+  #push:
+  #pull_request:
   workflow_dispatch:
 
   #TODO: Gate last step on release create? Unclear how to do the step's `if`
@@ -16,6 +16,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@master
+        #with:  # fetch tag for versioneer
+        #  fetch-depth: 0
+
+      - name: Fetch tags for versioneer
+        run: git fetch --prune --unshallow
+
       - name: Set up Python 3.7
         uses: actions/setup-python@v1
         with:
