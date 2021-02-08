@@ -33,7 +33,11 @@ def fingerprint():
     # Hostname, OS, CPU, MAC,
     data = [p.node(), p.system(), p.machine(), str(uuid.getnode())]
     md5.update(''.join(data).encode('utf8'))
-    return "%s-pygraphistry-%s" % (md5.hexdigest()[:8], sys.modules['graphistry'].__version__)
+
+    from ._version import get_versions
+    __version__ = get_versions()['version']
+
+    return "%s-pygraphistry-%s" % (md5.hexdigest()[:8], __version__)
 
 
 def random_string(length):
