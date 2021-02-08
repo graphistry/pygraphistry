@@ -14,6 +14,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 * Friendlier error message for calling .cypher(...) without setting BOLT auth/driver (https://github.com/graphistry/pygraphistry/issues/204) 
+* CI: Run containerized neo4j connector tests
+* Infrastructure: Set Python 3.9 support metadata
 
 ### Fixed
 
