@@ -16,8 +16,8 @@ ${WITH_SUDO} docker run \
     --rm \
     -v ${PWD}/..:/opt/pygraphistry-mounted:ro \
     -w /opt/pygraphistry-mounted \
+    --entrypoint=/opt/pygraphistry-mounted/bin/test.sh \
     --net grph_net \
     graphistry/test-cpu:${TEST_CPU_VERSION} \
-        --maxfail=5 \
         graphistry/tests/test_bolt_util.py \
         $@

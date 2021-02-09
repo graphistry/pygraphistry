@@ -1,8 +1,18 @@
 #!/bin/bash
+set -ex
 
-# Run tests using local mounts
+echo "CONFIG"
 
 WITH_NEO4J=${WITH_NEO4J:-0}
+TEST_CPU_VERSION=${TEST_CPU_VERSION:-latest}
+
+NETWORK=""
+if [ "$WITH_NEO4J" == "1" ]
+then
+    NETWORK="--net grph_net"
+fi
+
+echo "PREP"
 
 if [ "$WITH_NEO4J" == "1" ]
 then
@@ -11,14 +21,12 @@ fi
 
 docker-compose build
 
-TEST_CPU_VERSION=${TEST_CPU_VERSION:-latest}
+echo "RUN"
 
 docker run \
     -e PYTEST_CURRENT_TEST=TRUE \
     -e WITH_NEO4J=$WITH_NEO4J \
     --rm \
-    -v ${PWD}/..:/opt/pygraphistry-mounted:ro \
-    -w /opt/pygraphistry-mounted \
-    --net grph_net \
+    ${NETWORK} \
     graphistry/test-cpu:${TEST_CPU_VERSION} \
         --maxfail=5 $@
