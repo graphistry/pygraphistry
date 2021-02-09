@@ -149,20 +149,24 @@ class Plotter(object):
 
         **Example: Chained merge - results in color, blendMode, and url being set**
             ::
+
                 g2 =  g.addStyle(bg={'color': 'black'}, fg={'blendMode': 'screen'})
                 g3 = g2.addStyle(bg={'image': {'url': 'http://site.com/watermark.png'}})
                 
         **Example: Overwrite - results in blendMode multiply**
             ::
+
                 g2 =  g.addStyle(fg={'blendMode': 'screen'})
                 g3 = g2.addStyle(fg={'blendMode': 'multiply'})
 
         **Example: Gradient background**
             ::
+
               g.addStyle(bg={'gradient': {'kind': 'linear', 'position': 45, 'stops': [['rgb(0,0,0)', '0%'], ['rgb(255,255,255)', '100%']]}})
               
         **Example: Page settings**
             ::
+
               g.addStyle(page={'title': 'Site - {{ name }}', 'favicon': 'http://site.com/logo.ico'})
 
         """
@@ -265,19 +269,23 @@ class Plotter(object):
 
         **Example: Set a palette-valued column for the color, same as bind(point_color='my_column')**
             ::
+
                 g2a = g.encode_point_color('my_int32_palette_column')
                 g2b = g.encode_point_color('my_int64_rgb_column')
 
         **Example: Set a cold-to-hot gradient of along the spectrum blue, yellow, red**
             ::
+
                 g2 = g.encode_point_color('my_numeric_col', palette=["blue", "yellow", "red"], as_continuous=True)
 
         **Example: Round-robin sample from 5 colors in hex format**
             ::
+
                 g2 = g.encode_point_color('my_distinctly_valued_col', palette=["#000", "#00F", "#0F0", "#0FF", "#FFF"], as_categorical=True)
 
         **Example: Map specific values to specific colors, including with a default**
             ::
+
                 g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'})
                 g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'}, default_mapping='gray')
 
@@ -353,10 +361,12 @@ class Plotter(object):
 
         **Example: Set a numerically-valued column for the size, same as bind(point_size='my_column')**
             ::
+
                 g2a = g.encode_point_size('my_numeric_column')
 
         **Example: Map specific values to specific colors, including with a default**
             ::
+
                 g2a = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200})
                 g2b = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200}, default_mapping=50)
 
@@ -407,20 +417,24 @@ class Plotter(object):
 
         **Example: Set a string column of icons for the point icons, same as bind(point_icon='my_column')**
             ::
+
                 g2a = g.encode_point_icon('my_icons_column')
 
         **Example: Map specific values to specific icons, including with a default**
             ::
+
                 g2a = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
         **Example: Map countries to abbreviations**
             ::
+
                 g2b = g.encode_point_icon('country_abbrev', as_text=True)
                 g2b = g.encode_point_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
 
         **Example: Border**
             ::
+
                 g2b = g.encode_point_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
 
         """
@@ -463,20 +477,24 @@ class Plotter(object):
 
         **Example: Set a string column of icons for the edge icons, same as bind(edge_icon='my_column')**
             ::
+
                 g2a = g.encode_edge_icon('my_icons_column')
 
         **Example: Map specific values to specific icons, including with a default**
             ::
+
                 g2a = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
         **Example: Map countries to abbreviations**
             ::
+
                 g2a = g.encode_edge_icon('country_abbrev', as_text=True)
                 g2b = g.encode_edge_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
 
         **Example: Border**
             ::
+
                 g2b = g.encode_edge_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
 
         """
