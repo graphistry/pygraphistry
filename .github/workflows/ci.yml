@@ -61,6 +61,9 @@ jobs:
       run: |
         ./bin/test.sh
 
+    - name: Test build with build
+      run: |
+        ./bin/build.sh
 
   test-neo4j:
 
@@ -73,3 +76,25 @@ jobs:
     - name: Neo4j connector tests
       run: |
         cd docker && WITH_SUDO=" " ./test-cpu-local-neo4j-only.sh
+
+  test-build:
+
+    needs: [ authorize-collaborators ]  # Wait on test-core-python / run flake8?
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python 3.7
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.7
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -e .[build]
+
+    - name: Test building
+      run: |
+        ./bin/build.sh
