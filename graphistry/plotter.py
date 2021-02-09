@@ -865,6 +865,7 @@ class Plotter(object):
 
         **Example**
             ::
+
                 import graphistry
                 df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 graphistry
