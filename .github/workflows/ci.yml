@@ -51,32 +51,15 @@ jobs:
     - name: Install test dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install flake8 pytest
-        python -m pip install numpy
         python -m pip install -e .[dev]
 
     - name: Lint
       run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 graphistry --count --select=E9,F63,F7,F82 --show-source --statistics
+        ./bin/lint.sh
 
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        #TODO enable --exit-zero
-        flake8 \
-          graphistry \
-          --exit-zero \
-          --exclude graphistry/graph_vector_pb2.py,graphistry/_version.py \
-          --count \
-          --ignore=E121,E123,E128,E144,E201,E202,E203,E231,E251,E265,E301,E302,E303,E401,E501,E722,F401,W291,W293 \
-          --exit-zero \
-          --max-complexity=10 \
-          --max-line-length=127 \
-          --statistics
-
-    - name: Test with pytest
-      ##pytest
+    - name: Core tests
       run: |
-        python -B -m pytest -vv
+        ./bin/test.sh
 
 
   test-neo4j:
