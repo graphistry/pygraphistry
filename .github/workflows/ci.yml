@@ -39,18 +39,23 @@ jobs:
         python-version: [3.6, 3.7, 3.8, 3.9]
 
     steps:
-    - uses: actions/checkout@v2
+
+    - name: Checkout repo
+      uses: actions/checkout@v2
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+
+    - name: Install test dependencies
       run: |
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
         python -m pip install numpy
         python -m pip install -e .[dev]
-    - name: Lint with flake8
+
+    - name: Lint
       run: |
         # stop the build if there are Python syntax errors or undefined names
         flake8 graphistry --count --select=E9,F63,F7,F82 --show-source --statistics
