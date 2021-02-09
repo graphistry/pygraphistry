@@ -1,8 +1,8 @@
 # Development Setup
 
-Dev is moving towards docker for easier tasks like CI automation integrations and reliable local dev
+See also [CONTRIBUTE.md](contribute.md) and [ARCHITECTURE.md](architecture.md)
 
-You can still do native dev; inspect `docker/` or `.github/workflows/` for latest commands
+Development is setup for local native and containerized Python coding & testing, and with automatic GitHub Actions for CI + CD. The server tests are like the local ones, except against a wider test matrix of environments.
 
 ## Docker
 
