@@ -61,9 +61,6 @@ jobs:
       run: |
         ./bin/test.sh
 
-    - name: Test build with build
-      run: |
-        ./bin/build.sh
 
   test-neo4j:
 
@@ -76,6 +73,7 @@ jobs:
     - name: Neo4j connector tests
       run: |
         cd docker && WITH_SUDO=" " ./test-cpu-local-neo4j-only.sh
+
 
   test-build:
 
