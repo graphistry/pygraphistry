@@ -399,7 +399,7 @@ If you already have graph-like data, use this step. Otherwise, try the [Hypergra
 
 PyGraphistry can plot graphs directly from Pandas data frames, Arrow tables, cuGraph GPU data frames, IGraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
 
-To define the graph, we <code>bind</code> *source* and *destination* to the columns indicating the start and end nodes of each edges:
+To define the graph, we `bind` *source* and *destination* to the columns indicating the start and end nodes of each edges:
 
 ```python
 import graphistry
