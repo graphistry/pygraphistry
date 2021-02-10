@@ -1,15 +1,14 @@
+# PyGraphistry: Explore Relationships
+
 ![Build Status](https://github.com/graphistry/pygraphistry/workflows/CI%20Tests/badge.svg)
 [![Documentation Status](https://readthedocs.org/projects/pygraphistry/badge/?version=latest)](https://pygraphistry.readthedocs.io/en/latest/)
-[![Latest Version](https://img.shields.io/pypi/v/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
-[![Latest Version](https://img.shields.io/pypi/pyversions/graphistry.svg)](https://pypi.python.org/pypi/graphistry) 
+[![Latest Version](https://img.shields.io/pypi/v/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
+[![Latest Version](https://img.shields.io/pypi/pyversions/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
 [![License](https://img.shields.io/pypi/l/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
-[![Downloads](https://pepy.tech/badge/graphistry/month)](https://pepy.tech/project/graphistry/month) 
+[![Downloads](https://pepy.tech/badge/graphistry/month)](https://pepy.tech/project/graphistry/month)
 
-
-[<img src="https://img.shields.io/badge/slack-Graphistry%20chat-yellow.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g) 
+[<img src="https://img.shields.io/badge/slack-Graphistry%20chat-yellow.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
 ![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)
-
-# PyGraphistry: Explore Relationships
 
 PyGraphistry is a Python visual graph analytics library to extract, transform, and load big graphs into [Graphistry](https://www.graphistry.com) end-to-end GPU  visual graph analytics sessions.
 
@@ -23,15 +22,14 @@ The PyGraphistry Python client helps several kinds of usage modes:
 * **Dashboarding**: Embed into your favorite framework. Additionally, see our sister project [Graph-App-Kit](https://github.com/graphistry/graph-app-kit) for quickly building interactive graph dashboards by launching a stack built on PyGraphistry, StreamLit, Docker, and ready recipes for integrating with common graph libraries
 
 PyGraphistry is a friendly and optimized PyData-native interface to the language-neutral [Graphistry REST APIs](https://hub.graphistry.com/docs/api/).
-You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Neo4j, Splunk, and more (see below). Wrangle data however you want, and with especially good support for Pandas dataframes, Apache Arrow tables, and Nvidia RAPIDS cuDF dataframes. 
-
+You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Neo4j, Splunk, and more (see below). Wrangle data however you want, and with especially good support for Pandas dataframes, Apache Arrow tables, and Nvidia RAPIDS cuDF dataframes.
 
 1. [Interactive Demo](#demo-of-friendship-communities-on-facebook)
 2. [Graph Gallery](#gallery)
 3. [Install](#install)
 4. [Tutorial](#tutorial-les-misérables)
 5. [Next Steps](#next-steps)
-5. [Resources](#resources)
+6. [Resources](#resources)
 
 ## Demo of Friendship Communities on Facebook
 
@@ -39,16 +37,15 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
   <tr valign="top">
     <td align="center">Click to open interactive version! <em>(For server-backed interactive analytics, use an API key)</em><a href="http://hub.graphistry.com/graph/graph.html?dataset=Facebook&splashAfter=true" target="_blank"><img src="http://i.imgur.com/Ows4rK4.png" title="Click to open."></a>
     <em>Source data: <a href="http://snap.stanford.edu" target="_blank">SNAP</a></em>
-	</td>
+    </td>
   </tr>
 </table>
 
-
 ## PyGraphistry is...
 
-- **Fast & gorgeous:** Interactively cluster, filter, inspect large amounts of data, and zip through timebars. It clusters large graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
+* **Fast & gorgeous:** Interactively cluster, filter, inspect large amounts of data, and zip through timebars. It clusters large graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
 
-- **Easy to install:** `pip install` the client in your notebook or web app, and then connect to a [free Graphistry Hub account](https://www.graphistry.com/get-started) or [launch your own private GPU server](https://www.graphistry.com/get-started)
+* **Easy to install:** `pip install` the client in your notebook or web app, and then connect to a [free Graphistry Hub account](https://www.graphistry.com/get-started) or [launch your own private GPU server](https://www.graphistry.com/get-started)
 
    ```python
   # pip install --user graphistry
@@ -57,52 +54,52 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
   #graphistry.register(..., protocol='http', host='my.site.ngo')
   ```
 
--  **Notebook-friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:
+* **Notebook-friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:
 
     ```python
     graphistry.edges(pd.read_csv('rows.csv'), 'col_a', 'col_b').plot()
     ```
 
-- **Great for events, CSVs, and more:** Not sure if your data is graph-friendly? PyGraphistry's `hypergraph` transform helps turn any sample data like CSVs, SQL results, and event data into a graph for pattern analysis:
+* **Great for events, CSVs, and more:** Not sure if your data is graph-friendly? PyGraphistry's `hypergraph` transform helps turn any sample data like CSVs, SQL results, and event data into a graph for pattern analysis:
 
      ```python
      rows = pandas.read_csv('transactions.csv')[:1000]
      graphistry.hypergraph(rows)['graph'].plot()
      ```
 
--  **Embeddable:** Drop live views into your web dashboards and apps:
+* **Embeddable:** Drop live views into your web dashboards and apps:
+
     ```python
     iframe_url = g.plot(render=False)
     print(f'<iframe src="{ iframe_url }"></iframe>')
     ```
-    
--  **Configurable:** In-tool or via the declarative APIs, use the powerful encodings systems for tasks like coloring by time, sizing by score, clustering by weight, show icons by type, and more.
 
+* **Configurable:** In-tool or via the declarative APIs, use the powerful encodings systems for tasks like coloring by time, sizing by score, clustering by weight, show icons by type, and more.
 
 ### Explore any data as a graph
 
 It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes with many built-in connectors, and by supporting Python dataframes (Pandas, Arrow, RAPIDS), it's easy to bring standard Python data libraries. If the data comes as a table instead of a graph, PyGraphistry will help you extract and explore the relationships.
 
-  - [Pandas](http://pandas.pydata.org)
+* [Pandas](http://pandas.pydata.org)
 
      ```python
      edges = pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
      graphistry.edges(edges, 'src', 'dst').plot()
      ```
-     
+
      ```python
      table_rows = pd.read_csv('honeypot.csv')
      graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'])['graph'].plot()
      ```
-     
+
      ```python
-     graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'], 
+     graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'],
          direct=True, 
          opts={'EDGES': {
-	         'attackerIP': ['victimIP', 'victimPort', 'vulnName'], 
-	         'victimIP': ['victimPort', 'vulnName'],
-	         'victimPort': ['vulnName']
-	 }})['graph'].plot()
+           'attackerIP': ['victimIP', 'victimPort', 'vulnName'], 
+           'victimIP': ['victimPort', 'vulnName'],
+           'victimPort': ['vulnName']
+   }})['graph'].plot()
      ```
 
      ```python
@@ -113,7 +110,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
      g4 = g3.settings(url_params={'edgeInfluence': 1.0, play: 2000})
      url = g4.plot(render=False)
      ```
-     
+
     ```python
     ### Read back data and create modified variants
     enriched_edges = my_function1(g1._edges)
@@ -121,22 +118,22 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2 = g1.edges(enriched_edges).nodes(enriched_nodes)
     g2.plot()
     ```
-    
-    
-  - GPU [RAPIDS.ai](https://www.rapids.ai)
+
+* GPU [RAPIDS.ai](https://www.rapids.ai)
   
     ```python
     edges = cudf.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
     graphistry.edges(edges, 'src', 'dst').plot()
     ```
-  - [Apache Arrow](https://arrow.apache.org/)
+
+* [Apache Arrow](https://arrow.apache.org/)
   
     ```python
      edges = pa.Table.from_pandas(pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst']))
      graphistry.edges(edges, 'src', 'dst').plot()
     ```
-    
-  - [Neo4j](http://neo4j.com) ([notebook demo](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
+
+* [Neo4j](http://neo4j.com) ([notebook demo](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
   
     ```python
     NEO4J_CREDS = {'uri': 'bolt://my.site.ngo:7687', 'auth': ('neo4j', 'mypwd')}
@@ -146,7 +143,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
     ```python
     graphistry.cypher("CALL db.schema()").plot()
-    ```          
+    ```
 
     ```python
     from neo4j import GraphDatabase, Driver
@@ -160,55 +157,60 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g.plot()
     ```
 
-  - [TigerGaph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
+* [TigerGaph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
 
-      ```python
-      g = graphistry.tigergraph(protocol='https', ...)
-      g2 = g.gsql("...", {'edges': '@@eList'})
-      g2.plot()
-      print('# edges', len(g2._edges))
+    ```python
+    g = graphistry.tigergraph(protocol='https', ...)
+    g2 = g.gsql("...", {'edges': '@@eList'})
+    g2.plot()
+    print('# edges', len(g2._edges))
+    ```
+
+    ```python
+    g.endpoint('my_fn', {'arg': 'val'}, {'edges': '@@eList'}).plot()
       ```
-      ```python
-      g.endpoint('my_fn', {'arg': 'val'}, {'edges': '@@eList'}).plot()      
-      ```
 
-  - [IGraph](http://igraph.org)
+* [IGraph](http://igraph.org)
 
-     ```python
-     graph = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
-     graphistry.bind(source='src', destination='dst').plot(graph)
-     ```
+    ```python
+    graph = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
+    graphistry.bind(source='src', destination='dst').plot(graph)
+    ```
 
-  - [NetworkX](https://networkx.github.io) ([notebook demo](demos/demos_databases_apis/networkx/networkx.ipynb))
+* [NetworkX](https://networkx.github.io) ([notebook demo](demos/demos_databases_apis/networkx/networkx.ipynb))
 
-     ```python
-     graph = networkx.read_edgelist('facebook_combined.txt')
-     graphistry.bind(source='src', destination='dst', node='nodeid').plot(graph)
-     ```
-  - [HyperNetX](https://github.com/pnnl/HyperNetX) ([notebook demo](demos/demos_databases_apis/hypernetx/hypernetx.ipynb))
+    ```python
+    graph = networkx.read_edgelist('facebook_combined.txt')
+    graphistry.bind(source='src', destination='dst', node='nodeid').plot(graph)
+    ```
 
-     ```python
-     hg.hypernetx_to_graphistry_nodes(H).plot()
-     ```
-     ```python
-     hg.hypernetx_to_graphistry_bipartite(H.dual()).plot()     
-     ```
-     
-  - [Splunk](https://www.splunk.com) ([notebook demo](demos/demos_databases_apis/splunk/splunk_demo_public.ipynb))
-    
-     ```python
-     df = splunkToPandas("index=netflow bytes > 100000 | head 100000", {})    
-     graphistry.edges(df, 'src_ip', 'dest_ip').plot()
-     ```
+* [HyperNetX](https://github.com/pnnl/HyperNetX) ([notebook demo](demos/demos_databases_apis/hypernetx/hypernetx.ipynb))
 
-  - [NodeXL](https://www.nodexl.com) ([notebook demo](demos/demos_databases_apis/nodexl/official/nodexl_graphistry.ipynb))
+    ```python
+    hg.hypernetx_to_graphistry_nodes(H).plot()
+    ```
 
-     ```python
+    ```python
+    hg.hypernetx_to_graphistry_bipartite(H.dual()).plot()
+    ```
+
+* [Splunk](https://www.splunk.com) ([notebook demo](demos/demos_databases_apis/splunk/splunk_demo_public.ipynb))
+
+    ```python
+    df = splunkToPandas("index=netflow bytes > 100000 | head 100000", {})
+    graphistry.edges(df, 'src_ip', 'dest_ip').plot()
+    ```
+
+* [NodeXL](https://www.nodexl.com) ([notebook demo](demos/demos_databases_apis/nodexl/official/nodexl_graphistry.ipynb))
+
+    ```python
     graphistry.nodexl('/my/file.xls').plot()
     ```
+
     ```python
     graphistry.nodexl('https://file.xls').plot()
     ```
+
     ```python
     graphistry.nodexl('https://file.xls', 'twitter').plot()
     graphistry.nodexl('https://file.xls', verbose=True).plot()
@@ -219,8 +221,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 ### Quickly configurable
 
 Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/). Check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb), [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb), [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb), [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb), and [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb):
-  
- 
+
   ```python
     g
       .edges(df, 'col_a', 'col_b')
@@ -230,34 +231,34 @@ Set visual attributes through [quick data bindings](https://hub.graphistry.com/d
       .bind(source='col_a', destination='col_b', node='col_c')
       .bind(
         point_color='col_a',
-	    point_size='col_b',
-	    point_title='col_c',
-	    point_x='col_d',
-	    point_y='col_e')
+      point_size='col_b',
+      point_title='col_c',
+      point_x='col_d',
+      point_y='col_e')
       .bind(
         edge_color='col_m',
-	    edge_weight='col_n',
-	    edge_title='col_o')
+      edge_weight='col_n',
+      edge_title='col_o')
       .encode_edge_color('timestamp', ["blue", "yellow", "red"], as_continuous=True)
       .encode_point_icon('device_type', categorical_mapping={'macbook': 'laptop', ...})
       .encode_point_badge('passport', 'TopRight', categorical_mapping={'Canada': 'flag-icon-ca', ...})
       .addStyle(bg={'color': 'red'}, fg={}, page={'title': 'My Graph'}, logo={})
       .settings(url_params={
         'play': 2000,
-	    'menu': True, 'info': True,
-	    'showArrows': True,
-	    'pointSize': 2.0, 'edgeCurvature': 0.5,
-	    'edgeOpacity': 1.0, 'pointOpacity': 1.0,
-	    'lockedX': False, 'lockedY': False, 'lockedR': False,
-	    'linLog': False, 'strongGravity': False, 'dissuadeHubs': False,
-	    'edgeInfluence': 1.0, 'precisionVsSpeed': 1.0, 'gravity': 1.0, 'scalingRatio': 1.0,
-	    'showLabels': True, 'showLabelOnHover': True,
-	    'showPointsOfInterest': True, 'showPointsOfInterestLabel': True, 'showLabelPropertiesOnHover': True,
-	    'pointsOfInterestMax': 5
+      'menu': True, 'info': True,
+      'showArrows': True,
+      'pointSize': 2.0, 'edgeCurvature': 0.5,
+      'edgeOpacity': 1.0, 'pointOpacity': 1.0,
+      'lockedX': False, 'lockedY': False, 'lockedR': False,
+      'linLog': False, 'strongGravity': False, 'dissuadeHubs': False,
+      'edgeInfluence': 1.0, 'precisionVsSpeed': 1.0, 'gravity': 1.0, 'scalingRatio': 1.0,
+      'showLabels': True, 'showLabelOnHover': True,
+      'showPointsOfInterest': True, 'showPointsOfInterestLabel': True, 'showLabelPropertiesOnHover': True,
+      'pointsOfInterestMax': 5
       })
       .plot()
   ```
-	
+
 ### Gallery
 
 <table>
@@ -276,18 +277,18 @@ Set visual attributes through [quick data bindings](https://hub.graphistry.com/d
 ## Install
 
 ### Get
+
 You need to install the PyGraphistry Python client and connect it to a Graphistry GPU server of your choice:
 
 1. Graphistry server account:
     * Create a free [Graphistry Hub account](https://www.graphistry.com/get-started) for open data, or [one-click launch your own private AWS/Azure instance](https://www.graphistry.com/get-started)
-    * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private Docker instance ((contact)[https://www.graphistry.com/demo-request])
+    * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private Docker instance ([contact](https://www.graphistry.com/demo-request))
 
 2. PyGraphistry Python client:
     * `pip install --user graphistry` (Python 3.6+) or [directly call the HTTP API](https://hub.graphistry.com/docs/api/)
         * Use `pip install --user graphistry[all]` for optional dependencies such as Neo4j drivers
     * To use from a notebook environment, run your own [Jupyter](https://jupyter.org/) server ([one-click launch your own private AWS/Azure GPU instance](https://www.graphistry.com/get-started)) or another such as [Google Colab](https://colab.research.google.com)
     * See immediately following `configure` section for how to connect
-  
 
 ### Configure
 
@@ -302,7 +303,7 @@ For more advanced configuration, read on for:
 * Private servers: PyGraphistry defaults to using the free [Graphistry Hub](https://hub.graphistry.com) public API
 
   * Connect to a [private Graphistry server](https://www.graphistry.com/get-started) and provide optional settings specific to it via `protocol`, `server`, and in some cases, `client_protocol_hostname`
-  
+
 Non-Python users may want to explore the underlying language-neutral [authentication REST API docs](https://hub.graphistry.com/docs/api/1/rest/auth/).
 
 #### Advanced Login
@@ -329,7 +330,6 @@ assert initial_one_hour_token != fresh_token
 ```
 
 Alternatively, you can rerun `graphistry.register(api=3, username='username', password='your password')`, which will also fetch a fresh token.
-
 
 * **Legacy: 1.0 API (WARNING: DEPRECATED)**
 
@@ -361,7 +361,7 @@ Using `'http'`/`'nginx'` ensures uploads stay within the Docker network (vs. goi
 
 In cases such as when the notebook server is the same as the Graphistry server, you may want your Python code to  *upload* to a known local Graphistry address without going outside the network (e.g., `http://nginx` or `http://localhost`), but for web viewing, generate and embed URLs to a different public address (e.g., `https://graphistry.acme.ngo/`). In this case, explicitly set a  client (browser) location different from `protocol` / `server`:
 
-```
+```python
 graphistry.register(
     ### fast local notebook<>graphistry upload
     protocol='http', server='nginx', 
@@ -373,7 +373,6 @@ graphistry.register(
 
 Prebuilt Graphistry servers are already setup to do this out-of-the-box.
 
-
 ## Tutorial: Les Misérables
 
 Let's visualize relationships between the characters in [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
@@ -383,9 +382,9 @@ Our [dataset is a CSV file](https://raw.githubusercontent.com/graphistry/pygraph
 
 | source        | target        | value  |
 | ------------- |:-------------:| ------:|
-| Cravatte |	Myriel | 1
-| Valjean	| Mme.Magloire | 3
-| Valjean	| Mlle.Baptistine | 3
+| Cravatte | Myriel | 1
+| Valjean | Mme.Magloire | 3
+| Valjean | Mlle.Baptistine | 3
 
 *Source* and *target* are character names, and the *value* column counts the number of time they meet. Parsing is a one-liner with Pandas:
 
@@ -424,11 +423,11 @@ g.edges(links).plot()
 ```
 
 ### Controlling Node Title, Size, Color, and Position
-Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure). 
 
-
+Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure).
 
 #### Warmup: IGraph for computing statistics
+
 [IGraph](http://igraph.org/python/) already has these algorithms implemented for us for small graphs. (See our cuGraph examples for big graphs.) If IGraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
 
 We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
@@ -449,13 +448,11 @@ g.bind(point_color='community', point_size='pagerank').plot(ig)
 
 See the [color palette documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2) for specifying color values by using built-in ColorBrewer palettes (`int32`) or custom RGB values (`int64`).
 
+To control the position, we can add `.bind(point_x='colA', point_y='colB').settings(url_params={'play': 0})` ([see demos](demos/more_examples/graphistry_features/external_layout) and [additional url parameters](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)]). In `api=1`, you created columns named `x` and `y`.
 
-To control the position, we can add `.bind(point_x='colA', point_y='colB').settings(url_params={'play': 0})` ([see demos](demos/more_examples/graphistry_features/external_layout) and [additional url parameters](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)]). In `api=1`, you created columns named `x` and `y`. 
-
-You may also want to bind `point_title`: `.bind(point_title='colA')`. 
+You may also want to bind `point_title`: `.bind(point_title='colA')`.
 
 For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb) and [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb).
-
 
 ![Second Graph of Miserables](http://i.imgur.com/P7fm5sn.png)
 
@@ -466,7 +463,6 @@ By default, edges get colored as a gradient between their source/destination nod
 Similarly, you can bind the edge weight, where higher weights cause nodes to cluster closer together: `.bind(edge_weight='colA')`. [See tutorial](demos/more_examples/graphistry_features/edge-weights.ipynb).
 
 For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb) and [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb).
-
 
 ### More advanced color and size controls
 
@@ -566,11 +562,10 @@ g.addStyle(logo={
 2. Check out the [analyst](demos/for_analysis.ipynb) and [developer](demos/for_developers.ipynb) introductions, or [try your own CSV](demos/upload_csv_miniapp.ipynb)
 3. Explore the [demos folder](demos) for your favorite [file format, database, API](demos/demos_databases_apis), use case domain, kind of analysis, and [visual analytics feature](demos/more_examples/graphistry_features)
 
-
 ## Resources
 
-* Graphistry [UI Guide](https://hub.graphistry.com/docs/ui/index/)
-* [General and REST API docs](https://hub.graphistry.com/docs/api/): 
+* Graphistry [In-Tool UI Guide](https://hub.graphistry.com/docs/ui/index/)
+* [General and REST API docs](https://hub.graphistry.com/docs/api/):
   * [URL settings](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)
   * [Authentication](https://hub.graphistry.com/docs/api/1/rest/auth/)
   * [Uploading](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2), including multiple file formats and settings
@@ -581,4 +576,4 @@ g.addStyle(logo={
   * [Python API ReadTheDocs](http://pygraphistry.readthedocs.org/en/latest/)
   * Within a notebook, you can always run `help(graphistry)`, `help(graphistry.hypergraph)`, etc.
 * [Administration docs](https://github.com/graphistry/graphistry-cli) for sizing, installing, configuring, managing, and updating Graphistry servers
-* [Graph-App-Kit](https://github.com/graphistry/graph-app-kit) dashboarding
+* [Graph-App-Kit Dashboarding](https://github.com/graphistry/graph-app-kit) dashboarding
