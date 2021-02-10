@@ -1,4 +1,5 @@
 #!/bin/bash
+set -ex
 
 EXCLUDES="../setup.py ../graphistry/util.py"
 echo "SKIPPING " $EXCLUDES

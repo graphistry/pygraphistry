@@ -42,12 +42,15 @@ extensions = [
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
+    ('py:class', "<class 'dict'>"),
+    ('py:class', "<class 'str'>"),
     ('py:class', 'ArrowUploader'),
     ('py:class', 'json.encoder.JSONEncoder'),
     ('py:class', 'pandas.DataFrame'),
     ('py:class', 'pyarrow.lib.Table'),
     ('py:class', 'requests.models.Response'),
     ('py:class', 'weakref.WeakKeyDictionary'),
+    ('py:data', 'typing.Optional')
 ]
 
 set_type_checking_flag=True
@@ -138,7 +141,7 @@ latex_documents = [
 #latex_appendices = []
 
 # If false, no module index is generated.
-#latex_domain_indices = True
+latex_domain_indices = False
 
 
 # -- Options for manual page output ---------------------------------------
@@ -169,7 +172,7 @@ texinfo_documents = [
 #texinfo_appendices = []
 
 # If false, no module index is generated.
-#texinfo_domain_indices = True
+texinfo_domain_indices = False
 
 # How to display URL addresses: 'footnote', 'no', or 'inline'.
 #texinfo_show_urls = 'footnote'
