@@ -12,10 +12,13 @@ sphinx:
 # Optionally build your docs in additional formats such as PDF
 formats:
   - pdf
-
+  - htmlzip
+  - epub
 
 python:
   version: 3.7
   install:
-    - method: setuptools
+    - method: pip
       path: .
+      extra_requirements:
+        - dev
