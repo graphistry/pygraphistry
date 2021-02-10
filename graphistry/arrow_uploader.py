@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import io, logging, pyarrow as pa, requests, sys
 from .ArrowFileUploader import ArrowFileUploader
 
