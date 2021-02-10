@@ -11,8 +11,6 @@ Contents:
 
    graphistry
 
-
-
 Indices and tables
 ==================
 

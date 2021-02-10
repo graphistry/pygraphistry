@@ -21,7 +21,7 @@ graphistry.pygraphistry module
     :show-inheritance:
 
 graphistry.arrow_uploader module
-------------------------------
+--------------------------------
 
 .. automodule:: graphistry.arrow_uploader
     :members:
@@ -29,7 +29,7 @@ graphistry.arrow_uploader module
     :show-inheritance:
 
 graphistry.ArrowFileUploader module
-------------------------------
+-----------------------------------
 
 .. automodule:: graphistry.ArrowFileUploader
     :members:
