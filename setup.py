@@ -44,6 +44,7 @@ setup(
     platforms='any',
     description = 'A visual graph analytics library for extracting, transforming, displaying, and sharing big graphs with end-to-end GPU acceleration',
     long_description=open("./README.md").read(),
+    long_description_content_type='text/markdown',
     url='https://github.com/graphistry/pygraphistry',
     download_url= 'https://pypi.python.org/pypi/graphistry/',
     python_requires='>=3.6',
