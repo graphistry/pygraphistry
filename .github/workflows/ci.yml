@@ -119,5 +119,23 @@ jobs:
     - name: Test building docs
       run: |
         cd docs && ./build.sh
+  
+  test-readme:
+
+    needs: [ authorize-collaborators ]  # Wait on test-core-python / run flake8?
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python 3.7
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.7
+
+    - name: Test building docs
+      continue-on-error: true
+      run: |
+        docker run --rm -v "$(pwd)/README.md:/README.md:ro" avtodev/markdown-lint:v1 README.md
 
   
