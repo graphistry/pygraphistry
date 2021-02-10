@@ -1,10 +1,6 @@
 #Enable when we drop 3.6
 #from __future__ import annotations
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .arrow_uploader import ArrowUploader
-
 import logging, pyarrow as pa, requests, sys
 from functools import lru_cache
 from weakref import WeakKeyDictionary
@@ -54,9 +50,9 @@ class ArrowFileUploader():
 
     """
 
-    uploader: 'ArrowUploader'
+    uploader = None  # ArrowUploader
 
-    def __init__(self, uploader: 'ArrowUploader'):
+    def __init__(self, uploader):  # ArrowUploader
         self.uploader = uploader
 
     ###
