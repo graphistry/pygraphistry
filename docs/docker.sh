@@ -9,7 +9,7 @@ RUN_SPHINX="cd docs && ./build.sh || ( echo 'Printing /tmp/sphinx*' && ( cat /tm
 #TODO make a docker layer so we can cache RUN_INSTALLS
 docker run \
     --entrypoint=/bin/bash \
-    --rm -it \
+    --rm \
     -e USER_ID=$UID \
     -v $(pwd)/..:/doc \
     ddidier/sphinx-doc:3.2.1-1 \
