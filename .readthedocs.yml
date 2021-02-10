@@ -15,7 +15,7 @@ formats:
 
 
 python:
-  version: 3.6
+  version: 3.7
   install:
     - method: setuptools
       path: .
