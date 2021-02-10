@@ -1,3 +1,5 @@
+from typing import Any
+
 import copy, hashlib, logging, numpy, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
@@ -133,36 +135,40 @@ class Plotter(object):
         addStyle() will extend the existing style settings, while style() will replace any in the same group
 
         :param fg: Dictionary {'blendMode': str} of any valid CSS blend mode
-        :type fg: dict.
+        :type fg: dict
 
         :param bg: Nested dictionary of page background properties. {'color': str, 'gradient': {'kind': str, 'position': str, 'stops': list }, 'image': { 'url': str, 'width': int, 'height': int, 'blendMode': str }
-        :type bg: dict.
+        :type bg: dict
 
         :param logo: Nested dictionary of logo properties. { 'url': str, 'autoInvert': bool, 'position': str, 'dimensions': { 'maxWidth': int, 'maxHeight': int }, 'crop': { 'top': int, 'left': int, 'bottom': int, 'right': int }, 'padding': { 'top': int, 'left': int, 'bottom': int, 'right': int}, 'style': str}        
-        :type logo: dict.
+        :type logo: dict
 
         :param page: Dictionary of page metadata settings. { 'favicon': str, 'title': str } 
-        :type page: dict.
+        :type page: dict
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Chained merge - results in color, blendMode, and url being set**
             ::
+
                 g2 =  g.addStyle(bg={'color': 'black'}, fg={'blendMode': 'screen'})
                 g3 = g2.addStyle(bg={'image': {'url': 'http://site.com/watermark.png'}})
                 
         **Example: Overwrite - results in blendMode multiply**
             ::
+
                 g2 =  g.addStyle(fg={'blendMode': 'screen'})
                 g3 = g2.addStyle(fg={'blendMode': 'multiply'})
 
         **Example: Gradient background**
             ::
+
               g.addStyle(bg={'gradient': {'kind': 'linear', 'position': 45, 'stops': [['rgb(0,0,0)', '0%'], ['rgb(255,255,255)', '100%']]}})
               
         **Example: Page settings**
             ::
+
               g.addStyle(page={'title': 'Site - {{ name }}', 'favicon': 'http://site.com/logo.ico'})
 
         """
@@ -193,19 +199,19 @@ class Plotter(object):
         style() will fully replace any defined parameter in the existing style settings, while addStyle() will merge over previous values
 
         :param fg: Dictionary {'blendMode': str} of any valid CSS blend mode
-        :type fg: dict.
+        :type fg: dict
 
         :param bg: Nested dictionary of page background properties. {'color': str, 'gradient': {'kind': str, 'position': str, 'stops': list }, 'image': { 'url': str, 'width': int, 'height': int, 'blendMode': str }
-        :type bg: dict.
+        :type bg: dict
 
         :param logo: Nested dictionary of logo properties. { 'url': str, 'autoInvert': bool, 'position': str, 'dimensions': { 'maxWidth': int, 'maxHeight': int }, 'crop': { 'top': int, 'left': int, 'bottom': int, 'right': int }, 'padding': { 'top': int, 'left': int, 'bottom': int, 'right': int}, 'style': str}        
-        :type logo: dict.
+        :type logo: dict
 
         :param page: Dictionary of page metadata settings. { 'favicon': str, 'title': str } 
-        :type page: dict.
+        :type page: dict
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Chained merge - results in url and blendMode being set, while color is dropped**
             ::
@@ -237,47 +243,51 @@ class Plotter(object):
         """Set point color with more control than bind()
 
         :param column: Data column name
-        :type column: str.
+        :type column: str
 
         :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
-        :type palette: list, optional.
+        :type palette: Optional[list]
 
         :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
-        :type as_categorical: bool, optional.
+        :type as_categorical: Optional[bool]
 
         :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
-        :type as_continuous: bool, optional.
+        :type as_continuous: Optional[bool]
 
         :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
-        :type categorical_mapping: dict, optional.
+        :type categorical_mapping: Optional[dict]
 
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
-        :type default_mapping: str, optional.
+        :type default_mapping: Optional[str]
 
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: bool, optional.
+        :type for_default: Optional[bool]
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: bool, optional.
+        :type for_current: Optional[bool]
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Set a palette-valued column for the color, same as bind(point_color='my_column')**
             ::
+
                 g2a = g.encode_point_color('my_int32_palette_column')
                 g2b = g.encode_point_color('my_int64_rgb_column')
 
         **Example: Set a cold-to-hot gradient of along the spectrum blue, yellow, red**
             ::
+
                 g2 = g.encode_point_color('my_numeric_col', palette=["blue", "yellow", "red"], as_continuous=True)
 
         **Example: Round-robin sample from 5 colors in hex format**
             ::
+
                 g2 = g.encode_point_color('my_distinctly_valued_col', palette=["#000", "#00F", "#0F0", "#0FF", "#FFF"], as_categorical=True)
 
         **Example: Map specific values to specific colors, including with a default**
             ::
+
                 g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'})
                 g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'}, default_mapping='gray')
 
@@ -294,31 +304,31 @@ class Plotter(object):
         """Set edge color with more control than bind()
 
         :param column: Data column name
-        :type column: str.
+        :type column: str
 
         :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
-        :type palette: list, optional.
+        :type palette: Optional[list]
 
         :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
-        :type as_categorical: bool, optional.
+        :type as_categorical: Optional[bool]
 
         :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
-        :type as_continuous: bool, optional.
+        :type as_continuous: Optional[bool]
 
         :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
-        :type categorical_mapping: dict, optional.
+        :type categorical_mapping: Optional[dict]
 
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
-        :type default_mapping: str, optional.
+        :type default_mapping: Optional[str]
 
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: bool, optional.
+        :type for_default: Optional[bool]
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: bool, optional.
+        :type for_current: Optional[bool]
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: See encode_point_color**
         """
@@ -334,29 +344,31 @@ class Plotter(object):
         """Set point size with more control than bind()
 
         :param column: Data column name
-        :type column: str.
+        :type column: str
 
         :param categorical_mapping: Mapping from column values to numbers. Ex: {"car": 100, "truck": 200}
-        :type categorical_mapping: dict, optional.
+        :type categorical_mapping: Optional[dict]
 
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
-        :type default_mapping: numeric, optional.
+        :type default_mapping: Optional[Union[int,float]]
 
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: bool, optional.
+        :type for_default: Optional[bool]
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: bool, optional.
+        :type for_current: Optional[bool]
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Set a numerically-valued column for the size, same as bind(point_size='my_column')**
             ::
+
                 g2a = g.encode_point_size('my_numeric_column')
 
         **Example: Map specific values to specific colors, including with a default**
             ::
+
                 g2a = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200})
                 g2b = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200}, default_mapping=50)
 
@@ -376,51 +388,55 @@ class Plotter(object):
         When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
-        :type column: str.
+        :type column: str
 
         :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
-        :type categorical_mapping: dict, optional.
+        :type categorical_mapping: Optional[dict]
 
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
-        :type default_mapping: numeric, optional.
+        :type default_mapping: Optional[Union[int,float]]
 
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: bool, optional.
+        :type for_default: Optional[bool]
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: bool, optional.
+        :type for_current: Optional[bool]
 
         :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
-        :type as_text: bool, optional.
+        :type as_text: Optional[bool]
 
         :param blend_mode: CSS blend mode
-        :type blend_mode: str, optional.
+        :type blend_mode: Optional[str]
 
         :param style: CSS filter properties - opacity, saturation, luminosity, grayscale, and more
-        :type style: dict, optional
+        :type style: Optional[dict]
 
         :param border: Border properties - 'width', 'color', and 'storke'
-        :type border: dict, optional
+        :type border: Optional[dict]
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Set a string column of icons for the point icons, same as bind(point_icon='my_column')**
             ::
+
                 g2a = g.encode_point_icon('my_icons_column')
 
         **Example: Map specific values to specific icons, including with a default**
             ::
+
                 g2a = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
         **Example: Map countries to abbreviations**
             ::
+
                 g2b = g.encode_point_icon('country_abbrev', as_text=True)
                 g2b = g.encode_point_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
 
         **Example: Border**
             ::
+
                 g2b = g.encode_point_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
 
         """
@@ -441,42 +457,46 @@ class Plotter(object):
         When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
-        :type column: str.
+        :type column: str
 
         :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
-        :type categorical_mapping: dict, optional.
+        :type categorical_mapping: Optional[dict]
 
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
-        :type default_mapping: numeric, optional.
+        :type default_mapping: Optional[Union[int,float]]
 
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: bool, optional.
+        :type for_default: Optional[bool]
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: bool, optional.
+        :type for_current: Optional[bool]
 
         :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
-        :type as_text: bool, optional.
+        :type as_text: Optional[bool]
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Set a string column of icons for the edge icons, same as bind(edge_icon='my_column')**
             ::
+
                 g2a = g.encode_edge_icon('my_icons_column')
 
         **Example: Map specific values to specific icons, including with a default**
             ::
+
                 g2a = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
         **Example: Map countries to abbreviations**
             ::
+
                 g2a = g.encode_edge_icon('country_abbrev', as_text=True)
                 g2b = g.encode_edge_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
 
         **Example: Border**
             ::
+
                 g2b = g.encode_edge_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
 
         """
@@ -660,52 +680,52 @@ class Plotter(object):
 
 
         :param source: Attribute containing an edge's source ID
-        :type source: String.
+        :type source: str
 
         :param destination: Attribute containing an edge's destination ID
-        :type destination: String.
+        :type destination: str
 
         :param node: Attribute containing a node's ID
-        :type node: String.
+        :type node: str
 
         :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
-        :type edge_title: HtmlString.
+        :type edge_title: str
 
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
-        :type edge_label: HtmlString.
+        :type edge_label: str
 
         :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
-        :type edge_color: int32 | int64.
+        :type edge_color: str
 
         :param edge_source_color: Attribute overriding edge's source color if no edge_color, as an rgba int64 value.
-        :type edge_source_color: int64.
+        :type edge_source_color: str
 
         :param edge_destination_color: Attribute overriding edge's destination color if no edge_color, as an rgba int64 value.
-        :type edge_destination_color: int64.
+        :type edge_destination_color: str
 
         :param edge_weight: Attribute overriding edge weight. Default is 1. Advanced layout controls will relayout edges based on this value.
-        :type edge_weight: String.
+        :type edge_weight: str
 
         :param point_title: Attribute overriding node's minimized label text. By default, the node ID is used.
-        :type point_title: HtmlString.
+        :type point_title: str
 
         :param point_label: Attribute overriding node's expanded label text. By default, scrollable list of attribute/value mappings.
-        :type point_label: HtmlString.
+        :type point_label: str
 
         :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
-        :type point_color: int32 | int64.
+        :type point_color: str
 
         :param point_size: Attribute overriding node's size. By default, uses the node degree. The visualization will normalize point sizes and adjust dynamically using semantic zoom.
-        :type point_size: HtmlString.
+        :type point_size: str
 
         :param point_x: Attribute overriding node's initial x position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
-        :type point_x: number.
+        :type point_x: str
 
         :param point_y: Attribute overriding node's initial y position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
-        :type point_y: number.
+        :type point_y: str
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Minimal**
             ::
@@ -786,8 +806,8 @@ class Plotter(object):
         :param nodes: Nodes and their attributes.
         :type point_size: Pandas dataframe
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example**
             ::
@@ -850,8 +870,8 @@ class Plotter(object):
         :param edges: Edges and their attributes.
         :type point_size: Pandas dataframe, NetworkX graph, or IGraph graph.
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example**
             ::
@@ -865,6 +885,7 @@ class Plotter(object):
 
         **Example**
             ::
+
                 import graphistry
                 df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 graphistry
@@ -887,11 +908,11 @@ class Plotter(object):
     def graph(self, ig):
         """Specify the node and edge data.
 
-        :param ig: Graph with node and edge attributes.
-        :type ig: NetworkX graph or an IGraph graph.
+        :param ig: NetworkX graph or an IGraph graph with node and edge attributes.
+        :type ig: Any
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
         """
 
         res = copy.copy(self)
@@ -906,13 +927,13 @@ class Plotter(object):
         The library takes care of URI component encoding for the dictionary.
 
         :param height: Height in pixels.
-        :type height: Integer.
+        :type height: int
 
         :param url_params: Dictionary of querystring parameters to append to the URL.
-        :type url_params: Dictionary
+        :type url_params: dict
 
         :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
-        :type render: Boolean
+        :type render: bool
 
         """
 
@@ -931,29 +952,29 @@ class Plotter(object):
 
         When used in a notebook environment, will also show an iframe of the visualization.
 
-        :param graph: Edge table or graph.
-        :type graph: Pandas dataframe, NetworkX graph, or IGraph graph.
+        :param graph: Edge table (pandas, arrow, cudf) or graph (NetworkX, IGraph).
+        :type graph: Any
 
-        :param nodes: Nodes table.
-        :type nodes: Pandas dataframe.
+        :param nodes: Nodes table (pandas, arrow, cudf)
+        :type nodes: Any
 
         :param name: Upload name.
-        :type name: Optional str.
+        :type name: str
 
         :param description: Upload description.
-        :type description: Optional str.
+        :type description: str
 
         :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
-        :type render: Boolean
+        :type render: bool
 
         :param skip_upload: Return node/edge/bindings that would have been uploaded. By default, upload happens.
-        :type skip_upload: Boolean.
+        :type skip_upload: bool
 
         :param as_files: Upload distinct node/edge files under the managed Files PI. Default off, will switch to default-on when stable.
-        :type as_files: Boolean.
+        :type as_files: bool
 
         :param memoize: Tries to memoize pandas/cudf->arrow conversion, including skipping upload. Default on.
-        :type memoize: Boolean.
+        :type memoize: bool
 
         **Example: Simple**
             ::
@@ -1326,7 +1347,7 @@ class Plotter(object):
         
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
-    def _table_to_arrow(self, table: any, memoize: bool = True) -> pa.Table:  # noqa: C901
+    def _table_to_arrow(self, table: Any, memoize: bool = True) -> pa.Table:  # noqa: C901
 
         logger.debug('_table_to_arrow of %s (memoize: %s)', type(table), memoize)
 
@@ -1545,23 +1566,23 @@ class Plotter(object):
         """Register Tigergraph connection setting defaults
     
         :param protocol: Protocol used to contact the database.
-        :type protocol: Optional string.
+        :type protocol: Optional[str]
         :param server: Domain of the database
-        :type server: Optional string.
+        :type server: Optional[str]
         :param web_port: 
-        :type web_port: Optional integer.
+        :type web_port: Optional[int]
         :param api_port: 
-        :type api_port: Optional integer.
+        :type api_port: Optional[int]
         :param db: Name of the database
-        :type db: Optional string.    
+        :type db: Optional[str]    
         :param user:
-        :type user: Optional string.    
+        :type user: Optional[str]    
         :param pwd: 
-        :type pwd: Optional string.
+        :type pwd: Optional[str]
         :param verbose: Whether to print operations
-        :type verbose: Optional bool.         
-        :returns: Plotter.
-        :rtype: Plotter.
+        :type verbose: Optional[bool]         
+        :returns: Plotter
+        :rtype: Plotter
 
 
         **Example: Standard**
@@ -1580,17 +1601,17 @@ class Plotter(object):
         """Invoke Tigergraph stored procedure at a user-definend endpoint and return transformed Plottable
     
         :param method_name: Stored procedure name
-        :type method_name: String.
+        :type method_name: str
         :param args: Named endpoint arguments
-        :type args: Optional dictionary.
+        :type args: Optional[dict]
         :param bindings: Mapping defining names of returned 'edges' and/or 'nodes', defaults to @@nodeList and @@edgeList
-        :type bindings: Optional dictionary.
+        :type bindings: Optional[dict]
         :param db: Name of the database, defaults to value set in .tigergraph(...)
-        :type db: Optional string.
+        :type db: Optional[str]
         :param dry_run: Return target URL without running
-        :type dry_run: Bool, defaults to False
-        :returns: Plotter.
-        :rtype: Plotter.
+        :type dry_run: bool
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Minimal**
                 ::
@@ -1621,13 +1642,13 @@ class Plotter(object):
         """Run Tigergraph query in interpreted mode and return transformed Plottable
     
         :param query: Code to run
-        :type query: String.
+        :type query: str
         :param bindings: Mapping defining names of returned 'edges' and/or 'nodes', defaults to @@nodeList and @@edgeList
-        :type bindings: Optional dictionary.
+        :type bindings: Optional[dict]
         :param dry_run: Return target URL without running
-        :type dry_run: Bool, defaults to False        
-        :returns: Plotter.
-        :rtype: Plotter.
+        :type dry_run: bool
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Minimal**
                 ::

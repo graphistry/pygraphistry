@@ -1,3 +1,6 @@
+#Enable when we drop 3.6
+#from __future__ import annotations
+
 import io, logging, pyarrow as pa, requests, sys
 from .ArrowFileUploader import ArrowFileUploader
 

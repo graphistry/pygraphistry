@@ -1,3 +1,6 @@
+#Enable when we drop 3.6
+#from __future__ import annotations
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .arrow_uploader import ArrowUploader
@@ -8,6 +11,8 @@ from weakref import WeakKeyDictionary
 
 logger = logging.getLogger('ArrowFileUploader')
 
+
+import pyarrow
 
 # WrappedTable -> {'file_id': str, 'output': dict}
 DF_TO_FILE_ID_CACHE : WeakKeyDictionary = WeakKeyDictionary()

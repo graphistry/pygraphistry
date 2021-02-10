@@ -11,6 +11,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Gremlin / AWS Neptune connector <-- not for this release
 * Compressed uploads: Snappy-compressed parquet for network-bound scenarios (https://github.com/graphistry/pygraphistry/issues/188)
 
+### Added
+
+* Docs: Overhaul Sphinx docs - Update, clean all warnings, add to CI, reject commits that fail
+* Docs: Setup.py (pypi) now includes full README.md
+* Docs: Added ARCHITECTURE, CONTRIBUTE, and expanded DEVELOP
+* Garden: DRY for CI + local dev via shared bin/ scripts
+* Docker: Downgrade local dev 3.7 -> 3.6 to more quickly catch minimum version errors
+* CI: Now tests building docs (fail on warnings), pypi wheels distro, and neo4j connector
+
 ## [0.16.3 - 2021-02-08]
 
 ### Added

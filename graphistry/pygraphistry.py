@@ -1,5 +1,7 @@
+from typing import Any
+
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, gzip, io, json, os, numpy, pandas, requests, sys, time, warnings
+import calendar, gzip, io, json, os, numpy, pandas as pd, requests, sys, time, warnings
 
 from datetime import datetime
 from distutils.util import strtobool
@@ -300,47 +302,51 @@ class PyGraphistry(object):
         Provide one of key (api=1,2) or username/password (api=3) or token (api=3). 
 
         :param key: API key (1.0 API).
-        :type key: Optional string.
+        :type key: Optional[str]
         :param username: Account username (2.0 API).
-        :type username: Optional string.
+        :type username: Optional[str]
         :param password: Account password (2.0 API).
-        :type password: Optional string.
+        :type password: Optional[str]
         :param token: Valid Account JWT token (2.0). Provide token, or username/password, but not both.
-        :type token: Optional string.
+        :type token: Optional[str]
         :param server: URL of the visualization server.
-        :type server: Optional string.
+        :type server: Optional[str]
         :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
-        :type certificate_validation: Optional bool.
-        :param bolt: Neo4j bolt information.
-        :type bolt: Optional driver or named constructor arguments for instantiating a new one.
+        :type certificate_validation: Optional[bool]
+        :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
+        :type bolt: Union[dict, Any]
         :param protocol: Protocol used to contact visualization server, defaults to "https".
-        :type protocol: Optional string.
+        :type protocol: Optional[str]
         :param token_refresh_ms: Ignored for now; JWT token auto-refreshed on plot() calls.
-        :type token_refresh_ms:
+        :type token_refresh_ms: int
         :param store_token_creds_in_memory: Store username/password in-memory for JWT token refreshes (Token-originated have a hard limit, so always-on requires creds somewhere)
-        :type store_token_creds_in_memory: Optional bool. Default-on.
+        :type store_token_creds_in_memory: Optional[bool]
         :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
-        :type client_protocol_hostname: Optional string.
+        :type client_protocol_hostname: Optional[str]
         :returns: None.
-        :rtype: None.
+        :rtype: None
 
         **Example: Standard (2.0 api by username/password)**
                 ::
+
                     import graphistry
                     graphistry.register(api=3, protocol='http', server='200.1.1.1', username='person', password='pwd')
 
         **Example: Standard (2.0 api by token)**
                 ::
+
                     import graphistry
                     graphistry.register(api=3, protocol='http', server='200.1.1.1', token='abc')
 
         **Example: Remote browser to Graphistry-provided notebook server (2.0)**
                 ::
+
                     import graphistry
                     graphistry.register(api=3, protocol='http', server='nginx', client_protocol_hostname='https://my.site.com', token='abc')
 
         **Example: Standard (1.0)**
                 ::
+
                     import graphistry
                     graphistry.register(api=1, key="my api key")
 
@@ -365,9 +371,10 @@ class PyGraphistry(object):
     def hypergraph(raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=False, verbose=True, direct=False):
         """Transform a dataframe into a hypergraph.
 
-        :param Dataframe raw_events: Dataframe to transform
-        :param List entity_types: Optional list of columns (strings) to turn into nodes, None signifies all
-        :param Dict opts: See below
+        :param raw_events: Dataframe to transform
+        :type raw_events: pandas.DataFrame
+        :param list entity_types: Optional list of columns (strings) to turn into nodes, None signifies all
+        :param dict opts: See below
         :param bool drop_edge_attrs: Whether to include each row's attributes on its edges, defaults to False (include)
         :param bool verbose: Whether to print size information
         :param bool direct: Omit hypernode and instead strongly connect nodes in an event
@@ -402,7 +409,7 @@ class PyGraphistry(object):
 
 
         :returns: {'entities': DF, 'events': DF, 'edges': DF, 'nodes': DF, 'graph': Plotter}
-        :rtype: Dictionary
+        :rtype: dict
 
         **Example**
 
@@ -505,8 +512,8 @@ class PyGraphistry(object):
         
         For parameters, see ``plotter.addStyle``.
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example**
 
@@ -526,8 +533,8 @@ class PyGraphistry(object):
         
         For parameters, see ``plotter.style``.
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example**
 
@@ -549,47 +556,51 @@ class PyGraphistry(object):
         """Set point color with more control than bind()
 
         :param column: Data column name
-        :type column: str.
+        :type column: str
 
         :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
-        :type palette: list, optional.
+        :type palette: Optional[list]
 
         :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
-        :type as_categorical: bool, optional.
+        :type as_categorical: Optional[bool]
 
         :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
-        :type as_continuous: bool, optional.
+        :type as_continuous: Optional[bool]
 
         :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
-        :type categorical_mapping: dict, optional.
+        :type categorical_mapping: Optional[dict]
 
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
-        :type default_mapping: str, optional.
+        :type default_mapping: Optional[str]
 
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: bool, optional.
+        :type for_default: Optional[bool]
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: bool, optional.
+        :type for_current: Optional[bool]
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Set a palette-valued column for the color, same as bind(point_color='my_column')**
             ::
+
                 g2a = g.encode_point_color('my_int32_palette_column')
                 g2b = g.encode_point_color('my_int64_rgb_column')
 
         **Example: Set a cold-to-hot gradient of along the spectrum blue, yellow, red**
             ::
+
                 g2 = g.encode_point_color('my_numeric_col', palette=["blue", "yellow", "red"], as_continuous=True)
 
         **Example: Round-robin sample from 5 colors in hex format**
             ::
+
                 g2 = g.encode_point_color('my_distinctly_valued_col', palette=["#000", "#00F", "#0F0", "#0FF", "#FFF"], as_categorical=True)
 
         **Example: Map specific values to specific colors, including with a default**
             ::
+
                 g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'})
                 g2a = g.encode_point_color('brands', categorical_mapping={'toyota': 'red', 'ford': 'blue'}, default_mapping='gray')
 
@@ -608,31 +619,31 @@ class PyGraphistry(object):
         """Set edge color with more control than bind()
 
         :param column: Data column name
-        :type column: str.
+        :type column: str
 
         :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
-        :type palette: list, optional.
+        :type palette: Optional[list]
 
         :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
-        :type as_categorical: bool, optional.
+        :type as_categorical: Optional[bool]
 
         :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
-        :type as_continuous: bool, optional.
+        :type as_continuous: Optional[bool]
 
         :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
-        :type categorical_mapping: dict, optional.
+        :type categorical_mapping: Optional[dict]
 
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
-        :type default_mapping: str, optional.
+        :type default_mapping: Optional[str]
 
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: bool, optional.
+        :type for_default: Optional[bool]
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: bool, optional.
+        :type for_current: Optional[bool]
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: See encode_point_color**
         """
@@ -649,29 +660,31 @@ class PyGraphistry(object):
         """Set point size with more control than bind()
 
         :param column: Data column name
-        :type column: str.
+        :type column: str
 
         :param categorical_mapping: Mapping from column values to numbers. Ex: {"car": 100, "truck": 200}
-        :type categorical_mapping: dict, optional.
+        :type categorical_mapping: Optional[dict]
 
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
-        :type default_mapping: numeric, optional.
+        :type default_mapping: Optional[Union[int,float]]
 
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: bool, optional.
+        :type for_default: Optional[bool]
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: bool, optional.
+        :type for_current: Optional[bool]
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Set a numerically-valued column for the size, same as bind(point_size='my_column')**
             ::
+
                 g2a = g.encode_point_size('my_numeric_column')
 
         **Example: Map specific values to specific colors, including with a default**
             ::
+
                 g2a = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200})
                 g2b = g.encode_point_size('brands', categorical_mapping={'toyota': 100, 'ford': 200}, default_mapping=50)
 
@@ -690,51 +703,55 @@ class PyGraphistry(object):
         """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
         :param column: Data column name
-        :type column: str.
+        :type column: str
 
         :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
-        :type categorical_mapping: dict, optional.
+        :type categorical_mapping: Optional[dict]
 
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
-        :type default_mapping: numeric, optional.
+        :type default_mapping: Optional[Union[int,float]]
 
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: bool, optional.
+        :type for_default: Optional[bool]
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: bool, optional.
+        :type for_current: Optional[bool]
 
         :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
-        :type as_text: bool, optional.
+        :type as_text: Optional[bool]
 
         :param blend_mode: CSS blend mode
-        :type blend_mode: str, optional.
+        :type blend_mode: Optional[str]
 
         :param style: CSS filter properties - opacity, saturation, luminosity, grayscale, and more
-        :type style: dict, optional
+        :type style: Optional[dict]
 
         :param border: Border properties - 'width', 'color', and 'storke'
-        :type border: dict, optional
+        :type border: Optional[dict]
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Set a string column of icons for the point icons, same as bind(point_icon='my_column')**
             ::
+
                 g2a = g.encode_point_icon('my_icons_column')
 
         **Example: Map specific values to specific icons, including with a default**
             ::
+
                 g2a = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_point_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
         **Example: Map countries to abbreviations**
             ::
+
                 g2b = g.encode_point_icon('country_abbrev', as_text=True)
                 g2b = g.encode_point_icon('country', as_text=True, categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
 
         **Example: Border**
             ::
+
                 g2b = g.encode_point_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
 
         """
@@ -755,51 +772,55 @@ class PyGraphistry(object):
         """Set edge icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/
 
         :param column: Data column name
-        :type column: str.
+        :type column: str
 
         :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
-        :type categorical_mapping: dict, optional.
+        :type categorical_mapping: Optional[dict]
 
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
-        :type default_mapping: numeric, optional.
+        :type default_mapping: Optional[Union[int,float]]
 
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: bool, optional.
+        :type for_default: Optional[bool]
 
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: bool, optional.
+        :type for_current: Optional[bool]
 
         :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
-        :type as_text: bool, optional.
+        :type as_text: Optional[bool]
 
         :param blend_mode: CSS blend mode
-        :type blend_mode: str, optional.
+        :type blend_mode: Optional[str]
 
         :param style: CSS filter properties - opacity, saturation, luminosity, grayscale, and more
-        :type style: dict, optional
+        :type style: Optional[dict]
 
         :param border: Border properties - 'width', 'color', and 'storke'
-        :type border: dict, optional
+        :type border: Optional[dict]
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Set a string column of icons for the edge icons, same as bind(edge_icon='my_column')**
             ::
+
                 g2a = g.encode_edge_icon('my_icons_column')
 
         **Example: Map specific values to specific icons, including with a default**
             ::
+
                 g2a = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'})
                 g2b = g.encode_edge_icon('brands', categorical_mapping={'toyota': 'car', 'ford': 'truck'}, default_mapping='question')
 
         **Example: Map countries to abbreviations**
             ::
+
                 g2a = g.encode_edge_icon('country_abbrev', as_text=True)
                 g2b = g.encode_edge_icon('country', categorical_mapping={'England': 'UK', 'America': 'US'}, default_mapping='')
 
         **Example: Border**
             ::
+
                 g2b = g.encode_edge_icon('country', border={'width': 3, color: 'black', 'stroke': 'dashed'}, 'categorical_mapping={'England': 'UK', 'America': 'US'})
 
         """
@@ -847,8 +868,8 @@ class PyGraphistry(object):
 
         Typically called at start of a program. For parameters, see ``plotter.bind()`` .
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example**
 
@@ -882,23 +903,23 @@ class PyGraphistry(object):
         """Register Tigergraph connection setting defaults
     
         :param protocol: Protocol used to contact the database.
-        :type protocol: Optional string.
+        :type protocol: Optional[str]
         :param server: Domain of the database
-        :type server: Optional string.
+        :type server: Optional[str]
         :param web_port: 
-        :type web_port: Optional integer.
+        :type web_port: Optional[int]
         :param api_port: 
-        :type api_port: Optional integer.
+        :type api_port: Optional[int]
         :param db: Name of the database
-        :type db: Optional string.    
+        :type db: Optional[str]    
         :param user:
-        :type user: Optional string.    
+        :type user: Optional[str]    
         :param pwd: 
-        :type pwd: Optional string.
+        :type pwd: Optional[str]
         :param verbose: Whether to print operations
-        :type verbose: Optional bool.         
-        :returns: Plotter.
-        :rtype: Plotter.
+        :type verbose: Optional[bool]         
+        :returns: Plotter
+        :rtype: Plotter
 
 
         **Example: Standard**
@@ -917,17 +938,17 @@ class PyGraphistry(object):
         """Invoke Tigergraph stored procedure at a user-definend endpoint and return transformed Plottable
     
         :param method_name: Stored procedure name
-        :type method_name: String.
+        :type method_name: str
         :param args: Named endpoint arguments
-        :type args: Optional dictionary.
+        :type args: Optional[dict]
         :param bindings: Mapping defining names of returned 'edges' and/or 'nodes', defaults to @@nodeList and @@edgeList
-        :type bindings: Optional dictionary.
+        :type bindings: Optional[dict]
         :param db: Name of the database, defaults to value set in .tigergraph(...)
-        :type db: Optional string.
+        :type db: Optional[str]
         :param dry_run: Return target URL without running
-        :type dry_run: Bool, defaults to False            
-        :returns: Plotter.
-        :rtype: Plotter.
+        :type dry_run: bool
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Minimal**
                 ::
@@ -962,13 +983,13 @@ class PyGraphistry(object):
         """Run Tigergraph query in interpreted mode and return transformed Plottable
     
         :param query: Code to run
-        :type query: String.
+        :type query: str
         :param bindings: Mapping defining names of returned 'edges' and/or 'nodes', defaults to @@nodeList and @@edgeList
-        :type bindings: Optional dictionary.
+        :type bindings: Optional[dict]
         :param dry_run: Return target URL without running
-        :type dry_run: Bool, defaults to False        
-        :returns: Plotter.
-        :rtype: Plotter.
+        :type dry_run: bool        
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example: Minimal**
                 ::
@@ -1038,22 +1059,22 @@ class PyGraphistry(object):
         Must include any nodes referenced in the edge list.
 
         :param nodes: Nodes and their attributes.
-        :type point_size: Pandas dataframe
+        :type point_size: pd.DataFrame
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example**
             ::
 
                 import graphistry
 
-                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                es = pd.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 g = graphistry
                     .bind(source='src', destination='dst')
                     .edges(es)
 
-                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                vs = pd.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
                 g = g.bind(node='v').nodes(vs)
 
                 g.plot()
@@ -1063,10 +1084,10 @@ class PyGraphistry(object):
 
                 import graphistry
 
-                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                es = pd.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 g = graphistry.edges(es, 'src', 'dst')
 
-                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                vs = pd.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
                 g = g.nodes(vs, 'v)
 
                 g.plot()
@@ -1078,17 +1099,17 @@ class PyGraphistry(object):
     def edges(edges, source=None, destination=None):
         """Specify edge list data and associated edge attribute values.
 
-        :param edges: Edges and their attributes.
-        :type point_size: Pandas dataframe, NetworkX graph, or IGraph graph.
+        :param edges: Edges and their attributes (Pandas dataframe, NetworkX graph, or IGraph graph)
+        :type point_size: Any
 
-        :returns: Plotter.
-        :rtype: Plotter.
+        :returns: Plotter
+        :rtype: Plotter
 
         **Example**
             ::
 
                 import graphistry
-                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                df = pd.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 graphistry
                     .bind(source='src', destination='dst')
                     .edges(df)
@@ -1096,8 +1117,9 @@ class PyGraphistry(object):
 
         **Example**
             ::
+
                 import graphistry
-                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                df = pd.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 graphistry
                     .edges(df, 'src', 'dst')
                     .plot()
@@ -1330,7 +1352,7 @@ class NumpyJSONEncoder(json.JSONEncoder):
             return obj.tolist()
         elif isinstance(obj, numpy.generic):
             return obj.item()
-        elif isinstance(obj, type(pandas.NaT)):
+        elif isinstance(obj, type(pd.NaT)):
             return None
         elif isinstance(obj, datetime):
             return obj.isoformat()

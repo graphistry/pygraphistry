@@ -1,85 +1,82 @@
 #!/usr/bin/env python
 
 from setuptools import setup, find_packages
+#FIXME: prevents pyproject.toml - same as https://github.com/SciTools/cartopy/issues/1270
 import versioneer
 
-long_description = """
-**PyGraphistry** is a visual graph analytics library to extract, transform, and
-load big graphs into `Graphistry's <http://www.graphistry.com>`_ GPU-cloud-accelerated
-explorer.
+def unique_flatten_dict(d):
+  return list(set(sum( d.values(), [] )))
 
-PyGraphistry is...
+core_requires = ['numpy', 'pandas >= 0.17.0', 'pyarrow >= 0.15.0', 'requests', 'protobuf >= 2.6.0']
 
-- **Fast & Gorgeous**: Cluster, filter, and inspect large amounts of data at
-  interactive speed. We layout graphs with a descendant of the gorgeous
-  ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects
-  to Graphistry's GPU cluster to layout and render hundreds of thousand of
-  nodes+edges in your browser at unparalleled speeds.
+dev_extras = {
+    'docs': ['sphinx==3.2.1', 'sphinx_autodoc_typehints==1.11.1'],
+    'test': ['pytest', 'mock', 'flake8'],
+    'build': ['build']
+}
 
-- **Notebook Friendly**: PyGraphistry plays well with interactive notebooks
-  like IPython/Juypter, Zeppelin, and Databricks: Process, visualize, and drill
-  into with graphs directly within your notebooks.
+base_extras = {
+    'igraph': ['python-igraph'],
+    'networkx': ['networkx==2.2'],
+    'bolt': ['neo4j', 'neotime'],
+    'nodexl': ['openpyxl', 'xlrd'],
+    'jupyter': ['ipython']
+}
 
-- **Batteries Included**: PyGraphistry works out-of-the-box with popular data
-  science and graph analytics libraries. It is also very easy to use. To create
-  the visualization shown above, download this dataset of Facebook communities
-  from SNAP and load it with your favorite library
+extras_require = {
 
+  **base_extras,
+  **dev_extras,
 
-Try It Out!
------------
+  #kitchen sink for users -- not recommended
+  'all': unique_flatten_dict(base_extras),
 
-Tutorial and API docs are on
-`https://github.com/graphistry/pygraphistry <https://github.com/graphistry/pygraphistry>`_
-"""
+  #kitchen sink for contributors
+  'dev': unique_flatten_dict(base_extras) + unique_flatten_dict(dev_extras),
+
+}
 
 setup(
     name='graphistry',
     version=versioneer.get_version(),
+    cmdclass=versioneer.get_cmdclass(),
     packages = ['graphistry'],
     platforms='any',
-    description = 'Visualize node-link graphs using Graphistry\'s cloud',
-    long_description=long_description,
+    description = 'A visual graph analytics library for extracting, transforming, displaying, and sharing big graphs with end-to-end GPU acceleration',
+    long_description=open("./README.md").read(),
     url='https://github.com/graphistry/pygraphistry',
     download_url= 'https://pypi.python.org/pypi/graphistry/',
     python_requires='>=3.6',
     author='The Graphistry Team',
     author_email='pygraphistry@graphistry.com',
-    setup_requires=['numpy', 'pytest-runner'],
-    install_requires=['numpy', 'pandas >= 0.17.0', 'pyarrow >= 0.15.0', 'requests', 'protobuf >= 2.6.0'],
-    extras_require={
-        'igraph': ['python-igraph'],
-        'networkx': ['networkx'],
-        'bolt': ['neo4j', 'neotime'],
-        'nodexl': ['openpyxl', 'xlrd'],
-        'dev': [
-          'pytest', 'mock', 'ipython',
-          'python-igraph', 'networkx==2.2', 'colorlover',
-          'neo4j', 'neotime',
-          'openpyxl', 'xlrd'
-        ],
-        'all': ['python-igraph', 'networkx', 'colorlover', 'neo4j', 'neotime']
-    },
-    tests_require=
-        ['pytest', 'mock', 'ipython', 
-        'python-igraph', 'networkx==2.2', 'colorlover', 
-        'neo4j', 'neotime',
-        'openpyxl', 'xlrd'],
-    cmdclass=versioneer.get_cmdclass(),
+    install_requires=core_requires,
+    extras_require=extras_require,
     license='BSD',
     classifiers=[
-        'Development Status :: 4 - Beta',
+        'Development Status :: 6 - Mature',
         'Environment :: Console',
+        'Environment :: GPU :: NVIDIA CUDA',
         'License :: OSI Approved :: BSD License',
         'Operating System :: OS Independent',
+        'Intended Audience :: Developers',
+        'Intended Audience :: Information Technology',
         'Intended Audience :: Science/Research',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
-        'Topic :: Scientific/Engineering :: Visualization',
+        'Topic :: Internet :: Log Analysis',
+        'Topic :: Multimedia :: Graphics',
+        'Topic :: Scientific/Engineering :: Artificial Intelligence',
+        'Topic :: Scientific/Engineering :: Bio-Informatics',
         'Topic :: Scientific/Engineering :: Information Analysis',
+        'Topic :: Scientific/Engineering :: Visualization',
+        'Topic :: Sociology',
+        'Topic :: Software Development :: Libraries',
+        'Topic :: Software Development :: User Interfaces',
+        'Topic :: Software Development :: Widget Sets',
+        'Topic :: System :: Distributed Computing'
     ],
-    keywords=['Graph', 'Network', 'Plot', 'Visualization', 'Pandas', 'Igraph', 'Jupyter', 'Notebook', 'Neo4j', 'Gremlin', 'Tinkerpop', 'RDF', 'GraphX', 'NetworkX', 'Splunk', 'Spark']
+    keywords=['cugraph', 'cudf', 'dask', 'GPU', 'Graph',  'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Network', 'NetworkX',  'Notebook', 'Pandas', 'Plot', 'Rapids', 'RDF', 'Splunk', 'Spark', 'Tinkerpop', 'Visualization']
 )
