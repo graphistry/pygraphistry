@@ -376,6 +376,11 @@ class ArrowUploader:
             if not ('success' in out) or not out['success']:
                 raise Exception('No success indicator in server response')
             return out
+        except requests.exceptions.HTTPError as e:
+            logger.error('Failed to post arrow to %s (%s)', sub_path, e.request.url, exc_info=True)
+            logger.error('%s', e)
+            logger.error('%s', e.response.text)
+            raise e
         except Exception as e:
             logger.error('Failed to post arrow to %s', sub_path, exc_info=True)
             raise e
