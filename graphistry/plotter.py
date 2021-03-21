@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 import copy, hashlib, logging, numpy, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
@@ -64,8 +64,8 @@ class Plotter(object):
     """
 
     _defaultNodeId = '__nodeid__'
-    _pd_hash_to_arrow = WeakValueDictionary()
-    _cudf_hash_to_arrow = WeakValueDictionary()
+    _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
+    _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
 
     def __init__(self):
         # Bindings
@@ -1331,7 +1331,7 @@ class Plotter(object):
         }
         return (elist, nlist, encodings)
 
-    def _table_to_pandas(self, table) -> pd.DataFrame:
+    def _table_to_pandas(self, table) -> Optional[pd.DataFrame]:
 
         if table is None:
             return table
@@ -1510,7 +1510,7 @@ class Plotter(object):
                 'key': PyGraphistry.api_key(),
                 'agent': 'pygraphistry',
                 'apiversion' : '3',
-                'agentversion': sys.modules['graphistry'].__version__,
+                'agentversion': sys.modules['graphistry'].__version__,  # type: ignore
                 **(metadata or {})
             },
             certificate_validation=PyGraphistry.certificate_validation())

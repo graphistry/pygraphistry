@@ -29,4 +29,4 @@ docker run \
     --rm \
     ${NETWORK} \
     graphistry/test-cpu:${TEST_CPU_VERSION} \
-        --maxfail=5 $@
+        --maxfail=1 $@

@@ -3,12 +3,11 @@
 
 import logging, pyarrow as pa, requests, sys
 from functools import lru_cache
+from typing import Any, Tuple
 from weakref import WeakKeyDictionary
 
 logger = logging.getLogger('ArrowFileUploader')
 
-
-import pyarrow
 
 # WrappedTable -> {'file_id': str, 'output': dict}
 DF_TO_FILE_ID_CACHE : WeakKeyDictionary = WeakKeyDictionary()
@@ -50,7 +49,7 @@ class ArrowFileUploader():
 
     """
 
-    uploader = None  # ArrowUploader
+    uploader : Any = None  # ArrowUploader, circular
 
     def __init__(self, uploader):  # ArrowUploader
         self.uploader = uploader
@@ -73,7 +72,7 @@ class ArrowFileUploader():
         json_extended = {
             'file_type': 'arrow',
             'agent_name': 'pygraphistry',
-            'agent_version': sys.modules['graphistry'].__version__,
+            'agent_version': sys.modules['graphistry'].__version__,  # type: ignore
             **file_opts
         }
 
@@ -123,7 +122,9 @@ class ArrowFileUploader():
 
     ###
 
-    def create_and_post_file(self, arr: pa.Table, file_id: str = None, file_opts: dict = {}, upload_url_opts: str = 'erase=true', memoize: bool = True) -> (str, dict):
+    def create_and_post_file(
+        self, arr: pa.Table, file_id: str = None, file_opts: dict = {}, upload_url_opts: str = 'erase=true', memoize: bool = True
+    ) -> Tuple[str, dict]:
         """
             Create file and upload data for it.
 
@@ -136,6 +137,8 @@ class ArrowFileUploader():
 
         if memoize:
             #FIXME if pa.Table was hashable, could do direct set/get map
+            wrapped_table : WrappedTable
+            val : MemoizedFileUpload
             for wrapped_table, val in DF_TO_FILE_ID_CACHE.items():
                 if wrapped_table.arr is arr:
                     logger.debug('arrow->file_id memoization hit: %s', val.file_id)
@@ -151,7 +154,7 @@ class ArrowFileUploader():
         if memoize:
             wrapped = WrappedTable(arr)
             cache_arr(wrapped)
-            DF_TO_FILE_ID_CACHE[wrapped] = MemoizedFileUpload(file_id, out)
+            DF_TO_FILE_ID_CACHE[wrapped] = out
             logger.debug('Memoized arrow->file_id %s', file_id)
         
         return out.file_id, out.output

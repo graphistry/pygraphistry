@@ -79,7 +79,8 @@ def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
 
 # Knowing a col is all-spatial, flatten into primitive cols
 def flatten_spatial_col(df : pd.DataFrame, col : str) -> pd.DataFrame:  # noqa: C901
-    out_df = df.copy(deep=False)
+
+    out_df : pd.DataFrame = df.copy(deep=False)  # type: ignore
 
     ####
 
@@ -179,19 +180,19 @@ def get_mod(v):
 #   - some: stringify
 def flatten_spatial(df : pd.DataFrame, col : str) -> pd.DataFrame:
 
-    any_spatial = (df[col].apply(get_mod) == 'neo4j.spatial').any()
+    any_spatial = (df[col].apply(get_mod) == 'neo4j.spatial').any()  # type: ignore
     if not any_spatial:
         return df
 
-    with_vals = df[col].dropna()
-    if len(with_vals) == 0:
+    with_vals : pd.Series = df[col].dropna()  # type: ignore
+    if len(with_vals) == 0:  # type: ignore
         return df
 
-    out_df = df.copy(deep=False)
+    out_df : pd.DataFrame = df.copy(deep=False)  # type: ignore
 
-    t0 = with_vals[0]
+    t0 = with_vals[0]  # type: ignore
     try:
-        all_t0 = (with_vals.apply(lambda s: s.__class__) == t0.__class__).all()
+        all_t0 = (with_vals.apply(lambda s: s.__class__) == t0.__class__).all()  # type: ignore
     except:
         all_t0 = False
     
@@ -203,8 +204,8 @@ def flatten_spatial(df : pd.DataFrame, col : str) -> pd.DataFrame:
     return out_df
 
 
-def neo_df_to_pd_df(df):
-    out_df = df.copy(deep=False)
+def neo_df_to_pd_df(df: pd.DataFrame) -> pd.DataFrame:
+    out_df : pd.DataFrame = df.copy(deep=False)  # type: ignore
     for col in df:
         if df[col].dtype.name == 'object':
             out_df[col] = df[col].apply(neo_val_to_pd_val)

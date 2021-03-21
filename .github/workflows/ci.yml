@@ -57,6 +57,10 @@ jobs:
       run: |
         ./bin/lint.sh
 
+    - name: Type check
+      run: |
+        ./bin/typecheck.sh
+
     - name: Core tests
       run: |
         ./bin/test.sh

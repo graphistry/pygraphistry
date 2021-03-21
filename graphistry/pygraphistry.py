@@ -168,6 +168,7 @@ class PyGraphistry(object):
         except Exception as e:
             if not fail_silent:
                 util.error('Failed to verify token: %s' % str(e))
+            return False
 
 
     @staticmethod
