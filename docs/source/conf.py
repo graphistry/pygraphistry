@@ -50,7 +50,8 @@ nitpick_ignore = [
     ('py:class', 'pyarrow.lib.Table'),
     ('py:class', 'requests.models.Response'),
     ('py:class', 'weakref.WeakKeyDictionary'),
-    ('py:data', 'typing.Optional')
+    ('py:data', 'typing.Optional'),
+    ('py:data', 'typing.Tuple')
 ]
 
 set_type_checking_flag=True
