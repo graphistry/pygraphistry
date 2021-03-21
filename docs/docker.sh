@@ -12,5 +12,5 @@ docker run \
     --rm \
     -e USER_ID=$UID \
     -v $(pwd)/..:/doc \
-    ddidier/sphinx-doc:3.2.1-1 \
+    ddidier/sphinx-doc:3.4.3-1 \
     -c "${RUN_INSTALLS} && ${RUN_SPHINX}"
