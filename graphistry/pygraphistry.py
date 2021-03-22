@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List, Optional
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, gzip, io, json, os, numpy, pandas as pd, requests, sys, time, warnings
@@ -369,26 +369,35 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def hypergraph(raw_events, entity_types=None, opts={}, drop_na=True, drop_edge_attrs=False, verbose=True, direct=False):
+    def hypergraph(
+        raw_events, entity_types: Optional[List[str]] = None, opts: dict = {},
+        drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
+        engine: str = 'pandas'
+    ):
         """Transform a dataframe into a hypergraph.
 
-        :param raw_events: Dataframe to transform
+        :param raw_events: Dataframe to transform (pandas or cudf). 
         :type raw_events: pandas.DataFrame
         :param list entity_types: Optional list of columns (strings) to turn into nodes, None signifies all
         :param dict opts: See below
         :param bool drop_edge_attrs: Whether to include each row's attributes on its edges, defaults to False (include)
         :param bool verbose: Whether to print size information
         :param bool direct: Omit hypernode and instead strongly connect nodes in an event
+        :param bool engine: String (pandas, cudf, ...) for engine to use. Should match raw_events type.
+
+        Specify engine mode by passing `engine='pandas'` or `engine='cudf'` (default: 'pandas').
 
         Create a graph out of the dataframe, and return the graph components as dataframes, 
         and the renderable result Plotter. It reveals relationships between the rows and between column values.
         This transform is useful for lists of events, samples, relationships, and other structured high-dimensional data.
 
-        The transform creates a node for every row, and turns a row's column entries into node attributes. 
-        If direct=False (default), every unique value within a column is also turned into a node. 
-        Edges are added to connect a row's nodes to each of its column nodes, or if direct=True, to one another.
+        The transform creates a node for every unique value in the entity_types columns (default: all columns). 
+        If direct=False (default), every row is also turned into a node. 
+        Edges are added to connect every table cell to its originating row's node, or if direct=True, to the other nodes from the same row.
         Nodes are given the attribute 'type' corresponding to the originating column name, or in the case of a row, 'EventID'.
-
+        Options further control the transform, such column category definitions for controlling whether values
+        reocurring in different columns should be treated as one node,
+        or whether to only draw edges between certain column type pairs. 
 
         Consider a list of events. Each row represents a distinct event, and each column some metadata about an event. 
         If multiple events have common metadata, they will be transitively connected through those metadata values. 
@@ -422,7 +431,7 @@ class PyGraphistry(object):
 
         """
         from . import hyper
-        return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct)
+        return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct, engine=engine)
 
 
     @staticmethod

@@ -13,9 +13,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Improved error message: Include response body on failed arrow.post()
 * Hypergraph: cudf/dask/dask_cudf
 
+## [0.18.0 - 2021-03-21]
+
 ### Added
-* CI: mypy type checking
-* CI: GPU test harness
+
+* Feature: cudf mode for hypergraph (https://github.com/graphistry/pygraphistry/pull/224)
+* Feature: pandas mode for hypergraph uses all-vectorized operations (https://github.com/graphistry/pygraphistry/pull/224)
+* Infra: Engine class for picking dataframe engine - pandas/cudf/dask/dask_cudf (https://github.com/graphistry/pygraphistry/pull/224)
+* CI: mypy type checking (https://github.com/graphistry/pygraphistry/pull/222)
+* CI: GPU test harness (https://github.com/graphistry/pygraphistry/pull/223)
+
+### Changed
+
+* Hypergraph: Uses new pandas/cudf implementations (https://github.com/graphistry/pygraphistry/pull/224)
 
 ### Added
 
