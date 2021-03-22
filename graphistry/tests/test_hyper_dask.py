@@ -515,3 +515,11 @@ class TestHypergraphCudf(NoAuthTestCase):
         edges_err = hg.graph._edges.to_arrow()
         assert len(hg.graph._edges) == 9
         assert len(edges_err) == 9
+
+    def test_hyperedges_import(self):
+        from graphistry.pygraphistry import hypergraph as hypergraph_public
+
+        h = hypergraph_public(hyper_gdf(), verbose=False, direct=True, engine='cudf')
+
+        self.assertEqual(len(h['edges']), 9)
+        self.assertEqual(len(h['nodes']), 9)

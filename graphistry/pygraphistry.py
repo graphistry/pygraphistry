@@ -431,7 +431,7 @@ class PyGraphistry(object):
 
         """
         from . import hyper
-        return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct)
+        return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct, engine=engine)
 
 
     @staticmethod
