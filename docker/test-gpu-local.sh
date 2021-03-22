@@ -19,7 +19,7 @@ then
     ( cd ../test/db/neo4j && ./launch.sh )
 fi
 
-docker-compose build test-cpu
+docker-compose build test-gpu
 
 echo "RUN"
 
@@ -28,5 +28,5 @@ docker run \
     -e WITH_NEO4J=$WITH_NEO4J \
     --rm \
     ${NETWORK} \
-    graphistry/test-cpu:${TEST_CPU_VERSION} \
+    graphistry/test-gpu:${TEST_CPU_VERSION} \
         --maxfail=1 $@

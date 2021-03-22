@@ -25,6 +25,7 @@ x-build-kwargs:
 ############################################################
 
 services:
+
   test-cpu:
     << : *production_opts
     image: graphistry/test-cpu:${DOCKER_TAG:-latest}
@@ -35,7 +36,14 @@ services:
       cache_from:
         - graphistry/test-cpu:${DOCKER_TAG:-latest}
     container_name: "test-cpu"
-    #ports:
-    #  - "8501:8501"
-    #volumes:
-    #  - ../python:/apps
+
+  test-gpu:
+    << : *production_opts
+    image: graphistry/test-gpu:${DOCKER_TAG:-latest}
+    build:
+      << : *build_kwargs
+      context: ..
+      dockerfile: ./docker/test-gpu.Dockerfile
+      cache_from:
+        - graphistry/test-gpu:${DOCKER_TAG:-latest}
+    container_name: "test-gpu"

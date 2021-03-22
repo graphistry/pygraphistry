@@ -14,7 +14,13 @@ cd docker && docker-compose build && docker-compose up -d
 ### Run local tests without rebuild
 
 ```bash
-cd docker && ./test-cpu-local.sh
+cd docker
+
+# cpu
+./test-cpu-local.sh
+
+# gpu
+./test-gpu-local.sh
 ```
 
 Connector tests (currently neo4j-only): `cd docker && WITH_NEO4J=1 ./test-cpu-local.sh` (optional `WITH_SUDO=" "`)
