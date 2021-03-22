@@ -14,8 +14,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Hypergraph: cudf/dask/dask_cudf
 
 ### Added
-* CI: mypy type checking
-* CI: GPU test harness
+
+* Infra: Engine class for picking dataframe engine - pandas/cudf/dask/dask_cudf
+* Feature: cudf mode for hypergraph
+* Feature: pandas mode for hypergraph uses all-vectorized operations
+* CI: mypy type checking (https://github.com/graphistry/pygraphistry/pull/222)
+* CI: GPU test harness (https://github.com/graphistry/pygraphistry/pull/223)
+
+### Changed
+
+* Hypergraph: Uses new pandas/cudf implementations
 
 ## [0.17.0 - 2021-02-08]
 
