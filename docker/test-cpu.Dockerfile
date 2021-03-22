@@ -15,9 +15,10 @@ RUN \
     && pip install -e .[dev] \
     && pip list
 
-COPY bin ./bin
 COPY docker/test-cpu-entrypoint.sh /entrypoint/test-cpu-entrypoint.sh
-COPY graphistry ./graphistry
+COPY bin ./bin
+COPY mypy.ini .
 COPY pytest.ini .
+COPY graphistry ./graphistry
 
 ENTRYPOINT ["/entrypoint/test-cpu-entrypoint.sh"]

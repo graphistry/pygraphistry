@@ -11,6 +11,9 @@ python -m pip --version
 echo "=== Linting ==="
 ./bin/lint.sh
 
+echo "=== Type checking ==="
+./bin/typecheck.sh
+
 echo "=== Testing ==="
 ./bin/test.sh $@
 

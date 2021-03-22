@@ -4,8 +4,8 @@ import numpy, pandas, warnings
 
 from .graph_vector_pb2 import VectorGraph
 
-EDGE = VectorGraph.EDGE
-VERTEX = VectorGraph.VERTEX
+EDGE = VectorGraph.EDGE  # type: ignore
+VERTEX = VectorGraph.VERTEX  #  type: ignore
 
 # Creates the ETL2 protobuf vgraph from
 #  - edge_df: the edge dataframe

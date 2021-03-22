@@ -9,9 +9,13 @@ def unique_flatten_dict(d):
 
 core_requires = ['numpy', 'pandas >= 0.17.0', 'pyarrow >= 0.15.0', 'requests', 'protobuf >= 2.6.0']
 
+stubs = [
+  'pandas-stubs'
+]
+
 dev_extras = {
-    'docs': ['sphinx==3.2.1', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1'],
-    'test': ['pytest', 'mock', 'flake8'],
+    'docs': ['sphinx==3.4.3', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1'],
+    'test': ['flake8', 'mock', 'mypy', 'pytest'] + stubs,
     'build': ['build']
 }
 
