@@ -15,6 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 * CI: mypy type checking
+* CI: GPU test harness
 
 ## [0.17.0 - 2021-02-08]
 
