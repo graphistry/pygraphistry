@@ -372,24 +372,28 @@ class PyGraphistry(object):
     def hypergraph(
         raw_events, entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: str = 'pandas'
+        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None
+
     ):
         """Transform a dataframe into a hypergraph.
 
         :param raw_events: Dataframe to transform (pandas or cudf). 
         :type raw_events: pandas.DataFrame
-        :param list entity_types: Optional list of columns (strings) to turn into nodes, None signifies all
+        :param Optional[list] entity_types: Columns (strings) to turn into nodes, None signifies all
         :param dict opts: See below
         :param bool drop_edge_attrs: Whether to include each row's attributes on its edges, defaults to False (include)
         :param bool verbose: Whether to print size information
         :param bool direct: Omit hypernode and instead strongly connect nodes in an event
-        :param bool engine: String (pandas, cudf, ...) for engine to use. Should match raw_events type.
-
-        Specify engine mode by passing `engine='pandas'` or `engine='cudf'` (default: 'pandas').
+        :param bool engine: String (pandas, cudf, ...) for engine to use
+        :param Optional[int] npartitions: For distributed engines, how many coarse-grained pieces to split events into
+        :param Optional[int] chunksize: For distributed engines, split events after chunksize rows
 
         Create a graph out of the dataframe, and return the graph components as dataframes, 
-        and the renderable result Plotter. It reveals relationships between the rows and between column values.
+        and the renderable result Plotter. Hypergraphs reveal relationships between rows and between column values.
         This transform is useful for lists of events, samples, relationships, and other structured high-dimensional data.
+
+        Specify local compute engine by passing `engine='pandas'`, 'cudf', 'dask', 'dask_cudf' (default: 'pandas').
+        If events are not in that engine's format, they will be converted into it.
 
         The transform creates a node for every unique value in the entity_types columns (default: all columns). 
         If direct=False (default), every row is also turned into a node. 
@@ -421,17 +425,56 @@ class PyGraphistry(object):
         :returns: {'entities': DF, 'events': DF, 'edges': DF, 'nodes': DF, 'graph': Plotter}
         :rtype: dict
 
-        **Example**
+        **Example: Connect user<-row->boss **
 
             ::
 
                 import graphistry
-                h = graphistry.hypergraph(my_df)
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df)
+                g = h['graph'].plot()
+
+        **Example: Connect user->boss **
+
+            ::
+
+                import graphistry
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True)
+                g = h['graph'].plot()
+
+        **Example: Connect user<->boss **
+
+            ::
+
+                import graphistry
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True, opts={'EDGES': {'user': ['boss'], 'boss': ['user']}})
+                g = h['graph'].plot()
+
+        **Example: Only consider some columns for nodes **
+
+            ::
+
+                import graphistry
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, entity_types=['boss'])
+                g = h['graph'].plot()
+
+        **Example: Collapse matching user::<id> and boss::<id> nodes into one person::<id> node**
+
+            ::
+
+                import graphistry
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, opts={'CATEGORIES': {'person': ['user', 'boss']}})
                 g = h['graph'].plot()
 
         """
         from . import hyper
-        return hyper.Hypergraph().hypergraph(PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct, engine=engine)
+        return hyper.Hypergraph().hypergraph(
+            PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct,
+            engine=engine, npartitions=npartitions, chunksize=chunksize)
 
 
     @staticmethod

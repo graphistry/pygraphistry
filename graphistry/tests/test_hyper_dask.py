@@ -107,6 +107,7 @@ class TestHypergraphPandas(NoAuthTestCase):
                 '🙈::æski ēˈmōjē', '🙈::😋', '🙈::s'],
             'EventID': ['EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2']})
 
+        logger.debug('EDGES: %s', h.edges)
         assertFrameEqual(h.edges, edges)
         for (k, v) in [('entities', 12), ('nodes', 15), ('edges', 12), ('events', 3)]:
             self.assertEqual(len(getattr(h, k)), v)
@@ -533,3 +534,303 @@ class TestHypergraphCudf(NoAuthTestCase):
 
         self.assertEqual(len(h['edges']), 9)
         self.assertEqual(len(h['nodes']), 9)
+
+
+@pytest.mark.skipif(
+    not ('TEST_DASK' in os.environ and os.environ['TEST_DASK'] == '1'),
+    reason='dask tests need TEST_DASK=1')
+class TestHypergraphDask(NoAuthTestCase):
+
+
+    def test_hyperedges(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+            h = hypergraph(PyGraphistry.bind(), triangleNodes, verbose=False, engine=Engine.DASK, npartitions=2, debug=True)
+            
+            edges = pd.DataFrame({
+                'a1': [1, 2, 3] * 4,
+                'a2': ['red', 'blue', 'green'] * 4,
+                'id': ['a', 'b', 'c'] * 4,
+                '🙈': ['æski ēˈmōjē', '😋', 's'] * 4,
+                'edgeType': ['a1', 'a1', 'a1', 'a2', 'a2', 'a2', 'id', 'id', 'id', '🙈', '🙈', '🙈'],
+                'attribID': [
+                    'a1::1', 'a1::2', 'a1::3', 
+                    'a2::red', 'a2::blue', 'a2::green',                 
+                    'id::a', 'id::b', 'id::c',
+                    '🙈::æski ēˈmōjē', '🙈::😋', '🙈::s'],
+                'EventID': ['EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2']})
+
+            assertFrameEqualDask(h.edges, edges)
+            for (k, v) in [('entities', 12), ('nodes', 15), ('edges', 12), ('events', 3)]:
+                self.assertEqual(len(getattr(h, k).compute()), v)
+
+    def test_hyperedges_direct(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+            h = hypergraph(PyGraphistry.bind(), hyper_df, verbose=False, direct=True, engine=Engine.DASK, npartitions=2, debug=True)
+            
+            self.assertEqual(len(h.edges.compute()), 9)
+            self.assertEqual(len(h.nodes.compute()), 9)
+
+    def test_hyperedges_direct_categories(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            h = hypergraph(
+                PyGraphistry.bind(), hyper_df,
+                verbose=False, direct=True, opts={'CATEGORIES': {'n': ['aa', 'bb', 'cc']}}, engine=Engine.DASK, npartitions=2, debug=True)
+            
+            self.assertEqual(len(h.edges.compute()), 9)
+            self.assertEqual(len(h.nodes.compute()), 6)
+
+    def test_hyperedges_direct_manual_shaping(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            h1 = hypergraph(
+                PyGraphistry.bind(), hyper_df,
+                verbose=False, direct=True, opts={'EDGES': {'aa': ['cc'], 'cc': ['cc']}}, engine=Engine.DASK, npartitions=2, debug=True)
+            self.assertEqual(len(h1.edges.compute()), 6)
+
+            h2 = hypergraph(
+                PyGraphistry.bind(), hyper_df,
+                verbose=False, direct=True, opts={'EDGES': {'aa': ['cc', 'bb', 'aa'], 'cc': ['cc']}}, engine=Engine.DASK, npartitions=2, debug=True)
+            self.assertEqual(len(h2.edges.compute()), 12)
+
+
+    def test_drop_edge_attrs(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+    
+            h = hypergraph(
+                PyGraphistry.bind(), triangleNodes, ['id', 'a1', '🙈'],
+                verbose=False, drop_edge_attrs=True, engine=Engine.DASK, npartitions=2, debug=True)
+
+            edges = pd.DataFrame({
+                'edgeType': ['a1', 'a1', 'a1', 'id', 'id', 'id', '🙈', '🙈', '🙈'],
+                'attribID': [
+                    'a1::1', 'a1::2', 'a1::3', 
+                    'id::a', 'id::b', 'id::c',
+                    '🙈::æski ēˈmōjē', '🙈::😋', '🙈::s'],
+                'EventID': ['EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2', 'EventID::0', 'EventID::1', 'EventID::2']})
+
+            logger.debug('edges: %s', h.edges.compute())
+
+            assertFrameEqualDask(h.edges.reset_index(drop=True), edges)
+            for (k, v) in [('entities', 9), ('nodes', 12), ('edges', 9), ('events', 3)]:
+                logger.debug('testing: %s = %s', k, getattr(h, k).compute())
+                self.assertEqual(len(getattr(h, k).compute()), v)
+
+    def test_drop_edge_attrs_direct(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+        
+            h = hypergraph(
+                PyGraphistry.bind(), triangleNodes,
+                ['id', 'a1', '🙈'],
+                verbose=False, direct=True, drop_edge_attrs=True,
+                opts = {
+                    'EDGES': {
+                        'id': ['a1'],
+                        'a1': ['🙈']
+                    }
+                },
+                engine=Engine.DASK, npartitions=2, debug=True)
+
+            logger.debug('h.nodes: %s', h.graph._nodes)
+            logger.debug('h.edges: %s', h.graph._edges)
+
+            edges = pd.DataFrame({
+                'edgeType': ['a1::🙈', 'a1::🙈', 'a1::🙈', 'id::a1', 'id::a1', 'id::a1'],
+                'src': [
+                    'a1::1', 'a1::2', 'a1::3',
+                    'id::a', 'id::b', 'id::c'],
+                'dst': [
+                    '🙈::æski ēˈmōjē', '🙈::😋', '🙈::s',
+                    'a1::1', 'a1::2', 'a1::3'],
+                'EventID': [
+                    'EventID::0', 'EventID::1', 'EventID::2',
+                    'EventID::0', 'EventID::1', 'EventID::2']})
+
+            assertFrameEqualDask(h.edges, edges)
+            for (k, v) in [('entities', 9), ('nodes', 9), ('edges', 6), ('events', 0)]:
+                logger.error('testing: %s', k)
+                logger.error('actual: %s', getattr(h,k).compute())
+                self.assertEqual(len(getattr(h,k).compute()), v)
+
+
+    def test_drop_na_hyper(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            df = pd.DataFrame({
+                'a': ['a', None, 'c'],
+                'i': [1, 2, None]
+            })
+
+            hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, engine=Engine.DASK, npartitions=2, debug=True)
+
+            assert len(hg.graph._nodes.compute()) == 7
+            assert len(hg.graph._edges.compute()) == 4
+
+    def test_drop_na_direct(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            df = pd.DataFrame({
+                'a': ['a', None, 'a'],
+                'i': [1, 1, None]
+            })
+
+            hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, direct=True, engine=Engine.DASK, npartitions=2, debug=True)
+
+            assert len(hg.graph._nodes.compute()) == 2
+            assert len(hg.graph._edges.compute()) == 1
+
+    def test_skip_na_hyperedge(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+    
+            nans_df = pd.DataFrame({
+                'x': ['a', 'b', 'c'],
+                'y': ['aa', None, 'cc']
+            })
+            expected_hits = ['a', 'b', 'c', 'aa', 'cc']
+
+            skip_attr_h_edges = hypergraph(
+                PyGraphistry.bind(), nans_df, drop_edge_attrs=True,
+                engine=Engine.DASK, npartitions=2, debug=True).edges
+            self.assertEqual(len(skip_attr_h_edges.compute()), len(expected_hits))
+
+            default_h_edges = hypergraph(
+                PyGraphistry.bind(), nans_df,
+                engine=Engine.DASK, npartitions=2, debug=True).edges
+            self.assertEqual(len(default_h_edges.compute()), len(expected_hits))
+
+    def test_hyper_evil(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            h = hypergraph(
+                PyGraphistry.bind(), squareEvil_gdf_friendly,
+                engine=Engine.DASK, npartitions=2, debug=True)
+            h.nodes.compute()
+            h.edges.compute()
+            h.events.compute()
+            h.entities.compute()
+
+    def test_hyper_to_pa_vanilla(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            df = pd.DataFrame({
+                'x': ['a', 'b', 'c'],
+                'y': ['d', 'e', 'f']
+            })
+
+            hg = hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK, npartitions=2, debug=True)
+            nodes_arr = pa.Table.from_pandas(hg.graph._nodes.compute())
+            assert len(nodes_arr) == 9
+            edges_err = pa.Table.from_pandas(hg.graph._edges.compute())
+            assert len(edges_err) == 6
+
+    def test_hyper_to_pa_mixed(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            df = pd.DataFrame({
+                'x': ['a', 'b', 'c'],
+                'y': [1, 2, 3]
+            })
+
+            hg = hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK, npartitions=2, debug=True)
+            nodes_arr = pa.Table.from_pandas(hg.graph._nodes.compute())
+            assert len(nodes_arr) == 9
+            edges_err = pa.Table.from_pandas(hg.graph._edges.compute())
+            assert len(edges_err) == 6
+
+    def test_hyper_to_pa_na(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            df = pd.DataFrame({
+                'x': ['a', None, 'c'],
+                'y': [1, 2, None]
+            })
+
+            hg = hypergraph(PyGraphistry.bind(), df, drop_na=False, npartitions=2, engine=Engine.DASK, debug=True)
+            nodes_arr = pa.Table.from_pandas(hg.graph._nodes.compute())
+            assert len(hg.graph._nodes) == 9
+            assert len(nodes_arr) == 9
+            edges_err = pa.Table.from_pandas(hg.graph._edges.compute())
+            assert len(hg.graph._edges) == 6
+            assert len(edges_err) == 6
+
+    def test_hyper_to_pa_all(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+            hg = hypergraph(
+                PyGraphistry.bind(), triangleNodes, ['id', 'a1', '🙈'],
+                engine=Engine.DASK, npartitions=2, debug=True)
+            nodes_arr = pa.Table.from_pandas(hg.graph._nodes.compute())
+            assert len(hg.graph._nodes) == 12
+            assert len(nodes_arr) == 12
+            edges_err = pa.Table.from_pandas(hg.graph._edges.compute())
+            assert len(hg.graph._edges) == 9
+            assert len(edges_err) == 9
+
+    def test_hyper_to_pa_all_direct(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+            hg = hypergraph(
+                PyGraphistry.bind(), triangleNodes, ['id', 'a1', '🙈'],
+                direct=True, engine=Engine.DASK, npartitions=2, debug=True)
+            nodes_arr = pa.Table.from_pandas(hg.graph._nodes.compute())
+            assert len(hg.graph._nodes) == 9
+            assert len(nodes_arr) == 9
+            edges_err = pa.Table.from_pandas(hg.graph._edges.compute())
+            assert len(hg.graph._edges) == 9
+            assert len(edges_err) == 9
+
+    def test_hyperedges_import(self):
+        from graphistry.pygraphistry import hypergraph as hypergraph_public
+
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            h = hypergraph_public(hyper_df, verbose=False, direct=True, engine='dask', npartitions=2)
+
+            self.assertEqual(len(h['edges']), 9)
+            self.assertEqual(len(h['nodes']), 9)

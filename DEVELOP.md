@@ -13,14 +13,16 @@ cd docker && docker-compose build && docker-compose up -d
 ```
 ### Run local tests without rebuild
 
+Containerized call to `pytest` for CPU + GPU modes:
+
 ```bash
 cd docker
 
-# cpu
+# cpu - pandas
 ./test-cpu-local.sh
 
-# gpu
-./test-gpu-local.sh
+# gpu - pandas, cudf, dask, dask_cudf; test only one file
+./test-gpu-local.sh graphistry/tests/test_hyper_dask.py
 ```
 
 Connector tests (currently neo4j-only): `cd docker && WITH_NEO4J=1 ./test-cpu-local.sh` (optional `WITH_SUDO=" "`)

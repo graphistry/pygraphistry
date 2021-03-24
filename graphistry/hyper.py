@@ -10,7 +10,8 @@ class Hypergraph(object):
     def hypergraph(
         g, raw_events, entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: str = 'pandas'
+        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None
+
     ) -> dict:
         """
             raw_events can be pd.DataFrame or cudf.DataFrame
@@ -19,7 +20,7 @@ class Hypergraph(object):
         out = hypergraph_new(
             g, raw_events, entity_types, opts,
             drop_na, drop_edge_attrs, verbose, direct,
-            engine=engine)
+            engine=engine, npartitions=npartitions, chunksize=chunksize)
 
         return {
             'entities': out.entities,
