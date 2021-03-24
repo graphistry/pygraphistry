@@ -4,7 +4,7 @@ import datetime as dt, logging, os, pandas as pd, pyarrow as pa, pytest
 from common import NoAuthTestCase
 
 from graphistry.pygraphistry import PyGraphistry 
-from graphistry.Engine import Engine
+from graphistry.Engine import Engine, DataframeLike
 from graphistry.hyper_dask import HyperBindings, hypergraph
 from graphistry.tests.test_hypergraph import triangleNodes, assertFrameEqual, hyper_df, squareEvil
 logger = logging.getLogger(__name__)
@@ -15,7 +15,17 @@ logger.setLevel(logging.DEBUG)
 
 
 def assertFrameEqualCudf(df1, df2):
-    return assertFrameEqual(df2.to_pandas(), df2.to_pandas())
+    return assertFrameEqual(df1.to_pandas(), df2.to_pandas())
+
+def assertFrameEqualDask(df1: DataframeLike, df2: DataframeLike):
+    import dask.dataframe as dd
+    if isinstance(df1, dd.DataFrame):
+        df1 = df1.compute()
+    if isinstance(df2, dd.DataFrame):
+        df2 = df2.compute()
+    df1 = df1.reset_index(drop=True).sort_values(by=sorted(df1.columns))
+    df2 = df2.sort_values(by=sorted(df2.columns))
+    return assertFrameEqual(df1, df2)
 
 
 squareEvil_gdf_friendly = pd.DataFrame({
