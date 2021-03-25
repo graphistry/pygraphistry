@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*- 
 
-import copy, datetime as dt, graphistry, IPython, pandas as pd, pyarrow as pa, pytest
+import copy, datetime as dt, graphistry, IPython, os, pandas as pd, pyarrow as pa, pytest
 
 from common import NoAuthTestCase
 from mock import patch
+from graphistry.tests.test_hyper_dask import assertFrameEqualDask
 
 maybe_cudf = None
-try:
+if 'TEST_CUDF' in os.environ and os.environ['TEST_CUDF'] == '1':
     import cudf
     maybe_cudf = cudf
-except ImportError:
-    1
+
 
 triangleEdges = pd.DataFrame({'src': ['a', 'b', 'c'], 'dst': ['b', 'c', 'a']})
 triangleNodes = pd.DataFrame({'id': ['a', 'b', 'c'], 'a1': [1, 2, 3], 'a2': ['red', 'blue', 'green']})
@@ -377,6 +377,46 @@ class TestPlotterPandasConversions(NoAuthTestCase):
         arr = pa.Table.from_pandas(df)
         assert isinstance(plotter._table_to_pandas(arr), pd.DataFrame)
 
+    @pytest.mark.skipif(
+        not ('TEST_CUDF' in os.environ and os.environ['TEST_CUDF'] == '1'),
+        reason='cudf tests need TEST_CUDF=1')
+    def test_table_to_pandas_from_cudf(self):
+        import cudf
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3]})
+        gdf = cudf.from_pandas(df)
+        out = plotter._table_to_pandas(gdf)
+        assert isinstance(out, pd.DataFrame)
+        assertFrameEqual(out, df)
+
+    @pytest.mark.skipif(
+        not ('TEST_DASK' in os.environ and os.environ['TEST_DASK'] == '1'),
+        reason='dask tests need TEST_DASK=1')
+    def test_table_to_pandas_from_dask(self):
+        import dask, dask.dataframe
+        from dask.distributed import Client
+        with Client(processes=True):
+            plotter = graphistry.bind()
+            df = pd.DataFrame({'x': [1, 2, 3]})
+            ddf = dask.dataframe.from_pandas(df, npartitions=2)
+            out = plotter._table_to_pandas(ddf)
+            assert isinstance(out, pd.DataFrame)
+            assertFrameEqual(out, df)
+
+    @pytest.mark.skipif(
+        not ('TEST_DASK_CUDF' in os.environ and os.environ['TEST_DASK_CUDF'] == '1'),
+        reason='dask_cudf tests need TEST_DASK_CUDF=1')
+    def test_table_to_pandas_from_dask(self):
+        import cudf, dask_cudf
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3]})
+        gdf = cudf.from_pandas(df)
+        dgdf = dask_cudf.from_pandas(gdf, npartitions=2)
+        out = plotter._table_to_pandas(dgdf)
+        assert isinstance(out, pd.DataFrame)
+        assertFrameEqual(out, df)
+
+
 
 class TestPlotterArrowConversions(NoAuthTestCase):
 
@@ -432,8 +472,9 @@ class TestPlotterArrowConversions(NoAuthTestCase):
 
         assert not (arr1 is plotter._table_to_arrow(df))
 
-
-    @pytest.mark.skipif(maybe_cudf is None, reason="requires cudf")
+    @pytest.mark.skipif(
+        not ('TEST_CUDF' in os.environ and os.environ['TEST_CUDF'] == '1'),
+        reason='cudf tests need TEST_CUDF=1')
     def test_api3_cudf_to_arrow_memoization(self):
         maybe_cudf = None
         try:
@@ -454,7 +495,9 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         arr3 = plotter._table_to_arrow(maybe_cudf.DataFrame({'x': [1]}))
         assert arr1 is arr3
 
-    @pytest.mark.skipif(maybe_cudf is None, reason="requires cudf")
+    @pytest.mark.skipif(
+        not ('TEST_CUDF' in os.environ and os.environ['TEST_CUDF'] == '1'),
+        reason='cudf tests need TEST_CUDF=1')
     def test_api3_cudf_to_arrow_memoization_forgets(self):
         maybe_cudf = None
         try:
@@ -472,6 +515,70 @@ class TestPlotterArrowConversions(NoAuthTestCase):
             plotter._table_to_arrow(maybe_cudf.DataFrame({'x': [i]}))
 
         assert not (arr1 is plotter._table_to_arrow(df))
+
+    @pytest.mark.skipif(
+        not ('TEST_DASK' in os.environ and os.environ['TEST_DASK'] == '1'),
+        reason='dask tests need TEST_DASK=1')
+    def test_api3_dask_to_arrow_memoization(self):
+        import dask, dask.dataframe
+        from dask.distributed import Client
+        with Client(processes=True):
+            plotter = graphistry.bind()
+            df = pd.DataFrame({'x': [1, 2]})
+            ddf = dask.dataframe.from_pandas(df, npartitions=2)
+            arr1 = plotter._table_to_arrow(ddf)
+            arr2 = plotter._table_to_arrow(ddf)
+            assert isinstance(arr1, pa.Table)
+            assert arr1 is arr2
+
+            arr3 = plotter._table_to_arrow(dask.dataframe.from_pandas(pd.DataFrame({'x': [1, 2]}), npartitions=2))
+            assert arr1 is arr3
+
+    @pytest.mark.skipif(
+        not ('TEST_DASK' in os.environ and os.environ['TEST_DASK'] == '1'),
+        reason='dask tests need TEST_DASK=1')
+    def test_api3_dask_to_arrow_memoization_forgets(self):
+        import dask, dask.dataframe
+        from dask.distributed import Client
+        with Client(processes=True):
+            plotter = graphistry.bind()
+            df = pd.DataFrame({'x': [0]})
+            ddf = dask.dataframe.from_pandas(df, npartitions=2)
+            arr1 = plotter._table_to_arrow(ddf)
+            for i in range(1, 110):
+                ddf_i = dask.dataframe.from_pandas(pd.DataFrame({'x': [0, i]}), npartitions=2)
+                plotter._table_to_arrow(ddf_i)
+            assert not (arr1 is plotter._table_to_arrow(ddf))
+
+    @pytest.mark.skipif(
+        not ('TEST_DASK_CUDF' in os.environ and os.environ['TEST_DASK_CUDF'] == '1'),
+        reason='dask_cudf tests need TEST_DASK_CUDF=1')
+    def test_api3_dask_cudf_to_arrow_memoization(self):
+        import cudf, dask_cudf
+        plotter = graphistry.bind()
+        gdf = cudf.DataFrame({'x': [1, 2]})
+        dgdf = dask_cudf.from_cudf(gdf, npartitions=2)
+        arr1 = plotter._table_to_arrow(dgdf)
+        arr2 = plotter._table_to_arrow(dgdf)
+        assert isinstance(arr1, pa.Table)
+        assert arr1 is arr2
+
+        arr3 = plotter._table_to_arrow(dask_cudf.from_cudf(cudf.DataFrame({'x': [1, 2]}), npartitions=2))
+        assert arr1 is arr3
+
+    @pytest.mark.skipif(
+        not ('TEST_DASK_CUDF' in os.environ and os.environ['TEST_DASK_CUDF'] == '1'),
+        reason='dask_cudf tests need TEST_DASK_CUDF=1')
+    def test_api3_dask_cudf_to_arrow_memoization_forgets(self):
+        import cudf, dask_cudf
+        plotter = graphistry.bind()
+        gdf = cudf.DataFrame({'x': [1, 0]})
+        dgdf = dask_cudf.from_cudf(gdf, npartitions=2)
+        arr1 = plotter._table_to_arrow(dgdf)
+        for i in range(1, 110):
+            dgdf_i = dask_cudf.from_cudf(cudf.DataFrame({'x': [0, i]}), npartitions=2)
+            plotter._table_to_arrow(dgdf_i)
+        assert not (arr1 is plotter._table_to_arrow(dgdf))
 
 
 class TestPlotterStylesArrow(NoAuthTestCase):
