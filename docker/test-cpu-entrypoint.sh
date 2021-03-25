@@ -16,13 +16,19 @@ python -m pip --version
 env
 
 echo "=== Linting ==="
-./bin/lint.sh
+if [[ "$WITH_LINT" != "0" ]]; then
+    ./bin/lint.sh
+fi
 
 echo "=== Type checking ==="
-./bin/typecheck.sh
+if [[ "$WITH_TYPECHECK" != "0" ]]; then
+    ./bin/typecheck.sh
+fi
 
 echo "=== Testing ==="
 ./bin/test.sh $@
 
 echo "=== Building ==="
-$MAYBE_RAPIDS && OUTPUT_DIR=/tmp ./bin/build.sh
+if [[ "$WITH_BUILD" != "0" ]]; then
+    $MAYBE_RAPIDS && OUTPUT_DIR=/tmp ./bin/build.sh
+fi
