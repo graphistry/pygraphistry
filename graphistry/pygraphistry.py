@@ -470,6 +470,15 @@ class PyGraphistry(object):
                 h = graphistry.hypergraph(users_df, opts={'CATEGORIES': {'person': ['user', 'boss']}})
                 g = h['graph'].plot()
 
+        **Example: Use cudf engine instead of pandas**
+
+            ::
+
+                import cudf, graphistry
+                users_gdf = cudf.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_gdf, engine='cudf')
+                g = h['graph'].plot()
+
         """
         from . import hyper
         return hyper.Hypergraph().hypergraph(

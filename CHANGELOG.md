@@ -18,6 +18,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Feature: Dask/dask_cuda frames can be passed in, which will be .computed(), memoized, and converted to arrow
 * Infra: Test env var controls - WITH_LINT=1, WITH_TYPECHECK=1, WITH_BUILD=1
 * CI: Disable seccomp during test (docker perf)
+* Docs: Inline hypergraph examples 
 
 ## [0.18.0 - 2021-03-21]
 
