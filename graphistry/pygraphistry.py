@@ -425,7 +425,7 @@ class PyGraphistry(object):
         :returns: {'entities': DF, 'events': DF, 'edges': DF, 'nodes': DF, 'graph': Plotter}
         :rtype: dict
 
-        **Example: Connect user<-row->boss **
+        **Example: Connect user<-row->boss**
 
             ::
 
@@ -434,7 +434,7 @@ class PyGraphistry(object):
                 h = graphistry.hypergraph(users_df)
                 g = h['graph'].plot()
 
-        **Example: Connect user->boss **
+        **Example: Connect user->boss**
 
             ::
 
@@ -443,7 +443,7 @@ class PyGraphistry(object):
                 h = graphistry.hypergraph(users_df, direct=True)
                 g = h['graph'].plot()
 
-        **Example: Connect user<->boss **
+        **Example: Connect user<->boss**
 
             ::
 
@@ -452,7 +452,7 @@ class PyGraphistry(object):
                 h = graphistry.hypergraph(users_df, direct=True, opts={'EDGES': {'user': ['boss'], 'boss': ['user']}})
                 g = h['graph'].plot()
 
-        **Example: Only consider some columns for nodes **
+        **Example: Only consider some columns for nodes**
 
             ::
 
