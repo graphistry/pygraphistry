@@ -3,6 +3,7 @@ set -ex
 
 echo "CONFIG"
 
+PYTHON_VERSION=${PYTHON_VERSION:-3.6}
 WITH_NEO4J=${WITH_NEO4J:-0}
 WITH_LINT=${WITH_LINT:-1}
 WITH_TYPECHECK=${WITH_TYPECHECK:-1}
@@ -22,7 +23,7 @@ then
     ( cd ../test/db/neo4j && ./launch.sh )
 fi
 
-docker-compose build test-cpu
+docker-compose build --build-arg PYTHON_VERSION=${PYTHON_VERSION} test-cpu
 
 echo "RUN"
 
