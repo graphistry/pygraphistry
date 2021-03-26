@@ -4,7 +4,7 @@
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from .Engine import Engine, DataframeLike, DataframeLocalLike
-import logging, pandas as pd, pyarrow as pa, sys
+import logging, numpy as np, pandas as pd, pyarrow as pa, sys
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -75,6 +75,15 @@ def make_reverse_lookup(categories):
             lookup[col] = str(category)
     return lookup
 
+def coerce_col_safe(s, to_dtype):
+    if s.dtype.name == to_dtype.name:
+        return s
+    if to_dtype.name == 'int64':
+        return s.fillna(0).astype('int64')
+    if to_dtype.name == 'timedelta64[ns]':
+        return s.fillna(np.datetime64('NAT')).astype('timedelta64[ns]')
+    logger.debug('CEORCING %s :: %s -> %s', s.name, s.dtype, to_dtype)
+    return s.astype(to_dtype)
 
 def format_entities_from_col(
     defs: HyperBindings,
@@ -82,7 +91,9 @@ def format_entities_from_col(
     drop_na: bool,
     engine: Engine,
     col_name: str,
-    df_with_col: DataframeLike
+    df_with_col: DataframeLike,
+    meta: pd.DataFrame,
+    debug: bool
 ) -> DataframeLocalLike:
     """
     For unique v in column col, create [{col: str(v), title: str(v), nodetype: col, nodeid: `<cat><delim><v>`}]
@@ -94,6 +105,9 @@ def format_entities_from_col(
 
     try:
         df_with_col_pre = df_with_col[col_name].dropna() if drop_na else df_with_col[col_name]
+        if debug and engine in [ Engine.DASK, Engine.DASK_CUDF ]:
+            df_with_col_pre = df_with_col_pre.persist()
+            logger.debug('col [ %s ] entities with dropna [ %s ]: %s', col_name, drop_na, df_with_col_pre.compute())
         try:
             unique_vals = df_with_col_pre.drop_duplicates()
         except:
@@ -105,6 +119,10 @@ def format_entities_from_col(
         unique_vals = mt_series(engine)
         unique_safe_val_strs = unique_vals.astype(str).fillna(defs.null_val)
 
+    if debug and engine in [ Engine.DASK, Engine.DASK_CUDF ]:
+        unique_vals = unique_vals.persist()
+        logger.debug('unique_vals: %s', unique_vals.compute())
+
     base_df = unique_vals.rename(col_name).to_frame()
     base_df = base_df.assign(**{
         defs.title: unique_safe_val_strs,
@@ -112,7 +130,41 @@ def format_entities_from_col(
         defs.category: col2cat(cat_lookup, col_name),
         defs.node_id: (col2cat(cat_lookup, col_name) + defs.delim) + unique_safe_val_strs
     })
-    return base_df
+
+    if debug and engine in [ Engine.DASK, Engine.DASK_CUDF ]:
+        base_df = base_df.persist()
+        logger.debug('base_df1: %s', base_df.compute())
+
+    missing_cols = [ c for c in meta if c not in base_df ]
+    base_df = base_df.assign(**{
+        c: np.nan
+        for c in missing_cols
+    })
+    logger.debug('==== BASE 2 ====')
+    if debug and engine in [ Engine.DASK, Engine.DASK_CUDF ]:
+        base_df = base_df.persist()
+        logger.debug('base_df2: %s', base_df.compute())
+        logger.debug('needs conversions: %s',
+            [(c, base_df[c].dtype.name, meta[c].dtype.name) for c in missing_cols])
+        for c in base_df:
+            logger.debug('test base_df2 col [ %s ]: %s', c, base_df[c].dtype)
+            logger.debug('base_df2[ %s ]: %s', c, base_df[c].compute())
+            logger.debug('convert [ %s ] %s -> %s', c, base_df[c].dtype.name, meta[c].dtype.name)
+            logger.debug('orig: %s', base_df[c].compute())
+            logger.debug('coerced 1: %s', coerce_col_safe(base_df[c], meta[c].dtype).compute())
+            logger.debug('coerced 2: %s', base_df.assign(**{c: coerce_col_safe(base_df[c], meta[c].dtype)}).compute())
+    base_as_meta_df = base_df.assign(**{
+        c: coerce_col_safe(base_df[c], meta[c].dtype) if base_df[c].dtype.name != meta[c].dtype.name else base_df[c]
+        for c in missing_cols
+    })
+    logger.debug('==== BASE 3 ====')
+    if debug and engine in [ Engine.DASK, Engine.DASK_CUDF ]:
+        base_as_meta_df = base_as_meta_df.persist()
+        for c in base_df:
+            logger.debug('test base_df3 col [ %s ]: %s -> %s', c, base_df[c].dtype, base_as_meta_df[c].dtype)
+            logger.debug('base_df3[ %s ]: %s', c, base_as_meta_df[c].compute())
+
+    return base_as_meta_df
 
 def concat(dfs: List[DataframeLike], engine: Engine):
 
@@ -167,8 +219,8 @@ def mt_df(engine: Engine):
         return dask.dataframe.from_pandas(pd.DataFrame(), npartitions=1)
     
     if engine == Engine.DASK_CUDF:
-        import dask_cudf
-        return dask_cudf.from_pandas(pd.DataFrame(), npartitions=1)
+        import cudf, dask_cudf
+        return dask_cudf.from_cudf(cudf.from_pandas(pd.DataFrame()), npartitions=1)
 
     cons = get_df_cons(engine)
     return cons()
@@ -195,11 +247,31 @@ def mt_series(engine: Engine, dtype='int32'):
     cons = get_series_cons(engine)
     return cons([], dtype=dtype)
 
+def mt_nodes(defs: HyperBindings, events: DataframeLike, entity_types: List[str], direct: bool) -> pd.DataFrame:
+    mt_pdf = pd.DataFrame({
+        **{
+            defs.title: pd.Series([], dtype='object'),
+            defs.event_id: pd.Series([], dtype='object'),
+            defs.node_type: pd.Series([], dtype='object'),
+            defs.category: pd.Series([], dtype='object'),
+            defs.node_id: pd.Series([], dtype='object'),
+        },
+        **({
+            x: pd.Series([], dtype=events[x].dtype)
+            for x in entity_types
+        } if direct else {
+            x: pd.Series([], dtype=events[x].dtype)
+            for x in events.columns
+        })
+    })
+    return mt_pdf
+
 #ex output: DataFrameLike([{'val::state': 'CA', 'nodeType': 'state', 'nodeID': 'state::CA'}])
 def format_entities(
     events: DataframeLike,
     entity_types: List[str],
     defs: HyperBindings,
+    direct: bool,
     drop_na: bool,
     engine: Engine,
     npartitions: Optional[int],
@@ -207,22 +279,38 @@ def format_entities(
     debug: bool = False) -> DataframeLike:
 
     logger.debug('@format_entities :: %s', entity_types)
+    logger.debug('dtypes: %s', events.dtypes)
 
     cat_lookup = make_reverse_lookup(defs.categories)
     logger.debug('@format_entities cat_lookup [ %s ] => [ %s ]', defs.categories, cat_lookup)
 
+    mt_pdf = mt_nodes(defs, events, entity_types, direct)
+
     entity_dfs = [
         format_entities_from_col(
             defs, cat_lookup, drop_na, engine,
-            col_name, events[[col_name]])
+            col_name, events[[col_name]], mt_pdf,
+            debug)
         for col_name in entity_types
     ]
-    for df in entity_dfs:
-        logger.debug('sub df: %s', df)
-        if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-            from dask.distributed import wait
-            df.persist()
-            wait(df)
+    if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
+        from dask.distributed import wait
+        entity_dfs = [ df.persist() for df in entity_dfs ]
+        for df in entity_dfs:
+            logger.debug('format_entities sub df dtypes: %s', df.dtypes)
+            if df.dtypes.to_dict() != entity_dfs[0].dtypes.to_dict():
+                logger.error('MISMATCHES')
+                d1 = df.dtypes.to_dict()
+                d2 = entity_dfs[0].dtypes.to_dict()
+                for k, v in d1.items():
+                    if k not in d2:
+                        logger.error('key %s (::%s) missing in df_0', k, v)
+                    elif d2[k] != v:
+                        logger.error('%s:%s <> %s:%s', k, v, k, d2[k])
+                for k, v in d2.items():
+                    if k not in d1:
+                        logger.error('key %s (::%s) missing in df_i', k, v)
+            logger.debug('entity_df: %s', df.compute())
 
     df = concat(entity_dfs, engine).drop_duplicates([defs.node_id])
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
@@ -242,12 +330,31 @@ def format_hyperedges(
     is_using_categories = len(defs.categories.keys()) > 0
     cat_lookup = make_reverse_lookup(defs.categories)
 
+    # mt_pdf = pd.DataFrame({
+    #     **{
+    #         **({defs.category: pd.Series([], dtype='object')} if is_using_categories else {}),
+    #         defs.edge_type: pd.Series([], dtype='object'),
+    #         defs.attrib_id: pd.Series([], dtype='object'),
+    #         defs.event_id: pd.Series([], dtype='object'),
+    #         defs.category: pd.Series([], dtype='object'),
+    #         defs.node_id: pd.Series([], dtype='object'),
+    #     },
+    #     **({
+    #         x: pd.Series([], dtype=events[x].dtype)
+    #         for x in entity_types
+    #     } if drop_edge_attrs else {
+    #         x: pd.Series([], dtype=events[x].dtype)
+    #         for x in events.columns
+    #     })
+    # })
+
     subframes = []
     for col in sorted(entity_types):
-        fields = list(set([defs.event_id] + ([x for x in events.columns] if not drop_edge_attrs else [col])))
+        fields = list(set([defs.event_id] + ([x for x in events.columns] if not drop_edge_attrs else [ col ])))
         raw = events[ fields ]
         if drop_na:
-            raw = raw.dropna(subset=[col])            
+            logger.debug('dropping na [ %s ] from available [ %s]  (fields: [ %s ])', col, raw.columns, fields)
+            raw = raw.dropna(subset=[col])
         raw = raw.copy()
         if is_using_categories:
             raw[defs.edge_type] = col2cat(cat_lookup, col)
@@ -259,6 +366,10 @@ def format_hyperedges(
         except NotImplementedError:
             logger.warning('Did not create hyperedges for column %s as does not support astype(str)', col)
             continue
+        if drop_edge_attrs:
+            logger.debug('dropping val col [ %s ] from [ %s ]', col, raw.columns)
+            raw = raw.drop(columns=[col])
+            logger.debug('dropped => [ %s ]', raw.columns)
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
             from dask.distributed import wait
             raw = raw.persist()
@@ -272,6 +383,10 @@ def format_hyperedges(
                 else [])
             + [defs.edge_type, defs.attrib_id, defs.event_id]  # noqa: W503
             + ([defs.category] if is_using_categories else []) ))  # noqa: W503
+        if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
+            #subframes = [df.persist() for df in subframes]
+            for df in subframes:
+                logger.debug('edge sub: %s', df.dtypes)
         out = concat(subframes, engine).reset_index(drop=True)[ result_cols ]
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
             from dask.distributed import wait
@@ -320,6 +435,8 @@ def format_direct_edges(
                 raw[defs.edge_type] = col1 + defs.delim + col2
             raw[defs.source] = (col2cat(cat_lookup, col1) + defs.delim) + raw[col1].astype(str).fillna(defs.null_val)
             raw[defs.destination] = (col2cat(cat_lookup, col2) + defs.delim) + raw[col2].astype(str).fillna(defs.null_val)
+            if drop_edge_attrs:
+                raw = raw.drop(columns=[col1, col2])
             if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
                 from dask.distributed import wait
                 raw = raw.persist()
@@ -333,6 +450,10 @@ def format_direct_edges(
                 else [])
             + [defs.edge_type, defs.source, defs.destination, defs.event_id]  # noqa: W503
             + ([defs.category] if is_using_categories else []) ))  # noqa: W503
+        if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
+            # subframes = [ df.persist() for df in subframes ]
+            for df in subframes:
+                logger.debug('format_direct_edges subdf: %s', df.dtypes)
         out = concat(subframes, engine=engine)[ result_cols ]
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
             from dask.distributed import wait
@@ -408,7 +529,21 @@ def df_coercion(  # noqa: C901
     if engine == Engine.CUDF:
         import cudf
         if isinstance(df, pd.DataFrame):
-            return cudf.from_pandas(df)
+            try:
+                return cudf.from_pandas(df)
+            except:
+                failed_cols = [ ]
+                out_gdf = cudf.from_pandas(df[[]])
+                for c in df:
+                    try:
+                        out_gdf[c] = cudf.from_pandas(df[c])
+                    except:
+                        failed_cols.append(c)
+                        out_gdf[c] = cudf.from_pandas(df[c].astype(str))
+                logger.warning('CPU->GPU coercion failures on columns, converted their individual values to strings: %s',
+                    ', '.join([f'[{c} :: {df[c].dtype.name}]' for c in failed_cols]))
+                return out_gdf
+
         if isinstance(df, cudf.DataFrame):
             return df
         raise ValueError('cudf engine mode requires pd.DataFrame/cudf.DataFrame input, received: %s' % str(type(df)))
@@ -433,8 +568,8 @@ def df_coercion(  # noqa: C901
     if engine == Engine.DASK_CUDF:
         import cudf, dask_cudf, dask.dataframe
         if isinstance(df, pd.DataFrame):
-            ddf = df_coercion(df, Engine.DASK, npartitions, chunksize)
-            return df_coercion(ddf, Engine.DASK_CUDF, npartitions, chunksize)
+            gdf = df_coercion(df, Engine.CUDF)
+            return df_coercion(gdf, Engine.DASK_CUDF, npartitions=npartitions, chunksize=chunksize)
         if isinstance(df, cudf.DataFrame):
             return dask_cudf.from_cudf(df, npartitions=npartitions, chunksize=chunksize)
         if isinstance(df, dask_cudf.DataFrame):
@@ -452,12 +587,25 @@ def clean_events(
     engine: Engine,
     npartitions: Optional[int] = None,
     chunksize: Optional[int] = None,
+    dropna: bool = False,  # FIXME https://github.com/rapidsai/cudf/issues/7735
     debug: bool = False
 ) -> DataframeLike:
     """
     Copy with reset index and in the target engine format
     """
-    logger.debug('@clean: %s', [c for c in events.columns])
+    logger.debug('@clean: %s', events.dtypes)
+
+    # FIXME https://github.com/rapidsai/cudf/issues/7735
+    # None -> np.nan
+    if dropna and (engine == Engine.DASK_CUDF):
+        import cudf, numpy as np
+        if isinstance(events, pd.DataFrame):  # or isinstance(events, cudf.DataFrame):
+            events = events.copy()
+            for c in events:
+                if events[c].dtype.name == 'object' and events[c].isna().any():
+                    logger.debug('None -> nan workaround for col [ %s ] => %s', c, events[c])
+                    events[c] = events[c].fillna(np.nan)
+                    logger.debug('... with drop: %s', events[c].dropna())
 
     out_events = df_coercion(events, engine, npartitions, chunksize, debug)
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
@@ -465,6 +613,12 @@ def clean_events(
         out_events = out_events.persist()
         logger.debug('coerced events: %s', out_events.compute())
         wait(out_events)
+
+    if engine in [Engine.CUDF, Engine.DASK_CUDF]:
+        for c in out_events:
+            if out_events[c].dtype.name == 'timedelta64[ns]':
+                logger.debug('timedelta concats may conflict when nans; coerce col [ %s ] => str', c)
+                out_events[c] = out_events[c].astype(str)
     
     out_events = shallow_copy(out_events, engine)
 
@@ -486,6 +640,7 @@ def clean_events(
         logger.debug('tagged events: %s', out_events.compute())
         logger.debug('////clean_events')
 
+    logger.debug('////clean: %s', out_events.dtypes)
     return out_events
 
 
@@ -500,6 +655,8 @@ class Hypergraph():
         self.entities = entities
         self.events = event_entities
         self.edges = edges
+        logger.debug('final nodes dtypes - entities: %s', entities.dtypes)
+        logger.debug('final nodes dtypes - event_entities: %s', event_entities.dtypes)
         self.nodes = concat([entities, event_entities], engine=engine)
         if debug and engine in [Engine.DASK, Engine.DASK_CUDF]:
             from dask.distributed import wait
@@ -541,17 +698,19 @@ def hypergraph(
         engine_resolved = engine
     defs = HyperBindings(**opts)
     entity_types = screen_entities(raw_events, entity_types, defs)
-    events = clean_events(raw_events, defs, engine_resolved, npartitions, chunksize, debug)  # type: ignore
-    if debug:
+    events = clean_events(raw_events, defs, dropna=drop_na, engine=engine_resolved, npartitions=npartitions, chunksize=chunksize, debug=debug)  # type: ignore
+    if debug and (engine in [ Engine.DASK, Engine.DASK_CUDF ]):
         logger.debug('==== events: %s', events.compute())
     
-    entities = format_entities(events, entity_types, defs, drop_na, engine_resolved, npartitions, chunksize, debug)  # type: ignore
+    entities = format_entities(events, entity_types, defs, direct, drop_na, engine_resolved, npartitions, chunksize, debug)  # type: ignore
 
     event_entities = None
     edges = None
     if direct:
         edge_shape = direct_edgelist_shape(entity_types, defs)
-        event_entities = mt_df(engine_resolved)
+        event_entities = df_coercion(mt_nodes(defs, events, entity_types, direct), engine_resolved, npartitions=1)
+        if debug:
+            logger.debug('mt event_entities: %s', event_entities.dtypes)
         edges = format_direct_edges(engine_resolved, events, entity_types, defs, edge_shape, drop_na, drop_edge_attrs, debug)
     else:        
         event_entities = format_hypernodes(events, defs, drop_na)

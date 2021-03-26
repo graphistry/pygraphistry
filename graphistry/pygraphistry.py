@@ -412,6 +412,9 @@ class PyGraphistry(object):
         SKIP to all non-categorical columns (or entity_types to all categorical columns),
         and CATEGORY to group columns with the same kinds of values.
 
+        To prevent creating nodes for null values, set drop_na=True.
+        Some dataframe engines may have undesirable null handling,
+        and recommend replacing None values with np.nan .
 
         The optional ``opts={...}`` configuration options are:
 

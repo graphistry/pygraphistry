@@ -406,7 +406,7 @@ class TestPlotterPandasConversions(NoAuthTestCase):
     @pytest.mark.skipif(
         not ('TEST_DASK_CUDF' in os.environ and os.environ['TEST_DASK_CUDF'] == '1'),
         reason='dask_cudf tests need TEST_DASK_CUDF=1')
-    def test_table_to_pandas_from_dask(self):
+    def test_table_to_pandas_from_dask_cudf(self):
         import cudf, dask_cudf
         plotter = graphistry.bind()
         df = pd.DataFrame({'x': [1, 2, 3]})
