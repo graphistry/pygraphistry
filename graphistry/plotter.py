@@ -1190,7 +1190,9 @@ class Plotter(object):
 
         if isinstance(graph, pd.core.frame.DataFrame) \
                 or isinstance(graph, pa.Table) \
-                or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ):
+                or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ) \
+                or ( not (maybe_dask_cudf is None) and isinstance(graph, maybe_dask_cudf.DataFrame) ) \
+                or ( not (maybe_dask_dataframe is None) and isinstance(graph, maybe_dask_dataframe.DataFrame) ):
             return self._make_dataset(graph, nodes, name, description, mode, metadata, memoize)
 
         try:
