@@ -81,7 +81,7 @@ def coerce_col_safe(s, to_dtype):
     if to_dtype.name == 'int64':
         return s.fillna(0).astype('int64')
     if to_dtype.name == 'timedelta64[ns]':
-        return s.fillna(np.datetime64('NAT')).astype('timedelta64[ns]')
+        return s.fillna(np.datetime64('NAT')).astype(str)
     logger.debug('CEORCING %s :: %s -> %s', s.name, s.dtype, to_dtype)
     return s.astype(to_dtype)
 
