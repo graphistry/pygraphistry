@@ -25,6 +25,20 @@ try:
 except ImportError:
     1
 
+maybe_dask_dataframe = None
+try:
+    import dask.dataframe
+    maybe_dask_dataframe = dask.dataframe
+except ImportError:
+    1
+
+maybe_dask_cudf = None
+try:
+    import dask_cudf
+    maybe_dask_cudf = dask_cudf
+except ImportError:
+    1
+
 logger = logging.getLogger('Plotter')
 
 CACHE_COERCION_SIZE = 100
@@ -1176,7 +1190,9 @@ class Plotter(object):
 
         if isinstance(graph, pd.core.frame.DataFrame) \
                 or isinstance(graph, pa.Table) \
-                or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ):
+                or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ) \
+                or ( not (maybe_dask_cudf is None) and isinstance(graph, maybe_dask_cudf.DataFrame) ) \
+                or ( not (maybe_dask_dataframe is None) and isinstance(graph, maybe_dask_dataframe.DataFrame) ):
             return self._make_dataset(graph, nodes, name, description, mode, metadata, memoize)
 
         try:
@@ -1332,6 +1348,9 @@ class Plotter(object):
         return (elist, nlist, encodings)
 
     def _table_to_pandas(self, table) -> Optional[pd.DataFrame]:
+        """
+            pandas | arrow | dask | cudf | dask_cudf => pandas
+        """
 
         if table is None:
             return table
@@ -1344,10 +1363,21 @@ class Plotter(object):
         
         if not (maybe_cudf is None) and isinstance(table, maybe_cudf.DataFrame):
             return table.to_pandas()
-        
+
+        if not (maybe_dask_cudf is None) and isinstance(table, maybe_dask_cudf.DataFrame):
+            return self._table_to_pandas(table.compute())
+
+        if not (maybe_dask_dataframe is None) and isinstance(table, maybe_dask_dataframe.DataFrame):
+            return self._table_to_pandas(table.compute())
+
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
     def _table_to_arrow(self, table: Any, memoize: bool = True) -> pa.Table:  # noqa: C901
+        """
+            pandas | arrow | dask | cudf | dask_cudf => arrow
+
+            dask/dask_cudf convert to pandas/cudf
+        """
 
         logger.debug('_table_to_arrow of %s (memoize: %s)', type(table), memoize)
 
@@ -1412,6 +1442,19 @@ class Plotter(object):
 
             return out
         
+        # TODO: per-gdf hashing? 
+        if not (maybe_dask_cudf is None) and isinstance(table, maybe_dask_cudf.DataFrame):
+            logger.debug('dgdf->arrow via gdf hash check')
+            dgdf = table.persist()
+            gdf = dgdf.compute()
+            return self._table_to_arrow(gdf, memoize)
+
+        if not (maybe_dask_dataframe is None) and isinstance(table, maybe_dask_dataframe.DataFrame):
+            logger.debug('ddf->arrow via df hash check')
+            ddf = table.persist()
+            df = ddf.compute()
+            return self._table_to_arrow(df, memoize)
+
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
 

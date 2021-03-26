@@ -11,7 +11,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Gremlin / AWS Neptune connector <-- not for this release
 * Compressed uploads: Snappy-compressed parquet for network-bound scenarios (https://github.com/graphistry/pygraphistry/issues/188)
 * Improved error message: Include response body on failed arrow.post()
-* Hypergraph: cudf/dask/dask_cudf
+
+## [0.18.1 - 2021-03-26]
+
+### Added
+
+* Feature: Hypergraphs in dask, dask_cudf modes. Mixed nan support. (https://github.com/graphistry/pygraphistry/pull/225)
+* Feature: Dask/dask_cuda frames can be passed in, which will be .computed(), memoized, and converted to arrow (https://github.com/graphistry/pygraphistry/pull/225)
+* Infra: Test env var controls - WITH_LINT=1, WITH_TYPECHECK=1, WITH_BUILD=1 (https://github.com/graphistry/pygraphistry/pull/225)
+* Docs: Inline hypergraph examples  (https://github.com/graphistry/pygraphistry/pull/225)
+
+### Changed
+* CI: Disable seccomp during test (docker perf) (https://github.com/graphistry/pygraphistry/pull/225)
 
 ## [0.18.0 - 2021-03-21]
 
