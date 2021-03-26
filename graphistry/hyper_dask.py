@@ -294,7 +294,6 @@ def format_entities(
         for col_name in entity_types
     ]
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-        from dask.distributed import wait
         entity_dfs = [ df.persist() for df in entity_dfs ]
         for df in entity_dfs:
             logger.debug('format_entities sub df dtypes: %s', df.dtypes)
@@ -314,10 +313,9 @@ def format_entities(
 
     df = concat(entity_dfs, engine).drop_duplicates([defs.node_id])
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-        from dask.distributed import wait
         df = df.persist()
+        df.compute()
         logger.debug('////format_entities')
-        wait(df)
 
     return df
 
@@ -371,9 +369,8 @@ def format_hyperedges(
             raw = raw.drop(columns=[col])
             logger.debug('dropped => [ %s ]', raw.columns)
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-            from dask.distributed import wait
             raw = raw.persist()
-            wait(raw)
+            raw.compute()
         subframes.append(raw)
 
     if len(subframes):
@@ -389,9 +386,8 @@ def format_hyperedges(
                 logger.debug('edge sub: %s', df.dtypes)
         out = concat(subframes, engine).reset_index(drop=True)[ result_cols ]
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-            from dask.distributed import wait
             out = out.persist()
-            wait(out)
+            out.compute()
             logger.debug('////format_hyperedges')
         return out
     else:
@@ -438,9 +434,8 @@ def format_direct_edges(
             if drop_edge_attrs:
                 raw = raw.drop(columns=[col1, col2])
             if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-                from dask.distributed import wait
                 raw = raw.persist()
-                wait(raw)
+                raw.compute()
             subframes.append(raw)
 
     if len(subframes):
@@ -456,10 +451,9 @@ def format_direct_edges(
                 logger.debug('format_direct_edges subdf: %s', df.dtypes)
         out = concat(subframes, engine=engine)[ result_cols ]
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-            from dask.distributed import wait
             out = out.persist()
+            out.compute()
             logger.debug('////format_direct_edges')
-            wait(out)
         return out
     else:
         return events[:0][[]]
@@ -496,9 +490,8 @@ def shallow_copy(df: DataframeLike, engine: Engine, debug: bool = False) -> Data
         df2 = df.copy(deep=False)
 
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-        from dask.distributed import wait
         df2 = df2.persist()
-        wait(df2)
+        df2.compute()
 
     return df2
 
@@ -556,9 +549,7 @@ def df_coercion(  # noqa: C901
                 **({'chunksize': chunksize} if chunksize is not None else {})
             })
             if debug:
-                from dask.distributed import wait
                 out = out.persist()
-                wait(out)
                 logger.debug('pdf -> ddf: %s', out.compute())
             return out
         if isinstance(df, dask.dataframe.DataFrame):
@@ -609,10 +600,8 @@ def clean_events(
 
     out_events = df_coercion(events, engine, npartitions, chunksize, debug)
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-        from dask.distributed import wait
         out_events = out_events.persist()
         logger.debug('coerced events: %s', out_events.compute())
-        wait(out_events)
 
     if engine in [Engine.CUDF, Engine.DASK_CUDF]:
         for c in out_events:
@@ -624,9 +613,7 @@ def clean_events(
 
     out_events = out_events.reset_index(drop=True)
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-        from dask.distributed import wait
         out_events = out_events.persist()
-        wait(out_events)
         logger.debug('copied events: %s', out_events.compute())
 
     if defs.event_id in events.columns:
@@ -634,9 +621,7 @@ def clean_events(
     else:
         out_events[defs.event_id] = (defs.event_id + defs.delim) + out_events[[]].reset_index()['index'].astype(str)
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
-        from dask.distributed import wait
         out_events = out_events.persist()
-        wait(out_events)
         logger.debug('tagged events: %s', out_events.compute())
         logger.debug('////clean_events')
 
@@ -659,9 +644,8 @@ class Hypergraph():
         logger.debug('final nodes dtypes - event_entities: %s', event_entities.dtypes)
         self.nodes = concat([entities, event_entities], engine=engine)
         if debug and engine in [Engine.DASK, Engine.DASK_CUDF]:
-            from dask.distributed import wait
             self.nodes = self.nodes.persist()
-            wait(self.nodes)
+            self.nodes.compute()
             logger.debug('////Hypergraph nodes')
         self.graph = (g
             .edges(edges, source, destination)
