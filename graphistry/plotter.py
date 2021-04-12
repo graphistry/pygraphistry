@@ -1188,9 +1188,10 @@ class Plotter(object):
 
     def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True):
 
-        if graph._point_title is None and graph._point_label is None and graph._nodes is not None:
+        g = self
+        if self._point_title is None and self._point_label is None and g._nodes is not None:
             try:
-                graph = graph.infer_labels()
+                g = self.infer_labels()
             except:
                 1
 
@@ -1199,13 +1200,13 @@ class Plotter(object):
                 or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ) \
                 or ( not (maybe_dask_cudf is None) and isinstance(graph, maybe_dask_cudf.DataFrame) ) \
                 or ( not (maybe_dask_dataframe is None) and isinstance(graph, maybe_dask_dataframe.DataFrame) ):
-            return self._make_dataset(graph, nodes, name, description, mode, metadata, memoize)
+            return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
-                (e, n) = self.igraph2pandas(graph)
-                return self._make_dataset(e, n, name, description, mode, metadata. memoize)
+                (e, n) = g.igraph2pandas(graph)
+                return g._make_dataset(e, n, name, description, mode, metadata. memoize)
         except ImportError:
             pass
 
@@ -1215,8 +1216,8 @@ class Plotter(object):
                isinstance(graph, networkx.classes.digraph.DiGraph) or \
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
-                (e, n) = self.networkx2pandas(graph)
-                return self._make_dataset(e, n, name, description, mode, metadata, memoize)
+                (e, n) = g.networkx2pandas(graph)
+                return g._make_dataset(e, n, name, description, mode, metadata, memoize)
         except ImportError:
             pass
 
