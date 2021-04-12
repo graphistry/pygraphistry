@@ -49,9 +49,10 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 
    ```python
   # pip install --user graphistry
+  # pip install --user graphistry[bolt,gremlin,nodexl,igraph,networkx]  # optional
   import graphistry
-  graphistry.register(api=3, username='abc', password='xyz')
-  #graphistry.register(..., protocol='http', host='my.site.ngo')
+  graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com
+  #graphistry.register(..., protocol='http', host='my.site.ngo')  # Private
   ```
 
 * **Notebook-friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:

@@ -30,27 +30,20 @@ Connector tests (currently neo4j-only): `cd docker && WITH_NEO4J=1 ./test-cpu-lo
 * Will start a local neo4j (docker) then enable+run tests against it
 
 
-## Native - DEPRECATED
-### Install Git Checkout - DEPRECATED
-
-1. Remove any version installed with pip
-    `pip uninstall graphistry`
-2. Install local git checkout
-	`./setup.py develop`
-
-### Running Tests Locally - DEPRECATED
-
-1. Install our test dependencies:`nose` and `mock`.
-2. Run `nosetests` in the root pygraphistry folder (or `nose` or `nose2`).
-3. `python setup.py test`
-4. To duplicate CI tests, in python2 and 3, run ` time flake8 . --count --select=E901,E999,F821,F822,F823 --show-source --statistics`
-
-
 ## Docs
 
 Automatically build via ReadTheDocs from inline definitions.
 
 To manually build, see `docs/`.
+
+## Ignore files
+
+You may need to add ignore rules:
+
+* flake8: bin/lint.sh
+* mypi: mypi.ini
+* sphinx: docs/source/conf.py
+
 
 ## CI
 
@@ -62,10 +55,6 @@ GitHub Actions: See `.github/workflows`
 * Use the unit tests
 * use the `logging` module per-file
 
-
-### Native - Uninstall Git Checkout - DEPRECATED
-
-Uninstall the local checkout (useful to rollback to packaged version) with `./setup.py develop --uninstall`
 
 ## Publish: Merge, Tag, & Upload
 
