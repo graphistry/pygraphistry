@@ -488,6 +488,27 @@ class PyGraphistry(object):
             PyGraphistry, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct,
             engine=engine, npartitions=npartitions, chunksize=chunksize)
 
+    @staticmethod
+    def infer_labels(self):
+        """
+
+        :return: Plotter w/neo4j
+
+        * Prefers point_title/point_label if available
+        * Fallback to node id
+        * Raises exception if no nodes available, no likely candidates, and no matching node id fallback
+
+        **Example**
+
+                ::
+
+                    import graphistry
+                    g = graphistry.nodes(pd.read_csv('nodes.csv'), 'id_col').infer_labels()
+                    g.plot()
+
+        """
+        return Plotter().infer_labels()
+
 
     @staticmethod
     def bolt(driver = None):
@@ -1396,6 +1417,7 @@ encode_point_icon = PyGraphistry.encode_point_icon
 encode_edge_icon = PyGraphistry.encode_edge_icon
 encode_point_badge = PyGraphistry.encode_point_badge
 encode_edge_badge = PyGraphistry.encode_edge_badge
+infer_labels = PyGraphistry.infer_labels
 name = PyGraphistry.name
 description = PyGraphistry.description
 edges = PyGraphistry.edges

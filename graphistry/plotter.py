@@ -1188,6 +1188,12 @@ class Plotter(object):
 
     def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True):
 
+        if graph._point_title is None and graph._point_label is None and graph._nodes is not None:
+            try:
+                graph = graph.infer_labels()
+            except:
+                1
+
         if isinstance(graph, pd.core.frame.DataFrame) \
                 or isinstance(graph, pa.Table) \
                 or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ) \
@@ -1565,6 +1571,53 @@ class Plotter(object):
         res = copy.copy(self)
         res._bolt_driver = to_bolt_driver(driver)
         return res
+
+
+    def infer_labels(self):
+        """
+
+        :return: Plotter w/neo4j
+
+        * Prefers point_title/point_label if available
+        * Fallback to node id
+        * Raises exception if no nodes available, no likely candidates, and no matching node id fallback
+
+        **Example**
+
+                ::
+
+                    import graphistry
+                    g = graphistry.nodes(pd.read_csv('nodes.csv'), 'id_col').infer_labels()
+                    g.plot()
+
+        """
+
+        if self._point_title is not None or self._point_label is not None:
+            return self
+
+        nodes_df = self._nodes
+        if nodes_df is None:
+            raise ValueError('node label inference requires ._nodes to be set')
+
+        # full term (case insensitive)
+        opts = ['nodetitle', 'nodelabel', 'label', 'title', 'name']
+        if nodes_df is not None:
+            for c in opts:
+                for c2 in nodes_df:
+                    if c == c2.lower():
+                        return self.bind(point_title=c2)
+
+        # substring
+        for opt in ['title', 'label', 'name']:
+            for c in nodes_df:
+                if opt in c.lower():
+                    return self.bind(point_title=c)
+
+        # fallback
+        if self._node is not None:
+            return self.bind(point_title=self._node)
+
+        raise ValueError('Could not find a label-like node column and no g._node id fallback set')
 
 
     def cypher(self, query, params={}):
