@@ -417,6 +417,42 @@ class TestPlotterPandasConversions(NoAuthTestCase):
         assertFrameEqual(out, df)
 
 
+class TestPlotterLabelInference(NoAuthTestCase):
+
+    def test_infer_labels_predefined_title(self):
+        g = (graphistry
+            .nodes(pd.DataFrame({'x': [1,2], 'y': [1, 2]}))
+            .bind(point_title='y'))
+        g2 = g.infer_labels()
+        assert g2._point_title == 'y'
+
+    def test_infer_labels_predefined_label(self):
+        g = (graphistry
+            .nodes(pd.DataFrame({'x': [1,2], 'y': [1, 2]}))
+            .bind(point_label='y'))
+        g2 = g.infer_labels()
+        assert g2._point_label == 'y'
+    
+    def test_infer_labels_infer_name_exact(self):
+        g = graphistry.nodes(pd.DataFrame({'x': [1,2], 'name': [1, 2]}))
+        g2 = g.infer_labels()
+        assert g2._point_title == 'name'
+
+    def test_infer_labels_infer_name_substr(self):
+        g = graphistry.nodes(pd.DataFrame({'x': [1,2], 'thename': [1, 2]}))
+        g2 = g.infer_labels()
+        assert g2._point_title == 'thename'
+
+    def test_infer_labels_infer_name_id_fallback(self):
+        g = graphistry.nodes(pd.DataFrame({'x': [1,2], 'y': [1, 2]}), 'y')
+        g2 = g.infer_labels()
+        assert g2._point_title == 'y'
+
+    def test_infer_labels_exn_unknown(self):
+        g = graphistry.nodes(pd.DataFrame({'x': [1,2], 'y': [1, 2]}))
+        with pytest.raises(ValueError):
+            g.infer_labels()
+
 
 class TestPlotterArrowConversions(NoAuthTestCase):
 
