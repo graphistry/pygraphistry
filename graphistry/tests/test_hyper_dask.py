@@ -728,7 +728,7 @@ class TestHypergraphDask(NoAuthTestCase):
         from dask.distributed import Client
 
         with Client(processes=True):
-            h = hypergraph(PyGraphistry.bind(), triangleNodes, verbose=False, engine=Engine.DASK, npartitions=2, debug=True)
+            h = hypergraph(PyGraphistry.bind(), triangleNodes, verbose=False, engine=Engine.DASK, npartitions=2, debug=DEBUG)
             
             edges = pd.DataFrame({
                 'a1': [1, 2, 3] * 4,
@@ -752,7 +752,7 @@ class TestHypergraphDask(NoAuthTestCase):
         from dask.distributed import Client
 
         with Client(processes=True):
-            h = hypergraph(PyGraphistry.bind(), hyper_df, verbose=False, direct=True, engine=Engine.DASK, npartitions=2, debug=True)
+            h = hypergraph(PyGraphistry.bind(), hyper_df, verbose=False, direct=True, engine=Engine.DASK, npartitions=2, debug=DEBUG)
             
             self.assertEqual(len(h.edges.compute()), 9)
             self.assertEqual(len(h.nodes.compute()), 9)
@@ -765,7 +765,7 @@ class TestHypergraphDask(NoAuthTestCase):
 
             h = hypergraph(
                 PyGraphistry.bind(), hyper_df,
-                verbose=False, direct=True, opts={'CATEGORIES': {'n': ['aa', 'bb', 'cc']}}, engine=Engine.DASK, npartitions=2, debug=True)
+                verbose=False, direct=True, opts={'CATEGORIES': {'n': ['aa', 'bb', 'cc']}}, engine=Engine.DASK, npartitions=2, debug=DEBUG)
             
             self.assertEqual(len(h.edges.compute()), 9)
             self.assertEqual(len(h.nodes.compute()), 6)
@@ -778,12 +778,12 @@ class TestHypergraphDask(NoAuthTestCase):
 
             h1 = hypergraph(
                 PyGraphistry.bind(), hyper_df,
-                verbose=False, direct=True, opts={'EDGES': {'aa': ['cc'], 'cc': ['cc']}}, engine=Engine.DASK, npartitions=2, debug=True)
+                verbose=False, direct=True, opts={'EDGES': {'aa': ['cc'], 'cc': ['cc']}}, engine=Engine.DASK, npartitions=2, debug=DEBUG)
             self.assertEqual(len(h1.edges.compute()), 6)
 
             h2 = hypergraph(
                 PyGraphistry.bind(), hyper_df,
-                verbose=False, direct=True, opts={'EDGES': {'aa': ['cc', 'bb', 'aa'], 'cc': ['cc']}}, engine=Engine.DASK, npartitions=2, debug=True)
+                verbose=False, direct=True, opts={'EDGES': {'aa': ['cc', 'bb', 'aa'], 'cc': ['cc']}}, engine=Engine.DASK, npartitions=2, debug=DEBUG)
             self.assertEqual(len(h2.edges.compute()), 12)
 
 
@@ -795,7 +795,7 @@ class TestHypergraphDask(NoAuthTestCase):
     
             h = hypergraph(
                 PyGraphistry.bind(), triangleNodes, ['id', 'a1', '🙈'],
-                verbose=False, drop_edge_attrs=True, engine=Engine.DASK, npartitions=2, debug=True)
+                verbose=False, drop_edge_attrs=True, engine=Engine.DASK, npartitions=2, debug=DEBUG)
 
             edges = pd.DataFrame({
                 'edgeType': ['a1', 'a1', 'a1', 'id', 'id', 'id', '🙈', '🙈', '🙈'],
@@ -829,7 +829,7 @@ class TestHypergraphDask(NoAuthTestCase):
                         'a1': ['🙈']
                     }
                 },
-                engine=Engine.DASK, npartitions=2, debug=True)
+                engine=Engine.DASK, npartitions=2, debug=DEBUG)
 
             logger.debug('h.nodes: %s', h.graph._nodes)
             logger.debug('h.edges: %s', h.graph._edges)
@@ -864,7 +864,7 @@ class TestHypergraphDask(NoAuthTestCase):
                 'i': [1, 2, None]
             })
 
-            hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, engine=Engine.DASK, npartitions=2, debug=True)
+            hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, engine=Engine.DASK, npartitions=2, debug=DEBUG)
 
             assert len(hg.graph._nodes.compute()) == 7
             assert len(hg.graph._edges.compute()) == 4
@@ -880,7 +880,7 @@ class TestHypergraphDask(NoAuthTestCase):
                 'i': [1, 1, None]
             })
 
-            hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, direct=True, engine=Engine.DASK, npartitions=2, debug=True)
+            hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, direct=True, engine=Engine.DASK, npartitions=2, debug=DEBUG)
 
             assert len(hg.graph._nodes.compute()) == 2
             assert len(hg.graph._edges.compute()) == 1
@@ -899,12 +899,12 @@ class TestHypergraphDask(NoAuthTestCase):
 
             skip_attr_h_edges = hypergraph(
                 PyGraphistry.bind(), nans_df, drop_edge_attrs=True,
-                engine=Engine.DASK, npartitions=2, debug=True).edges
+                engine=Engine.DASK, npartitions=2, debug=DEBUG).edges
             self.assertEqual(len(skip_attr_h_edges.compute()), len(expected_hits))
 
             default_h_edges = hypergraph(
                 PyGraphistry.bind(), nans_df,
-                engine=Engine.DASK, npartitions=2, debug=True).edges
+                engine=Engine.DASK, npartitions=2, debug=DEBUG).edges
             self.assertEqual(len(default_h_edges.compute()), len(expected_hits))
 
     def test_hyper_evil(self):
@@ -915,7 +915,7 @@ class TestHypergraphDask(NoAuthTestCase):
 
             h = hypergraph(
                 PyGraphistry.bind(), squareEvil_gdf_friendly,
-                engine=Engine.DASK, npartitions=2, debug=True)
+                engine=Engine.DASK, npartitions=2, debug=DEBUG)
             h.nodes.compute()
             h.edges.compute()
             h.events.compute()
@@ -932,7 +932,7 @@ class TestHypergraphDask(NoAuthTestCase):
                 'y': ['d', 'e', 'f']
             })
 
-            hg = hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK, npartitions=2, debug=True)
+            hg = hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK, npartitions=2, debug=DEBUG)
             nodes_arr = pa.Table.from_pandas(hg.graph._nodes.compute())
             assert len(nodes_arr) == 9
             edges_err = pa.Table.from_pandas(hg.graph._edges.compute())
@@ -949,7 +949,7 @@ class TestHypergraphDask(NoAuthTestCase):
                 'y': [1, 2, 3]
             })
 
-            hg = hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK, npartitions=2, debug=True)
+            hg = hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK, npartitions=2, debug=DEBUG)
             nodes_arr = pa.Table.from_pandas(hg.graph._nodes.compute())
             assert len(nodes_arr) == 9
             edges_err = pa.Table.from_pandas(hg.graph._edges.compute())
@@ -1001,7 +1001,7 @@ class TestHypergraphDask(NoAuthTestCase):
                 'y': [1, 2, None]
             })
 
-            hg = hypergraph(PyGraphistry.bind(), df, drop_na=False, npartitions=2, engine=Engine.DASK, debug=True)
+            hg = hypergraph(PyGraphistry.bind(), df, drop_na=False, npartitions=2, engine=Engine.DASK, debug=DEBUG)
             nodes_arr = pa.Table.from_pandas(hg.graph._nodes.compute())
             assert len(hg.graph._nodes) == 9
             assert len(nodes_arr) == 9
@@ -1016,7 +1016,7 @@ class TestHypergraphDask(NoAuthTestCase):
         with Client(processes=True):
             hg = hypergraph(
                 PyGraphistry.bind(), triangleNodes, ['id', 'a1', '🙈'],
-                engine=Engine.DASK, npartitions=2, debug=True)
+                engine=Engine.DASK, npartitions=2, debug=DEBUG)
             nodes_arr = pa.Table.from_pandas(hg.graph._nodes.compute())
             assert len(hg.graph._nodes) == 12
             assert len(nodes_arr) == 12
@@ -1031,7 +1031,7 @@ class TestHypergraphDask(NoAuthTestCase):
         with Client(processes=True):
             hg = hypergraph(
                 PyGraphistry.bind(), triangleNodes, ['id', 'a1', '🙈'],
-                direct=True, engine=Engine.DASK, npartitions=2, debug=True)
+                direct=True, engine=Engine.DASK, npartitions=2, debug=DEBUG)
             nodes_arr = pa.Table.from_pandas(hg.graph._nodes.compute())
             assert len(hg.graph._nodes) == 9
             assert len(nodes_arr) == 9
@@ -1062,7 +1062,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
         cluster, client = make_cluster_client()
         with cluster:
             with client:
-                h = hypergraph(PyGraphistry.bind(), triangleNodes, verbose=False, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                h = hypergraph(PyGraphistry.bind(), triangleNodes, verbose=False, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 edges = pd.DataFrame({
                     'a1': [1, 2, 3] * 4,
                     'a2': ['red', 'blue', 'green'] * 4,
@@ -1083,7 +1083,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
         cluster, client = make_cluster_client()
         with cluster:
             with client:
-                h = hypergraph(PyGraphistry.bind(), hyper_df, verbose=False, direct=True, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                h = hypergraph(PyGraphistry.bind(), hyper_df, verbose=False, direct=True, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 
                 self.assertEqual(len(h.edges.compute()), 9)
                 self.assertEqual(len(h.nodes.compute()), 9)
@@ -1094,7 +1094,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
             with client:
                 h = hypergraph(
                     PyGraphistry.bind(), hyper_df,
-                    verbose=False, direct=True, opts={'CATEGORIES': {'n': ['aa', 'bb', 'cc']}}, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                    verbose=False, direct=True, opts={'CATEGORIES': {'n': ['aa', 'bb', 'cc']}}, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 self.assertEqual(len(h.edges.compute()), 9)
                 self.assertEqual(len(h.nodes.compute()), 6)
 
@@ -1104,11 +1104,11 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
             with client:
                 h1 = hypergraph(
                     PyGraphistry.bind(), hyper_df,
-                    verbose=False, direct=True, opts={'EDGES': {'aa': ['cc'], 'cc': ['cc']}}, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                    verbose=False, direct=True, opts={'EDGES': {'aa': ['cc'], 'cc': ['cc']}}, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 self.assertEqual(len(h1.edges.compute()), 6)
                 h2 = hypergraph(
                     PyGraphistry.bind(), hyper_df,
-                    verbose=False, direct=True, opts={'EDGES': {'aa': ['cc', 'bb', 'aa'], 'cc': ['cc']}}, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                    verbose=False, direct=True, opts={'EDGES': {'aa': ['cc', 'bb', 'aa'], 'cc': ['cc']}}, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 self.assertEqual(len(h2.edges.compute()), 12)
 
     def test_drop_edge_attrs(self):
@@ -1117,7 +1117,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
             with client:
                 h = hypergraph(
                     PyGraphistry.bind(), triangleNodes, ['id', 'a1', '🙈'],
-                    verbose=False, drop_edge_attrs=True, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                    verbose=False, drop_edge_attrs=True, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 edges = pd.DataFrame({
                     'edgeType': ['a1', 'a1', 'a1', 'id', 'id', 'id', '🙈', '🙈', '🙈'],
                     'attribID': [
@@ -1145,7 +1145,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                             'a1': ['🙈']
                         }
                     },
-                    engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                    engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 logger.debug('h.nodes: %s', h.graph._nodes)
                 logger.debug('h.edges: %s', h.graph._edges)
                 edges = pd.DataFrame({
@@ -1174,7 +1174,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     'a': ['a', None, 'c'],
                     'i': [1, 2, None]
                 })
-                hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 assert len(hg.graph._nodes.compute()) == 7
                 assert len(hg.graph._edges.compute()) == 4
 
@@ -1187,7 +1187,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     'a': ['a', np.nan, 'c'],
                     'i': [1, 2, np.nan]
                 })
-                hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 assert len(hg.graph._nodes.compute()) == 7
                 assert len(hg.graph._edges.compute()) == 4
 
@@ -1200,7 +1200,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     'a': ['a', None, 'a'],
                     'i': [1, 1, None]
                 })
-                hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, direct=True, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, direct=True, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 logger.debug('nodes: %s', hg.graph._nodes.compute())
                 assert len(hg.graph._nodes.compute()) == 2
                 assert len(hg.graph._edges.compute()) == 1
@@ -1214,7 +1214,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     'a': ['a', np.nan, 'a'],
                     'i': [1, 1, np.nan]
                 })
-                hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, direct=True, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                hg = hypergraph(PyGraphistry.bind(), df, drop_na=True, direct=True, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 logger.debug('nodes: %s', hg.graph._nodes.compute())
                 assert len(hg.graph._nodes.compute()) == 2
                 assert len(hg.graph._edges.compute()) == 1
@@ -1232,11 +1232,11 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
 
                 skip_attr_h_edges = hypergraph(
                     PyGraphistry.bind(), nans_df, drop_edge_attrs=True,
-                    engine=Engine.DASK_CUDF, npartitions=2, debug=True).edges
+                    engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG).edges
                 self.assertEqual(len(skip_attr_h_edges.compute()), len(expected_hits))
                 default_h_edges = hypergraph(
                     PyGraphistry.bind(), nans_df,
-                    engine=Engine.DASK_CUDF, npartitions=2, debug=True).edges
+                    engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG).edges
                 self.assertEqual(len(default_h_edges.compute()), len(expected_hits))
 
     @pytest.mark.xfail(reason='https://github.com/rapidsai/cudf/issues/7735')
@@ -1252,11 +1252,11 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
 
                 skip_attr_h_edges = hypergraph(
                     PyGraphistry.bind(), nans_df, drop_edge_attrs=True,
-                    engine=Engine.DASK_CUDF, npartitions=2, debug=True).edges
+                    engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG).edges
                 self.assertEqual(len(skip_attr_h_edges.compute()), len(expected_hits))
                 default_h_edges = hypergraph(
                     PyGraphistry.bind(), nans_df,
-                    engine=Engine.DASK_CUDF, npartitions=2, debug=True).edges
+                    engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG).edges
                 self.assertEqual(len(default_h_edges.compute()), len(expected_hits))
 
     def test_hyper_evil(self):
@@ -1265,7 +1265,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
             with client:
                 h = hypergraph(
                     PyGraphistry.bind(), squareEvil_dgdf_friendly,
-                    engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                    engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 h.nodes.compute()
                 h.edges.compute()
                 h.events.compute()
@@ -1279,7 +1279,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     'x': ['a', 'b', 'c'],
                     'y': ['d', 'e', 'f']
                 })
-                hg = hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                hg = hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 nodes_arr = hg.graph._nodes.compute().to_arrow()
                 assert len(nodes_arr) == 9
                 edges_err = hg.graph._edges.compute().to_arrow()
@@ -1294,7 +1294,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     'y': [1, 2, 3]
                 })
 
-                hg = hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                hg = hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 nodes_arr = hg.graph._nodes.compute().to_arrow()
                 assert len(nodes_arr) == 9
                 edges_err = hg.graph._edges.compute().to_arrow()
@@ -1350,7 +1350,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     'y': [1, 2, None]
                 })
 
-                hg = hypergraph(PyGraphistry.bind(), df, drop_na=False, npartitions=2, engine=Engine.DASK_CUDF, debug=True)
+                hg = hypergraph(PyGraphistry.bind(), df, drop_na=False, npartitions=2, engine=Engine.DASK_CUDF, debug=DEBUG)
                 nodes_arr = hg.graph._nodes.compute().to_arrow()
                 assert len(hg.graph._nodes) == 9
                 assert len(nodes_arr) == 9
@@ -1367,7 +1367,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     'y': [1, 2, np.nan]
                 })
 
-                hg = hypergraph(PyGraphistry.bind(), df, drop_na=False, npartitions=2, engine=Engine.DASK_CUDF, debug=True)
+                hg = hypergraph(PyGraphistry.bind(), df, drop_na=False, npartitions=2, engine=Engine.DASK_CUDF, debug=DEBUG)
                 nodes_arr = hg.graph._nodes.compute().to_arrow()
                 assert len(hg.graph._nodes) == 9
                 assert len(nodes_arr) == 9
@@ -1381,7 +1381,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
             with client:
                 hg = hypergraph(
                     PyGraphistry.bind(), triangleNodes, ['id', 'a1', '🙈'],
-                    engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                    engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 nodes_arr = hg.graph._nodes.compute().to_arrow()
                 assert len(hg.graph._nodes) == 12
                 assert len(nodes_arr) == 12
@@ -1395,7 +1395,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
             with client:
                 hg = hypergraph(
                     PyGraphistry.bind(), triangleNodes, ['id', 'a1', '🙈'],
-                    direct=True, engine=Engine.DASK_CUDF, npartitions=2, debug=True)
+                    direct=True, engine=Engine.DASK_CUDF, npartitions=2, debug=DEBUG)
                 nodes_arr = hg.graph._nodes.compute().to_arrow()
                 assert len(hg.graph._nodes) == 9
                 assert len(nodes_arr) == 9
