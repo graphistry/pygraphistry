@@ -151,8 +151,10 @@ def format_entities_from_col(
             logger.debug('base_df2[ %s ]: %s', c, base_df[c].compute())
             logger.debug('convert [ %s ] %s -> %s', c, base_df[c].dtype.name, meta[c].dtype.name)
             logger.debug('orig: %s', base_df[c].compute())
-            logger.debug('coerced 1: %s', coerce_col_safe(base_df[c], meta[c].dtype).compute())
-            logger.debug('coerced 2: %s', base_df.assign(**{c: coerce_col_safe(base_df[c], meta[c].dtype)}).compute())
+            logger.debug('was a missing col needing coercion: %s', c in missing_cols)
+            if c in missing_cols:
+                logger.debug('coerced 1: %s', coerce_col_safe(base_df[c], meta[c].dtype).compute())
+                logger.debug('coerced 2: %s', base_df.assign(**{c: coerce_col_safe(base_df[c], meta[c].dtype)}).compute())
     base_as_meta_df = base_df.assign(**{
         c: coerce_col_safe(base_df[c], meta[c].dtype) if base_df[c].dtype.name != meta[c].dtype.name else base_df[c]
         for c in missing_cols
@@ -701,7 +703,7 @@ def hypergraph(
         edges = format_hyperedges(engine_resolved, events, entity_types, defs, drop_na, drop_edge_attrs, debug)
 
     if debug:
-        logger.debug('==== edges: %s', edges.compute())
+        logger.debug('==== edges: %s', edges.compute() if engine_resolved in [Engine.DASK, Engine.DASK_CUDF] else edges)
 
     if verbose:
         print('# links', len(edges))
