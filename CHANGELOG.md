@@ -12,6 +12,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Compressed uploads: Snappy-compressed parquet for network-bound scenarios (https://github.com/graphistry/pygraphistry/issues/188)
 * Improved error message: Include response body on failed arrow.post()
 
+## [0.18.2 - 2021-04-29]
+
+### Fixed
+
+* Hypergraphs - detect and handle mismatching types across partitions
+
+### Changed
+
+* Infra: Speedup testing containers via incrementalization and docker settings
+* Infra: Update testing container base builds
+
 ## [0.18.1 - 2021-03-26]
 
 ### Added
