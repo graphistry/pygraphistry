@@ -24,6 +24,59 @@ def make_cluster_client():
 # ###
 
 
+HONEYPOT_ROWS = 4
+HONEYPOT_EDGES = 12
+HONEYPOT_NODES = 11
+#HONEYPOT_ROWS = 220
+#HONEYPOT_EDGES = 660
+#HONEYPOT_NODES = 432
+
+DEBUG = False 
+
+def honeypot_hyperparams(df) -> dict:
+    return {
+        'g': PyGraphistry.bind(),
+        'raw_events': df,
+        'entity_types': ['vulnName', 'attackerIP', 'victimIP'],
+        'drop_na': True,
+        'drop_edge_attrs': False,
+        'direct': False,
+        'opts': {
+            'CATEGORIES': {
+                'n': ['vulName', 'attackerIP', 'victimIP']
+            }
+        }
+    }
+
+def honeypot_pdf() -> pd.DataFrame:
+    base_csv_dtypes = {
+        'attackerIP': 'object',
+        'victimIP': 'object',
+        'victimPort': 'float64',
+        'vulnName': 'object',
+        'count': 'int64',
+        'time(max)': 'float64',
+        'time(min)': 'float64'
+    }
+    base_dtypes = {
+        **base_csv_dtypes,
+        'time(max)': 'datetime64[ns]',
+        'time(min)': 'datetime64[ns]',
+    }
+    df = pd.read_csv(
+        'graphistry/tests/data/honeypot.5.csv',
+        #'graphistry/tests/data/honeypot.csv',
+        dtype=base_csv_dtypes,
+        parse_dates=['time(max)', 'time(min)'],
+        date_parser = lambda v: pd.to_datetime(int(v)))
+    assert df.dtypes.to_dict() == base_dtypes
+    assert len(df) == HONEYPOT_ROWS
+    return df
+
+
+# ###
+
+
 def assertFrameEqualCudf(df1, df2):
     import cudf
     if isinstance(df1, cudf.DataFrame):
@@ -302,6 +355,35 @@ class TestHypergraphPandas(NoAuthTestCase):
         edges_err = pa.Table.from_pandas(hg.graph._edges)
         assert len(edges_err) == 6
 
+    def test_hyper_to_pa_mixed2(self):
+
+        df = honeypot_pdf()
+
+        hg = hypergraph(**honeypot_hyperparams(df))
+
+        assert hg.graph._edges.dtypes.to_dict() == {
+            **df.dtypes.to_dict(),
+            'EventID': 'object',
+            'attribID': 'object',
+            'edgeType': 'object',
+            'category': 'object'
+        }
+        edges_arr = pa.Table.from_pandas(hg.graph._edges)
+        assert len(edges_arr) == HONEYPOT_EDGES
+
+        assert hg.graph._nodes.dtypes.to_dict() == {
+            **df.dtypes.to_dict(),
+            'EventID': 'object',
+            'type': 'object',
+            'category': 'object',
+            'nodeID': 'object',
+            'nodeTitle': 'object'
+
+        }
+        nodes_arr = pa.Table.from_pandas(hg.graph._nodes)
+        assert len(nodes_arr) == HONEYPOT_NODES
+
+
     def test_hyper_to_pa_na(self):
 
         df = pd.DataFrame({
@@ -549,6 +631,42 @@ class TestHypergraphCudf(NoAuthTestCase):
         assert len(nodes_arr) == 9
         edges_err = hg.graph._edges.to_arrow()
         assert len(edges_err) == 6
+
+    def test_hyper_to_pa_mixed2(self):
+        import cudf
+
+        df = cudf.from_pandas(honeypot_pdf())
+        df['time(max)'] = df['time(max)'].astype('datetime64[ms]')
+        df['time(min)'] = df['time(min)'].astype('datetime64[ms]')
+
+        hg = hypergraph(**honeypot_hyperparams(df), engine=Engine.CUDF, debug=DEBUG)
+
+        assert hg.graph._edges.dtypes.to_dict() == {
+            **df.dtypes.to_dict(),
+            'time(max)': 'datetime64[ms]',
+            'time(min)': 'datetime64[ms]',
+            'EventID': 'object',
+            'attribID': 'object',
+            'edgeType': 'object',
+            'category': 'object'
+        }
+        edges_arr = hg.graph._edges.to_arrow()
+        assert len(edges_arr) == HONEYPOT_EDGES
+
+        assert hg.graph._nodes.dtypes.to_dict() == {
+            **df.dtypes.to_dict(),
+            'time(max)': 'datetime64[ms]',
+            'time(min)': 'datetime64[ms]',
+            'EventID': 'object',
+            'type': 'object',
+            'category': 'object',
+            'nodeID': 'object',
+            'nodeTitle': 'object'
+
+        }
+        nodes_arr = hg.graph._nodes.to_arrow()
+        assert len(nodes_arr) == HONEYPOT_NODES
+        #assert False
 
     def test_hyper_to_pa_na(self):
         import cudf
@@ -836,6 +954,41 @@ class TestHypergraphDask(NoAuthTestCase):
             assert len(nodes_arr) == 9
             edges_err = pa.Table.from_pandas(hg.graph._edges.compute())
             assert len(edges_err) == 6
+
+    def test_hyper_to_pa_mixed2(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            df = honeypot_pdf()
+
+            hg = hypergraph(**honeypot_hyperparams(df), engine=Engine.DASK, npartitions=2, debug=DEBUG)
+
+            edges_pdf = hg.graph._edges.compute()
+            assert edges_pdf.dtypes.to_dict() == {
+                **df.dtypes.to_dict(),
+                'EventID': 'object',
+                'attribID': 'object',
+                'edgeType': 'object',
+                'category': 'object'
+            }
+            edges_arr = pa.Table.from_pandas(edges_pdf)
+            assert len(edges_arr) == HONEYPOT_EDGES
+
+            nodes_pdf = hg.graph._nodes.compute()
+            assert nodes_pdf.dtypes.to_dict() == {
+                **df.dtypes.to_dict(),
+                'EventID': 'object',
+                'type': 'object',
+                'category': 'object',
+                'nodeID': 'object',
+                'nodeTitle': 'object'
+
+            }
+            nodes_arr = pa.Table.from_pandas(nodes_pdf)
+            assert len(nodes_arr) == HONEYPOT_NODES
+
 
     def test_hyper_to_pa_na(self):
         import dask
@@ -1147,6 +1300,45 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 edges_err = hg.graph._edges.compute().to_arrow()
                 assert len(edges_err) == 6
 
+    def test_hyper_to_pa_mixed2(self):
+        import cudf
+        cluster, client = make_cluster_client()
+
+        with cluster:
+            with client:
+                df = cudf.from_pandas(honeypot_pdf())
+                df['time(max)'] = df['time(max)'].astype('datetime64[ms]')
+                df['time(min)'] = df['time(min)'].astype('datetime64[ms]')
+
+                hg = hypergraph(**honeypot_hyperparams(df), engine=Engine.DASK_CUDF, npartitions=1, debug=DEBUG)
+
+                edges_gdf = hg.graph._edges.compute()
+                assert edges_gdf.dtypes.to_dict() == {
+                    **df.dtypes.to_dict(),
+                    'time(max)': 'datetime64[ms]',
+                    'time(min)': 'datetime64[ms]',
+                    'EventID': 'object',
+                    'attribID': 'object',
+                    'edgeType': 'object',
+                    'category': 'object'
+                }
+                edges_arr = edges_gdf.to_arrow()
+                assert len(edges_arr) == HONEYPOT_EDGES
+
+                nodes_gdf = hg.graph._nodes.compute()
+                assert nodes_gdf.dtypes.to_dict() == {
+                    **df.dtypes.to_dict(),
+                    'time(max)': 'datetime64[ms]',
+                    'time(min)': 'datetime64[ms]',
+                    'EventID': 'object',
+                    'type': 'object',
+                    'category': 'object',
+                    'nodeID': 'object',
+                    'nodeTitle': 'object'
+
+                }
+                nodes_arr = nodes_gdf.to_arrow()
+                assert len(nodes_arr) == HONEYPOT_NODES
 
     @pytest.mark.xfail(reason='https://github.com/rapidsai/cudf/issues/7735')
     def test_hyper_to_pa_na(self):

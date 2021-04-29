@@ -261,28 +261,59 @@ def get_series_cons(engine: Engine, dtype='int32'):
 
     raise NotImplementedError('Unknown engine')
 
+def series_cons(engine: Engine, arr: List, dtype='int32', npartitions=None, chunksize=None):
+    if engine == Engine.PANDAS:
+        return pd.Series(arr, dtype=dtype)
+
+    if engine == Engine.DASK:
+        import dask.dataframe
+        return dask.dataframe.from_pandas(pd.Series(arr, dtype=dtype), npartitions=npartitions, chunksize=chunksize).astype(dtype)
+
+    if engine == Engine.CUDF:
+        import cudf
+        return cudf.Series(arr, dtype=dtype)
+
+    if engine == Engine.DASK_CUDF:
+        import cudf, dask_cudf
+        gs = cudf.Series(arr, dtype=dtype)
+        out = dask_cudf.from_cudf(gs, npartitions=npartitions, chunksize=chunksize)
+        out2 = out.astype(dtype)
+        logger.debug('series_cons :: %s => %s => %s', gs.dtype, out.dtype, out2.dtype)
+        return out2
+    raise NotImplementedError('Unknown engine')
+
+
 def mt_series(engine: Engine, dtype='int32'):
     cons = get_series_cons(engine)
     return cons([], dtype=dtype)
 
-def mt_nodes(defs: HyperBindings, events: DataframeLike, entity_types: List[str], direct: bool) -> pd.DataFrame:
-    mt_pdf = pd.DataFrame({
-        **{
-            defs.title: pd.Series([], dtype='object'),
-            defs.event_id: pd.Series([], dtype='object'),
-            defs.node_type: pd.Series([], dtype='object'),
-            defs.category: pd.Series([], dtype='object'),
-            defs.node_id: pd.Series([], dtype='object'),
-        },
-        **({
-            x: pd.Series([], dtype=events[x].dtype)
-            for x in entity_types
-        } if direct else {
-            x: pd.Series([], dtype=events[x].dtype)
-            for x in events.columns
-        })
-    })
-    return mt_pdf
+# This will be slightly wrong: pandas will turn datetime64['ms'] into datetime64['ns']
+def mt_nodes(defs: HyperBindings, events: DataframeLike, entity_types: List[str], direct: bool, engine: Engine) -> pd.DataFrame:
+
+    single_engine = engine
+    if engine == Engine.DASK_CUDF:
+        single_engine = Engine.CUDF
+    if engine == Engine.DASK:
+        single_engine = Engine.PANDAS
+
+    mt_obj_s = series_cons(single_engine, [], dtype='object', npartitions=1)
+
+    out = ((events[ entity_types ] if direct else events)
+        .head(0)
+        .assign(
+            **{
+                defs.title: mt_obj_s,
+                defs.event_id: mt_obj_s,
+                defs.node_type: mt_obj_s,
+                defs.category: mt_obj_s,
+                defs.node_id: mt_obj_s,
+            }
+        ))
+
+    logger.debug('mt_nodes init :: %s', out.dtypes)
+
+    return out
+
 
 #ex output: DataFrameLike([{'val::state': 'CA', 'nodeType': 'state', 'nodeID': 'state::CA'}])
 def format_entities(
