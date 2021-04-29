@@ -168,7 +168,23 @@ def format_entities_from_col(
 
     return base_as_meta_df
 
-def concat(dfs: List[DataframeLike], engine: Engine):
+def concat(dfs: List[DataframeLike], engine: Engine, debug=False):
+
+    if debug and len(dfs) > 1:
+        df0 = dfs[0]
+        for c in df0:
+            logger.debug('checking df0: %s :: %s', c, df0[c].dtype)
+            for df_i in dfs[1:]:
+                if c not in df_i:
+                    logger.warning('missing df0[%s]::%s in df_i', c, df0[c].dtype)
+                if df0[c].dtype != df_i[c].dtype:
+                    logger.warning('mismatching df0[c]::%s vs df_i[c]::%s for %s', df0[c].dtype, df_i[c].dtype, c)
+        for df_i in dfs[1:]:
+            for c in df_i:
+                logger.debug('checking df_i: %s', c)
+                if c not in df0:
+                    logger.warning('missing df_i[%s]::%s in df0', c, df_i[c].dtype)
+        logger.debug('all checked!')
 
     if engine == Engine.PANDAS:
         return pd.concat(dfs, ignore_index=True, sort=False)
