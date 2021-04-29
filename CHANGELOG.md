@@ -8,11 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Adding
-* Gremlin / AWS Neptune connector <-- not for this release
-* Compressed uploads: Snappy-compressed parquet for network-bound scenarios (https://github.com/graphistry/pygraphistry/issues/188)
-* Improved error message: Include response body on failed arrow.post()
+* Gremlin / AWS Neptune connector
 
 ## [0.18.2 - 2021-04-29]
+
+### Added
+* Docs: security.md
 
 ### Fixed
 
@@ -106,7 +107,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Breaking
 
 * None known; many small changes to fix warnings so version bump out of caution
-
 
 ## [0.15.0] - 2021-01-11
 
