@@ -302,12 +302,13 @@ def format_entities(
     cat_lookup = make_reverse_lookup(defs.categories)
     logger.debug('@format_entities cat_lookup [ %s ] => [ %s ]', defs.categories, cat_lookup)
 
-    mt_pdf = mt_nodes(defs, events, entity_types, direct)
+    mt_df = mt_nodes(defs, events, entity_types, direct, engine)
+    logger.debug('mt_df :: %s', mt_df.dtypes)
 
     entity_dfs = [
         format_entities_from_col(
             defs, cat_lookup, drop_na, engine,
-            col_name, events[[col_name]], mt_pdf,
+            col_name, events[[col_name]], mt_df,
             debug)
         for col_name in entity_types
     ]
@@ -329,7 +330,7 @@ def format_entities(
                         logger.error('key %s (::%s) missing in df_i', k, v)
             logger.debug('entity_df: %s', df.compute())
 
-    df = concat(entity_dfs, engine).drop_duplicates([defs.node_id])
+    df = concat(entity_dfs, engine, debug).drop_duplicates([defs.node_id])
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
         df = df.persist()
         df.compute()
@@ -402,7 +403,7 @@ def format_hyperedges(
             #subframes = [df.persist() for df in subframes]
             for df in subframes:
                 logger.debug('edge sub: %s', df.dtypes)
-        out = concat(subframes, engine).reset_index(drop=True)[ result_cols ]
+        out = concat(subframes, engine, debug).reset_index(drop=True)[ result_cols ]
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
             out = out.persist()
             out.compute()
@@ -467,7 +468,7 @@ def format_direct_edges(
             # subframes = [ df.persist() for df in subframes ]
             for df in subframes:
                 logger.debug('format_direct_edges subdf: %s', df.dtypes)
-        out = concat(subframes, engine=engine)[ result_cols ]
+        out = concat(subframes, engine=engine, debug=debug)[ result_cols ]
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
             out = out.persist()
             out.compute()
@@ -660,7 +661,7 @@ class Hypergraph():
         self.edges = edges
         logger.debug('final nodes dtypes - entities: %s', entities.dtypes)
         logger.debug('final nodes dtypes - event_entities: %s', event_entities.dtypes)
-        self.nodes = concat([entities, event_entities], engine=engine)
+        self.nodes = concat([entities, event_entities], engine=engine, debug=debug)
         if debug and engine in [Engine.DASK, Engine.DASK_CUDF]:
             self.nodes = self.nodes.persist()
             self.nodes.compute()
@@ -710,7 +711,7 @@ def hypergraph(
     edges = None
     if direct:
         edge_shape = direct_edgelist_shape(entity_types, defs)
-        event_entities = df_coercion(mt_nodes(defs, events, entity_types, direct), engine_resolved, npartitions=1)
+        event_entities = df_coercion(mt_nodes(defs, events, entity_types, direct, engine_resolved), engine_resolved, npartitions=1)
         if debug:
             logger.debug('mt event_entities: %s', event_entities.dtypes)
         edges = format_direct_edges(engine_resolved, events, entity_types, defs, edge_shape, drop_na, drop_edge_attrs, debug)
