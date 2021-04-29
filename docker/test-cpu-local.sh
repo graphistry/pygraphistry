@@ -28,6 +28,7 @@ docker-compose build --build-arg PYTHON_VERSION=${PYTHON_VERSION} test-cpu
 echo "RUN"
 
 docker run \
+    --security-opt seccomp=unconfined \
     -e PYTEST_CURRENT_TEST=TRUE \
     -e WITH_NEO4J=$WITH_NEO4J \
     -e WITH_LINT=$WITH_LINT \
