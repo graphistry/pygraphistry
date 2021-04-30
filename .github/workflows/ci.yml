@@ -57,14 +57,17 @@ jobs:
 
     - name: Lint
       run: |
+        source pygraphistry/bin/activate
         ./bin/lint.sh
 
     - name: Type check
       run: |
+        source pygraphistry/bin/activate
         ./bin/typecheck.sh
 
     - name: Core tests
       run: |
+        source pygraphistry/bin/activate
         ./bin/test.sh
 
 
