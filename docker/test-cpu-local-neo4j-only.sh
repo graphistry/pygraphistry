@@ -18,7 +18,7 @@ ${WITH_SUDO} docker run \
     --rm \
     -v ${PWD}/..:/opt/pygraphistry-mounted:ro \
     -w /opt/pygraphistry-mounted \
-    --entrypoint=/opt/pygraphistry-mounted/bin/test.sh \
+    --entrypoint=/opt/pygraphistry-mounted/docker/test-cpu-local-neo4j-only-entrypoint.sh \
     --net grph_net \
     graphistry/test-cpu:${TEST_CPU_VERSION} \
         graphistry/tests/test_bolt_util.py \
