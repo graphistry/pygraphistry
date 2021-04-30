@@ -50,19 +50,24 @@ jobs:
 
     - name: Install test dependencies
       run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
         python -m pip install --upgrade pip
         python -m pip install -e .[dev]
 
     - name: Lint
       run: |
+        source pygraphistry/bin/activate
         ./bin/lint.sh
 
     - name: Type check
       run: |
+        source pygraphistry/bin/activate
         ./bin/typecheck.sh
 
     - name: Core tests
       run: |
+        source pygraphistry/bin/activate
         ./bin/test.sh
 
 
