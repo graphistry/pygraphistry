@@ -50,6 +50,8 @@ jobs:
 
     - name: Install test dependencies
       run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
         python -m pip install --upgrade pip
         python -m pip install -e .[dev]
 
