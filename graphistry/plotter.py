@@ -17,6 +17,7 @@ from .bolt_util import (
 from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
+from .gremlin import GremlinMixin, CosmosMixin
 
 maybe_cudf = None
 try:
@@ -63,7 +64,7 @@ class WeakValueWrapper:
     def __init__(self, v):
         self.v = v
 
-class Plotter(object):
+class PlotterBase(object):
     """Graph plotting class.
 
     Created using ``Graphistry.bind()``.
@@ -81,7 +82,9 @@ class Plotter(object):
     _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        super(PlotterBase, self).__init__()
+
         # Bindings
         self._edges = None
         self._nodes = None
@@ -1804,3 +1807,11 @@ class Plotter(object):
                     \"\"\", {'edges': 'my_edge_list'}).plot()
         """        
         return self._tigergraph.gsql(self, query, bindings, dry_run)
+
+
+class Plotter(CosmosMixin, GremlinMixin, PlotterBase, object):
+
+    def __init__(self, *args, **kwargs):
+        PlotterBase.__init__(self, *args, **kwargs)
+        GremlinMixin.__init__(self, *args, **kwargs)
+        CosmosMixin.__init__(self, *args, **kwargs)

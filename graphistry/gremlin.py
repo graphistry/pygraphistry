@@ -1,4 +1,4 @@
-from typing import Iterable, List, Optional, Union
+from typing import Callable, Iterable, List, Optional, Union, TYPE_CHECKING
 import logging, os, pandas as pd
 from .Plottable import Plottable
 try:
@@ -9,6 +9,11 @@ except:
     1
 logger = logging.getLogger('gremlin')
 
+
+if TYPE_CHECKING:
+    MIXIN_BASE = Plottable
+else:
+    MIXIN_BASE = object
 
 
 def clean_str(v):
@@ -91,96 +96,153 @@ def edges_to_queries(g, type_col: Optional[str] = None) -> Iterable[str]:
 
 
 #https://github.com/graphistry/graph-app-kit/blob/master/src/python/neptune_helper/gremlin_helper.py
-def vertex_to_dict(vertex, id_col: str = 'id', label_col: str = 'label'):
+def flatten_vertex_dict(vertex: dict, id_col: str = 'id', label_col: str = 'label') -> dict:
+    """
+    Convert gremlin vertex (in dict form) to flat dict appropriate for pandas
+    - Metadata names take priority over property names
+    - Remap: T.id, T.label -> id, label (Neptune)
+    - Drop field 'type'
+    - id_col and label_col define output column name for metadata entries
+    """
+
     d = {}
+    props = {}
     for k in vertex.keys():
+
+        if k == 'type':
+            continue
+
+        if k == 'id' or k == 'T.id':
+            d[id_col] = vertex[k]
+            continue
+
+        if k == 'label' or k == 'T.label':
+            d[label_col] = vertex[label_col]
+            continue
+
         v = vertex[k]
         if isinstance(v, list):
             d[str(k)] = v[0]
             continue
+
         if k == 'properties' and isinstance(v, dict):
             for prop_k in v:
-                v2 = v[prop_k]
-                if isinstance(v2, list) and (len(v2) == 1) and isinstance(v2[0], dict) and 'id' in v2[0] and 'value' in v2[0]:
-                    d[str(prop_k)] = v2[0]['value']
+                if prop_k == id_col:
                     continue
-                d[str(prop_k)] = str(v2)
+                v2 = v[prop_k]
+                # TODO: multi-prop to list?
+                if isinstance(v2, list) and (len(v2) == 1) and isinstance(v2[0], dict) and 'id' in v2[0] and 'value' in v2[0]:
+                    props[str(prop_k)] = v2[0]['value']
+                    continue
+                props[str(prop_k)] = str(v2)
             continue
+
         d[str(k)] = vertex[k]
-    if 'T.id' in d:  # fixme: from neptune?
-        d[id_col] = d.pop('T.id')
-    if 'T.label' in d:
-        d[label_col] = d.pop('T.label')  # fixme: from neptune?
+
+    if len(props.keys()) > 0:
+        d = {**props, **d}
+
     return d
 
 #https://github.com/graphistry/graph-app-kit/blob/master/src/python/neptune_helper/gremlin_helper.py
-def edge_to_dict(edge, src_col: str = 'src', dst_col: str = 'dst'):
+def flatten_edge_dict(edge, src_col: str = 'src', dst_col: str = 'dst'):
+    """
+    Convert gremlin vertex (in dict form) to flat dict appropriate for pandas
+    - Metadata names take priority over property names
+    - Remap: T.inV, T.outV -> inV, outV (Neptune)
+    - Drop field 'type'
+    - src_col and dst_col define output column name for metadata entries
+    """
+
     d = {}
+    props = {}
     for k in edge.keys():
+
+        if k == 'type':
+            continue
+
+        if k == 'inV':
+            d[src_col] = edge[k]
+            continue
+
+        if k == 'outV':
+            d[dst_col] = edge[k]
+            continue
+
         v = edge[k]
         if isinstance(v, list):
             d[str(k)] = v[0]
             continue
+
         if k == 'properties' and isinstance(v, dict):
             for prop_k in v:
+                if prop_k == src_col or prop_k == dst_col:
+                    continue
                 v2 = v[prop_k]
                 if isinstance(v2, list) and (len(v2) == 1) and isinstance(v2[0], dict) and 'id' in v2[0] and 'value' in v2[0]:
-                    d[str(prop_k)] = v2[0]['value']
+                    props[str(prop_k)] = v2[0]['value']
                     continue
-                d[str(prop_k)] = str(v2)
+                props[str(prop_k)] = str(v2)
             continue
+
         d[str(k)] = edge[k]
-    if 'inV' in d:
-        d[src_col] = d.pop('inV')
-    if 'outV' in d:
-        d[dst_col] = d.pop('outV')
+
+
+    if len(props.keys()) > 0:
+        d = {**props, **d}
+
+    print('edge', edge, '->', d)
     return d
 
 
+DROP_QUERY = 'g.V().drop()'
 
-class GremlinMixin(Plottable):
+class GremlinMixin(MIXIN_BASE):
     """
+    Universal Gremlin<>pandas/graphistry functionality across Gremlin connectors
+    
     Currently serializes queries as strings instead of bytecode in order to support cosmosdb
     """
-    def __init__(
-        self: Plottable,
-        COSMOS_ACCOUNT: str = None,
-        COSMOS_DB: str = None,
-        COSMOS_CONTAINER: str = None,
-        COSMOS_PRIMARY_KEY: str = None,
-        COSMOS_PARTITION_KEY: str = None,
-        client = None
+
+    #_reconnect_gremlin : Callable[[Plottable], Plottable]
+
+    def gremlin_client(
+        self,
+        gremlin_client: Optional[Client] = None
     ):
         """
-           Provide credentials as arguments, as environment variables, or by providing a gremlinpython client
-           Environment variable names are the same as the constructor argument names
+
+            **Example: Login and plot **
+            ::
+
+                import graphistry
+                (graphistry
+                    .gremlin_client(my_gremlin_client)
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
+        """    
+
+        self._gremlin_client = gremlin_client
+
+        def connect(self: Plottable) -> Plottable:
+            raise ValueError('No connector set')
+
+        self._reconnect_gremlin : Callable[[GremlinMixin], GremlinMixin] = connect
+
+
+    def connect(self):
         """
-        self.COSMOS_ACCOUNT = COSMOS_ACCOUNT if COSMOS_ACCOUNT is not None else os.environ['COSMOS_ACCOUNT']
-        self.COSMOS_DB = COSMOS_DB if COSMOS_DB is not None else os.environ['COSMOS_DB']
-        self.COSMOS_CONTAINER = COSMOS_CONTAINER if COSMOS_CONTAINER is not None else os.environ['COSMOS_CONTAINER']
-        self.COSMOS_PRIMARY_KEY = COSMOS_PRIMARY_KEY if COSMOS_PRIMARY_KEY is not None else os.environ['COSMOS_PRIMARY_KEY']
-        self.COSMOS_PARTITION_KEY = COSMOS_PARTITION_KEY if COSMOS_PARTITION_KEY is not None else os.environ['COSMOS_PARTITION_KEY']
-
-        self.client = client
-
+        Use previously provided credentials to connect. Disconnect any preexisting clients.
+        """
+        return self._reconnect_gremlin(self)
 
     def drop_graph(self):
         """
             Remove all graph nodes and edges from the database
         """
-        self.run('g.V().drop()')  # .iterate() ? follow by g.tx().commit() ? 
-        return self
-
-    def connect(self):
-        """
-            Use 
-        """
-        self.client = Client(
-            f'wss://{self.COSMOS_ACCOUNT}.gremlin.cosmosdb.azure.com:443/',
-            'g', 
-            username=f"/dbs/{self.COSMOS_DB}/colls/{self.COSMOS_CONTAINER}",
-            password=self.COSMOS_PRIMARY_KEY,
-            message_serializer=GraphSONSerializersV2d0())
+        self.run(DROP_QUERY)  # .iterate() ? follow by g.tx().commit() ? 
         return self
 
 
@@ -188,11 +250,13 @@ class GremlinMixin(Plottable):
     # https://itnext.io/getting-started-with-graph-databases-azure-cosmosdb-with-gremlin-api-and-python-80e57cbd1c5e
     def run(self, queries: Iterable[str], throw=False) -> ResultSet:
         for query in queries:
+            print('q', query)
             logger.debug('query: %s', query)
             try:
-                callback = self.client.submitAsync(query)
+                callback = self._gremlin_client.submitAsync(query)  # type: ignore
                 if callback.result() is not None:
                     results = callback.result()
+                    print('results', results)
                     if results is not None:
                         logger.debug('Query succeeded: %s', type(results))
                     yield results
@@ -209,7 +273,7 @@ class GremlinMixin(Plottable):
                 yield e
 
        
-    def gremlin(self, queries: Iterable[str], g = None):
+    def gremlin(self, queries: Union[str, Iterable[str]]) -> Plottable:
         """
             Run one or more gremlin queries and get back the result as a graph object
             To support cosmosdb, sends as strings
@@ -217,11 +281,12 @@ class GremlinMixin(Plottable):
         if isinstance(queries, str):
             queries = [ queries ]
         resultsets = self.run(queries, throw=True)
-        g = self.resultset_to_g(resultsets, g)
+        print('resultsets', resultsets)
+        g = self.resultset_to_g(resultsets)
         return g
 
 
-    def resultset_to_g(self, resultsets: Union[ResultSet, Iterable[ResultSet]], g = None):
+    def resultset_to_g(self, resultsets: Union[ResultSet, Iterable[ResultSet]]) -> Plottable:
         """
         Convert traversal results to graphistry object with ._nodes, ._edges
         If only received nodes or edges, populate that field
@@ -229,66 +294,90 @@ class GremlinMixin(Plottable):
         Otherwise, will do src/dst/id
         """
         
+
+        print('rss type', type(resultsets))
         if isinstance(resultsets, ResultSet):
             resultsets = [resultsets]
             
         nodes = []
         edges = []
         for resultset in resultsets:
+            print('rs type', type(resultset))
             for result in resultset:
+                print('r type', type(result))
+                if isinstance(result, dict):
+                    result = [ result ]
                 for item in result:
+                    print('item', item)
                     if isinstance(item, dict):
                         if 'type' in item:
                             if item['type'] == 'vertex':
-                                nodes.append(vertex_to_dict(item))
+                                nodes.append(flatten_vertex_dict(item))
+                                print('added v')
                             elif item['type'] == 'edge':
-                                edges.append(edge_to_dict(item))
+                                edges.append(flatten_edge_dict(item))
+                                print('added e, #: ', len(edges))
+                            else:
+                                raise ValueError('unexpected item type', item['item'])
                         else:
+                            print('keys...')
                             for k in item.keys():
                                 item_k_val = item[k]
                                 if item_k_val['type'] == 'vertex':
-                                    nodes.append(vertex_to_dict(item_k_val))
+                                    nodes.append(flatten_vertex_dict(item_k_val))
                                 elif item_k_val['type'] == 'edge':
-                                    edges.append(edge_to_dict(item_k_val))
+                                    edges.append(flatten_edge_dict(item_k_val))
                                 else:                                
-                                    raise Exception('unexpected item key val:', type(item[k]))
+                                    raise ValueError('unexpected item key val:', type(item[k]))
 
                     else:
-                        raise Exception('unexpected non-dict item type:', type(item))
-        
-        
+                        raise ValueError('unexpected non-dict item type:', type(item))
+
+        print('nodes', nodes)
+        print('edges', edges)
+
         nodes_df = pd.DataFrame(nodes) if len(nodes) > 0 else None
         edges_df = pd.DataFrame(edges) if len(edges) > 0 else None
+        
+        print('edges_df', edges_df)
 
-        if g is None:
-            g = self.bind(source='src', destination='dst')  # defer node binding
-            if nodes_df is not None:
-                g = g.bind(node='id')
+        bindings = {}
+        if self._source is None:
+            bindings['source'] = 'src'
+        if self._destination is None:
+            bindings['destination'] = 'dst'
+        if self._node is None:
+            bindings['node'] = 'id'
+        g = self.bind(**bindings)
 
         if nodes_df is not None:
             g = g.nodes(nodes_df)
 
-        if len(edges) > 0:
+        if len(edges) > 0 and edges_df is not None:
             g = g.edges(edges_df)
-        elif len(nodes) > 0:
-            v0 = nodes[0][g._node]
-            g = g.edges(pd.DataFrame({
-                g._source: pd.Series([v0], dtype=nodes_df[g._node].dtype),  # type: ignore
-                g._destination: pd.Series([v0], dtype=nodes_df[g._node].dtype)  # type: ignore
-            }))
+            print('recoded g._e', g._edges)
+        #elif len(nodes) > 0:
+        #    v0 = nodes[0][g._node]
+        #    g = g.edges(pd.DataFrame({
+        #        g._source: pd.Series([v0], dtype=nodes_df[g._node].dtype),  # type: ignore
+        #        g._destination: pd.Series([v0], dtype=nodes_df[g._node].dtype)  # type: ignore
+        #    }))
         else:
             g = g.edges(pd.DataFrame({
                 g._source: pd.Series([], dtype='object'),
                 g._destination: pd.Series([], dtype='object')
             }))
         
+        print('g._nodes', g._nodes)
+        print('g._edges', g._edges)
+
         return g
 
 
-    def enrich_nodes(self, g, batch_size = 1000):
+    def fetch_nodes(self, g, batch_size = 1000) -> Plottable:
         """
         Enrich nodes by matching g._node to gremlin nodes
-        If no g._nodes table available, synthesize from g._edges
+        If no g._nodes table available, first synthesize g._nodes from g._edges
         """
         nodes_df = g._nodes
         node_id = g._node
@@ -319,7 +408,66 @@ class GremlinMixin(Plottable):
             query = f'g.V({node_ids})'
             resultset = self.run(query, throw=True)
             g2 = self.resultset_to_g(resultset)
+            assert g2._nodes is not None
             enrichd_nodes_dfs.append(g2._nodes)
         nodes2_df = pd.concat(enrichd_nodes_dfs, sort=False, ignore_index=True)
         g2 = g.nodes(nodes2_df, node_id)
         return g2
+
+
+class CosmosMixin(MIXIN_BASE):
+
+    def cosmos(
+        self,
+        COSMOS_ACCOUNT: str = None,
+        COSMOS_DB: str = None,
+        COSMOS_CONTAINER: str = None,
+        COSMOS_PRIMARY_KEY: str = None,
+        COSMOS_PARTITION_KEY: str = None,
+        gremlin_client: Client = None
+    ):
+        """
+           Provide credentials as arguments, as environment variables, or by providing a gremlinpython client
+           Environment variable names are the same as the constructor argument names
+           If no client provided, create (connect)
+
+        **Example: Login and plot **
+                ::
+
+                    import graphistry
+                    (graphistry
+                        .cosmos(
+                            COSMOS_ACCOUNT='a',
+                            COSMOS_DB='b',
+                            COSMOS_CONTAINER='c',
+                            COSMOS_PRIMARY_KEY='d',
+                            COSMOS_PARTITION_KEY='pk')
+                        .gremlin('g.E().sample(10)')
+                        .fetch_nodes()  # Fetch properties for nodes
+                        .plot())
+
+        """
+        self.COSMOS_ACCOUNT = COSMOS_ACCOUNT if COSMOS_ACCOUNT is not None else os.environ['COSMOS_ACCOUNT']
+        self.COSMOS_DB = COSMOS_DB if COSMOS_DB is not None else os.environ['COSMOS_DB']
+        self.COSMOS_CONTAINER = COSMOS_CONTAINER if COSMOS_CONTAINER is not None else os.environ['COSMOS_CONTAINER']
+        self.COSMOS_PRIMARY_KEY = COSMOS_PRIMARY_KEY if COSMOS_PRIMARY_KEY is not None else os.environ['COSMOS_PRIMARY_KEY']
+        self.COSMOS_PARTITION_KEY = COSMOS_PARTITION_KEY if COSMOS_PARTITION_KEY is not None else os.environ['COSMOS_PARTITION_KEY']
+        self._gremlin_client = gremlin_client
+
+        def connect(self: 'CosmosMixin') -> Plottable:
+
+            if self._gremlin_client is not None:
+                self._gremlin_client.close()
+
+            self._gremlin_client = Client(
+                f'wss://{self.COSMOS_ACCOUNT}.gremlin.cosmosdb.azure.com:443/',
+                'g', 
+                username=f"/dbs/{self.COSMOS_DB}/colls/{self.COSMOS_CONTAINER}",
+                password=self.COSMOS_PRIMARY_KEY,
+                message_serializer=GraphSONSerializersV2d0())
+            return self
+
+        self._reconnect_gremlin : Callable[[GremlinMixin], GremlinMixin] = connect
+
+        if gremlin_client is None:
+            self._reconnect_gremlin(self)

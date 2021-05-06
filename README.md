@@ -158,6 +158,14 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g.plot()
     ```
 
+* [Azure Cosmos DB (Gremlin)](https://azure.microsoft.com/en-us/services/cosmos-db/)
+
+    ```python
+    g = graphistry.cosmos()  # Args or env vars: COSMOS_ACCOUNT, ..
+    g2 = g.gremlin('g.E().sample(10000)').fetch_nodes()
+    g2.plot()
+    ```
+
 * [TigerGaph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
 
     ```python
@@ -169,7 +177,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
     ```python
     g.endpoint('my_fn', {'arg': 'val'}, {'edges': '@@eList'}).plot()
-      ```
+    ```
 
 * [IGraph](http://igraph.org)
 
