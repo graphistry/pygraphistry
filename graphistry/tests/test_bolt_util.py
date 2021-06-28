@@ -160,40 +160,40 @@ def test_spatial_homogenous():
         'p_srid': 'object',
 
         'c': 'object',
-        'c_x': 'int64',
-        'c_y': 'int64',
+        'c_x': 'float64',
+        'c_y': 'float64',
         'c_srid': 'int64',
 
         'c2': 'object',
-        'c2_x': 'int64',
-        'c2_y': 'int64',
-        'c2_z': 'int64',
+        'c2_x': 'float64',
+        'c2_y': 'float64',
+        'c2_z': 'float64',
         'c2_srid': 'int64',
 
         'w': 'object',
-        'w_x': 'int64',
-        'w_y': 'int64',
-        'w_longitude': 'int64',
-        'w_latitude': 'int64',
+        'w_x': 'float64',
+        'w_y': 'float64',
+        'w_longitude': 'float64',
+        'w_latitude': 'float64',
         'w_srid': 'int64',
     }
     d = df2.to_dict(orient='records')[0]
     assert d == {
-        'p': 'POINT(1 2 3 4)',
+        'p': 'POINT(1.0 2.0 3.0 4.0)',
         'p_srid': None,
 
-        'c': 'POINT(1 2)',
+        'c': 'POINT(1.0 2.0)',
         'c_x': 1,
         'c_y': 2,
         'c_srid': 7203,
 
-        'c2': 'POINT(1 2 3)',
+        'c2': 'POINT(1.0 2.0 3.0)',
         'c2_x': 1,
         'c2_y': 2,
         'c2_z': 3,
         'c2_srid': 9157,
 
-        'w': 'POINT(4 5)',
+        'w': 'POINT(4.0 5.0)',
         'w_x': 4,
         'w_y': 5,
         'w_longitude': 4,
@@ -235,21 +235,21 @@ def test_spatial_homogenous_na():
     }
     d = df2.to_dict(orient='records')[0]
     assert d == {
-        'p': 'POINT(1 2 3 4)',
+        'p': 'POINT(1.0 2.0 3.0 4.0)',
         'p_srid': None,
 
-        'c': 'POINT(1 2)',
+        'c': 'POINT(1.0 2.0)',
         'c_x': 1,
         'c_y': 2,
         'c_srid': 7203,
 
-        'c2': 'POINT(1 2 3)',
+        'c2': 'POINT(1.0 2.0 3.0)',
         'c2_x': 1,
         'c2_y': 2,
         'c2_z': 3,
         'c2_srid': 9157,
 
-        'w': 'POINT(4 5)',
+        'w': 'POINT(4.0 5.0)',
         'w_x': 4,
         'w_y': 5,
         'w_longitude': 4,
@@ -283,10 +283,10 @@ def test_spatial_heterogeneous():
     }
     d = df2.to_dict(orient='records')[0]
     assert d == {
-        'p': 'POINT(1 2 3 4)',
-        'c': 'POINT(1 2)',
-        'c2': 'POINT(1 2 3)',
-        'w': 'POINT(4 5)',
+        'p': 'POINT(1.0 2.0 3.0 4.0)',
+        'c': 'POINT(1.0 2.0)',
+        'c2': 'POINT(1.0 2.0 3.0)',
+        'w': 'POINT(4.0 5.0)',
     }
     assert df2.to_dict(orient='records')[1] == {
         'p': 1,
