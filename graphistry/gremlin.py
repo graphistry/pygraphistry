@@ -24,49 +24,60 @@ def clean_str(v):
 
 # ####
 
-def node_to_query(d: dict, type_col: Optional[str] = None) -> str:
+def node_to_query(d: dict, type_col: Optional[str] = None, untyped: bool = False) -> str:
     """
-    Assumes properties type, id
+    Convert node dictionary to gremlin node add string
+    * If type is None, try to default to fields  'category' or 'type'. Skip via untyped=True.
+    * Put remaining attributes as string-valued properties
     """
-    if type_col is None:
+
+    if (not untyped) and (type_col is None):
         if 'category' in d:
             type_col = 'category'
         elif 'type' in d:
             type_col = 'type'
         else:
             raise Exception('Must specify node type_col or provide node column category or type')
-    base = f'g.addV(\'{clean_str(d[type_col])}\')'
-    skiplist = ['type']
+
+    if untyped:
+        base = 'g.addV()'
+    else:
+        base = f'g.addV(\'{clean_str(d[type_col])}\')'
+
+    skiplist = [type_col] if not untyped else []
     for p in d.keys():
         if not pd.isna(d[p]) and (p not in skiplist):
             base += f'.property(\'{clean_str(p)}\', \'{clean_str(d[p])}\')'
+
     return base
 
 
-def nodes_to_queries(g, partition_key_name: str, partition_key_value: str = '1', target_id_col: str = 'id', type_col: Optional[str] = None) -> Iterable[str]:
+def nodes_to_queries(g, type_col: Optional[str] = None, untyped: bool = False) -> Iterable[str]:
     """
-    Return stream of node add queries:
-      * Sets partition_key if not available
-      * Automatically renames g._node to column target_id_col (default: 'id')
-    """
-    
-    nodes_df = (
-        g._nodes
-            .assign(**({partition_key_name: '1'} if partition_key_name not in g._nodes else {}))
-            .rename(columns={g._node: target_id_col})
-    )
-    
-    return (node_to_query(row) for index, row in nodes_df.iterrows())
+    Convert graphistry object to stream of gremlin node add strings:
+    * If type is None, try to default to fields  'category' or 'type'. Skip via untyped=True.
+    * Put remaining attributes as string-valued properties
+     """
+
+    if g._nodes is None:
+        raise ValueError('No nodes bound to graph yet, try calling g.nodes(df)')
+
+    if type_col is not None:
+        if type_col not in g._nodes:
+            raise ValueError(f'type_col="{type_col}" specified yet not in data')
+
+    return (node_to_query(row, type_col, untyped) for index, row in g._nodes.iterrows())
 
 
 # ####
 
 
-def edge_to_query(d: dict, from_col: str, to_col: str, type_col: Optional[str] = None) -> str:
+def edge_to_query(d: dict, from_col: str, to_col: str, type_col: Optional[str] = None, untyped: bool = False) -> str:
     """
     Assumes properties from, to, type
+    * If type is None, try to default to fields  'edgeType', 'category', or 'type'. Skip via untyped=True.
     """
-    if type_col is None:
+    if (not untyped) and (type_col is None):
         if 'edgeType' in d:
             type_col = 'edgeType'
         elif 'category' in d:
@@ -75,7 +86,9 @@ def edge_to_query(d: dict, from_col: str, to_col: str, type_col: Optional[str] =
             type_col = 'type'
         else:
             raise Exception('Must specify edge type_col or provide edge column edgeType, category, or type')
-    base = f'g.v(\'{clean_str(d[from_col])}\').addE(\'{clean_str(d[type_col])}\').to(g.v(\'{clean_str(d[to_col])}\'))'
+    
+    addE = f'addE(\'{clean_str(d[type_col])}\')' if not untyped else 'addE()'
+    base = f'g.v(\'{clean_str(d[from_col])}\').{addE}.to(g.v(\'{clean_str(d[to_col])}\'))'
     if True:
         skiplist = [from_col, to_col, type_col]
         for p in d.keys():
@@ -84,12 +97,20 @@ def edge_to_query(d: dict, from_col: str, to_col: str, type_col: Optional[str] =
     return base
 
 
-def edges_to_queries(g, type_col: Optional[str] = None) -> Iterable[str]:
+def edges_to_queries(g, type_col: Optional[str] = None, untyped: bool = False) -> Iterable[str]:
     """
     Return stream of edge add queries
+    * If type is None, try to default to fields  'edgeType', 'category', or 'type'. Skip via untyped=True.
     """    
-    edges_df = g._edges
-    return (edge_to_query(row, g._source, g._destination) for index, row in edges_df.iterrows())
+
+    if g._edges is None:
+        raise ValueError('No edges bound to graph yet, try calling g.edges(df)')
+
+    if type_col is not None:
+        if type_col not in g._edges:
+            raise ValueError(f'type_col="{type_col}" specified yet not in data')
+
+    return (edge_to_query(row, g._source, g._destination, type_col, untyped) for index, row in g._edges.iterrows())
 
 
 # ####

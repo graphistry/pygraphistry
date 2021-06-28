@@ -6,7 +6,7 @@ from concurrent.futures import Future
 from mock import patch
 from gremlin_python.driver.resultset import ResultSet
 
-from graphistry.gremlin import CosmosMixin, GremlinMixin, DROP_QUERY
+from graphistry.gremlin import CosmosMixin, GremlinMixin, DROP_QUERY, nodes_to_queries, edges_to_queries
 from graphistry.plotter import PlotterBase
 
 
@@ -185,6 +185,71 @@ class TestGremlinMixin(NoAuthTestCase):
         g = tg.gremlin(['g.E()'])
         assert g._nodes is None
         assert g._edges.to_dict(orient='records') == [ {'src': 'a', 'dst': 'b', 'x': 'y', 'f': 'g'} ]
+
+    def test_nodes_to_queries_mt(self):
+        df = pd.DataFrame({'n': [], 'v1': []})
+        g = PlotterBase()
+        assert len([ x for x in nodes_to_queries(g.nodes(df, 'n'), untyped=True)]) == 0
+
+    def test_nodes_to_queries_single_untyped(self):
+        df = pd.DataFrame({'n': ['i'], 'v1': [2]})
+        g = PlotterBase()
+        assert [ x for x in nodes_to_queries(g.nodes(df, 'n'), untyped=True)][0] == "g.addV().property('n', 'i').property('v1', '2')"
+
+    def test_nodes_to_queries_single_typed(self):
+        df = pd.DataFrame({'n': ['i'], 'v1': [2]})
+        g = PlotterBase()
+        assert [ x for x in nodes_to_queries(g.nodes(df, 'n'), type_col='n')][0] == "g.addV('i').property('v1', '2')"
+        
+    def test_nodes_to_queries_single_typed_inferred_type(self):
+        df = pd.DataFrame({'type': ['i'], 'v1': [2]})
+        g = PlotterBase()
+        assert [ x for x in nodes_to_queries(g.nodes(df, 'n'))][0] == "g.addV('i').property('v1', '2')"
+
+    def test_nodes_to_queries_single_typed_inferred_category(self):
+        df = pd.DataFrame({'category': ['i'], 'v1': [2]})
+        g = PlotterBase()
+        assert [ x for x in nodes_to_queries(g.nodes(df, 'n'))][0] == "g.addV('i').property('v1', '2')"
+
+    def test_nodes_to_queries_multi(self):
+        df = pd.DataFrame({'n': ['i', 'i2'], 'v1': [2, 3]})
+        g = PlotterBase()
+        assert len([ x for x in nodes_to_queries(g.nodes(df, 'n'), untyped=True)]) == 2
+
+    def test_edge_to_queries_mt(self):
+        df = pd.DataFrame({'s': [], 'd': []})
+        g = PlotterBase()
+        assert len([ x for x in edges_to_queries(g.edges(df, 's', 'd'), untyped=True)]) == 0
+
+    def test_edge_to_queries_single_untyped(self):
+        df = pd.DataFrame({'s': ['a'], 'd': ['b']})
+        g = PlotterBase()
+        assert [ x for x in edges_to_queries(g.edges(df, 's', 'd'), untyped=True)][0] == "g.v('a').addE().to(g.v('b'))"
+
+    def test_edge_to_queries_single_untyped_attributed(self):
+        df = pd.DataFrame({'s': ['a'], 'd': ['b'], 'v1': [2]})
+        g = PlotterBase()
+        assert [ x for x in edges_to_queries(g.edges(df, 's', 'd'), untyped=True)][0] == "g.v('a').addE().to(g.v('b')).property('v1', '2')"
+
+    def test_edge_to_queries_single_typed_attributed(self):
+        df = pd.DataFrame({'s': ['a'], 'd': ['b'], 'v1': [2], 't': ['x']})
+        g = PlotterBase()
+        assert [ x for x in edges_to_queries(g.edges(df, 's', 'd'), type_col='t')][0] == "g.v('a').addE('x').to(g.v('b')).property('v1', '2')"
+
+    def test_edge_to_queries_single_typed_inferred_type(self):
+        df = pd.DataFrame({'s': ['a'], 'd': ['b'], 'v1': [2], 'type': ['x']})
+        g = PlotterBase()
+        assert [ x for x in edges_to_queries(g.edges(df, 's', 'd'))][0] == "g.v('a').addE('x').to(g.v('b')).property('v1', '2')"
+
+    def test_edge_to_queries_single_typed_inferred_edgeType(self):
+        df = pd.DataFrame({'s': ['a'], 'd': ['b'], 'v1': [2], 'edgeType': ['x']})
+        g = PlotterBase()
+        assert [ x for x in edges_to_queries(g.edges(df, 's', 'd'))][0] == "g.v('a').addE('x').to(g.v('b')).property('v1', '2')"
+
+    def test_edge_to_queries_single_typed_inferred_category(self):
+        df = pd.DataFrame({'s': ['a'], 'd': ['b'], 'v1': [2], 'category': ['x']})
+        g = PlotterBase()
+        assert [ x for x in edges_to_queries(g.edges(df, 's', 'd'))][0] == "g.v('a').addE('x').to(g.v('b')).property('v1', '2')"
 
 
 class TestCosmosMixin(NoAuthTestCase):
