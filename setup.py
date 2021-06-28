@@ -10,7 +10,7 @@ def unique_flatten_dict(d):
 core_requires = ['numpy', 'pandas >= 0.17.0', 'pyarrow >= 0.15.0', 'requests', 'protobuf >= 2.6.0']
 
 stubs = [
-  'pandas-stubs'
+  'pandas-stubs', 'types-requests'
 ]
 
 dev_extras = {
