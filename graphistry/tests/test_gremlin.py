@@ -34,14 +34,15 @@ def fake_client(query_to_result = {}):
 
 class TG(GremlinMixin):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__()
+        GremlinMixin.__init__(self, *args, **kwargs)
 
 class TGFull(GremlinMixin, PlotterBase):
     def __init__(self, *args, **kwargs):
         print('TGFull init')
-        #super(TGFull, self).__init__(*args, **kwargs)
+        super(TGFull, self).__init__(*args, **kwargs)
         PlotterBase.__init__(self, *args, **kwargs)
-        GremlinMixin.__init__(self, *args, **kwargs)
+        super(GremlinMixin, self).__init__(*args, **kwargs)
 
 class CFull(CosmosMixin, GremlinMixin, PlotterBase):
     def __init__(self, *args, **kwargs):
@@ -84,18 +85,18 @@ class TestGremlinMixin(NoAuthTestCase):
 
     def test_run_none(self):
         tg = TG(gremlin_client=fake_client({}))
-        assert len([x for x in tg.run([])]) == 0
+        assert len([x for x in tg.gremlin_run([])]) == 0
 
     def test_run_one(self):
         tg = TG(gremlin_client=fake_client({'a': 'b'}))
-        g = tg.run(['a'])
+        g = tg.gremlin_run(['a'])
         assert next(g) == 'b'
         for rest in g:
             raise ValueError('Unexpected additional elements')
 
     def test_run_mult(self):
         tg = TG(gremlin_client=fake_client({'a': 'b', 'c': 'd'}))
-        g = tg.run(['a', 'c'])
+        g = tg.gremlin_run(['a', 'c'])
         assert next(g) == 'b'
         assert next(g) == 'd'
         for rest in g:

@@ -1,6 +1,5 @@
-from typing import Any, Optional
-
-import copy, hashlib, logging, numpy, pandas as pd, pyarrow as pa, sys, uuid
+from typing import Any, Optional, TYPE_CHECKING
+import copy, hashlib, logging, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
@@ -1238,7 +1237,7 @@ class PlotterBase(object):
         elist = edges.reset_index(drop=True) \
                      .dropna(subset=[self._source, self._destination])
 
-        obj_df = elist.select_dtypes(include=[numpy.object_])
+        obj_df = elist.select_dtypes(include=[np.object_])
         elist[obj_df.columns] = obj_df.apply(pd.to_numeric, errors='ignore')
 
         if nodes is None:
@@ -1253,7 +1252,7 @@ class PlotterBase(object):
                      .dropna(subset=[nodeid]) \
                      .drop_duplicates(subset=[nodeid])
 
-        obj_df = nlist.select_dtypes(include=[numpy.object_])
+        obj_df = nlist.select_dtypes(include=[np.object_])
         nlist[obj_df.columns] = obj_df.apply(pd.to_numeric, errors='ignore')
 
         return (elist, nlist)

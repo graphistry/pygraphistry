@@ -191,7 +191,6 @@ def flatten_edge_dict(edge, src_col: str = 'src', dst_col: str = 'dst'):
     if len(props.keys()) > 0:
         d = {**props, **d}
 
-    print('edge', edge, '->', d)
     return d
 
 
@@ -204,18 +203,32 @@ class GremlinMixin(MIXIN_BASE):
     Currently serializes queries as strings instead of bytecode in order to support cosmosdb
     """
 
-    #_reconnect_gremlin : Callable[[Plottable], Plottable]
+    _reconnect_gremlin : Optional[Callable[['GremlinMixin'], 'GremlinMixin']] = None
+    _gremlin_client : Optional[Client]
+
+    def __init__(self, *args, gremlin_client: Optional[Client] = None, **kwargs):
+        if gremlin_client is not None:
+            self._gremlin_client = gremlin_client
 
     def gremlin_client(
         self,
-        gremlin_client: Optional[Client] = None
+        gremlin_client: Client
     ):
-        """
+        """Pass in a generic gremlin python client
 
             **Example: Login and plot **
             ::
 
                 import graphistry
+                from gremlin_python.driver.client import Client
+
+                my_gremlin_client = Client(
+                f'wss://MY_ACCOUNT.gremlin.cosmosdb.azure.com:443/',
+                'g', 
+                username=f"/dbs/MY_DB/colls/{self.COSMOS_CONTAINER}",
+                password=self.COSMOS_PRIMARY_KEY,
+                message_serializer=GraphSONSerializersV2d0())
+
                 (graphistry
                     .gremlin_client(my_gremlin_client)
                     .gremlin('g.E().sample(10)')
@@ -225,38 +238,38 @@ class GremlinMixin(MIXIN_BASE):
         """    
 
         self._gremlin_client = gremlin_client
-
-        def connect(self: Plottable) -> Plottable:
-            raise ValueError('No connector set')
-
-        self._reconnect_gremlin : Callable[[GremlinMixin], GremlinMixin] = connect
-
+        return self
 
     def connect(self):
         """
         Use previously provided credentials to connect. Disconnect any preexisting clients.
         """
+
+        if self._reconnect_gremlin is None:
+            raise ValueError('No gremlin client; either pass one in or use a built-in like cosmos')
+
         return self._reconnect_gremlin(self)
 
     def drop_graph(self):
         """
             Remove all graph nodes and edges from the database
         """
-        self.run(DROP_QUERY)  # .iterate() ? follow by g.tx().commit() ? 
+        self.gremlin_run(DROP_QUERY)  # .iterate() ? follow by g.tx().commit() ? 
         return self
 
 
     # Tutorial: 
     # https://itnext.io/getting-started-with-graph-databases-azure-cosmosdb-with-gremlin-api-and-python-80e57cbd1c5e
-    def run(self, queries: Iterable[str], throw=False) -> ResultSet:
+    def gremlin_run(self, queries: Iterable[str], throw=False) -> ResultSet:
         for query in queries:
-            print('q', query)
             logger.debug('query: %s', query)
             try:
+                if self._gremlin_client is None:
+                    raise ValueError('Must first set a gremlin client')
                 callback = self._gremlin_client.submitAsync(query)  # type: ignore
                 if callback.result() is not None:
                     results = callback.result()
-                    print('results', results)
+                    logger.debug('results: %s', results)
                     if results is not None:
                         logger.debug('Query succeeded: %s', type(results))
                     yield results
@@ -277,11 +290,22 @@ class GremlinMixin(MIXIN_BASE):
         """
             Run one or more gremlin queries and get back the result as a graph object
             To support cosmosdb, sends as strings
+
+            **Example: Login and plot **
+            ::
+
+                import graphistry
+                (graphistry
+                    .gremlin_client(my_gremlin_client)
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
         """
         if isinstance(queries, str):
             queries = [ queries ]
-        resultsets = self.run(queries, throw=True)
-        print('resultsets', resultsets)
+        resultsets = self.gremlin_run(queries, throw=True)
+        logger.debug('resultsets: %s', resultsets)
         g = self.resultset_to_g(resultsets)
         return g
 
@@ -295,32 +319,25 @@ class GremlinMixin(MIXIN_BASE):
         """
         
 
-        print('rss type', type(resultsets))
         if isinstance(resultsets, ResultSet):
             resultsets = [resultsets]
             
         nodes = []
         edges = []
         for resultset in resultsets:
-            print('rs type', type(resultset))
             for result in resultset:
-                print('r type', type(result))
                 if isinstance(result, dict):
                     result = [ result ]
                 for item in result:
-                    print('item', item)
                     if isinstance(item, dict):
                         if 'type' in item:
                             if item['type'] == 'vertex':
                                 nodes.append(flatten_vertex_dict(item))
-                                print('added v')
                             elif item['type'] == 'edge':
                                 edges.append(flatten_edge_dict(item))
-                                print('added e, #: ', len(edges))
                             else:
                                 raise ValueError('unexpected item type', item['item'])
                         else:
-                            print('keys...')
                             for k in item.keys():
                                 item_k_val = item[k]
                                 if item_k_val['type'] == 'vertex':
@@ -333,14 +350,9 @@ class GremlinMixin(MIXIN_BASE):
                     else:
                         raise ValueError('unexpected non-dict item type:', type(item))
 
-        print('nodes', nodes)
-        print('edges', edges)
-
         nodes_df = pd.DataFrame(nodes) if len(nodes) > 0 else None
         edges_df = pd.DataFrame(edges) if len(edges) > 0 else None
         
-        print('edges_df', edges_df)
-
         bindings = {}
         if self._source is None:
             bindings['source'] = 'src'
@@ -355,7 +367,6 @@ class GremlinMixin(MIXIN_BASE):
 
         if len(edges) > 0 and edges_df is not None:
             g = g.edges(edges_df)
-            print('recoded g._e', g._edges)
         #elif len(nodes) > 0:
         #    v0 = nodes[0][g._node]
         #    g = g.edges(pd.DataFrame({
@@ -368,9 +379,6 @@ class GremlinMixin(MIXIN_BASE):
                 g._destination: pd.Series([], dtype='object')
             }))
         
-        print('g._nodes', g._nodes)
-        print('g._edges', g._edges)
-
         return g
 
 
@@ -406,7 +414,7 @@ class GremlinMixin(MIXIN_BASE):
             nodes_batch_df = nodes_df[start:(start + batch_size)]
             node_ids = ', '.join([f'"{x}"' for x in nodes_batch_df[node_id].to_list() ])
             query = f'g.V({node_ids})'
-            resultset = self.run(query, throw=True)
+            resultset = self.gremlin_run(query, throw=True)
             g2 = self.resultset_to_g(resultset)
             assert g2._nodes is not None
             enrichd_nodes_dfs.append(g2._nodes)
@@ -415,7 +423,15 @@ class GremlinMixin(MIXIN_BASE):
         return g2
 
 
-class CosmosMixin(MIXIN_BASE):
+if TYPE_CHECKING:
+    COSMOS_BASE = GremlinMixin
+else:
+    COSMOS_BASE = object
+
+class CosmosMixin(COSMOS_BASE):
+
+    def __init__(self, *args, **kwargs):
+        pass
 
     def cosmos(
         self,
@@ -454,7 +470,7 @@ class CosmosMixin(MIXIN_BASE):
         self.COSMOS_PARTITION_KEY = COSMOS_PARTITION_KEY if COSMOS_PARTITION_KEY is not None else os.environ['COSMOS_PARTITION_KEY']
         self._gremlin_client = gremlin_client
 
-        def connect(self: 'CosmosMixin') -> Plottable:
+        def connect(self: CosmosMixin) -> CosmosMixin:
 
             if self._gremlin_client is not None:
                 self._gremlin_client.close()
@@ -467,7 +483,12 @@ class CosmosMixin(MIXIN_BASE):
                 message_serializer=GraphSONSerializersV2d0())
             return self
 
-        self._reconnect_gremlin : Callable[[GremlinMixin], GremlinMixin] = connect
+        self._reconnect_gremlin : Optional[Callable[[CosmosMixin], CosmosMixin]] = connect  # type: ignore
 
         if gremlin_client is None:
-            self._reconnect_gremlin(self)
+            if self._reconnect_gremlin is None:
+                raise ValueError('Missing _reconnect_gremlin')
+            else:
+                self._reconnect_gremlin(self)
+
+        return self

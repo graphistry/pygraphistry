@@ -9,8 +9,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Adding
 
-* Gremlin connector: AWS Neptune + CosmosDB
-* plotter::infer_labels: Guess node label names when not set. Runs during plots.
+* Gremlin connector (GraphSONSerializersV2d0)
+* Cosmos connector
+* plotter::infer_labels: Guess node label names when not set, instead of defaulting to node_id. Runs during plots.
 
 ## [0.18.1 - 2021-03-26]
 

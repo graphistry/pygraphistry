@@ -51,6 +51,10 @@ class Plottable(Protocol):
         raise RuntimeError('should not happen')
         return self
 
-    def bind(self, **kwargs) -> 'Plottable':
+    def bind(self, source=None, destination=None, node=None,
+             edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
+             edge_source_color=None, edge_destination_color=None,
+             point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
+             point_x=None, point_y=None):
         raise RuntimeError('should not happen')
         return self

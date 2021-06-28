@@ -572,6 +572,73 @@ class PyGraphistry(object):
 
         return Plotter().nodexl(xls_or_url, source, engine, verbose)
 
+    @staticmethod
+    def cosmos(
+        COSMOS_ACCOUNT: str = None,
+        COSMOS_DB: str = None,
+        COSMOS_CONTAINER: str = None,
+        COSMOS_PRIMARY_KEY: str = None,
+        COSMOS_PARTITION_KEY: str = None,
+        gremlin_client: Any = None
+    ) -> Plotter:
+        """
+           Provide credentials as arguments, as environment variables, or by providing a gremlinpython client
+           Environment variable names are the same as the constructor argument names
+           If no client provided, create (connect)
+
+        **Example: Login and plot **
+                ::
+
+                    import graphistry
+                    (graphistry
+                        .cosmos(
+                            COSMOS_ACCOUNT='a',
+                            COSMOS_DB='b',
+                            COSMOS_CONTAINER='c',
+                            COSMOS_PRIMARY_KEY='d',
+                            COSMOS_PARTITION_KEY='pk')
+                        .gremlin('g.E().sample(10)')
+                        .fetch_nodes()  # Fetch properties for nodes
+                        .plot())
+        """
+        return Plotter().cosmos(
+            COSMOS_ACCOUNT=COSMOS_ACCOUNT,
+            COSMOS_DB=COSMOS_DB,
+            COSMOS_CONTAINER=COSMOS_CONTAINER,
+            COSMOS_PRIMARY_KEY=COSMOS_PRIMARY_KEY,
+            COSMOS_PARTITION_KEY=COSMOS_PARTITION_KEY,
+            gremlin_client=gremlin_client)
+
+
+    @staticmethod
+    def gremlin_client(
+        self,
+        gremlin_client: Any = None
+    ):
+        """Pass in a generic gremlin python client
+
+            **Example: Login and plot **
+            ::
+
+                import graphistry
+                from gremlin_python.driver.client import Client
+
+                my_gremlin_client = Client(
+                f'wss://MY_ACCOUNT.gremlin.cosmosdb.azure.com:443/',
+                'g', 
+                username=f"/dbs/MY_DB/colls/{self.COSMOS_CONTAINER}",
+                password=self.COSMOS_PRIMARY_KEY,
+                message_serializer=GraphSONSerializersV2d0())
+
+                (graphistry
+                    .gremlin_client(my_gremlin_client)
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
+        """
+        return Plotter().gremlin_client(gremlin_client=gremlin_client)
+
 
     @staticmethod
     def name(name):
@@ -1429,6 +1496,8 @@ bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
 nodexl = PyGraphistry.nodexl
 tigergraph = PyGraphistry.tigergraph
+cosmos = PyGraphistry.cosmos
+gremlin_client = PyGraphistry.gremlin_client
 gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
 
