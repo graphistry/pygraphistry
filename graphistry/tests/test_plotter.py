@@ -246,7 +246,7 @@ class TestPlotterBindings_API_2(NoAuthTestCase):
 @patch('requests.post', return_value=Fake_Response())
 class TestPlotterReturnValue(NoAuthTestCase):
 
-    @patch('graphistry.plotter.in_ipython')
+    @patch('graphistry.PlotterBase.in_ipython')
     def test_no_ipython(self, mock_in_ipython, mock_post, mock_open):
         mock_in_ipython.return_value = False
         url = graphistry.bind(source='src', destination='dst').plot(triangleEdges)
@@ -256,7 +256,7 @@ class TestPlotterReturnValue(NoAuthTestCase):
         self.assertTrue(mock_post.called)
 
 
-    @patch('graphistry.plotter.in_ipython')
+    @patch('graphistry.PlotterBase.in_ipython')
     def test_ipython(self, mock_in_ipython, mock_post, mock_open):
         mock_in_ipython.return_value = True
         widget = graphistry.bind(source='src', destination='dst').plot(triangleEdges)

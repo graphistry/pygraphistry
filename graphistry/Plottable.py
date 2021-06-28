@@ -1,47 +1,45 @@
-from typing import Iterable, List, Optional, Union
+from typing import Any, Iterable, List, Optional, Union
 from typing_extensions import Protocol
 import pandas as pd
 
-class Plottable(Protocol):
+class Plottable(object):
+
+    _edges : Any
+    _nodes : Any
+    _source : Optional[str]
+    _destination : Optional[str]
+    _node : Optional[str]
+    _edge_title : Optional[str]
+    _edge_label : Optional[str]
+    _edge_color : Optional[str]
+    _edge_source_color : Optional[str]
+    _edge_destination_color : Optional[str]
+    _edge_size : Optional[str]
+    _edge_weight : Optional[str]
+    _edge_icon : Optional[str]
+    _edge_opacity : Optional[str]
+    _point_title : Optional[str]
+    _point_label : Optional[str]
+    _point_color : Optional[str]
+    _point_size : Optional[str]
+    _point_weight : Optional[str]
+    _point_icon : Optional[str]
+    _point_opacity : Optional[str]
+    _point_x : Optional[str]
+    _point_y : Optional[str]
+    _height : int
+    _render : bool
+    _url_params : dict
+    _name : Optional[str]
+    _description : Optional[str]
+    _style : Optional[dict]
+    _complex_encodings : dict
+    _bolt_driver : Any
+    _tigergraph : Any
 
     def __init__(self, *args, **kwargs):
         raise RuntimeError('should not happen')
         None
-
-    @property
-    def _source(self) -> Optional[str]:
-        raise RuntimeError('should not happen')
-        return None
-
-    @property
-    def _destination(self) -> Optional[str]:
-        raise RuntimeError('should not happen')
-        return None
-
-    @property
-    def _node(self) -> Optional[str]:
-        raise RuntimeError('should not happen')
-        return None
-
-    @property
-    def _point_title(self) -> Optional[str]:
-        raise RuntimeError('should not happen')
-        return None
-
-    @property
-    def _point_label(self) -> Optional[str]:
-        raise RuntimeError('should not happen')
-        return None
-
-    @property
-    def _nodes(self) -> Optional[pd.DataFrame]:
-        raise RuntimeError('should not happen')
-        return None
-
-    @property
-    def _edges(self) -> Optional[pd.DataFrame]:
-        raise RuntimeError('should not happen')
-        return None
 
     def nodes(self, nodes: pd.DataFrame, node: Optional[str] = None) -> 'Plottable':
         raise RuntimeError('should not happen')
