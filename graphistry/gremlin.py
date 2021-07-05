@@ -24,29 +24,21 @@ def clean_str(v):
 
 # ####
 
-def node_to_query(d: dict, type_col: Optional[str] = None, untyped: bool = False) -> str:
+def node_to_query(
+    d: dict, type_col: Optional[str] = None, untyped: bool = False, keys: List[str] = []
+) -> str:
     """
     Convert node dictionary to gremlin node add string
-    * If type is None, try to default to fields  'category' or 'type'. Skip via untyped=True.
     * Put remaining attributes as string-valued properties
     """
-
-    if (not untyped) and (type_col is None):
-        if 'category' in d:
-            type_col = 'category'
-        elif 'type' in d:
-            type_col = 'type'
-        else:
-            raise Exception('Must specify node type_col or provide node column category or type')
 
     if untyped:
         base = 'g.addV()'
     else:
         base = f'g.addV(\'{clean_str(d[type_col])}\')'
 
-    skiplist = [type_col] if not untyped else []
-    for p in d.keys():
-        if not pd.isna(d[p]) and (p not in skiplist):
+    for p in keys:
+        if not pd.isna(d[p]):
             base += f'.property(\'{clean_str(p)}\', \'{clean_str(d[p])}\')'
 
     return base
@@ -62,11 +54,22 @@ def nodes_to_queries(g, type_col: Optional[str] = None, untyped: bool = False) -
     if g._nodes is None:
         raise ValueError('No nodes bound to graph yet, try calling g.nodes(df)')
 
+    if (not untyped) and (type_col is None):
+        if 'category' in g._nodes:
+            type_col = 'category'
+        elif 'type' in g._nodes:
+            type_col = 'type'
+        else:
+            raise Exception('Must specify node type_col or provide node column category or type')
+
+    skiplist = [type_col] if not untyped else []
+    keys = [c for c in g._nodes if c not in skiplist]
+
     if type_col is not None:
         if type_col not in g._nodes:
             raise ValueError(f'type_col="{type_col}" specified yet not in data')
 
-    return (node_to_query(row, type_col, untyped) for index, row in g._nodes.iterrows())
+    return (node_to_query(row, type_col, untyped, keys) for index, row in g._nodes.iterrows())
 
 
 # ####
@@ -331,7 +334,7 @@ class GremlinMixin(MIXIN_BASE):
         return g
 
 
-    def resultset_to_g(self, resultsets: Union[ResultSet, Iterable[ResultSet]]) -> Plottable:
+    def resultset_to_g(self, resultsets: Union[ResultSet, Iterable[ResultSet]], verbose=False, ignore_errors=False) -> Plottable:
         """
         Convert traversal results to graphistry object with ._nodes, ._edges
         If only received nodes or edges, populate that field
@@ -346,30 +349,43 @@ class GremlinMixin(MIXIN_BASE):
         nodes = []
         edges = []
         for resultset in resultsets:
-            for result in resultset:
-                if isinstance(result, dict):
-                    result = [ result ]
-                for item in result:
-                    if isinstance(item, dict):
-                        if 'type' in item:
-                            if item['type'] == 'vertex':
-                                nodes.append(flatten_vertex_dict(item))
-                            elif item['type'] == 'edge':
-                                edges.append(flatten_edge_dict(item))
+            if verbose:
+                logger.debug('resultset: %s :: %s', resultset, type(resultset))
+            
+            try:
+                for result in resultset:
+                    if verbose:
+                        logger.debug('result: %s :: %s', result, type(result))
+                    if isinstance(result, dict):
+                        result = [ result ]
+                    for item in result:
+                        if verbose:
+                            logger.debug('item: %s :: %s', item, type(item))
+                        if isinstance(item, dict):
+                            if 'type' in item:
+                                if item['type'] == 'vertex':
+                                    nodes.append(flatten_vertex_dict(item))
+                                elif item['type'] == 'edge':
+                                    edges.append(flatten_edge_dict(item))
+                                else:
+                                    raise ValueError('unexpected item type', item['item'])
                             else:
-                                raise ValueError('unexpected item type', item['item'])
+                                for k in item.keys():
+                                    item_k_val = item[k]
+                                    if item_k_val['type'] == 'vertex':
+                                        nodes.append(flatten_vertex_dict(item_k_val))
+                                    elif item_k_val['type'] == 'edge':
+                                        edges.append(flatten_edge_dict(item_k_val))
+                                    else:                                
+                                        raise ValueError('unexpected item key val:', type(item[k]))
                         else:
-                            for k in item.keys():
-                                item_k_val = item[k]
-                                if item_k_val['type'] == 'vertex':
-                                    nodes.append(flatten_vertex_dict(item_k_val))
-                                elif item_k_val['type'] == 'edge':
-                                    edges.append(flatten_edge_dict(item_k_val))
-                                else:                                
-                                    raise ValueError('unexpected item key val:', type(item[k]))
+                            raise ValueError('unexpected non-dict item type:', type(item))
 
-                    else:
-                        raise ValueError('unexpected non-dict item type:', type(item))
+            except Exception as e:
+                if ignore_errors:
+                    logger.info('Supressing error', exc_info=True)
+                else:
+                    raise e
 
         nodes_df = pd.DataFrame(nodes) if len(nodes) > 0 else None
         edges_df = pd.DataFrame(edges) if len(edges) > 0 else None
@@ -383,8 +399,7 @@ class GremlinMixin(MIXIN_BASE):
             bindings['node'] = 'id'
         g = self.bind(**bindings)
 
-        if nodes_df is not None:
-            g = g.nodes(nodes_df)
+        g = g.nodes(nodes_df)
 
         if len(edges) > 0 and edges_df is not None:
             g = g.edges(edges_df)
@@ -403,11 +418,12 @@ class GremlinMixin(MIXIN_BASE):
         return g
 
 
-    def fetch_nodes(self, g, batch_size = 1000) -> Plottable:
+    def fetch_nodes(self, batch_size = 1000, dry_run=False, verbose=False, ignore_errors=False) -> Union[Plottable, List[str]]:
         """
         Enrich nodes by matching g._node to gremlin nodes
         If no g._nodes table available, first synthesize g._nodes from g._edges
         """
+        g = self
         nodes_df = g._nodes
         node_id = g._node
         if node_id is None:
@@ -430,16 +446,22 @@ class GremlinMixin(MIXIN_BASE):
             raise Exception('Node id node in nodes table, excepted column', node_id)
 
         # Work in batches of 1000
-        enrichd_nodes_dfs = []
+        enriched_nodes_dfs = []
+        dry_runs = []
         for start in range(0, len(nodes_df), batch_size):
             nodes_batch_df = nodes_df[start:(start + batch_size)]
             node_ids = ', '.join([f'"{x}"' for x in nodes_batch_df[node_id].to_list() ])
             query = f'g.V({node_ids})'
-            resultset = self.gremlin_run(query, throw=True)
-            g2 = self.resultset_to_g(resultset)
+            if dry_run:
+                dry_runs.append(query)
+                continue
+            resultset = self.gremlin_run([query], throw=True)
+            g2 = self.resultset_to_g(resultset, verbose, ignore_errors)
             assert g2._nodes is not None
-            enrichd_nodes_dfs.append(g2._nodes)
-        nodes2_df = pd.concat(enrichd_nodes_dfs, sort=False, ignore_index=True)
+            enriched_nodes_dfs.append(g2._nodes)
+        if dry_run:
+            return dry_runs
+        nodes2_df = pd.concat(enriched_nodes_dfs, sort=False, ignore_index=True)
         g2 = g.nodes(nodes2_df, node_id)
         return g2
 
@@ -460,7 +482,6 @@ class CosmosMixin(COSMOS_BASE):
         COSMOS_DB: str = None,
         COSMOS_CONTAINER: str = None,
         COSMOS_PRIMARY_KEY: str = None,
-        COSMOS_PARTITION_KEY: str = None,
         gremlin_client: Client = None
     ):
         """
@@ -477,8 +498,7 @@ class CosmosMixin(COSMOS_BASE):
                             COSMOS_ACCOUNT='a',
                             COSMOS_DB='b',
                             COSMOS_CONTAINER='c',
-                            COSMOS_PRIMARY_KEY='d',
-                            COSMOS_PARTITION_KEY='pk')
+                            COSMOS_PRIMARY_KEY='d')
                         .gremlin('g.E().sample(10)')
                         .fetch_nodes()  # Fetch properties for nodes
                         .plot())
@@ -488,7 +508,6 @@ class CosmosMixin(COSMOS_BASE):
         self.COSMOS_DB = COSMOS_DB if COSMOS_DB is not None else os.environ['COSMOS_DB']
         self.COSMOS_CONTAINER = COSMOS_CONTAINER if COSMOS_CONTAINER is not None else os.environ['COSMOS_CONTAINER']
         self.COSMOS_PRIMARY_KEY = COSMOS_PRIMARY_KEY if COSMOS_PRIMARY_KEY is not None else os.environ['COSMOS_PRIMARY_KEY']
-        self.COSMOS_PARTITION_KEY = COSMOS_PARTITION_KEY if COSMOS_PARTITION_KEY is not None else os.environ['COSMOS_PARTITION_KEY']
         self._gremlin_client = gremlin_client
 
         def connect(self: CosmosMixin) -> CosmosMixin:

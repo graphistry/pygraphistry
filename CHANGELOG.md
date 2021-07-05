@@ -9,9 +9,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Adding
 
-* Gremlin connector (GraphSONSerializersV2d0)
-* Cosmos connector
-* plotter::infer_labels: Guess node label names when not set, instead of defaulting to node_id. Runs during plots.
+* Feature: Gremlin connector (GraphSONSerializersV2d0)
+* Feature: Cosmos connector
+* Feature: Chained composition operators:
+  * `g.pipe((lambda g, a1, ...: g2), a1, ...)`
+  * `g.edges((lambda g, a1, ...: df), None, None, a1, ...)`
+  * `g.nodes((lambda g, a1, ...: df), None, a1, ...)`
+* Feature: plotter::infer_labels: Guess node label names when not set, instead of defaulting to node_id. Runs during plots.
+* Infra: Jupyter notebook: `cd docker && docker-compose build jupyter && docker-compose up jupyter`
+* Fix: Plotter has `hypergraph()`
+* Refactor: Split out PlotterBase, interface Plottable
 
 ## [0.18.1 - 2021-03-26]
 

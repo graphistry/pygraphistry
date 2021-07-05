@@ -1,4 +1,5 @@
-from typing import Any, Optional, TYPE_CHECKING
+from graphistry.Plottable import Plottable
+from typing import Any, Callable, List, Optional, Union, TYPE_CHECKING
 import copy, hashlib, logging, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
@@ -62,7 +63,7 @@ class WeakValueWrapper:
     def __init__(self, v):
         self.v = v
 
-class PlotterBase(object):
+class PlotterBase(Plottable):
     """Graph plotting class.
 
     Created using ``Graphistry.bind()``.
@@ -813,13 +814,14 @@ class PlotterBase(object):
         return res
 
 
-    def nodes(self, nodes, node=None):
+    def nodes(self, nodes: Union[Callable, Any], node=None, *args, **kwargs) -> Plottable:
         """Specify the set of nodes and associated data.
+        If a callable, will be called with current Plotter and whatever positional+named arguments
 
         Must include any nodes referenced in the edge list.
 
         :param nodes: Nodes and their attributes.
-        :type point_size: Pandas dataframe
+        :type nodes: Pandas dataframe or Callable
 
         :returns: Plotter
         :rtype: Plotter
@@ -851,11 +853,32 @@ class PlotterBase(object):
                 g = g.nodes(vs, 'v)
 
                 g.plot()
+
+
+        **Example**
+            ::
+                import graphistry
+
+                def sample_nodes(g, n):
+                    return g._nodes.sample(n)
+
+                df = pandas.DataFrame({'id': [0,1,2], 'v': [1,2,0]})
+
+                graphistry
+                    .nodes(df, 'id')
+                    ..nodes(sample_nodes, n=2)
+                    ..nodes(sample_nodes, None, 2)  # equivalent
+                    .plot()
+
         """
 
         base = self.bind(node=node) if node is not None else self
-        res = copy.copy(base)
-        res._nodes = nodes
+        if callable(nodes):
+            nodes2 = nodes(base, *args, **kwargs)
+            res = base.nodes(nodes2)
+        else:
+            res = copy.copy(base)
+            res._nodes = nodes
         return res
 
     def name(self, name):
@@ -879,11 +902,12 @@ class PlotterBase(object):
         return res
 
 
-    def edges(self, edges, source=None, destination=None):
+    def edges(self, edges: Union[Callable, Any], source=None, destination=None, *args, **kwargs) -> Plottable:
         """Specify edge list data and associated edge attribute values.
+        If a callable, will be called with current Plotter and whatever positional+named arguments
 
-        :param edges: Edges and their attributes.
-        :type point_size: Pandas dataframe, NetworkX graph, or IGraph graph.
+        :param edges: Edges and their attributes, or transform from Plotter to edges
+        :type edges: Pandas dataframe, NetworkX graph, or IGraph graph.
 
         :returns: Plotter
         :rtype: Plotter
@@ -907,18 +931,59 @@ class PlotterBase(object):
                     .edges(df, 'src', 'dst')
                     .plot()
 
+        **Example**
+            ::
+                import graphistry
+
+                def sample_edges(g, n):
+                    return g._edges.sample(n)
+
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+
+                graphistry
+                    .edges(df, 'src', 'dst')
+                    .edges(sample_edges, n=2)
+                    .edges(sample_edges, None, None, 2)  # equivalent
+                    .plot()
+
         """
 
         base = self
+
         if not (source is None):
             base = base.bind(source=source)
         if not (destination is None):
             base = base.bind(destination=destination)
 
-        res = copy.copy(base)
-        res._edges = edges
+        if callable(edges):
+            edges2 = edges(base, *args, **kwargs)
+            res = base.edges(edges2)
+        else:
+            res = copy.copy(base)
+            res._edges = edges
         return res
 
+    def pipe(self, graph_transform: Callable, *args, **kwargs) -> Plottable:
+        """Create new Plotter derived from current
+
+        :param graph_transform:
+        :type graph_transform: Callable
+
+        **Example: Simple**
+            ::
+
+                import graphistry
+
+                def fill_missing_bindings(g, source='src', destination='dst):
+                    return g.bind(source=source, destination=destination)
+
+                graphistry
+                    .edges(pandas.DataFrame({'src': [0,1,2], 'd': [1,2,0]}))
+                    .pipe(fill_missing_bindings, destination='d')  # binds 'src'
+                    .plot()
+        """
+
+        return graph_transform(self, *args, **kwargs)
 
     def graph(self, ig):
         """Specify the node and edge data.
@@ -1805,3 +1870,123 @@ class PlotterBase(object):
                     \"\"\", {'edges': 'my_edge_list'}).plot()
         """        
         return self._tigergraph.gsql(self, query, bindings, dry_run)
+
+    def hypergraph(
+        self,
+        raw_events, entity_types: Optional[List[str]] = None, opts: dict = {},
+        drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
+        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None
+
+    ):
+        """Transform a dataframe into a hypergraph.
+
+        :param raw_events: Dataframe to transform (pandas or cudf). 
+        :type raw_events: pandas.DataFrame
+        :param Optional[list] entity_types: Columns (strings) to turn into nodes, None signifies all
+        :param dict opts: See below
+        :param bool drop_edge_attrs: Whether to include each row's attributes on its edges, defaults to False (include)
+        :param bool verbose: Whether to print size information
+        :param bool direct: Omit hypernode and instead strongly connect nodes in an event
+        :param bool engine: String (pandas, cudf, ...) for engine to use
+        :param Optional[int] npartitions: For distributed engines, how many coarse-grained pieces to split events into
+        :param Optional[int] chunksize: For distributed engines, split events after chunksize rows
+
+        Create a graph out of the dataframe, and return the graph components as dataframes, 
+        and the renderable result Plotter. Hypergraphs reveal relationships between rows and between column values.
+        This transform is useful for lists of events, samples, relationships, and other structured high-dimensional data.
+
+        Specify local compute engine by passing `engine='pandas'`, 'cudf', 'dask', 'dask_cudf' (default: 'pandas').
+        If events are not in that engine's format, they will be converted into it.
+
+        The transform creates a node for every unique value in the entity_types columns (default: all columns). 
+        If direct=False (default), every row is also turned into a node. 
+        Edges are added to connect every table cell to its originating row's node, or if direct=True, to the other nodes from the same row.
+        Nodes are given the attribute 'type' corresponding to the originating column name, or in the case of a row, 'EventID'.
+        Options further control the transform, such column category definitions for controlling whether values
+        reocurring in different columns should be treated as one node,
+        or whether to only draw edges between certain column type pairs. 
+
+        Consider a list of events. Each row represents a distinct event, and each column some metadata about an event. 
+        If multiple events have common metadata, they will be transitively connected through those metadata values. 
+        The layout algorithm will try to cluster the events together. 
+        Conversely, if an event has unique metadata, the unique metadata will turn into nodes that only have connections to the event node, and the clustering algorithm will cause them to form a ring around the event node.
+
+        Best practice is to set EVENTID to a row's unique ID,
+        SKIP to all non-categorical columns (or entity_types to all categorical columns),
+        and CATEGORY to group columns with the same kinds of values.
+
+        To prevent creating nodes for null values, set drop_na=True.
+        Some dataframe engines may have undesirable null handling,
+        and recommend replacing None values with np.nan .
+
+        The optional ``opts={...}`` configuration options are:
+
+        * 'EVENTID': Column name to inspect for a row ID. By default, uses the row index.
+        * 'CATEGORIES': Dictionary mapping a category name to inhabiting columns. E.g., {'IP': ['srcAddress', 'dstAddress']}.  If the same IP appears in both columns, this makes the transform generate one node for it, instead of one for each column.
+        * 'DELIM': When creating node IDs, defines the separator used between the column name and node value
+        * 'SKIP': List of column names to not turn into nodes. For example, dates and numbers are often skipped.
+        * 'EDGES': For direct=True, instead of making all edges, pick column pairs. E.g., {'a': ['b', 'd'], 'd': ['d']} creates edges between columns a->b and a->d, and self-edges d->d.
+
+
+        :returns: {'entities': DF, 'events': DF, 'edges': DF, 'nodes': DF, 'graph': Plotter}
+        :rtype: dict
+
+        **Example: Connect user<-row->boss**
+
+            ::
+
+                import graphistry
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df)
+                g = h['graph'].plot()
+
+        **Example: Connect user->boss**
+
+            ::
+
+                import graphistry
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True)
+                g = h['graph'].plot()
+
+        **Example: Connect user<->boss**
+
+            ::
+
+                import graphistry
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True, opts={'EDGES': {'user': ['boss'], 'boss': ['user']}})
+                g = h['graph'].plot()
+
+        **Example: Only consider some columns for nodes**
+
+            ::
+
+                import graphistry
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, entity_types=['boss'])
+                g = h['graph'].plot()
+
+        **Example: Collapse matching user::<id> and boss::<id> nodes into one person::<id> node**
+
+            ::
+
+                import graphistry
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, opts={'CATEGORIES': {'person': ['user', 'boss']}})
+                g = h['graph'].plot()
+
+        **Example: Use cudf engine instead of pandas**
+
+            ::
+
+                import cudf, graphistry
+                users_gdf = cudf.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_gdf, engine='cudf')
+                g = h['graph'].plot()
+
+        """
+        from . import hyper
+        return hyper.Hypergraph().hypergraph(
+            self, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct,
+            engine=engine, npartitions=npartitions, chunksize=chunksize)

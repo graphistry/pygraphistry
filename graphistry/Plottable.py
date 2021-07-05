@@ -1,5 +1,4 @@
-from typing import Any, Iterable, List, Optional, Union
-from typing_extensions import Protocol
+from typing import Any, Callable, Iterable, List, Optional, Union
 import pandas as pd
 
 class Plottable(object):
@@ -38,14 +37,24 @@ class Plottable(object):
     _tigergraph : Any
 
     def __init__(self, *args, **kwargs):
-        raise RuntimeError('should not happen')
+        #raise RuntimeError('should not happen')
         None
 
-    def nodes(self, nodes: pd.DataFrame, node: Optional[str] = None) -> 'Plottable':
+    def nodes(
+        self, nodes: Union[Callable, Any], node: Optional[str] = None,
+        *args, **kwargs
+    ) -> 'Plottable':
         raise RuntimeError('should not happen')
         return self
 
-    def edges(self, nodes: pd.DataFrame, source: Optional[str] = None, destination: Optional[str] = None) -> 'Plottable':
+    def edges(
+        self, edges: Union[Callable, Any], source: Optional[str] = None, destination: Optional[str] = None,
+        *args, **kwargs
+    ) -> 'Plottable':
+        raise RuntimeError('should not happen')
+        return self
+
+    def pipe(self, graph_transform: Callable, *args, **kwargs) -> 'Plottable':
         raise RuntimeError('should not happen')
         return self
 

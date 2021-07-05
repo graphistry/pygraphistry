@@ -1,7 +1,8 @@
-from typing import Any, List, Optional
+from graphistry.Plottable import Plottable
+from typing import Any, Callable, Iterable, List, Optional, Union
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, gzip, io, json, os, numpy, pandas as pd, requests, sys, time, warnings
+import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
 
 from datetime import datetime
 from distutils.util import strtobool
@@ -573,12 +574,30 @@ class PyGraphistry(object):
         return Plotter().nodexl(xls_or_url, source, engine, verbose)
 
     @staticmethod
+    def gremlin(queries: Union[str, Iterable[str]]) -> Plottable:
+        """
+            Run one or more gremlin queries and get back the result as a graph object
+            To support cosmosdb, sends as strings
+
+            **Example: Login and plot **
+            ::
+
+                import graphistry
+                (graphistry
+                    .gremlin_client(my_gremlin_client)
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
+        """
+        return Plotter().gremlin(queries)
+
+    @staticmethod
     def cosmos(
         COSMOS_ACCOUNT: str = None,
         COSMOS_DB: str = None,
         COSMOS_CONTAINER: str = None,
         COSMOS_PRIMARY_KEY: str = None,
-        COSMOS_PARTITION_KEY: str = None,
         gremlin_client: Any = None
     ) -> Plotter:
         """
@@ -595,8 +614,7 @@ class PyGraphistry(object):
                             COSMOS_ACCOUNT='a',
                             COSMOS_DB='b',
                             COSMOS_CONTAINER='c',
-                            COSMOS_PRIMARY_KEY='d',
-                            COSMOS_PARTITION_KEY='pk')
+                            COSMOS_PRIMARY_KEY='d')
                         .gremlin('g.E().sample(10)')
                         .fetch_nodes()  # Fetch properties for nodes
                         .plot())
@@ -606,7 +624,6 @@ class PyGraphistry(object):
             COSMOS_DB=COSMOS_DB,
             COSMOS_CONTAINER=COSMOS_CONTAINER,
             COSMOS_PRIMARY_KEY=COSMOS_PRIMARY_KEY,
-            COSMOS_PARTITION_KEY=COSMOS_PARTITION_KEY,
             gremlin_client=gremlin_client)
 
 
@@ -614,7 +631,7 @@ class PyGraphistry(object):
     def gremlin_client(
         self,
         gremlin_client: Any = None
-    ):
+    ) -> Plotter:
         """Pass in a generic gremlin python client
 
             **Example: Login and plot **
@@ -639,6 +656,12 @@ class PyGraphistry(object):
         """
         return Plotter().gremlin_client(gremlin_client=gremlin_client)
 
+    @staticmethod
+    def drop_graph() -> Plotter:
+        """
+            Remove all graph nodes and edges from the database
+        """
+        return Plotter().drop_graph()
 
     @staticmethod
     def name(name):
@@ -1206,13 +1229,14 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def nodes(nodes, node=None):
+    def nodes(nodes: Union[Callable, Any], node=None, *args, **kwargs) -> Plottable:
         """Specify the set of nodes and associated data.
+        If a callable, will be called with current Plotter and whatever positional+named arguments
 
         Must include any nodes referenced in the edge list.
 
         :param nodes: Nodes and their attributes.
-        :type point_size: pd.DataFrame
+        :type nodes: Pandas dataframe or Callable
 
         :returns: Plotter
         :rtype: Plotter
@@ -1222,12 +1246,12 @@ class PyGraphistry(object):
 
                 import graphistry
 
-                es = pd.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 g = graphistry
                     .bind(source='src', destination='dst')
                     .edges(es)
 
-                vs = pd.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
                 g = g.bind(node='v').nodes(vs)
 
                 g.plot()
@@ -1237,23 +1261,41 @@ class PyGraphistry(object):
 
                 import graphistry
 
-                es = pd.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                es = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 g = graphistry.edges(es, 'src', 'dst')
 
-                vs = pd.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
+                vs = pandas.DataFrame({'v': [0,1,2], 'lbl': ['a', 'b', 'c']})
                 g = g.nodes(vs, 'v)
 
                 g.plot()
+
+
+        **Example**
+            ::
+                import graphistry
+
+                def sample_nodes(g, n):
+                    return g._nodes.sample(n)
+
+                df = pandas.DataFrame({'id': [0,1,2], 'v': [1,2,0]})
+
+                graphistry
+                    .nodes(df, 'id')
+                    ..nodes(sample_nodes, n=2)
+                    ..nodes(sample_nodes, None, 2)  # equivalent
+                    .plot()
+
         """
-        return Plotter().nodes(nodes, node)
+        return Plotter().nodes(nodes, node, *args, **kwargs)
 
 
     @staticmethod
-    def edges(edges, source=None, destination=None):
+    def edges(edges: Union[Callable, Any], source=None, destination=None, *args, **kwargs) -> Plottable:
         """Specify edge list data and associated edge attribute values.
+        If a callable, will be called with current Plotter and whatever positional+named arguments
 
-        :param edges: Edges and their attributes (Pandas dataframe, NetworkX graph, or IGraph graph)
-        :type point_size: Any
+        :param edges: Edges and their attributes, or transform from Plotter to edges
+        :type edges: Pandas dataframe, NetworkX graph, or IGraph graph.
 
         :returns: Plotter
         :rtype: Plotter
@@ -1262,7 +1304,7 @@ class PyGraphistry(object):
             ::
 
                 import graphistry
-                df = pd.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 graphistry
                     .bind(source='src', destination='dst')
                     .edges(df)
@@ -1272,13 +1314,51 @@ class PyGraphistry(object):
             ::
 
                 import graphistry
-                df = pd.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 graphistry
                     .edges(df, 'src', 'dst')
                     .plot()
 
+        **Example**
+            ::
+                import graphistry
+
+                def sample_edges(g, n):
+                    return g._edges.sample(n)
+
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
+
+                graphistry
+                    .edges(df, 'src', 'dst')
+                    .edges(sample_edges, n=2)
+                    .edges(sample_edges, None, None, 2)  # equivalent
+                    .plot()
+
         """
-        return Plotter().edges(edges, source, destination)
+        return Plotter().edges(edges, source, destination, *args, **kwargs)
+
+    @staticmethod
+    def pipe(graph_transform: Callable, *args, **kwargs) -> Plottable:
+        """Create new Plotter derived from current
+
+        :param graph_transform:
+        :type graph_transform: Callable
+
+        **Example: Simple**
+            ::
+
+                import graphistry
+
+                def fill_missing_bindings(g, source='src', destination='dst):
+                    return g.bind(source=source, destination=destination)
+
+                graphistry
+                    .edges(pandas.DataFrame({'src': [0,1,2], 'd': [1,2,0]}))
+                    .pipe(fill_missing_bindings, destination='d')  # binds 'src'
+                    .plot()
+        """
+
+        return Plotter().pipe(graph_transform, *args, **kwargs)
 
 
     @staticmethod
@@ -1489,6 +1569,7 @@ name = PyGraphistry.name
 description = PyGraphistry.description
 edges = PyGraphistry.edges
 nodes = PyGraphistry.nodes
+pipe = PyGraphistry.pipe
 graph = PyGraphistry.graph
 settings = PyGraphistry.settings
 hypergraph = PyGraphistry.hypergraph
@@ -1497,16 +1578,18 @@ cypher = PyGraphistry.cypher
 nodexl = PyGraphistry.nodexl
 tigergraph = PyGraphistry.tigergraph
 cosmos = PyGraphistry.cosmos
+gremlin = PyGraphistry.gremlin
 gremlin_client = PyGraphistry.gremlin_client
+drop_graph = PyGraphistry.drop_graph
 gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
 
 
 class NumpyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, numpy.ndarray) and obj.ndim == 1:
+        if isinstance(obj, np.ndarray) and obj.ndim == 1:
             return obj.tolist()
-        elif isinstance(obj, numpy.generic):
+        elif isinstance(obj, np.generic):
             return obj.item()
         elif isinstance(obj, type(pd.NaT)):
             return None

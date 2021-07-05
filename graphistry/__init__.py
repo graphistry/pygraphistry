@@ -10,7 +10,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     hypergraph,
     bolt, cypher,
     tigergraph, gsql, gsql_endpoint,
-    cosmos, gremlin_client,
+    cosmos, gremlin, gremlin_client, drop_graph,
     nodexl,
     ArrowUploader,
     ArrowFileUploader,

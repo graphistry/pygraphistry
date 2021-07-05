@@ -68,7 +68,7 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
      graphistry.hypergraph(rows)['graph'].plot()
      ```
 
-* **Embeddable:** Drop live views into your web dashboards and apps:
+* **Embeddable:** Drop live views into your web dashboards and apps (and go further with [JS/React](https://hub.graphistry.com/docs)):
 
     ```python
     iframe_url = g.plot(render=False)
@@ -564,6 +564,35 @@ g.addStyle(logo={
   'style': {'opacity': 0.5}
 })
 ```
+
+### Transforms
+
+You can quickly manipulate graphs as well:
+
+**Pipelining**:
+
+```python
+def capitalize(df, col):
+  df2 = df.copy()
+  df2[col] df[col].str.capitalize()
+  return df2
+
+g
+  .cypher('MATCH (a)-[e]->(b) RETURN a, e, b')
+  .nodes(lambda g: capitalize(g._nodes, 'nTitle'))
+  .edges(capitalize, None, None, 'eTitle'), 
+  .pipe(lambda g: g.nodes(g._nodes.pipe(capitalize, 'nTitle')))
+```
+
+**Table to graph**:
+
+```python
+df = pd.read_csv('events.csv')
+hg = graphistry.hypergraph(df, ['user', 'email', 'org'], direct=True)
+g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
+g.plot()
+```
+
 
 ## Next Steps
 
