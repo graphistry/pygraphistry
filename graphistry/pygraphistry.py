@@ -628,10 +628,7 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def gremlin_client(
-        self,
-        gremlin_client: Any = None
-    ) -> Plotter:
+    def gremlin_client(gremlin_client: Any = None) -> Plotter:
         """Pass in a generic gremlin python client
 
             **Example: Login and plot **
