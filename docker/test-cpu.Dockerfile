@@ -2,15 +2,20 @@
 
 ARG PYTHON_VERSION=3.6
 FROM python:${PYTHON_VERSION}-slim
+SHELL ["/bin/bash", "-c"]
 
 RUN mkdir /opt/pygraphistry
 WORKDIR /opt/pygraphistry
 
+RUN python -m venv pygraphistry \
+    && source pygraphistry/bin/activate \
+    && pip install --upgrade pip
+
 #install tests with stubbed package
 COPY README.md setup.py setup.cfg versioneer.py MANIFEST.in ./
 COPY graphistry/_version.py ./graphistry/_version.py
-RUN \
-    pip list \
+RUN source pygraphistry/bin/activate \
+    && pip list \
     && touch graphistry/__init__.py \
     && pip install -e .[dev] \
     && pip list

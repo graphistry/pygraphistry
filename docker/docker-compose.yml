@@ -17,6 +17,7 @@ x-build-kwargs:
     - DOCKER_TAG=${DOCKER_TAG:-latest}
     - BUILDKIT_INLINE_CACHE=1
     - JUPYTER_IMAGE_TAG=python-3.9.5
+    - BASE_VERSION=v2.37.1
 
 
 ############################################################

@@ -8,7 +8,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Adding
-
 * Feature: Gremlin connector (GraphSONSerializersV2d0)
 * Feature: Cosmos connector
 * Feature: Chained composition operators:
@@ -19,6 +18,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Infra: Jupyter notebook: `cd docker && docker-compose build jupyter && docker-compose up jupyter`
 * Fix: Plotter has `hypergraph()`
 * Refactor: Split out PlotterBase, interface Plottable
+
+## [0.18.2 - 2021-04-29]
+
+### Added
+* Docs: security.md
+
+### Fixed
+
+* Hypergraphs - detect and handle mismatching types across partitions
+
+### Changed
+
+* Infra: Speedup testing containers via incrementalization and docker settings
+* Infra: Update testing container base builds
 
 ## [0.18.1 - 2021-03-26]
 
@@ -103,7 +116,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Breaking
 
 * None known; many small changes to fix warnings so version bump out of caution
-
 
 ## [0.15.0] - 2021-01-11
 

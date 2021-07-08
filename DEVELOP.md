@@ -21,6 +21,9 @@ cd docker
 # cpu - pandas
 ./test-cpu-local.sh
 
+# cpu - fast & targeted
+WITH_LINT=0 WITH_TYPECHECK=0 WITH_BUILD=0 ./test-cpu-local.sh graphistry/tests/test_hyper_dask.py::TestHypergraphPandas::test_hyper_to_pa_mixed2
+
 # gpu - pandas, cudf, dask, dask_cudf; test only one file
 ./test-gpu-local.sh graphistry/tests/test_hyper_dask.py
 ```
