@@ -610,6 +610,22 @@ class NeptuneMixin(NEPTUNE_BASE):
         #graph = Graph()
         #g = graph.traversal().withRemote(remoteConn)
 
+        #versions:
+        # Downgrade gremlin python to match neptune and tornado to match old gremlin
+        #! pip install --user gremlinpython==3.4.10
+        #! pip install --user tornado==4.5.3
+        #
+        #! pip list | grep gremlinpython
+        #! pip list | grep tornado
+        #
+        ##import nest_asyncio
+        ##nest_asyncio.apply()
+        #
+        ##import asyncio
+        ##loop = asyncio.new_event_loop()
+        ##asyncio.set_event_loop(loop)
+
+
         if gremlin_client is None:
             if endpoint is None:
                 self.NEPTUNE_READER_HOST = NEPTUNE_READER_HOST if NEPTUNE_READER_HOST is not None else os.environ['NEPTUNE_READER_HOST']
@@ -634,12 +650,6 @@ class NeptuneMixin(NEPTUNE_BASE):
             return self
 
         self._reconnect_gremlin : Optional[Callable[[NeptuneMixin], NeptuneMixin]] = connect  # type: ignore
-
-        if gremlin_client is None:
-            if self._reconnect_gremlin is None:
-                raise ValueError('Missing _reconnect_gremlin')
-            else:
-                self._reconnect_gremlin(self)
 
         return self
 
