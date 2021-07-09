@@ -544,7 +544,7 @@ class NeptuneMixin(NEPTUNE_BASE):
         self,
         NEPTUNE_READER_HOST : Optional[str] = None,
         NEPTUNE_READER_PORT : Optional[str] = None,
-        NEPTUNE_READER_PROTOCOL : Optional[str] = 'wss',
+        NEPTUNE_READER_PROTOCOL : Optional[str] = None,
         endpoint : Optional[str] = None,
         gremlin_client: Optional[Any] = None
     ):
@@ -632,7 +632,9 @@ class NeptuneMixin(NEPTUNE_BASE):
                 self.NEPTUNE_READER_PORT = NEPTUNE_READER_PORT if NEPTUNE_READER_PORT is not None else os.environ['NEPTUNE_READER_PORT']
                 self.NEPTUNE_READER_PROTOCOL = NEPTUNE_READER_PROTOCOL if NEPTUNE_READER_PROTOCOL is not None else os.environ['NEPTUNE_READER_PROTOCOL']
                 self.endpoint = f'{self.NEPTUNE_READER_PROTOCOL}://{self.NEPTUNE_READER_HOST}:{self.NEPTUNE_READER_PORT}/gremlin'
-            gremlin_client = Client(endpoint, 'g',
+            else:
+                self.endpoint = endpoint
+            gremlin_client = Client(self.endpoint, 'g',
                 message_serializer=GraphSONSerializersV2d0(),
                 pool_size=1)
         self._gremlin_client = gremlin_client
