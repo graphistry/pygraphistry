@@ -46,6 +46,7 @@ nitpick_ignore = [
     ('py:class', "<class 'str'>"),
     ('py:class', 'graphistry.gremlin.CosmosMixin'),
     ('py:class', 'graphistry.gremlin.GremlinMixin'),
+    ('py:class', 'graphistry.gremlin.NeptuneMixin'),
     ('py:class', 'graphistry.Plottable.Plottable'),
     ('py:class', 'graphistry.PlotterBase.PlotterBase'),
     ('py:class', 'IGraph graph'),
