@@ -245,6 +245,8 @@ def resultset_to_g_structured_item(edges: List, nodes: List, item, ignore_errors
     """
     if isinstance(item, Edge):
         edges.append(flatten_edge_structure(item))
+        nodes.append(flatten_vertex_structure(item.inV))
+        nodes.append(flatten_vertex_structure(item.outV))
         return True
 
     if isinstance(item, Vertex):
@@ -255,6 +257,8 @@ def resultset_to_g_structured_item(edges: List, nodes: List, item, ignore_errors
         for path_obj in item.objects:
             if isinstance(path_obj, Edge):
                 edges.append(flatten_edge_structure(path_obj))
+                nodes.append(flatten_vertex_structure(path_obj.inV))
+                nodes.append(flatten_vertex_structure(path_obj.outV))
             elif isinstance(path_obj, Vertex):
                 nodes.append(flatten_vertex_structure(path_obj))
             else:

@@ -194,6 +194,10 @@ class TestGremlinMixin(NoAuthTestCase):
         tg = TGFull()
         g = tg.resultset_to_g(rs)
         assert g._edges.to_dict(orient='records') == [ {'src': 'a', 'dst': 'c', 'id': 'a', 'label': 'e'} ]
+        assert g._nodes.to_dict(orient='records') == [
+            {'id': 'a', 'label': 'b'},
+            {'id': 'c', 'label': 'd'}
+        ]
 
     def test_gremlin_none(self):
         tg = TGFull(gremlin_client=fake_client())
