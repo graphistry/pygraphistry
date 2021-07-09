@@ -451,16 +451,8 @@ class GremlinMixin(MIXIN_BASE):
         nodes_df = pd.DataFrame(nodes) if len(nodes) > 0 else None
         edges_df = pd.DataFrame(edges) if len(edges) > 0 else None
         
-        bindings = {}
-        if self._source is None:
-            bindings['source'] = 'src'
-        if self._destination is None:
-            bindings['destination'] = 'dst'
-        if self._node is None:
-            bindings['node'] = 'id'
-        g = self.bind(**bindings)
 
-        g = g.nodes(nodes_df)
+        g = self.nodes(nodes_df)
 
         if len(edges) > 0 and edges_df is not None:
             g = g.edges(edges_df)
@@ -475,7 +467,19 @@ class GremlinMixin(MIXIN_BASE):
                 g._source: pd.Series([], dtype='object'),
                 g._destination: pd.Series([], dtype='object')
             }))
-        
+
+        bindings = {}
+        if g._source is None:
+            bindings['source'] = 'src'
+        if g._destination is None:
+            bindings['destination'] = 'dst'
+        if g._node is None:
+            bindings['node'] = 'id'
+        if g._edge_title is None and g._edge_label is None and g._edges is not None:
+            if 'label' in g._edges:
+                bindings['edge_title'] = 'label'
+        g = g.bind(**bindings)
+
         return g
 
 
