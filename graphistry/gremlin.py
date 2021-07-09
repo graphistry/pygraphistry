@@ -5,6 +5,7 @@ try:
     from gremlin_python.driver.client import Client
     from gremlin_python.driver.resultset import ResultSet
     from gremlin_python.driver.serializer import GraphSONSerializersV2d0
+    from gremlin_python.structure.graph import Vertex, Edge, Path
 except:
     1
 logger = logging.getLogger('gremlin')
@@ -168,6 +169,26 @@ def flatten_vertex_dict(vertex: dict, id_col: str = 'id', label_col: str = 'labe
 
     return d
 
+#https://github.com/apache/tinkerpop/blob/master/gremlin-python/src/main/python/gremlin_python/structure/graph.py
+def flatten_edge_structure(
+    edge: Edge,
+    src_col: str = 'src', dst_col: str = 'dst',
+    label_col: str = 'label', id_col: str = 'id'
+) -> dict:
+    return {
+        id_col: edge.id,
+        label_col: edge.label,
+        src_col: edge.inV.id,
+        dst_col: edge.outV.id
+    }
+
+#https://github.com/apache/tinkerpop/blob/master/gremlin-python/src/main/python/gremlin_python/structure/graph.py
+def flatten_vertex_structure(vertex: Vertex, id_col: str = 'id', label_col: str = 'label') -> dict:
+    return {
+        id_col: vertex.id,
+        label_col: vertex.label
+    }
+
 #https://github.com/graphistry/graph-app-kit/blob/master/src/python/neptune_helper/gremlin_helper.py
 def flatten_edge_dict(edge, src_col: str = 'src', dst_col: str = 'dst'):
     """
@@ -216,6 +237,33 @@ def flatten_edge_dict(edge, src_col: str = 'src', dst_col: str = 'dst'):
         d = {**props, **d}
 
     return d
+
+
+def resultset_to_g_structured_item(edges: List, nodes: List, item, ignore_errors) -> bool:
+    """
+    Return true if matched
+    """
+    if isinstance(item, Edge):
+        edges.append(flatten_edge_structure(item))
+        return True
+
+    if isinstance(item, Vertex):
+        nodes.append(flatten_vertex_structure(item))
+        return True
+    
+    if isinstance(item, Path):
+        for path_obj in item.objects:
+            if isinstance(path_obj, Edge):
+                edges.append(flatten_edge_structure(path_obj))
+            elif isinstance(path_obj, Vertex):
+                nodes.append(flatten_vertex_structure(path_obj))
+            else:
+                if ignore_errors:
+                    logger.info('Supressing path error for step :: %s', type(path_obj), exc_info=True)
+                raise ValueError('unexpected Path step:', path_obj)
+        return True
+    
+    return False
 
 
 DROP_QUERY = 'g.V().drop()'
@@ -334,6 +382,10 @@ class GremlinMixin(MIXIN_BASE):
         return g
 
 
+
+
+
+
     def resultset_to_g(self, resultsets: Union[ResultSet, Iterable[ResultSet]], verbose=False, ignore_errors=False) -> Plottable:
         """
         Convert traversal results to graphistry object with ._nodes, ._edges
@@ -346,8 +398,8 @@ class GremlinMixin(MIXIN_BASE):
         if isinstance(resultsets, ResultSet):
             resultsets = [resultsets]
             
-        nodes = []
-        edges = []
+        nodes: List[dict] = []
+        edges: List[dict] = []
         for resultset in resultsets:
             if verbose:
                 logger.debug('resultset: %s :: %s', resultset, type(resultset))
@@ -358,10 +410,15 @@ class GremlinMixin(MIXIN_BASE):
                         logger.debug('result: %s :: %s', result, type(result))
                     if isinstance(result, dict):
                         result = [ result ]
+                    if resultset_to_g_structured_item(edges, nodes, result, ignore_errors):
+                        continue
                     for item in result:
                         if verbose:
                             logger.debug('item: %s :: %s', item, type(item))
-                        if isinstance(item, dict):
+
+                        if resultset_to_g_structured_item(edges, nodes, item, ignore_errors):
+                            continue
+                        elif isinstance(item, dict):
                             if 'type' in item:
                                 if item['type'] == 'vertex':
                                     nodes.append(flatten_vertex_dict(item))

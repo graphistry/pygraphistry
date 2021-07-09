@@ -5,6 +5,7 @@ from common import NoAuthTestCase
 from concurrent.futures import Future
 from mock import patch
 from gremlin_python.driver.resultset import ResultSet
+from gremlin_python.structure.graph import Vertex, Edge, Path
 
 from graphistry.gremlin import CosmosMixin, GremlinMixin, DROP_QUERY, nodes_to_queries, edges_to_queries
 from graphistry.plotter import PlotterBase
@@ -172,6 +173,27 @@ class TestGremlinMixin(NoAuthTestCase):
         assert g._node == 'id'
         assert g._source == 'src'
         assert g._destination == 'dst'
+
+    def test_resultset_to_g_vertex_stucture(self):
+        rs = make_resultset([Vertex(id='a', label='b')])
+        tg = TGFull()
+        g = tg.resultset_to_g(rs)
+        assert g._nodes.to_dict(orient='records') == [
+            {'id': 'a', 'label': 'b'}
+        ]
+        assert g._edges.to_dict(orient='records') == []
+        assert g._node == 'id'
+        assert g._source == 'src'
+        assert g._destination == 'dst'
+
+    def test_resultset_to_g_edge_stucture(self):
+        inV = Vertex(id='a', label='b')
+        outV = Vertex(id='c', label='d')
+        e = Edge(id='a', outV=outV, label='e', inV=inV)
+        rs = make_resultset([e])
+        tg = TGFull()
+        g = tg.resultset_to_g(rs)
+        assert g._edges.to_dict(orient='records') == [ {'src': 'a', 'dst': 'c', 'id': 'a', 'label': 'e'} ]
 
     def test_gremlin_none(self):
         tg = TGFull(gremlin_client=fake_client())
