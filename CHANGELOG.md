@@ -7,8 +7,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-### Adding
-* Gremlin / AWS Neptune connector
+## [0.19 - 2021-07-09]
+
+### Added
+* Feature: Gremlin connector (GraphSONSerializersV2d0)
+* Feature: Cosmos connector
+* Feature: Neptune connector
+* Feature: Chained composition operators:
+  * `g.pipe((lambda g, a1, ...: g2), a1, ...)`
+  * `g.edges((lambda g, a1, ...: df), None, None, a1, ...)`
+  * `g.nodes((lambda g, a1, ...: df), None, a1, ...)`
+* Feature: plotter::infer_labels: Guess node label names when not set, instead of defaulting to node_id. Runs during plots.
+* Infra: Jupyter notebook: `cd docker && docker-compose build jupyter && docker-compose up jupyter`
+* Fix: Plotter has `hypergraph()`
+* Docs: Neptune, Cosmos, chained composition
+* Refactor: Split out PlotterBase, interface Plottable
 
 ## [0.18.2 - 2021-04-29]
 

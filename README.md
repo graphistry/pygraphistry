@@ -49,9 +49,10 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 
    ```python
   # pip install --user graphistry
+  # pip install --user graphistry[bolt,gremlin,nodexl,igraph,networkx]  # optional
   import graphistry
-  graphistry.register(api=3, username='abc', password='xyz')
-  #graphistry.register(..., protocol='http', host='my.site.ngo')
+  graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com
+  #graphistry.register(..., protocol='http', host='my.site.ngo')  # Private
   ```
 
 * **Notebook-friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:
@@ -67,7 +68,7 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
      graphistry.hypergraph(rows)['graph'].plot()
      ```
 
-* **Embeddable:** Drop live views into your web dashboards and apps:
+* **Embeddable:** Drop live views into your web dashboards and apps (and go further with [JS/React](https://hub.graphistry.com/docs)):
 
     ```python
     iframe_url = g.plot(render=False)
@@ -157,6 +158,32 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g.plot()
     ```
 
+* [Azure Cosmos DB (Gremlin)](https://azure.microsoft.com/en-us/services/cosmos-db/)
+
+    ```python
+    # Options in help(graphistry.cosmos)
+    g = graphistry.cosmos(
+        COSMOS_ACCOUNT='',
+        COSMOS_DB='',
+        COSMOS_CONTAINER='',
+        COSMOS_PRIMARY_KEY=''
+    )
+    g2 = g.gremlin('g.E().sample(10000)').fetch_nodes()
+    g2.plot()
+    ```
+
+* Amazon Neptune (Gremlin)
+
+    ```python
+    # Options in help(graphistry.neptune)
+    g = graphistry.neptune(
+      NEPTUNE_READER_PROTOCOL='',
+      NEPTUNE_READER_HOST='',
+      NEPTUNE_READER_PORT='')
+    g2 = g.gremlin('g.E().limit(100)').fetch_nodes()
+    g2.plot()
+    ```
+
 * [TigerGaph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
 
     ```python
@@ -168,7 +195,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
     ```python
     g.endpoint('my_fn', {'arg': 'val'}, {'edges': '@@eList'}).plot()
-      ```
+    ```
 
 * [IGraph](http://igraph.org)
 
@@ -555,6 +582,35 @@ g.addStyle(logo={
   'style': {'opacity': 0.5}
 })
 ```
+
+### Transforms
+
+You can quickly manipulate graphs as well:
+
+**Pipelining**:
+
+```python
+def capitalize(df, col):
+  df2 = df.copy()
+  df2[col] df[col].str.capitalize()
+  return df2
+
+g
+  .cypher('MATCH (a)-[e]->(b) RETURN a, e, b')
+  .nodes(lambda g: capitalize(g._nodes, 'nTitle'))
+  .edges(capitalize, None, None, 'eTitle'), 
+  .pipe(lambda g: g.nodes(g._nodes.pipe(capitalize, 'nTitle')))
+```
+
+**Table to graph**:
+
+```python
+df = pd.read_csv('events.csv')
+hg = graphistry.hypergraph(df, ['user', 'email', 'org'], direct=True)
+g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
+g.plot()
+```
+
 
 ## Next Steps
 

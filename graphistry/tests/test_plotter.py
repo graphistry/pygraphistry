@@ -165,6 +165,51 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
             plotter.plot(pd.DataFrame({'src': [], 'dst': []}))
         self.assertTrue(mock_etl.called)
 
+    def test_edges(self, mock_etl, mock_open):
+        df = pd.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]})
+        g = graphistry.edges(df)
+        assert g._edges is df
+        g = graphistry.edges(df, 's')
+        assert g._source == 's'
+        g = graphistry.edges(df, 's', 'd')
+        assert g._destination == 'd'
+        df2 = pd.DataFrame({'s': [2, 4, 6], 'd': [1, 2, 0]})
+        g2 = graphistry.edges(lambda g: g.edges(df2)._edges)
+        assert g2._edges is df2
+        g3 = graphistry.edges(lambda g: g.edges(df2)._edges, source='s')
+        assert g3._source == 's'
+        g4 = graphistry.edges(
+            (lambda g, s: g.edges(df2)._edges.assign(**{s: 1})),
+            None, None,
+            's2')
+        assert (g4._edges.columns == ['s', 'd', 's2']).all()
+
+    def test_nodes(self, mock_etl, mock_open):
+        df = pd.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]})
+        g = graphistry.nodes(df)
+        assert g._nodes is df
+        g = graphistry.nodes(df, 's')
+        assert g._node == 's'
+        df2 = pd.DataFrame({'s': [2, 4, 6], 'd': [1, 2, 0]})
+        g2 = g.nodes(lambda g: g.nodes(df2)._nodes)
+        assert g2._nodes is df2
+        assert g2._node == 's'
+        g3 = graphistry.nodes((lambda g, n: g.nodes(df2, n)._nodes.assign(**{n: 1})), None, 'n2')
+        assert (g3._nodes.columns == ['s', 'd', 'n2']).all()
+    
+    def test_pipe(self, mock_etl, mock_open):
+        df = pd.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]})
+        g = graphistry.nodes(df, 's')
+        df2 = pd.DataFrame({'s': [2, 4, 6], 'd': [1, 2, 0]})
+        g2 = g.pipe((lambda g, s, d: g.edges(df2, s, d)), 's', 'd')
+        assert g2._nodes is df
+        assert g2._edges is df2
+        assert g2._source == 's'
+        assert g2._destination == 'd'
+        df3 = pd.DataFrame({'s': [3, 6, 9], 'd': [1, 2, 0]})
+        g3 = g2.pipe((lambda g: g.edges(df3)))
+        assert g3._edges is df3
+
 
 @patch('webbrowser.open')
 @patch('graphistry.pygraphistry.PyGraphistry._etl2')
@@ -246,7 +291,7 @@ class TestPlotterBindings_API_2(NoAuthTestCase):
 @patch('requests.post', return_value=Fake_Response())
 class TestPlotterReturnValue(NoAuthTestCase):
 
-    @patch('graphistry.plotter.in_ipython')
+    @patch('graphistry.PlotterBase.in_ipython')
     def test_no_ipython(self, mock_in_ipython, mock_post, mock_open):
         mock_in_ipython.return_value = False
         url = graphistry.bind(source='src', destination='dst').plot(triangleEdges)
@@ -256,7 +301,7 @@ class TestPlotterReturnValue(NoAuthTestCase):
         self.assertTrue(mock_post.called)
 
 
-    @patch('graphistry.plotter.in_ipython')
+    @patch('graphistry.PlotterBase.in_ipython')
     def test_ipython(self, mock_in_ipython, mock_post, mock_open):
         mock_in_ipython.return_value = True
         widget = graphistry.bind(source='src', destination='dst').plot(triangleEdges)
@@ -416,6 +461,42 @@ class TestPlotterPandasConversions(NoAuthTestCase):
         assert isinstance(out, pd.DataFrame)
         assertFrameEqual(out, df)
 
+
+class TestPlotterLabelInference(NoAuthTestCase):
+
+    def test_infer_labels_predefined_title(self):
+        g = (graphistry
+            .nodes(pd.DataFrame({'x': [1,2], 'y': [1, 2]}))
+            .bind(point_title='y'))
+        g2 = g.infer_labels()
+        assert g2._point_title == 'y'
+
+    def test_infer_labels_predefined_label(self):
+        g = (graphistry
+            .nodes(pd.DataFrame({'x': [1,2], 'y': [1, 2]}))
+            .bind(point_label='y'))
+        g2 = g.infer_labels()
+        assert g2._point_label == 'y'
+    
+    def test_infer_labels_infer_name_exact(self):
+        g = graphistry.nodes(pd.DataFrame({'x': [1,2], 'name': [1, 2]}))
+        g2 = g.infer_labels()
+        assert g2._point_title == 'name'
+
+    def test_infer_labels_infer_name_substr(self):
+        g = graphistry.nodes(pd.DataFrame({'x': [1,2], 'thename': [1, 2]}))
+        g2 = g.infer_labels()
+        assert g2._point_title == 'thename'
+
+    def test_infer_labels_infer_name_id_fallback(self):
+        g = graphistry.nodes(pd.DataFrame({'x': [1,2], 'y': [1, 2]}), 'y')
+        g2 = g.infer_labels()
+        assert g2._point_title == 'y'
+
+    def test_infer_labels_exn_unknown(self):
+        g = graphistry.nodes(pd.DataFrame({'x': [1,2], 'y': [1, 2]}))
+        with pytest.raises(ValueError):
+            g.infer_labels()
 
 
 class TestPlotterArrowConversions(NoAuthTestCase):

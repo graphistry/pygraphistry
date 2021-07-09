@@ -16,6 +16,7 @@ x-build-kwargs:
   args:
     - DOCKER_TAG=${DOCKER_TAG:-latest}
     - BUILDKIT_INLINE_CACHE=1
+    - JUPYTER_IMAGE_TAG=python-3.9.5
     - BASE_VERSION=v2.37.1
 
 
@@ -48,3 +49,23 @@ services:
       cache_from:
         - graphistry/test-gpu:${DOCKER_TAG:-latest}
     container_name: "test-gpu"
+
+  jupyter:
+    << : *production_opts
+    image: graphistry/jupyter:${DOCKER_TAG:-latest}
+    build:
+      << : *build_kwargs 
+      context: ..
+      dockerfile: ./docker/jupyter.Dockerfile
+      cache_from:
+        - graphistry/jupyter:${DOCKER_TAG:-latest}
+    container_name: "jupyter"
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - NB_USER=jovyan
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../jupyter_dev:/home/jovyan/jupyter_dev
