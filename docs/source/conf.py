@@ -44,14 +44,24 @@ extensions = [
 nitpick_ignore = [
     ('py:class', "<class 'dict'>"),
     ('py:class', "<class 'str'>"),
+    ('py:class', 'graphistry.gremlin.CosmosMixin'),
+    ('py:class', 'graphistry.gremlin.GremlinMixin'),
+    ('py:class', 'graphistry.Plottable.Plottable'),
+    ('py:class', 'graphistry.PlotterBase.PlotterBase'),
+    ('py:class', 'IGraph graph'),
+    ('py:class', 'NetworkX graph'),
+    ('py:class', 'Pandas dataframe'),
     ('py:class', 'ArrowUploader'),
     ('py:class', 'json.encoder.JSONEncoder'),
     ('py:class', 'pandas.DataFrame'),
     ('py:class', 'pyarrow.lib.Table'),
     ('py:class', 'requests.models.Response'),
     ('py:class', 'weakref.WeakKeyDictionary'),
+    ('py:data', 'typing.Any'),
+    ('py:data', 'typing.List'),
     ('py:data', 'typing.Optional'),
-    ('py:data', 'typing.Tuple')
+    ('py:data', 'typing.Tuple'),
+    ('py:data', 'typing.Union')
 ]
 
 set_type_checking_flag=True

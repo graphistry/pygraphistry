@@ -575,11 +575,11 @@ class PyGraphistry(object):
 
     @staticmethod
     def gremlin(queries: Union[str, Iterable[str]]) -> Plottable:
-        """
-            Run one or more gremlin queries and get back the result as a graph object
-            To support cosmosdb, sends as strings
+        """Run one or more gremlin queries and get back the result as a graph object
+        To support cosmosdb, sends as strings
 
-            **Example: Login and plot **
+        **Example: Login and plot**
+
             ::
 
                 import graphistry
@@ -600,24 +600,32 @@ class PyGraphistry(object):
         COSMOS_PRIMARY_KEY: str = None,
         gremlin_client: Any = None
     ) -> Plotter:
-        """
-           Provide credentials as arguments, as environment variables, or by providing a gremlinpython client
-           Environment variable names are the same as the constructor argument names
-           If no client provided, create (connect)
+        """Provide credentials as arguments, as environment variables, or by providing a gremlinpython client
+        Environment variable names are the same as the constructor argument names
+        If no client provided, create (connect)
 
-        **Example: Login and plot **
-                ::
+        :param COSMOS_ACCOUNT: cosmos account
+        :param COSMOS_DB: cosmos db name
+        :param COSMOS_CONTAINER: cosmos container name
+        :param COSMOS_PRIMARY_KEY: cosmos key
+        :param gremlin_client: optional prebuilt client
+        :return: Plotter with data from a cypher query. This call binds `source`, `destination`, and `node`.
 
-                    import graphistry
-                    (graphistry
-                        .cosmos(
-                            COSMOS_ACCOUNT='a',
-                            COSMOS_DB='b',
-                            COSMOS_CONTAINER='c',
-                            COSMOS_PRIMARY_KEY='d')
-                        .gremlin('g.E().sample(10)')
-                        .fetch_nodes()  # Fetch properties for nodes
-                        .plot())
+        **Example: Login and plot**
+
+            ::
+
+                import graphistry
+                (graphistry
+                    .cosmos(
+                        COSMOS_ACCOUNT='a',
+                        COSMOS_DB='b',
+                        COSMOS_CONTAINER='c',
+                        COSMOS_PRIMARY_KEY='d')
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
         """
         return Plotter().cosmos(
             COSMOS_ACCOUNT=COSMOS_ACCOUNT,
@@ -631,7 +639,8 @@ class PyGraphistry(object):
     def gremlin_client(gremlin_client: Any = None) -> Plotter:
         """Pass in a generic gremlin python client
 
-            **Example: Login and plot **
+        **Example: Login and plot**
+
             ::
 
                 import graphistry
@@ -1292,7 +1301,7 @@ class PyGraphistry(object):
         If a callable, will be called with current Plotter and whatever positional+named arguments
 
         :param edges: Edges and their attributes, or transform from Plotter to edges
-        :type edges: Pandas dataframe, NetworkX graph, or IGraph graph.
+        :type edges: Pandas dataframe, NetworkX graph, or IGraph graph
 
         :returns: Plotter
         :rtype: Plotter
