@@ -593,6 +593,76 @@ class PyGraphistry(object):
         return Plotter().gremlin(queries)
 
     @staticmethod
+    def neptune(
+        NEPTUNE_READER_HOST : Optional[str] = None,
+        NEPTUNE_READER_PORT : Optional[str] = None,
+        NEPTUNE_READER_PROTOCOL : Optional[str] = 'wss',
+        endpoint : Optional[str] = None,
+        gremlin_client: Optional[Any] = None
+    ) -> Plotter:
+        """
+           Provide credentials as arguments, as environment variables, or by providing a gremlinpython client
+           Environment variable names are the same as the constructor argument names
+           If endpoint provided, do not need host/port/protocol
+           If no client provided, create (connect)
+
+        **Example: Login and plot via parrams**
+
+            ::
+
+                import graphistry
+                (graphistry
+                    .neptune(
+                        NEPTUNE_READER_PROTOCOL='wss'
+                        NEPTUNE_READER_HOST='neptunedbcluster-xyz.cluster-ro-abc.us-east-1.neptune.amazonaws.com'
+                        NEPTUNE_READER_PORT='8182'
+                    )
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
+        **Example: Login and plot via env vars**
+
+            ::
+
+                import graphistry
+                (graphistry
+                    .neptune()
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
+        **Example: Login and plot via endpoint**
+
+            ::
+
+                import graphistry
+                (graphistry
+                    .neptune(endpoint='wss://neptunedbcluster-xyz.cluster-ro-abc.us-east-1.neptune.amazonaws.com:8182/gremlin')
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
+        **Example: Login and plot via client**
+
+            ::
+
+                import graphistry
+                (graphistry
+                    .neptune(gremlin_client=client)
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+        """
+        return Plotter().neptune(
+            NEPTUNE_READER_HOST=NEPTUNE_READER_HOST,
+            NEPTUNE_READER_PORT=NEPTUNE_READER_PORT,
+            NEPTUNE_READER_PROTOCOL=NEPTUNE_READER_PROTOCOL,
+            endpoint=endpoint,
+            gremlin_client=gremlin_client)
+
+
+    @staticmethod
     def cosmos(
         COSMOS_ACCOUNT: str = None,
         COSMOS_DB: str = None,
@@ -1584,6 +1654,7 @@ cypher = PyGraphistry.cypher
 nodexl = PyGraphistry.nodexl
 tigergraph = PyGraphistry.tigergraph
 cosmos = PyGraphistry.cosmos
+neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin
 gremlin_client = PyGraphistry.gremlin_client
 drop_graph = PyGraphistry.drop_graph

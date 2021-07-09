@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Adding
 * Feature: Gremlin connector (GraphSONSerializersV2d0)
 * Feature: Cosmos connector
+* Feature: Neptune connector
 * Feature: Chained composition operators:
   * `g.pipe((lambda g, a1, ...: g2), a1, ...)`
   * `g.edges((lambda g, a1, ...: df), None, None, a1, ...)`

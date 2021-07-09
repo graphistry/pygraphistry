@@ -1,4 +1,4 @@
-from typing import Callable, Iterable, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Callable, Iterable, List, Optional, Union, TYPE_CHECKING
 import logging, os, pandas as pd
 from .Plottable import Plottable
 try:
@@ -386,10 +386,6 @@ class GremlinMixin(MIXIN_BASE):
         return g
 
 
-
-
-
-
     def resultset_to_g(self, resultsets: Union[ResultSet, Iterable[ResultSet]], verbose=False, ignore_errors=False) -> Plottable:
         """
         Convert traversal results to graphistry object with ._nodes, ._edges
@@ -533,8 +529,121 @@ class GremlinMixin(MIXIN_BASE):
 
 if TYPE_CHECKING:
     COSMOS_BASE = GremlinMixin
+    NEPTUNE_BASE = GremlinMixin
 else:
     COSMOS_BASE = object
+    NEPTUNE_BASE = object
+
+
+class NeptuneMixin(NEPTUNE_BASE):
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def neptune(
+        self,
+        NEPTUNE_READER_HOST : Optional[str] = None,
+        NEPTUNE_READER_PORT : Optional[str] = None,
+        NEPTUNE_READER_PROTOCOL : Optional[str] = 'wss',
+        endpoint : Optional[str] = None,
+        gremlin_client: Optional[Any] = None
+    ):
+        """
+           Provide credentials as arguments, as environment variables, or by providing a gremlinpython client
+           Environment variable names are the same as the constructor argument names
+           If endpoint provided, do not need host/port/protocol
+           If no client provided, create (connect)
+
+        **Example: Login and plot via parrams**
+
+            ::
+
+                import graphistry
+                (graphistry
+                    .neptune(
+                        NEPTUNE_READER_PROTOCOL='wss'
+                        NEPTUNE_READER_HOST='neptunedbcluster-xyz.cluster-ro-abc.us-east-1.neptune.amazonaws.com'
+                        NEPTUNE_READER_PORT='8182'
+                    )
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
+        **Example: Login and plot via env vars**
+
+            ::
+
+                import graphistry
+                (graphistry
+                    .neptune()
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
+        **Example: Login and plot via endpoint**
+
+            ::
+
+                import graphistry
+                (graphistry
+                    .neptune(endpoint='wss://neptunedbcluster-xyz.cluster-ro-abc.us-east-1.neptune.amazonaws.com:8182/gremlin')
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+
+        **Example: Login and plot via client**
+
+            ::
+
+                import graphistry
+                (graphistry
+                    .neptune(gremlin_client=client)
+                    .gremlin('g.E().sample(10)')
+                    .fetch_nodes()  # Fetch properties for nodes
+                    .plot())
+        """
+
+        #alt:
+        #from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
+        #from gremlin_python.structure.graph import Graph
+        #remoteConn = DriverRemoteConnection(endpoint,'g')
+        #graph = Graph()
+        #g = graph.traversal().withRemote(remoteConn)
+
+        if gremlin_client is None:
+            if endpoint is None:
+                self.NEPTUNE_READER_HOST = NEPTUNE_READER_HOST if NEPTUNE_READER_HOST is not None else os.environ['NEPTUNE_READER_HOST']
+                self.NEPTUNE_READER_PORT = NEPTUNE_READER_PORT if NEPTUNE_READER_PORT is not None else os.environ['NEPTUNE_READER_PORT']
+                self.NEPTUNE_READER_PROTOCOL = NEPTUNE_READER_PROTOCOL if NEPTUNE_READER_PROTOCOL is not None else os.environ['NEPTUNE_READER_PROTOCOL']
+                self.endpoint = f'{self.NEPTUNE_READER_PROTOCOL}://{self.NEPTUNE_READER_HOST}:{self.NEPTUNE_READER_PORT}/gremlin'
+            gremlin_client = Client(endpoint, 'g',
+                message_serializer=GraphSONSerializersV2d0(),
+                pool_size=1)
+        self._gremlin_client = gremlin_client
+
+        def connect(self: NeptuneMixin) -> NeptuneMixin:
+            """Reconnect. Requires initialization was via credentials."""
+
+            if self._gremlin_client is not None:
+                self._gremlin_client.close()
+
+            self._gremlin_client = Client(self.endpoint, 'g',
+                message_serializer=GraphSONSerializersV2d0(),
+                pool_size=1)
+
+            return self
+
+        self._reconnect_gremlin : Optional[Callable[[NeptuneMixin], NeptuneMixin]] = connect  # type: ignore
+
+        if gremlin_client is None:
+            if self._reconnect_gremlin is None:
+                raise ValueError('Missing _reconnect_gremlin')
+            else:
+                self._reconnect_gremlin(self)
+
+        return self
+
+
 
 class CosmosMixin(COSMOS_BASE):
 
