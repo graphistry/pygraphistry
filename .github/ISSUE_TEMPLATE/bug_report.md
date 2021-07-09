@@ -8,10 +8,10 @@ assignees: ''
 ---
 
 **Describe the bug**
-A clear and concise description of what the bug is.
+1-3 sentences is fine 💪
 
 **To Reproduce**
-Please provide code and data than can be run without editing:
+Code, including data, than can be run without editing:
 
 ```python
 import pandas as pd
@@ -22,23 +22,28 @@ graphistry.edges(pd.from_csv('https://data.csv'), 's', 'd')).plot()
 ```
 
 **Expected behavior**
-A clear and concise description of what you expected to happen.
+What should have happened
 
 **Actual behavior**
-A clear and concise description of what you expected to happen.
+What did happen
 
 **Screenshots**
-If applicable, add screenshots to help explain your problem.
+If applicable, any screenshots to help explain the issue
 
 **Browser environment (please complete the following information):**
  - OS: [e.g. iOS]
  - Browser [e.g. chrome, safari]
  - Version [e.g. 22]
 
-**PyGraphistry environment**
+**Graphistry GPU server environment**
+ - Where run [e.g., Hub, AWS, on-prem]
+ - If self-hosting, Graphistry Version [e.g. 0.14.0, see bottom of a viz or login dashboard]
+- If self-hosting, any OS/GPU/driver versions
+
+**PyGraphistry API client environment**
+ - Where run [e.g., Graphistry 2.35.9 Jupyter]
  - Version [e.g. 0.14.0, print via `graphistry.__version__`]
  - Python Version [e.g. Python 3.7.7] 
- - Where run [e.g., Graphistry 2.35.9 Jupyter]
 
 **Additional context**
 Add any other context about the problem here.
