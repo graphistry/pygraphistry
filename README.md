@@ -161,7 +161,13 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 * [Azure Cosmos DB (Gremlin)](https://azure.microsoft.com/en-us/services/cosmos-db/)
 
     ```python
-    g = graphistry.cosmos()  # Options in help(graphistry.cosmos)
+    # Options in help(graphistry.cosmos)
+    g = graphistry.cosmos(
+        COSMOS_ACCOUNT='',
+        COSMOS_DB='',
+        COSMOS_CONTAINER='',
+        COSMOS_PRIMARY_KEY=''
+    )
     g2 = g.gremlin('g.E().sample(10000)').fetch_nodes()
     g2.plot()
     ```
@@ -169,7 +175,11 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 * Amazon Neptune (Gremlin)
 
     ```python
-    g = graphistry.neptune()  # Options in help(graphistry.neptune)
+    # Options in help(graphistry.neptune)
+    g = graphistry.neptune(
+      NEPTUNE_READER_PROTOCOL='',
+      NEPTUNE_READER_HOST='',
+      NEPTUNE_READER_PORT='')
     g2 = g.gremlin('g.E().limit(100)').fetch_nodes()
     g2.plot()
     ```
