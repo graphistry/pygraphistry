@@ -199,6 +199,16 @@ class TestGremlinMixin(NoAuthTestCase):
             {'id': 'c', 'label': 'd'}
         ]
 
+    def test_resultset_to_g_edge_stucture_dedup(self):
+        inV = Vertex(id='a', label='b')
+        outV = inV
+        e = Edge(id='a', outV=outV, label='e', inV=inV)
+        rs = make_resultset([e])
+        tg = TGFull()
+        g = tg.resultset_to_g(rs)
+        assert g._edges.to_dict(orient='records') == [ {'src': 'a', 'dst': 'a', 'id': 'a', 'label': 'e'} ]
+        assert g._nodes.to_dict(orient='records') == [ {'id': 'a', 'label': 'b'} ]
+
     def test_gremlin_none(self):
         tg = TGFull(gremlin_client=fake_client())
         g = tg.gremlin([])
