@@ -1,4 +1,4 @@
-from typing import Any, Callable, Iterable, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHECKING
 import logging, os, pandas as pd
 from .Plottable import Plottable
 try:
@@ -169,6 +169,21 @@ def flatten_vertex_dict(vertex: dict, id_col: str = 'id', label_col: str = 'labe
 
     return d
 
+def flatten_vertex_dict_adder(
+    nodes: List, nodes_hits: Set[str],
+    item: dict, id_col: str = 'id', label_col: str = 'label'
+) -> dict:
+    id = None
+    if 'T.id' in item:
+        id = item['T.id']
+    elif 'id' in item: 
+        id = item['id']
+    if id is None or (id not in nodes_hits):
+        nodes.append(flatten_vertex_dict(item, id_col, label_col))
+        if id is not None:
+            nodes_hits.add(id)
+
+
 #https://github.com/apache/tinkerpop/blob/master/gremlin-python/src/main/python/gremlin_python/structure/graph.py
 def flatten_edge_structure(
     edge: Edge,
@@ -182,12 +197,35 @@ def flatten_edge_structure(
         dst_col: edge.outV.id
     }
 
+def flatten_edge_structure_adder(
+    edges: List, edges_hits: Set[str],
+    edge: Edge,
+    src_col: str = 'src', dst_col: str = 'dst',
+    label_col: str = 'label', id_col: str = 'id'
+) -> Optional[dict]:
+    if edge.id in edges_hits:
+        return None
+    edges.append(flatten_edge_structure(edge, src_col, dst_col, label_col, id_col))
+    edges_hits.add(edge.id)
+
+
 #https://github.com/apache/tinkerpop/blob/master/gremlin-python/src/main/python/gremlin_python/structure/graph.py
 def flatten_vertex_structure(vertex: Vertex, id_col: str = 'id', label_col: str = 'label') -> dict:
     return {
         id_col: vertex.id,
         label_col: vertex.label
     }
+
+def flatten_vertex_structure_adder(
+    nodes: List,
+    nodes_hits: Set[str],
+    vertex: Vertex, id_col: str = 'id', label_col: str = 'label'
+) -> Optional[dict]:
+    if vertex.id in nodes_hits:
+        return None
+    nodes.append(flatten_vertex_structure(vertex, id_col, label_col))
+    nodes_hits.add(vertex.id)
+
 
 #https://github.com/graphistry/graph-app-kit/blob/master/src/python/neptune_helper/gremlin_helper.py
 def flatten_edge_dict(edge, src_col: str = 'src', dst_col: str = 'dst'):
@@ -238,29 +276,45 @@ def flatten_edge_dict(edge, src_col: str = 'src', dst_col: str = 'dst'):
 
     return d
 
+def flatten_edge_dict_adder(
+    edges: List, edges_hits: Set[str],
+    item: dict, src_col: str = 'src', dst_col: str = 'dst'
+):
+    if 'T.id' in item: 
+        id = item['T.id']
+    elif 'id' in item:
+        id = item['id']
+    if id is None or (id not in edges_hits):
+        edges.append(flatten_edge_dict(item, src_col, dst_col))
+        if id is not None:
+            edges_hits.add(id)
 
-def resultset_to_g_structured_item(edges: List, nodes: List, item, ignore_errors) -> bool:
+def resultset_to_g_structured_item(
+    edges: List, edges_hits: Set[str],
+    nodes: List, nodes_hits: Set[str],
+    item, ignore_errors
+) -> bool:
     """
     Return true if matched
     """
     if isinstance(item, Edge):
-        edges.append(flatten_edge_structure(item))
-        nodes.append(flatten_vertex_structure(item.inV))
-        nodes.append(flatten_vertex_structure(item.outV))
+        flatten_edge_structure_adder(edges, edges_hits, item)
+        flatten_vertex_structure_adder(nodes, nodes_hits, item.inV)
+        flatten_vertex_structure_adder(nodes, nodes_hits, item.outV)
         return True
 
     if isinstance(item, Vertex):
-        nodes.append(flatten_vertex_structure(item))
+        flatten_vertex_structure_adder(nodes, nodes_hits, item)
         return True
     
     if isinstance(item, Path):
         for path_obj in item.objects:
             if isinstance(path_obj, Edge):
-                edges.append(flatten_edge_structure(path_obj))
-                nodes.append(flatten_vertex_structure(path_obj.inV))
-                nodes.append(flatten_vertex_structure(path_obj.outV))
+                flatten_edge_structure_adder(edges, edges_hits, path_obj)
+                flatten_vertex_structure_adder(nodes, nodes_hits, path_obj.inV)
+                flatten_vertex_structure_adder(nodes, nodes_hits, path_obj.outV)
             elif isinstance(path_obj, Vertex):
-                nodes.append(flatten_vertex_structure(path_obj))
+                flatten_vertex_structure_adder(nodes, nodes_hits, path_obj)
             else:
                 if ignore_errors:
                     logger.info('Supressing path error for step :: %s', type(path_obj), exc_info=True)
@@ -397,8 +451,10 @@ class GremlinMixin(MIXIN_BASE):
 
         if isinstance(resultsets, ResultSet):
             resultsets = [resultsets]
-            
+        
+        nodes_hits: Set[str] = {}
         nodes: List[dict] = []
+        edges_hits: Set[str] = {}
         edges: List[dict] = []
         for resultset in resultsets:
             if verbose:
@@ -410,29 +466,29 @@ class GremlinMixin(MIXIN_BASE):
                         logger.debug('result: %s :: %s', result, type(result))
                     if isinstance(result, dict):
                         result = [ result ]
-                    if resultset_to_g_structured_item(edges, nodes, result, ignore_errors):
+                    if resultset_to_g_structured_item(edges, edges_hits, nodes, nodes_hits, result, ignore_errors):
                         continue
                     for item in result:
                         if verbose:
                             logger.debug('item: %s :: %s', item, type(item))
 
-                        if resultset_to_g_structured_item(edges, nodes, item, ignore_errors):
+                        if resultset_to_g_structured_item(edges, edges_hits, nodes, nodes_hits, item, ignore_errors):
                             continue
                         elif isinstance(item, dict):
                             if 'type' in item:
                                 if item['type'] == 'vertex':
-                                    nodes.append(flatten_vertex_dict(item))
+                                    flatten_vertex_dict_adder(nodes, nodes_hits, item)
                                 elif item['type'] == 'edge':
-                                    edges.append(flatten_edge_dict(item))
+                                    flatten_edge_dict_adder(edges, edges_hits, item)
                                 else:
                                     raise ValueError('unexpected item type', item['item'])
                             else:
                                 for k in item.keys():
                                     item_k_val = item[k]
                                     if item_k_val['type'] == 'vertex':
-                                        nodes.append(flatten_vertex_dict(item_k_val))
+                                        flatten_vertex_dict_adder(nodes, nodes_hits, item_k_val)
                                     elif item_k_val['type'] == 'edge':
-                                        edges.append(flatten_edge_dict(item_k_val))
+                                        flatten_edge_dict_adder(edges, edges_hits, item_k_val)
                                     else:                                
                                         raise ValueError('unexpected item key val:', type(item[k]))
                         else:
