@@ -172,16 +172,22 @@ def flatten_vertex_dict(vertex: dict, id_col: str = 'id', label_col: str = 'labe
 def flatten_vertex_dict_adder(
     nodes: List, nodes_hits: Set[str],
     item: dict, id_col: str = 'id', label_col: str = 'label'
-) -> dict:
+) -> Optional[dict]:
+    """
+    Return item when added as fresh
+    """
     id = None
     if 'T.id' in item:
         id = item['T.id']
     elif 'id' in item: 
         id = item['id']
     if id is None or (id not in nodes_hits):
-        nodes.append(flatten_vertex_dict(item, id_col, label_col))
+        d = flatten_vertex_dict(item, id_col, label_col)
+        nodes.append(d)
         if id is not None:
             nodes_hits.add(id)
+        return d
+    return None
 
 
 #https://github.com/apache/tinkerpop/blob/master/gremlin-python/src/main/python/gremlin_python/structure/graph.py
@@ -203,10 +209,15 @@ def flatten_edge_structure_adder(
     src_col: str = 'src', dst_col: str = 'dst',
     label_col: str = 'label', id_col: str = 'id'
 ) -> Optional[dict]:
+    """
+    Return item when added as fresh
+    """
     if edge.id in edges_hits:
         return None
-    edges.append(flatten_edge_structure(edge, src_col, dst_col, label_col, id_col))
+    d = flatten_edge_structure(edge, src_col, dst_col, label_col, id_col)
+    edges.append(d)
     edges_hits.add(edge.id)
+    return d
 
 
 #https://github.com/apache/tinkerpop/blob/master/gremlin-python/src/main/python/gremlin_python/structure/graph.py
@@ -221,10 +232,15 @@ def flatten_vertex_structure_adder(
     nodes_hits: Set[str],
     vertex: Vertex, id_col: str = 'id', label_col: str = 'label'
 ) -> Optional[dict]:
+    """
+    Return item when added as fresh
+    """
     if vertex.id in nodes_hits:
         return None
-    nodes.append(flatten_vertex_structure(vertex, id_col, label_col))
+    d = flatten_vertex_structure(vertex, id_col, label_col)
+    nodes.append(d)
     nodes_hits.add(vertex.id)
+    return d
 
 
 #https://github.com/graphistry/graph-app-kit/blob/master/src/python/neptune_helper/gremlin_helper.py
@@ -280,14 +296,21 @@ def flatten_edge_dict_adder(
     edges: List, edges_hits: Set[str],
     item: dict, src_col: str = 'src', dst_col: str = 'dst'
 ):
+    """
+    Return item when added as fresh
+    """
+    id = None
     if 'T.id' in item: 
         id = item['T.id']
     elif 'id' in item:
         id = item['id']
     if id is None or (id not in edges_hits):
-        edges.append(flatten_edge_dict(item, src_col, dst_col))
+        d = flatten_edge_dict(item, src_col, dst_col)
+        edges.append(d)
         if id is not None:
             edges_hits.add(id)
+        return d
+    return None
 
 def resultset_to_g_structured_item(
     edges: List, edges_hits: Set[str],
@@ -452,9 +475,9 @@ class GremlinMixin(MIXIN_BASE):
         if isinstance(resultsets, ResultSet):
             resultsets = [resultsets]
         
-        nodes_hits: Set[str] = {}
+        nodes_hits: Set[str] = set()
         nodes: List[dict] = []
-        edges_hits: Set[str] = {}
+        edges_hits: Set[str] = set()
         edges: List[dict] = []
         for resultset in resultsets:
             if verbose:
