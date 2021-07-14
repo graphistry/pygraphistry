@@ -567,7 +567,7 @@ class GremlinMixin(MIXIN_BASE):
         #        g._source: pd.Series([v0], dtype=nodes_df[g._node].dtype),  # type: ignore
         #        g._destination: pd.Series([v0], dtype=nodes_df[g._node].dtype)  # type: ignore
         #    }))
-        else:
+        elif g._edges is None:
             g = g.edges(pd.DataFrame({
                 g._source: pd.Series([], dtype='object'),
                 g._destination: pd.Series([], dtype='object')
