@@ -7,11 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.19.2 - 2021-07-14]
+
 ### Added
-* Feature: g.fetch_edges() for neptune/gremlin edge attributes
+* Feature: `g.fetch_edges()` for neptune/gremlin edge attributes
 
 ### Fixed
-* Fix: g.fetch_nodes() for neptune/gremlin node attrbutes
+* Fix: `g.fetch_nodes()` for neptune/gremlin node attrbutes
 
 ## [0.19.1 - 2021-07-09]
 
