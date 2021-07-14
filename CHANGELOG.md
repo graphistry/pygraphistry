@@ -8,11 +8,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Added
-* Docs: Updated [demos/for_analysis.ipynb](https://github.com/graphistry/pygraphistry/blob/master/demos/for_analysis.ipynb) to api=3
+* Feature: g.fetch_edges() for neptune/gremlin edge attributes
+
+### Fixed
+* Fix: g.fetch_nodes() for neptune/gremlin node attrbutes
+
+## [0.19.1 - 2021-07-09]
+
+### Added
 * Docs: [demos/demos_databases_apis/neptune/neptune_tutorial.ipynb](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/neptune/neptune_tutorial.ipynb)
+
+### Changed
+* Docs: Updated [demos/for_analysis.ipynb](https://github.com/graphistry/pygraphistry/blob/master/demos/for_analysis.ipynb) to `api=3`
+
+### Fixed
 * Fix: Gremlin (Neptune) connector deduplicates nodes/edges
 
-## [0.19 - 2021-07-09]
+## [0.19.0 - 2021-07-09]
 
 ### Added
 * Feature: Gremlin connector (GraphSONSerializersV2d0)
@@ -24,9 +36,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * `g.nodes((lambda g, a1, ...: df), None, a1, ...)`
 * Feature: plotter::infer_labels: Guess node label names when not set, instead of defaulting to node_id. Runs during plots.
 * Infra: Jupyter notebook: `cd docker && docker-compose build jupyter && docker-compose up jupyter`
-* Fix: Plotter has `hypergraph()`
 * Docs: Neptune, Cosmos, chained composition
+
+### Changed
 * Refactor: Split out PlotterBase, interface Plottable
+
+### Fixed
+* Fix: Plotter has `hypergraph()`
 
 ## [0.18.2 - 2021-04-29]
 
