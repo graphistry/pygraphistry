@@ -268,6 +268,14 @@ def flatten_edge_dict(edge, src_col: str = 'src', dst_col: str = 'dst'):
             d[dst_col] = edge[k]
             continue
 
+        if k == 'IN' and isinstance(edge[k], dict):
+            d[src_col] = edge[k]['id']
+            continue
+
+        if k == 'OUT' and isinstance(edge[k], dict):
+            d[dst_col] = edge[k]['id']
+            continue
+
         v = edge[k]
         if isinstance(v, list):
             d[str(k)] = v[0]
@@ -299,6 +307,13 @@ def flatten_edge_dict_adder(
     """
     Return item when added as fresh
     """
+
+    #Neptune elementMap(): skip for now as gives id/label but not props
+    #if ('IN' in item) and isinstance(item['IN'], dict):
+    #    flatten_vertex_dict_adder(nodes, nodes_hits, item['IN'])
+    #if ('OUT' in item) and isinstance(item['OUT'], dict):
+    #    flatten_vertex_dict_adder(nodes, nodes_hits, item['OUT'])
+
     id = None
     if 'T.id' in item: 
         id = item['T.id']
