@@ -639,7 +639,7 @@ class GremlinMixin(MIXIN_BASE):
         for start in range(0, len(edges_df), batch_size):
             edges_batch_df = edges_df[start:(start + batch_size)]
             edge_ids = ', '.join([f'"{x}"' for x in edges_batch_df[edge_id].to_list() ])
-            query = f'g.V({edge_ids}).elementMap()'  # TODO: alt for cosmos?
+            query = f'g.E({edge_ids}).elementMap()'  # TODO: alt for cosmos?
             if dry_run:
                 dry_runs.append(query)
                 continue
