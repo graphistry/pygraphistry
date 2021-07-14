@@ -463,12 +463,19 @@ class GremlinMixin(MIXIN_BASE):
         return g
 
 
-    def resultset_to_g(self, resultsets: Union[ResultSet, Iterable[ResultSet]], verbose=False, ignore_errors=False) -> Plottable:
+    def resultset_to_g(
+        self,
+        resultsets: Union[ResultSet,Iterable[ResultSet]],
+        mode: str = 'infer',
+        verbose=False,
+        ignore_errors=False
+    ) -> Plottable:
         """
         Convert traversal results to graphistry object with ._nodes, ._edges
         If only received nodes or edges, populate that field
         For custom src/dst/node bindings, passing in a Graphistry instance with .bind(source=.., destination=..., node=...)
         Otherwise, will do src/dst/id
+        For dict results (ex: valueMap/elementMap), specify mode='nodes' ('edges'), else will inspect field 'type'
         """
         
 
@@ -498,13 +505,21 @@ class GremlinMixin(MIXIN_BASE):
                         if resultset_to_g_structured_item(edges, edges_hits, nodes, nodes_hits, item, ignore_errors):
                             continue
                         elif isinstance(item, dict):
-                            if 'type' in item:
-                                if item['type'] == 'vertex':
+                            if (mode != 'infer') or ('type' in item):
+                                item_kind = None
+                                if mode == 'infer':
+                                    item_kind = item['type']
+                                elif mode == 'nodes':
+                                    item_kind = 'vertex'
+                                elif mode == 'edges':
+                                    item_kind = 'edge'
+
+                                if item_kind == 'vertex':
                                     flatten_vertex_dict_adder(nodes, nodes_hits, item)
-                                elif item['type'] == 'edge':
+                                elif item_kind == 'edge':
                                     flatten_edge_dict_adder(edges, edges_hits, item)
                                 else:
-                                    raise ValueError('unexpected item type', item['item'])
+                                    raise ValueError('unexpected item type', item['type'])
                             else:
                                 for k in item.keys():
                                     item_k_val = item[k]
@@ -591,18 +606,51 @@ class GremlinMixin(MIXIN_BASE):
         for start in range(0, len(nodes_df), batch_size):
             nodes_batch_df = nodes_df[start:(start + batch_size)]
             node_ids = ', '.join([f'"{x}"' for x in nodes_batch_df[node_id].to_list() ])
-            query = f'g.V({node_ids})'
+            query = f'g.V({node_ids}).elementMap()'  # TODO: alt for cosmos?
             if dry_run:
                 dry_runs.append(query)
                 continue
             resultset = self.gremlin_run([query], throw=True)
-            g2 = self.resultset_to_g(resultset, verbose, ignore_errors)
+            g2 = self.resultset_to_g(resultset, 'nodes', verbose, ignore_errors)
             assert g2._nodes is not None
             enriched_nodes_dfs.append(g2._nodes)
         if dry_run:
             return dry_runs
         nodes2_df = pd.concat(enriched_nodes_dfs, sort=False, ignore_index=True)
         g2 = g.nodes(nodes2_df, node_id)
+        return g2
+
+    def fetch_edges(self, batch_size = 1000, dry_run=False, verbose=False, ignore_errors=False) -> Union[Plottable, List[str]]:
+        """
+        Enrich edges by matching g._edges to gremlin edges
+        """
+        g = self
+        edges_df = g._edges
+        edge_id = 'id'
+        if edges_df is None:
+            raise Exception('Edge enrichment requires g._edges to be available')
+        
+        if edge_id not in edges_df:
+            raise Exception('Edge id not in edges table', edge_id)
+
+        # Work in batches of 1000
+        enriched_edges_dfs = []
+        dry_runs = []
+        for start in range(0, len(edges_df), batch_size):
+            edges_batch_df = edges_df[start:(start + batch_size)]
+            edge_ids = ', '.join([f'"{x}"' for x in edges_batch_df[edge_id].to_list() ])
+            query = f'g.V({edge_ids}).elementMap()'  # TODO: alt for cosmos?
+            if dry_run:
+                dry_runs.append(query)
+                continue
+            resultset = self.gremlin_run([query], throw=True)
+            g2 = self.resultset_to_g(resultset, 'edges', verbose, ignore_errors)
+            assert g2._edges is not None
+            enriched_edges_dfs.append(g2._edges)
+        if dry_run:
+            return dry_runs
+        edges2_df = pd.concat(enriched_edges_dfs, sort=False, ignore_index=True)
+        g2 = g.edges(edges2_df)
         return g2
 
 

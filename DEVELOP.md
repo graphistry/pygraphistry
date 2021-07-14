@@ -47,6 +47,26 @@ You may need to add ignore rules:
 * mypi: mypi.ini
 * sphinx: docs/source/conf.py
 
+## Remote
+
+Some databases like Neptune can be easier via cloud editing, especially within Jupyter:
+
+```bash
+git clone https://github.com/graphistry/pygraphistry.git
+git checkout origin/my_branch
+pip install --user -e .
+git diff
+```
+
+and
+
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+import graphistry
+graphistry.__version__
+```
 
 ## CI
 
