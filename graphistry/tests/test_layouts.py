@@ -70,3 +70,27 @@ class TestComputeMixin(NoAuthTestCase):
             {'id': 'b', 'level': 1, 'x': 50.0, 'y': -100.0},
             {'id': 'c', 'level': 1, 'x': 150.0, 'y': -100.0}
         ]
+
+    def test_tree_layout_sort_ascending(self):
+        lg = LGFull()
+        g = (lg
+            .edges(pd.DataFrame({'s': ['a', 'a'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({'n': ['a', 'b', 'c'], 'v': [0, 1, 2]}), 'n')
+            .tree_layout(level_sort_values_by='v'))
+        assert g._nodes.to_dict(orient='records') == [
+            {'n': 'a', 'v': 0, 'level': 0, 'x': 0, 'y': 0},
+            {'n': 'b', 'v': 1, 'level': 1, 'x': 0, 'y': -1},
+            {'n': 'c', 'v': 2, 'level': 1, 'x': 1, 'y': -1}
+        ]
+
+    def test_tree_layout_sort_descending(self):
+        lg = LGFull()
+        g = (lg
+            .edges(pd.DataFrame({'s': ['a', 'a'], 'd': ['b', 'c']}), 's', 'd')
+            .nodes(pd.DataFrame({'n': ['a', 'b', 'c'], 'v': [0, 1, 2]}), 'n')
+            .tree_layout(level_sort_values_by='v', level_sort_values_by_ascending=False))
+        assert g._nodes.to_dict(orient='records') == [
+            {'n': 'c', 'v': 2, 'level': 1, 'x': 0, 'y': -1},
+            {'n': 'b', 'v': 1, 'level': 1, 'x': 1, 'y': -1},
+            {'n': 'a', 'v': 0, 'level': 0, 'x': 0, 'y': 0}
+        ]
