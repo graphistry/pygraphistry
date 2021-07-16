@@ -3,7 +3,13 @@ from .compute import ComputeMixin
 from .gremlin import GremlinMixin, CosmosMixin, NeptuneMixin
 from .layouts import LayoutsMixin
 
-class Plotter(CosmosMixin, NeptuneMixin, GremlinMixin, PlotterBase, object):  # type: ignore
+class Plotter(
+    CosmosMixin, NeptuneMixin, GremlinMixin,
+    LayoutsMixin,
+    ComputeMixin,
+    PlotterBase,
+    object
+):  # type: ignore
 
     def __init__(self, *args, **kwargs):
         PlotterBase.__init__(self, *args, **kwargs)
