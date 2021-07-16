@@ -35,16 +35,21 @@ class ComputeMixin(MIXIN_BASE):
 
         """
         g = self
-        if reuse:
-            if g._nodes is not None:
-                if g._node is None:
-                    raise ValueError('Must set node id binding, not just nodes; set via .bind() or .nodes()')
-                return g
         if g._edges is None:
             raise ValueError('Missing edges')
         if g._source is None or g._destination is None:
             raise ValueError('Missing source/destination bindings; set via .bind() or .edges()')
+        if len(g._edges) == 0:
+            return g
         #TODO use built-ins for igraph/nx/...
+
+        if reuse:
+            if g._nodes is not None and len(g._nodes) > 0:
+                if g._node is None:
+                    logger.warning('Must set node id binding, not just nodes; set via .bind() or .nodes()')
+                    #raise ValueError('Must set node id binding, not just nodes; set via .bind() or .nodes()')
+                else:
+                    return g
 
         node_id = g._node if g._node is not None else 'id'
 
@@ -57,7 +62,7 @@ class ComputeMixin(MIXIN_BASE):
         return g.nodes(nodes_df, node_id)
 
 
-    def get_indegree(self, col: str = 'degree_in'):
+    def get_indegrees(self, col: str = 'degree_in'):
         """See get_degrees
         """
         g = self
@@ -76,9 +81,9 @@ class ComputeMixin(MIXIN_BASE):
                     .merge(in_degree_df, how='left', on=g._node))
         nodes_df[col].fillna(0, inplace=True)
         nodes_df[col] = nodes_df[col].astype('int32')
-        return g.nodes(nodes_df)
+        return g.nodes(nodes_df, g_nodes._node)
 
-    def get_outdegree(self, col: str = 'degree_out'):
+    def get_outdegrees(self, col: str = 'degree_out'):
         """See get_degrees
         """
         g = self
@@ -87,12 +92,8 @@ class ComputeMixin(MIXIN_BASE):
                 columns={
                     g._source: g._destination,
                     g._destination: g._source
-                })).get_indegree(col)
-        g2 = g2.edges(g2._edges.rename(columns={
-            g._source: g._destination,
-            g._destination: g._source
-        }))
-        return g2
+                })).get_indegrees(col)
+        return g.nodes(g2._nodes, g2._node)
 
 
     def get_degrees(self, col: str = 'degree', degree_in: str = 'degree_in', degree_out: str = 'degree_out'):
@@ -115,7 +116,7 @@ class ComputeMixin(MIXIN_BASE):
                 print(g2._nodes)  # pd.DataFrame with 'id', 'degree', 'degree_in', 'degree_out'
         """
         g = self
-        g2 = g.get_indegree(degree_in).get_outdegree(degree_out)
+        g2 = g.get_indegrees(degree_in).get_outdegrees(degree_out)
         g2._nodes[col] = g2._nodes['degree_in'] + g2._nodes['degree_out']
         return g2
 
@@ -173,7 +174,7 @@ class ComputeMixin(MIXIN_BASE):
         """
 
         g2 = self.materialize_nodes()
-        if len(g2._nodes) == 0:
+        if (g2._nodes is None) or (len(g2._nodes) == 0):
             return g2
 
         g2 = g2.edges(g2._edges.drop_duplicates([g2._source, g2._destination]))

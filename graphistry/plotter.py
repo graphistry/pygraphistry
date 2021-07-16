@@ -3,7 +3,7 @@ from .compute import ComputeMixin
 from .gremlin import GremlinMixin, CosmosMixin, NeptuneMixin
 from .layouts import LayoutsMixin
 
-class Plotter(
+class Plotter(  # type: ignore
     CosmosMixin, NeptuneMixin, GremlinMixin,
     LayoutsMixin,
     ComputeMixin,

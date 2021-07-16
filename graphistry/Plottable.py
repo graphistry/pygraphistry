@@ -68,7 +68,7 @@ class Plottable(object):
 
     # ### compute
 
-    def get_indegree(self, col: str = 'degree_in') -> 'Plottable':
+    def get_indegrees(self, col: str = 'degree_in') -> 'Plottable':
         raise RuntimeError('should not happen')
         return self
 

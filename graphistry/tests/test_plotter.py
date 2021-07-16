@@ -1135,3 +1135,18 @@ class TestPlotterEncodings(NoAuthTestCase):
                 'mapping': { 'categorical': { 'fixed': { 'a': 'b' } } }
             }
         }
+
+
+class TestPlotterMixins(NoAuthTestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        1
+
+    def test_has_degree(self):
+        g = graphistry.bind().edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'a']}), 's', 'd')
+        g2 = g.get_degrees()
+        assert g2._nodes.to_dict(orient='records') == [
+            {'id': 'a', 'degree_in': 1, 'degree_out': 1, 'degree': 2},
+            {'id': 'b', 'degree_in': 1, 'degree_out': 1, 'degree': 2},
+        ]
