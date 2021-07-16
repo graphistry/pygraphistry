@@ -42,7 +42,6 @@ class LayoutsMixin(MIXIN_BASE):
         if (g._edges is None) or (len(g._edges) == 0):
             return g
 
-
         x_col = g._point_x if g._point_x is not None else 'x'
         if self._point_x is None:
             g = g.bind(point_x=x_col)
