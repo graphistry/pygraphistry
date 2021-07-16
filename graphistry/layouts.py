@@ -57,7 +57,7 @@ class LayoutsMixin(MIXIN_BASE):
             g2 = g.get_topological_levels(level_col, *args, **kwargs)
             g2._nodes[y_col] = g2._nodes[level_col]
         else:
-            if (g2._nodes is None) or (not (level_col in g2._nodes)):
+            if (g._nodes is None) or (not (level_col in g._nodes)):
                 raise ValueError('tree_layout() with explicit level_col requires ._nodes with that as a column; see .nodes()')
             g2 = g.nodes(g._nodes.assign(**{y_col: g._nodes[level_col]}))
         if descending:
