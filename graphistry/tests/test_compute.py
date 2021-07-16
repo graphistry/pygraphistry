@@ -98,6 +98,17 @@ class TestComputeMixin(NoAuthTestCase):
             {'id': 'b', 'level': 1}
         ]
 
+    def test_get_topological_levels_1_aliasing(self):
+        cg = CGFull()
+        g = (cg
+            .edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+            .nodes(pd.DataFrame({'n': ['a', 'b'], 'degree': ['x', 'y']}), 'n')
+            .get_topological_levels())
+        assert g._nodes.to_dict(orient='records') == [
+            {'n': 'a', 'level': 0, 'degree': 'x'},
+            {'n': 'b', 'level': 1, 'degree': 'y'}
+        ]
+
     def test_get_topological_levels_cycle_exn(self):
         cg = CGFull()
         with pytest.raises(ValueError):

@@ -38,6 +38,16 @@ class TestComputeMixin(NoAuthTestCase):
             {'id': 'a', 'level': 0, 'x': 0, 'y': 0},
             {'id': 'b', 'level': 1, 'x': 0, 'y': -1}]
 
+    def test_tree_layout_levels_1_aliasing(self):
+        lg = LGFull()
+        g = (lg
+            .edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+            .nodes(pd.DataFrame({'n': ['a', 'b'], 'degree': ['x', 'y']}), 'n')
+            .tree_layout())
+        assert g._nodes.to_dict(orient='records') == [
+            {'n': 'a', 'degree': 'x', 'level': 0, 'x': 0, 'y': 0},
+            {'n': 'b', 'degree': 'y', 'level': 1, 'x': 0, 'y': -1}]
+
     def test_tree_layout_cycle_exn(self):
         lg = LGFull()
         with pytest.raises(ValueError):

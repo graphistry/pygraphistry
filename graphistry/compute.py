@@ -173,7 +173,9 @@ class ComputeMixin(MIXIN_BASE):
 
         """
 
-        g2 = self.materialize_nodes()
+        g2_base = self.materialize_nodes()
+
+        g2 = g2_base
         if (g2._nodes is None) or (len(g2._nodes) == 0):
             return g2
 
@@ -209,4 +211,9 @@ class ComputeMixin(MIXIN_BASE):
         else:
             nodes_df = nodes_df0
 
-        return self.nodes(nodes_df)
+        if self._nodes is None:
+            return self.nodes(nodes_df)
+        else:
+            #use orig cols, esp. in case collisions like degree
+            out_df = g2_base._nodes.merge(nodes_df[[g2_base._node, level_col]], on=g2_base._node, how='left')
+            return self.nodes(out_df)

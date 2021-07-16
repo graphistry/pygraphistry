@@ -74,7 +74,6 @@ class LayoutsMixin(MIXIN_BASE):
 
         grouped = g2._nodes.groupby(level_col, sort=level_sort_values_by is not None)
         if hasattr(grouped, 'cumcount'):
-            logger.warning('x native: %s', x_col)
             g2 = g2.nodes(g2._nodes.assign(**{x_col: grouped.cumcount()}))
         else:
             try:
@@ -89,9 +88,6 @@ class LayoutsMixin(MIXIN_BASE):
                         .cumcount())
                 xs_gs = cudf.from_pandas(xs_ps)
                 g2 = g2.nodes(g2._nodes.assign(**{x_col: xs_gs}))
-                logger.warning('x : %s :: %s', x_col, type(xs_gs))
-                logger.warning(xs_ps)
-                logger.warning(xs_gs)
             except:
                 raise ValueError('Requires RAPIDS 0.21+ or Pandas 0.22+')
 
@@ -107,7 +103,6 @@ class LayoutsMixin(MIXIN_BASE):
                         .apply(lambda df: df.assign(
                             **{x_col: (df['x'] + 0.5) / (0.0 + len(df))})))
             nodes2_df[x_col] = mx_group * nodes2_df[x_col]
-            print('mx_group', mx_group)
             g2 = g2.nodes(nodes2_df)
         else:
             raise ValueError(f'level_align must be "left", "center", or "right", got: {level_align}')
