@@ -1620,6 +1620,55 @@ class PyGraphistry(object):
         except Exception:
             util.warn('Could not contact %s. Are you connected to the Internet?' % PyGraphistry._config['hostname'])
 
+    @staticmethod
+    def layout_settings(
+        play: Optional[int] = None,
+
+        locked_x: Optional[bool] = None,
+        locked_y: Optional[bool] = None,
+        locked_r: Optional[bool] = None,
+
+        left: Optional[float] = None,
+        top: Optional[float] = None,
+        right: Optional[float] = None,
+        bottom: Optional[float] = None,
+
+        lin_log: Optional[bool] = None,
+        strong_gravity: Optional[bool] = None,
+        dissuade_hubs: Optional[bool] = None,
+
+        edge_influence: Optional[float] = None,
+        precision_vs_speed: Optional[float] = None,
+        gravity: Optional[float] = None,
+        scaling_ratio: Optional[float] = None
+    ):
+        """Set layout options. Additive over previous settings.
+
+        Corresponds to options at https://hub.graphistry.com/docs/api/1/rest/url/#urloptions
+
+        **Example: Animated radial layout**
+
+            ::
+
+                import graphistry, pandas as pd
+                edges = pd.DataFrame({'s': ['a','b','c','d'], 'boss': ['c','c','e','e']})
+                nodes = pd.DataFrame({
+                    'n': ['a', 'b', 'c', 'd', 'e'],
+                    'y': [1,   1,   2,   3,   4],
+                    'x': [1,   1,   0,   0,   0],
+                })
+                g = (graphistry
+                    .edges(edges, 's', 'd')
+                    .nodes(nodes, 'n')
+                    .layout_settings(locked_r=True, play=2000)
+                g.plot()
+        """
+        return Plotter().layout_settings(
+            play, locked_x, locked_y, locked_r,
+            left, top, right, bottom,
+            lin_log, strong_gravity, dissuade_hubs,
+            edge_influence, precision_vs_speed, gravity, scaling_ratio)
+
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
@@ -1660,6 +1709,7 @@ gremlin_client = PyGraphistry.gremlin_client
 drop_graph = PyGraphistry.drop_graph
 gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
+layout_settings = PyGraphistry.layout_settings
 
 
 class NumpyJSONEncoder(json.JSONEncoder):

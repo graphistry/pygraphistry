@@ -65,3 +65,23 @@ class Plottable(object):
              point_x=None, point_y=None):
         raise RuntimeError('should not happen')
         return self
+
+    # ### compute
+
+    def get_indegrees(self, col: str = 'degree_in') -> 'Plottable':
+        raise RuntimeError('should not happen')
+        return self
+
+    def materialize_nodes(self, reuse: bool = True) -> 'Plottable':
+        raise RuntimeError('should not happen')
+        return self
+
+    def get_topological_levels(
+        self,
+        level_col: str = 'level',
+        allow_cycles: bool = True,
+        warn_cycles: bool = True,
+        remove_self_loops: bool = True
+    ) -> 'Plottable':
+        raise RuntimeError('should not happen')
+        return self
