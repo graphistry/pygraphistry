@@ -588,6 +588,25 @@ g.addStyle(logo={
 
 You can quickly manipulate graphs as well:
 
+**Generate node table**:
+```python
+g = graphisty.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+g2 = g.materialize_nodes()
+g2._nodes  # pd.DataFrame({'id': ['a', 'b', 'c']})
+```
+
+***Compute degrees**
+```python
+g = graphisty.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+g2 = g.get_degree()
+g2._nodes  # pd.DataFrame({
+           #  'id': ['a', 'b', 'c'],
+           #  'degree_in': [0, 1, 1],
+           #  'degree_out': [1, 1, 0],
+           #  'degree': [1, 1, 1]
+           #})
+```
+
 **Pipelining**:
 
 ```python
@@ -612,7 +631,27 @@ g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
 g.plot()
 ```
 
+**Removing nodes**
 
+```python
+g = graphisty.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']})
+g2 = g.drop_nodes(['c'])  # drops node c, edge c->a, edge b->c, 
+```
+
+### Control layouts
+
+```python
+g = graphisty.edges(pd.DataFrame({'s': ['a', 'b', 'b'], 'd': ['b', 'c', 'd']})
+
+g2a = g.tree_layout()
+g2b = g2.tree_layout(allow_cycles=False, remove_self_loops=False, vertical=False)
+g2c = g2.tree_layout(ascending=False, level_align='center')
+g2d = g2.tree_layout(level_sort_values_by=['type', 'degree'], level_sort_values_by_ascending=False)
+
+g3a = g2a.layout_settings(locked_r=True, play=1000)
+g3b = g2a.layout_settings(locked_y=True, play=0)
+g3c = g2a.layout_settings(locked_x=True)
+```
 ## Next Steps
 
 1. Create a free public data [Graphistry Hub](https://www.graphistry.com/get-started) account or [one-click launch a private Graphistry instance in AWS](https://www.graphistry.com/get-started)

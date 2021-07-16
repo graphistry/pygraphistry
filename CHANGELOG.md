@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.19.3 - 2021-07-16]
+
+### Added
+* Feature: Compute methods `materialize_nodes`, `get_degrees`, `drop_nodes`, `get_topological_levels`
+* Feature: Layout methods `tree_layout`, `layout_settings`
+* Docs: New compute and layout methods
+
 ## [0.19.2 - 2021-07-14]
 
 ### Added
