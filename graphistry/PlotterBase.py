@@ -1990,3 +1990,75 @@ class PlotterBase(Plottable):
         return hyper.Hypergraph().hypergraph(
             self, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct,
             engine=engine, npartitions=npartitions, chunksize=chunksize)
+
+
+    def layout_settings(
+        self,
+
+        play: Optional[int] = None,
+
+        locked_x: Optional[bool] = None,
+        locked_y: Optional[bool] = None,
+        locked_r: Optional[bool] = None,
+
+        left: Optional[float] = None,
+        top: Optional[float] = None,
+        right: Optional[float] = None,
+        bottom: Optional[float] = None,
+
+        lin_log: Optional[bool] = None,
+        strong_gravity: Optional[bool] = None,
+        dissuade_hubs: Optional[bool] = None,
+
+        edge_influence: Optional[float] = None,
+        precision_vs_speed: Optional[float] = None,
+        gravity: Optional[float] = None,
+        scaling_ratio: Optional[float] = None
+    ):
+        """Set layout options. Additive over previous settings.
+
+        Corresponds to options at https://hub.graphistry.com/docs/api/1/rest/url/#urloptions
+
+        **Example: Animated radial layout**
+
+            ::
+
+                import graphistry, pandas as pd
+                edges = pd.DataFrame({'s': ['a','b','c','d'], 'boss': ['c','c','e','e']})
+                nodes = pd.DataFrame({
+                    'n': ['a', 'b', 'c', 'd', 'e'],
+                    'y': [1,   1,   2,   3,   4],
+                    'x': [1,   1,   0,   0,   0],
+                })
+                g = (graphistry
+                    .edges(edges, 's', 'd')
+                    .nodes(nodes, 'n')
+                    .layout_settings(locked_r=True, play=2000)
+                g.plot()
+        """
+
+        settings : dict = {
+            **({} if play is None else {'play': play}),
+            **({} if locked_x is None else {'lockedX': locked_x}),
+            **({} if locked_y is None else {'lockedY': locked_y}),
+            **({} if locked_r is None else {'lockedR': locked_r}),
+
+            **({} if left is None else {'left': left}),
+            **({} if top is None else {'top': top}),
+            **({} if right is None else {'right': right}),
+            **({} if bottom is None else {'bottom': bottom}),
+
+            **({} if lin_log is None else {'linLog': lin_log}),
+            **({} if strong_gravity is None else {'strongGravity': strong_gravity}),
+            **({} if dissuade_hubs is None else {'dissuadeHubs': dissuade_hubs}),
+
+            **({} if edge_influence is None else {'edgeInfluence': edge_influence}),
+            **({} if precision_vs_speed is None else {'precisionVsSpeed': precision_vs_speed}),
+            **({} if gravity is None else {'gravity': gravity}),
+            **({} if scaling_ratio is None else {'scalingRatio': scaling_ratio}),
+        }
+
+        if len(settings.keys()) > 0:
+            return self.settings(url_params={**self._url_params, **settings})
+        else:
+            return self
