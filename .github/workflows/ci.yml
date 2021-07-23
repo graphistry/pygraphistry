@@ -53,7 +53,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
-        python -m pip install -e .
+        python -m pip install -e .[test]
 
     - name: Minimal tests
       run: |
