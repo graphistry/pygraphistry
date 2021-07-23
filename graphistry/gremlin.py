@@ -7,6 +7,12 @@ try:
     from gremlin_python.driver.serializer import GraphSONSerializersV2d0
     from gremlin_python.structure.graph import Vertex, Edge, Path
 except:
+    Client = Any
+    ResultSet = Any
+    GraphSONSerializersV2d0 = Any
+    Vertex = Any
+    Edge = Any
+    Path = Any
     1
 logger = logging.getLogger('gremlin')
 
@@ -22,6 +28,15 @@ def clean_str(v):
         return v.replace('"', r'\"')
     return str(v)
 
+
+# ####
+
+def ensure_imports():
+    try:
+        from gremlin_python.driver.client import Client
+    except Exception as e:
+        logger.warning('Could not import gremlin_python; try pip install --user graphistry[gremllin] or pip install --user gremlinpython')
+        raise e
 
 # ####
 
@@ -470,6 +485,7 @@ class GremlinMixin(MIXIN_BASE):
                     .plot())
 
         """
+        ensure_imports()
         if isinstance(queries, str):
             queries = [ queries ]
         resultsets = self.gremlin_run(queries, throw=True)
@@ -767,6 +783,7 @@ class NeptuneMixin(NEPTUNE_BASE):
         ##loop = asyncio.new_event_loop()
         ##asyncio.set_event_loop(loop)
 
+        ensure_imports()
 
         if gremlin_client is None:
             if endpoint is None:
@@ -832,6 +849,9 @@ class CosmosMixin(COSMOS_BASE):
                         .plot())
 
         """
+
+        ensure_imports()
+
         self.COSMOS_ACCOUNT = COSMOS_ACCOUNT if COSMOS_ACCOUNT is not None else os.environ['COSMOS_ACCOUNT']
         self.COSMOS_DB = COSMOS_DB if COSMOS_DB is not None else os.environ['COSMOS_DB']
         self.COSMOS_CONTAINER = COSMOS_CONTAINER if COSMOS_CONTAINER is not None else os.environ['COSMOS_CONTAINER']

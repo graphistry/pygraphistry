@@ -29,6 +29,38 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
+  test-minimal-python:
+
+    needs: [ authorize-collaborators ]
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: [3.6, 3.7, 3.8, 3.9]
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v2
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install -e .[test]
+
+    - name: Minimal tests
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-minimal.sh
+
+
   test-core-python:
 
     needs: [ authorize-collaborators ]
