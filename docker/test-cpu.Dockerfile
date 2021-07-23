@@ -2,6 +2,7 @@
 
 ARG PYTHON_VERSION=3.6
 FROM python:${PYTHON_VERSION}-slim
+ARG PIP_DEPS="-e .[dev]"
 SHELL ["/bin/bash", "-c"]
 
 RUN mkdir /opt/pygraphistry
@@ -17,7 +18,8 @@ COPY graphistry/_version.py ./graphistry/_version.py
 RUN source pygraphistry/bin/activate \
     && pip list \
     && touch graphistry/__init__.py \
-    && pip install -e .[dev] \
+    && echo "PIP_DEPS: $PIP_DEPS" \
+    && pip install $PIP_DEPS \
     && pip list
 
 COPY docker/test-cpu-entrypoint.sh /entrypoint/test-cpu-entrypoint.sh
