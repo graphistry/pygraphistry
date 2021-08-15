@@ -7,7 +7,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-## [0.19.34- 2021-07-22]
+## [0.19.35 - 2021-08-15]
+
+### Fixed
+
+* Fix: igraph `.plot()` arrow coercion syntax error (https://github.com/graphistry/pygraphistry/issues/257)
+* Fix: Lint duplicate import warning
+
+### Changed
+
+* CI: Treat lint warnings as CI failures
+
+
+## [0.19.34 - 2021-07-22]
 
 ### Added
 * Infra: Add CI stage that installs and tests with minimal core deps (https://github.com/graphistry/pygraphistry/issues/254)

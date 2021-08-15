@@ -1,7 +1,7 @@
 import graphistry, IPython
 from common import NoAuthTestCase
 from mock import patch
-from graphistry.tests.test_plotter import Fake_Response, NoAuthTestCase, triangleEdges
+from graphistry.tests.test_plotter import Fake_Response, triangleEdges
 
 
 @patch('webbrowser.open')
