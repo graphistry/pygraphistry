@@ -1272,7 +1272,7 @@ class PlotterBase(Plottable):
             import igraph
             if isinstance(graph, igraph.Graph):
                 (e, n) = g.igraph2pandas(graph)
-                return g._make_dataset(e, n, name, description, mode, metadata. memoize)
+                return g._make_dataset(e, n, name, description, mode, metadata, memoize)
         except ImportError:
             pass
 

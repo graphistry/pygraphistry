@@ -505,6 +505,16 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         ds = g.plot(skip_upload=True)
         assert isinstance(ds.edges, pa.Table)
 
+    @pytest.mark.xfail(raises=ModuleNotFoundError)
+    def test_api3_plot_from_igraph(self):
+        g = graphistry.bind(source='src', destination='dst', node='id')
+        ig = g.pandas2igraph(triangleEdges)
+        (e, n) = g.igraph2pandas(ig)
+        g = g.edges(e).nodes(n)
+        ds = g.plot(skip_upload=True)
+        assert isinstance(ds.edges, pa.Table)
+        assert isinstance(ds.nodes, pa.Table)
+
     def test_api3_plot_from_arrow(self):
         g = graphistry.edges(pa.Table.from_pandas(pd.DataFrame({'s': [0], 'd': [0]}))).bind(source='s', destination='d')
         ds = g.plot(skip_upload=True)
