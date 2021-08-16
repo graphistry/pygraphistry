@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.19.36 - 2021-08-15]
+
+### Fixed
+
+* Fix: NetworkX 2.5+ support - accept minor version tags
+
 ## [0.19.35 - 2021-08-15]
 
 ### Fixed
