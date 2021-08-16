@@ -1208,10 +1208,10 @@ class PlotterBase(Plottable):
     def networkx_checkoverlap(self, g):
 
         import networkx as nx
-        [x, y] = [int(x) for x in nx.__version__.split('.')]
+        [_major, _minor] = nx.__version__.split('.', 1)
 
         vattribs = None
-        if x == 1:
+        if _major == '1':
             vattribs = g.nodes(data=True)[0][1] if g.number_of_nodes() > 0 else []
         else:
             vattribs = g.nodes(data=True) if g.number_of_nodes() > 0 else []
