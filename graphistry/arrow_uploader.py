@@ -438,6 +438,8 @@ class ArrowUploader:
         except Exception as e:
             logger.error('Unexpected error setting sharing settings: %s', res.text, exc_info=True)
             raise e
+
+        logger.debug('Set privacy: mode %s, notify %s, users %s, message: %s', mode, notify, invited_users, message)
         
         return out
 
@@ -513,6 +515,7 @@ class ArrowUploader:
         out = self.post()
 
         from .pygraphistry import PyGraphistry
+        logger.debug('Privacy: global (%s), local (%s)', PyGraphistry._config['privacy'] or 'None', g._privacy or 'None')
         if PyGraphistry._config['privacy'] is not None or g._privacy is not None:
             self.post_share_link(self.dataset_id, 'dataset', g._privacy)
 
