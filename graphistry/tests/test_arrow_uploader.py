@@ -3,6 +3,7 @@
 import graphistry, mock, pandas as pd, pytest, unittest
 
 from graphistry import ArrowUploader
+from graphistry.pygraphistry import PyGraphistry
 
 #TODO mock requests for testing actual effectful code
 
@@ -127,6 +128,31 @@ class TestArrowUploader_Core(unittest.TestCase):
                 }
             }
         }
+
+    def test_cascade_privacy_settings_default_global(self):
+        PyGraphistry._config['privacy'] = None
+        PyGraphistry.privacy()
+        au = ArrowUploader()
+        assert au.cascade_privacy_settings() == ('private', False, [], '')
+
+    def test_cascade_privacy_settings_global_override(self):
+        PyGraphistry._config['privacy'] = None
+        PyGraphistry.privacy(mode='public', notify=True)
+        au = ArrowUploader()
+        assert au.cascade_privacy_settings() == ('public', True, [], '')
+
+    def test_cascade_privacy_settings_local_override(self):
+        PyGraphistry._config['privacy'] = None
+        g = graphistry.bind().privacy(mode='public', notify=True)
+        au = ArrowUploader()
+        assert au.cascade_privacy_settings(**g._privacy) == ('public', True, [], '')
+
+    def test_cascade_privacy_settings_local_override_cascade(self):
+        PyGraphistry._config['privacy'] = None
+        PyGraphistry.privacy()
+        g = graphistry.bind().privacy(mode='public', notify=True)
+        au = ArrowUploader()
+        assert au.cascade_privacy_settings(**g._privacy) == ('public', True, [], '')
 
 
 class TestArrowUploader_Comms(unittest.TestCase):
