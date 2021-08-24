@@ -310,12 +310,8 @@ class ArrowUploader:
 
     def post(self, as_files: bool = True, memoize: bool = True):
         """
-            as_files deprecation plan:
-                Graphistry 2.34: Introduced
-                Graphistry 2.35: Does nothing (runtime warning); all uploads are Files
-                Graphistry 2.36: Remove flag
+        Note: likely want to pair with self.maybe_post_share_link(g)
         """
-
         if as_files:
 
             file_uploader = ArrowFileUploader(self)
@@ -499,7 +495,25 @@ class ArrowUploader:
     ###########################################
 
 
+    #TODO refactor to be part of post()
+    def maybe_post_share_link(self, g) -> bool:
+        """
+            Skip if never called .privacy()
+            Return True/False based on whether called
+        """
+        from .pygraphistry import PyGraphistry
+        logger.debug('Privacy: global (%s), local (%s)', PyGraphistry._config['privacy'] or 'None', g._privacy or 'None')
+        if PyGraphistry._config['privacy'] is not None or g._privacy is not None:
+            self.post_share_link(self.dataset_id, 'dataset', g._privacy)
+            return True
+
+        return False
+
+
     def post_g(self, g, name=None, description=None):
+        """
+        Warning: main post() does not call this
+        """
 
         self.edge_encodings = self.g_to_edge_encodings(g)
         self.node_encodings = self.g_to_node_encodings(g)
@@ -513,11 +527,7 @@ class ArrowUploader:
             self.nodes = pa.Table.from_pandas(g._nodes, preserve_index=False).replace_schema_metadata({})
 
         out = self.post()
-
-        from .pygraphistry import PyGraphistry
-        logger.debug('Privacy: global (%s), local (%s)', PyGraphistry._config['privacy'] or 'None', g._privacy or 'None')
-        if PyGraphistry._config['privacy'] is not None or g._privacy is not None:
-            self.post_share_link(self.dataset_id, 'dataset', g._privacy)
+        self.maybe_post_share_link(g)
 
         return out
     

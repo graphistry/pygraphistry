@@ -1219,6 +1219,7 @@ class PlotterBase(Plottable):
                 return dataset
             dataset.token = PyGraphistry.api_token()
             dataset.post(as_files=as_files, memoize=memoize)
+            dataset.maybe_post_share_link(self)
             info = {
                 'name': dataset.dataset_id,
                 'type': 'arrow',
