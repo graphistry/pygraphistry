@@ -112,6 +112,7 @@ class PlotterBase(Plottable):
         self._height : int = 500
         self._render : bool = True
         self._url_params : dict = {'info': 'true'}
+        self._privacy = None
         # Metadata
         self._name : Optional[str] = None
         self._description : Optional[str] = None
@@ -1021,6 +1022,116 @@ class PlotterBase(Plottable):
         res._height = height or self._height
         res._url_params = dict(self._url_params, **url_params)
         res._render = self._render if render is None else render
+        return res
+
+
+    def privacy(self, mode: Optional[str] = None, notify: Optional[bool] = None, invited_users: Optional[List] = None, message: Optional[str] = None):
+        """Set local sharing mode
+
+        :param mode: Either "private", "public", or inherit from global privacy()
+        :type mode: Optional[str]
+        :param notify: Whether to email the recipient(s) upon upload, defaults to global privacy()
+        :type notify: Optional[bool]
+        :param invited_users: List of recipients, where each is {"email": str, "action": str} and action is "10" (view) or "20" (edit), defaults to global privacy()
+        :type invited_users: Optional[List]
+        :param message: Email to send when notify=True
+        :type message': Optioanl[str]
+
+        Requires an account with sharing capabilities.
+
+        Shared datasets will appear in recipients' galleries.
+
+        If mode is set to "private", only accounts in invited_users list can access. Mode "public" permits viewing by any user with the URL.
+
+        Action "10" (view) gives read access, while action "20" (edit) gives edit access, like changing the sharing mode.
+
+        When notify is true, uploads will trigger notification emails to invitees. Email will use visualization's ".name()"
+
+        When settings are not specified, they are inherited from the global graphistry.privacy() defaults
+
+        **Example: Limit visualizations to current user**
+
+            ::
+
+                import graphistry
+                graphistry.register(api=3, username='myuser', password='mypassword')
+                
+                #Subsequent uploads default to using .privacy() settings
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True)
+                g = h['graph']
+                g = g.privacy()  # default uploads to mode="private"
+                g.plot()
+
+
+        **Example: Default to publicly viewable visualizations**
+
+            ::
+
+                import graphistry
+                graphistry.register(api=3, username='myuser', password='mypassword')
+                
+                #Subsequent uploads default to using .privacy() settings
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True)
+                g = h['graph']
+                #g = g.privacy(mode="public")  # can skip calling .privacy() for this default
+                g.plot()
+
+
+        **Example: Default to sharing with select teammates, and keep notifications opt-in**
+
+            ::
+
+                import graphistry
+                graphistry.register(api=3, username='myuser', password='mypassword')
+                
+                #Subsequent uploads default to using .privacy() settings
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True)
+                g = h['graph']
+                g = g.privacy(
+                    mode="private",
+                    invited_users=[
+                        {"email": "friend1@acme.org", "action": "10"}, # view
+                        {"email": "friend2@acme.org", "action": "20"}, # edit
+                    ],
+                    notify=False)
+                g.plot()
+
+
+        **Example: Keep visualizations public and email notifications upon upload**
+
+            ::
+
+                import graphistry
+                graphistry.register(api=3, username='myuser', password='mypassword')
+                
+                #Subsequent uploads default to using .privacy() settings
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True)
+                g = h['graph']
+                g = g.name('my cool viz')  # For friendlier invitations
+                g = g.privacy(
+                    mode="public",
+                    invited_users=[
+                        {"email": "friend1@acme.org", "action": "10"}, # view
+                        {"email": "friend2@acme.org", "action": "20"}, # edit
+                    ],
+                    notify=True)
+                g.plot()
+        """
+
+        res = copy.copy(self)
+        res._privacy = copy.copy(self._privacy or {})
+        if mode is not None:
+            res._privacy['mode'] = mode
+        if notify is not None:
+            res._privacy['notify'] = notify
+        if invited_users is not None:
+            res._privacy['invited_users'] = invited_users
+        if message is not None:
+            res._privacy['message'] = message
         return res
 
 

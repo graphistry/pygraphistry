@@ -77,6 +77,8 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 
 * **Configurable:** In-tool or via the declarative APIs, use the powerful encodings systems for tasks like coloring by time, sizing by score, clustering by weight, show icons by type, and more.
 
+* **Shareable:** Share live links, configure who has access, and more! 
+
 ### Explore any data as a graph
 
 It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes with many built-in connectors, and by supporting Python dataframes (Pandas, Arrow, RAPIDS), it's easy to bring standard Python data libraries. If the data comes as a table instead of a graph, PyGraphistry will help you extract and explore the relationships.
@@ -252,6 +254,7 @@ Set visual attributes through [quick data bindings](https://hub.graphistry.com/d
 
   ```python
     g
+      .privacy(mode='private', invited_users=[{'email': 'friend1@site.ngo', 'action': '10'}], notify=False)
       .edges(df, 'col_a', 'col_b')
       .edges(my_transform1(g._edges))
       .nodes(df, 'col_c')
@@ -340,7 +343,7 @@ Non-Python users may want to explore the underlying language-neutral [authentica
 
 ```python
 import graphistry
-graphistry.register(api=3, username='username', password='your password') # 2.0 API
+graphistry.register(api=3, username='username', password='your password')
 ```
 
 * **For code**: Long-running services may prefer to use 1-hour JWT tokens:
@@ -358,16 +361,6 @@ assert initial_one_hour_token != fresh_token
 ```
 
 Alternatively, you can rerun `graphistry.register(api=3, username='username', password='your password')`, which will also fetch a fresh token.
-
-* **Legacy: 1.0 API (WARNING: DEPRECATED)**
-
-```python
-#graphistry.register(api=1, key='Your key') # 1.0 API; note parameter name/value 'key' is different from `token`
-```
-
-Optionally, for convenience in the 1.0 API, you may set your API key in your system environment and thereby skip the register step in all your notebooks. In your `.profile` or `.bash_profile`, add the following and reload your environment:
-
-```export GRAPHISTRY_API_KEY="Your key"```
 
 #### Advanced: Private servers
 
@@ -400,6 +393,51 @@ graphistry.register(
 ```
 
 Prebuilt Graphistry servers are already setup to do this out-of-the-box.
+
+#### Advanced: Sharing controls
+
+Graphistry supports flexible sharing permissions that are similar to Google documents
+
+By default, visualizations are publicly viewable by anyone with the (unguessable) URL, and only editable by their owner.
+
+* Private-only: You can default uploads to private:
+
+```python
+graphistry.privacy()
+# or graphistry.privacy(mode='private')
+```
+
+* Invitees: You can share access to specify users, and optionally, even email them invites
+
+```python
+VIEW = "10"
+EDIT = "20"
+graphistry.privacy(
+  mode='private',
+  invited_users=[ 
+    {"email": "friend1@site1.com", "action": VIEW},
+    {"email": "friend2@site2.com", "action": EDIT}
+  ],
+  notify=True)
+```
+
+* Per-visualization: You can choose different rules for global defaults vs. for specific visualizations
+
+```python
+VIEW = "10"
+EDIT = "20"
+graphistry.privacy(
+  mode='private',
+  invited_users=[ 
+    {"email": "friend1@site1.com", "action": VIEW},
+    {"email": "friend2@site2.com", "action": EDIT}
+  ],
+  notify=False)
+
+g = graphistry.hypergraph(pd.read_csv('...'))['graph']
+g = g.privacy(notify=True)  # Override global default just for g
+g.plot()
+```
 
 ## Tutorial: Les Misérables
 

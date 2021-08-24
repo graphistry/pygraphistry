@@ -1,5 +1,6 @@
 #Enable when we drop 3.6
 #from __future__ import annotations
+from typing import List, Optional
 
 import io, logging, pyarrow as pa, requests, sys
 from .ArrowFileUploader import ArrowFileUploader
@@ -351,6 +352,96 @@ class ArrowUploader:
         
         return self
 
+
+    ###########################################
+
+
+    def cascade_privacy_settings(
+        self,
+        mode: Optional[str] = None,
+        notify: Optional[bool] = None,
+        invited_users: Optional[List] = None,
+        message: Optional[str] = None
+    ):
+        """
+        Cascade:
+            - local (passed in)
+            - global
+            - hard-coded
+        """
+
+        from .pygraphistry import PyGraphistry
+        global_privacy = PyGraphistry._config['privacy']
+        if global_privacy is not None:
+            if mode is None:
+                mode = global_privacy['mode']
+            if notify is None:
+                notify = global_privacy['notify']
+            if invited_users is None:
+                invited_users = global_privacy['invited_users']
+            if message is None:
+                message = global_privacy['message']
+
+        if mode is None:
+            mode = 'private'
+        if notify is None:
+            notify = False
+        if invited_users is None:
+            invited_users = []
+        if message is None:
+            message = ''
+
+        return mode, notify, invited_users, message
+
+
+    def post_share_link(
+        self,
+        obj_pk: str,
+        obj_type: str = 'dataset',
+        privacy: Optional[dict] = None
+    ):
+        """
+        Set sharing settings. Any settings not passed here will cascade from PyGraphistry or defaults
+        """
+
+        mode, notify, invited_users, message = self.cascade_privacy_settings(**(privacy or {}))
+
+        path = self.server_base_path + '/api/v2/share/link/'
+        tok = self.token
+        res = requests.post(
+            path,
+            verify=self.certificate_validation,
+            headers={'Authorization': f'Bearer {tok}'},
+            json={
+                'obj_pk': obj_pk,
+                'obj_type': obj_type,
+                'mode': mode,
+                'notify': notify,
+                'invited_users': invited_users,
+                'message': message
+            })
+
+        if res.status_code != requests.codes.ok:
+            logger.error('Failed setting sharing status (code %s): %s', res.status_code, res.text, exc_info=True)
+
+        if res.status_code == 404:
+            raise Exception(f'Code not find resource {path}; is your server location correct and does it support sharing?')
+
+        if res.status_code == 403:
+            raise Exception(f'Permission denied ({path}); do you have edit access and does your account having sharing enabled?')
+
+        try:
+            out = res.json()
+            logger.debug('Server create file response: %s', out)
+            if res.status_code != requests.codes.ok:
+                res.raise_for_status()
+        except Exception as e:
+            logger.error('Unexpected error setting sharing settings: %s', res.text, exc_info=True)
+            raise e
+        
+        return out
+
+
     ###########################################
 
 
@@ -419,7 +510,13 @@ class ArrowUploader:
         if not (g._nodes is None):
             self.nodes = pa.Table.from_pandas(g._nodes, preserve_index=False).replace_schema_metadata({})
 
-        return self.post()
+        out = self.post()
+
+        from .pygraphistry import PyGraphistry
+        if PyGraphistry._config['privacy'] is not None or g._privacy is not None:
+            self.post_share_link(self.dataset_id, 'dataset', g._privacy)
+
+        return out
     
     def post_edges_file(self, file_path, file_type='csv'):
         return self.post_file(file_path, 'edges', file_type)

@@ -48,7 +48,10 @@ default_config = {
     'protocol': 'https',
     'client_protocol_hostname': None,
     'certificate_validation': True,
-    'store_token_creds_in_memory': True
+    'store_token_creds_in_memory': True,
+
+    #Do not call API when all None
+    'privacy': None
 }
 
 
@@ -367,6 +370,104 @@ class PyGraphistry(object):
         PyGraphistry.authenticate()
 
         PyGraphistry.set_bolt_driver(bolt)
+
+    @staticmethod
+    def privacy(mode: Optional[str] = None, notify: Optional[bool] = None, invited_users: Optional[List] = None, message: Optional[str] = None):
+        """Set global default sharing mode
+
+        :param mode: Either "private" or "public"
+        :type mode: str
+        :param notify: Whether to email the recipient(s) upon upload
+        :type notify: bool
+        :param invited_users: List of recipients, where each is {"email": str, "action": str} and action is "10" (view) or "20" (edit)
+        :type invited_users: List
+
+        Requires an account with sharing capabilities.
+
+        Shared datasets will appear in recipients' galleries.
+
+        If mode is set to "private", only accounts in invited_users list can access. Mode "public" permits viewing by any user with the URL.
+
+        Action "10" (view) gives read access, while action "20" (edit) gives edit access, like changing the sharing mode.
+
+        When notify is true, uploads will trigger notification emails to invitees. Email will use visualization's ".name()"
+
+        **Example: Limit visualizations to current user**
+
+            ::
+
+                import graphistry
+                graphistry.register(api=3, username='myuser', password='mypassword')
+                graphistry.privacy()  # default uploads to mode="private"
+                
+                #Subsequent uploads default to using .privacy() settings
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True)
+                g = h['graph'].plot()
+
+
+        **Example: Default to publicly viewable visualizations**
+
+            ::
+
+                import graphistry
+                graphistry.register(api=3, username='myuser', password='mypassword')
+                #graphistry.privacy(mode="public")  # can skip calling .privacy() for this default
+                
+                #Subsequent uploads default to using .privacy() settings
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True)
+                g = h['graph'].plot()
+
+
+        **Example: Default to sharing with select teammates, and keep notifications opt-in**
+
+            ::
+
+                import graphistry
+                graphistry.register(api=3, username='myuser', password='mypassword')
+                graphistry.privacy(
+                    mode="private",
+                    invited_users=[
+                        {"email": "friend1@acme.org", "action": "10"}, # view
+                        {"email": "friend2@acme.org", "action": "20"}, # edit
+                    ],
+                    notify=False)
+                
+                #Subsequent uploads default to using .privacy() settings
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True)
+                g = h['graph'].plot()
+
+
+        **Example: Keep visualizations public and email notifications upon upload**
+
+            ::
+
+                import graphistry
+                graphistry.register(api=3, username='myuser', password='mypassword')
+                graphistry.privacy(
+                    mode="public",
+                    invited_users=[
+                        {"email": "friend1@acme.org", "action": "10"}, # view
+                        {"email": "friend2@acme.org", "action": "20"}, # edit
+                    ],
+                    notify=True)
+                
+                #Subsequent uploads default to using .privacy() settings
+                users_df = pd.DataFrame({'user': ['a','b','x'], 'boss': ['x', 'x', 'y']})
+                h = graphistry.hypergraph(users_df, direct=True)
+                g = h['graph']
+                g = g.name('my cool viz')  # For friendlier invitations
+                g.plot()
+        """
+
+        PyGraphistry._config['privacy'] = {
+            'mode': mode,
+            'notify': notify,
+            'invited_users': invited_users,
+            'message': message
+        }
 
 
     @staticmethod
@@ -1675,6 +1776,7 @@ store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
 server = PyGraphistry.server
 protocol = PyGraphistry.protocol
 register = PyGraphistry.register
+privacy = PyGraphistry.privacy
 login = PyGraphistry.login
 refresh = PyGraphistry.refresh
 api_token = PyGraphistry.api_token
