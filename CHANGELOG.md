@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.20.0 - 2021-08-24]
+
 ### Added
 * Feature: global `graphistry.privacy()` and compositional `Plotter.privacy()`
 * Docs: How to use `privacy()`
