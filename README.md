@@ -77,7 +77,7 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 
 * **Configurable:** In-tool or via the declarative APIs, use the powerful encodings systems for tasks like coloring by time, sizing by score, clustering by weight, show icons by type, and more.
 
-* **Shareable:** Share live links, configure who has access, and more! 
+* **Shareable:** Share live links, configure who has access, and more! [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb)  
 
 ### Explore any data as a graph
 
@@ -250,7 +250,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
 ### Quickly configurable
 
-Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/). Check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb), [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb), [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb), [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb), and [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb):
+Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/). Check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb), [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb), [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb), [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb), [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb) and [sharing controls](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb):
 
   ```python
     g
@@ -396,15 +396,14 @@ Prebuilt Graphistry servers are already setup to do this out-of-the-box.
 
 #### Advanced: Sharing controls
 
-Graphistry supports flexible sharing permissions that are similar to Google documents
+Graphistry supports flexible sharing permissions that are similar to Google documents and Dropbox links
 
-By default, visualizations are publicly viewable by anyone with the (unguessable) URL, and only editable by their owner.
+By default, visualizations are publicly viewable by anyone with the URL (that is unguessable & unlisted), and only editable by their owner.
 
-* Private-only: You can default uploads to private:
+* Private-only: You can globally default uploads to private:
 
 ```python
 graphistry.privacy()
-# or graphistry.privacy(mode='private')
 ```
 
 * Invitees: You can share access to specify users, and optionally, even email them invites
@@ -424,20 +423,12 @@ graphistry.privacy(
 * Per-visualization: You can choose different rules for global defaults vs. for specific visualizations
 
 ```python
-VIEW = "10"
-EDIT = "20"
-graphistry.privacy(
-  mode='private',
-  invited_users=[ 
-    {"email": "friend1@site1.com", "action": VIEW},
-    {"email": "friend2@site2.com", "action": EDIT}
-  ],
-  notify=False)
-
+graphistry.privacy(invited_users=[...])
 g = graphistry.hypergraph(pd.read_csv('...'))['graph']
-g = g.privacy(notify=True)  # Override global default just for g
-g.plot()
+g.privacy(notify=True).plot()
 ```
+
+See additional examples in the [sharing tutorial](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb)
 
 ## Tutorial: Les Misérables
 
