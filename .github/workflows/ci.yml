@@ -22,10 +22,9 @@ jobs:
 
     steps:
     - uses: octokit/request-action@v2.1.0
+      id: auth_check
       with:
-        route: GET /repos/{owner}/{repo}/collaborators/${{ github.actor }}
-        owner: graphistry
-        repo: pygraphistry
+        route: GET /repos/graphistry/pygraphistry/collaborators/${{ github.actor }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
