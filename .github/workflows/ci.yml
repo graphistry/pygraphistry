@@ -23,7 +23,9 @@ jobs:
     steps:
     - uses: octokit/request-action@v2.1.0
       with:
-        route: GET /repos/${{ github.repository }}/collaborators/${{ github.actor }}
+        route: GET /repos/{owner}/{repo}/collaborators/${{ github.actor }}
+        owner: graphistry
+        repo: pygraphistry
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
