@@ -17,27 +17,14 @@ on:
 
 jobs:
 
-  authorize-collaborators:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: octokit/request-action@v2.1.0
-      id: auth_check
-      with:
-        route: GET /repos/graphistry/pygraphistry/collaborators/${{ github.actor }}
-        mediaType: application/vnd.github.v3+json
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 
   test-minimal-python:
 
-    needs: [ authorize-collaborators ]
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        python-version: [3.6, 3.7, 3.8, 3.9]
+        python-version: [3.7]
 
     steps:
 
@@ -64,7 +51,7 @@ jobs:
 
   test-core-python:
 
-    needs: [ authorize-collaborators ]
+    needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
 
     strategy:
@@ -106,7 +93,7 @@ jobs:
 
   test-neo4j:
 
-    needs: [ authorize-collaborators ]  # Wait on test-core-python / run flake8?
+    needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
 
     steps:
@@ -119,7 +106,7 @@ jobs:
 
   test-build:
 
-    needs: [ authorize-collaborators ]  # Wait on test-core-python / run flake8?
+    needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
 
     steps:
@@ -142,7 +129,7 @@ jobs:
   
   test-docs:
 
-    needs: [ authorize-collaborators ]  # Wait on test-core-python / run flake8?
+    needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
 
     steps:
@@ -155,7 +142,7 @@ jobs:
   
   test-readme:
 
-    needs: [ authorize-collaborators ]  # Wait on test-core-python / run flake8?
+    needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
 
     steps:
