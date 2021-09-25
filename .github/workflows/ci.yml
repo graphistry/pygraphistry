@@ -25,6 +25,7 @@ jobs:
       id: auth_check
       with:
         route: GET /repos/graphistry/pygraphistry/collaborators/${{ github.actor }}
+        mediaType: application/vnd.github.v3+json
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
