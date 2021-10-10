@@ -1581,7 +1581,10 @@ class PlotterBase(Plottable):
                     #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
                     hashed = hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
                 except TypeError:
-                    logger.warn('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.')
+                    logger.warn('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.'
+                                'This is fine, but for speedups around skipping re-uploads of previously seen tables, '
+                                'try identifying which columns have types that Pandas cannot hash, and convert them '
+                                'to hashable types like strings.')
 
                 try:
                     if hashed in PlotterBase._pd_hash_to_arrow:
