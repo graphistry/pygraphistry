@@ -1142,7 +1142,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def plot(self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False, memoize=True):  # noqa: C901
+    def plot(self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False, memoize=True, extra_html=""):  # noqa: C901
         """Upload data to the Graphistry server and show as an iframe of it.
 
         Uses the currently bound schema structure and visual encodings.
@@ -1173,6 +1173,9 @@ class PlotterBase(Plottable):
 
         :param memoize: Tries to memoize pandas/cudf->arrow conversion, including skipping upload. Default on.
         :type memoize: bool
+
+        :param extra_html: Allow injecting arbitrary HTML into the visualization iframe.
+        :type extra_html: Optional[str]
 
         **Example: Simple**
             ::
@@ -1241,9 +1244,9 @@ class PlotterBase(Plottable):
             return full_url
         elif (render is True) or in_ipython():
             from IPython.core.display import HTML
-            return HTML(make_iframe(full_url, self._height))
+            return HTML(make_iframe(full_url, self._height, extra_html=extra_html))
         elif in_databricks():
-            return make_iframe(full_url, self._height)
+            return make_iframe(full_url, self._height, extra_html=extra_html)
         else:
             import webbrowser
             webbrowser.open(full_url)
