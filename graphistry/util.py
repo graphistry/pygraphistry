@@ -69,11 +69,7 @@ def in_ipython():
 def in_databricks():
     #FIXME: this is a hack
     if 'DATABRICKS_RUNTIME_VERSION' in os.environ:
-        try:
-            displayHTML  # noqa: F821
-            return True
-        except NameError:
-            return False
+        return True
     return False
 
 def warn(msg):

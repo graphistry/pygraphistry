@@ -1243,7 +1243,7 @@ class PlotterBase(Plottable):
             from IPython.core.display import HTML
             return HTML(make_iframe(full_url, self._height))
         elif in_databricks():
-            return displayHTML(make_iframe(full_url, self._height))  # noqa: F821
+            return make_iframe(full_url, self._height)
         else:
             import webbrowser
             webbrowser.open(full_url)
