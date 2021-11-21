@@ -22,7 +22,7 @@ def make_iframe(url, height):
             <iframe id="%s" src="%s"
                     allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true"
                     oallowfullscreen="true" msallowfullscreen="true"
-                    style="width:100%%; height:%dpx; border: 1px solid #DDD; overflow: hidden">
+                    style="width:100%%; height:%s; border: 1px solid #DDD; overflow: hidden">
             </iframe>
         ''' % (id, url, height_str)
 
