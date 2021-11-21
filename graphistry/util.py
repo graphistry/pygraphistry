@@ -5,7 +5,7 @@ def cmp(x, y):
     return (x > y) - (x < y)
 
 
-def make_iframe(url, height, extra_html=""):
+def make_iframe(url, height, extra_html="", override_html_style=None):
     id = uuid.uuid4()
 
     height_str = f'{height}px' if isinstance(height, int) or isinstance(height, float) else str(height)
@@ -18,15 +18,21 @@ def make_iframe(url, height, extra_html=""):
             </script>
         ''' % id
 
+    style = None
+    if override_html_style is not None:
+        style = override_html_style
+    else:
+        style = "width:100%%; height:%s; border: 1px solid #DDD; overflow: hidden" % height_str
+
     iframe = '''
             <iframe id="%s" src="%s"
                     allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true"
                     oallowfullscreen="true" msallowfullscreen="true"
-                    style="width:100%%; height:%s; border: 1px solid #DDD; overflow: hidden"
+                    style="%s"
                     %s
             >
             </iframe>
-        ''' % (id, url, height_str, extra_html)
+        ''' % (id, url, style, extra_html)
 
     return iframe + scrollbug_workaround
 

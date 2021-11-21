@@ -1142,7 +1142,10 @@ class PlotterBase(Plottable):
         return res
 
 
-    def plot(self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False, memoize=True, extra_html=""):  # noqa: C901
+    def plot(
+        self, graph=None, nodes=None, name=None, description=None, render=None, skip_upload=False, as_files=False, memoize=True,
+        extra_html="", override_html_style=None
+    ):  # noqa: C901
         """Upload data to the Graphistry server and show as an iframe of it.
 
         Uses the currently bound schema structure and visual encodings.
@@ -1176,6 +1179,9 @@ class PlotterBase(Plottable):
 
         :param extra_html: Allow injecting arbitrary HTML into the visualization iframe.
         :type extra_html: Optional[str]
+
+        :param override_html_style: Set fully custom style tag.
+        :type override_html_style: Optional[str]
 
         **Example: Simple**
             ::
@@ -1244,9 +1250,9 @@ class PlotterBase(Plottable):
             return full_url
         elif (render is True) or in_ipython():
             from IPython.core.display import HTML
-            return HTML(make_iframe(full_url, self._height, extra_html=extra_html))
+            return HTML(make_iframe(full_url, self._height, extra_html=extra_html, override_html_style=override_html_style))
         elif in_databricks():
-            return make_iframe(full_url, self._height, extra_html=extra_html)
+            return make_iframe(full_url, self._height, extra_html=extra_html, override_html_style=override_html_style)
         else:
             import webbrowser
             webbrowser.open(full_url)
