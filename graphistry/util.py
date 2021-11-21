@@ -1,4 +1,4 @@
-import hashlib, os, platform as p, random, string, sys, uuid, warnings
+import hashlib, logging, os, platform as p, random, string, sys, uuid, warnings
 from distutils.version import LooseVersion, StrictVersion
 
 def cmp(x, y):
@@ -67,10 +67,14 @@ def in_ipython():
     return False
 
 def in_databricks():
+    #FIXME: this is a hack
     if 'DATABRICKS_RUNTIME_VERSION' in os.environ:
-        gs = globals()
-        if 'displayHTML' in gs:
+        try:
+            displayHTML  # noqa: F821
             return True
+        except NameError:
+            return False
+    return False
 
 def warn(msg):
     try:

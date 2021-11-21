@@ -1243,8 +1243,7 @@ class PlotterBase(Plottable):
             from IPython.core.display import HTML
             return HTML(make_iframe(full_url, self._height))
         elif in_databricks():
-            gs = globals()
-            return gs['displayHTML'](make_iframe(full_url, self._height))
+            return displayHTML(make_iframe(full_url, self._height))  # noqa: F821
         else:
             import webbrowser
             webbrowser.open(full_url)
@@ -1410,7 +1409,7 @@ class PlotterBase(Plottable):
         except ImportError:
             pass
 
-        error('Expected Pandas/Arrow/cuDF dataframe(s) or Igraph/NetworkX graph.')
+        error('Expected Pandas/Arrow/cuDF/Spark dataframe(s) or igraph/NetworkX graph.')
 
 
     # Sanitize node/edge dataframe by
