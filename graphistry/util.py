@@ -1,6 +1,5 @@
-import hashlib, platform as p, random, string, sys, uuid, warnings
+import hashlib, os, platform as p, random, string, sys, uuid, warnings
 from distutils.version import LooseVersion, StrictVersion
-
 
 def cmp(x, y):
     return (x > y) - (x < y)
@@ -66,6 +65,12 @@ def in_ipython():
     except ImportError:
         pass
     return False
+
+def in_databricks():
+    if 'DATABRICKS_RUNTIME_VERSION' in os.environ:
+        gs = globals()
+        if 'displayHTML' in gs:
+            return True
 
 def warn(msg):
     try:

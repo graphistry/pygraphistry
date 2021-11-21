@@ -4,7 +4,7 @@ import copy, hashlib, logging, numpy as np, pandas as pd, pyarrow as pa, sys, uu
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
-from .util import (error, in_ipython, make_iframe, random_string, warn)
+from .util import (error, in_ipython, in_databricks, make_iframe, random_string, warn)
 
 from .bolt_util import (
     bolt_graph_to_edges_dataframe,
@@ -36,6 +36,13 @@ maybe_dask_cudf = None
 try:
     import dask_cudf
     maybe_dask_cudf = dask_cudf
+except ImportError:
+    1
+
+maybe_spark = None
+try:
+    import pyspark
+    maybe_spark = pyspark
 except ImportError:
     1
 
@@ -1235,6 +1242,9 @@ class PlotterBase(Plottable):
         elif (render is True) or in_ipython():
             from IPython.core.display import HTML
             return HTML(make_iframe(full_url, self._height))
+        elif in_databricks():
+            gs = globals()
+            return gs['displayHTML'](make_iframe(full_url, self._height))
         else:
             import webbrowser
             webbrowser.open(full_url)
@@ -1377,7 +1387,8 @@ class PlotterBase(Plottable):
                 or isinstance(graph, pa.Table) \
                 or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ) \
                 or ( not (maybe_dask_cudf is None) and isinstance(graph, maybe_dask_cudf.DataFrame) ) \
-                or ( not (maybe_dask_dataframe is None) and isinstance(graph, maybe_dask_dataframe.DataFrame) ):
+                or ( not (maybe_dask_dataframe is None) and isinstance(graph, maybe_dask_dataframe.DataFrame) ) \
+                or ( not (maybe_spark is None) and isinstance(graph, pyspark.sql.dataframe.DataFrame) ):
             return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize)
 
         try:
@@ -1641,6 +1652,12 @@ class PlotterBase(Plottable):
             logger.debug('ddf->arrow via df hash check')
             ddf = table.persist()
             df = ddf.compute()
+            return self._table_to_arrow(df, memoize)
+
+        if not (maybe_spark is None) and isinstance(table, maybe_spark.sql.dataframe.DataFrame):
+            logger.debug('spark->arrow via df')
+            df = table.toPandas()
+            #TODO push the hash check to Spark
             return self._table_to_arrow(df, memoize)
 
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
