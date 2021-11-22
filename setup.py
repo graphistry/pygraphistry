@@ -14,7 +14,7 @@ stubs = [
 ]
 
 dev_extras = {
-    'docs': ['sphinx==3.4.3', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1'],
+    'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1'],
     'test': ['flake8', 'mock', 'mypy', 'pytest'] + stubs,
     'build': ['build']
 }
