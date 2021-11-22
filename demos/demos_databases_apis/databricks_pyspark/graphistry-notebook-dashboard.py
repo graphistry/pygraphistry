@@ -1,11 +1,10 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC 
 # MAGIC # Databricks <> Graphistry Tutorial: Notebooks & Dashboards on IoT data
 # MAGIC 
 # MAGIC This tutorial visualizes a set of sensors by clustering them based on lattitude/longitude and overlaying summary statistics
 # MAGIC 
-# MAGIC We show how to load the interactive plots both with Databricks notebook and dashboard modes
+# MAGIC We show how to load the interactive plots both with Databricks notebook and dashboard modes. The general flow should work in other PySpark environments as well.
 # MAGIC 
 # MAGIC Steps:
 # MAGIC 
@@ -13,19 +12,21 @@
 # MAGIC * Prepare IoT data
 # MAGIC * Plot in a notebook
 # MAGIC * Plot in a dashboard
+# MAGIC * Plot as a shareable URL
 
 # COMMAND ----------
 
-# MAGIC  %md
+# MAGIC %md
 # MAGIC ## Install & connect
 
 # COMMAND ----------
 
 # Uncomment and run first time
 ! pip install graphistry
-
+#! pip install git+https://github.com/graphistry/pygraphistry.git@dev/databricks
+    
 # Can sometimes help:
-# dbutils.library.restartPython()
+#dbutils.library.restartPython()
 
 # COMMAND ----------
 
@@ -37,10 +38,10 @@
 import graphistry  # if not yet available, install and/or restart Python kernel using the above
 
 graphistry.register(
-    api=3, username='MY_USERNAME', password='MY_PASSWRD',
+    api=3, username='MY_USERNAME', password='MY_PASSWORD',
 
-    server='hub.graphistry.com'  # or your private server
-    protocol='https',  # if http-only, browsers may prevent embedding plots: switch to ".plot(render=False)"
+    server='hub.graphistry.com',  # or your private server
+    protocol='https'  # if http-only, browsers may prevent embedding plots: switch to ".plot(render=False)"
 )    
 
 graphistry.__version__
@@ -125,7 +126,12 @@ display(devices_summarized.take(10))
 
 # COMMAND ----------
 
-displayHTML(graphistry.edges(devices.sample(fraction=0.1), 'device_name', 'cca3').plot())
+displayHTML(
+  graphistry
+    .edges(devices.sample(fraction=0.1), 'device_name', 'cca3')
+    .settings(url_params={'strongGravity': 'true'})
+    .plot()
+)
 
 # COMMAND ----------
 
@@ -141,7 +147,10 @@ hg = graphistry.hypergraph(
             'cca3': ['location_rounded2']
         }
     })
-displayHTML(hg['graph'].plot())
+g = hg['graph']
+g = g.settings(url_params={'strongGravity': 'true'})  # this setting is great!
+
+displayHTML(g.plot())
 
 # COMMAND ----------
 
@@ -155,16 +164,24 @@ displayHTML(hg['graph'].plot())
 
 # COMMAND ----------
 
-g = graphistry.edges(devices.sample(fraction=0.1), 'device_name', 'cca3')
-
 displayHTML(
     g
-        .settings(url_params={'splashAfter': 'false'})
+        .settings(url_params={'splashAfter': 'false'})  # extends existing setting
         .plot(override_html_style="""
             border: 1px #DDD dotted;
             width: 50em; height: 50em;
         """)
 )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Plot as a Shareable URL
+
+# COMMAND ----------
+
+url = g.plot(render=False)
+url
 
 # COMMAND ----------
 
