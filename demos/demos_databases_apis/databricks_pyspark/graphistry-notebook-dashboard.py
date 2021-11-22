@@ -67,7 +67,7 @@ devices = spark.read \
 
 # Show the results.
 print('type: ', str(type(devices)))
-display(devices)
+display(devices.take(10))
 
 # COMMAND ----------
 
@@ -113,7 +113,7 @@ devices_summarized = devices_summarized.select(list(
        map(lambda old,new:F.col(old).alias(new),*zip(*renames))
        ))
 
-devices_summarized.show()
+display(devices_summarized.take(10))
 
 # COMMAND ----------
 
