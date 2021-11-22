@@ -1,13 +1,14 @@
-import hashlib, platform as p, random, string, sys, uuid, warnings
+import hashlib, logging, os, platform as p, random, string, sys, uuid, warnings
 from distutils.version import LooseVersion, StrictVersion
-
 
 def cmp(x, y):
     return (x > y) - (x < y)
 
 
-def make_iframe(url, height):
+def make_iframe(url, height, extra_html="", override_html_style=None):
     id = uuid.uuid4()
+
+    height_str = f'{height}px' if isinstance(height, int) or isinstance(height, float) else str(height)
 
     scrollbug_workaround = '''
             <script>
@@ -17,13 +18,21 @@ def make_iframe(url, height):
             </script>
         ''' % id
 
+    style = None
+    if override_html_style is not None:
+        style = override_html_style
+    else:
+        style = "width:100%%; height:%s; border: 1px solid #DDD; overflow: hidden" % height_str
+
     iframe = '''
             <iframe id="%s" src="%s"
                     allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true"
                     oallowfullscreen="true" msallowfullscreen="true"
-                    style="width:100%%; height:%dpx; border: 1px solid #DDD; overflow: hidden">
+                    style="%s"
+                    %s
+            >
             </iframe>
-        ''' % (id, url, height)
+        ''' % (id, url, style, extra_html)
 
     return iframe + scrollbug_workaround
 
@@ -65,6 +74,12 @@ def in_ipython():
             return True
     except ImportError:
         pass
+    return False
+
+def in_databricks():
+    #FIXME: this is a hack
+    if 'DATABRICKS_RUNTIME_VERSION' in os.environ:
+        return True
     return False
 
 def warn(msg):

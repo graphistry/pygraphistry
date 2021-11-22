@@ -9,8 +9,16 @@ Development is setup for local native and containerized Python coding & testing,
 ### Install
 
 ```bash
-cd docker && docker-compose build && docker-compose up -d
+cd docker && docker compose build && docker compose up -d
 ```
+
+For just CPU tests, you can focus on `test-cpu` and use the run instructions below:
+
+```bash
+cd docker && docker compose build test-cpu
+```
+
+
 ### Run local tests without rebuild
 
 Containerized call to `pytest` for CPU + GPU modes:

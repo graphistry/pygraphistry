@@ -122,6 +122,32 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
+* [Spark](https://spark.apache.org/)/[Databricks](https://databricks.com/) ([ipynb demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb), [dbc demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.dbc))
+
+    ```python
+    #optional but recommended
+    spark.conf.set("spark.sql.execution.arrow.enabled", "true")
+
+    edges_df = (
+        spark.read.format('json').
+          load('/databricks-datasets/iot/iot_devices.json')
+          .sample(fraction=0.1)
+    )
+    g = graphistry.edges(edges_df, 'device_name', 'cn')
+
+    #notebook
+    displayHTML(g.plot())
+
+    #dashboard: pick size of choice
+    displayHTML(
+      g.settings(url_params={'splashAfter': 'false'})
+        .plot(override_html_style="""
+          width: 50em;
+          height: 50em;
+        """)
+    )
+    ```
+
 * GPU [RAPIDS.ai](https://www.rapids.ai)
   
     ```python
