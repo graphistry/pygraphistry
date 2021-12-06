@@ -1,5 +1,6 @@
 from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHECKING
 import logging
+import itertools, pandas
 from .Plottable import Plottable
 logger = logging.getLogger('compute')
 
@@ -148,6 +149,29 @@ class ComputeMixin(MIXIN_BASE):
 
         return g2
 
+    def replace_nodes_with_edges(self, node_selector):
+        g = self
+
+        node_selector = list(node_selector)
+        if len(node_selector) == 0:
+            return g
+
+        g2 = g
+        nodes_to_reduce = g._edges[g._edges[g._destination].isin(node_selector)][g._source]
+        nodes_to_reduce = nodes_to_reduce.drop_duplicates()
+        if len(nodes_to_reduce) <= 1:
+            raise ValueError('Node reduction is not a meaningful operation in this context')
+
+        edges_to_retain =  g._edges[~g._edges[g._destination].isin(node_selector)]
+        g._edges = pandas.concat(
+            [
+                pandas.DataFrame(
+                    itertools.combinations(nodes_to_reduce,2))\
+                    .rename(columns={0: g._source, 1: g._destination})\
+                    .assign(reduced_from=",".join(node_selector)),
+                edges_to_retain
+            ], ignore_index=True)
+        return g
 
     def get_topological_levels(
         self,
