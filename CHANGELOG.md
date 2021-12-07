@@ -17,7 +17,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Docs: Removed deprecated `api=1`, `api=2` registration calls (#280 by @pradkrish)
 * Docs: Fixed bug in honeypot nb (#279 by @pradkrish)
-
+* Tests: Networkx test version sniffing
 
 ## [0.20.3 - 2021-11-21]
 
