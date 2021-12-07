@@ -344,7 +344,8 @@ class TestPlotterConversions(NoAuthTestCase):
     def test_networkx2igraph(self):
         import networkx as nx
         ng = nx.complete_graph(3)
-        [x, y] = [int(x) for x in nx.__version__.split('.')]
+        vs = [int(x) for x in nx.__version__.split('.')]
+        x = vs[0]
         if x == 1:
             nx.set_node_attributes(ng, 'vattrib', 0)
             nx.set_edge_attributes(ng, 'eattrib', 1)
