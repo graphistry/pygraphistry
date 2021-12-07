@@ -21,7 +21,7 @@ dev_extras = {
 
 base_extras = {
     'igraph': ['python-igraph'],
-    'networkx': ['networkx==2.2'],
+    'networkx': ['networkx>=2.5'],
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl', 'xlrd'],

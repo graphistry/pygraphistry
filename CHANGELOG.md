@@ -7,14 +7,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.20.4 - 2021-1206]
+
+### Changed
+
+* Unpin Networkx
+
+### Fixed
+
+* Docs: Removed deprecated `api=1`, `api=2` registration calls (#280 by @pradkrish)
+* Docs: Fixed bug in honeypot nb (#279 by @pradkrish)
+* Tests: Networkx test version sniffing
+
 ## [0.20.3 - 2021-11-21]
+
+### Added
+
 * Databricks notebook connector ([PR](https://github.com/graphistry/pygraphistry/pull/277))
 * Databricks notebook + dashboard example ([PR](https://github.com/graphistry/pygraphistry/pull/277), [ipynb](https://github.com/graphistry/pygraphistry/blob/ad31a227136430bcd578feac1c18e90920ab4f00/demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb))
 
 ## [0.20.2 - 2021-10-18]
+
+### Added
+
 * Docs: [umap_learn tutorial notebook](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/umap_learn/umap_learn.ipynb)
 
 ## [0.20.1 - 2021-08-24]
+
+### Added
+
 * Docs: Sharing control [demos/more_examples/graphistry_features/sharing_tutorial.ipynb](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb)
 
 ## [0.20.0 - 2021-08-24]
