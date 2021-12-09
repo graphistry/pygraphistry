@@ -1,13 +1,14 @@
 # PyGraphistry: Explore Relationships
 
 ![Build Status](https://github.com/graphistry/pygraphistry/workflows/CI%20Tests/badge.svg)
+[![CodeQL](https://github.com/graphistry/pygraphistry/workflows/CodeQL/badge.svg)](https://github.com/graphistry/pygraphistry/actions?query=workflow%3ACodeQL)
 [![Documentation Status](https://readthedocs.org/projects/pygraphistry/badge/?version=latest)](https://pygraphistry.readthedocs.io/en/latest/)
 [![Latest Version](https://img.shields.io/pypi/v/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
 [![Latest Version](https://img.shields.io/pypi/pyversions/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
 [![License](https://img.shields.io/pypi/l/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
 [![Downloads](https://pepy.tech/badge/graphistry/month)](https://pepy.tech/project/graphistry/month)
 
-[![Uptime Robot status](https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com)](https://status.graphistry.com/) [<img src="https://img.shields.io/badge/slack-Graphistry%20chat-yellow.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
+[![Uptime Robot status](https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com)](https://status.graphistry.com/) [<img src="https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
 [![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)](https://twitter.com/graphistry)
 
 PyGraphistry is a Python visual graph analytics library to extract, transform, and load big graphs into [Graphistry](https://www.graphistry.com) end-to-end GPU  visual graph analytics sessions.
