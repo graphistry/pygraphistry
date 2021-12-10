@@ -21,6 +21,13 @@ class CGFull(ComputeMixin, PlotterBase, object):
         PlotterBase.__init__(self, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
 
+
+def assertFrameEqual(df1, df2, **kwds ):
+    """ Assert that two dataframes are equal, ignoring ordering of columns"""
+
+    from pandas.testing import assert_frame_equal
+    return assert_frame_equal(df1.sort_index(axis=1), df2.sort_index(axis=1), check_names=True, **kwds)
+
 class TestComputeMixin(NoAuthTestCase):
 
 
@@ -118,3 +125,27 @@ class TestComputeMixin(NoAuthTestCase):
         cg = CGFull()
         g = cg.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'a']}), 's', 'd').get_topological_levels(allow_cycles=True)
         assert g._nodes.to_dict(orient='records') == [{'id': 'a', 'level': 0}, {'id': 'b', 'level': 1}]
+
+    def test_replace_nodes_with_edges_input_list(self):
+        cg = CGFull()
+        g = cg.edges(pd.DataFrame({'x': ['m', 'm', 'n', 'm'], 'y': ['a', 'b', 'c','d']}), 'x', 'y')
+        g2 = g.replace_nodes_with_edges(['m','n'], g._source)
+        edges = pd.DataFrame({
+            'x': ['a', 'a', 'a', 'b', 'b', 'c'],
+            'y': ['b', 'c', 'd', 'c', 'd', 'd'],
+            'reduced_from': ['m,n'] * 6
+        })
+        assertFrameEqual(g2._edges, edges)
+
+    def test_replace_nodes_with_edges_input_series(self):
+        cg = CGFull()
+        df = pd.DataFrame({'x': ['a', 'b', 'c','d'], 'y': ['m', 'm', 'n', 'm']})
+        g = cg.edges(df, 'x', 'y').nodes(df, 'y')
+        nodes_series = pd.Series(['m', 'n'])
+        g2 = g.replace_nodes_with_edges(nodes_series)
+        edges = pd.DataFrame({
+            'x': ['a', 'a', 'a', 'b', 'b', 'c'],
+            'y': ['b', 'c', 'd', 'c', 'd', 'd'],
+            'reduced_from': ['m,n'] * 6
+        })
+        assertFrameEqual(g2._edges, edges)
