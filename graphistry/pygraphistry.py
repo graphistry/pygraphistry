@@ -272,6 +272,8 @@ class PyGraphistry(object):
         Also set via environment variable GRAPHISTRY_API_VERSION."""
         if value is None:
             return PyGraphistry._config['api_version']
+        if value not in [1,2,3]:
+            raise  TypeError("Invalid api, wrong type")
         # setter
         PyGraphistry._config['api_version'] = value
 
