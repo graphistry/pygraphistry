@@ -118,3 +118,9 @@ class TestComputeMixin(NoAuthTestCase):
         cg = CGFull()
         g = cg.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'a']}), 's', 'd').get_topological_levels(allow_cycles=True)
         assert g._nodes.to_dict(orient='records') == [{'id': 'a', 'level': 0}, {'id': 'b', 'level': 1}]
+
+    def test_drop_nodes(self):
+        cg = CGFull()
+        g = cg.edges(pd.DataFrame({'x': ['m', 'm', 'n', 'm'], 'y': ['a', 'b', 'c', 'd']}), 'x', 'y')
+        g2 = g.drop_nodes(['m'])
+        assert g2._edges.to_dict(orient='records') == [{'x': 'n', 'y': 'c'}]
