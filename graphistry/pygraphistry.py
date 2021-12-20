@@ -272,7 +272,7 @@ class PyGraphistry(object):
         """Set or get the API version: 1 or 2 for 1.0 (deprecated), 3 for 2.0
         Also set via environment variable GRAPHISTRY_API_VERSION."""
         if value not in [1,2,3]:
-            raise TypeError(f"Received api:{value}, "
+            raise ValueError(f"Received api:{value}, "
                              f"instead use 1,2 or 3 of type: int")
 
         # setter
