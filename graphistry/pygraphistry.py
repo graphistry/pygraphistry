@@ -182,6 +182,7 @@ class PyGraphistry(object):
         if value is None:
             return PyGraphistry._config['hostname']
 
+
         # setter
         shortcuts = {}
         if value in shortcuts:
@@ -270,10 +271,10 @@ class PyGraphistry(object):
     def api_version(value=None):
         """Set or get the API version: 1 or 2 for 1.0 (deprecated), 3 for 2.0
         Also set via environment variable GRAPHISTRY_API_VERSION."""
-        if value is None:
-            return PyGraphistry._config['api_version']
         if value not in [1,2,3]:
-            raise  TypeError("Invalid api, wrong type")
+            raise TypeError(f"Received api:{value}, "
+                             f"instead use 1,2 or 3 of type: int")
+
         # setter
         PyGraphistry._config['api_version'] = value
 
