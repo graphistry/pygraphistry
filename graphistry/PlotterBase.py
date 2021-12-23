@@ -1770,7 +1770,7 @@ class PlotterBase(Plottable):
                 **(metadata or {})
             },
             certificate_validation=PyGraphistry.certificate_validation(),
-            org_name=PyGraphistry._config['org_name'])
+            org_name=PyGraphistry.org_name)
 
         au.edge_encodings = au.g_to_edge_encodings(self)
         au.node_encodings = au.g_to_node_encodings(self)

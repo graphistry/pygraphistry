@@ -1777,7 +1777,9 @@ class PyGraphistry(object):
         """
 
         if value is None:
-            return PyGraphistry._config['org_name']
+            if 'org_name' in PyGraphistry._config:
+                return PyGraphistry._config['org_name']
+            return None
 
         # setter
         if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
