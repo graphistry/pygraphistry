@@ -1,13 +1,14 @@
 # PyGraphistry: Explore Relationships
 
 ![Build Status](https://github.com/graphistry/pygraphistry/workflows/CI%20Tests/badge.svg)
+[![CodeQL](https://github.com/graphistry/pygraphistry/workflows/CodeQL/badge.svg)](https://github.com/graphistry/pygraphistry/actions?query=workflow%3ACodeQL)
 [![Documentation Status](https://readthedocs.org/projects/pygraphistry/badge/?version=latest)](https://pygraphistry.readthedocs.io/en/latest/)
 [![Latest Version](https://img.shields.io/pypi/v/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
 [![Latest Version](https://img.shields.io/pypi/pyversions/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
 [![License](https://img.shields.io/pypi/l/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
 [![Downloads](https://pepy.tech/badge/graphistry/month)](https://pepy.tech/project/graphistry/month)
 
-[![Uptime Robot status](https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com)](https://status.graphistry.com/) [<img src="https://img.shields.io/badge/slack-Graphistry%20chat-yellow.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
+[![Uptime Robot status](https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com)](https://status.graphistry.com/) [<img src="https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
 [![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)](https://twitter.com/graphistry)
 
 PyGraphistry is a Python visual graph analytics library to extract, transform, and load big graphs into [Graphistry](https://www.graphistry.com) end-to-end GPU  visual graph analytics sessions.
@@ -77,7 +78,7 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 
 * **Configurable:** In-tool or via the declarative APIs, use the powerful encodings systems for tasks like coloring by time, sizing by score, clustering by weight, show icons by type, and more.
 
-* **Shareable:** Share live links, configure who has access, and more! [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb)  
+* **Shareable:** Share live links, configure who has access, and more! [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb)
 
 ### Explore any data as a graph
 
@@ -97,9 +98,9 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
      ```python
      graphistry.hypergraph(table_rows, ['attackerIP', 'victimIP', 'victimPort', 'vulnName'],
-         direct=True, 
+         direct=True,
          opts={'EDGES': {
-           'attackerIP': ['victimIP', 'victimPort', 'vulnName'], 
+           'attackerIP': ['victimIP', 'victimPort', 'vulnName'],
            'victimIP': ['victimPort', 'vulnName'],
            'victimPort': ['vulnName']
    }})['graph'].plot()
@@ -149,21 +150,21 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     ```
 
 * GPU [RAPIDS.ai](https://www.rapids.ai)
-  
+
     ```python
     edges = cudf.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
     graphistry.edges(edges, 'src', 'dst').plot()
     ```
 
 * [Apache Arrow](https://arrow.apache.org/)
-  
+
     ```python
      edges = pa.Table.from_pandas(pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst']))
      graphistry.edges(edges, 'src', 'dst').plot()
     ```
 
 * [Neo4j](http://neo4j.com) ([notebook demo](demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
-  
+
     ```python
     NEO4J_CREDS = {'uri': 'bolt://my.site.ngo:7687', 'auth': ('neo4j', 'mypwd')}
     graphistry.register(bolt=NEO4J_CREDS)
@@ -213,7 +214,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
-* [TigerGaph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
+* [TigerGraph](https://tigergraph.com) ([notebook demo](demos/demos_databases_apis/tigergraph/tigergraph_pygraphistry_bindings.ipynb))
 
     ```python
     g = graphistry.tigergraph(protocol='https', ...)
@@ -272,7 +273,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     graphistry.nodexl('https://file.xls', verbose=True).plot()
     graphistry.nodexl('https://file.xls', engine='xlsxwriter').plot()
     graphistry.nodexl('https://file.xls')._nodes
-    ```  
+    ```
 
 ### Quickly configurable
 
@@ -381,7 +382,7 @@ initial_one_hour_token = graphistry.api_token()
 graphistry.register(api=3, token=initial_one_hour_token)
 
 # must run every 59min
-graphistry.refresh() 
+graphistry.refresh()
 fresh_token = graphistry.api_token()
 assert initial_one_hour_token != fresh_token
 ```
@@ -411,8 +412,8 @@ In cases such as when the notebook server is the same as the Graphistry server, 
 ```python
 graphistry.register(
     ### fast local notebook<>graphistry upload
-    protocol='http', server='nginx', 
-  
+    protocol='http', server='nginx',
+
     ### shareable public URL for browsers
     client_protocol_hostname='https://graphistry.acme.ngo'
 )
@@ -439,7 +440,7 @@ VIEW = "10"
 EDIT = "20"
 graphistry.privacy(
   mode='private',
-  invited_users=[ 
+  invited_users=[
     {"email": "friend1@site1.com", "action": VIEW},
     {"email": "friend2@site2.com", "action": EDIT}
   ],
@@ -645,14 +646,14 @@ You can quickly manipulate graphs as well:
 
 **Generate node table**:
 ```python
-g = graphisty.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
 g2 = g.materialize_nodes()
 g2._nodes  # pd.DataFrame({'id': ['a', 'b', 'c']})
 ```
 
 ***Compute degrees**
 ```python
-g = graphisty.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
 g2 = g.get_degree()
 g2._nodes  # pd.DataFrame({
            #  'id': ['a', 'b', 'c'],
@@ -673,7 +674,7 @@ def capitalize(df, col):
 g
   .cypher('MATCH (a)-[e]->(b) RETURN a, e, b')
   .nodes(lambda g: capitalize(g._nodes, 'nTitle'))
-  .edges(capitalize, None, None, 'eTitle'), 
+  .edges(capitalize, None, None, 'eTitle'),
   .pipe(lambda g: g.nodes(g._nodes.pipe(capitalize, 'nTitle')))
 ```
 
@@ -689,14 +690,14 @@ g.plot()
 **Removing nodes**
 
 ```python
-g = graphisty.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']})
-g2 = g.drop_nodes(['c'])  # drops node c, edge c->a, edge b->c, 
+g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']}))
+g2 = g.drop_nodes(['c'])  # drops node c, edge c->a, edge b->c,
 ```
 
 ### Control layouts
 
 ```python
-g = graphisty.edges(pd.DataFrame({'s': ['a', 'b', 'b'], 'd': ['b', 'c', 'd']})
+g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'b'], 'd': ['b', 'c', 'd']}))
 
 g2a = g.tree_layout()
 g2b = g2.tree_layout(allow_cycles=False, remove_self_loops=False, vertical=False)
