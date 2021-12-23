@@ -110,19 +110,19 @@ class PyGraphistry(object):
     relogin = lambda: PyGraphistry.not_implemented_thunk()  # noqa: E731
 
     @staticmethod
-    def login(username, password, fail_silent=False):
+    def login(username, password, org_name=None, fail_silent=False):
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
         By default, must be reinvoked within 24hr."""
 
         if PyGraphistry._config['store_token_creds_in_memory']:
-            PyGraphistry.relogin = lambda: PyGraphistry.login(username, password, fail_silent)
+            PyGraphistry.relogin = lambda: PyGraphistry.login(username, password, org_name, fail_silent)
 
         PyGraphistry._is_authenticated = False
         token = \
             ArrowUploader(
                 server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
                 certificate_validation=PyGraphistry.certificate_validation()) \
-            .login(username, password).token
+            .login(username, password, org_name).token
         PyGraphistry.api_token(token)
         PyGraphistry._is_authenticated = True
 
@@ -299,7 +299,8 @@ class PyGraphistry(object):
     def register(
             key=None, username=None, password=None, token=None,
             server=None, protocol=None, api=None, certificate_validation=None, bolt=None,
-            token_refresh_ms= 10 * 60 * 1000, store_token_creds_in_memory=None, client_protocol_hostname=None):
+            token_refresh_ms= 10 * 60 * 1000, store_token_creds_in_memory=None, client_protocol_hostname=None,
+            org_name=None):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
@@ -365,7 +366,7 @@ class PyGraphistry(object):
         PyGraphistry.certificate_validation(certificate_validation)
         PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
         if not (username is None) and not (password is None):
-            PyGraphistry.login(username, password)
+            PyGraphistry.login(username, password, org_name)
         PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         PyGraphistry.authenticate()
 
@@ -1770,6 +1771,18 @@ class PyGraphistry(object):
             lin_log, strong_gravity, dissuade_hubs,
             edge_influence, precision_vs_speed, gravity, scaling_ratio)
 
+    @staticmethod
+    def org_name(value=None):
+        """Set or get the org_name when register/login.
+        """
+
+        if value is None:
+            return PyGraphistry._config['org_name']
+
+        # setter
+        if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
+            PyGraphistry._config['org_name'] = value.strip()
+
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
@@ -1812,6 +1825,7 @@ drop_graph = PyGraphistry.drop_graph
 gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
 layout_settings = PyGraphistry.layout_settings
+org_name = PyGraphistry.org_name
 
 
 class NumpyJSONEncoder(json.JSONEncoder):

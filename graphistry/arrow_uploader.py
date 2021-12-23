@@ -3,6 +3,7 @@
 from typing import List, Optional
 
 import io, logging, pyarrow as pa, requests, sys
+
 from .ArrowFileUploader import ArrowFileUploader
 
 logger = logging.getLogger('ArrowUploader')
@@ -18,6 +19,17 @@ class ArrowUploader:
     @token.setter
     def token(self, token: str):
         self.__token = token
+
+    @property
+    def org_name(self) -> str:
+        if self.__org_name is None:
+            raise Exception("Not logged in")
+        return self.__org_name
+
+    @org_name.setter
+    def org_name(self, org_name: str):
+        print("set __org_name ")
+        self.__org_name = org_name
 
     @property
     def dataset_id(self) -> str:
@@ -138,7 +150,8 @@ class ArrowUploader:
             node_encodings = None, edge_encodings = None,
             token = None, dataset_id = None,
             metadata = None,
-            certificate_validation = True):
+            certificate_validation = True, 
+            org_name = None):
         self.__name = name
         self.__description = description
         self.__server_base_path = server_base_path
@@ -151,24 +164,57 @@ class ArrowUploader:
         self.__edge_encodings = edge_encodings
         self.__metadata = metadata
         self.__certificate_validation = certificate_validation
+        self.__org_name = org_name
     
-    def login(self, username, password):
+    def login(self, username, password, org_name=None):
+        from .pygraphistry import PyGraphistry
+
         base_path = self.server_base_path
         out = requests.post(
             f'{base_path}/api-token-auth/',
             verify=self.certificate_validation,
-            json={'username': username, 'password': password})
+            json={'username': username, 'password': password, "org_name": org_name})
         json_response = None
         try:
             json_response = out.json()
+            # print(json_response)
+            logged_in_org_name = json_response.get('active_organization',{}).get('slug', None)
+            print("set org_name")
+            PyGraphistry.org_name(logged_in_org_name)
+            
             if not ('token' in json_response):
                 raise Exception(out.text)
+
+            if org_name and (logged_in_org_name != org_name):
+                raise Exception("Login Organization does not found")
+
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
             raise Exception(out.text)
             
-        self.token = out.json()['token']        
+        self.token = out.json()['token']
+
         return self
+
+    # def switch_org(self, org_name):
+    #     tok = self.token 
+    #     json = {"slug": org_name}
+    #     res = requests.post(
+    #         self.server_base_path + '/api/v2/organization/switch/' + org_name,
+    #         verify=self.certificate_validation,
+    #         headers={'Authorization': f'Bearer {tok}'},
+    #         json=json)
+             
+    #     try:            
+    #         out = res.json()
+    #         if not out['success']:
+    #             raise Exception(out)
+    #     except Exception as e:
+    #         logger.error('Failed to switch org: %s', org_name, exc_info=True)
+    #         raise e
+
+    #     return self
+
 
     def refresh(self, token=None):
         if token is None:
@@ -188,6 +234,7 @@ class ArrowUploader:
             logger.error('Error: %s', out, exc_info=True)
             raise Exception(out.text)
             
+        # print("ArrowUploader refresh, api-token-refresh : {}".format(out.json()))
         self.token = out.json()['token']        
         return self
     
@@ -204,14 +251,16 @@ class ArrowUploader:
 
     def create_dataset(self, json):  # noqa: F811
         tok = self.token 
-        
+        json['org_name'] = self.org_name
+
         res = requests.post(
             self.server_base_path + '/api/v2/upload/datasets/',
             verify=self.certificate_validation,
             headers={'Authorization': f'Bearer {tok}'},
             json=json)
              
-        try:            
+        try: 
+            # print("res.text :".format(res))          
             out = res.json()
             if not out['success']:
                 raise Exception(out)
@@ -454,7 +503,7 @@ class ArrowUploader:
         return self.post_arrow(arr, 'nodes', opts) 
 
     def post_arrow(self, arr: pa.Table, graph_type: str, opts: str = ''):
-
+        print("array : {}".format(arr))
         dataset_id = self.dataset_id
         tok = self.token
         sub_path = f'api/v2/upload/datasets/{dataset_id}/{graph_type}/arrow'
@@ -548,7 +597,7 @@ class ArrowUploader:
                 f'{base_path}/api/v2/upload/datasets/{dataset_id}/{graph_type}/{file_type}',
                 verify=self.certificate_validation,
                 headers={'Authorization': f'Bearer {tok}'},
-                data=file.read()).json()
+                data={"org_name": self.org_name}, files={"upload_file": file.read()}).json()
             if not out['success']:
                 raise Exception(out)
             
