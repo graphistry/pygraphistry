@@ -177,14 +177,19 @@ class ArrowUploader:
         try:
             json_response = out.json()
             logged_in_org_name = json_response.get('active_organization',{}).get('slug', None)
-            PyGraphistry.org_name(logged_in_org_name)
             
             if not ('token' in json_response):
                 raise Exception(out.text)
 
-            if org_name and (logged_in_org_name != org_name):
-                raise Exception("Login Organization does not found")
-
+            if org_name: # caller pass in org_name
+                if not logged_in_org_name:  # no active_organization in JWT payload
+                    raise Exception("Server does not support organization, please omit org_name")
+                else:
+                    # if JWT response with org_name different than the pass in org_name
+                    # => org_name not found and return default organization (currently is personal org)
+                    if logged_in_org_name != org_name:
+                        raise Exception("Login Organization does not found")
+            PyGraphistry.org_name(logged_in_org_name)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
             raise Exception(out.text)

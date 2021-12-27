@@ -329,8 +329,17 @@ class PyGraphistry(object):
         :type store_token_creds_in_memory: Optional[bool]
         :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
         :type client_protocol_hostname: Optional[str]
+        :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
+        :type org_name: Optional[str]
         :returns: None.
         :rtype: None
+
+        **Example: Standard (2.0 api by username/password with org_name)**
+                ::
+
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', username='person', password='pwd', org_name="org-slug")
+
 
         **Example: Standard (2.0 api by username/password)**
                 ::

@@ -187,3 +187,45 @@ class TestArrowUploader_Comms(unittest.TestCase):
         tok = au.login(username="u", password="p").token
 
         assert tok == "123"
+
+
+    @mock.patch('requests.post')
+    def test_login_with_org_success(self, mock_post):
+
+        mock_resp = self._mock_response(json_data={'token': '123', 'active_organization': {"slug": "mock-org"}})
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+        response = au.login(username="u", password="p", org_name="mock-org")
+        tok = response.token
+        assert tok == "123"
+        assert PyGraphistry.org_name() == "mock-org"
+
+
+    @mock.patch('requests.post')
+    def test_login_with_org_old_server(self, mock_post):
+
+        mock_resp = self._mock_response(json_data={'token': '123'})
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+
+        with pytest.raises(Exception):
+            au.login(username="u", password="p", org_name="mock-org")
+
+        with pytest.raises(Exception):
+            au.token
+
+    @mock.patch('requests.post')
+    def test_login_with_org_invalid_org_name(self, mock_post):
+
+        mock_resp = self._mock_response(json_data={'token': '123', 'active_organization': {"slug": "default-org"}})
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+
+        with pytest.raises(Exception) as execinfo:
+            au.login(username="u", password="p", org_name="mock-org")
+
+        with pytest.raises(Exception):
+            au.token
