@@ -22,8 +22,6 @@ class ArrowUploader:
 
     @property
     def org_name(self) -> str:
-        if self.__org_name is None:
-            raise Exception("Not logged in")
         return self.__org_name
 
     @org_name.setter
@@ -188,7 +186,7 @@ class ArrowUploader:
                     # if JWT response with org_name different than the pass in org_name
                     # => org_name not found and return default organization (currently is personal org)
                     if logged_in_org_name != org_name:
-                        raise Exception("Login Organization does not found")
+                        raise Exception("Login Organization is not found in your organzation")
             PyGraphistry.org_name(logged_in_org_name)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
