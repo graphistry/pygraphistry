@@ -382,15 +382,17 @@ class PyGraphistry(object):
         PyGraphistry.set_bolt_driver(bolt)
 
     @staticmethod
-    def privacy(mode: Optional[str] = None, notify: Optional[bool] = None, invited_users: Optional[List] = None, message: Optional[str] = None):
+    def privacy(mode: Optional[str] = None, notify: Optional[bool] = None, invited_users: Optional[List] = None, mode_action: Optional[str] = None, message: Optional[str] = None):
         """Set global default sharing mode
 
-        :param mode: Either "private" or "public"
+        :param mode: Either "private" or "public" or "organization"
         :type mode: str
         :param notify: Whether to email the recipient(s) upon upload
         :type notify: bool
         :param invited_users: List of recipients, where each is {"email": str, "action": str} and action is "10" (view) or "20" (edit)
         :type invited_users: List
+        :param mode_action: only used when mode="organization", action for sharing within organization, "10" (view) or "20" (edit), default is "20"
+        :type mode_action: str
 
         Requires an account with sharing capabilities.
 
@@ -476,6 +478,7 @@ class PyGraphistry(object):
             'mode': mode,
             'notify': notify,
             'invited_users': invited_users,
+            'mode_action': mode_action,
             'message': message
         }
 

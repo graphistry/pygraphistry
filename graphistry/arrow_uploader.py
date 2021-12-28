@@ -344,11 +344,12 @@ class ArrowUploader:
         if as_files:
 
             file_uploader = ArrowFileUploader(self)
+            file_opts={'name': self.name + ' edges', 'org_name': self.org_name}
 
-            e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts={'name': self.name + ' edges'})
+            e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts)
 
             if not (self.nodes is None):
-                n_file_id, _ = file_uploader.create_and_post_file(self.nodes, file_opts={'name': self.name + ' nodes'})
+                n_file_id, _ = file_uploader.create_and_post_file(self.nodes, file_opts=file_opts)
 
             self.create_dataset({
                 "node_encodings": self.node_encodings,
@@ -386,6 +387,7 @@ class ArrowUploader:
         mode: Optional[str] = None,
         notify: Optional[bool] = None,
         invited_users: Optional[List] = None,
+        mode_action: Optional[str] = None,
         message: Optional[str] = None
     ):
         """
@@ -404,6 +406,8 @@ class ArrowUploader:
                 notify = global_privacy['notify']
             if invited_users is None:
                 invited_users = global_privacy['invited_users']
+            if mode_action is None:
+                mode_action = global_privacy['mode_action']
             if message is None:
                 message = global_privacy['message']
 
@@ -413,10 +417,12 @@ class ArrowUploader:
             notify = False
         if invited_users is None:
             invited_users = []
+        if mode_action is None:
+            mode_action = '20'  # send default as 'edit'
         if message is None:
             message = ''
 
-        return mode, notify, invited_users, message
+        return mode, notify, invited_users, mode_action, message
 
 
     def post_share_link(
@@ -429,7 +435,7 @@ class ArrowUploader:
         Set sharing settings. Any settings not passed here will cascade from PyGraphistry or defaults
         """
 
-        mode, notify, invited_users, message = self.cascade_privacy_settings(**(privacy or {}))
+        mode, notify, invited_users, mode_action, message = self.cascade_privacy_settings(**(privacy or {}))
 
         path = self.server_base_path + '/api/v2/share/link/'
         tok = self.token
@@ -443,6 +449,7 @@ class ArrowUploader:
                 'mode': mode,
                 'notify': notify,
                 'invited_users': invited_users,
+                'mode_action': mode_action,
                 'message': message
             })
 
@@ -464,7 +471,7 @@ class ArrowUploader:
             logger.error('Unexpected error setting sharing settings: %s', res.text, exc_info=True)
             raise e
 
-        logger.debug('Set privacy: mode %s, notify %s, users %s, message: %s', mode, notify, invited_users, message)
+        logger.debug('Set privacy: mode %s, notify %s, users %s, mode_action %s, message: %s', mode, notify, invited_users, mode_action, message)
         
         return out
 
@@ -570,7 +577,7 @@ class ArrowUploader:
         dataset_id = self.dataset_id
         tok = self.token
         base_path = self.server_base_path
-
+        
         with open(file_path, 'rb') as file:        
             out = requests.post(
                 f'{base_path}/api/v2/upload/datasets/{dataset_id}/{graph_type}/{file_type}',
