@@ -342,7 +342,7 @@ class ArrowUploader:
         if as_files:
 
             file_uploader = ArrowFileUploader(self)
-            file_opts={'name': self.name + ' edges', 'org_name': self.org_name}
+            file_opts={'name': self.name + ' edges', 'org_name': self.org_name()}
 
             e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts)
 
