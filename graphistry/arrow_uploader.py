@@ -229,8 +229,10 @@ class ArrowUploader:
         return out.status_code == requests.codes.ok
 
     def create_dataset(self, json):  # noqa: F811
-        tok = self.token 
-        json['org_name'] = self.org_name
+        tok = self.token
+
+        if self.org_name(): 
+            json['org_name'] = self.org_name()
 
         res = requests.post(
             self.server_base_path + '/api/v2/upload/datasets/',
