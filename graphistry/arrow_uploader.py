@@ -429,7 +429,10 @@ class ArrowUploader:
         if invited_users is None:
             invited_users = []
         if mode_action is None:
-            mode_action = '20'  # send default as 'edit'
+            if mode == 'private':
+                mode_action = '20'  # send default as 'edit'
+            else:
+                mode_action = '10'
         if message is None:
             message = ''
 
