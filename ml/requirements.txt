@@ -1,0 +1,10 @@
+
+scikit-learn
+numpy
+scipy
+pandas
+dirty-cat
+umap-learn
+dgl
+torch
+graphistry
