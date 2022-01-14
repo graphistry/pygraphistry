@@ -4,9 +4,8 @@ import pandas as pd
 import torch
 
 from ml import constants as config
-from ml.utils import pandas_to_dgl_graph, process_dirty_dataframes, setup_logger
 from ml.umap_utils import baseUmap, umap_kwargs_euclidean
-
+from ml.utils import pandas_to_dgl_graph, process_dirty_dataframes, setup_logger
 
 logger = setup_logger(__name__)
 

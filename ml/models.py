@@ -1,25 +1,15 @@
-import matplotlib.pyplot as plt
-import numpy as np
-
 # import optuna
 import pandas as pd
 import seaborn as sns
 import sklearn
 import umap
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import make_pipeline
-from sklearn.multioutput import MultiOutputRegressor
-
-# from xgboost import XGBClassifier, plot_importance
-
-if True:
-    from sklearn.experimental import enable_hist_gradient_boosting
-
-    # now you can import the HGBR from ensemble, which is a good predictor for data with heterogeneous columns
-from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
 
 from ml import get_botnet_dataframe, get_netflow_dataframe, get_host_dataframe
-from ml.utils import fit_pipeline, process_dirty_dataframes, calculate_column_similarity
+from ml.utils import process_dirty_dataframes, calculate_column_similarity
+
+# from xgboost import XGBClassifier, plot_importance
 
 
 def get_data(model="botnet", nrows=10000):

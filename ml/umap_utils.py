@@ -1,9 +1,9 @@
 # a base class for UMAP to run on cpu or gpu
-
-import umap
 import pandas as pd
-from ml.utils import setup_logger, pandas_to_sparse_adjacency
+import umap
+
 import ml.constants as config
+from ml.utils import setup_logger, pandas_to_sparse_adjacency
 
 logger = setup_logger(__name__)
 

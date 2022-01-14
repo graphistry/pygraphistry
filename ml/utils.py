@@ -1,15 +1,14 @@
 from collections import Counter
 from time import time
-import logging
 
 # TODO cugraph not installing properly in virt env locally...
 # import cugraph
 import dgl
+import logging
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy
-
 import torch
 from dirty_cat import (
     SuperVectorizer,
@@ -25,7 +24,6 @@ from sklearn.neighbors import NearestNeighbors
 
 import graphistry
 from ml import constants as config
-
 
 encoders_dirty = {
     "similarity": SimilarityEncoder(similarity="ngram"),
