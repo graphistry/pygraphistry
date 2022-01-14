@@ -2,7 +2,7 @@
 # source and destination labels for consistent pipe lining
 SRC = "_src"
 DST = "_dst"
-WEIGHT = '_weight'
+WEIGHT = "_weight"
 
 # #############################
 # consistent clf pipelining
@@ -19,5 +19,3 @@ N_HASHERS_DEFAULT = 100
 
 #   scikit-learn params
 SKLEARN = "sklearn"
-
-

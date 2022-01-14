@@ -3,7 +3,7 @@ from time import time
 import logging
 
 # TODO cugraph not installing properly in virt env locally...
-#import cugraph
+# import cugraph
 import dgl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,7 +11,13 @@ import pandas as pd
 import scipy
 
 import torch
-from dirty_cat import SuperVectorizer, SimilarityEncoder, TargetEncoder, MinHashEncoder, GapEncoder
+from dirty_cat import (
+    SuperVectorizer,
+    SimilarityEncoder,
+    TargetEncoder,
+    MinHashEncoder,
+    GapEncoder,
+)
 from sklearn.inspection import permutation_importance
 from sklearn.manifold import MDS
 from sklearn.model_selection import cross_val_score
@@ -29,6 +35,7 @@ encoders_dirty = {
     "super": SuperVectorizer(auto_cast=True),
 }
 
+
 def setup_logger(name):
     logger = logging.getLogger(name)
     FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
@@ -36,7 +43,9 @@ def setup_logger(name):
     logger.setLevel(logging.DEBUG)
     return logger
 
+
 logger = setup_logger(__name__)
+
 
 def estimate_encoding_time(df, y):
     # TODO
@@ -317,10 +326,10 @@ def pandas_to_dgl_graph(df, src, dst, weight_col=None, device="cpu"):
         ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
-    
+
     g = dgl.from_scipy(sp_mat, device=device)  # there are other ways too, like
     logger.info(f"Graph Type: {type(g)}")  # why is this making a heterograph?
-    
+
     return g, sp_mat, ordered_nodes_dict
 
 
@@ -366,6 +375,7 @@ def fit_pipeline(pipeline, X, y, scoring="r2"):
     # istd = result.importances_std
 
     return scores, result
+
 
 # remove SEABORN
 # def plot_confidence_scores(all_scores):
