@@ -1,41 +1,42 @@
-import numpy as np
-import scipy
-import pandas as pd
-import dgl
-import torch
-import graphistry
-from dirty_cat import SimilarityEncoder, TargetEncoder, MinHashEncoder, GapEncoder
-from dirty_cat import SuperVectorizer
-
-from sklearn.manifold import MDS
-from sklearn.neighbors import NearestNeighbors
-from sklearn.inspection import permutation_importance
-from sklearn.model_selection import cross_val_score
-from scipy.sparse import coo_matrix
-
-import seaborn as sb
-import matplotlib.pyplot as plt
-from time import time
 from collections import Counter
-
-from ml import constants as config
-
+from time import time
 import logging
 
-logger = logging.getLogger(__name__)
-FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
-logging.basicConfig(format=FORMAT)
-logger.setLevel(logging.DEBUG)
+# TODO cugraph not installing properly in virt env locally...
+#import cugraph
+import dgl
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import scipy
+
+import torch
+from dirty_cat import SuperVectorizer, SimilarityEncoder, TargetEncoder, MinHashEncoder, GapEncoder
+from sklearn.inspection import permutation_importance
+from sklearn.manifold import MDS
+from sklearn.model_selection import cross_val_score
+from sklearn.neighbors import NearestNeighbors
+
+import graphistry
+from ml import constants as config
 
 
 encoders_dirty = {
     "similarity": SimilarityEncoder(similarity="ngram"),
     "target": TargetEncoder(handle_unknown="ignore"),
-    "minhash": MinHashEncoder(n_components=100),
-    "gap": GapEncoder(n_components=100),
+    "minhash": MinHashEncoder(n_components=config.N_HASHERS_DEFAULT),
+    "gap": GapEncoder(n_components=config.N_TOPICS_DEFAULT),
     "super": SuperVectorizer(auto_cast=True),
 }
 
+def setup_logger(name):
+    logger = logging.getLogger(name)
+    FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
+    logging.basicConfig(format=FORMAT)
+    logger.setLevel(logging.DEBUG)
+    return logger
+
+logger = setup_logger(__name__)
 
 def estimate_encoding_time(df, y):
     # TODO
@@ -136,9 +137,8 @@ def search_to_df(word, col, df):
     :returns
         DataFrame of results
     """
-    word = word.lower()
     try:
-        res = df[df[col].apply(lambda x: word in str(x).lower())]
+        res = df[df[col].str.contains(word, case=False)]
     except TypeError as e:
         logger.error(e)
         return df
@@ -282,14 +282,14 @@ def reindex_edgelist(df, src, dst):
     return df, ordered_nodes_dict
 
 
-def pandas2dgl(df, src, dst, weight_col=None, device="cpu"):
-    """Turns an edge DataFrame with named src and dst nodes, to DGL graph
-    :eg
-        g, sp_mat, ordered_nodes_dict = pandas2dgl(df, 'to_node', 'from_node')
-    :returns
-        g: dgl graph
-        sp_mat: sparse scipy matrix
-        ordered_nodes_dict: dict ordered from most common src and dst nodes
+def pandas_to_sparse_adjacency(df, src, dst, weight_col):
+    """
+        Takes a Pandas Dataframe and named src and dst columns into a sparse adjacency matrix
+    :param df:
+    :param src:
+    :param dst:
+    :param weight_col:
+    :return:
     """
     # use scipy sparse to encode matrix
     from scipy.sparse import coo_matrix
@@ -304,10 +304,39 @@ def pandas2dgl(df, src, dst, weight_col=None, device="cpu"):
     sp_mat = coo_matrix(
         (eweight, (df[config.SRC], df[config.DST])), shape=(shape, shape)
     )
+    return sp_mat, ordered_nodes_dict
 
+
+def pandas_to_dgl_graph(df, src, dst, weight_col=None, device="cpu"):
+    """Turns an edge DataFrame with named src and dst nodes, to DGL graph
+    :eg
+        g, sp_mat, ordered_nodes_dict = pandas2dgl(df, 'to_node', 'from_node')
+    :returns
+        g: dgl graph
+        sp_mat: sparse scipy matrix
+        ordered_nodes_dict: dict ordered from most common src and dst nodes
+    """
+    sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
+    
     g = dgl.from_scipy(sp_mat, device=device)  # there are other ways too, like
-    logger.info(f"Graph Type: {type(g)}")  # why is this making a heterograph???
+    logger.info(f"Graph Type: {type(g)}")  # why is this making a heterograph?
+    
     return g, sp_mat, ordered_nodes_dict
+
+
+# def pandas_to_cugraph(df, src, dst, weight_col=None):
+#     """ CuGraph uses graph algorithms stored in GPU DataFrames, NetworkX Graphs, or even CuPy or SciPy sparse Matrices
+#
+#     :param df: A DataFrame that contains edge information
+#     :param src: source column name or array of column names
+#     :param dst: destination column name or array of column names
+#     :param weight_col: the weights column name. Default is None
+#     :return: cugraph.Graph object
+#     """
+#     G = cugraph.Graph()
+#     G.from_pandas_edgelist(df, source=src, destination =dst,  edge_attrs = weight_col)
+#     logger.info(f"Graph Type: {type(G)}")
+#     return G
 
 
 # #################################################################################################
@@ -315,29 +344,38 @@ def pandas2dgl(df, src, dst, weight_col=None, device="cpu"):
 #   Fitting simple model pipelines
 #
 # #################################################################################################
-def fit_pipeline(pipeline, X, y):
-    scores = cross_val_score(pipeline, X, y, scoring="r2")
 
-    print(f"scores={scores}")
-    print(f"mean={np.mean(scores)}")
-    print(f"std={np.std(scores)}")
 
-    print("Calculating Permutation Feature Importance")
+def fit_pipeline(pipeline, X, y, scoring="r2"):
+    """
+        Standard Sklearn pipeline fitting method using cross validation
+    :param pipeline:
+    :param X:
+    :param y:
+    :return:
+    """
+    scores = cross_val_score(pipeline, X, y, scoring=scoring)
+
+    logger.info(f"scores={scores}")
+    logger.info(f"mean={np.mean(scores)}")
+    logger.info(f"std={np.std(scores)}")
+
+    logger.info("Calculating Permutation Feature Importance")
     result = permutation_importance(pipeline, X, y, n_repeats=10, random_state=0)
-    imean = result.importances_mean
-    istd = result.importances_std
+    # imean = result.importances_mean
+    # istd = result.importances_std
 
     return scores, result
 
-
-def plot_confidence_scores(all_scores):
-    # all_scores is a list of sklearn cross validation scores
-    plt.figure(figsize=(4, 3))
-    ax = sb.boxplot(data=pd.DataFrame(all_scores), orient="h")
-    plt.ylabel("Encoding", size=20)
-    plt.xlabel("Prediction accuracy     ", size=20)
-    plt.yticks(size=20)
-    plt.tight_layout()
+# remove SEABORN
+# def plot_confidence_scores(all_scores):
+#     # all_scores is a list of sklearn cross validation scores
+#     plt.figure(figsize=(4, 3))
+#     ax = sb.boxplot(data=pd.DataFrame(all_scores), orient="h")
+#     plt.ylabel("Encoding", size=20)
+#     plt.xlabel("Prediction accuracy     ", size=20)
+#     plt.yticks(size=20)
+#     plt.tight_layout()
 
 
 def plot_feature_importances(importances, feature_names, n=20):

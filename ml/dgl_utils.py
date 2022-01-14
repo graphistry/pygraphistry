@@ -1,27 +1,14 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
-import pandas as pd
-import dgl
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import umap
 import numpy as np
+import pandas as pd
+import torch
 
-from ml.utils import pandas2dgl
-from ml.utils import process_dirty_dataframes
 from ml import constants as config
-
-import logging
-
-logger = logging.getLogger(__name__)
-FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
-logging.basicConfig(format=FORMAT)
-logger.setLevel(logging.DEBUG)
+from ml.utils import pandas_to_dgl_graph, process_dirty_dataframes, setup_logger
+from ml.umap_utils import baseUmap, umap_kwargs_euclidean
 
 
-# ndata_fields = ['feature', 'label', 'train_mask', 'test_mask', 'validation_mask']
-# edata_fields = ['feature', 'relationship', 'train_mask', 'test_mask', 'validation_mask']
-
+logger = setup_logger(__name__)
 
 def get_vectorizer(name):
     if type(name) != str:
@@ -39,14 +26,44 @@ def get_vectorizer(name):
 
 
 def get_dataframe_for_target(target, df, name):
+    """
+        Might be doing too much -- general idea is to be able to pass in a target as column and select it from df, while returning a new dataframe with target as column
+        Likewise, if target is already a series, then return a dataframe with column 'name'
+        if target is already a dataframe, send it through without modification
+        
+        usage examples:
+            -- target_dataframe = get_dataframe_for_target('some_col', df, '..')
+            -- target_dataframe = get_dataframe_for_target(pd.target_df, df, '..')
+            -- target_dataframe = get_dataframe_for_target(pd.Series, df, column_name)
+        
+    :param target: str, series, or dataframe
+    :param df: aux dataframe to use if target is a string
+    :param name: useful for when target is a series, it will become the column name of the returned dataframe
+    :return: dataframe
+    """
     if type(target) == str:
+        # get the target from the dataframe
         logger.info(f"Returning {name}-target {target} as DataFrame")
         return pd.DataFrame({target: df[target].values}, index=df.index)
-    logger.info(f"Returning {name}-target as itself")
-    return target
+    if type(target) == pd.core.series.Series:
+        # use `name` as column header
+        logger.info(f"Returning target as DataFrame with column {name}")
+        return pd.DataFrame({name: target}, index=target.index)
+    if type(target) == pd.core.frame.DataFrame:
+        logger.info(f"Returning {name}-target as itself")
+        return target
+    logger.warning(f"Returning `None` for target")
+    return
 
 
 def check_target_not_in_features(df, y, remove=True):
+    """
+    
+    :param df: model dataframe
+    :param y: target dataframe
+    :param remove: whether to remove columns from df, default True
+    :return: dataframes of model and target
+    """
     if y is None:
         return df, y
     remove_cols = []
@@ -65,26 +82,31 @@ def check_target_not_in_features(df, y, remove=True):
     return df, y
 
 
-def featurization(df, y, vectorizer, remove=True):
+def featurize_to_torch(df, y, vectorizer, remove=True):
+    """
+        Vectorize pandas DataFrames of model and target features into Torch compatible tensors
+    :param df: DataFrame of model features
+    :param y: DataFrame of target features
+    :param vectorizer: must impliment (X, y) encoding and output (X_enc, y_enc, sup_vec, sup_label)
+    :param remove: whether to remove target from df
+    :return:
+        data: dict of {feature, target} encodings
+        encoders: dict of {feature, target} encoding objects (which store vocabularity and column information)
+    """
     df, y = check_target_not_in_features(df, y, remove=remove)
     X_enc, y_enc, sup_vec, sup_label = vectorizer(df, y)
     if y_enc is not None:
-        y_enc = torch.tensor(y_enc.values)
-        data = {config.FEATURE: torch.tensor(X_enc.values), config.TARGET: y_enc}
+        data = {config.FEATURE: torch.tensor(X_enc.values),
+                config.TARGET: torch.tensor(y_enc.values)
+                }
     else:
         data = {config.FEATURE: torch.tensor(X_enc.values)}
     encoders = {config.FEATURE: sup_vec, config.TARGET: sup_label}
     return data, encoders
 
 
-def scatterplot(ux, color_labels=None):
-    import matplotlib.pyplot as plt
 
-    plt.figure(figsize=(10, 8))
-    plt.scatter(ux.T[0], ux.T[1], c=color_labels, s=100, alpha=0.4)
-
-
-class BaseDGLGraphFromPandas:
+class BaseDGLGraphFromPandas(baseUmap):
     def __init__(
         self,
         ndf,
@@ -97,6 +119,7 @@ class BaseDGLGraphFromPandas:
         weight_col=None,
         use_node_label_as_feature=False,
         vectorizer=process_dirty_dataframes,
+        umap_kwargs = umap_kwargs_euclidean,
         device="cpu",
     ):
         """
@@ -126,8 +149,11 @@ class BaseDGLGraphFromPandas:
         self.weight_col = weight_col
         self.use_node_label_as_feature = use_node_label_as_feature
         self.vectorizer = get_vectorizer(vectorizer)
-        self._umapper = umap.UMAP()
         self.device = device
+        self._has_node_features = False
+        self._has_edge_features = False
+        super().__init__(**umap_kwargs)
+
 
     def _remove_edges_not_in_nodes(self):
         # need to do this so we get the correct ndata size ...
@@ -146,7 +172,7 @@ class BaseDGLGraphFromPandas:
         # recall that the adjacency is the graph itself, and really shouldn't be a node style feature (redundant),
         # but certainly can be
         self._remove_edges_not_in_nodes()
-        self.graph, self.adjacency, self.entity_to_index = pandas2dgl(
+        self.graph, self.adjacency, self.entity_to_index = pandas_to_dgl_graph(
             self.edf, self.src, self.dst, weight_col=self.weight_col, device=self.device
         )
         self.index_to_entity = {k: v for v, k in self.entity_to_index.items()}
@@ -159,12 +185,10 @@ class BaseDGLGraphFromPandas:
         logger.info(
             f"{len(nodes)} entities from column {self.node}\n with {len(unique_nodes)} unique entities"
         )
-        if len(nodes) != len(unique_nodes):  # why would this be so?
+        if len(nodes) != len(unique_nodes):  # why would this be so? Oh might be so for logs data...oof
             logger.warning(
                 f"Nodes DataFrame has duplicate entries for column {self.node}"
             )
-            # logger.warning(f'** Dropping duplicates in {self.node} and reassigning to self.ndf')
-            # self.ndf = self.ndf.drop_duplicates(subset=[self.node])  # this might do damage to the representation
         # now check that self.entity_to_index is in 1-1 to with self.ndf[self.node]
         nodes = self.ndf[self.node]
         res = nodes.isin(self.entity_to_index)
@@ -188,17 +212,22 @@ class BaseDGLGraphFromPandas:
                 f"or under dirty_cat would mix rows with similar names, which seems odd"
             )
             ndf = ndf.drop(columns=[self.node])
-        ndata, node_encoders = featurization(ndf, self.node_target, self.vectorizer)
-        self.ndata = ndata
+        ndata, node_encoders = featurize_to_torch(ndf, self.node_target, self.vectorizer)
+        # add ndata to the graph
+        self.graph.ndata.update(ndata)
         self.node_encoders = node_encoders
+        self._has_node_features = True
 
     def _edge_featurization(self):
         logger.info("Running Edge Featurization")
-        edata, edge_encoders = featurization(
+        edata, edge_encoders = featurize_to_torch(
             self.edf, self.edge_target, self.vectorizer
         )
-        self.edata = edata
+        # add edata to the graph
+        self.graph.edata.update(edata)
         self.edge_encoders = edge_encoders
+        self._has_edge_features = True
+
 
     def build_simple_graph(self):
         self._convert_edgeDF_to_DGL()
@@ -207,36 +236,33 @@ class BaseDGLGraphFromPandas:
         # here we make node and edge features and add them to the DGL graph instance self.graph
         if not hasattr(self, "graph"):
             self._convert_edgeDF_to_DGL()
-        if not hasattr(self, "ndata"):
+        if not self._has_node_features:
             self._node_featurization()
-            # first add the ndata
-            self.graph.ndata.update(self.ndata)
-        if not hasattr(self, "edata"):
+        if not self._has_edge_features:
             self._edge_featurization()
-            # then add any edata
-            self.graph.edata.update(self.edata)
-
-    def umap(self, scale=False, show=False, color_labels=None):
+        self.umap()
+        
+        
+    def umap(self, scale=False):
         if hasattr(self, "graph"):
-            # y_node = None
-            # if config.TARGET in self.graph.ndata:
-            #     y_node = np.array(self.graph.ndata[config.TARGET])
+            y_node = None
+            if config.TARGET in self.graph.ndata:
+                y_node = np.array(self.graph.ndata[config.TARGET])  # umap only works on (N, 1) targets....too bad
             if config.FEATURE in self.graph.ndata:
                 # take it out of a torch Tensor by wrapping it as ndarray
                 X_node = np.array(self.graph.ndata[config.FEATURE])
                 if scale:
-                    logger.info(f"Zscaling matrix")
+                    logger.info(f"Z-scaling matrix")
                     X_node = (X_node - X_node.mean(0)) / X_node.std(0)
                 logger.info(f"Fitting Umap over matrix of size {X_node.shape}")
-                # res = self._umapper.fit_transform(X_node, y_node)
-                res = self._umapper.fit_transform(X_node)
-                self._embedding = res
-                if show:
-                    scatterplot(res, color_labels=color_labels)
+                res = self.fit_transform(X_node, y_node)
+                self.embedding_ = res
         else:
-            logger.info(f"There are no Node Level embeddings to fit Umap over")
+            logger.info(f"There are no node Level embeddings to fit Umap over")
 
         # TODO add Edge Embedding
+
+
 
 
 # ToDo
