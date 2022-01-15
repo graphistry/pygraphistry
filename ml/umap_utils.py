@@ -20,10 +20,11 @@ umap_kwargs_euclidean = {
 }
 
 
-class baseUmap:
+class baseUmap(umap.UMAP):
     def __init__(self, **kwargs):
-        self._reducer = umap.UMAP(**kwargs)
-
+        self._is_fit = False
+        super().__init__(**kwargs)
+        
     def _check_target_is_one_dimensional(self, y):
         if y is None:
             return None
@@ -37,28 +38,44 @@ class baseUmap:
 
     def fit(self, X, y=None):
         y = self._check_target_is_one_dimensional(y)
-        self.reducer = self._reducer.fit(X, y)
+        super().fit(X, y)
+        self._is_fit = True
         self._edge_influence()
-
-    def transform(self, X):
-        # After it is fit with y, transform doesn't use y
-        return self.reducer.transform(X)
+        return self
 
     def fit_transform(self, X, y=None):
         self.fit(X, y)
         return self.transform(X)
 
     def _edge_influence(self):
-        if hasattr(self, "reducer"):
-            coo = self.reducer.graph_.tocoo()
+        if self._is_fit:
+            logger.debug("Calculating weighted adjacency edge DataFrame")
+            coo = self.graph_.tocoo()
             src, dst, weight_col = config.SRC, config.DST, config.WEIGHT
 
             self.weighted_edges_df = pd.DataFrame(
                 {src: coo.row, dst: coo.col, weight_col: coo.data}
             )
+            
             (
                 self.weighted_adjacency,
                 self.umap_entity_to_index,
             ) = pandas_to_sparse_adjacency(self.weighted_edges_df, src, dst, weight_col)
         else:
             logger.warning("Must call `fit(X, y)` first")
+            
+    # def _plot_umap(self, labels=None):
+    #     """
+    #         Plot standard Umap
+    #     :param labels:
+    #     :return:
+    #     """
+    #     umap.plot.points(self.mapper, labels=labels,  color_key_cmap='Paired', background='black')
+    
+
+class graphisryUMAP(baseUmap):
+    
+    def __init__(self, g):
+        pass
+    
+    

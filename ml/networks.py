@@ -1,7 +1,9 @@
+import dgl
 import dgl.nn as dglnn
 import torch.nn as nn
 import torch.nn.functional as F
 
+import ml.constants as config
 
 class GCN(nn.Module):
     def __init__(self, in_feats, h_feats, num_classes):
@@ -45,3 +47,21 @@ class RGCN(nn.Module):
         h = {k: F.relu(v) for k, v in h.items()}
         h = self.conv2(graph, h)
         return h
+
+
+class HeteroClassifier(nn.Module):
+    def __init__(self, in_dim, hidden_dim, n_classes, rel_names):
+        super().__init__()
+        self.rgcn = RGCN(in_dim, hidden_dim, hidden_dim, rel_names)
+        self.classify = nn.Linear(hidden_dim, n_classes)
+
+    def forward(self, g):
+        h = g.ndata[config.FEATURE]
+        h = self.rgcn(g, h)
+        with g.local_scope(): # create a local scope to hold onto hidden layer 'h'
+            g.ndata['h'] = h
+            # Calculate graph representation by average readout.
+            hg = 0
+            for ntype in g.ntypes:
+                hg = hg + dgl.mean_nodes(g, 'h', ntype=ntype)
+            return self.classify(hg)

@@ -9,6 +9,12 @@ WEIGHT = "_weight"
 FEATURE = "feature"
 TARGET = "target"
 LABEL = "label"
+LABEL_NODES ='node_label'
+LABEL_EDGES ='edge_label'
+
+TRAIN_MASK = 'train_mask'
+TEST_MASK = 'test_mask'
+
 
 # ###############################
 # for preprocessors namespace
