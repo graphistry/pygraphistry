@@ -54,7 +54,7 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
   import graphistry
   graphistry.register(api=3, username='abc', password='xyz', org_name='my-org') # Free: hub.graphistry.com, login to specific organization with name 'my-org'
 
-  graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com, login to user's default organization 
+  graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com, login to user's default organization (can be set from UI)
 
   #graphistry.register(..., protocol='http', server='my.site.ngo')  # Private
   
