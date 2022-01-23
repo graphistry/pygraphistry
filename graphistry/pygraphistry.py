@@ -338,10 +338,9 @@ class PyGraphistry(object):
                 ::
 
                     import graphistry
-                    graphistry.register(api=3, protocol='http', server='200.1.1.1', username='person', password='pwd', org_name="org-slug")
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', username='person', password='pwd', org_name="org-name")
 
-
-        **Example: Standard (2.0 api by username/password)**
+        **Example: Standard (2.0 api by username/password) without org_name**
                 ::
 
                     import graphistry
