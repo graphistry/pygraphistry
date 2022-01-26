@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 import ml.constants as config
 
+
 class GCN(nn.Module):
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
@@ -58,10 +59,10 @@ class HeteroClassifier(nn.Module):
     def forward(self, g):
         h = g.ndata[config.FEATURE]
         h = self.rgcn(g, h)
-        with g.local_scope(): # create a local scope to hold onto hidden layer 'h'
-            g.ndata['h'] = h
+        with g.local_scope():  # create a local scope to hold onto hidden layer 'h'
+            g.ndata["h"] = h
             # Calculate graph representation by average readout.
             hg = 0
             for ntype in g.ntypes:
-                hg = hg + dgl.mean_nodes(g, 'h', ntype=ntype)
+                hg = hg + dgl.mean_nodes(g, "h", ntype=ntype)
             return self.classify(hg)

@@ -5,15 +5,16 @@ DST = "_dst"
 WEIGHT = "_weight"
 
 # #############################
-# consistent clf pipelining
+# consistent clf pipelining and constructor methods across files
+GRAPH = "graph"
 FEATURE = "feature"
 TARGET = "target"
 LABEL = "label"
-LABEL_NODES ='node_label'
-LABEL_EDGES ='edge_label'
+LABEL_NODES = "node_label"
+LABEL_EDGES = "edge_label"
 
-TRAIN_MASK = 'train_mask'
-TEST_MASK = 'test_mask'
+TRAIN_MASK = "train_mask"
+TEST_MASK = "test_mask"
 
 
 # ###############################

@@ -1,4 +1,7 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
+from typing import List, Dict, Callable, Union, Any
+
+
 import dgl
 import torch
 import numpy as np
@@ -15,11 +18,13 @@ from ml.utils import pandas_to_sparse_adjacency, setup_logger
 logger = setup_logger(__name__)
 
 
-dgl_kwargs = dict(name='Graphistry', reverse=True, raw_dir=None, force_reload=False, verbose=True)
+dgl_kwargs = dict(
+    name="Graphistry", reverse=True, raw_dir=None, force_reload=False, verbose=True
+)
 # https://stackoverflow.com/questions/51164663/inheriting-from-classes-with-and-without-kwargs
 
 
-def get_vectorizer(name):
+def get_vectorizer(name: Union[str, Any]):
     if type(name) != str:
         logger.info(f"Returning {type(name)} vectorizer")
         return name
@@ -34,7 +39,7 @@ def get_vectorizer(name):
     return
 
 
-#FIXME this is not correct or robust enough
+# FIXME this is not correct or robust enough
 def get_dataframe_for_target(target, df, name):
     """
         Might be doing too much -- general idea is to be able to pass in a target as column and select it from df, while returning a new dataframe with target as column
@@ -83,7 +88,13 @@ def pandas_to_dgl_graph(df, src, dst, weight_col=None, device="cpu"):
     return g, sp_mat, ordered_nodes_dict
 
 
-def get_torch_train_test_mask(n, ratio):
+def get_torch_train_test_mask(n: int, ratio: float = 0.8):
+    """
+        Generates random torch tensor mask
+    :param n:
+    :param ratio:
+    :return:
+    """
     train_mask = torch.zeros(n, dtype=torch.bool).bernoulli(ratio)
     test_mask = ~train_mask
     return train_mask, test_mask
@@ -92,18 +103,18 @@ def get_torch_train_test_mask(n, ratio):
 class BaseDGLGraphFromPandas(baseUmap):
     def __init__(
         self,
-        ndf,
-        edf,
-        src,
-        dst,
-        node_column,
-        node_target=None,
-        edge_target=None,
-        weight_col=None,
-        use_node_label_as_feature=False,
+        ndf: pd.DataFrame,
+        edf: pd.DataFrame,
+        src: str,
+        dst: str,
+        node_column: str,
+        node_target: Union[str, None] = None,
+        edge_target: Union[str, None] = None,
+        weight_col: Union[str, None] = None,
+        use_node_label_as_feature: bool = False,
         vectorizer=process_dirty_dataframes,
-        train_split = 0.8,
-        dgl_kwargs = dgl_kwargs,
+        train_split=0.8,
+        dgl_kwargs=dgl_kwargs,
         umap_kwargs=umap_kwargs_euclidean,
         device="cpu",
     ):
@@ -138,10 +149,10 @@ class BaseDGLGraphFromPandas(baseUmap):
         self.device = device
         self._has_node_features = False
         self._has_edge_features = False
-        super(BaseDGLGraphFromPandas, self).__init__(**umap_kwargs)#, **dgl_kwargs)
+        super(BaseDGLGraphFromPandas, self).__init__(**umap_kwargs)  # , **dgl_kwargs)
 
-        #baseUmap.__init__(self, **umap_kwargs)
-        #DGLDataset.__init__(self, **dgl_kwargs)
+        # baseUmap.__init__(self, **umap_kwargs)
+        # DGLDataset.__init__(self, **dgl_kwargs)
 
     def _remove_edges_not_in_nodes(self):
         # need to do this so we get the correct ndata size ...
@@ -178,7 +189,7 @@ class BaseDGLGraphFromPandas(baseUmap):
             logger.warning(
                 f"There are more entities in edges DataFrame (edf) than in nodes DataFrame (ndf)"
             )
-            
+
     def _convert_edgeDF_to_DGL(self):
         logger.info("converting edge DataFrame to DGL")
         # recall that the adjacency is the graph itself, and really shouldn't be a node style feature (redundant),
@@ -220,7 +231,6 @@ class BaseDGLGraphFromPandas(baseUmap):
         self.graph.edata.update(edata)
         self.edge_encoders = edge_encoders
         self._has_edge_features = True
-        ## add mask splits here
         self._mask_edges()
 
     def build_simple_graph(self):
@@ -229,43 +239,48 @@ class BaseDGLGraphFromPandas(baseUmap):
 
     def embeddings(self):
         # here we make node and edge features and add them to the DGL graph instance self.graph
-        if not hasattr(self, "graph"):
+        if not hasattr(self, config.GRAPH):
             self._convert_edgeDF_to_DGL()
         if not self._has_node_features:
             self._node_featurization()
         if not self._has_edge_features:
             self._edge_featurization()
         self.umap()
-    
+
     def _mask_nodes(self):
         if config.FEATURE in self.graph.ndata:
             n = self.graph.ndata[config.FEATURE].shape[0]
-            self.graph.ndata[config.TRAIN_MASK], self.graph.ndata[config.TEST_MASK] = \
-                get_torch_train_test_mask(n, self.train_split)
-    
+            (
+                self.graph.ndata[config.TRAIN_MASK],
+                self.graph.ndata[config.TEST_MASK],
+            ) = get_torch_train_test_mask(n, self.train_split)
+
     def _mask_edges(self):
         if config.FEATURE in self.graph.edata:
             n = self.graph.edata[config.FEATURE].shape[0]
-            self.graph.edata[config.TRAIN_MASK], self.graph.edata[config.TEST_MASK] = \
-                get_torch_train_test_mask(n, self.train_split)
-        
+            (
+                self.graph.edata[config.TRAIN_MASK],
+                self.graph.edata[config.TEST_MASK],
+            ) = get_torch_train_test_mask(n, self.train_split)
+
     def process(self):
         self.embeddings()
-        self.labels = {config.LABEL_NODES: self.graph.ndata[config.TARGET],
-                       config.LABEL_EDGES: self.graph.edata[config.TARGET]}
-        
+        self.labels = {
+            config.LABEL_NODES: self.graph.ndata[config.TARGET],
+            config.LABEL_EDGES: self.graph.edata[config.TARGET],
+        }
+
     def __getitem__(self, idx):
         # get one example by index
-        idx = 1 #only one graph here
+        idx = 1  # only one graph here
         return self.graph, self.labels
-        
 
     def __len__(self):
         # number of data examples
         return 1
 
     def umap(self, scale=False):
-        if hasattr(self, "graph"):
+        if hasattr(self, config.GRAPH):
             y_node = None
             if config.TARGET in self.graph.ndata:
                 y_node = np.array(
@@ -287,12 +302,10 @@ class BaseDGLGraphFromPandas(baseUmap):
 
 # ToDo
 class DGLGraphFromGraphistry(BaseDGLGraphFromPandas):
-
     def __init__(self, g: Plottable, **kwargs):
         self.g = g
         self._convert_graphistry_to_df()
         super().__init__(**kwargs)
-
 
     def _convert_graphistry_to_df(self):
         g = self.g
@@ -300,7 +313,3 @@ class DGLGraphFromGraphistry(BaseDGLGraphFromPandas):
         edf = g._edges
         src = g._source
         dst = g._destination
-        
-        
-        
-        

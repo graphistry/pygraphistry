@@ -36,8 +36,6 @@ def estimate_encoding_time(df, y):
     pass
 
 
-
-
 # #################################################################################################
 #
 #   Finding subgraphs within a large graph.
@@ -195,7 +193,9 @@ def reindex_edgelist(df, src, dst):
     """
     srclist = df[src]
     dstlist = df[dst]
-    cnt = Counter(pd.concat([srclist, dstlist], axis=0))  # can also use pd.Factorize but doesn't order by count, which is satisfyiing
+    cnt = Counter(
+        pd.concat([srclist, dstlist], axis=0)
+    )  # can also use pd.Factorize but doesn't order by count, which is satisfyiing
     ordered_nodes_dict = {k: i for i, (k, c) in enumerate(cnt.most_common())}
     df[config.SRC] = df[src].apply(lambda x: ordered_nodes_dict[x])
     df[config.DST] = df[dst].apply(lambda x: ordered_nodes_dict[x])
@@ -225,8 +225,6 @@ def pandas_to_sparse_adjacency(df, src, dst, weight_col):
         (eweight, (df[config.SRC], df[config.DST])), shape=(shape, shape)
     )
     return sp_mat, ordered_nodes_dict
-
-
 
 
 # def pandas_to_cugraph(df, src, dst, weight_col=None):
