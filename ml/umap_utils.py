@@ -3,28 +3,31 @@ import pandas as pd
 import umap
 
 import ml.constants as config
-from ml.utils import setup_logger, pandas_to_sparse_adjacency
+from ml.utils import setup_logger
 
 logger = setup_logger(__name__)
 
 umap_kwargs_probs = {
     "n_components": 2,
-    "metric": "hellinger",
+    "metric": "hellinger",  # info metric
     "n_neighbors": 15,
-    "min_dist": 0.1
+    "min_dist": 0.1,
 }
 
 umap_kwargs_euclidean = {
     "n_components": 2,
     "metric": "euclidean",
-    "n_neighbors": 7,
-    "min_dist": 0.1
+    "n_neighbors": 12,
+    "min_dist": 0.1,
 }
 
 
-class baseUmap(umap.UMAP):
+class BaseUMAPMixin(umap.UMAP):
     def __init__(self, **kwargs):
         self._is_fit = False
+        super().__init__(**kwargs)
+
+    def _set_new_kwargs(self, **kwargs):
         super().__init__(**kwargs)
 
     def _check_target_is_one_dimensional(self, y):
@@ -61,10 +64,6 @@ class baseUmap(umap.UMAP):
                 {src: coo.row, dst: coo.col, weight_col: coo.data}
             )
 
-            (
-                self._weighted_adjacency,
-                self._umap_entity_to_index,
-            ) = pandas_to_sparse_adjacency(self._weighted_edges_df, src, dst, weight_col)
+            self._weighted_adjacency = self.graph_
         else:
             logger.warning("Must call `fit(X, y)` first")
-

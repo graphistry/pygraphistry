@@ -3,6 +3,8 @@
 SRC = "_src"
 DST = "_dst"
 WEIGHT = "_weight"
+_X = "_x"
+_Y = "_y"
 
 # #############################
 # consistent clf pipelining and constructor methods across files
@@ -24,5 +26,5 @@ DIRTY_CAT = "dirty_cat"
 N_TOPICS_DEFAULT = 42
 N_HASHERS_DEFAULT = 100
 
-#   scikit-learn params
+# scikit-learn params
 SKLEARN = "sklearn"

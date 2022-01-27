@@ -11,8 +11,8 @@ from dgl.data import DGLDataset
 from graphistry import Plottable
 
 from ml import constants as config
-from ml.feature_utils import featurize_to_torch, process_dirty_dataframes
-from ml.umap_utils import baseUmap, umap_kwargs_euclidean
+from ml.feature_utils import featurize_to_torch, process_node_dataframes
+from ml.umap_utils import BaseUMAPMixin, umap_kwargs_euclidean
 from ml.utils import pandas_to_sparse_adjacency, setup_logger
 
 logger = setup_logger(__name__)
@@ -29,7 +29,7 @@ def get_vectorizer(name: Union[str, Any]):
         logger.info(f"Returning {type(name)} vectorizer")
         return name
     if name == config.DIRTY_CAT:
-        return process_dirty_dataframes
+        return process_node_dataframes
     if name == config.SKLEARN:
         # TODO
         return
@@ -100,7 +100,7 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     return train_mask, test_mask
 
 
-class BaseDGLGraphFromPandas(baseUmap):
+class BaseDGLGraphFromPandas(BaseUMAPMixin):
     def __init__(
         self,
         ndf: pd.DataFrame,
@@ -112,7 +112,7 @@ class BaseDGLGraphFromPandas(baseUmap):
         edge_target: Union[str, None] = None,
         weight_col: Union[str, None] = None,
         use_node_label_as_feature: bool = False,
-        vectorizer=process_dirty_dataframes,
+        vectorizer=process_node_dataframes,
         train_split=0.8,
         dgl_kwargs=dgl_kwargs,
         umap_kwargs=umap_kwargs_euclidean,
@@ -151,7 +151,7 @@ class BaseDGLGraphFromPandas(baseUmap):
         self._has_edge_features = False
         super(BaseDGLGraphFromPandas, self).__init__(**umap_kwargs)  # , **dgl_kwargs)
 
-        # baseUmap.__init__(self, **umap_kwargs)
+        # BaseUMAPMixin.__init__(self, **umap_kwargs)
         # DGLDataset.__init__(self, **dgl_kwargs)
 
     def _remove_edges_not_in_nodes(self):

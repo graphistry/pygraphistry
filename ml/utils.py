@@ -195,7 +195,7 @@ def reindex_edgelist(df, src, dst):
     dstlist = df[dst]
     cnt = Counter(
         pd.concat([srclist, dstlist], axis=0)
-    )  # can also use pd.Factorize but doesn't order by count, which is satisfyiing
+    )  # can also use pd.Factorize but doesn't order by count, which is satisfying
     ordered_nodes_dict = {k: i for i, (k, c) in enumerate(cnt.most_common())}
     df[config.SRC] = df[src].apply(lambda x: ordered_nodes_dict[x])
     df[config.DST] = df[dst].apply(lambda x: ordered_nodes_dict[x])
