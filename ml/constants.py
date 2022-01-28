@@ -3,8 +3,9 @@
 SRC = "_src"
 DST = "_dst"
 WEIGHT = "_weight"
-_X = "_x"
-_Y = "_y"
+# for UMAP reserved namespace
+X = "_x"
+Y = "_y"
 
 # #############################
 # consistent clf pipelining and constructor methods across files

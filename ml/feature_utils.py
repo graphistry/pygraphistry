@@ -22,6 +22,8 @@ from sklearn.manifold import MDS
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import MultiLabelBinarizer
 
+from sentence_transformers import SentenceTransformer
+
 import ml.constants as config
 from graphistry.plotter import PlotterBase
 from ml.umap_utils import BaseUMAPMixin
@@ -82,7 +84,7 @@ def remove_internal_namespace_if_present(df):
     :return: dataframe with dropped columns in reserved namespace
     """
     # here we drop all _namespace like _x, _y, etc, so that featurization doesn't include them idempotently
-    reserved_namespace = [config._X, config._Y, config.SRC, config.DST, config.WEIGHT]
+    reserved_namespace = [config.X, config.Y, config.SRC, config.DST, config.WEIGHT]
     df = df.drop(columns=reserved_namespace, errors="ignore")
     return df
 
@@ -118,10 +120,65 @@ def featurize_to_torch(df: pd.DataFrame, y: pd.DataFrame, vectorizer, remove=Tru
 # ###############################################################################
 
 
+def check_if_textual_column(df, col, confidence=0.95, min_words=10):
+    isstring = df[col].apply(lambda x: isinstance(x, str))
+    abundance = sum(isstring) / len(df)
+    if abundance > confidence:
+        # now check how many words
+        n_words = df[col].apply(lambda x: len(x.split()))
+        if n_words.mean() > min_words:
+            print(n_words.describe())
+            return True
+        else:
+            return False
+    else:
+        return False
+
+
+def get_textual_columns(df):
+    text_cols = []
+    for col in df.columns:
+        if check_if_textual_column(df, col):
+            text_cols.append(col)
+    return text_cols
+
+
+def process_textual_dataframes(df, y, model_name="paraphrase-MiniLM-L6-v2"):
+    """
+        Automatic Deep Learning Embedding of Textual Features, with the rest taken care of by dirty_cat
+    :param df:
+    :param y:
+    :param concat:
+    :param model_name:
+    :return:
+    """
+    model = SentenceTransformer(model_name)
+
+    text_cols = get_textual_columns(df)
+
+    embeddings = np.zeros((len(df),))  # just a placeholder so we can use np.c_
+    if text_cols:
+        for col in text_cols:
+            logger.info(f"Embedding column `{col}`")
+            emb = model.encode(df[col].values)
+            embeddings = np.c_[embeddings, emb]
+    # now remove the zeros
+    embeddings = embeddings[:, 1:]
+
+    other_df = df.drop(columns=text_cols)
+    X_enc, y_enc, data_encoder, label_encoder = process_node_dataframes(
+        other_df, y, z_scale=False
+    )
+    embeddings = np.c_[embeddings, X_enc.values]
+    embeddings /= embeddings.std(0) + 1
+    return embeddings, y_enc, data_encoder, label_encoder
+
+
 def process_node_dataframes(
     ndf: pd.DataFrame,
     y: pd.DataFrame,
     n_topics: int = config.N_TOPICS_DEFAULT,
+    z_scale: bool = True,
 ):
     """
         Dirty_Cat encoder for node-record level data. Will automatically turn
@@ -129,6 +186,7 @@ def process_node_dataframes(
     :param ndf: node dataframe
     :param y: target dataframe or series
     :param n_topics: number of topics for GapEncoder, default 42
+    :param z_scale: bool, default True.
     :return: Encoded data matrix and target (if not None), the data encoder, and the label encoder.
     """
     t = time()
@@ -139,6 +197,10 @@ def process_node_dataframes(
     y_enc = None
     logger.info("Encoding might take a few minutes --")
     X_enc = data_encoder.fit_transform(ndf, y)
+    if z_scale:
+        #X_enc -= X_enc.mean(0)
+        X_enc /= X_enc.std(0) + 1
+        logger.info(f"Z-Scaling the data")
     logger.info(f"Fitting SuperVectorizer on DATA took {(time()-t)/60:.2f} minutes\n")
 
     all_transformers = data_encoder.transformers
@@ -166,10 +228,11 @@ def process_node_dataframes(
     return X_enc, y_enc, data_encoder, label_encoder
 
 
-def process_edges_dataframe(edf: pd.DataFrame, y: pd.DataFrame, src: str, dst: str):
+def process_edge_dataframes(edf: pd.DataFrame, y: pd.DataFrame, src: str, dst: str):
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
         and then a Dirty_Cat SuperVectorizer that encodes any other data present in edf
+
     :param edf: pandas DataFrame of features
     :param y: pandas DataFrame of labels
     :param src: source column to select in edf
@@ -199,7 +262,7 @@ def process_edges_dataframe(edf: pd.DataFrame, y: pd.DataFrame, src: str, dst: s
         y_enc = pd.DataFrame(y_enc, columns=sup_label.get_feature_names_out())
         logger.info(f"Created an edge target of size {y_enc.shape}")
 
-    # get's us close to `process_dirty_dataframe
+    # get's us close to `process_nodes_dataframe
     # TODO how can I meld mlb and sup_vec??? Difficult as it is not a per column transformer...
     return X_enc, y_enc, [mlb_pairwise_edge_encoder, data_encoder], sup_label
 
@@ -245,7 +308,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         PlotterBase.__init__(self, *args, **kwargs)
         BaseUMAPMixin.__init__(self, *args, **kwargs)
         self._node_featurizer = process_node_dataframes
-        self._edge_featurizer = process_edges_dataframe
+        self._edge_featurizer = process_edge_dataframes
 
     def _featurize_nodes(self, y):
         ndf = self._nodes
@@ -281,7 +344,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         """
             Featurize Nodes or Edges of the Graph.
         :param kind: specify whether to featurize `nodes` or `edges`
-        :param y: Optional Target, default None
+        :param y: Optional Target, default None. If .featurize came with a target, it will use that target.
         :return: self, with new attributes set by the featurization process
         """
         if kind == "nodes":
@@ -298,7 +361,11 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
             if hasattr(self, "node_features"):
                 X = self.node_features
             else:
-                logger.warning("Must call `featurize` or supply a feature matrix X")
+                logger.warning(
+                    "Calling `featurize` to create data matrix X over nodes dataframe"
+                )
+                self._featurize_nodes(y)
+                return self._umap_nodes(X, y)
         if y is None:
             if hasattr(self, "node_target") and self.node_target is not None:
                 y = self.node_target
@@ -310,21 +377,33 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
             if hasattr(self, "edge_features"):
                 X = self.edge_features
             else:
-                logger.warning("Must call `featurize` or supply a feature matrix X")
+                logger.warning(
+                    "Call `featurize` to create data matrix X over edges dataframe"
+                )
+                self._featurize_edges(y)
+                return self._umap_edges(X, y)
         if y is None:
             if hasattr(self, "edge_target") and self.edge_target is not None:
                 y = self.edge_target
         return X, y
 
     def _bind_xy_from_umap(self, xy):
-        if len(xy) != len(self._nodes) or len(xy) != len(self._edges) or xy is None:
+        # binds reduced coordinates
+        if xy is None:
             return
+        if len(xy) != len(self._nodes) or len(xy) != len(self._edges):
+            return
+
         if len(xy) == len(self._nodes):
             df = self._nodes
         elif len(xy) == len(self._edges):
             df = self._edges
-        df[config._X] = xy.T[0]
-        df[config._Y] = xy.T[1]
+        else:
+            return
+
+        df[config.X] = xy.T[0]
+        df[config.Y] = xy.T[1]
+        self.bind(point_x=config.X, point_y=config.Y)
 
     def umap(
         self,
@@ -336,11 +415,13 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
     ):
         """
             UMAP the featurized node or edges data.
-        :param kind: `nodes` or `edges` or None. If None, expects explicit X, y (optional) matrices, and will Not associate them to nodes or edges.
+        :param kind: `nodes` or `edges` or None. If None, expects explicit X, y (optional) matrices, and will Not
+        associate them to nodes or edges.
         :param X: ndarray of features
         :param y: ndarray of targets
         :param engine: selects which engine to use to calculate UMAP: NotImplemented yet, default UMAP-LEARN
-        :param kwargs_umap: UMAP parameters to set on the fly, see ___
+        :param kwargs_umap: UMAP parameters to set on the fly,
+        see (UMAP-LEARN)[https://umap-learn.readthedocs.io/en/latest/parameters.html] documentation
         :return: self, with attributes set with new data
         """
         xy = None
@@ -364,9 +445,9 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
             if X is not None:
                 xy = super().fit_transform(X, y)
                 self._xy = xy
-                logger.info(f"Reduced Coordinates are stored in `_xy`")
+                logger.info(f"Reduced Coordinates are stored in `_xy` attribute")
 
-        self._bind_xy_from_umap(xy)
+        # self._bind_xy_from_umap(xy)
 
         return self
 

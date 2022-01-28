@@ -1,5 +1,6 @@
 # a base class for UMAP to run on cpu or gpu
 import pandas as pd
+import numpy as np
 import umap
 
 import ml.constants as config
@@ -11,7 +12,7 @@ umap_kwargs_probs = {
     "n_components": 2,
     "metric": "hellinger",  # info metric
     "n_neighbors": 15,
-    "min_dist": 0.1,
+    "min_dist": 0.3,
 }
 
 umap_kwargs_euclidean = {
@@ -43,7 +44,7 @@ class BaseUMAPMixin(umap.UMAP):
             )
             return None
 
-    def fit(self, X, y=None):
+    def fit(self, X: np.ndarray, y=None):
         y = self._check_target_is_one_dimensional(y)
         super().fit(X, y)
         self._is_fit = True
