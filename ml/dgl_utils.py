@@ -11,7 +11,7 @@ from dgl.data import DGLDataset
 from graphistry import Plottable
 
 from ml import constants as config
-from ml.feature_utils import featurize_to_torch, process_node_dataframes
+from ml.feature_utils import featurize_to_torch, process_dirty_dataframes
 from ml.umap_utils import BaseUMAPMixin, umap_kwargs_euclidean
 from ml.utils import pandas_to_sparse_adjacency, setup_logger
 
@@ -29,7 +29,7 @@ def get_vectorizer(name: Union[str, Any]):
         logger.info(f"Returning {type(name)} vectorizer")
         return name
     if name == config.DIRTY_CAT:
-        return process_node_dataframes
+        return process_dirty_dataframes
     if name == config.SKLEARN:
         # TODO
         return
@@ -112,7 +112,7 @@ class BaseDGLGraphFromPandas(BaseUMAPMixin):
         edge_target: Union[str, None] = None,
         weight_col: Union[str, None] = None,
         use_node_label_as_feature: bool = False,
-        vectorizer=process_node_dataframes,
+        vectorizer=process_dirty_dataframes,
         train_split=0.8,
         dgl_kwargs=dgl_kwargs,
         umap_kwargs=umap_kwargs_euclidean,

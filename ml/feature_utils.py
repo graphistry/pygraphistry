@@ -1,9 +1,5 @@
 from time import time
-from typing import (
-    List,
-    Union,
-    Dict,
-)
+from typing import List, Union, Dict, Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -120,14 +116,22 @@ def featurize_to_torch(df: pd.DataFrame, y: pd.DataFrame, vectorizer, remove=Tru
 # ###############################################################################
 
 
-def check_if_textual_column(df, col, confidence=0.95, min_words=10):
+def check_if_textual_column(
+    df: pd.DataFrame, col: str, confidence: float = 0.35, min_words: float = 3.5
+) -> bool:
     isstring = df[col].apply(lambda x: isinstance(x, str))
     abundance = sum(isstring) / len(df)
-    if abundance > confidence:
+    assert (
+        min_words > 1
+    ), f"probably best to have at least a word if you want to consider this a textual column?"
+    if abundance >= confidence:
         # now check how many words
-        n_words = df[col].apply(lambda x: len(x.split()))
-        if n_words.mean() > min_words:
-            print(n_words.describe())
+        n_words = df[col].apply(lambda x: len(x.split()) if isinstance(x, str) else 0)
+        mean_n_words = n_words.mean()
+        if mean_n_words >= min_words:
+            logger.info(
+                f"\n\tColumn `{col}` looks textual with mean number of words {mean_n_words:.2f}"
+            )
             return True
         else:
             return False
@@ -135,51 +139,66 @@ def check_if_textual_column(df, col, confidence=0.95, min_words=10):
         return False
 
 
-def get_textual_columns(df):
+def get_textual_columns(df: pd.DataFrame) -> List:
     text_cols = []
     for col in df.columns:
         if check_if_textual_column(df, col):
             text_cols.append(col)
+    if len(text_cols) == 0:
+        logger.info(f'No Textual Columns were found')
     return text_cols
 
 
-def process_textual_dataframes(df, y, model_name="paraphrase-MiniLM-L6-v2"):
+def process_textual_or_other_dataframes(
+    df: pd.DataFrame, y: pd.DataFrame, z_scale: bool = True, model_name: str = "paraphrase-MiniLM-L6-v2"
+) -> Union[pd.DataFrame, Callable]:
     """
         Automatic Deep Learning Embedding of Textual Features, with the rest taken care of by dirty_cat
-    :param df:
-    :param y:
-    :param concat:
-    :param model_name:
+    :param df: pandas dataframe of data
+    :param y: pandas dataframe of targets
+    :param model_name: SentenceTransformer model name. See available list at
+            https://www.sbert.net/docs/pretrained_models.html#sentence-embedding-models
     :return:
     """
     model = SentenceTransformer(model_name)
 
     text_cols = get_textual_columns(df)
-
-    embeddings = np.zeros((len(df),))  # just a placeholder so we can use np.c_
+    embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
     if text_cols:
         for col in text_cols:
-            logger.info(f"Embedding column `{col}`")
+            logger.info(f"Calculating Embeddings for column `{col}`")
             emb = model.encode(df[col].values)
             embeddings = np.c_[embeddings, emb]
-    # now remove the zeros
-    embeddings = embeddings[:, 1:]
 
-    other_df = df.drop(columns=text_cols)
-    X_enc, y_enc, data_encoder, label_encoder = process_node_dataframes(
+    other_df = df.drop(columns=text_cols, errors="ignore")
+    X_enc, y_enc, data_encoder, label_encoder = process_dirty_dataframes(
         other_df, y, z_scale=False
     )
+
+    faux_columns = list(
+        range(embeddings.shape[1] - 1)
+    )  # minus 1 since the first column is just placeholder
+
     embeddings = np.c_[embeddings, X_enc.values]
-    embeddings /= embeddings.std(0) + 1
-    return embeddings, y_enc, data_encoder, label_encoder
+    # now remove the zeros
+    embeddings = embeddings[:, 1:]
+    if z_scale:  # sort of, but don't remove mean
+        embeddings /= embeddings.std(0) + 1
+
+    X_enc = pd.DataFrame(
+        embeddings, columns=faux_columns + data_encoder.get_feature_names_out()
+    )
+
+    return X_enc, y_enc, data_encoder, label_encoder
 
 
-def process_node_dataframes(
+def process_dirty_dataframes(
     ndf: pd.DataFrame,
     y: pd.DataFrame,
+    cardinality_threshold: int = 40,
     n_topics: int = config.N_TOPICS_DEFAULT,
     z_scale: bool = True,
-):
+) -> Union[pd.DataFrame, Callable]:
     """
         Dirty_Cat encoder for node-record level data. Will automatically turn
         inhomogeneous dataframe into matrix using smart conversion tricks.
@@ -191,16 +210,19 @@ def process_node_dataframes(
     """
     t = time()
     data_encoder = SuperVectorizer(
-        auto_cast=True, high_card_cat_transformer=GapEncoder(n_topics)
+        auto_cast=True,
+        cardinality_threshold=cardinality_threshold,
+        high_card_cat_transformer=GapEncoder(n_topics),
     )
     label_encoder = None
     y_enc = None
     logger.info("Encoding might take a few minutes --")
     X_enc = data_encoder.fit_transform(ndf, y)
     if z_scale:
-        #X_enc -= X_enc.mean(0)
+        # X_enc -= X_enc.mean(0)
         X_enc /= X_enc.std(0) + 1
         logger.info(f"Z-Scaling the data")
+
     logger.info(f"Fitting SuperVectorizer on DATA took {(time()-t)/60:.2f} minutes\n")
 
     all_transformers = data_encoder.transformers
@@ -228,7 +250,9 @@ def process_node_dataframes(
     return X_enc, y_enc, data_encoder, label_encoder
 
 
-def process_edge_dataframes(edf: pd.DataFrame, y: pd.DataFrame, src: str, dst: str):
+def process_edge_dataframes(
+    edf: pd.DataFrame, y: pd.DataFrame, src: str, dst: str, z_scale: bool = True
+) -> Union[pd.DataFrame, Callable]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
         and then a Dirty_Cat SuperVectorizer that encodes any other data present in edf
@@ -245,26 +269,24 @@ def process_edge_dataframes(edf: pd.DataFrame, y: pd.DataFrame, src: str, dst: s
     T = mlb_pairwise_edge_encoder.fit_transform(zip(source, destination))
 
     other_df = edf.drop(columns=[src, dst])
-    data_encoder = SuperVectorizer(auto_cast=True)
-    T2 = data_encoder.fit_transform(other_df, y)
+    X_enc, y_enc, data_encoder, label_encoder = process_textual_or_other_dataframes(
+        other_df, y, z_scale=False
+    )
 
     columns = (
         list(mlb_pairwise_edge_encoder.classes_) + data_encoder.get_feature_names_out()
     )
-    T = np.c_[T, T2]
+
+    T = np.c_[T, X_enc.values]
+    if z_scale:
+        T /= T.std(0) + 1
+
     X_enc = pd.DataFrame(T, columns=columns)
     logger.info(f"Created an edge feature matrix of size {T.shape}")
 
-    y_enc, sup_label = None, None
-    if y is not None:
-        sup_label = SuperVectorizer(auto_cast=True)
-        y_enc = sup_label.fit_transform(y)
-        y_enc = pd.DataFrame(y_enc, columns=sup_label.get_feature_names_out())
-        logger.info(f"Created an edge target of size {y_enc.shape}")
-
     # get's us close to `process_nodes_dataframe
     # TODO how can I meld mlb and sup_vec??? Difficult as it is not a per column transformer...
-    return X_enc, y_enc, [mlb_pairwise_edge_encoder, data_encoder], sup_label
+    return X_enc, y_enc, [mlb_pairwise_edge_encoder, data_encoder], label_encoder
 
 
 # #################################################################################
@@ -272,6 +294,22 @@ def process_edge_dataframes(edf: pd.DataFrame, y: pd.DataFrame, src: str, dst: s
 #      Vectorizer Class
 #
 # ###############################################################################
+
+
+def prune_weighted_edges_df(wdf: pd.DataFrame, scale: float = 2.0) -> pd.DataFrame:
+    """
+        Prune the weighted edge dataframe so to return high fidelity similarity scores.
+    :param wdf: weighted edge dataframe gotten via UMAP
+    :param scale: multiplicative scale for pruning weighted edge dataframe gotten from UMAP > (mean + scale * std)
+    :return: pd.DataFrame
+    """
+    # we want to prune edges, so we calculate some statistics
+    desc = wdf.describe()  # TODO, perhaps add Box-Cox transform, etc?
+    mean = desc[config.WEIGHT]["mean"]
+    std = desc[config.WEIGHT]["std"]
+    wdf2 = wdf[wdf[config.WEIGHT] >= mean + scale * std]
+    logger.info(f"Pruning weighted edge dataframe from {len(wdf)} to {len(wdf2)} edges")
+    return wdf2
 
 
 class FeatureMixin(PlotterBase, BaseUMAPMixin):
@@ -307,14 +345,14 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         super().__init__()
         PlotterBase.__init__(self, *args, **kwargs)
         BaseUMAPMixin.__init__(self, *args, **kwargs)
-        self._node_featurizer = process_node_dataframes
+        self._node_featurizer = process_textual_or_other_dataframes
         self._edge_featurizer = process_edge_dataframes
 
-    def _featurize_nodes(self, y):
+    def _featurize_nodes(self, y, use_columns=None):
         ndf = self._nodes
-        ndf, y = check_target_not_in_features(
-            ndf, y, remove=True
-        )  # removes column in ndf if present
+        if use_columns is not None:
+            ndf = ndf[use_columns]
+        ndf, y = check_target_not_in_features(ndf, y, remove=True)
         ndf = remove_internal_namespace_if_present(ndf)
         X_enc, y_enc, data_vec, label_vec = self._node_featurizer(ndf, y)
         self.node_features = X_enc
@@ -322,11 +360,11 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         self.node_encoder = data_vec
         self.node_target_encoder = label_vec
 
-    def _featurize_edges(self, y):
+    def _featurize_edges(self, y, use_columns=None):
         edf = self._edges
-        edf, y = check_target_not_in_features(
-            edf, y, remove=True
-        )  # removes column in edf if present
+        if use_columns is not None:
+            edf = edf[use_columns]
+        edf, y = check_target_not_in_features(edf, y, remove=True)
         edf = remove_internal_namespace_if_present(edf)
         X_enc, y_enc, [mlb, data_vec], label_vec = self._edge_featurizer(
             edf, y, self._source, self._destination
@@ -340,22 +378,26 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         self,
         kind: str = "nodes",
         y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
+        use_columns: Union[None, List] = None,
     ):
         """
             Featurize Nodes or Edges of the Graph.
+
         :param kind: specify whether to featurize `nodes` or `edges`
         :param y: Optional Target, default None. If .featurize came with a target, it will use that target.
+        :param use_columns: Specify which dataframe columns to use for featurization, if any.
         :return: self, with new attributes set by the featurization process
+
         """
         if kind == "nodes":
-            self._featurize_nodes(y)
+            self._featurize_nodes(y, use_columns)
         elif kind == "edges":
-            self._featurize_edges(y)
+            self._featurize_edges(y, use_columns)
         else:
             logger.warning("One may only featurize nodes or edges")
         return self
 
-    def _umap_nodes(self, X, y):
+    def _umap_nodes(self, X, y, use_columns):
         # helper method gets node feature and target matrix if X, y are not specified
         if X is None:
             if hasattr(self, "node_features"):
@@ -364,14 +406,14 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
                 logger.warning(
                     "Calling `featurize` to create data matrix X over nodes dataframe"
                 )
-                self._featurize_nodes(y)
-                return self._umap_nodes(X, y)
+                self._featurize_nodes(y, use_columns)
+                return self._umap_nodes(X, y, use_columns)
         if y is None:
             if hasattr(self, "node_target") and self.node_target is not None:
                 y = self.node_target
         return X, y
 
-    def _umap_edges(self, X, y):
+    def _umap_edges(self, X, y, use_columns):
         # helper method gets edge feature and target matrix if X, y are not specified
         if X is None:
             if hasattr(self, "edge_features"):
@@ -380,8 +422,8 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
                 logger.warning(
                     "Call `featurize` to create data matrix X over edges dataframe"
                 )
-                self._featurize_edges(y)
-                return self._umap_edges(X, y)
+                self._featurize_edges(y, use_columns)
+                return self._umap_edges(X, y, use_columns)
         if y is None:
             if hasattr(self, "edge_target") and self.edge_target is not None:
                 y = self.edge_target
@@ -408,36 +450,58 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
     def umap(
         self,
         kind: str = "nodes",
+        use_columns: Union[List, None] = None,
         X: np.ndarray = None,
         y: np.ndarray = None,
+        scale: float = 2,
+        n_components: int = 2,
+        metric: str = "euclidean",
+        n_neighbors: int = 12,
+        min_dist: float = 0.1,
         engine: str = "umap_learn",
-        **kwargs_umap,
     ):
         """
-            UMAP the featurized node or edges data.
+            UMAP the featurized node or edges data, or pass in your own X, y (optional).
+
         :param kind: `nodes` or `edges` or None. If None, expects explicit X, y (optional) matrices, and will Not
-        associate them to nodes or edges.
+                associate them to nodes or edges. If X, y (optional) is given, with kind = [nodes, edges],
+                it will associate new matrices to nodes or edges attributes.
+        :param use_columns: List of columns to use for featurization if featurization hasn't been applied.
         :param X: ndarray of features
         :param y: ndarray of targets
+        :param scale: multiplicative scale for pruning weighted edge dataframe gotten from UMAP (mean + scale *std)
+        :param n_components: number of components in the UMAP projection, default 2
+        :param metric: UMAP metric, default 'euclidean'. Other useful ones are 'hellinger', '..'
+                see (UMAP-LEARN)[https://umap-learn.readthedocs.io/en/latest/parameters.html] documentation for more.
+        :param n_neighbors: number of nearest neighbors to include for UMAP connectivity, lower makes more compact layouts. Minimum 2.
+        :param min_dist: float between 0 and 1, lower makes more compact layouts.
         :param engine: selects which engine to use to calculate UMAP: NotImplemented yet, default UMAP-LEARN
-        :param kwargs_umap: UMAP parameters to set on the fly,
-        see (UMAP-LEARN)[https://umap-learn.readthedocs.io/en/latest/parameters.html] documentation
         :return: self, with attributes set with new data
         """
         xy = None
-        super()._set_new_kwargs(**kwargs_umap)
+        umap_kwargs = dict(
+            n_components=n_components,
+            metric=metric,
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+        )
+        super()._set_new_kwargs(**umap_kwargs)
         if kind == "nodes":
-            X, y = self._umap_nodes(X, y)
+            X, y = self._umap_nodes(X, y, use_columns)
             xy = super().fit_transform(X, y)
             self.weighted_adjacency_nodes = self._weighted_adjacency
             self.xy_nodes = xy
-            self.weighted_edges_df_from_nodes = self._weighted_edges_df
+            self.weighted_edges_df_from_nodes = prune_weighted_edges_df(
+                self._weighted_edges_df, scale=scale
+            )
         elif kind == "edges":
-            X, y = self._umap_edges(X, y)
+            X, y = self._umap_edges(X, y, use_columns)
             xy = super().fit_transform(X, y)
             self.weighted_adjacency_edges = self._weighted_adjacency
             self.xy_edges = xy
-            self.weighted_edges_df_from_edges = self._weighted_edges_df
+            self.weighted_edges_df_from_edges = prune_weighted_edges_df(
+                self._weighted_edges_df, scale=scale
+            )
         else:
             logger.warning(
                 f"kind should be one of `nodes` or `edges` unless you are passing explicit matrices"
@@ -445,9 +509,16 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
             if X is not None:
                 xy = super().fit_transform(X, y)
                 self._xy = xy
-                logger.info(f"Reduced Coordinates are stored in `_xy` attribute")
+                self._weighted_edges_df = prune_weighted_edges_df(
+                    self._weighted_edges_df, scale=self.scale
+                )
+                logger.info(
+                    f"Reduced Coordinates are stored in `._xy` attribute and "
+                    f"pruned weighted edge df in `._weighted_edges_df` attribute"
+                )
 
-        # self._bind_xy_from_umap(xy)
+        # FIXME
+        # self._bind_xy_from_umap(xy) # doesn't work ...
 
         return self
 
