@@ -53,11 +53,11 @@ nitpick_ignore = [
     ('py:class', 'graphistry.PlotterBase.PlotterBase'),
     ('py:class', 'IGraph graph'),
     ('py:class', 'dgl'),
-    ('py:class', 'matplotlib')
-    ('py:class', 'torch')
-    ('py:class', 'umap')
-    ('py:class', 'seaborn')
-    ('py:class', 'NetworkX graph')
+    ('py:class', 'matplotlib'),
+    ('py:class', 'torch'),
+    ('py:class', 'umap'),
+    ('py:class', 'seaborn'),
+    ('py:class', 'NetworkX graph'),
     ('py:class', 'Pandas dataframe'),
     ('py:class', 'ArrowUploader'),
     ('py:class', 'json.encoder.JSONEncoder'),
