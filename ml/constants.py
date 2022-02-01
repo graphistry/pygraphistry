@@ -9,7 +9,7 @@ Y = "_y"
 
 # #############################
 # consistent clf pipelining and constructor methods across files
-GRAPH = "graph"
+DGL_GRAPH = "DGL_graph"
 FEATURE = "feature"
 TARGET = "target"
 LABEL = "label"

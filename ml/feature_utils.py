@@ -1,5 +1,5 @@
 from time import time
-from typing import List, Union, Dict, Callable
+from typing import List, Union, Dict, Callable, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -50,10 +50,10 @@ def check_target_not_in_features(
 ) -> Union[pd.DataFrame, pd.Series, np.ndarray, List]:
     """
 
-    :param df: model dataframe
-    :param y: target dataframe
+    :param df: model DataFrame
+    :param y: target DataFrame
     :param remove: whether to remove columns from df, default True
-    :return: dataframes of model and target
+    :return: DataFrames of model and target
     """
     if y is None:
         return df, y
@@ -73,31 +73,35 @@ def check_target_not_in_features(
     return df, y  # will just pass through data
 
 
-def remove_internal_namespace_if_present(df):
+def remove_internal_namespace_if_present(df: pd.DataFrame):
     """
-        Some tranformations below add columns to the dataframe, this method removes them before featurization
-    :param df: dataframe
-    :return: dataframe with dropped columns in reserved namespace
+        Some tranformations below add columns to the DataFrame, this method removes them before featurization
+    :param df: DataFrame
+    :return: DataFrame with dropped columns in reserved namespace
     """
     # here we drop all _namespace like _x, _y, etc, so that featurization doesn't include them idempotently
     reserved_namespace = [config.X, config.Y, config.SRC, config.DST, config.WEIGHT]
-    df = df.drop(columns=reserved_namespace, errors="ignore")
+    df = df.drop(columns=reserved_namespace, errors= 'ignore')
+    #logger.info(df.head(3))
     return df
 
 
-def featurize_to_torch(df: pd.DataFrame, y: pd.DataFrame, vectorizer, remove=True):
-    """
-        Vectorize pandas DataFrames of model and target features into Torch compatible tensors
-    :param df: DataFrame of model features
-    :param y: DataFrame of target features
-    :param vectorizer: must impliment (X, y) encoding and output (X_enc, y_enc, sup_vec, sup_label)
-    :param remove: whether to remove target from df
-    :return:
-        data: dict of {feature, target} encodings
-        encoders: dict of {feature, target} encoding objects (which store vocabularity and column information)
-    """
-    df, y = check_target_not_in_features(df, y, remove=remove)
-    X_enc, y_enc, sup_vec, sup_label = vectorizer(df, y)
+# def featurize_to_torch(df: pd.DataFrame, y: pd.DataFrame, vectorizer: Callable, remove: bool = True):
+#     """
+#         Vectorize pandas DataFrames of model and target features into Torch compatible tensors
+#     :param df: DataFrame of model features
+#     :param y: DataFrame of target features
+#     :param vectorizer: must implement (X, y) encoding and output (X_enc, y_enc, sup_vec, sup_label)
+#     :param remove: whether to remove target from df
+#     :return:
+#         data: dict of {feature, target} encodings
+#         encoders: dict of {feature, target} encoding objects (which store vocabulary and column information)
+#     """
+#     df, y = check_target_not_in_features(df, y, remove=remove)
+#     X_enc, y_enc, sup_vec, sup_label = vectorizer(df, y)
+#
+
+def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
     if y_enc is not None:
         data = {
             config.FEATURE: torch.tensor(X_enc.values),
@@ -105,8 +109,7 @@ def featurize_to_torch(df: pd.DataFrame, y: pd.DataFrame, vectorizer, remove=Tru
         }
     else:
         data = {config.FEATURE: torch.tensor(X_enc.values)}
-    encoders = {config.FEATURE: sup_vec, config.TARGET: sup_label}
-    return data, encoders
+    return data
 
 
 # #################################################################################
@@ -119,6 +122,16 @@ def featurize_to_torch(df: pd.DataFrame, y: pd.DataFrame, vectorizer, remove=Tru
 def check_if_textual_column(
     df: pd.DataFrame, col: str, confidence: float = 0.35, min_words: float = 3.5
 ) -> bool:
+    """
+        Checks if `col` column of df is textual or not.
+    :param df: DataFrame
+    :param col: column name
+    :param confidence: threshold float value between 0 and 1. If column `col` has `confidence` more elements as `str`
+            it will pass it onto next stage of evaluation. Default 0.35
+    :param min_words: mean minimum words threshold. If mean words across `col` is greater than this, it is deemed textual.
+            Default 3.5
+    :return: bool, whether column is textual or not
+    """
     isstring = df[col].apply(lambda x: isinstance(x, str))
     abundance = sum(isstring) / len(df)
     assert (
@@ -140,6 +153,11 @@ def check_if_textual_column(
 
 
 def get_textual_columns(df: pd.DataFrame) -> List:
+    """
+        Collects columns from df that it finds are textual.
+    :param df: DataFrame
+    :return: list of columns names
+    """
     text_cols = []
     for col in df.columns:
         if check_if_textual_column(df, col):
@@ -151,11 +169,12 @@ def get_textual_columns(df: pd.DataFrame) -> List:
 
 def process_textual_or_other_dataframes(
     df: pd.DataFrame, y: pd.DataFrame, z_scale: bool = True, model_name: str = "paraphrase-MiniLM-L6-v2"
-) -> Union[pd.DataFrame, Callable]:
+) -> Union[pd.DataFrame, Callable, Any]:
     """
-        Automatic Deep Learning Embedding of Textual Features, with the rest taken care of by dirty_cat
-    :param df: pandas dataframe of data
-    :param y: pandas dataframe of targets
+        Automatic Deep Learning Embedding of Textual Features,
+        with the rest of the columns taken care of by dirty_cat
+    :param df: pandas DataFrame of data
+    :param y: pandas DataFrame of targets
     :param model_name: SentenceTransformer model name. See available list at
             https://www.sbert.net/docs/pretrained_models.html#sentence-embedding-models
     :return:
@@ -170,7 +189,7 @@ def process_textual_or_other_dataframes(
             emb = model.encode(df[col].values)
             embeddings = np.c_[embeddings, emb]
 
-    other_df = df.drop(columns=text_cols, errors="ignore")
+    other_df = df.drop(columns=text_cols)
     X_enc, y_enc, data_encoder, label_encoder = process_dirty_dataframes(
         other_df, y, z_scale=False
     )
@@ -198,7 +217,7 @@ def process_dirty_dataframes(
     cardinality_threshold: int = 40,
     n_topics: int = config.N_TOPICS_DEFAULT,
     z_scale: bool = True,
-) -> Union[pd.DataFrame, Callable]:
+) -> Union[pd.DataFrame, Callable, Any]:
     """
         Dirty_Cat encoder for node-record level data. Will automatically turn
         inhomogeneous dataframe into matrix using smart conversion tricks.
@@ -226,7 +245,7 @@ def process_dirty_dataframes(
     logger.info(f"Fitting SuperVectorizer on DATA took {(time()-t)/60:.2f} minutes\n")
 
     all_transformers = data_encoder.transformers
-    features_transformed = data_encoder.get_feature_names()
+    features_transformed = data_encoder.get_feature_names_out()
 
     logger.info(f"Shape of data {X_enc.shape}\n")
     logger.info(f"Transformers: {all_transformers}\n")
@@ -241,18 +260,19 @@ def process_dirty_dataframes(
         y_enc = label_encoder.fit_transform(y)
         if type(y_enc) == scipy.sparse.csr.csr_matrix:
             y_enc = y_enc.toarray()
-        labels_transformed = label_encoder.get_feature_names()
+        labels_transformed = label_encoder.get_feature_names_out()
         y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed)
         y_enc = y_enc.fillna(0)
 
         logger.info(f"Shape of target {y_enc.shape}")
         logger.info(f"Target Transformers used: {label_encoder.transformers}\n")
+        
     return X_enc, y_enc, data_encoder, label_encoder
 
 
 def process_edge_dataframes(
     edf: pd.DataFrame, y: pd.DataFrame, src: str, dst: str, z_scale: bool = True
-) -> Union[pd.DataFrame, Callable]:
+) -> Union[pd.DataFrame, Callable, Any]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
         and then a Dirty_Cat SuperVectorizer that encodes any other data present in edf
@@ -298,9 +318,9 @@ def process_edge_dataframes(
 
 def prune_weighted_edges_df(wdf: pd.DataFrame, scale: float = 2.0) -> pd.DataFrame:
     """
-        Prune the weighted edge dataframe so to return high fidelity similarity scores.
-    :param wdf: weighted edge dataframe gotten via UMAP
-    :param scale: multiplicative scale for pruning weighted edge dataframe gotten from UMAP > (mean + scale * std)
+        Prune the weighted edge DataFrame so to return high fidelity similarity scores.
+    :param wdf: weighted edge DataFrame gotten via UMAP
+    :param scale: multiplicative scale for pruning weighted edge DataFrame gotten from UMAP > (mean + scale * std)
     :return: pd.DataFrame
     """
     # we want to prune edges, so we calculate some statistics
@@ -308,7 +328,7 @@ def prune_weighted_edges_df(wdf: pd.DataFrame, scale: float = 2.0) -> pd.DataFra
     mean = desc[config.WEIGHT]["mean"]
     std = desc[config.WEIGHT]["std"]
     wdf2 = wdf[wdf[config.WEIGHT] >= mean + scale * std]
-    logger.info(f"Pruning weighted edge dataframe from {len(wdf)} to {len(wdf2)} edges")
+    logger.info(f"Pruning weighted edge DataFrame from {len(wdf)} to {len(wdf2)} edges")
     return wdf2
 
 
@@ -385,7 +405,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
 
         :param kind: specify whether to featurize `nodes` or `edges`
         :param y: Optional Target, default None. If .featurize came with a target, it will use that target.
-        :param use_columns: Specify which dataframe columns to use for featurization, if any.
+        :param use_columns: Specify which DataFrame columns to use for featurization, if any.
         :return: self, with new attributes set by the featurization process
 
         """
@@ -404,7 +424,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
                 X = self.node_features
             else:
                 logger.warning(
-                    "Calling `featurize` to create data matrix X over nodes dataframe"
+                    "Calling `featurize` to create data matrix X over nodes DataFrame"
                 )
                 self._featurize_nodes(y, use_columns)
                 return self._umap_nodes(X, y, use_columns)
@@ -420,7 +440,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
                 X = self.edge_features
             else:
                 logger.warning(
-                    "Call `featurize` to create data matrix X over edges dataframe"
+                    "Call `featurize` to create data matrix X over edges DataFrame"
                 )
                 self._featurize_edges(y, use_columns)
                 return self._umap_edges(X, y, use_columns)
@@ -469,7 +489,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         :param use_columns: List of columns to use for featurization if featurization hasn't been applied.
         :param X: ndarray of features
         :param y: ndarray of targets
-        :param scale: multiplicative scale for pruning weighted edge dataframe gotten from UMAP (mean + scale *std)
+        :param scale: multiplicative scale for pruning weighted edge DataFrame gotten from UMAP (mean + scale *std)
         :param n_components: number of components in the UMAP projection, default 2
         :param metric: UMAP metric, default 'euclidean'. Other useful ones are 'hellinger', '..'
                 see (UMAP-LEARN)[https://umap-learn.readthedocs.io/en/latest/parameters.html] documentation for more.
