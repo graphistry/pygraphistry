@@ -81,8 +81,8 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
     """
     # here we drop all _namespace like _x, _y, etc, so that featurization doesn't include them idempotently
     reserved_namespace = [config.X, config.Y, config.SRC, config.DST, config.WEIGHT]
-    df = df.drop(columns=reserved_namespace, errors= 'ignore')
-    #logger.info(df.head(3))
+    df = df.drop(columns=reserved_namespace, errors="ignore")
+    # logger.info(df.head(3))
     return df
 
 
@@ -100,6 +100,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
 #     df, y = check_target_not_in_features(df, y, remove=remove)
 #     X_enc, y_enc, sup_vec, sup_label = vectorizer(df, y)
 #
+
 
 def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
     if y_enc is not None:
@@ -163,12 +164,15 @@ def get_textual_columns(df: pd.DataFrame) -> List:
         if check_if_textual_column(df, col):
             text_cols.append(col)
     if len(text_cols) == 0:
-        logger.info(f'No Textual Columns were found')
+        logger.info(f"No Textual Columns were found")
     return text_cols
 
 
 def process_textual_or_other_dataframes(
-    df: pd.DataFrame, y: pd.DataFrame, z_scale: bool = True, model_name: str = "paraphrase-MiniLM-L6-v2"
+    df: pd.DataFrame,
+    y: pd.DataFrame,
+    z_scale: bool = True,
+    model_name: str = "paraphrase-MiniLM-L6-v2",
 ) -> Union[pd.DataFrame, Callable, Any]:
     """
         Automatic Deep Learning Embedding of Textual Features,
@@ -266,7 +270,7 @@ def process_dirty_dataframes(
 
         logger.info(f"Shape of target {y_enc.shape}")
         logger.info(f"Target Transformers used: {label_encoder.transformers}\n")
-        
+
     return X_enc, y_enc, data_encoder, label_encoder
 
 

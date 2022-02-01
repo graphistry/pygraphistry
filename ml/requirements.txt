@@ -8,3 +8,4 @@ umap-learn
 dgl
 torch
 graphistry
+sentence-transformers

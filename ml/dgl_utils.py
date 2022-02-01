@@ -1,74 +1,14 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
 from typing import List, Dict, Callable, Union, Any
 
-
 import dgl
 import torch
-import numpy as np
-import pandas as pd
-from dgl.data import DGLDataset
-
-from graphistry import Plottable
 
 from ml import constants as config
-from ml.feature_utils import convert_to_torch, process_textual_or_other_dataframes, process_edge_dataframes
-#from ml.umap_utils import BaseUMAPMixin, umap_kwargs_euclidean
-from ml.feature_utils import FeatureMixin
+from ml.feature_utils import FeatureMixin, convert_to_torch
 from ml.utils import pandas_to_sparse_adjacency, setup_logger
 
 logger = setup_logger(__name__)
-
-
-dgl_kwargs = dict(
-    name="Graphistry", reverse=True, raw_dir=None, force_reload=False, verbose=True
-)
-
-
-# def get_vectorizer(name: Union[str, Any]):
-#     if type(name) != str:
-#         logger.info(f"Returning {type(name)} vectorizer")
-#         return name
-#     if name == config.DIRTY_CAT:
-#         return process_dirty_dataframes
-#     if name == config.SKLEARN:
-#         # TODO
-#         return
-#     logger.warning(
-#         f"Vectorizer name must be one of [{config.DIRTY_CAT}, {config.SKLEARN}, ..]"
-#     )
-#     return
-
-
-# # FIXME this is not correct or robust enough
-# def get_dataframe_for_target(target, df, name):
-#     """
-#         Might be doing too much -- general idea is to be able to pass in a target as column and select it from df, while returning a new dataframe with target as column
-#         Likewise, if target is already a series, then return a dataframe with column 'name'
-#         if target is already a dataframe, send it through without modification
-#
-#         usage examples:
-#             -- target_dataframe = get_dataframe_for_target('some_col', df, '..')
-#             -- target_dataframe = get_dataframe_for_target(pd.target_df, df, '..')
-#             -- target_dataframe = get_dataframe_for_target(pd.Series, df, column_name)
-#
-#     :param target: str, series, or dataframe
-#     :param df: aux dataframe to use if target is a string
-#     :param name: useful for when target is a series, it will become the column name of the returned dataframe
-#     :return: dataframe
-#     """
-#     if type(target) == str:
-#         # get the target from the dataframe
-#         logger.info(f"Returning {name}-target {target} as DataFrame")
-#         return pd.DataFrame({target: df[target].values}, index=df.index)
-#     if type(target) == pd.core.series.Series:
-#         # use `name` as column header
-#         logger.info(f"Returning target as DataFrame with column {name}")
-#         return pd.DataFrame({name: target}, index=target.index)
-#     if type(target) == pd.core.frame.DataFrame:
-#         logger.info(f"Returning {name}-target as itself")
-#         return target
-#     logger.warning(f"Returning `None` for target")
-#     return
 
 
 def pandas_to_dgl_graph(df, src, dst, weight_col=None, device="cpu"):
@@ -105,20 +45,22 @@ class BaseDGLGraphMixin(FeatureMixin):
         self,
         train_split: float = 0.8,
         device: str = "cpu",
-        *args, **kwargs,
+        *args,
+        **kwargs,
     ):
         """
         :param train_split: split percent between train and test, set in mask on dgl edata/ndata
         :param device: Whether to put on cpu or gpu. Can always envoke .to(gpu) on returned DGL graph later, Default 'cpu'
         """
-        
+
         self.train_split = train_split
         self.device = device
-        
+        self._removed_edges_previously = False
+
         FeatureMixin.__init__(self, *args, **kwargs)
 
     def _prune_edge_target(self):
-        if hasattr(self, 'edge_target'):
+        if hasattr(self, "edge_target"):
             if self.edge_target is not None:
                 self.edge_target = self.edge_target[self._MASK]
 
@@ -136,8 +78,10 @@ class BaseDGLGraphMixin(FeatureMixin):
         logger.info(f"Length of edge DataFrame {n_final} after pruning")
         n_final = len(self._edges)
         if n_final != n_initial:
-            logger.warn('** Original Edge DataFrame has been changed, some elements have been dropped **')
-        
+            logger.warn(
+                "** Original Edge DataFrame has been changed, some elements have been dropped **"
+            )
+        self._removed_edges_previously = True
 
     def _check_nodes_lineup_with_edges(self, node_column):
         nodes = self._nodes[node_column]
@@ -167,9 +111,14 @@ class BaseDGLGraphMixin(FeatureMixin):
         logger.info("converting edge DataFrame to DGL")
         # recall that the adjacency is the graph itself, and really shouldn't be a node style feature (redundant),
         # but certainly can be.
-        self._remove_edges_not_in_nodes(node_column)
+        if not self._removed_edges_previously:
+            self._remove_edges_not_in_nodes(node_column)
         self.DGL_graph, self._adjacency, self.entity_to_index = pandas_to_dgl_graph(
-            self._edges, self._source, self._destination, weight_col=weight_column, device=self.device
+            self._edges,
+            self._source,
+            self._destination,
+            weight_col=weight_column,
+            device=self.device,
         )
         self.index_to_entity = {k: v for v, k in self.entity_to_index.items()}
         # this is a sanity check after _remove_edges_not_in_nodes
@@ -187,8 +136,8 @@ class BaseDGLGraphMixin(FeatureMixin):
 
     def _featurize_edges_to_dgl(self, y, use_columns):
         logger.info("Running Edge Featurization")
-        if hasattr(self, '_MASK'):
-            y = y[self._MASK] # automatically prune target using mask
+        if hasattr(self, "_MASK"):
+            y = y[self._MASK]  # automatically prune target using mask
             # note, edf, ndf, should both have unique indices
         self._featurize_edges(y, use_columns)
         X_enc = self.edge_features
@@ -198,13 +147,19 @@ class BaseDGLGraphMixin(FeatureMixin):
         self.DGL_graph.edata.update(edata)
         self._mask_edges()
 
-
-    def build_dgl_graph(self, node_column, weight_column=None, y_nodes=None, y_edges=None, use_node_columns=None, use_edge_columns=None):
+    def build_dgl_graph(
+        self,
+        node_column,
+        weight_column=None,
+        y_nodes=None,
+        y_edges=None,
+        use_node_columns=None,
+        use_edge_columns=None,
+    ):
         # here we make node and edge features and add them to the DGL graph instance
         self._convert_edgeDF_to_DGL(node_column, weight_column)
         self._featurize_nodes_to_dgl(y_nodes, use_node_columns)
         self._featurize_edges_to_dgl(y_edges, use_edge_columns)
-        
 
     def _mask_nodes(self):
         if config.FEATURE in self.DGL_graph.ndata:
@@ -222,7 +177,6 @@ class BaseDGLGraphMixin(FeatureMixin):
                 self.DGL_graph.edata[config.TEST_MASK],
             ) = get_torch_train_test_mask(n, self.train_split)
 
-
     def __getitem__(self, idx):
         # get one example by index
         idx = 1  # only one graph here
@@ -231,4 +185,3 @@ class BaseDGLGraphMixin(FeatureMixin):
     def __len__(self):
         # number of data examples
         return 1
-    
