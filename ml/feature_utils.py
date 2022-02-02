@@ -48,6 +48,7 @@ def safe_divide(a, b):
     b = np.array(b)
     return np.divide(a, b, out=np.zeros_like(a), where=b != 0)
 
+
 def check_target_not_in_features(
     df: pd.DataFrame,
     y: Union[pd.DataFrame, pd.Series, np.ndarray, List],
@@ -179,9 +180,9 @@ def process_textual_or_other_dataframes(
     :return:
     """
     model = SentenceTransformer(model_name)
-    
-    if len(df)==0:
-        logger.info(f'DataFrame Seems to be Empty')
+
+    if len(df) == 0:
+        logger.info(f"DataFrame Seems to be Empty")
 
     text_cols = get_textual_columns(df)
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
@@ -206,14 +207,12 @@ def process_textual_or_other_dataframes(
         columns = faux_columns + data_encoder.get_feature_names_out()
     else:
         columns = faux_columns
-        
+
     embeddings = embeddings[:, 1:]
     if z_scale:  # sort of, but don't remove mean
         embeddings = safe_divide(embeddings, embeddings.std(0))
 
-    X_enc = pd.DataFrame(
-        embeddings, columns=columns
-    )
+    X_enc = pd.DataFrame(embeddings, columns=columns)
     return X_enc, y_enc, data_encoder, label_encoder
 
 
@@ -248,22 +247,24 @@ def process_dirty_dataframes(
             X_enc = safe_divide(X_enc, X_enc.std(0))
             logger.info(f"Z-Scaling the data")
 
-        logger.info(f"Fitting SuperVectorizer on DATA took {(time()-t)/60:.2f} minutes\n")
-    
+        logger.info(
+            f"Fitting SuperVectorizer on DATA took {(time()-t)/60:.2f} minutes\n"
+        )
+
         all_transformers = data_encoder.transformers
         features_transformed = data_encoder.get_feature_names_out()
-    
+
         logger.info(f"Shape of data {X_enc.shape}\n")
         logger.info(f"Transformers: {all_transformers}\n")
         logger.info(f"Transformed Columns: {features_transformed[:20]}...\n")
-    
+
         X_enc = pd.DataFrame(X_enc, columns=features_transformed)
         X_enc = X_enc.fillna(0)
     else:
         X_enc = None
         data_encoder = None
-        logger.info(f'Given DataFrame seems to be empty')
-        
+        logger.info(f"Given DataFrame seems to be empty")
+
     if y is not None:
         logger.info(f"Fitting Targets --\n")
         label_encoder = SuperVectorizer(auto_cast=True)
@@ -298,22 +299,23 @@ def process_edge_dataframes(
     source = edf[src]
     destination = edf[dst]
     T = mlb_pairwise_edge_encoder.fit_transform(zip(source, destination))
-    T = 1.*T # coerce to float, or divide= will throw error under z_scale below
-    
+    T = 1.0 * T  # coerce to float, or divide= will throw error under z_scale below
+
     other_df = edf.drop(columns=[src, dst])
-    
+
     X_enc, y_enc, data_encoder, label_encoder = process_textual_or_other_dataframes(
-            other_df, y, z_scale=False
-        )
+        other_df, y, z_scale=False
+    )
     if data_encoder is not None:
         columns = (
-            list(mlb_pairwise_edge_encoder.classes_) + data_encoder.get_feature_names_out()
+            list(mlb_pairwise_edge_encoder.classes_)
+            + data_encoder.get_feature_names_out()
         )
         T = np.c_[T, X_enc.values]
-    else: # if this other_df is empty
-        logger.info('Other_df is empty')
+    else:  # if this other_df is empty
+        logger.info("Other_df is empty")
         columns = list(mlb_pairwise_edge_encoder.classes_)
-        
+
     if z_scale:
         T = safe_divide(T, T.std(0))
 
@@ -350,9 +352,10 @@ def prune_weighted_edges_df(wdf: pd.DataFrame, scale: float = 1.0) -> pd.DataFra
 
 class FeatureMixin(PlotterBase, BaseUMAPMixin):
     """
-        FeatureMixin for automatic featurization of nodes and edges DataFrames.
-        Subclasses BaseUMAPMixin for umap-ing of automatic features.
+    FeatureMixin for automatic featurization of nodes and edges DataFrames.
+    Subclasses BaseUMAPMixin for umap-ing of automatic features.
     """
+
     def __init__(self, *args, **kwargs):
         super().__init__()
         PlotterBase.__init__(self, *args, **kwargs)
