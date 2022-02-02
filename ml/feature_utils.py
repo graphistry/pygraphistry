@@ -43,6 +43,11 @@ encoders_dirty: Dict = {
 # ###############################################################################
 
 
+def safe_divide(a, b):
+    a = np.array(a)
+    b = np.array(b)
+    return np.divide(a, b, out=np.zeros_like(a), where=b != 0)
+
 def check_target_not_in_features(
     df: pd.DataFrame,
     y: Union[pd.DataFrame, pd.Series, np.ndarray, List],
@@ -204,7 +209,7 @@ def process_textual_or_other_dataframes(
         
     embeddings = embeddings[:, 1:]
     if z_scale:  # sort of, but don't remove mean
-        embeddings /= embeddings.std(0) + 1
+        embeddings = safe_divide(embeddings, embeddings.std(0))
 
     X_enc = pd.DataFrame(
         embeddings, columns=columns
@@ -240,7 +245,7 @@ def process_dirty_dataframes(
         logger.info("Encoding might take a few minutes --")
         X_enc = data_encoder.fit_transform(ndf, y)
         if z_scale:
-            X_enc /= X_enc.std(0) + 1
+            X_enc = safe_divide(X_enc, X_enc.std(0))
             logger.info(f"Z-Scaling the data")
 
         logger.info(f"Fitting SuperVectorizer on DATA took {(time()-t)/60:.2f} minutes\n")
@@ -310,7 +315,7 @@ def process_edge_dataframes(
         columns = list(mlb_pairwise_edge_encoder.classes_)
         
     if z_scale:
-        T /= T.std(0) + 1
+        T = safe_divide(T, T.std(0))
 
     X_enc = pd.DataFrame(T, columns=columns)
     logger.info(f"Created an edge feature matrix of size {T.shape}")
@@ -327,7 +332,7 @@ def process_edge_dataframes(
 # ###############################################################################
 
 
-def prune_weighted_edges_df(wdf: pd.DataFrame, scale: float = 2.0) -> pd.DataFrame:
+def prune_weighted_edges_df(wdf: pd.DataFrame, scale: float = 1.0) -> pd.DataFrame:
     """
         Prune the weighted edge DataFrame so to return high fidelity similarity scores.
     :param wdf: weighted edge DataFrame gotten via UMAP
