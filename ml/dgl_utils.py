@@ -12,7 +12,9 @@ from ml.utils import pandas_to_sparse_adjacency, setup_logger
 logger = setup_logger(__name__)
 
 
-def pandas_to_dgl_graph(df: pd.DataFrame, src: str, dst: str, weight_col: str = None, device: str = "cpu"):
+def pandas_to_dgl_graph(
+    df: pd.DataFrame, src: str, dst: str, weight_col: str = None, device: str = "cpu"
+):
     """Turns an edge DataFrame with named src and dst nodes, to DGL graph
     :eg
         g, sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, 'to_node', 'from_node')
@@ -66,7 +68,7 @@ class BaseDGLGraphMixin(FeatureMixin):
         FeatureMixin.__init__(self, *args, **kwargs)
 
     def _prune_edge_target(self):
-        if hasattr(self, "edge_target") and hasattr(self, '_MASK'):
+        if hasattr(self, "edge_target") and hasattr(self, "_MASK"):
             if self.edge_target is not None:
                 self.edge_target = self.edge_target[self._MASK]
 
@@ -144,7 +146,7 @@ class BaseDGLGraphMixin(FeatureMixin):
         if hasattr(self, "_MASK"):
             if y is not None:
                 y = y[self._MASK]  # automatically prune target using mask
-                 # note, edf, ndf, should both have unique indices
+                # note, edf, ndf, should both have unique indices
         self._featurize_edges(y, use_columns)
         X_enc = self.edge_features
         y_enc = self.edge_target
