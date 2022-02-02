@@ -1,6 +1,8 @@
 # a base class for UMAP to run on cpu or gpu
-import pandas as pd
+from typing import Union
+
 import numpy as np
+import pandas as pd
 import umap
 
 import ml.constants as config
@@ -31,7 +33,7 @@ class BaseUMAPMixin(umap.UMAP):
     def _set_new_kwargs(self, **kwargs):
         super().__init__(**kwargs)
 
-    def _check_target_is_one_dimensional(self, y):
+    def _check_target_is_one_dimensional(self, y: Union[np.ndarray, None]):
         if y is None:
             return None
         if y.ndim == 1:
@@ -44,14 +46,14 @@ class BaseUMAPMixin(umap.UMAP):
             )
             return None
 
-    def fit(self, X: np.ndarray, y=None):
+    def fit(self, X: np.ndarray, y: Union[np.ndarray, None] = None):
         y = self._check_target_is_one_dimensional(y)
         super().fit(X, y)
         self._is_fit = True
         self._edge_influence()
         return self
 
-    def fit_transform(self, X, y=None):
+    def fit_transform(self, X: np.ndarray, y: Union[np.ndarray, None] = None):
         self.fit(X, y)
         return self.transform(X)
 

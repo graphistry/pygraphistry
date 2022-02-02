@@ -86,23 +86,13 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
     return df
 
 
-# def featurize_to_torch(df: pd.DataFrame, y: pd.DataFrame, vectorizer: Callable, remove: bool = True):
-#     """
-#         Vectorize pandas DataFrames of model and target features into Torch compatible tensors
-#     :param df: DataFrame of model features
-#     :param y: DataFrame of target features
-#     :param vectorizer: must implement (X, y) encoding and output (X_enc, y_enc, sup_vec, sup_label)
-#     :param remove: whether to remove target from df
-#     :return:
-#         data: dict of {feature, target} encodings
-#         encoders: dict of {feature, target} encoding objects (which store vocabulary and column information)
-#     """
-#     df, y = check_target_not_in_features(df, y, remove=remove)
-#     X_enc, y_enc, sup_vec, sup_label = vectorizer(df, y)
-#
-
-
 def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
+    """
+        Converts X, y to torch tensors compatible with ndata/edata of DGL graph
+    :param X_enc:
+    :param y_enc:
+    :return:
+    """
     if y_enc is not None:
         data = {
             config.FEATURE: torch.tensor(X_enc.values),
@@ -184,6 +174,9 @@ def process_textual_or_other_dataframes(
     :return:
     """
     model = SentenceTransformer(model_name)
+    
+    if len(df)==0:
+        logger.info(f'DataFrame Seems to be Empty')
 
     text_cols = get_textual_columns(df)
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
@@ -202,16 +195,20 @@ def process_textual_or_other_dataframes(
         range(embeddings.shape[1] - 1)
     )  # minus 1 since the first column is just placeholder
 
-    embeddings = np.c_[embeddings, X_enc.values]
-    # now remove the zeros
+    if data_encoder is not None:
+        embeddings = np.c_[embeddings, X_enc.values]
+        # now remove the zeros
+        columns = faux_columns + data_encoder.get_feature_names_out()
+    else:
+        columns = faux_columns
+        
     embeddings = embeddings[:, 1:]
     if z_scale:  # sort of, but don't remove mean
         embeddings /= embeddings.std(0) + 1
 
     X_enc = pd.DataFrame(
-        embeddings, columns=faux_columns + data_encoder.get_feature_names_out()
+        embeddings, columns=columns
     )
-
     return X_enc, y_enc, data_encoder, label_encoder
 
 
@@ -239,26 +236,30 @@ def process_dirty_dataframes(
     )
     label_encoder = None
     y_enc = None
-    logger.info("Encoding might take a few minutes --")
-    X_enc = data_encoder.fit_transform(ndf, y)
-    if z_scale:
-        # X_enc -= X_enc.mean(0)
-        X_enc /= X_enc.std(0) + 1
-        logger.info(f"Z-Scaling the data")
+    if not ndf.empty:
+        logger.info("Encoding might take a few minutes --")
+        X_enc = data_encoder.fit_transform(ndf, y)
+        if z_scale:
+            X_enc /= X_enc.std(0) + 1
+            logger.info(f"Z-Scaling the data")
 
-    logger.info(f"Fitting SuperVectorizer on DATA took {(time()-t)/60:.2f} minutes\n")
-
-    all_transformers = data_encoder.transformers
-    features_transformed = data_encoder.get_feature_names_out()
-
-    logger.info(f"Shape of data {X_enc.shape}\n")
-    logger.info(f"Transformers: {all_transformers}\n")
-    logger.info(f"Transformed Columns: {features_transformed[:20]}...\n")
-
-    X_enc = pd.DataFrame(X_enc, columns=features_transformed)
-    X_enc = X_enc.fillna(0)
+        logger.info(f"Fitting SuperVectorizer on DATA took {(time()-t)/60:.2f} minutes\n")
+    
+        all_transformers = data_encoder.transformers
+        features_transformed = data_encoder.get_feature_names_out()
+    
+        logger.info(f"Shape of data {X_enc.shape}\n")
+        logger.info(f"Transformers: {all_transformers}\n")
+        logger.info(f"Transformed Columns: {features_transformed[:20]}...\n")
+    
+        X_enc = pd.DataFrame(X_enc, columns=features_transformed)
+        X_enc = X_enc.fillna(0)
+    else:
+        X_enc = None
+        data_encoder = None
+        logger.info(f'Given DataFrame seems to be empty')
+        
     if y is not None:
-        assert len(ndf) == len(y), f"Targets must be same size as data"
         logger.info(f"Fitting Targets --\n")
         label_encoder = SuperVectorizer(auto_cast=True)
         y_enc = label_encoder.fit_transform(y)
@@ -279,7 +280,8 @@ def process_edge_dataframes(
 ) -> Union[pd.DataFrame, Callable, Any]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
-        and then a Dirty_Cat SuperVectorizer that encodes any other data present in edf
+        and then process_textual_or_other_dataframes that encodes any other data present in edf,
+        textual or not.
 
     :param edf: pandas DataFrame of features
     :param y: pandas DataFrame of labels
@@ -291,17 +293,22 @@ def process_edge_dataframes(
     source = edf[src]
     destination = edf[dst]
     T = mlb_pairwise_edge_encoder.fit_transform(zip(source, destination))
-
+    T = 1.*T # coerce to float, or divide= will throw error under z_scale below
+    
     other_df = edf.drop(columns=[src, dst])
+    
     X_enc, y_enc, data_encoder, label_encoder = process_textual_or_other_dataframes(
-        other_df, y, z_scale=False
-    )
-
-    columns = (
-        list(mlb_pairwise_edge_encoder.classes_) + data_encoder.get_feature_names_out()
-    )
-
-    T = np.c_[T, X_enc.values]
+            other_df, y, z_scale=False
+        )
+    if data_encoder is not None:
+        columns = (
+            list(mlb_pairwise_edge_encoder.classes_) + data_encoder.get_feature_names_out()
+        )
+        T = np.c_[T, X_enc.values]
+    else: # if this other_df is empty
+        logger.info('Other_df is empty')
+        columns = list(mlb_pairwise_edge_encoder.classes_)
+        
     if z_scale:
         T /= T.std(0) + 1
 
@@ -338,33 +345,9 @@ def prune_weighted_edges_df(wdf: pd.DataFrame, scale: float = 2.0) -> pd.DataFra
 
 class FeatureMixin(PlotterBase, BaseUMAPMixin):
     """
-    Notes:
-        ~1) Given nothing but a graphistry Plottable `g`, we may minimally generate the (N, N)
-        adjacency matrix as a node level feature set, ironically as an edge level feature set over N unique nodes.
-        This is the structure/topology of the graph itself, gotten from encoding `g._edges` as an adjacency matrix
-
-        ~2) with `node_df = g._nodes` one has row level data over many columns, we may featurize it appropriately,
-        generating another node level set. The advantage here is that we are not constrained as we would be in
-        a node level adjacency matrix, given M records or rows from `node_df`, with M >= N
-
-        ~3) with `edge_df = g._edges` one may also generate a row level encoding, but here we face immediate problems.
-            A given edge list is minimally of the form `(src, relationship, dst)`, and so we may form many different
-            graphs graded by the cardinality in the `relationships`. Or we may form one single one.
-            There is also no notion of how to associate the features produced, unless we use the LineGraph of `g`
-
-    Encoding Strategies:
-        1) compute the (N, N) adjacency matrix and associate with implicit node level features
-        2) feature encode `node_df` as explicit node level features, with M >= N
-        3) feature encode `edge_df` as explicit edge level features and associate it with the LineGraph of `g`
-    Next:
-        A) use UMAP or Louvian, Spectral, etc Embedding to encode 1-3 above, and reduce feature vectors to
-        lower dimensional embedding
-            a) UMAP projects vectors of length `n` down to, say, 2-dimensions but also generates a
-            weighted adjacency matrix under projection, giving another node level feature set (though not distinct,
-            or with other
-
+        FeatureMixin for automatic featurization of nodes and edges DataFrames.
+        Subclasses BaseUMAPMixin for umap-ing of automatic features.
     """
-
     def __init__(self, *args, **kwargs):
         super().__init__()
         PlotterBase.__init__(self, *args, **kwargs)
@@ -376,6 +359,9 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         ndf = self._nodes
         if use_columns is not None:
             ndf = ndf[use_columns]
+        # if isinstance(use_columns, list) and len(use_columns)==0:
+        #     logger.
+        #     return
         ndf, y = check_target_not_in_features(ndf, y, remove=True)
         ndf = remove_internal_namespace_if_present(ndf)
         X_enc, y_enc, data_vec, label_vec = self._node_featurizer(ndf, y)
@@ -598,3 +584,32 @@ def plot_MDS(transformed_values, similarity_encoder, sorted_values, n_points=15)
     ax2.set_title("Similarities across categories")
     f2.colorbar(cax2)
     f2.tight_layout()
+
+
+__notes__ = """
+    Notes:
+        ~1) Given nothing but a graphistry Plottable `g`, we may minimally generate the (N, N)
+        adjacency matrix as a node level feature set, ironically as an edge level feature set over N unique nodes.
+        This is the structure/topology of the graph itself, gotten from encoding `g._edges` as an adjacency matrix
+
+        ~2) with `node_df = g._nodes` one has row level data over many columns, we may featurize it appropriately,
+        generating another node level set. The advantage here is that we are not constrained as we would be in
+        a node level adjacency matrix, given M records or rows from `node_df`, with M >= N
+
+        ~3) with `edge_df = g._edges` one may also generate a row level encoding, but here we face immediate problems.
+            A given edge list is minimally of the form `(src, relationship, dst)`, and so we may form many different
+            graphs graded by the cardinality in the `relationships`. Or we may form one single one.
+            There is also no notion of how to associate the features produced, unless we use the LineGraph of `g`
+
+    Encoding Strategies:
+        1) compute the (N, N) adjacency matrix and associate with implicit node level features
+        2) feature encode `node_df` as explicit node level features, with M >= N
+        3) feature encode `edge_df` as explicit edge level features and associate it with the LineGraph of `g`
+    Next:
+        A) use UMAP or Louvian, Spectral, etc Embedding to encode 1-3 above, and reduce feature vectors to
+        lower dimensional embedding
+            a) UMAP projects vectors of length `n` down to, say, 2-dimensions but also generates a
+            weighted adjacency matrix under projection, giving another node level feature set (though not distinct,
+            or with other
+
+    """

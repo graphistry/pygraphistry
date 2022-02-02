@@ -1,7 +1,8 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
-from typing import List, Dict, Callable, Union, Any
+from typing import List
 
 import dgl
+import pandas as pd
 import torch
 
 from ml import constants as config
@@ -11,11 +12,16 @@ from ml.utils import pandas_to_sparse_adjacency, setup_logger
 logger = setup_logger(__name__)
 
 
-def pandas_to_dgl_graph(df, src, dst, weight_col=None, device="cpu"):
+def pandas_to_dgl_graph(df: pd.DataFrame, src: str, dst: str, weight_col: str = None, device: str = "cpu"):
     """Turns an edge DataFrame with named src and dst nodes, to DGL graph
     :eg
         g, sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, 'to_node', 'from_node')
-    :returns
+    :param df: DataFrame with source and destination and optionally weight column
+    :param src: source column of DataFrame for coo matrix
+    :param dst: destination column of DataFrame for coo matrix
+    :param weight_col: optional weight column when constructing coo matrix
+    :param device: whether to put dgl graph on cpu or gpu
+    :return
         g: dgl graph
         sp_mat: sparse scipy matrix
         ordered_nodes_dict: dict ordered from most common src and dst nodes
@@ -31,9 +37,9 @@ def pandas_to_dgl_graph(df, src, dst, weight_col=None, device="cpu"):
 def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     """
         Generates random torch tensor mask
-    :param n:
-    :param ratio:
-    :return:
+    :param n: size of mask
+    :param ratio: mimics train/test split. `ratio` sets number of True vs False mask entries.
+    :return: train and test torch tensor masks
     """
     train_mask = torch.zeros(n, dtype=torch.bool).bernoulli(ratio)
     test_mask = ~train_mask
@@ -60,12 +66,12 @@ class BaseDGLGraphMixin(FeatureMixin):
         FeatureMixin.__init__(self, *args, **kwargs)
 
     def _prune_edge_target(self):
-        if hasattr(self, "edge_target"):
+        if hasattr(self, "edge_target") and hasattr(self, '_MASK'):
             if self.edge_target is not None:
                 self.edge_target = self.edge_target[self._MASK]
 
-    def _remove_edges_not_in_nodes(self, node_column):
-        # need to do this so we get the correct ndata size ... and thus we call _prune_edge_target later too
+    def _remove_edges_not_in_nodes(self, node_column: str):
+        # need to do this so we get the correct ndata size ...
         nodes = self._nodes[node_column]
         edf = self._edges
         n_initial = len(edf)
@@ -83,7 +89,7 @@ class BaseDGLGraphMixin(FeatureMixin):
             )
         self._removed_edges_previously = True
 
-    def _check_nodes_lineup_with_edges(self, node_column):
+    def _check_nodes_lineup_with_edges(self, node_column: str):
         nodes = self._nodes[node_column]
         unique_nodes = nodes.unique()
         logger.info(
@@ -95,7 +101,7 @@ class BaseDGLGraphMixin(FeatureMixin):
             logger.warning(
                 f"Nodes DataFrame has duplicate entries for column {node_column}"
             )
-        # now check that self.entity_to_index is in 1-1 to with self.ndf[self.node]
+        # now check that self.entity_to_index is in 1-1 to with self.ndf[node_column]
         nodes = self._nodes[node_column]
         res = nodes.isin(self.entity_to_index)
         if res.sum() != len(nodes):
@@ -107,10 +113,9 @@ class BaseDGLGraphMixin(FeatureMixin):
                 f"There are more entities in edges DataFrame (edf) than in nodes DataFrame (ndf)"
             )
 
-    def _convert_edgeDF_to_DGL(self, node_column, weight_column):
-        logger.info("converting edge DataFrame to DGL")
-        # recall that the adjacency is the graph itself, and really shouldn't be a node style feature (redundant),
-        # but certainly can be.
+    def _convert_edgeDF_to_DGL(self, node_column: str, weight_column: str):
+        logger.info("converting edge DataFrame to DGL graph")
+
         if not self._removed_edges_previously:
             self._remove_edges_not_in_nodes(node_column)
         self.DGL_graph, self._adjacency, self.entity_to_index = pandas_to_dgl_graph(
@@ -124,7 +129,7 @@ class BaseDGLGraphMixin(FeatureMixin):
         # this is a sanity check after _remove_edges_not_in_nodes
         self._check_nodes_lineup_with_edges(node_column)
 
-    def _featurize_nodes_to_dgl(self, y, use_columns):
+    def _featurize_nodes_to_dgl(self, y: pd.DataFrame, use_columns: List):
         logger.info("Running Node Featurization")
         self._featurize_nodes(y, use_columns)
         X_enc = self.node_features
@@ -134,11 +139,12 @@ class BaseDGLGraphMixin(FeatureMixin):
         self.DGL_graph.ndata.update(ndata)
         self._mask_nodes()
 
-    def _featurize_edges_to_dgl(self, y, use_columns):
+    def _featurize_edges_to_dgl(self, y: pd.DataFrame, use_columns: List):
         logger.info("Running Edge Featurization")
         if hasattr(self, "_MASK"):
-            y = y[self._MASK]  # automatically prune target using mask
-            # note, edf, ndf, should both have unique indices
+            if y is not None:
+                y = y[self._MASK]  # automatically prune target using mask
+                 # note, edf, ndf, should both have unique indices
         self._featurize_edges(y, use_columns)
         X_enc = self.edge_features
         y_enc = self.edge_target
@@ -149,17 +155,18 @@ class BaseDGLGraphMixin(FeatureMixin):
 
     def build_dgl_graph(
         self,
-        node_column,
-        weight_column=None,
-        y_nodes=None,
-        y_edges=None,
-        use_node_columns=None,
-        use_edge_columns=None,
+        node_column: str,
+        weight_column: str = None,
+        y_nodes: pd.DataFrame = None,
+        y_edges: pd.DataFrame = None,
+        use_node_columns: List = None,
+        use_edge_columns: List = None,
     ):
         # here we make node and edge features and add them to the DGL graph instance
         self._convert_edgeDF_to_DGL(node_column, weight_column)
         self._featurize_nodes_to_dgl(y_nodes, use_node_columns)
         self._featurize_edges_to_dgl(y_edges, use_edge_columns)
+        return self
 
     def _mask_nodes(self):
         if config.FEATURE in self.DGL_graph.ndata:
