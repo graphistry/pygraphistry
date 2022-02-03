@@ -1,5 +1,5 @@
 from time import time
-from typing import List, Union, Dict, Callable, Any
+from typing import List, Union, Dict, Callable, Any, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -32,7 +32,7 @@ encoders_dirty: Dict = {
     "target": TargetEncoder(handle_unknown="ignore"),
     "minhash": MinHashEncoder(n_components=config.N_HASHERS_DEFAULT),
     "gap": GapEncoder(n_components=config.N_TOPICS_DEFAULT),
-    "super": SuperVectorizer(auto_cast=True),
+    "super": SuperVectorizer(auto_cast=True)
 }
 
 
@@ -53,7 +53,7 @@ def check_target_not_in_features(
     df: pd.DataFrame,
     y: Union[pd.DataFrame, pd.Series, np.ndarray, List],
     remove: bool = True,
-) -> Union[pd.DataFrame, pd.Series, np.ndarray, List]:
+) -> Tuple[pd.DataFrame, Union[pd.DataFrame, pd.Series, np.ndarray, List]]:
     """
 
     :param df: model DataFrame
@@ -74,7 +74,7 @@ def check_target_not_in_features(
         logger.warning(f"Target is not of type(DataFrame) and has no columns")
     if remove:
         logger.info(f"Removing {remove_cols} columns from DataFrame")
-        tf = df.drop(columns=remove_cols)
+        tf = df.drop(columns=remove_cols, errors="ignore")
         return tf, y
     return df, y  # will just pass through data
 
@@ -85,6 +85,8 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
     :param df: DataFrame
     :return: DataFrame with dropped columns in reserved namespace
     """
+    if df is None:
+        return None
     # here we drop all _namespace like _x, _y, etc, so that featurization doesn't include them idempotently
     reserved_namespace = [config.X, config.Y, config.SRC, config.DST, config.WEIGHT]
     df = df.drop(columns=reserved_namespace, errors="ignore")
