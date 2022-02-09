@@ -285,17 +285,6 @@ def fit_pipeline(pipeline, X, y, scoring="r2"):
     return scores, result
 
 
-# remove SEABORN
-# def plot_confidence_scores(all_scores):
-#     # all_scores is a list of sklearn cross validation scores
-#     plt.figure(figsize=(4, 3))
-#     ax = sb.boxplot(data=pd.DataFrame(all_scores), orient="h")
-#     plt.ylabel("Encoding", size=20)
-#     plt.xlabel("Prediction accuracy     ", size=20)
-#     plt.yticks(size=20)
-#     plt.tight_layout()
-
-
 def plot_feature_importances(importances, feature_names, n=20):
     indices = np.argsort(importances)
     # Sort from least to most
