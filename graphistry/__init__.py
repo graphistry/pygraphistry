@@ -16,7 +16,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     ArrowUploader,
     ArrowFileUploader,
     PyGraphistry)
-import graphistry.ai 
+#import graphistry.ai 
 from graphistry.ai import feature_utils
 
 from ._version import get_versions
