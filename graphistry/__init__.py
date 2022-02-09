@@ -1,4 +1,3 @@
-from graphistry import ai
 from graphistry.pygraphistry import (  # noqa: E402, F401
     client_protocol_hostname, protocol, server,
     register, privacy, login, refresh, api_token, verify_token,
@@ -17,6 +16,8 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     ArrowUploader,
     ArrowFileUploader,
     PyGraphistry)
+import graphistry.ai 
+from graphistry.ai import feature_utils
 
 from ._version import get_versions
 __version__ = get_versions()['version']
