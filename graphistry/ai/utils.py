@@ -1,23 +1,21 @@
-from collections import Counter
-from time import time
-
 # TODO cugraph not installing properly in virt env locally...
 # import cugraph
-import dgl
 import logging
+from collections import Counter
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import scipy
 import torch
-
+from dirty_cat import SimilarityEncoder
 from sklearn.inspection import permutation_importance
 from sklearn.manifold import MDS
 from sklearn.model_selection import cross_val_score
 from sklearn.neighbors import NearestNeighbors
+from tqdm import tqdm
 
 import graphistry
-from ml import constants as config
+from graphistry.ai import constants as config
 
 
 def setup_logger(name):
@@ -31,8 +29,23 @@ def setup_logger(name):
 logger = setup_logger(__name__)
 
 
+def tqdm_progress_bar(total, *args, **kwargs):
+    global pbar
+    pbar = tqdm(total=total, *args, **kwargs)
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            pbar.update()
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+# @tqdm_progress_bar(len(df))
 def estimate_encoding_time(df, y):
-    # TODO
+    # Todo
     pass
 
 
@@ -183,6 +196,7 @@ def reindex_edgelist(df, src, dst):
     """Since DGL needs integer contiguous node labels, this relabels as preprocessing step
     :eg
         df, ordered_nodes_dict = reindex_edgelist(df, 'to_node', 'from_node')
+        creates new columns given by config.SRC and config.DST
     :param df: edge dataFrame
     :param src: source column of dataframe
     :param dst: destination column of dataframe
@@ -294,3 +308,56 @@ def plot_feature_importances(importances, feature_names, n=20):
     plt.yticks(range(n), labels, size=15)
     plt.tight_layout(pad=1)
     plt.show()
+
+
+# #################################################################################
+#
+#      ML Helpers and Plots
+#
+# ###############################################################################
+
+
+def calculate_column_similarity(y: pd.Series, n_points: int = 10):
+    # y is a pandas series of labels for a given dataset
+    sorted_values = y.sort_values().unique()
+    similarity_encoder = SimilarityEncoder(similarity="ngram")
+    transformed_values = similarity_encoder.fit_transform(sorted_values.reshape(-1, 1))
+
+    plot_MDS(transformed_values, similarity_encoder, sorted_values, n_points=n_points)
+    return transformed_values, similarity_encoder, sorted_values
+
+
+def plot_MDS(transformed_values, similarity_encoder, sorted_values, n_points=15):
+    # TODO try this with UMAP
+    mds = MDS(dissimilarity="precomputed", n_init=10, random_state=42)
+    two_dim_data = mds.fit_transform(1 - transformed_values)  # transformed values lie
+
+    random_points = np.random.choice(
+        len(similarity_encoder.categories_[0]), n_points, replace=False
+    )
+
+    nn = NearestNeighbors(n_neighbors=2).fit(transformed_values)
+    _, indices_ = nn.kneighbors(transformed_values[random_points])
+    indices = np.unique(indices_.squeeze())
+
+    f, ax = plt.subplots()
+    ax.scatter(x=two_dim_data[indices, 0], y=two_dim_data[indices, 1])
+    # adding the legend
+    for x in indices:
+        ax.text(
+            x=two_dim_data[x, 0], y=two_dim_data[x, 1], s=sorted_values[x], fontsize=8
+        )
+    ax.set_title(
+        "multi-dimensional-scaling representation using a 3gram similarity matrix"
+    )
+
+    f2, ax2 = plt.subplots(figsize=(7, 7))
+    cax2 = ax2.matshow(transformed_values[indices, :][:, indices])
+    ax2.set_yticks(np.arange(len(indices)))
+    ax2.set_xticks(np.arange(len(indices)))
+    ax2.set_yticklabels(sorted_values[indices], rotation="30")
+    ax2.set_xticklabels(sorted_values[indices], rotation="60", ha="right")
+    ax2.xaxis.tick_bottom()
+    ax2.set_title("Similarities across categories")
+    f2.colorbar(cax2)
+    f2.tight_layout()

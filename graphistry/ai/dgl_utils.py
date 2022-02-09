@@ -5,9 +5,9 @@ import dgl
 import pandas as pd
 import torch
 
-from ml import constants as config
-from ml.feature_utils import FeatureMixin, convert_to_torch
-from ml.utils import pandas_to_sparse_adjacency, setup_logger
+import graphistry.ai.constants as config
+from graphistry.ai.feature_utils import FeatureMixin, convert_to_torch
+from graphistry.ai.utils import pandas_to_sparse_adjacency, setup_logger
 
 logger = setup_logger(__name__)
 
@@ -131,25 +131,37 @@ class BaseDGLGraphMixin(FeatureMixin):
         # this is a sanity check after _remove_edges_not_in_nodes
         self._check_nodes_lineup_with_edges(node_column)
 
-    def _featurize_nodes_to_dgl(self, y: pd.DataFrame, use_columns: List):
+    def _featurize_nodes_to_dgl(
+        self, y: pd.DataFrame, use_columns: List, inplace: bool = False
+    ):
         logger.info("Running Node Featurization")
-        self._featurize_nodes(y, use_columns)
-        X_enc = self.node_features
-        y_enc = self.node_target
+        if inplace:
+            res = self
+        else:
+            res = self.bind()
+        res = self._featurize_nodes(res, y, use_columns)
+        X_enc = res.node_features
+        y_enc = res.node_target
         ndata = convert_to_torch(X_enc, y_enc)
         # add ndata to the graph
         self.DGL_graph.ndata.update(ndata)
         self._mask_nodes()
 
-    def _featurize_edges_to_dgl(self, y: pd.DataFrame, use_columns: List):
+    def _featurize_edges_to_dgl(
+        self, y: pd.DataFrame, use_columns: List, inplace: bool = False
+    ):
         logger.info("Running Edge Featurization")
         if hasattr(self, "_MASK"):
             if y is not None:
                 y = y[self._MASK]  # automatically prune target using mask
                 # note, edf, ndf, should both have unique indices
-        self._featurize_edges(y, use_columns)
-        X_enc = self.edge_features
-        y_enc = self.edge_target
+        if inplace:
+            res = self
+        else:
+            res = self.bind()
+        res = self._featurize_edges(res, y, use_columns)
+        X_enc = res.edge_features
+        y_enc = res.edge_target
         edata = convert_to_torch(X_enc, y_enc)
         # add edata to the graph
         self.DGL_graph.edata.update(edata)
@@ -163,11 +175,12 @@ class BaseDGLGraphMixin(FeatureMixin):
         y_edges: pd.DataFrame = None,
         use_node_columns: List = None,
         use_edge_columns: List = None,
+        inplace: bool = False,
     ):
         # here we make node and edge features and add them to the DGL graph instance
         self._convert_edgeDF_to_DGL(node_column, weight_column)
-        self._featurize_nodes_to_dgl(y_nodes, use_node_columns)
-        self._featurize_edges_to_dgl(y_edges, use_edge_columns)
+        self._featurize_nodes_to_dgl(y_nodes, use_node_columns, inplace)
+        self._featurize_edges_to_dgl(y_edges, use_edge_columns, inplace)
         return self
 
     def _mask_nodes(self):

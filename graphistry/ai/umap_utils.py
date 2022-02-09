@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 import umap
 
-import ml.constants as config
-from ml.utils import setup_logger
+import graphistry.ai.constants as config
+from graphistry.ai.utils import setup_logger
 
 logger = setup_logger(__name__)
 

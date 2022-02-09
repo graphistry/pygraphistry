@@ -1,13 +1,13 @@
-# ############################################################
-# source and destination labels for consistent pipe lining
+# ###############################################################
+# source and destination labels for consistent pipeline-ing across files
 SRC = "_src"
 DST = "_dst"
-WEIGHT = "_weight"
+WEIGHT = "weight"
 # for UMAP reserved namespace
-X = "_x"
-Y = "_y"
+X = "x"
+Y = "y"
 
-# #############################
+# ###############################################################
 # consistent clf pipelining and constructor methods across files
 DGL_GRAPH = "DGL_graph"
 FEATURE = "feature"
@@ -20,7 +20,7 @@ TRAIN_MASK = "train_mask"
 TEST_MASK = "test_mask"
 
 
-# ###############################
+# ##############################################################
 # for preprocessors namespace
 #   for dirty_cat params
 DIRTY_CAT = "dirty_cat"
