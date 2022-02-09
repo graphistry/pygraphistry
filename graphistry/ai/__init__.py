@@ -1,1 +1,1 @@
-from .feature_utils import * as feature_utils
+from .feature_utils import FeatureMixin
