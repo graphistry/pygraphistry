@@ -15,7 +15,7 @@ from sklearn.neighbors import NearestNeighbors
 from tqdm import tqdm
 
 import graphistry
-from graphistry.ai import constants as config
+from . import constants as config
 
 
 def setup_logger(name):

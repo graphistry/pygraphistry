@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import ml.constants as config
+import constants as config
 
 
 class GCN(nn.Module):

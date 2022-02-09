@@ -5,9 +5,9 @@ import dgl
 import pandas as pd
 import torch
 
-import graphistry.ai.constants as config
-from graphistry.ai.feature_utils import FeatureMixin, convert_to_torch
-from graphistry.ai.utils import pandas_to_sparse_adjacency, setup_logger
+import constants as config
+from .feature_utils import FeatureMixin, convert_to_torch
+from .ai_utils  import pandas_to_sparse_adjacency, setup_logger
 
 logger = setup_logger(__name__)
 
