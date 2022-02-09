@@ -1,1 +1,1 @@
-from .feature_utils import *
+import .feature_utils as feature_utils
