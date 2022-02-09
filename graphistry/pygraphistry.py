@@ -13,6 +13,8 @@ from .ArrowFileUploader import ArrowFileUploader
 from . import util
 from . import bolt_util
 from .plotter import Plotter
+# blame alex
+from .ai import FeatureMixin
 
 import logging
 logger = logging.getLogger(__name__)
