@@ -12,12 +12,13 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     tigergraph, gsql, gsql_endpoint,
     cosmos, neptune, gremlin, gremlin_client, drop_graph,
     layout_settings,
-    nodexl,
+    nodexl, 
+    FeatureMixin,
     ArrowUploader,
     ArrowFileUploader,
     PyGraphistry)
 #import graphistry.ai 
-from graphistry.ai import FeatureMixin
+#from graphistry.ai import FeatureMixin
 
 from ._version import get_versions
 __version__ = get_versions()['version']
