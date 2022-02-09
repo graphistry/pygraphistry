@@ -1,4 +1,4 @@
-from graphistry import ai #import feature_utils
+#from graphistry import ai #import feature_utils
 from graphistry.pygraphistry import (  # noqa: E402, F401
     client_protocol_hostname, protocol, server,
     register, privacy, login, refresh, api_token, verify_token,
