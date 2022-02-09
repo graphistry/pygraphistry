@@ -17,7 +17,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     ArrowFileUploader,
     PyGraphistry)
 #import graphistry.ai 
-from graphistry.ai import feature_utils
+from graphistry.ai import FeatureMixin
 
 from ._version import get_versions
 __version__ = get_versions()['version']
