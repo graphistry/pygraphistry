@@ -18,9 +18,9 @@ from sklearn.preprocessing import MultiLabelBinarizer
 
 from graphistry.plotter import PlotterBase
 
-import .constants as config
+from . import constants as config
 from .umap_utils import BaseUMAPMixin
-from .utils import setup_logger
+from .ai_utils import  setup_logger
 
 logger = setup_logger(__name__)
 

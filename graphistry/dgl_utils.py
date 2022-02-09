@@ -5,9 +5,9 @@ import dgl
 import pandas as pd
 import torch
 
-import constants as config
+from . import constants as config
 from .feature_utils import FeatureMixin, convert_to_torch
-from .ai_utils  import pandas_to_sparse_adjacency, setup_logger
+from .ai_utils import pandas_to_sparse_adjacency, setup_logger
 
 logger = setup_logger(__name__)
 

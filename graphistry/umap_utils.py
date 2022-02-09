@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import umap
 
-import constants as config
+from . import constants as config
 from .ai_utils import setup_logger
 
 logger = setup_logger(__name__)
