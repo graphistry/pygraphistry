@@ -182,6 +182,14 @@ class ArrowUploader:
             logged_in_org_name = org.get('slug', None)
 
             if org_name: # caller pass in org_name
+                if not logged_in_org_name:  # no active_organization in JWT payload
+                    raise Exception("Server does not support organization, please omit org_name")
+                else:
+                    # if JWT response with org_name different than the pass in org_name
+                    # => org_name not found and return default organization (currently is personal org)
+                    if logged_in_org_name != org_name:
+                        raise Exception("Login Organization is not found in your organization")
+
                 is_found = org.get('is_found', None)
                 is_member = org.get('is_member', None)
 
@@ -191,13 +199,6 @@ class ArrowUploader:
                 if not is_member: 
                     raise Exception("You are not a member of {}".format(org_name))
 
-                if not logged_in_org_name:  # no active_organization in JWT payload
-                    raise Exception("Server does not support organization, please omit org_name")
-                else:
-                    # if JWT response with org_name different than the pass in org_name
-                    # => org_name not found and return default organization (currently is personal org)
-                    if logged_in_org_name != org_name:
-                        raise Exception("Login Organization is not found in your organization")
             PyGraphistry.org_name(logged_in_org_name)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
