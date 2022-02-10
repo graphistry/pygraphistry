@@ -390,7 +390,7 @@ class PyGraphistry(object):
         :type notify: bool
         :param invited_users: List of recipients, where each is {"email": str, "action": str} and action is "10" (view) or "20" (edit)
         :type invited_users: List
-        :param mode_action: only used when mode="organization", action for sharing within organization, "10" (view) or "20" (edit), default is "20"
+        :param mode_action: Only used when mode="organization", action for sharing within organization, "10" (view) or "20" (edit), default is "20"
         :type mode_action: str
 
         Requires an account with sharing capabilities.
