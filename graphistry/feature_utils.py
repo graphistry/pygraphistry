@@ -628,7 +628,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         if kind == "nodes":
             # make a node_entity to index dict
             # nodes = res.materialize_nodes()
-            if hasattr(res, '_node'):
+            if hasattr(res, '_node') and res._node is not None:
                 nodes = res._nodes[res._node].values
                 assert len(nodes) == len(
                     np.unique(nodes)
