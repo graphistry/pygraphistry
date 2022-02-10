@@ -628,11 +628,14 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         if kind == "nodes":
             # make a node_entity to index dict
             # nodes = res.materialize_nodes()
-            nodes = res._nodes[res._node].values
-            assert len(nodes) == len(
-                np.unique(nodes)
-            ), "There are repeat entities in node table"
-            index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
+            if hasattr(res, '_node'):
+                nodes = res._nodes[res._node].values
+                assert len(nodes) == len(
+                    np.unique(nodes)
+                ), "There are repeat entities in node table"
+                index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
+            else:
+                index_to_nodes_dict = None
 
             X, y = self._featurize_or_get_nodes_data_if_X_is_None(
                 res, X, y, use_columns
