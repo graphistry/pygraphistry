@@ -25,7 +25,9 @@ base_extras = {
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl', 'xlrd'],
-    'jupyter': ['ipython']
+    'jupyter': ['ipython'],
+    'ai': ['scikit-learn', 'scipy', 'dirty-cat', 'umap-learn', 'dgl', 'torch',
+           'sentence-transformers']
 }
 
 extras_require = {

@@ -37,15 +37,18 @@ umap_kwargs_euclidean = {
 
 
 class UMAPMixin(object):
-    def __init__(self, n_neighbors: int = 12,
+    def __init__(
+        self,
+        n_neighbors: int = 12,
         min_dist: float = 0.1,
         spread=0.5,
         local_connectivity=1,
         repulsion_strength=1,
         negative_sample_rate=5,
         n_components: int = 2,
-        metric: str = "euclidean"):
-        
+        metric: str = "euclidean",
+    ):
+
         umap_kwargs = dict(
             n_components=n_components,
             metric=metric,
@@ -57,17 +60,16 @@ class UMAPMixin(object):
             negative_sample_rate=negative_sample_rate,
         )
 
-        self.n_components = n_components,
-        self.metric = metric,
-        self.n_neighbors = n_neighbors,
-        self.min_dist = min_dist,
-        self.spread = spread,
-        self.local_connectivity = local_connectivity,
-        self.repulsion_strength = repulsion_strength,
-        self.negative_sample_rate = negative_sample_rate,
-        #super().__init__()
+        self.n_components = (n_components,)
+        self.metric = (metric,)
+        self.n_neighbors = (n_neighbors,)
+        self.min_dist = (min_dist,)
+        self.spread = (spread,)
+        self.local_connectivity = (local_connectivity,)
+        self.repulsion_strength = (repulsion_strength,)
+        self.negative_sample_rate = (negative_sample_rate,)
+        # super().__init__()
         self._umap = umap.UMAP(**umap_kwargs)
-
 
     def _set_new_kwargs(self, **kwargs):
         self._umap = umap.UMAP(**kwargs)

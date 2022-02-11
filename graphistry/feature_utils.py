@@ -7,7 +7,7 @@ import pandas as pd
 try:
     import scipy
     import torch
-    
+
     from dirty_cat import (
         SuperVectorizer,
         SimilarityEncoder,
@@ -23,7 +23,8 @@ except:
     SentenceTransformer = Any
     MultiLabelBinarizer = Any
     torch = Any
-    
+
+
 def reimport():
     """
         Helper function so that Graphistry loads
@@ -32,7 +33,7 @@ def reimport():
     try:
         import scipy
         import torch
-        
+
         from dirty_cat import (
             SuperVectorizer,
             SimilarityEncoder,
@@ -43,10 +44,11 @@ def reimport():
         from sentence_transformers import SentenceTransformer
         from sklearn.preprocessing import MultiLabelBinarizer
     except ModuleNotFoundError as e:
-        logger.error(f'AI Packages not found, trying running `pip install graphistry[ai]`', exc_info=True)
+        logger.error(
+            f"AI Packages not found, trying running `pip install graphistry[ai]`",
+            exc_info=True,
+        )
         raise e
-    
-    
 
 
 from graphistry.plotter import PlotterBase
@@ -65,6 +67,7 @@ encoders_dirty: Dict = {
     "gap": GapEncoder(n_components=config.N_TOPICS_DEFAULT),
     "super": SuperVectorizer(auto_cast=True),
 }
+
 
 def get_train_test_sets(X, y, test_size):
     if test_size is None:
@@ -162,7 +165,6 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
     return df
 
 
-
 # #########################################################################################
 #
 #  Torch helpers
@@ -205,7 +207,7 @@ def get_dtypes_for_dataframe(df: pd.DataFrame, verbose: bool = True) -> Dict:
     return gtypes
 
 
-def set_to_numeric(df: pd.DataFrame, cols: List, fill_value: float = 0.):
+def set_to_numeric(df: pd.DataFrame, cols: List, fill_value: float = 0.0):
     df[cols] = pd.to_numeric(df[cols], errors="coerce").fillna(fill_value)
 
 
@@ -221,9 +223,9 @@ def set_to_bool(df: pd.DataFrame, col: str, value: Any):
 def where_is_currency_column(df: pd.DataFrame, col: str):
     # simple heuristics:
     def check_if_currency(x: str):
-        if "$" in x: ## hmmm need to add for ALL currencies...
+        if "$" in x:  ## hmmm need to add for ALL currencies...
             return True
-        if "," in x: # and ints next to it
+        if "," in x:  # and ints next to it
             return True
         try:
             x = float(x)
@@ -256,13 +258,14 @@ def set_currency_to_float(df: pd.DataFrame, col: str, return_float: bool = True)
 #
 # #########################################################################################
 
+
 def check_if_textual_column(
     df: pd.DataFrame, col: str, confidence: float = 0.35, min_words: float = 3.5
 ) -> bool:
     """
         Checks if `col` column of df is textual or not using basic heuristics
     _________________________________________________________________________
-    
+
     :param df: DataFrame
     :param col: column name
     :param confidence: threshold float value between 0 and 1. If column `col` has `confidence` more elements as `str`
@@ -295,7 +298,7 @@ def get_textual_columns(df: pd.DataFrame) -> List:
     """
         Collects columns from df that it deems are textual.
     _________________________________________________________________________
-    
+
     :param df: DataFrame
     :return: list of columns names
     """
@@ -319,7 +322,7 @@ def process_textual_or_other_dataframes(
         Automatic Deep Learning Embedding of Textual Features,
         with the rest of the columns taken care of by dirty_cat
     _________________________________________________________________________
-    
+
     :param df: pandas DataFrame of data
     :param y: pandas DataFrame of targets
     :param model_name: SentenceTransformer model name. See available list at
@@ -549,11 +552,14 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
 
     def __init__(self, *args, **kwargs):
         from functools import partial
+
         super().__init__()
         ComputeMixin.__init__(self, *args, **kwargs)
-        #FeatureMixin.__init__(self, *args, **kwargs)
+        # FeatureMixin.__init__(self, *args, **kwargs)
         UMAPMixin.__init__(self, *args, **kwargs)
-        self._node_featurizer = partial(process_textual_or_other_dataframes, *args, **kwargs)
+        self._node_featurizer = partial(
+            process_textual_or_other_dataframes, *args, **kwargs
+        )
         self._edge_featurizer = process_edge_dataframes
 
     def _featurize_nodes(
@@ -719,7 +725,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         negative_sample_rate=5,
         n_components: int = 2,
         metric: str = "euclidean",
-        scale_xy: float= 10,
+        scale_xy: float = 10,
         suffix: str = "",
         play: Optional[int] = 0,
         engine: str = "umap_learn",
@@ -751,7 +757,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         :return: self, with attributes set with new data
         """
         reimport()
-        
+
         self.suffix = suffix
         xy = None
         umap_kwargs = dict(
@@ -791,7 +797,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             X, y = self._featurize_or_get_nodes_data_if_X_is_None(
                 res, X, y, use_columns
             )
-            xy = scale_xy*res.fit_transform(X, y)
+            xy = scale_xy * res.fit_transform(X, y)
             res.weighted_adjacency_nodes = res._weighted_adjacency
             res.node_embedding = xy
             # TODO add edge filter so graph doesn't have double edges
@@ -804,7 +810,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             X, y = self._featurize_or_get_edges_dataframe_if_X_is_None(
                 res, X, y, use_columns
             )
-            xy = scale_xy*res.fit_transform(X, y)
+            xy = scale_xy * res.fit_transform(X, y)
             res.weighted_adjacency_edges = res._weighted_adjacency
             res.edge_embedding = xy
             res.weighted_edges_df_from_edges = prune_weighted_edges_df(
@@ -852,7 +858,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         df = df.copy(deep=False)
         x_name = config.X + self.suffix
         y_name = config.Y + self.suffix
-        if kind == 'nodes':
+        if kind == "nodes":
             emb = res.node_embedding
         else:
             emb = res.edge_embedding
@@ -892,7 +898,6 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
                 return res.bind(point_x=x_name, point_y=y_name)
 
         return res
-
 
 
 __notes__ = """
