@@ -3,23 +3,57 @@ from typing import List, Union, Dict, Callable, Any, Tuple, Optional
 
 import numpy as np
 import pandas as pd
-import scipy
-import torch
 
-from dirty_cat import (
-    SuperVectorizer,
-    SimilarityEncoder,
-    TargetEncoder,
-    MinHashEncoder,
-    GapEncoder,
-)
-from sentence_transformers import SentenceTransformer
-from sklearn.preprocessing import MultiLabelBinarizer
+try:
+    import scipy
+    import torch
+    
+    from dirty_cat import (
+        SuperVectorizer,
+        SimilarityEncoder,
+        TargetEncoder,
+        MinHashEncoder,
+        GapEncoder,
+    )
+    from sentence_transformers import SentenceTransformer
+    from sklearn.preprocessing import MultiLabelBinarizer
+except:
+    SuperVectorizer = Any
+    scipy = Any
+    SentenceTransformer = Any
+    MultiLabelBinarizer = Any
+    torch = Any
+    
+def reimport():
+    """
+        Helper function so that Graphistry loads
+    :return:
+    """
+    try:
+        import scipy
+        import torch
+        
+        from dirty_cat import (
+            SuperVectorizer,
+            SimilarityEncoder,
+            TargetEncoder,
+            MinHashEncoder,
+            GapEncoder,
+        )
+        from sentence_transformers import SentenceTransformer
+        from sklearn.preprocessing import MultiLabelBinarizer
+    except ModuleNotFoundError as e:
+        logger.error(f'AI Packages not found, trying running `pip install graphistry[ai]`', exc_info=True)
+        raise e
+    
+    
+
 
 from graphistry.plotter import PlotterBase
+from graphistry.compute import ComputeMixin
 
 from . import constants as config
-from .umap_utils import BaseUMAPMixin
+from .umap_utils import UMAPMixin
 from .ai_utils import setup_logger
 
 logger = setup_logger(__name__)
@@ -505,19 +539,21 @@ def get_dataframe_columns(df: pd.DataFrame, columns: Union[List, None] = None): 
         return df[columns]
 
 
-class FeatureMixin(PlotterBase, BaseUMAPMixin):
+class FeatureMixin(ComputeMixin, UMAPMixin):
     """
     FeatureMixin for automatic featurization of nodes and edges DataFrames.
-    Subclasses BaseUMAPMixin for umap-ing of automatic features.
+    Subclasses UMAPMixin for umap-ing of automatic features.
 
     TODO: add example usage doc
     """
 
     def __init__(self, *args, **kwargs):
+        from functools import partial
         super().__init__()
-        PlotterBase.__init__(self, *args, **kwargs)
-        BaseUMAPMixin.__init__(self, *args, **kwargs)
-        self._node_featurizer = process_textual_or_other_dataframes
+        ComputeMixin.__init__(self, *args, **kwargs)
+        #FeatureMixin.__init__(self, *args, **kwargs)
+        UMAPMixin.__init__(self, *args, **kwargs)
+        self._node_featurizer = partial(process_textual_or_other_dataframes, *args, **kwargs)
         self._edge_featurizer = process_edge_dataframes
 
     def _featurize_nodes(
@@ -583,6 +619,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         :return: self, with new attributes set by the featurization process
 
         """
+        reimport()
         if inplace:
             res = self
         else:
@@ -676,13 +713,13 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         scale: float = 2,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
-        verbose=True,
         spread=0.5,
         local_connectivity=1,
         repulsion_strength=1,
         negative_sample_rate=5,
         n_components: int = 2,
         metric: str = "euclidean",
+        scale_xy: float= 10,
         suffix: str = "",
         play: Optional[int] = 0,
         engine: str = "umap_learn",
@@ -701,7 +738,6 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         :param scale: multiplicative scale for pruning weighted edge DataFrame gotten from UMAP (mean + scale *std)
         :param n_neighbors: UMAP number of nearest neighbors to include for UMAP connectivity, lower makes more compact layouts. Minimum 2.
         :param min_dist: UMAP float between 0 and 1, lower makes more compact layouts.
-        :param verbose: UMAP Whether to print UMAP logs
         :param spread: UMAP spread of values for relaxation
         :param local_connectivity: UMAP connectivity parameter
         :param repulsion_strength: UMAP repulsion strength
@@ -714,7 +750,8 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         :param engine: selects which engine to use to calculate UMAP: NotImplemented yet, default UMAP-LEARN
         :return: self, with attributes set with new data
         """
-
+        reimport()
+        
         self.suffix = suffix
         xy = None
         umap_kwargs = dict(
@@ -722,7 +759,6 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
             metric=metric,
             n_neighbors=n_neighbors,
             min_dist=min_dist,
-            verbose=verbose,
             spread=spread,
             local_connectivity=local_connectivity,
             repulsion_strength=repulsion_strength,
@@ -755,7 +791,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
             X, y = self._featurize_or_get_nodes_data_if_X_is_None(
                 res, X, y, use_columns
             )
-            xy = res.fit_transform(X, y)
+            xy = scale_xy*res.fit_transform(X, y)
             res.weighted_adjacency_nodes = res._weighted_adjacency
             res.node_embedding = xy
             # TODO add edge filter so graph doesn't have double edges
@@ -768,7 +804,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
             X, y = self._featurize_or_get_edges_dataframe_if_X_is_None(
                 res, X, y, use_columns
             )
-            xy = res.fit_transform(X, y)
+            xy = scale_xy*res.fit_transform(X, y)
             res.weighted_adjacency_edges = res._weighted_adjacency
             res.edge_embedding = xy
             res.weighted_edges_df_from_edges = prune_weighted_edges_df(
@@ -816,8 +852,12 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         df = df.copy(deep=False)
         x_name = config.X + self.suffix
         y_name = config.Y + self.suffix
-        df[x_name] = res.embedding_.T[0]
-        df[y_name] = res.embedding_.T[1]
+        if kind == 'nodes':
+            emb = res.node_embedding
+        else:
+            emb = res.edge_embedding
+        df[x_name] = emb.T[0]
+        df[y_name] = emb.T[1]
 
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 
@@ -853,19 +893,6 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
 
         return res
 
-
-# def get_columns(use_columns, X):
-#     cols = X.columns
-#     good_cols = []
-#     for c in cols:
-#         pass
-#
-#
-# def safe_suffix(suffix: str):
-#     if suffix.startswith("_"):
-#         return suffix
-#     else:
-#         return "_" + suffix
 
 
 __notes__ = """
