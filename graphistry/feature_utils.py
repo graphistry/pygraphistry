@@ -20,7 +20,7 @@ from graphistry.plotter import PlotterBase
 
 from . import constants as config
 from .umap_utils import BaseUMAPMixin
-from .ai_utils import  setup_logger
+from .ai_utils import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -31,6 +31,17 @@ encoders_dirty: Dict = {
     "gap": GapEncoder(n_components=config.N_TOPICS_DEFAULT),
     "super": SuperVectorizer(auto_cast=True),
 }
+
+def get_train_test_sets(X, y, test_size):
+    if test_size is None:
+        return X, None, y, None
+
+    from sklearn.model_selection import train_test_split
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=42
+    )
+    return X_train, X_test, y_train, y_test
 
 
 # #################################################################################
@@ -54,6 +65,7 @@ def check_target_not_in_features(
 ) -> Tuple[pd.DataFrame, Union[pd.DataFrame, pd.Series, np.ndarray, List]]:
     """
         Checks if y DataFrame column name is in df, and removes it from df if so
+    _________________________________________________________________________
 
     :param df: model DataFrame
     :param y: target DataFrame
@@ -81,6 +93,7 @@ def check_target_not_in_features(
 def remove_node_column_from_ndf_and_return_ndf_from_res(res, remove_node_column: bool):
     """
         Helper method to make sure that node name is not featurized
+    _________________________________________________________________________
 
     :param res:
     :param remove_node_column: bool, whether to remove node column or not
@@ -100,26 +113,36 @@ def remove_node_column_from_ndf_and_return_ndf_from_res(res, remove_node_column:
 def remove_internal_namespace_if_present(df: pd.DataFrame):
     """
         Some tranformations below add columns to the DataFrame, this method removes them before featurization
+        Will not drop if suffix is added during UMAP-ing
+    _________________________________________________________________________
 
     :param df: DataFrame
     :return: DataFrame with dropped columns in reserved namespace
     """
     if df is None:
         return None
-    # here we drop all _namespace like _x, _y, etc, so that featurization doesn't include them idempotently
+    # here we drop all _namespace like _x, _y, etc, so that featurization doesn't include them idempotent-ly
     reserved_namespace = [config.X, config.Y, config.SRC, config.DST, config.WEIGHT]
     df = df.drop(columns=reserved_namespace, errors="ignore")
     # logger.info(df.head(3))
     return df
 
 
+
+# #########################################################################################
+#
+#  Torch helpers
+#
+# #########################################################################################
+
+
 def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
     """
         Converts X, y to torch tensors compatible with ndata/edata of DGL graph
-
-    :param X_enc:
-    :param y_enc:
-    :return: dictionary of torch encoded arrays
+    _________________________________________________________________________
+    :param X_enc: DataFrame Matrix of Values for Model Matrix
+    :param y_enc: DataFrame Matrix of Values for Target
+    :return: Dictionary of torch encoded arrays
     """
     if y_enc is not None:
         data = {
@@ -133,17 +156,79 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
 
 # #################################################################################
 #
-#      Featurization Functions
+#      Featurization Functions and Utils
 #
 # ###############################################################################
 
+
+def get_dtypes_for_dataframe(df: pd.DataFrame, verbose: bool = True) -> Dict:
+    # so very useful on large DataFrames, super useful if we use a feature_column type transformer too
+    gtypes = df.columns.to_series().groupby(df.dtypes).groups
+    gtypes = {k.name: list(v) for k, v in gtypes.items()}
+    if verbose:
+        for k, v in gtypes.items():
+            logger.info(f"{k} has {len(v)} members")
+    return gtypes
+
+
+def set_to_numeric(df: pd.DataFrame, cols: List, fill_value: float = 0.):
+    df[cols] = pd.to_numeric(df[cols], errors="coerce").fillna(fill_value)
+
+
+def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
+    # eg df["Start_Date"] = pd.to_datetime(df[['Month', 'Day', 'Year']])
+    df[new_col] = pd.to_datetime(df[cols], errors="coerce").fillna(0)
+
+
+def set_to_bool(df: pd.DataFrame, col: str, value: Any):
+    df[col] = np.where(df[col] == value, True, False)
+
+
+def where_is_currency_column(df: pd.DataFrame, col: str):
+    # simple heuristics:
+    def check_if_currency(x: str):
+        if "$" in x: ## hmmm need to add for ALL currencies...
+            return True
+        if "," in x: # and ints next to it
+            return True
+        try:
+            x = float(x)
+            return True
+        except:
+            return False
+        return False
+
+    mask = df[col].apply(lambda x: check_if_currency)
+    return mask
+
+
+def set_currency_to_float(df: pd.DataFrame, col: str, return_float: bool = True):
+    from re import sub
+    from decimal import Decimal
+
+    def convert_money_string_to_float(money: str):
+        value = Decimal(sub(r"[^\d\-.]", "", money))  # preserves minus signs
+        if return_float:
+            return float(value)
+        return value
+
+    mask = where_is_currency_column(df, col)
+    df[col, mask] = df[col, mask].apply(convert_money_string_to_float)
+
+
+# #########################################################################################
+#
+#      Text Utils
+#
+# #########################################################################################
 
 def check_if_textual_column(
     df: pd.DataFrame, col: str, confidence: float = 0.35, min_words: float = 3.5
 ) -> bool:
     """
         Checks if `col` column of df is textual or not using basic heuristics
-
+    _________________________________________________________________________
+    
     :param df: DataFrame
     :param col: column name
     :param confidence: threshold float value between 0 and 1. If column `col` has `confidence` more elements as `str`
@@ -175,7 +260,8 @@ def check_if_textual_column(
 def get_textual_columns(df: pd.DataFrame) -> List:
     """
         Collects columns from df that it deems are textual.
-
+    _________________________________________________________________________
+    
     :param df: DataFrame
     :return: list of columns names
     """
@@ -193,11 +279,13 @@ def process_textual_or_other_dataframes(
     y: pd.DataFrame,
     z_scale: bool = True,
     model_name: str = "paraphrase-MiniLM-L6-v2",
+    # test_size: Union[bool, None] = None,
 ) -> Union[pd.DataFrame, Callable, Any]:
     """
         Automatic Deep Learning Embedding of Textual Features,
         with the rest of the columns taken care of by dirty_cat
-
+    _________________________________________________________________________
+    
     :param df: pandas DataFrame of data
     :param y: pandas DataFrame of targets
     :param model_name: SentenceTransformer model name. See available list at
@@ -212,6 +300,7 @@ def process_textual_or_other_dataframes(
 
     text_cols = get_textual_columns(df)
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
+
     if text_cols:
         for col in text_cols:
             logger.info(f"-Calculating Embeddings for column `{col}`")
@@ -255,6 +344,7 @@ def process_dirty_dataframes(
     """
         Dirty_Cat encoder for node-record level data. Will automatically turn
         inhomogeneous dataframe into matrix using smart conversion tricks.
+    _________________________________________________________________________
 
     :param ndf: node dataframe
     :param y: target dataframe or series
@@ -436,6 +526,7 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         y: Union[pd.DataFrame, np.ndarray],
         use_columns: Union[List, None] = None,
         remove_node_column: bool = True,  # since node label might be index or unique names
+        train_test_split: Union[bool, None] = None,
     ):
 
         ndf = remove_node_column_from_ndf_and_return_ndf_from_res(
@@ -446,7 +537,9 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         ndf, y = check_target_not_in_features(ndf, y, remove=True)
         ndf = remove_internal_namespace_if_present(ndf)
         # now vectorize it all
-        X_enc, y_enc, data_vec, label_vec = self._node_featurizer(ndf, y)
+        X_enc, y_enc, data_vec, label_vec = self._node_featurizer(
+            ndf, y, train_test_split
+        )
         # set the new variables
         res.node_features = X_enc
         res.node_target = y_enc
@@ -581,10 +674,15 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         X: np.ndarray = None,
         y: Union[np.ndarray, List] = None,
         scale: float = 2,
-        n_components: int = 2,
-        metric: str = "euclidean",
         n_neighbors: int = 12,
         min_dist: float = 0.1,
+        verbose=True,
+        spread=0.5,
+        local_connectivity=1,
+        repulsion_strength=1,
+        negative_sample_rate=5,
+        n_components: int = 2,
+        metric: str = "euclidean",
         suffix: str = "",
         play: Optional[int] = 0,
         engine: str = "umap_learn",
@@ -601,15 +699,22 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         :param X: ndarray of features
         :param y: ndarray of targets
         :param scale: multiplicative scale for pruning weighted edge DataFrame gotten from UMAP (mean + scale *std)
+        :param n_neighbors: UMAP number of nearest neighbors to include for UMAP connectivity, lower makes more compact layouts. Minimum 2.
+        :param min_dist: UMAP float between 0 and 1, lower makes more compact layouts.
+        :param verbose: UMAP Whether to print UMAP logs
+        :param spread: UMAP spread of values for relaxation
+        :param local_connectivity: UMAP connectivity parameter
+        :param repulsion_strength: UMAP repulsion strength
+        :param negative_sample_rate: UMAP negative sampling rate
         :param n_components: number of components in the UMAP projection, default 2
         :param metric: UMAP metric, default 'euclidean'. Other useful ones are 'hellinger', '..'
                 see (UMAP-LEARN)[https://umap-learn.readthedocs.io/en/latest/parameters.html] documentation for more.
-        :param n_neighbors: number of nearest neighbors to include for UMAP connectivity, lower makes more compact layouts. Minimum 2.
-        :param min_dist: float between 0 and 1, lower makes more compact layouts.
         :param suffix: optional suffix to add to x, y attributes of umap.
+        :param play: Graphistry play parameter, default 0, how much to evolve the network during clustering
         :param engine: selects which engine to use to calculate UMAP: NotImplemented yet, default UMAP-LEARN
         :return: self, with attributes set with new data
         """
+
         self.suffix = suffix
         xy = None
         umap_kwargs = dict(
@@ -617,7 +722,13 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
             metric=metric,
             n_neighbors=n_neighbors,
             min_dist=min_dist,
+            verbose=verbose,
+            spread=spread,
+            local_connectivity=local_connectivity,
+            repulsion_strength=repulsion_strength,
+            negative_sample_rate=negative_sample_rate,
         )
+
         if inplace:
             res = self
         else:
@@ -628,12 +739,16 @@ class FeatureMixin(PlotterBase, BaseUMAPMixin):
         if kind == "nodes":
             # make a node_entity to index dict
             # nodes = res.materialize_nodes()
-            if hasattr(res, '_node') and res._node is not None:
+            if hasattr(res, "_node") and res._node is not None:
                 nodes = res._nodes[res._node].values
-                assert len(nodes) == len(
-                    np.unique(nodes)
-                ), "There are repeat entities in node table"
-                index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
+                if len(nodes) == len(np.unique(nodes)):
+                    logger.warn(
+                        "There are repeat entities in node table, we will not relabel nodes"
+                    )
+                    index_to_nodes_dict = None
+                else:
+                    logger.info(f"Relabeling nodes")
+                    index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
             else:
                 index_to_nodes_dict = None
 
