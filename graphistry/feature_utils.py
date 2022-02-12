@@ -143,7 +143,7 @@ def remove_node_column_from_ndf_and_return_ndf_from_res(res, remove_node_column:
                 logger.info(
                     f"removing node column `{node_label}` so we do not featurize it"
                 )
-                return res._nodes.drop(columns=[node_label])
+                return res._nodes.drop(columns=[node_label], errors="ignore")
     return res._nodes  # just pass through if false
 
 
@@ -252,6 +252,16 @@ def set_currency_to_float(df: pd.DataFrame, col: str, return_float: bool = True)
     df[col, mask] = df[col, mask].apply(convert_money_string_to_float)
 
 
+def is_dataframe_all_numeric(df):
+    is_all_numeric = True
+    for k in df.dtypes.unique():
+        if k in ["float64", "int64"]:
+            continue
+        else:
+            is_all_numeric = False
+    return is_all_numeric
+
+
 # #########################################################################################
 #
 #      Text Utils
@@ -344,7 +354,7 @@ def process_textual_or_other_dataframes(
             emb = model.encode(df[col].values)
             embeddings = np.c_[embeddings, emb]
 
-    other_df = df.drop(columns=text_cols)
+    other_df = df.drop(columns=text_cols, errors="ignore")
     X_enc, y_enc, data_encoder, label_encoder = process_dirty_dataframes(
         other_df, y, z_scale=False
     )
@@ -355,11 +365,11 @@ def process_textual_or_other_dataframes(
 
     if data_encoder is not None:
         embeddings = np.c_[embeddings, X_enc.values]
-        # now remove the zeros
-        columns = faux_columns + data_encoder.get_feature_names_out()
+        columns = faux_columns + list(X_enc.columns.values)
     else:
-        columns = faux_columns
+        columns = faux_columns  # just sentence-transformers
 
+    # now remove the leading zeros
     embeddings = embeddings[:, 1:]
     if z_scale:  # sort of, but don't remove mean
         embeddings = safe_divide(embeddings, embeddings.std(0))
@@ -371,20 +381,34 @@ def process_textual_or_other_dataframes(
     return X_enc, y_enc, data_encoder, label_encoder
 
 
+def get_cardinality_ratio(y: pd.DataFrame):
+    """Calculates ratio of unique values to total number of rows of DataFrame
+    :param y
+    """
+    ratios = {}
+    for col in y.columns:
+        ratio = len(y[col].unique()) / len(y[col])
+        ratios[col] = ratio
+    return ratios
+
+
 def process_dirty_dataframes(
     ndf: pd.DataFrame,
     y: pd.DataFrame,
     cardinality_threshold: int = 40,
+    cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     z_scale: bool = True,
 ) -> Union[pd.DataFrame, Callable, Any]:
     """
-        Dirty_Cat encoder for node-record level data. Will automatically turn
+        Dirty_Cat encoder for record level data. Will automatically turn
         inhomogeneous dataframe into matrix using smart conversion tricks.
     _________________________________________________________________________
 
-    :param ndf: node dataframe
-    :param y: target dataframe or series
+    :param ndf: node DataFrame
+    :param y: target DataFrame or series
+    :param cardinality_threshold: For ndf columns, below this threshold, encoder is OneHot, above, it is GapEncoder
+    :param cardinality_threshold_target: For target columns, below this threshold, encoder is OneHot, above, it is GapEncoder
     :param n_topics: number of topics for GapEncoder, default 42
     :param z_scale: bool, default True.
     :return: Encoded data matrix and target (if not None), the data encoder, and the label encoder.
@@ -399,33 +423,44 @@ def process_dirty_dataframes(
     y_enc = None
     if not ndf.empty:
         logger.info("Encoding might take a few minutes --------")
-        X_enc = data_encoder.fit_transform(ndf, y)
-        X_enc = X_enc.astype(float)  # otherwise the safe divide is borqued
+        if not is_dataframe_all_numeric(ndf):
+            X_enc = data_encoder.fit_transform(ndf, y)
+            X_enc = X_enc.astype(float)  # otherwise the safe divide is borqued
+            all_transformers = data_encoder.transformers
+            features_transformed = data_encoder.get_feature_names_out()
+            logger.info(f"-Shape of data {X_enc.shape}\n")
+            logger.info(f"-Transformers: {all_transformers}\n")
+            logger.info(f"-Transformed Columns: {features_transformed[:20]}...\n")
+            logger.info(
+                f"--Fitting SuperVectorizer on DATA took {(time() - t) / 60:.2f} minutes\n"
+            )
+            X_enc = pd.DataFrame(X_enc, columns=features_transformed)
+            X_enc = X_enc.fillna(0)
+        else:
+            # if we pass only a numeric DF, data_encoder throws
+            # RuntimeError: No transformers could be generated !
+            logger.info(f"-*-*-DataFrame is already completely numeric")
+            X_enc = ndf.astype(float)
+            data_encoder = False  ## DO NOT SET THIS TO NONE
+            features_transformed = ndf.columns
+            logger.info(f"-Shape of data {X_enc.shape}\n")
+            logger.info(f"-Columns: {features_transformed[:20]}...\n")
+
         if z_scale:
             X_enc = safe_divide(X_enc, np.std(X_enc, axis=0))
-            logger.info(f"Z-Scaling the data")
+            logger.info(f"-Z-Scaling the data")
 
-        logger.info(
-            f"-Fitting SuperVectorizer on DATA took {(time()-t)/60:.2f} minutes\n"
-        )
-
-        all_transformers = data_encoder.transformers
-        features_transformed = data_encoder.get_feature_names_out()
-
-        logger.info(f"-Shape of data {X_enc.shape}\n")
-        logger.info(f"-Transformers: {all_transformers}\n")
-        logger.info(f"-Transformed Columns: {features_transformed[:20]}...\n")
-
-        X_enc = pd.DataFrame(X_enc, columns=features_transformed)
-        X_enc = X_enc.fillna(0)
     else:
         X_enc = None
         data_encoder = None
         logger.info(f"*Given DataFrame seems to be empty")
 
     if y is not None:
+        t2 = time()
         logger.info(f"-Fitting Targets --\n")
-        label_encoder = SuperVectorizer(auto_cast=True)
+        label_encoder = SuperVectorizer(
+            auto_cast=True, cardinality_threshold=cardinality_threshold_target
+        )
         y_enc = label_encoder.fit_transform(y)
         if type(y_enc) == scipy.sparse.csr.csr_matrix:
             y_enc = y_enc.toarray()
@@ -435,6 +470,9 @@ def process_dirty_dataframes(
 
         logger.info(f"-Shape of target {y_enc.shape}")
         logger.info(f"-Target Transformers used: {label_encoder.transformers}\n")
+        logger.info(
+            f"--Fitting SuperVectorizer on TARGET took {(time()-t2)/60:.2f} minutes\n"
+        )
 
     return X_enc, y_enc, data_encoder, label_encoder
 
@@ -557,8 +595,8 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         ComputeMixin.__init__(self, *args, **kwargs)
         # FeatureMixin.__init__(self, *args, **kwargs)
         UMAPMixin.__init__(self, *args, **kwargs)
-        self._node_featurizer = partial(
-            process_textual_or_other_dataframes, *args, **kwargs
+        self._node_featurizer = (
+            process_textual_or_other_dataframes  # partial(.., *args, **kwargs)
         )
         self._edge_featurizer = process_edge_dataframes
 
