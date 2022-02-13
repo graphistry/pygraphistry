@@ -261,6 +261,17 @@ def is_dataframe_all_numeric(df):
             is_all_numeric = False
     return is_all_numeric
 
+def find_bad_set_columns(df, bad_set = ['[]']):
+    gtypes = get_dtypes_for_dataframe(df, verbose=True)
+    bad_cols = []
+    for k in gtypes.keys():
+        for col in gtypes[k]:
+            if col in df.columns:
+                mask = df.astype(str)[col].isin(bad_set)
+                if any(mask):
+                    print(k, col)
+                    bad_cols.append(col)
+    return bad_cols
 
 # #########################################################################################
 #
@@ -920,20 +931,20 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             else:
                 return res.bind(point_x=x_name, point_y=y_name)
 
-        if encode_weight and kind == "edges":
-            w_name = config.WEIGHT + self.suffix
-            umap_df = res.weighted_edges_df_from_edges.copy(deep=False)
-            umap_df = umap_df.rename({config.WEIGHT: w_name})
-            res = res.edges(umap_df, config.SRC, config.DST)
-            res = res.bind(edge_weight=w_name)
-
-        if encode_position and kind == "edges":
-            if play is not None:
-                return res.bind(point_x=x_name, point_y=y_name).layout_settings(
-                    play=play
-                )
-            else:
-                return res.bind(point_x=x_name, point_y=y_name)
+        # if encode_weight and kind == "edges":
+        #     w_name = config.WEIGHT + self.suffix
+        #     umap_df = res.weighted_edges_df_from_edges.copy(deep=False)
+        #     umap_df = umap_df.rename({config.WEIGHT: w_name})
+        #     res = res.edges(umap_df, config.SRC, config.DST)
+        #     res = res.bind(edge_weight=w_name)
+        #
+        # if encode_position and kind == "edges":
+        #     if play is not None:
+        #         return res.bind(point_x=x_name, point_y=y_name).layout_settings(
+        #             play=play
+        #         )
+        #     else:
+        #         return res.bind(point_x=x_name, point_y=y_name)
 
         return res
 
