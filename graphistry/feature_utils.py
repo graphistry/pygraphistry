@@ -1,5 +1,6 @@
 from time import time
 from typing import List, Union, Dict, Callable, Any, Tuple, Optional
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -51,7 +52,6 @@ def reimport():
         raise e
 
 
-from graphistry.plotter import PlotterBase
 from graphistry.compute import ComputeMixin
 
 from . import constants as config
@@ -197,7 +197,98 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
 # ###############################################################################
 
 
-def get_dtypes_for_dataframe(df: pd.DataFrame, verbose: bool = True) -> Dict:
+def impute_and_scale_matrix(
+    X: np.ndarray,
+    impute: bool = True,
+    use_scaler: str = "minmax",
+    n_quantiles: int = 100,
+    quantile_range=(25, 75),
+    output_distribution: str = "normal",
+):
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import (
+        MinMaxScaler,
+        QuantileTransformer,
+        StandardScaler,
+        RobustScaler,
+    )
+
+    available_preprocessors = ["minmax", "quantile", "zscale", "robust"]
+    available_quantile_distributions = ["normal", "uniform"]
+
+    imputer = None
+    res = X
+    if impute:
+        logger.info(f"Imputing Values using mean strategy")
+        # impute values
+        imputer = SimpleImputer(missing_values=np.nan, strategy="mean")
+        imputer = imputer.fit(X)
+        res = imputer.transform(X)
+
+    scaler = None
+    if use_scaler == "minmax":
+        # scale the resulting values column-wise between min and max column values and sets them between 0 and 1
+        scaler = MinMaxScaler()
+    elif use_scaler == "quantile":
+        scaler = QuantileTransformer(
+            n_quantiles=n_quantiles, output_distribution=output_distribution
+        )
+    elif use_scaler == "zscale":
+        scaler = StandardScaler()
+    elif use_scaler == "robust":
+        scaler = RobustScaler(quantile_range=quantile_range)
+    elif use_scaler is None:
+        return res, imputer, scaler
+    else:
+        logger.error(
+            f"`scaling` must be on of {available_preprocessors} or {None}, got {scaler}.\nData is not scaled"
+        )
+        return res, imputer, scaler
+
+    logger.info(f"Applying {use_scaler}-Scaling")
+    res = scaler.fit_transform(res)
+    return res, imputer, scaler
+
+
+def impute_and_scale_df(
+    df,
+    impute=True,
+    use_scaler="minmax",
+    n_quantiles=100,
+    quantile_range=(25, 75),
+    output_distribution="normal",
+):
+    columns = df.columns
+    index = df.index
+
+    if not is_dataframe_all_numeric(df):
+        logger.warn(
+            f"Impute and Scaling can only happen on a Numeric DataFrame.\n -- Try featurizing the DataFrame first using graphistry.featurize(..)"
+        )
+        return df
+
+    X = df.values
+    res, imputer, scaler = impute_and_scale_matrix(
+        X,
+        impute=impute,
+        use_scaler=use_scaler,
+        n_quantiles=n_quantiles,
+        quantile_range=quantile_range,
+        output_distribution=output_distribution,
+    )
+
+    return pd.DataFrame(res, columns=columns, index=index), imputer, scaler
+
+
+def get_dataframe_by_column_dtype(df, types=None, exclude=None):
+    if exclude is not None:
+        df = df.select_dtypes(exclude=exclude)
+    if types is not None:
+        df = df.select_dtypes(include=types)
+    return df
+
+
+def group_columns_by_dtypes(df: pd.DataFrame, verbose: bool = True) -> Dict:
     # so very useful on large DataFrames, super useful if we use a feature_column type transformer too
     gtypes = df.columns.to_series().groupby(df.dtypes).groups
     gtypes = {k.name: list(v) for k, v in gtypes.items()}
@@ -252,17 +343,25 @@ def set_currency_to_float(df: pd.DataFrame, col: str, return_float: bool = True)
     df[col, mask] = df[col, mask].apply(convert_money_string_to_float)
 
 
-def is_dataframe_all_numeric(df):
+def is_dataframe_all_numeric(df: pd.DataFrame) -> bool:
     is_all_numeric = True
     for k in df.dtypes.unique():
-        if k in ["float64", "int64"]:
+        if k in ["float64", "int64", ""]:
             continue
         else:
             is_all_numeric = False
     return is_all_numeric
 
-def find_bad_set_columns(df, bad_set = ['[]']):
-    gtypes = get_dtypes_for_dataframe(df, verbose=True)
+
+def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
+    """
+        Finds columns that if not coerced to strings, will break processors.
+    ----------------------------------------------------------------------------
+    :param df: DataFrame
+    :param bad_set: List of strings to look for.
+    :return:
+    """
+    gtypes = group_columns_by_dtypes(df, verbose=True)
     bad_cols = []
     for k in gtypes.keys():
         for col in gtypes[k]:
@@ -272,6 +371,7 @@ def find_bad_set_columns(df, bad_set = ['[]']):
                     print(k, col)
                     bad_cols.append(col)
     return bad_cols
+
 
 # #########################################################################################
 #
@@ -335,7 +435,10 @@ def get_textual_columns(df: pd.DataFrame) -> List:
 def process_textual_or_other_dataframes(
     df: pd.DataFrame,
     y: pd.DataFrame,
-    z_scale: bool = True,
+    cardinality_threshold: int = 40,
+    cardinality_threshold_target: int = 400,
+    n_topics: int = config.N_TOPICS_DEFAULT,
+    use_scaler: Union[str, None] = None,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     # test_size: Union[bool, None] = None,
 ) -> Union[pd.DataFrame, Callable, Any]:
@@ -346,6 +449,7 @@ def process_textual_or_other_dataframes(
 
     :param df: pandas DataFrame of data
     :param y: pandas DataFrame of targets
+    :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
     :param model_name: SentenceTransformer model name. See available list at
             https://www.sbert.net/docs/pretrained_models.html#sentence-embedding-models
     :return: X_enc, y_enc, data_encoder, label_encoder
@@ -367,7 +471,12 @@ def process_textual_or_other_dataframes(
 
     other_df = df.drop(columns=text_cols, errors="ignore")
     X_enc, y_enc, data_encoder, label_encoder = process_dirty_dataframes(
-        other_df, y, z_scale=False
+        other_df,
+        y,
+        cardinality_threshold,
+        cardinality_threshold_target,
+        n_topics,
+        use_scaler=None,  # set to None so that it happens later
     )
 
     faux_columns = list(
@@ -382,8 +491,8 @@ def process_textual_or_other_dataframes(
 
     # now remove the leading zeros
     embeddings = embeddings[:, 1:]
-    if z_scale:  # sort of, but don't remove mean
-        embeddings = safe_divide(embeddings, embeddings.std(0))
+    if use_scaler:  # sort of, but don't remove mean
+        embeddings, _, _ = impute_and_scale_matrix(embeddings, use_scaler=use_scaler)
 
     X_enc = pd.DataFrame(embeddings, columns=columns)
     logger.info(
@@ -392,13 +501,14 @@ def process_textual_or_other_dataframes(
     return X_enc, y_enc, data_encoder, label_encoder
 
 
-def get_cardinality_ratio(y: pd.DataFrame):
+def get_cardinality_ratio(df: pd.DataFrame):
     """Calculates ratio of unique values to total number of rows of DataFrame
-    :param y
+    --------------------------------------------------------------------------
+    :param df: DataFrame
     """
     ratios = {}
-    for col in y.columns:
-        ratio = len(y[col].unique()) / len(y[col])
+    for col in df.columns:
+        ratio = len(df[col].unique()) / len(y[col])
         ratios[col] = ratio
     return ratios
 
@@ -409,7 +519,7 @@ def process_dirty_dataframes(
     cardinality_threshold: int = 40,
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
-    z_scale: bool = True,
+    use_scaler: Union[str, None] = None,
 ) -> Union[pd.DataFrame, Callable, Any]:
     """
         Dirty_Cat encoder for record level data. Will automatically turn
@@ -421,7 +531,7 @@ def process_dirty_dataframes(
     :param cardinality_threshold: For ndf columns, below this threshold, encoder is OneHot, above, it is GapEncoder
     :param cardinality_threshold_target: For target columns, below this threshold, encoder is OneHot, above, it is GapEncoder
     :param n_topics: number of topics for GapEncoder, default 42
-    :param z_scale: bool, default True.
+    :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
     :return: Encoded data matrix and target (if not None), the data encoder, and the label encoder.
     """
     t = time()
@@ -433,8 +543,8 @@ def process_dirty_dataframes(
     label_encoder = None
     y_enc = None
     if not ndf.empty:
-        logger.info("Encoding might take a few minutes --------")
         if not is_dataframe_all_numeric(ndf):
+            logger.info("Encoding DataFrame might take a few minutes --------")
             X_enc = data_encoder.fit_transform(ndf, y)
             X_enc = X_enc.astype(float)  # otherwise the safe divide is borqued
             all_transformers = data_encoder.transformers
@@ -442,9 +552,7 @@ def process_dirty_dataframes(
             logger.info(f"-Shape of data {X_enc.shape}\n")
             logger.info(f"-Transformers: {all_transformers}\n")
             logger.info(f"-Transformed Columns: {features_transformed[:20]}...\n")
-            logger.info(
-                f"--Fitting SuperVectorizer on DATA took {(time() - t) / 60:.2f} minutes\n"
-            )
+            logger.info(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
             X_enc = pd.DataFrame(X_enc, columns=features_transformed)
             X_enc = X_enc.fillna(0)
         else:
@@ -457,10 +565,9 @@ def process_dirty_dataframes(
             logger.info(f"-Shape of data {X_enc.shape}\n")
             logger.info(f"-Columns: {features_transformed[:20]}...\n")
 
-        if z_scale:
-            X_enc = safe_divide(X_enc, np.std(X_enc, axis=0))
-            logger.info(f"-Z-Scaling the data")
-
+        if use_scaler is not None:
+            X_enc, _, _ = impute_and_scale_df(X_enc, use_scaler=use_scaler)
+            # X_enc = safe_divide(X_enc, np.std(X_enc, axis=0))
     else:
         X_enc = None
         data_encoder = None
@@ -489,7 +596,13 @@ def process_dirty_dataframes(
 
 
 def process_edge_dataframes(
-    edf: pd.DataFrame, y: pd.DataFrame, src: str, dst: str, z_scale: bool = True
+    edf: pd.DataFrame,
+    y: pd.DataFrame,
+    src: str,
+    dst: str,
+    use_scaler: Union[str, None] = "minmax",
+    cardinality_threshold: int = 40,
+    cardinality_threshold_target: int = 400,
 ) -> Union[pd.DataFrame, Callable, Any]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
@@ -500,6 +613,7 @@ def process_edge_dataframes(
     :param y: pandas DataFrame of labels
     :param src: source column to select in edf
     :param dst: destination column to select in edf
+    :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
     t = time()
@@ -517,8 +631,13 @@ def process_edge_dataframes(
     )
 
     X_enc, y_enc, data_encoder, label_encoder = process_textual_or_other_dataframes(
-        other_df, y, z_scale=False
+        other_df,
+        y,
+        use_scaler=use_scaler,
+        cardinality_threshold=cardinality_threshold,
+        cardinality_threshold_target=cardinality_threshold_target,
     )
+
     if data_encoder is not None:
         columns = (
             list(mlb_pairwise_edge_encoder.classes_)
@@ -529,8 +648,15 @@ def process_edge_dataframes(
         logger.info("-Other_df is empty")
         columns = list(mlb_pairwise_edge_encoder.classes_)
 
-    if z_scale:
-        T = safe_divide(T, T.std(0))
+    if use_scaler:
+        T, _, _ = impute_and_scale_matrix(
+            T,
+            use_scaler=use_scaler,
+            impute=True,
+            n_quantiles=100,
+            quantile_range=(25, 75),
+            output_distribution="normal",
+        )
 
     X_enc = pd.DataFrame(T, columns=columns)
     logger.info(f"--Created an Edge feature matrix of size {T.shape}")
@@ -538,6 +664,19 @@ def process_edge_dataframes(
     # get's us close to `process_nodes_dataframe
     # TODO how can I meld mlb and sup_vec??? Difficult as it is not a per column transformer...
     return X_enc, y_enc, [mlb_pairwise_edge_encoder, data_encoder], label_encoder
+
+
+# #################################################################################
+#
+#      Assemble Processors into useful options
+#
+# ###############################################################################
+
+processors_node = {
+    "highCardTarget": partial(
+        process_textual_or_other_dataframes,
+    )
+}
 
 
 # #################################################################################
@@ -623,7 +762,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         ndf = remove_node_column_from_ndf_and_return_ndf_from_res(
             res, remove_node_column
         )
-        # TODO move the columns select after the featurizer
+        # TODO move the columns select after the featurizer?
         ndf = get_dataframe_columns(ndf, use_columns)
         ndf, y = check_target_not_in_features(ndf, y, remove=True)
         ndf = remove_internal_namespace_if_present(ndf)
