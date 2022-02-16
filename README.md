@@ -52,11 +52,10 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
   # pip install --user graphistry
   # pip install --user graphistry[bolt,gremlin,nodexl,igraph,networkx]  # optional
   import graphistry
-  graphistry.register(api=3, username='abc', password='xyz', org_name='my-org') # Free: hub.graphistry.com, login to specific organization with name 'my-org'
+  graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com
 
-  graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com, login to user's default organization (can be set from UI)
-
-  #graphistry.register(..., protocol='http', server='my.site.ngo')  # Private
+  #graphistry.register(..., org_name='my-org') # Specify an organization you are in
+  #graphistry.register(..., protocol='http', server='my.site.ngo')  # Use with a self-hosted server
   
   ```
 
@@ -354,13 +353,15 @@ You need to install the PyGraphistry Python client and connect it to a Graphistr
 
 ### Configure
 
-Most users connect to a Graphistry GPU server account via `graphistry.register(api=3, username='abc', password='xyz')` (hub.graphistry.com) or  `graphistry.register(api=3, username='abc', password='xyz', protocol='http', server='my.private_server.org')`
+Most users connect to a Graphistry GPU server account via `graphistry.register(api=3, username='abc', password='xyz', org_name='optional_org')` (hub.graphistry.com) or  `graphistry.register(api=3, username='abc', password='xyz', protocol='http', server='my.private_server.org')`
 
 For more advanced configuration, read on for:
 
 * Version: Use protocol `api=3`, which will soon become the default, or a legacy version
 
 * Tokens: Connect to a GPU server by providing a `username='abc'`/`password='xyz'`, or for advanced long-running service account software, a refresh loop using 1-hour-only JWT tokens
+
+* Organizations: Optionally use `org_name` to set a specific organization
 
 * Private servers: PyGraphistry defaults to using the free [Graphistry Hub](https://hub.graphistry.com) public API
 
