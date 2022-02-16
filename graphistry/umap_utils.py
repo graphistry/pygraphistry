@@ -68,7 +68,6 @@ class UMAPMixin(object):
         self.local_connectivity = local_connectivity
         self.repulsion_strength = repulsion_strength
         self.negative_sample_rate = negative_sample_rate
-        # super().__init__()
         self._umap = umap.UMAP(**umap_kwargs)
 
     def _set_new_kwargs(self, **kwargs):

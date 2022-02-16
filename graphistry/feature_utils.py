@@ -16,19 +16,33 @@ try:
         MinHashEncoder,
         GapEncoder,
     )
+
     from sentence_transformers import SentenceTransformer
-    from sklearn.preprocessing import MultiLabelBinarizer
+
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import (
+        MinMaxScaler,
+        QuantileTransformer,
+        StandardScaler,
+        RobustScaler,
+        MultiLabelBinarizer,
+    )
+
 except:
     SuperVectorizer = Any
-    scipy = Any
     SentenceTransformer = Any
     MultiLabelBinarizer = Any
+    MinMaxScaler = Any
+    QuantileTransformer = Any
+    StandardScaler = Any
+    RobustScaler = Any
+    scipy = Any
     torch = Any
 
 
 def reimport():
     """
-        Helper function so that Graphistry loads
+        Helper function so that Graphistry loads without error when Graphistry[ai] is not loaded
     :return:
     """
     try:
@@ -43,7 +57,15 @@ def reimport():
             GapEncoder,
         )
         from sentence_transformers import SentenceTransformer
-        from sklearn.preprocessing import MultiLabelBinarizer
+        from sklearn.impute import SimpleImputer
+        from sklearn.preprocessing import (
+            MinMaxScaler,
+            QuantileTransformer,
+            StandardScaler,
+            RobustScaler,
+            MultiLabelBinarizer,
+        )
+
     except ModuleNotFoundError as e:
         logger.error(
             f"AI Packages not found, trying running `pip install graphistry[ai]`",
@@ -89,7 +111,6 @@ def get_train_test_sets(X, y, test_size):
 
 
 def safe_divide(a, b):
-    # so we can do X /= X.std(0) safely , etc
     a = np.array(a)
     b = np.array(b)
     return np.divide(a, b, out=np.zeros_like(a), where=b != 0.0, casting="unsafe")
@@ -201,18 +222,20 @@ def impute_and_scale_matrix(
     X: np.ndarray,
     impute: bool = True,
     use_scaler: str = "minmax",
-    n_quantiles: int = 100,
-    quantile_range=(25, 75),
+    n_quantiles: int = 10,
     output_distribution: str = "normal",
+    quantile_range=(25, 75),
 ):
-    from sklearn.impute import SimpleImputer
-    from sklearn.preprocessing import (
-        MinMaxScaler,
-        QuantileTransformer,
-        StandardScaler,
-        RobustScaler,
-    )
-
+    """
+        Helper function for imputing and scaling np.ndarray data using different scaling transformers.
+    :param X: np.ndarray
+    :param impute: whether to run imputing or not
+    :param use_scaler: string in ["minmax", "quantile", "zscale", "robust"], selects scaling transformer
+    :param n_quantiles: if use_scaler = 'quantile', sets the quantile bin size.
+    :param output_distribution: if use_scaler = 'quantile', can return distribution as ["normal", "uniform"]
+    :param quantile_range: if use_scaler = 'robust', sets the quantile range.
+    :return: scaled array, imputer instances or None, scaler instance or None
+    """
     available_preprocessors = ["minmax", "quantile", "zscale", "robust"]
     available_quantile_distributions = ["normal", "uniform"]
 
@@ -230,6 +253,9 @@ def impute_and_scale_matrix(
         # scale the resulting values column-wise between min and max column values and sets them between 0 and 1
         scaler = MinMaxScaler()
     elif use_scaler == "quantile":
+        assert output_distribution in ["normal", "uniform"], logger.error(
+            f'output_distribution must be in {available_quantile_distributions}, got {output_distribution}'
+        )
         scaler = QuantileTransformer(
             n_quantiles=n_quantiles, output_distribution=output_distribution
         )
@@ -346,7 +372,7 @@ def set_currency_to_float(df: pd.DataFrame, col: str, return_float: bool = True)
 def is_dataframe_all_numeric(df: pd.DataFrame) -> bool:
     is_all_numeric = True
     for k in df.dtypes.unique():
-        if k in ["float64", "int64", ""]:
+        if k in ["float64", "int64"]:
             continue
         else:
             is_all_numeric = False
@@ -359,7 +385,7 @@ def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
     ----------------------------------------------------------------------------
     :param df: DataFrame
     :param bad_set: List of strings to look for.
-    :return:
+    :return: list
     """
     gtypes = group_columns_by_dtypes(df, verbose=True)
     bad_cols = []
@@ -381,11 +407,11 @@ def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
 
 
 def check_if_textual_column(
-    df: pd.DataFrame, col: str, confidence: float = 0.35, min_words: float = 3.5
+    df: pd.DataFrame, col: str, confidence: float = 0.35, min_words: float = 2.5
 ) -> bool:
     """
         Checks if `col` column of df is textual or not using basic heuristics
-    _________________________________________________________________________
+    ___________________________________________________________________________
 
     :param df: DataFrame
     :param col: column name
@@ -415,7 +441,9 @@ def check_if_textual_column(
         return False
 
 
-def get_textual_columns(df: pd.DataFrame) -> List:
+def get_textual_columns(
+    df: pd.DataFrame, confidence: float = 0.35, min_words: float = 2.5
+) -> List:
     """
         Collects columns from df that it deems are textual.
     _________________________________________________________________________
@@ -425,11 +453,42 @@ def get_textual_columns(df: pd.DataFrame) -> List:
     """
     text_cols = []
     for col in df.columns:
-        if check_if_textual_column(df, col):
+        if check_if_textual_column(df, col, confidence=confidence, min_words=min_words):
             text_cols.append(col)
     if len(text_cols) == 0:
         logger.info(f"No Textual Columns were found")
     return text_cols
+
+
+# #########################################################################################
+#
+#      Featurization Utils
+#
+# #########################################################################################
+
+
+def encode_textual(
+    df: pd.DataFrame,
+    confidence: float = 0.35,
+    min_words: float = 2.5,
+    model_name: str = "paraphrase-MiniLM-L6-v2",
+):
+    t = time()
+    model = SentenceTransformer(model_name)
+
+    text_cols = get_textual_columns(df, confidence=confidence, min_words=min_words)
+    embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
+
+    if text_cols:
+        for col in text_cols:
+            logger.info(f"-Calculating Embeddings for column `{col}`")
+            emb = model.encode(df[col].values)
+            embeddings = np.c_[embeddings, emb]
+        logger.info(
+            f"Encoded Textual data at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per column minute"
+        )
+
+    return embeddings, text_cols
 
 
 def process_textual_or_other_dataframes(
@@ -439,6 +498,8 @@ def process_textual_or_other_dataframes(
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     use_scaler: Union[str, None] = None,
+    confidence: float = 0.35,
+    min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     # test_size: Union[bool, None] = None,
 ) -> Union[pd.DataFrame, Callable, Any]:
@@ -450,32 +511,32 @@ def process_textual_or_other_dataframes(
     :param df: pandas DataFrame of data
     :param y: pandas DataFrame of targets
     :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
+    :param n_topics:
+    :param use_scaler: string argument in
+    :param confidence: Number between 0 and 1, will pass column for textual processing if total entries are string
+            like in a column and above this threshold.
+    :param min_words: Number greater than 1 that sets the threshold for average number of words to include column for
+            textual sentence encoding. Lower values means that columns will be labeled textual and sent to sentence-encoder
     :param model_name: SentenceTransformer model name. See available list at
             https://www.sbert.net/docs/pretrained_models.html#sentence-embedding-models
     :return: X_enc, y_enc, data_encoder, label_encoder
     """
     t = time()
-    model = SentenceTransformer(model_name)
-
     if len(df) == 0 or df.empty:
-        logger.info(f"DataFrame seems to be Empty")
+        logger.warning(f"DataFrame seems to be Empty")
 
-    text_cols = get_textual_columns(df)
-    embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
-
-    if text_cols:
-        for col in text_cols:
-            logger.info(f"-Calculating Embeddings for column `{col}`")
-            emb = model.encode(df[col].values)
-            embeddings = np.c_[embeddings, emb]
+    embeddings, text_cols = encode_textual(
+        df, confidence=confidence, min_words=min_words, model_name=model_name
+    )
 
     other_df = df.drop(columns=text_cols, errors="ignore")
+
     X_enc, y_enc, data_encoder, label_encoder = process_dirty_dataframes(
         other_df,
         y,
-        cardinality_threshold,
-        cardinality_threshold_target,
-        n_topics,
+        cardinality_threshold=cardinality_threshold,
+        cardinality_threshold_target=cardinality_threshold_target,
+        n_topics=n_topics,
         use_scaler=None,  # set to None so that it happens later
     )
 
@@ -491,12 +552,12 @@ def process_textual_or_other_dataframes(
 
     # now remove the leading zeros
     embeddings = embeddings[:, 1:]
-    if use_scaler:  # sort of, but don't remove mean
+    if use_scaler:
         embeddings, _, _ = impute_and_scale_matrix(embeddings, use_scaler=use_scaler)
 
     X_enc = pd.DataFrame(embeddings, columns=columns)
     logger.info(
-        f"--The entire Textual or Other encoding process took {(time()-t)/60:.2f} minutes"
+        f"--The entire Textual and/or other encoding process took {(time()-t)/60:.2f} minutes"
     )
     return X_enc, y_enc, data_encoder, label_encoder
 
@@ -508,7 +569,7 @@ def get_cardinality_ratio(df: pd.DataFrame):
     """
     ratios = {}
     for col in df.columns:
-        ratio = len(df[col].unique()) / len(y[col])
+        ratio = df[col].nunique() / len(df)
         ratios[col] = ratio
     return ratios
 
@@ -539,6 +600,9 @@ def process_dirty_dataframes(
         auto_cast=True,
         cardinality_threshold=cardinality_threshold,
         high_card_cat_transformer=GapEncoder(n_topics),
+        #numerical_transformer=StandardScaler(), This breaks since -- AttributeError: Transformer numeric (type StandardScaler)
+        #  does not provide get_feature_names.
+        datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
     )
     label_encoder = None
     y_enc = None
@@ -567,7 +631,6 @@ def process_dirty_dataframes(
 
         if use_scaler is not None:
             X_enc, _, _ = impute_and_scale_df(X_enc, use_scaler=use_scaler)
-            # X_enc = safe_divide(X_enc, np.std(X_enc, axis=0))
     else:
         X_enc = None
         data_encoder = None
@@ -577,7 +640,9 @@ def process_dirty_dataframes(
         t2 = time()
         logger.info(f"-Fitting Targets --\n")
         label_encoder = SuperVectorizer(
-            auto_cast=True, cardinality_threshold=cardinality_threshold_target
+            auto_cast=True,
+            cardinality_threshold=cardinality_threshold_target,
+            datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
         )
         y_enc = label_encoder.fit_transform(y)
         if type(y_enc) == scipy.sparse.csr.csr_matrix:
@@ -600,9 +665,13 @@ def process_edge_dataframes(
     y: pd.DataFrame,
     src: str,
     dst: str,
-    use_scaler: Union[str, None] = "minmax",
     cardinality_threshold: int = 40,
     cardinality_threshold_target: int = 400,
+    n_topics: int = config.N_TOPICS_DEFAULT,
+    use_scaler: Union[str, None] = None,
+    confidence: float = 0.35,
+    min_words: float = 2.5,
+    model_name: str = "paraphrase-MiniLM-L6-v2",
 ) -> Union[pd.DataFrame, Callable, Any]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
@@ -633,9 +702,13 @@ def process_edge_dataframes(
     X_enc, y_enc, data_encoder, label_encoder = process_textual_or_other_dataframes(
         other_df,
         y,
-        use_scaler=use_scaler,
         cardinality_threshold=cardinality_threshold,
         cardinality_threshold_target=cardinality_threshold_target,
+        n_topics=n_topics,
+        use_scaler=None,
+        confidence=confidence,
+        min_words=min_words,
+        model_name=model_name
     )
 
     if data_encoder is not None:
@@ -644,8 +717,8 @@ def process_edge_dataframes(
             + data_encoder.get_feature_names_out()
         )
         T = np.c_[T, X_enc.values]
-    else:  # if this other_df is empty
-        logger.info("-Other_df is empty")
+    else:  # if other_df is empty
+        logger.info("-other_df is empty")
         columns = list(mlb_pairwise_edge_encoder.classes_)
 
     if use_scaler:
@@ -681,7 +754,7 @@ processors_node = {
 
 # #################################################################################
 #
-#      Vectorizer Class
+#      Vectorizer Class + Helpers
 #
 # ###############################################################################
 
@@ -756,7 +829,6 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         y: Union[pd.DataFrame, np.ndarray],
         use_columns: Union[List, None] = None,
         remove_node_column: bool = True,  # since node label might be index or unique names
-        train_test_split: Union[bool, None] = None,
     ):
 
         ndf = remove_node_column_from_ndf_and_return_ndf_from_res(
@@ -767,9 +839,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         ndf, y = check_target_not_in_features(ndf, y, remove=True)
         ndf = remove_internal_namespace_if_present(ndf)
         # now vectorize it all
-        X_enc, y_enc, data_vec, label_vec = self._node_featurizer(
-            ndf, y, train_test_split
-        )
+        X_enc, y_enc, data_vec, label_vec = self._node_featurizer(ndf, y)
         # set the new variables
         res.node_features = X_enc
         res.node_target = y_enc
