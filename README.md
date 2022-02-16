@@ -435,7 +435,13 @@ By default, visualizations are publicly viewable by anyone with the URL (that is
 * Private-only: You can globally default uploads to private:
 
 ```python
-graphistry.privacy()
+graphistry.privacy()  # graphistry.privacy(mode='private')
+```
+
+* Organizations: You can login with an organization and share only within it
+```python
+graphistry.register(api=3, username='...', password='...', org_name='my-org123')
+graphistry.privacy(mode='organization')
 ```
 
 * Invitees: You can share access to specify users, and optionally, even email them invites
