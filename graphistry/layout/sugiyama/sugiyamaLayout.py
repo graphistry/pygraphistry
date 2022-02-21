@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 import typing
-from typing import Union, List, Any, Dict
 from sys import getrecursionlimit, setrecursionlimit
 
-from graphistry.layout import Graph
-from graphistry.layout.graph.graphBase import GraphBase
-from graphistry.layout.utils import *
-from graphistry.layout.graph import *
+from graphistry.layout import Rectangle, Vertex, GraphBase, size_median, Graph, Edge, DummyVertex
+from graphistry.layout.utils import LayoutVertex
 from graphistry.layout.utils.layer import Layer
 import pandas as pd
 
@@ -68,6 +65,7 @@ class SugiyamaLayout(object):
                                     1: (-1, -1),
                                     2: (1, 1),
                                     3: (-1, 1)}[dirvh]
+
     @property
     def dirv(self):
         return self.__dirv
@@ -141,7 +139,7 @@ class SugiyamaLayout(object):
         self.init_done = True
 
     @staticmethod
-    def arrange(obj: Union[pd.DataFrame, Graph], iteration_count = 1.5, source_column = "source", target_column = "target", layout_direction = 0):
+    def arrange(obj: typing.Union[pd.DataFrame, Graph], iteration_count = 1.5, source_column = "source", target_column = "target", layout_direction = 0):
         """
         Returns the positions from a Sugiyama layout iteration.
 
@@ -197,10 +195,12 @@ class SugiyamaLayout(object):
         g = Graph(vertex_dic.values(), edges)
         return g
 
-    def layout(self, iteration_count = 1.5):
+    def layout(self, iteration_count = 1.5, topological_coordinates = False):
         """
             Compute every node coordinates after converging to optimal ordering by N
             rounds, and finally perform the edge routing.
+
+            :param topological_coordinates: whether to use ( [0,1], layer index) coordinates
         """
         while iteration_count > 0.5:
             for (l, mvmt) in self.ordering_step():
@@ -209,7 +209,10 @@ class SugiyamaLayout(object):
         if iteration_count > 0:
             for (l, mvmt) in self.ordering_step(oneway = True):
                 pass
-        self.set_coordinates()
+        if topological_coordinates:
+            self.set_topological_coordinates()
+        else:
+            self.set_coordinates()
         self.layout_edges()
 
     def _edge_inverter(self):
@@ -398,6 +401,45 @@ class SugiyamaLayout(object):
                 # final xy-coordinates :
                 v.view.xy = (avgm, current_y + dY)
             current_y += 2 * dY + self.yspace
+        self._edge_inverter()
+
+    def set_topological_coordinates(self):
+        self._edge_inverter()
+        self._detect_alignment_conflicts()
+        inf = float("infinity")
+        bounds = [inf, -inf]
+        # initialize layout vertex
+        for layer in self.layers:
+            for v in layer:
+                self.layoutVertices[v].root = v
+                self.layoutVertices[v].align = v
+                self.layoutVertices[v].sink = v
+                self.layoutVertices[v].shift = inf
+                self.layoutVertices[v].X = None
+                self.layoutVertices[v].x = [0.0] * 4
+        current_h = self.dirvh
+        for dirvh in range(4):
+            self.dirvh = dirvh
+            self._coord_vertical_alignment()
+            self._coord_horizontal_compact()
+        self.dirvh = current_h  # restore it
+
+        # vertical coordinate assigment of all nodes:
+        current_y = 0
+        for layer in self.layers:
+            dY = 1
+            for v in layer:
+                vx = sorted(self.layoutVertices[v].x)
+                # mean of the 2 medians out of the 4 x-coord computed above:
+                avgm = (vx[1] + vx[2]) / 2.0
+                bounds[0] = min(avgm, bounds[0])
+                bounds[1] = max(avgm, bounds[1])
+                v.view.xy = (avgm, current_y + dY)
+            current_y += dY
+            # rescale
+        for layer in self.layers:
+            for v in layer:
+                v.view.xy = ((v.view.xy[0] - bounds[0]) / (bounds[1] - bounds[0]), v.view.xy[1])
         self._edge_inverter()
 
     def _detect_alignment_conflicts(self):

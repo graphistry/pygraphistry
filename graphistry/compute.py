@@ -166,7 +166,7 @@ class ComputeMixin(MIXIN_BASE):
 
         Example:
 
-        edges_df = gpd.DataFrame({'s': ['a', 'b', 'c', 'd'], ['b', 'c', 'e', 'e']})
+        edges_df = gpd.DataFrame({'s': ['a', 'b', 'c', 'd'],'d': ['b', 'c', 'e', 'e']})
         g = graphistry.edges(edges_df, 's', 'd')
         g2 = g.get_topological_levels()
         g2._nodes.info()  # pd.DataFrame with | 'id' , 'level' |

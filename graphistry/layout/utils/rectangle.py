@@ -3,7 +3,7 @@ class Rectangle(object):
         Rectangular region.
     """
 
-    def __init__(self, w = 2, h = 2):
+    def __init__(self, w = 1, h = 1):
         self.w = w
         self.h = h
         self.xy = [0., 0.]
