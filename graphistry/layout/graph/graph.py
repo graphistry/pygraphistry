@@ -2,7 +2,7 @@
 from typing import List
 
 from .graphBase import GraphBase
-from .poset import Poset
+from graphistry.layout.utils import Poset
 
 
 class Graph(object):
@@ -11,7 +11,7 @@ class Graph(object):
        The graph is stored in disjoint-sets holding each connected component in C as a list of graph_core objects.
 
        Attributes:
-          C (list[grandalf.graphBase.GraphBase]): list of graph_core components.
+          C (list[GraphBase]): list of graph_core components.
 
        Methods:
           add_vertex(v): add vertex v into the Graph as a new component
@@ -41,11 +41,10 @@ class Graph(object):
         if E is None:
             E = []
         self.directed = directed
-        # tag connex set of vertices:
-        # at first, every vertex is its own component
+
         for v in V:
-            v.c = Poset([v])
-        CV = [v.c for v in V]
+            v.c = Poset([v]) # at first, every vertex is its own component
+        components = [v.c for v in V]
         # then pass through edges and union associated vertices such that
         # CV finally holds only connected sets:
         for e in E:
@@ -53,21 +52,21 @@ class Graph(object):
             y = e.v[1]
             assert x in V
             assert y in V
-            assert x.c in CV
-            assert y.c in CV
+            assert x.c in components
+            assert y.c in components
             e.attach()
             if x.c != y.c:
                 # merge y.c into x.c :
                 x.c.update(y.c)
                 # update set list (MUST BE DONE BEFORE UPDATING REFS!)
-                CV.remove(y.c)
+                components.remove(y.c)
                 # update reference:
                 for z in y.c:
                     z.c = x.c
         # now create edge sets from connected vertex sets and
         # make the GraphBase connected graphs for this component :
         self.C = []
-        for c in CV:
+        for c in components:
             s = set()
             for v in c:
                 s.update(v.e)

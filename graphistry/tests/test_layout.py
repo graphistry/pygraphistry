@@ -1,9 +1,7 @@
 from pickle import dumps, loads, HIGHEST_PROTOCOL
 import unittest
 
-
-from graphistry.layout import Edge, Graph, Vertex, EdgeViewer, Layer, Rectangle, GraphBase, SugiyamaLayout, DummyVertex, route_with_splines, route_with_rounded_corners
-from graphistry.layout.networkx import to_networkx, from_networkx
+from graphistry.layout import Edge, Graph, Vertex, EdgeViewer, Layer, Rectangle, GraphBase, SugiyamaLayout, DummyVertex, route_with_splines, route_with_rounded_corners, Poset
 
 
 def pickler(obj):
@@ -88,7 +86,7 @@ class CustomRankingSugiyamaLayout(SugiyamaLayout):
         else:
             for rank, vertices in sorted(self.initial_ranking.items()):
                 for v in vertices:
-                    self.grx[v].layer = rank
+                    self.layoutVertices[v].layer = rank
                     # add it to its layer:
                     self.layers[rank].append(v)
 
@@ -147,9 +145,9 @@ class TestLayout(unittest.TestCase):
         layout.init_all()
         assert len(layout.inverted_edges) == 1
         assert layout.inverted_edges[0] == edges[4]
-        assert layout.grx[vertices['e']].layer == 4
-        assert sum((v.dummy for v in layout.grx.values())) == 4
-        print([v for v in layout.grx.values()])
+        assert layout.layoutVertices[vertices['e']].layer == 4
+        assert sum((v.dummy for v in layout.layoutVertices.values())) == 4
+        print([v for v in layout.layoutVertices.values()])
 
     def test_vertex(self):
         v1 = Vertex()
@@ -298,7 +296,7 @@ class TestLayout(unittest.TestCase):
         i = 0
         for s in sug.draw_step():
             print('--- step %d ' % i + '-' * 20)
-            for v, x in sug.grx.items():
+            for v, x in sug.layoutVertices.items():
                 print(x, v.view.xy)
             i += 1
         for e in gr.E():
@@ -319,7 +317,7 @@ class TestLayout(unittest.TestCase):
         i = 0
         for s in sug.draw_step():
             print('--- step %d ' % i + '-' * 20)
-            for v, x in sug.grx.items():
+            for v, x in sug.layoutVertices.items():
                 print(x, v.view.xy)
             i += 1
         for e in gr.E():
@@ -428,6 +426,28 @@ class TestLayout(unittest.TestCase):
         except ValueError as e:
             assert e.message == 'bad ranking'
 
+    def test_poset(self):
+        p = Poset()
+        assert len(p) == 0
+        with self.assertRaises(ValueError):
+            p.add(None)
+        v = Vertex()
+        ret = p.add(v)
+        assert ret == v
+        p.add(v)
+        assert len(p)==1
+        assert v == p.get(v)
+
+        # ordering
+        v1 = Vertex()
+        v2 = Vertex()
+        v3 = Vertex()
+        p1 = Poset([v1,v2,v3])
+        p2 = Poset([v1,v2])
+        assert p2 < p1
+        assert p2.issubset(p1)
+        assert len(p1.difference(p2))==1
+
     def test_networkx(self):
 
         v = ('a', 'b', 'c', 'd')
@@ -437,19 +457,7 @@ class TestLayout(unittest.TestCase):
         E = [Edge(D[xy[0]], D[xy[1]], data = xy) for xy in e]
 
         g = Graph(V, E)
-
-        nx_graph = to_networkx(g)
-
-        assert set(n for n in nx_graph.nodes()) == set(v)  # nodes returns the nodes available (node data)
-        assert set(n[0] + n[1] for n in nx_graph.edges()) == set(e)  # edges returns list(tuple(node1, node2))
-
-        assert nx_graph.number_of_edges() == len(E)
-        assert nx_graph.number_of_nodes() == len(V)
-
-        # Now, let's go back from networkx to sugiyama
-        grandalf_graph = from_networkx(nx_graph)
-
-        assert len(list(grandalf_graph.V())) == len(v)
-        assert len(list(grandalf_graph.E())) == len(E)
-        assert set(n.data for n in grandalf_graph.V()) == set(v)
-        assert set(n.v[0].data + n.v[1].data for n in grandalf_graph.E()) == set(e)
+        assert len(list(g.V())) == len(v)
+        assert len(list(g.E())) == len(E)
+        assert set(n.data for n in g.V()) == set(v)
+        assert set(n.v[0].data + n.v[1].data for n in g.E()) == set(e)

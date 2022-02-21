@@ -1,4 +1,4 @@
-from .rectangle import Rectangle
+from graphistry.layout.utils import Rectangle
 from .vertexBase import VertexBase
 
 

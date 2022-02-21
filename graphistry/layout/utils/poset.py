@@ -3,15 +3,15 @@ from collections import OrderedDict
 
 class Poset(object):
     """
-        Poset class implements a set but allows to interate over the elements in a
+        Poset class implements a set but allows to integrate over the elements in a
         deterministic way and to get specific objects in the set.
         Membership operator defaults to comparing __hash__  of objects but Poset
         allows to check for __cmp__/__eq__ membership by using contains__cmp__(obj)
     """
 
-    def __init__(self, L):
+    def __init__(self, collection=[]):
         self.o = OrderedDict()
-        for obj in L:
+        for obj in collection:
             self.add(obj)
 
     def __repr__(self):
@@ -25,6 +25,8 @@ class Poset(object):
         return "\n".join(s)
 
     def add(self, obj):
+        if obj is None:
+            raise ValueError
         if obj in self:
             return self.get(obj)
         else:

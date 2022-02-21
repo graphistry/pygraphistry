@@ -1,3 +1,4 @@
+
 from .edgeBase import EdgeBase
 
 
@@ -15,6 +16,14 @@ class Edge(EdgeBase):
     w: int
 
     def __init__(self, x, y, w = 1, data = None, connect = False):
+        """
+        Creates a new edge.
+        :param x: source vertex
+        :param y: target vertex
+        :param w: optional weight
+        :param data: optional data
+        :param connect: whether the edge should be added to the component.
+        """
         super().__init__(x, y)
         self.w = w
         self.data = data

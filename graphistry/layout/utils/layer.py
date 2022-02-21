@@ -45,9 +45,9 @@ class Layer(list):
         if len(self) > 1:
             self.__x = 1.0 / (len(self) - 1)
         for i, v in enumerate(self):
-            assert layout.grx[v].layer == r
-            layout.grx[v].pos = i
-            layout.grx[v].bar = i * self.__x
+            assert layout.layoutVertices[v].layer == r
+            layout.layoutVertices[v].pos = i
+            layout.layoutVertices[v].bar = i * self.__x
         if r > 0:
             self.upper = layout.layers[r - 1]
         if r < len(layout.layers) - 1:
@@ -65,15 +65,15 @@ class Layer(list):
         c = self._cross_counting()
         if c > 0:
             for v in self:
-                sug.grx[v].bar = self._meanvalueattr(v)
+                sug.layoutVertices[v].bar = self._meanvalueattr(v)
             # now resort layers l according to bar value:
-            self.sort(key = lambda x: sug.grx[x].bar)
+            self.sort(key = lambda x: sug.layoutVertices[x].bar)
             # reduce & count crossings:
             c = self._ordering_reduce_crossings()
             # assign new position in layer l:
             for i, v in enumerate(self):
-                sug.grx[v].pos = i
-                sug.grx[v].bar = i * self.__x
+                sug.layoutVertices[v].pos = i
+                sug.layoutVertices[v].bar = i * self.__x
         sug._edge_inverter()
         self.crossings = c
         return c
@@ -86,17 +86,17 @@ class Layer(list):
         """
         sug = self.layout
         if not self.prevlayer():
-            return sug.grx[v].bar
-        bars = [sug.grx[x].bar for x in self._neighbors(v)]
-        return sug.grx[v].bar if len(bars) == 0 else float(sum(bars)) / len(bars)
+            return sug.layoutVertices[v].bar
+        bars = [sug.layoutVertices[x].bar for x in self.neighbors(v)]
+        return sug.layoutVertices[v].bar if len(bars) == 0 else float(sum(bars)) / len(bars)
 
     def _median_index(self, v):
         """
         Fetches the position of vertex v according to adjacency in layer l+dir.
         """
         assert self.prevlayer() is not None
-        neighbor_count = self._neighbors(v)
-        g = self.layout.grx
+        neighbor_count = self.neighbors(v)
+        g = self.layout.layoutVertices
         pos = [g[x].pos for x in neighbor_count]
         lp = len(pos)
         if lp == 0:
@@ -106,7 +106,7 @@ class Layer(list):
         i, j = divmod(lp - 1, 2)
         return [pos[i]] if j == 0 else [pos[i], pos[i + j]]
 
-    def _neighbors(self, v):
+    def neighbors(self, v):
         """
         neighbors refer to upper/lower adjacent nodes.
         Note that v.neighbors() provides neighbors of v in the graph, while
@@ -115,7 +115,7 @@ class Layer(list):
         """
         assert self.layout.dag
         dirv = self.layout.dirv
-        grxv = self.layout.grx[v]
+        grxv = self.layout.layoutVertices[v]
         try:  # (cache)
             return grxv.nvs[dirv]
         except AttributeError:
@@ -126,7 +126,7 @@ class Layer(list):
             for d in (-1, +1):
                 tr = grxv.layer + d
                 for i, x in enumerate(v.neighbors(d)):
-                    if self.layout.grx[x].layer == tr:
+                    if self.layout.layoutVertices[x].layer == tr:
                         continue
                     e = v.e_with(x)
                     dum = self.layout.ctrls[e][tr]
@@ -141,10 +141,10 @@ class Layer(list):
         The total count of crossings is the sum of flattened P:
         x = sum(sum(P,[]))
         """
-        g = self.layout.grx
+        g = self.layout.layoutVertices
         P = []
         for v in self:
-            P.append([g[x].pos for x in self._neighbors(v)])
+            P.append([g[x].pos for x in self.neighbors(v)])
         for i, p in enumerate(P):
             candidates = sum(P[i + 1:], [])
             for j, e in enumerate(p):
@@ -157,10 +157,10 @@ class Layer(list):
         Implementation of the efficient bilayer cross counting by insert-sort.
         See https://www.semanticscholar.org/paper/Simple-and-Efficient-Bilayer-Cross-Counting-Barth-Jünger/272d73edce86bcfac3c82945042cf6733ad281a0
         """
-        g = self.layout.grx
+        g = self.layout.layoutVertices
         P = []
         for v in self:
-            P.extend(sorted([g[x].pos for x in self._neighbors(v)]))
+            P.extend(sorted([g[x].pos for x in self.neighbors(v)]))
         # count inversions in P:
         s = []
         count = 0
@@ -173,15 +173,15 @@ class Layer(list):
 
     def _ordering_reduce_crossings(self):
         assert self.layout.dag
-        g = self.layout.grx
+        g = self.layout.layoutVertices
         layer_size = len(self)
         X = 0
         for i, j in zip(range(layer_size - 1), range(1, layer_size)):
             vi = self[i]
             vj = self[j]
-            ni = [g[v].bar for v in self._neighbors(vi)]
+            ni = [g[v].bar for v in self.neighbors(vi)]
             Xij = Xji = 0
-            for nj in [g[v].bar for v in self._neighbors(vj)]:
+            for nj in [g[v].bar for v in self.neighbors(vj)]:
                 x = len([nx for nx in ni if nx > nj])
                 Xij += x
                 Xji += len(ni) - x

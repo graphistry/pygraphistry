@@ -1,4 +1,4 @@
-from .poset import Poset
+from graphistry.layout.utils import Poset
 
 
 class GraphBase(object):
@@ -8,7 +8,7 @@ class GraphBase(object):
        Attributes:
          verticesPoset (Poset[Vertex]): the partially ordered set of vertices of the graph.
          edgesPoset (Poset[Edge]): the partially ordered set of edges of the graph.
-         degenerated_edges (set[grandalf.edge.Edge]): the set of *degenerated* edges (of degree 0).
+         degenerated_edges (set[Edge]): the set of *degenerated* edges (of degree 0).
          directed (bool): indicates if the graph is considered *oriented* or not.
 
        Methods:

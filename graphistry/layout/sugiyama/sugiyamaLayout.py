@@ -3,15 +3,13 @@
 from typing import Union
 from sys import getrecursionlimit, setrecursionlimit
 
-from . import Graph
-from .graphBase import GraphBase
-from .rectangle import Rectangle
-from .dummyVertex import DummyVertex
-from .layer import Layer
-from .layoutVertex import LayoutVertex
+from graphistry.layout import Graph
+from graphistry.layout.graph.graphBase import GraphBase
+from graphistry.layout.utils import *
+from graphistry.layout.graph import *
+from graphistry.layout.utils.layer import Layer
 import networkx as nx
 import pandas as pd
-from .networkx import to_networkx, from_networkx
 
 
 class SugiyamaLayout(object):
@@ -37,7 +35,7 @@ class SugiyamaLayout(object):
         - dh (int): default height of a vertex
         - g (GraphBase): the graph component reference
         - layers (list[sugiyama.layer.Layer]): the list of layers
-        - grx (dict): associate vertex (possibly dummy) with their sugiyama attributes
+        - layoutVertices (dict): associate vertex (possibly dummy) with their sugiyama attributes
         - ctrls (dict): associate edge with all its vertices (including dummies)
         - dag (bool): the current acyclic state
         - init_done (bool): True if state is initialized (see init_all).
@@ -89,15 +87,15 @@ class SugiyamaLayout(object):
         assert dirh in (-1, +1)
         dirvh = (self.__dirv + 1) + (1 - dirh) // 2
         self.dirvh = dirvh
-        
+
     def __init__(self, g: GraphBase):
-        from .geometry import size_median
         self.dirvh = 0
         self.order_iter = 8
         self.order_attr = "pos"
         self.g = g
         self.layers = []
-        self.grx = {}
+        self.layoutVertices = {}
+        """The map from vertex to LayoutVertex."""
         self.ctrls = {}
         self.xspace = 20
         self.yspace = 20
@@ -108,7 +106,7 @@ class SugiyamaLayout(object):
             # assert hasattr(v, "view")
             if not hasattr(v, "view"):
                 v.view = Rectangle()
-            self.grx[v] = LayoutVertex()
+            self.layoutVertices[v] = LayoutVertex()
         self.dw, self.dh = size_median([v.view for v in self.g.V()])
         self.init_done = False
 
@@ -143,38 +141,6 @@ class SugiyamaLayout(object):
         self.init_done = True
 
     @classmethod
-    def draw(cls, g, routing_count = 2, layout_direction = 0):
-        """
-        Performs a layout and renders the result.
-
-        :param g: a graph.
-        :param routing_count: the edge routing passes
-        :param layout_direction:
-            - 0: top-to-bottom
-            - 1: right-to-left
-            - 2: bottom-to-top
-            - 3: left-to-right
-        """
-        if isinstance(g, nx.Graph):
-            nxg = g
-            gg = from_networkx(g)
-        else:
-            nxg = to_networkx(g)
-            gg = g
-
-        for v in gg.V():
-            v.view = Rectangle()
-
-        sug = SugiyamaLayout(gg.C[0])
-
-        sug.init_all()
-        sug.layout(routing_count)
-        positions = SugiyamaLayout.get_positions(gg.C[0].verticesPoset, layout_direction)
-        nx.draw(nxg, pos = positions, with_labels = True, verticalalignment = 'bottom', arrowsize = 3, horizontalalignment = "left", font_size = 20)
-        import matplotlib.pyplot as plt
-        plt.show()
-
-    @classmethod
     def arrange(cls, obj: Union[nx.Graph, pd.DataFrame, Graph], iteration_count = 1.5, source_column = "source", target_column = "target", layout_direction = 0):
         """
         Returns the positions from a Sugiyama layout iteration.
@@ -193,9 +159,7 @@ class SugiyamaLayout(object):
         Returns:
             a dictionary of positions.
         """
-        if isinstance(obj, nx.Graph):
-            gg = from_networkx(obj)
-        elif isinstance(obj, pd.DataFrame):
+        if isinstance(obj, pd.DataFrame):
             nxg = nx.from_pandas_edgelist(obj, source_column, target_column)
             gg = from_networkx(nxg)
         elif isinstance(obj, Graph):
@@ -209,7 +173,7 @@ class SugiyamaLayout(object):
         sug = SugiyamaLayout(gg.C[0])
         sug.init_all()
         sug.layout(iteration_count)
-        positions = {v.data: (v.view.xy[0], -v.view.xy[1]) for v in gg.C[0].verticesPoset}
+        positions = SugiyamaLayout.get_positions(gg.C[0].verticesPoset, layout_direction)
         return positions
 
     @staticmethod
@@ -238,7 +202,7 @@ class SugiyamaLayout(object):
         if iteration_count > 0:
             for (l, mvmt) in self.ordering_step(oneway = True):
                 pass
-        self.setxy()
+        self.set_coordinates()
         self.layout_edges()
 
     def _edge_inverter(self):
@@ -263,55 +227,57 @@ class SugiyamaLayout(object):
         r = [x for x in self.g.verticesPoset if (len(x.e_in()) == 0 and x not in roots)]
         self._layer_init(roots + r)
         if optimize:
-            self._rank_optimize()
+            self._layer_optimization()
         self._edge_inverter()
 
     def _layer_init(self, unranked):
-        """Computes layer of provided unranked list of vertices and all
-           their children. A vertex will be asign a layer when all its
-           inward edges have been *scanned*. When a vertex is asigned
-           a layer, its outward edges are marked *scanned*.
+        """
+        Computes layer of provided unranked list of vertices and all their children.
+        A vertex will be assigned a layer when all its inward edges have been scanned.
+        When a vertex is assigned a layer, its outward edges are marked scanned.
+
+        :param unranked: List of unassigned layer vertices
         """
         assert self.dag
-        scan = {}
+        scanned = {}
         # set layer of unranked based on its in-edges vertices ranks:
         while len(unranked) > 0:
             coll = []
             for v in unranked:
-                self.setrank(v)
+                self._set_layer(v)
                 # mark out-edges has scan-able:
                 for e in v.e_out():
-                    scan[e] = True
+                    scanned[e] = True
                 # check if out-vertices are layer-able:
                 for x in v.neighbors(+1):
-                    if not (False in [scan.get(e, False) for e in x.e_in()]):
+                    if not (False in [scanned.get(e, False) for e in x.e_in()]):
                         if x not in coll:
                             coll.append(x)
             unranked = coll
 
-    def _rank_optimize(self):
-        """optimize ranking by pushing long edges toward lower layers as much as possible.
-        see other interersting network flow solver to minimize total edge length
-        (http://jgaa.info/accepted/2005/EiglspergerSiebenhallerKaufmann2005.9.3.pdf)
+    def _layer_optimization(self):
+        """
+            Optimizes the layering by pushing long edges toward lower layers as much as possible.
         """
         assert self.dag
         for layer in reversed(self.layers):
             for v in layer:
-                gv = self.grx[v]
+                gv = self.layoutVertices[v]
                 for x in v.neighbors(-1):
-                    if all((self.grx[y].layer >= gv.layer for y in x.neighbors(+1))):
-                        gx = self.grx[x]
+                    if all((self.layoutVertices[y].layer >= gv.layer for y in x.neighbors(+1))):
+                        gx = self.layoutVertices[x]
                         self.layers[gx.layer].remove(x)
                         gx.layer = gv.layer - 1
                         self.layers[gv.layer - 1].append(x)
 
-    def setrank(self, v):
-        """set layer value for vertex v and add it to the corresponding layer.
+    def _set_layer(self, v):
+        """
+            Sets layer value for vertex v and add it to the corresponding layer.
            The Layer is created if it is the first vertex with this layer.
         """
         assert self.dag
-        r = max([self.grx[x].layer for x in v.neighbors(-1)] + [-1]) + 1
-        self.grx[v].layer = r
+        r = max([self.layoutVertices[x].layer for x in v.neighbors(-1)] + [-1]) + 1
+        self.layoutVertices[v].layer = r
         # add it to its layer:
         try:
             self.layers[r].append(v)
@@ -319,22 +285,22 @@ class SugiyamaLayout(object):
             assert r == len(self.layers)
             self.layers.append(Layer([v]))
 
-    def dummyctrl(self, r, ctrl):
-        """creates a DummyVertex at layer r inserted in the ctrl dict
-           of the associated edge and layer.
+    def dummyctrl(self, r, control_vertices):
+        """
+        Creates a DummyVertex at layer r inserted in the ctrl dict of the associated edge and layer.
 
-           Arguments:
-              r (int): layer value
-              ctrl (dict): the edge's control vertices
+        **Arguments**
+            - r (int): layer value
+            - ctrl (dict): the edge's control vertices
            
-           Returns:
-              sugiyama.dummyVertex.DummyVertex : the created DummyVertex.
+        **Returns**
+              sugiyama.DummyVertex : the created DummyVertex.
         """
         dv = DummyVertex(r)
         dv.view.w, dv.view.h = self.dw, self.dh
-        self.grx[dv] = dv
-        dv.ctrl = ctrl
-        ctrl[r] = dv
+        self.layoutVertices[dv] = dv
+        dv.control_vertices = control_vertices
+        control_vertices[r] = dv
         self.layers[r].append(dv)
         return dv
 
@@ -342,18 +308,18 @@ class SugiyamaLayout(object):
         """
             Creates and defines all dummy vertices for edge e.
         """
-        v0, v1 = e.v
-        r0, r1 = self.grx[v0].layer, self.grx[v1].layer
+        source, target = e.v
+        r0, r1 = self.layoutVertices[source].layer, self.layoutVertices[target].layer
         if r0 > r1:
             assert e in self.inverted_edges
-            v0, v1 = v1, v0
+            source, target = target, source
             r0, r1 = r1, r0
         if (r1 - r0) > 1:
             # "dummy vertices" are stored in the edge ctrl dict,
             # keyed by their layer in layers.
             ctrl = self.ctrls[e] = {}
-            ctrl[r0] = v0
-            ctrl[r1] = v1
+            ctrl[r0] = source
+            ctrl[r1] = target
             for r in range(r0 + 1, r1):
                 self.dummyctrl(r, ctrl)
 
@@ -365,7 +331,7 @@ class SugiyamaLayout(object):
         """
         ostep = self.ordering_step()
         for s in ostep:
-            self.setxy()
+            self.set_coordinates()
             self.layout_edges()
             yield s
 
@@ -389,7 +355,7 @@ class SugiyamaLayout(object):
             yield (layer, mvmt)
             layer = layer.nextlayer()
 
-    def setxy(self):
+    def set_coordinates(self):
         """
         Computes all vertex coordinates using Brandes & Kopf algorithm.
         See https://www.semanticscholar.org/paper/Fast-and-Simple-Horizontal-Coordinate-Assignment-Brandes-Köpf/69cb129a8963b21775d6382d15b0b447b01eb1f8
@@ -401,12 +367,12 @@ class SugiyamaLayout(object):
         # initialize layout vertex
         for layer in self.layers:
             for v in layer:
-                self.grx[v].root = v
-                self.grx[v].align = v
-                self.grx[v].sink = v
-                self.grx[v].shift = inf
-                self.grx[v].X = None
-                self.grx[v].x = [0.0] * 4
+                self.layoutVertices[v].root = v
+                self.layoutVertices[v].align = v
+                self.layoutVertices[v].sink = v
+                self.layoutVertices[v].shift = inf
+                self.layoutVertices[v].X = None
+                self.layoutVertices[v].x = [0.0] * 4
         current_h = self.dirvh
         for dirvh in range(4):
             self.dirvh = dirvh
@@ -419,7 +385,7 @@ class SugiyamaLayout(object):
         for layer in self.layers:
             dY = max([v.view.h / 2.0 for v in layer])
             for v in layer:
-                vx = sorted(self.grx[v].x)
+                vx = sorted(self.layoutVertices[v].x)
                 # mean of the 2 medians out of the 4 x-coord computed above:
                 avgm = (vx[1] + vx[2]) / 2.0
                 # final xy-coordinates :
@@ -449,15 +415,15 @@ class SugiyamaLayout(object):
             k1_init = len(prev) - 1
             level = 0
             for l1, v in enumerate(layer):
-                if not self.grx[v].dummy:
+                if not self.layoutVertices[v].dummy:
                     continue
                 if l1 == last or v.inner(-1):
                     k1 = k1_init
                     if v.inner(-1):
-                        k1 = self.grx[v.neighbors(-1)[-1]].pos
+                        k1 = self.layoutVertices[v.neighbors(-1)[-1]].pos
                     for vl in layer[level: l1 + 1]:
-                        for vk in layer._neighbors(vl):
-                            k = self.grx[vk].pos
+                        for vk in layer.neighbors(vl):
+                            k = self.layoutVertices[vk].pos
                             if k < k0 or k > k1:
                                 self.conflicts.append((vk, vl))
                     level = l1 + 1
@@ -469,7 +435,7 @@ class SugiyamaLayout(object):
             Vertical alignment according to current dirvh internal state.
         """
         dirh, dirv = self.dirh, self.dirv
-        g = self.grx
+        g = self.layoutVertices
         for layer in self.layers[::-dirv]:
             if not layer.prevlayer():
                 continue
@@ -499,7 +465,7 @@ class SugiyamaLayout(object):
         if layer_count > limit:
             setrecursionlimit(layer_count)
         dirh, dirv = self.dirh, self.dirv
-        g = self.grx
+        g = self.layoutVertices
         sub_layer = self.layers[::-dirv]
         # recursive placement of blocks:
         for layer in sub_layer:
@@ -534,7 +500,7 @@ class SugiyamaLayout(object):
                 g[v].X = None
 
     def __place_block(self, v):
-        g = self.grx
+        g = self.layoutVertices
         if g[v].X is None:
             # every block is initially placed at x=0
             g[v].X = 0.0
@@ -565,7 +531,8 @@ class SugiyamaLayout(object):
                     break
 
     def layout_edges(self):
-        """Basic edge routing applied only for edges with dummy points.
+        """
+        Basic edge routing applied only for edges with dummy points.
         Enhanced edge routing can be performed by using the apropriate
         *route_with_xxx* functions from :ref:routing_ in the edges' view.
         """
@@ -574,7 +541,7 @@ class SugiyamaLayout(object):
                 coll = []
                 if e in self.ctrls:
                     D = self.ctrls[e]
-                    r0, r1 = self.grx[e.v[0]].layer, self.grx[e.v[1]].layer
+                    r0, r1 = self.layoutVertices[e.v[0]].layer, self.layoutVertices[e.v[1]].layer
                     if r0 < r1:
                         ranks = range(r0 + 1, r1)
                     else:
