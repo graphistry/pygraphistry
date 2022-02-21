@@ -8,7 +8,6 @@ from graphistry.layout.graph.graphBase import GraphBase
 from graphistry.layout.utils import *
 from graphistry.layout.graph import *
 from graphistry.layout.utils.layer import Layer
-import networkx as nx
 import pandas as pd
 
 
@@ -140,8 +139,8 @@ class SugiyamaLayout(object):
             layer.setup(self)
         self.init_done = True
 
-    @classmethod
-    def arrange(cls, obj: Union[nx.Graph, pd.DataFrame, Graph], iteration_count = 1.5, source_column = "source", target_column = "target", layout_direction = 0):
+    @staticmethod
+    def arrange(obj: Union[pd.DataFrame, Graph], iteration_count = 1.5, source_column = "source", target_column = "target", layout_direction = 0):
         """
         Returns the positions from a Sugiyama layout iteration.
 
@@ -151,7 +150,7 @@ class SugiyamaLayout(object):
             - 2: bottom-to-top
             - 3: left-to-right
 
-        :param     obj (nx.Graph|pd.DataFrame|sugiyama.Graph): can be a NetworkX graph, a Sugiyama graph or a Pandas frame.
+        :param     obj (nx.Graph|pd.DataFrame|sugiyama.Graph): can be a Sugiyama graph or a Pandas frame.
         :param     iteration_count: increase the value for diminished crossings
         :param     source_column: if a Pandas frame is given, the name of the column with the source of the edges
         :param     target_column: if a Pandas frame is given, the name of the column with the target of the edges
@@ -160,8 +159,7 @@ class SugiyamaLayout(object):
             a dictionary of positions.
         """
         if isinstance(obj, pd.DataFrame):
-            nxg = nx.from_pandas_edgelist(obj, source_column, target_column)
-            gg = from_networkx(nxg)
+            gg = SugiyamaLayout.graph_from_pandas(obj, source_column, target_column)
         elif isinstance(obj, Graph):
             gg = obj
         else:
@@ -189,6 +187,14 @@ class SugiyamaLayout(object):
         else:
             raise ValueError
         return positions
+
+    @staticmethod
+    def graph_from_pandas(df, source_column = "source", target_column = "target"):
+        unique_ids = set(df[source_column].unique().tolist()).union(set(df[target_column].unique().tolist()))
+        vertex_dic = {id: Vertex(id) for id in unique_ids}
+        edges = [Edge(vertex_dic[u], vertex_dic[v]) for u, v in list(zip(df[source_column], df[target_column]))]
+        g = Graph(vertex_dic.values(), edges)
+        return g
 
     def layout(self, iteration_count = 1.5):
         """
