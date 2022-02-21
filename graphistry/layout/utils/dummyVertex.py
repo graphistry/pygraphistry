@@ -11,7 +11,7 @@ class DummyVertex(LayoutVertex):
         - ctrl (list[_sugiyama_attr]): the list of associated dummy vertices.
     """
 
-    def __init__(self, r = None ):
+    def __init__(self, r = None):
         self.view = Rectangle()
         self.control_vertices = None
         super().__init__(r, is_dummy = 1)
@@ -22,7 +22,8 @@ class DummyVertex(LayoutVertex):
             :param direction: +1 for the next layer (children) and -1 (parents) for the previous
         """
         assert direction == +1 or direction == -1
-        v = self.control_vertices.get(self.layer + direction, None)
+        assert isinstance(self.layer, int)
+        v = self.control_vertices.get(int(self.layer) + direction)
         return [v] if v is not None else []
 
     def inner(self, direction):

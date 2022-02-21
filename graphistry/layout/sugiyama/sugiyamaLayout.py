@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-
-from typing import Union
+import typing
+from typing import Union, List, Any, Dict
 from sys import getrecursionlimit, setrecursionlimit
 
 from graphistry.layout import Graph
@@ -51,20 +51,14 @@ class SugiyamaLayout(object):
 
 
     """
+    ctrls: typing.Dict[Vertex, LayoutVertex]
+    layers: typing.List[Layer]
     yspace: int
     xspace: int
 
     @property
     def dirvh(self):
         return self.__dirvh
-
-    @property
-    def dirv(self):
-        return self.__dirv
-
-    @property
-    def dirh(self):
-        return self.__dirh
 
     @dirvh.setter
     def dirvh(self, dirvh):
@@ -74,12 +68,19 @@ class SugiyamaLayout(object):
                                     1: (-1, -1),
                                     2: (1, 1),
                                     3: (-1, 1)}[dirvh]
+    @property
+    def dirv(self):
+        return self.__dirv
 
     @dirv.setter
     def dirv(self, dirv):
         assert dirv in (-1, +1)
         dirvh = (dirv + 1) + (1 - self.__dirh) // 2
         self.dirvh = dirvh
+
+    @property
+    def dirh(self):
+        return self.__dirh
 
     @dirh.setter
     def dirh(self, dirh):
