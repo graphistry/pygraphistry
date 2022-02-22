@@ -139,7 +139,7 @@ class SugiyamaLayout(object):
         self.init_done = True
 
     @staticmethod
-    def arrange(obj: typing.Union[pd.DataFrame, Graph], iteration_count = 1.5, source_column = "source", target_column = "target", layout_direction = 0):
+    def arrange(obj: typing.Union[pd.DataFrame, Graph], iteration_count = 1.5, source_column = "source", target_column = "target", layout_direction = 0, topological_coordinates = False):
         """
         Returns the positions from a Sugiyama layout iteration.
 
@@ -153,6 +153,7 @@ class SugiyamaLayout(object):
         :param     iteration_count: increase the value for diminished crossings
         :param     source_column: if a Pandas frame is given, the name of the column with the source of the edges
         :param     target_column: if a Pandas frame is given, the name of the column with the target of the edges
+        :param     topological_coordinates: whether to use coordinates with the x-values in the [0,1] range and the y-value equal to the layer index.
 
         Returns:
             a dictionary of positions.
@@ -169,22 +170,36 @@ class SugiyamaLayout(object):
 
         sug = SugiyamaLayout(gg.C[0])
         sug.init_all()
-        sug.layout(iteration_count)
-        positions = SugiyamaLayout.get_positions(gg.C[0].verticesPoset, layout_direction)
+        sug.layout(iteration_count, topological_coordinates = topological_coordinates, layout_direction = layout_direction)
+        positions = SugiyamaLayout.get_positions(gg.C[0].verticesPoset, layout_direction, topological_coordinates = topological_coordinates)
         return positions
 
     @staticmethod
-    def get_positions(poset, layout_direction = 0):
-        if layout_direction == 0:  # top-to-bottom
-            positions = {v.data: (v.view.xy[0], -v.view.xy[1]) for v in poset}
-        elif layout_direction == 1:  # right-to-left
-            positions = {v.data: (-v.view.xy[1], v.view.xy[0]) for v in poset}
-        elif layout_direction == 2:  # bottom-to-top
-            positions = {v.data: (v.view.xy[0], v.view.xy[1]) for v in poset}
-        elif layout_direction == 3:  # left-to-right
-            positions = {v.data: (v.view.xy[1], v.view.xy[0]) for v in poset}
+    def get_positions(poset, layout_direction = 0, topological_coordinates = False):
+        if topological_coordinates:
+            # note that the layering index goes up and the x-value to the right (standard coordinate system)
+            max_index = max([v.view.xy[1] for v in poset])
+            if layout_direction == 0:  # top-to-bottom
+                positions = {v.data: v.view.xy for v in poset}
+            elif layout_direction == 1:  # right-to-left
+                positions = {v.data: (v.view.xy[1], v.view.xy[0]) for v in poset}
+            elif layout_direction == 2:  # bottom-to-top
+                positions = {v.data: (v.view.xy[0], max_index - v.view.xy[1]) for v in poset}
+            elif layout_direction == 3:  # left-to-right
+                positions = {v.data: (max_index - v.view.xy[1], v.view.xy[0]) for v in poset}
+            else:
+                raise ValueError
         else:
-            raise ValueError
+            if layout_direction == 0:  # top-to-bottom
+                positions = {v.data: (v.view.xy[0], -v.view.xy[1]) for v in poset}
+            elif layout_direction == 1:  # right-to-left
+                positions = {v.data: (-v.view.xy[1], v.view.xy[0]) for v in poset}
+            elif layout_direction == 2:  # bottom-to-top
+                positions = {v.data: (v.view.xy[0], v.view.xy[1]) for v in poset}
+            elif layout_direction == 3:  # left-to-right
+                positions = {v.data: (v.view.xy[1], v.view.xy[0]) for v in poset}
+            else:
+                raise ValueError
         return positions
 
     @staticmethod
@@ -195,7 +210,7 @@ class SugiyamaLayout(object):
         g = Graph(vertex_dic.values(), edges)
         return g
 
-    def layout(self, iteration_count = 1.5, topological_coordinates = False):
+    def layout(self, iteration_count = 1.5, topological_coordinates = False, layout_direction = 0):
         """
             Compute every node coordinates after converging to optimal ordering by N
             rounds, and finally perform the edge routing.
@@ -210,7 +225,7 @@ class SugiyamaLayout(object):
             for (l, mvmt) in self.ordering_step(oneway = True):
                 pass
         if topological_coordinates:
-            self.set_topological_coordinates()
+            self.set_topological_coordinates(layout_direction)
         else:
             self.set_coordinates()
         self.layout_edges()
@@ -403,11 +418,12 @@ class SugiyamaLayout(object):
             current_y += 2 * dY + self.yspace
         self._edge_inverter()
 
-    def set_topological_coordinates(self):
+    def set_topological_coordinates(self, layout_direction = 0):
         self._edge_inverter()
         self._detect_alignment_conflicts()
         inf = float("infinity")
-        bounds = [inf, -inf]
+        x_bounds = [inf, -inf]
+        y_bounds = [inf, -inf]
         # initialize layout vertex
         for layer in self.layers:
             for v in layer:
@@ -431,15 +447,29 @@ class SugiyamaLayout(object):
             for v in layer:
                 vx = sorted(self.layoutVertices[v].x)
                 # mean of the 2 medians out of the 4 x-coord computed above:
-                avgm = (vx[1] + vx[2]) / 2.0
-                bounds[0] = min(avgm, bounds[0])
-                bounds[1] = max(avgm, bounds[1])
-                v.view.xy = (avgm, current_y + dY)
+                x = (vx[1] + vx[2]) / 2.0
+                x_bounds[0] = min(x, x_bounds[0])
+                x_bounds[1] = max(x, x_bounds[1])
+                y = current_y + dY
+                y_bounds[0] = min(y, y_bounds[0])
+                y_bounds[1] = max(y, y_bounds[1])
+                v.view.xy = (x, y)
             current_y += dY
-            # rescale
+
+        # rescale
+        # print("y", y_bounds)
+        # print("x", x_bounds)
+        def scale_x(value):
+            if x_bounds[0] == x_bounds[1]:
+                return value
+            else:
+                return (value - x_bounds[0]) / (x_bounds[1] - x_bounds[0])
+
         for layer in self.layers:
             for v in layer:
-                v.view.xy = ((v.view.xy[0] - bounds[0]) / (bounds[1] - bounds[0]), v.view.xy[1])
+                # print("before", v.view.xy)
+                v.view.xy = (scale_x(v.view.xy[0]), y_bounds[1] - v.view.xy[1])
+                # print("after", v.view.xy)
         self._edge_inverter()
 
     def _detect_alignment_conflicts(self):

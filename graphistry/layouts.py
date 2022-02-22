@@ -1,6 +1,8 @@
 from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHECKING
 import logging
 from .Plottable import Plottable
+from .layout import SugiyamaLayout
+
 logger = logging.getLogger('layouts')
 
 if TYPE_CHECKING:
@@ -8,28 +10,80 @@ if TYPE_CHECKING:
 else:
     MIXIN_BASE = object
 
+
 class LayoutsMixin(MIXIN_BASE):
 
     def __init__(self, *args, **kwargs):
         pass
 
-    def tree_layout(
-        self,
-        level_col: Optional[str] = None,
-        descending=True,
-        level_sort_values_by: Optional[Union[str, List[str]]] = None,
-        level_sort_values_by_ascending: bool = True,
-        level_align: str = 'left',
-        aspect_ratio=True,
-        width: Optional[float] = None,
-        height: Optional[float] = None,
-        preserve_aspect_ratio: bool = True,
+    def tree_layout(self,
+                       level_col: Optional[str] = None,
+                       level_sort_values_by: Optional[Union[str, List[str]]] = None,
+                       level_sort_values_by_ascending: bool = True,
+                       width: Optional[float] = None,
+                       height: Optional[float] = None,
+                       *args,
+                       **kwargs):
+        """
+            Improved tree layout based on the Sugiyama algorithm.
+        """
+        g: Plottable = self
 
-        vertical: bool = True,
-        ascending: bool = True,
+        if (g._edges is None) or (len(g._edges) == 0):
+            return g
 
-        *args,
-        **kwargs
+        x_col = g._point_x if g._point_x is not None else 'x'
+        if self._point_x is None:
+            g = g.bind(point_x = x_col)
+
+        y_col = g._point_y if g._point_y is not None else 'y'
+        if g._point_y is None:
+            g = g.bind(point_y = y_col)
+
+        # since the coordinates are topological
+        if width is None:
+            width = 1
+        if height is None:
+            height = 1
+        # ============================================================
+        # level and y-values
+        # ============================================================
+        if level_col is None:
+            level_col = 'level'
+        g2 = self.materialize_nodes()
+        positions = SugiyamaLayout.arrange(g2._edges, topological_coordinates = True, source_column = g2._source, target_column = g2._destination)
+        g2._nodes[level_col] = [positions[id][1] for id in g2._nodes["id"]]
+        g2._nodes[y_col] = [positions[id][1] * height for id in g2._nodes["id"]]
+        if (g2._nodes is None) or (len(g2._nodes) == 0):
+            return g
+        # ============================================================
+        #  y-values
+        # ============================================================
+        if level_sort_values_by is not None:
+            g2 = g2.nodes(g2._nodes.sort_values(
+                by = level_sort_values_by,
+                ascending = level_sort_values_by_ascending))
+
+        g2._nodes[x_col] = [positions[id][0] * width for id in g2._nodes["id"]]
+        return g2
+
+    def deprecated_tree_layout(
+            self,
+            level_col: Optional[str] = None,
+            descending = True,
+            level_sort_values_by: Optional[Union[str, List[str]]] = None,
+            level_sort_values_by_ascending: bool = True,
+            level_align: str = 'left',
+            aspect_ratio = True,
+            width: Optional[float] = None,
+            height: Optional[float] = None,
+            preserve_aspect_ratio: bool = True,
+
+            vertical: bool = True,
+            ascending: bool = True,
+
+            *args,
+            **kwargs
     ):
         """
         If level_col is None, compute via get_topological_levels() - see its as optional parameters
@@ -37,20 +91,20 @@ class LayoutsMixin(MIXIN_BASE):
         Supports cudf + pandas
         """
 
-        g : Plottable = self
+        g: Plottable = self
 
         if (g._edges is None) or (len(g._edges) == 0):
             return g
 
         x_col = g._point_x if g._point_x is not None else 'x'
         if self._point_x is None:
-            g = g.bind(point_x=x_col)
+            g = g.bind(point_x = x_col)
 
         y_col = g._point_y if g._point_y is not None else 'y'
         if g._point_y is None:
-            g = g.bind(point_y=y_col)
+            g = g.bind(point_y = y_col)
 
-        #y
+        # y
         if level_col is None:
             level_col = 'level'
             g2 = g.get_topological_levels(level_col, *args, **kwargs)
@@ -65,26 +119,26 @@ class LayoutsMixin(MIXIN_BASE):
         if (g2._nodes is None) or (len(g2._nodes) == 0):
             return g
 
-        #x
+        # x
         if level_sort_values_by is not None:
             g2 = g2.nodes(g2._nodes.sort_values(
-                by=level_sort_values_by,
-                ascending=level_sort_values_by_ascending))
+                by = level_sort_values_by,
+                ascending = level_sort_values_by_ascending))
 
-        grouped = g2._nodes.groupby(level_col, sort=level_sort_values_by is not None)
+        grouped = g2._nodes.groupby(level_col, sort = level_sort_values_by is not None)
         if hasattr(grouped, 'cumcount'):
             g2 = g2.nodes(g2._nodes.assign(**{x_col: grouped.cumcount()}))
         else:
             try:
-                #TODO remove
-                #cudf 0.19 fallback
+                # TODO remove
+                # cudf 0.19 fallback
                 logger.info('Tree x positions using Pandas fallback for RAPIDS < 0.21')
                 import cudf
                 assert isinstance(g2._nodes, cudf.DataFrame)
                 xs_ps = (g2
-                        ._nodes[[level_col]].to_pandas()
-                        .groupby(level_col, sort=level_sort_values_by is not None)
-                        .cumcount())
+                         ._nodes[[level_col]].to_pandas()
+                         .groupby(level_col, sort = level_sort_values_by is not None)
+                         .cumcount())
                 xs_gs = cudf.from_pandas(xs_ps)
                 g2 = g2.nodes(g2._nodes.assign(**{x_col: xs_gs}))
             except:
@@ -96,11 +150,11 @@ class LayoutsMixin(MIXIN_BASE):
             g2 = g2.nodes(g2._nodes.assign(**{x_col: -g2._nodes[x_col]}))
         elif level_align == 'center':  # FIXME emitting wrong range
             mx_group = grouped.size().max()
-            #TODO switch to grouped when above rapids 0.19 fallback gone
+            # TODO switch to grouped when above rapids 0.19 fallback gone
             nodes2_df = (g2
-                        ._nodes.groupby(level_col, sort=True)
-                        .apply(lambda df: df.assign(
-                            **{x_col: (df['x'] + 0.5) / (0.0 + len(df))})))
+                         ._nodes.groupby(level_col, sort = True)
+                         .apply(lambda df: df.assign(
+                **{x_col: (df['x'] + 0.5) / (0.0 + len(df))})))
             nodes2_df[x_col] = mx_group * nodes2_df[x_col]
             g2 = g2.nodes(nodes2_df)
         else:
@@ -125,7 +179,7 @@ class LayoutsMixin(MIXIN_BASE):
             g2._nodes[y_col] = -g2._nodes[y_col]
 
         if not vertical:
-            g2 = g2.nodes(g2._nodes.rename(columns={
+            g2 = g2.nodes(g2._nodes.rename(columns = {
                 x_col: y_col,
                 y_col: x_col
             }))

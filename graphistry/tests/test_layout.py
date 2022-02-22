@@ -1,7 +1,25 @@
 from pickle import dumps, loads, HIGHEST_PROTOCOL
 import unittest
-
+import pandas as pd
 from graphistry.layout import Edge, Graph, Vertex, EdgeViewer, Layer, Rectangle, GraphBase, SugiyamaLayout, DummyVertex, route_with_splines, route_with_rounded_corners, Poset
+from graphistry.compute import ComputeMixin
+from graphistry.layouts import LayoutsMixin
+from graphistry.plotter import PlotterBase
+
+
+class LG(LayoutsMixin):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        LayoutsMixin.__init__(self, *args, **kwargs)
+
+
+class LGFull(LayoutsMixin, ComputeMixin, PlotterBase):
+    def __init__(self, *args, **kwargs):
+        print('LGFull init')
+        super(LGFull, self).__init__(*args, **kwargs)
+        PlotterBase.__init__(self, *args, **kwargs)
+        ComputeMixin.__init__(self, *args, **kwargs)
+        LayoutsMixin.__init__(self, *args, **kwargs)
 
 
 def pickler(obj):
@@ -435,20 +453,20 @@ class TestLayout(unittest.TestCase):
         ret = p.add(v)
         assert ret == v
         p.add(v)
-        assert len(p)==1
+        assert len(p) == 1
         assert v == p.get(v)
 
         # ordering
         v1 = Vertex()
         v2 = Vertex()
         v3 = Vertex()
-        p1 = Poset([v1,v2,v3])
-        p2 = Poset([v1,v2])
+        p1 = Poset([v1, v2, v3])
+        p2 = Poset([v1, v2])
         assert p2 < p1
         assert p2.issubset(p1)
-        assert len(p1.difference(p2))==1
+        assert len(p1.difference(p2)) == 1
 
-    def test_networkx(self):
+    def test_data(self):
 
         v = ('a', 'b', 'c', 'd')
         V = [Vertex(x) for x in v]
@@ -461,3 +479,11 @@ class TestLayout(unittest.TestCase):
         assert len(list(g.E())) == len(E)
         assert set(n.data for n in g.V()) == set(v)
         assert set(n.v[0].data + n.v[1].data for n in g.E()) == set(e)
+
+    def test_tree_layout(self):
+        lg = LGFull()
+        g = lg.edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd').tree_layout()
+        print(g._nodes.to_dict(orient = 'records'))
+        assert g._nodes.to_dict(orient = 'records') == [
+            {'id': 'a', 'level': 1, 'x': 0.0, 'y': 1},
+            {'id': 'b', 'level': 0, 'x': 0.0, 'y': 0}]
