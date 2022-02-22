@@ -171,6 +171,7 @@ class SugiyamaLayout(object):
         sug = SugiyamaLayout(gg.C[0])
         sug.init_all()
         sug.layout(iteration_count, topological_coordinates = topological_coordinates, layout_direction = layout_direction)
+
         positions = SugiyamaLayout.get_positions(gg.C[0].verticesPoset, layout_direction, topological_coordinates = topological_coordinates)
         return positions
 
@@ -209,6 +210,24 @@ class SugiyamaLayout(object):
         edges = [Edge(vertex_dic[u], vertex_dic[v]) for u, v in list(zip(df[source_column], df[target_column]))]
         g = Graph(vertex_dic.values(), edges)
         return g
+
+    @staticmethod
+    def has_cycles(obj, source_column = "source", target_column = "target"):
+        if isinstance(obj, pd.DataFrame):
+            gg = SugiyamaLayout.graph_from_pandas(obj, source_column, target_column)
+        elif isinstance(obj, Graph):
+            gg = obj
+        else:
+            raise TypeError
+
+        for v in gg.V():
+            v.view = Rectangle()
+        for component in gg.C:
+            component.get_scs_with_feedback()
+            inverted = [x for x in component.edgesPoset if x.feedback]
+            if len(inverted) > 0:
+                return True
+        return False
 
     def layout(self, iteration_count = 1.5, topological_coordinates = False, layout_direction = 0):
         """

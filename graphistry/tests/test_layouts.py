@@ -35,8 +35,8 @@ class TestComputeMixin(NoAuthTestCase):
         lg = LGFull()
         g = lg.edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd').tree_layout()
         assert g._nodes.to_dict(orient='records') == [
-            {'id': 'a', 'level': 0, 'x': 0, 'y': 0},
-            {'id': 'b', 'level': 1, 'x': 0, 'y': -1}]
+            {'id': 'a', 'level': 1, 'x': 0.0, 'y': 1},
+            {'id': 'b', 'level': 0, 'x': 0.0, 'y': 0}]
 
     def test_tree_layout_levels_1_aliasing(self):
         lg = LGFull()
@@ -45,8 +45,9 @@ class TestComputeMixin(NoAuthTestCase):
             .nodes(pd.DataFrame({'n': ['a', 'b'], 'degree': ['x', 'y']}), 'n')
             .tree_layout())
         assert g._nodes.to_dict(orient='records') == [
-            {'n': 'a', 'degree': 'x', 'level': 0, 'x': 0, 'y': 0},
-            {'n': 'b', 'degree': 'y', 'level': 1, 'x': 0, 'y': -1}]
+            {'degree': 'x', 'level': 1, 'n': 'a', 'x': 0.0, 'y': 1},
+            {'degree': 'y', 'level': 0, 'n': 'b', 'x': 0.0, 'y': 0}]
+
 
     def test_tree_layout_cycle_exn(self):
         lg = LGFull()

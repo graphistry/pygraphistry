@@ -466,6 +466,32 @@ class TestLayout(unittest.TestCase):
         assert p2.issubset(p1)
         assert len(p1.difference(p2)) == 1
 
+    def test_cycles2(self):
+        v = ('a', 'b', 'c', 'd')
+        V = [Vertex(x) for x in v]
+        D = dict(zip(v, V))
+        e = ['ab', 'bc', 'cd', 'da']
+        E = [Edge(D[xy[0]], D[xy[1]], data = xy) for xy in e]
+        g = Graph(V, E)
+        assert SugiyamaLayout.has_cycles(g)
+
+        v = ('a', 'b', 'c', 'd')
+        V = [Vertex(x) for x in v]
+        D = dict(zip(v, V))
+        e = ['ab', 'bc', 'cd']
+        E = [Edge(D[xy[0]], D[xy[1]], data = xy) for xy in e]
+        g = Graph(V, E)
+        assert not SugiyamaLayout.has_cycles(g)
+
+        # multiple components
+        v = ('a', 'b', 'c', 'd', 'e')
+        V = [Vertex(x) for x in v]
+        D = dict(zip(v, V))
+        e = ['ab', 'cd', 'de', 'ec']
+        E = [Edge(D[xy[0]], D[xy[1]], data = xy) for xy in e]
+        g = Graph(V, E)
+        assert SugiyamaLayout.has_cycles(g)
+
     def test_data(self):
 
         v = ('a', 'b', 'c', 'd')
