@@ -17,13 +17,14 @@ class LayoutsMixin(MIXIN_BASE):
         pass
 
     def tree_layout(self,
-                       level_col: Optional[str] = None,
-                       level_sort_values_by: Optional[Union[str, List[str]]] = None,
-                       level_sort_values_by_ascending: bool = True,
-                       width: Optional[float] = None,
-                       height: Optional[float] = None,
-                       *args,
-                       **kwargs):
+                    level_col: Optional[str] = None,
+                    level_sort_values_by: Optional[Union[str, List[str]]] = None,
+                    level_sort_values_by_ascending: bool = True,
+                    width: Optional[float] = None,
+                    height: Optional[float] = None,
+                    allow_cycles = True,
+                    *args,
+                    **kwargs):
         """
             Improved tree layout based on the Sugiyama algorithm.
         """
@@ -45,15 +46,21 @@ class LayoutsMixin(MIXIN_BASE):
             width = 1
         if height is None:
             height = 1
+
         # ============================================================
         # level and y-values
         # ============================================================
         if level_col is None:
             level_col = 'level'
         g2 = self.materialize_nodes()
-        positions = SugiyamaLayout.arrange(g2._edges, topological_coordinates = True, source_column = g2._source, target_column = g2._destination)
-        g2._nodes[level_col] = [positions[id][1] for id in g2._nodes[g2._node]]
-        g2._nodes[y_col] = [positions[id][1] * height for id in g2._nodes[g2._node]]
+        # check cycles
+        if not allow_cycles:
+            if SugiyamaLayout.has_cycles(g._edges, source_column = g2._source, target_column = g2._destination):
+                raise ValueError
+
+        triples = SugiyamaLayout.arrange(g2._edges, topological_coordinates = True, source_column = g2._source, target_column = g2._destination, include_levels = True)
+        g2._nodes[level_col] = [triples[id][2] for id in g2._nodes[g2._node]]
+        g2._nodes[y_col] = [triples[id][1] * height for id in g2._nodes[g2._node]]
         if (g2._nodes is None) or (len(g2._nodes) == 0):
             return g
         # ============================================================
@@ -64,7 +71,7 @@ class LayoutsMixin(MIXIN_BASE):
                 by = level_sort_values_by,
                 ascending = level_sort_values_by_ascending))
 
-        g2._nodes[x_col] = [positions[id][0] * width for id in g2._nodes[g2._node]]
+        g2._nodes[x_col] = [triples[id][0] * width for id in g2._nodes[g2._node]]
         return g2
 
     def deprecated_tree_layout(

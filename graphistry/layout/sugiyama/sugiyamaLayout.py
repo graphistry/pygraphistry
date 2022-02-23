@@ -139,7 +139,14 @@ class SugiyamaLayout(object):
         self.init_done = True
 
     @staticmethod
-    def arrange(obj: typing.Union[pd.DataFrame, Graph], iteration_count = 1.5, source_column = "source", target_column = "target", layout_direction = 0, topological_coordinates = False):
+    def arrange(
+            obj: typing.Union[pd.DataFrame, Graph],
+            iteration_count = 1.5,
+            source_column = "source",
+            target_column = "target",
+            layout_direction = 0,
+            topological_coordinates = False,
+            include_levels=False):
         """
         Returns the positions from a Sugiyama layout iteration.
 
@@ -154,7 +161,7 @@ class SugiyamaLayout(object):
         :param     source_column: if a Pandas frame is given, the name of the column with the source of the edges
         :param     target_column: if a Pandas frame is given, the name of the column with the target of the edges
         :param     topological_coordinates: whether to use coordinates with the x-values in the [0,1] range and the y-value equal to the layer index.
-
+        :param     include_levels: whether the tree-level is included together with the coordinates. If so, you get a triple (x,y,level).
         Returns:
             a dictionary of positions.
         """
@@ -172,36 +179,40 @@ class SugiyamaLayout(object):
         sug.init_all()
         sug.layout(iteration_count, topological_coordinates = topological_coordinates, layout_direction = layout_direction)
 
-        positions = SugiyamaLayout.get_positions(gg.C[0].verticesPoset, layout_direction, topological_coordinates = topological_coordinates)
+        positions = SugiyamaLayout._get_positions(sug, gg.C[0].verticesPoset, layout_direction, topological_coordinates = topological_coordinates,include_levels=include_levels)
         return positions
 
     @staticmethod
-    def get_positions(poset, layout_direction = 0, topological_coordinates = False):
+    def _get_positions(sug, poset, layout_direction = 0, topological_coordinates = False,include_levels=False):
+        """
+            Returns actual (real or topological) positions together with the level as a triple.
+        """
+        lv = sug.layoutVertices
         if topological_coordinates:
             # note that the layering index goes up and the x-value to the right (standard coordinate system)
             max_index = max([v.view.xy[1] for v in poset])
             if layout_direction == 0:  # top-to-bottom
-                positions = {v.data: v.view.xy for v in poset}
+                tuples = {v.data: (v.view.xy[0], v.view.xy[1], lv[v].layer) for v in poset} if include_levels else  {v.data: (v.view.xy[0], v.view.xy[1]) for v in poset}
             elif layout_direction == 1:  # right-to-left
-                positions = {v.data: (v.view.xy[1], v.view.xy[0]) for v in poset}
+                tuples = {v.data: (v.view.xy[1], v.view.xy[0], lv[v].layer) for v in poset} if include_levels else {v.data: (v.view.xy[1], v.view.xy[0]) for v in poset}
             elif layout_direction == 2:  # bottom-to-top
-                positions = {v.data: (v.view.xy[0], max_index - v.view.xy[1]) for v in poset}
+                tuples = {v.data: (v.view.xy[0], max_index - v.view.xy[1], lv[v].layer) for v in poset} if include_levels else {v.data: (v.view.xy[0], max_index - v.view.xy[1]) for v in poset}
             elif layout_direction == 3:  # left-to-right
-                positions = {v.data: (max_index - v.view.xy[1], v.view.xy[0]) for v in poset}
+                tuples = {v.data: (max_index - v.view.xy[1], v.view.xy[0], lv[v].layer) for v in poset} if include_levels else {v.data: (max_index - v.view.xy[1], v.view.xy[0]) for v in poset}
             else:
                 raise ValueError
         else:
             if layout_direction == 0:  # top-to-bottom
-                positions = {v.data: (v.view.xy[0], -v.view.xy[1]) for v in poset}
+                tuples = {v.data: (v.view.xy[0], -v.view.xy[1], lv[v].layer) for v in poset} if include_levels else {v.data: (v.view.xy[0], -v.view.xy[1]) for v in poset}
             elif layout_direction == 1:  # right-to-left
-                positions = {v.data: (-v.view.xy[1], v.view.xy[0]) for v in poset}
+                tuples = {v.data: (-v.view.xy[1], v.view.xy[0], lv[v].layer) for v in poset} if include_levels else  {v.data: (-v.view.xy[1], v.view.xy[0]) for v in poset}
             elif layout_direction == 2:  # bottom-to-top
-                positions = {v.data: (v.view.xy[0], v.view.xy[1]) for v in poset}
+                tuples = {v.data: (v.view.xy[0], v.view.xy[1], lv[v].layer) for v in poset} if include_levels else {v.data: (v.view.xy[0], v.view.xy[1]) for v in poset}
             elif layout_direction == 3:  # left-to-right
-                positions = {v.data: (v.view.xy[1], v.view.xy[0]) for v in poset}
+                tuples = {v.data: (v.view.xy[1], v.view.xy[0], lv[v].layer) for v in poset} if include_levels else {v.data: (v.view.xy[1], v.view.xy[0]) for v in poset}
             else:
                 raise ValueError
-        return positions
+        return tuples
 
     @staticmethod
     def graph_from_pandas(df, source_column = "source", target_column = "target"):
@@ -212,7 +223,7 @@ class SugiyamaLayout(object):
         return g
 
     @staticmethod
-    def has_cycles(obj, source_column = "source", target_column = "target"):
+    def has_cycles(obj: typing.Union[pd.DataFrame, Graph], source_column = "source", target_column = "target"):
         if isinstance(obj, pd.DataFrame):
             gg = SugiyamaLayout.graph_from_pandas(obj, source_column, target_column)
         elif isinstance(obj, Graph):
