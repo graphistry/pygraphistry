@@ -156,14 +156,16 @@ class SugiyamaLayout(object):
             - 2: bottom-to-top
             - 3: left-to-right
 
-        :param     obj (nx.Graph|pd.DataFrame|sugiyama.Graph): can be a Sugiyama graph or a Pandas frame.
+        :param     obj: can be a Sugiyama graph or a Pandas frame.
         :param     iteration_count: increase the value for diminished crossings
         :param     source_column: if a Pandas frame is given, the name of the column with the source of the edges
         :param     target_column: if a Pandas frame is given, the name of the column with the target of the edges
         :param     topological_coordinates: whether to use coordinates with the x-values in the [0,1] range and the y-value equal to the layer index.
         :param     include_levels: whether the tree-level is included together with the coordinates. If so, you get a triple (x,y,level).
-        Returns:
+
+        **Returns**
             a dictionary of positions.
+
         """
         if isinstance(obj, pd.DataFrame):
             gg = SugiyamaLayout.graph_from_pandas(obj, source_column, target_column)
@@ -641,9 +643,7 @@ class SugiyamaLayout(object):
 
     def layout_edges(self):
         """
-        Basic edge routing applied only for edges with dummy points.
-        Enhanced edge routing can be performed by using the apropriate
-        *route_with_xxx* functions from :ref:routing_ in the edges' view.
+            Basic edge routing applied only for edges with dummy points. Enhanced edge routing can be performed by using the appropriate
         """
         for e in self.g.E():
             if hasattr(e, "view"):

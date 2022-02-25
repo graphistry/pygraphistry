@@ -4,11 +4,10 @@ from .vertexBase import VertexBase
 
 class Vertex(VertexBase):
     """
-        Vertex class enhancing a VertexBase with graph-related features.
+       Vertex class enhancing a VertexBase with graph-related features.
 
-        **Attributes**
-            c (GraphBase): the component of connected vertices that contains this vertex. By default a vertex belongs no component but when it is added in a
-                graph, c points to the connected component in this graph.
+       **Attributes**
+            c (GraphBase): the component of connected vertices that contains this vertex. By default, a vertex belongs no component but when it is added in a graph, c points to the connected component in this graph.
             data (object) : an object associated with the vertex.
 
     """

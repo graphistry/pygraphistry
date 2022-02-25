@@ -1,24 +1,21 @@
 class VertexBase(object):
     """
+        Base class for vertices.
 
-    Base class for vertices.
-
-        Attributes:
+        **Attributes**
             e (list[Edge]): list of edges associated with this vertex.
 
-        Methods:
+        **Methods**
             degree() : degree of the vertex (number of edges).
             e_in() : list of edges directed toward this vertex.
             e_out(): list of edges directed outward this vertex.
-            e_dir(int): either e_in, e_out or all edges depending on
-               provided direction parameter (>0 means outward).
-            neighbors(f_io=0): list of neighbor vertices in all directions (default)
-               or in filtered f_io direction (>0 means outward).
+            e_dir(int): either e_in, e_out or all edges depending on provided direction parameter (>0 means outward).
+            neighbors(f_io=0): list of neighbor vertices in all directions (default) or in filtered f_io direction (>0 means outward).
             e_to(v): returns the Edge from this vertex directed toward vertex v.
             e_from(v): returns the Edge from vertex v directed toward this vertex.
             e_with(v): return the Edge with both this vertex and vertex v
-            detach(): removes this vertex from all its edges and returns this list
-               of edges.
+            detach(): removes this vertex from all its edges and returns this list of edges.
+
     """
 
     def __init__(self):
@@ -44,11 +41,12 @@ class VertexBase(object):
     def neighbors(self, direction = 0):
         """
             Returns the neighbors of this vertex.
-        :param direction:
-            - 0: parent and children
-            - -1: parents
-            - +1: children
-        :return: list of vertices
+
+            :param direction:
+                - 0: parent and children
+                - -1: parents
+                - +1: children
+            :return: list of vertices
         """
         arr = []
         if direction <= 0:
