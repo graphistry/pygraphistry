@@ -26,6 +26,7 @@ try:
         StandardScaler,
         RobustScaler,
         MultiLabelBinarizer,
+        KBinsDiscretizer,
     )
 
 except:
@@ -36,6 +37,7 @@ except:
     QuantileTransformer = Any
     StandardScaler = Any
     RobustScaler = Any
+    KBinsDiscretizer = Any
     scipy = Any
     torch = Any
 
@@ -165,7 +167,7 @@ def remove_node_column_from_ndf_and_return_ndf_from_res(res, remove_node_column:
                     f"removing node column `{node_label}` so we do not featurize it"
                 )
                 return res._nodes.drop(columns=[node_label], errors="ignore")
-    return res._nodes  # just pass through if false
+    return res._nodes  # just pass through dataframe if false
 
 
 def remove_internal_namespace_if_present(df: pd.DataFrame):
@@ -220,11 +222,14 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
 
 def impute_and_scale_matrix(
     X: np.ndarray,
-    impute: bool = True,
     use_scaler: str = "minmax",
+    impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
+    n_bins=5,
+    encode="ordinal",
+    strategy="uniform",
 ):
     """
         Helper function for imputing and scaling np.ndarray data using different scaling transformers.
@@ -234,9 +239,10 @@ def impute_and_scale_matrix(
     :param n_quantiles: if use_scaler = 'quantile', sets the quantile bin size.
     :param output_distribution: if use_scaler = 'quantile', can return distribution as ["normal", "uniform"]
     :param quantile_range: if use_scaler = 'robust', sets the quantile range.
+    :params TODO add kbins desc
     :return: scaled array, imputer instances or None, scaler instance or None
     """
-    available_preprocessors = ["minmax", "quantile", "zscale", "robust"]
+    available_preprocessors = ["minmax", "quantile", "zscale", "robust", "kbins"]
     available_quantile_distributions = ["normal", "uniform"]
 
     imputer = None
@@ -254,7 +260,7 @@ def impute_and_scale_matrix(
         scaler = MinMaxScaler()
     elif use_scaler == "quantile":
         assert output_distribution in ["normal", "uniform"], logger.error(
-            f'output_distribution must be in {available_quantile_distributions}, got {output_distribution}'
+            f"output_distribution must be in {available_quantile_distributions}, got {output_distribution}"
         )
         scaler = QuantileTransformer(
             n_quantiles=n_quantiles, output_distribution=output_distribution
@@ -263,6 +269,8 @@ def impute_and_scale_matrix(
         scaler = StandardScaler()
     elif use_scaler == "robust":
         scaler = RobustScaler(quantile_range=quantile_range)
+    elif use_scaler == "kbins":
+        scaler = KBinsDiscretizer(n_bins=n_bins, encode=encode, strategy=strategy)
     elif use_scaler is None:
         return res, imputer, scaler
     else:
@@ -497,7 +505,7 @@ def process_textual_or_other_dataframes(
     cardinality_threshold: int = 40,
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
-    use_scaler: Union[str, None] = None,
+    use_scaler: Union[str, None] = "robust",
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -511,8 +519,8 @@ def process_textual_or_other_dataframes(
     :param df: pandas DataFrame of data
     :param y: pandas DataFrame of targets
     :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
-    :param n_topics:
-    :param use_scaler: string argument in
+    :param n_topics: number of topics in Gap Encoder
+    :param use_scaler:
     :param confidence: Number between 0 and 1, will pass column for textual processing if total entries are string
             like in a column and above this relative threshold.
     :param min_words: Number greater than 1 that sets the threshold for average number of words to include column for
@@ -606,7 +614,7 @@ def process_dirty_dataframes(
         auto_cast=True,
         cardinality_threshold=cardinality_threshold,
         high_card_cat_transformer=GapEncoder(n_topics),
-        #numerical_transformer=StandardScaler(), This breaks since -- AttributeError: Transformer numeric (type StandardScaler)
+        # numerical_transformer=StandardScaler(), This breaks since -- AttributeError: Transformer numeric (type StandardScaler)
         #  does not provide get_feature_names.
         datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
     )
@@ -617,7 +625,7 @@ def process_dirty_dataframes(
             logger.info("Encoding DataFrame might take a few minutes --------")
             X_enc = data_encoder.fit_transform(ndf, y)
             X_enc = make_dense(X_enc)
-            #X_enc = X_enc.astype(float)
+            # X_enc = X_enc.astype(float)
             all_transformers = data_encoder.transformers
             features_transformed = data_encoder.get_feature_names_out()
             logger.info(f"-Shape of data {X_enc.shape}\n")
@@ -644,25 +652,28 @@ def process_dirty_dataframes(
         logger.info(f"*Given DataFrame seems to be empty")
 
     if y is not None:
-        t2 = time()
-        logger.info(f"-Fitting Targets --\n")
-        label_encoder = SuperVectorizer(
-            auto_cast=True,
-            cardinality_threshold=cardinality_threshold_target,
-            datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
-        )
-        y_enc = label_encoder.fit_transform(y)
-        if type(y_enc) == scipy.sparse.csr.csr_matrix:
-            y_enc = y_enc.toarray()
-        labels_transformed = label_encoder.get_feature_names_out()
-        y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed)
-        y_enc = y_enc.fillna(0)
+        if not is_dataframe_all_numeric(y):
+            t2 = time()
+            logger.info(f"-Fitting Targets --\n")
+            label_encoder = SuperVectorizer(
+                auto_cast=True,
+                cardinality_threshold=cardinality_threshold_target,
+                datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
+            )
+            y_enc = label_encoder.fit_transform(y)
+            y_enc = make_dense(y_enc)
+            labels_transformed = label_encoder.get_feature_names_out()
+            y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed)
+            y_enc = y_enc.fillna(0)
 
-        logger.info(f"-Shape of target {y_enc.shape}")
-        logger.info(f"-Target Transformers used: {label_encoder.transformers}\n")
-        logger.info(
-            f"--Fitting SuperVectorizer on TARGET took {(time()-t2)/60:.2f} minutes\n"
-        )
+            logger.info(f"-Shape of target {y_enc.shape}")
+            logger.info(f"-Target Transformers used: {label_encoder.transformers}\n")
+            logger.info(
+                f"--Fitting SuperVectorizer on TARGET took {(time()-t2)/60:.2f} minutes\n"
+            )
+        else:
+            logger.info(f"-*-*-Target DataFrame is already completely numeric")
+            y_enc = y
 
     return X_enc, y_enc, data_encoder, label_encoder
 
@@ -715,7 +726,7 @@ def process_edge_dataframes(
         use_scaler=None,
         confidence=confidence,
         min_words=min_words,
-        model_name=model_name
+        model_name=model_name,
     )
 
     if data_encoder is not None:
@@ -777,10 +788,13 @@ def prune_weighted_edges_df(
     :return: pd.DataFrame
     """
     # we want to prune edges, so we calculate some statistics
-    desc = wdf.describe()  # TODO, perhaps add Box-Cox transform, etc?
+    desc = (
+        wdf.describe()
+    )  # TODO, fix pruning so that higher values of scale return less edges and memoize
     mean = desc[config.WEIGHT]["mean"]
     std = desc[config.WEIGHT]["std"]
-    logger.info(f'edge weights: mean( {mean:.2f}), std( {std:.2f})')
+    max_val = desc[config.WEIGHT]["max"]
+    logger.info(f"edge weights: mean({mean:.2f}), std({std:.2f}), max({max_val})")
     wdf2 = wdf[wdf[config.WEIGHT] >= mean + scale * std]
     # TODO remove either src -> dst and dst -> src so that we don't have double edges
     logger.info(f"Pruning weighted edge DataFrame from {len(wdf)} to {len(wdf2)} edges")
@@ -837,6 +851,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         y: Union[pd.DataFrame, np.ndarray],
         use_columns: Union[List, None] = None,
         remove_node_column: bool = True,  # since node label might be index or unique names
+        use_scaler: Union[str, None] = "robust",
     ):
 
         ndf = remove_node_column_from_ndf_and_return_ndf_from_res(
@@ -847,7 +862,9 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         ndf, y = check_target_not_in_features(ndf, y, remove=True)
         ndf = remove_internal_namespace_if_present(ndf)
         # now vectorize it all
-        X_enc, y_enc, data_vec, label_vec = self._node_featurizer(ndf, y)
+        X_enc, y_enc, data_vec, label_vec = self._node_featurizer(
+            ndf, y, use_scaler=use_scaler
+        )
         # set the new variables
         res.node_features = X_enc
         res.node_target = y_enc
@@ -860,13 +877,14 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         res: Any,
         y: Union[pd.DataFrame, np.ndarray],
         use_columns: Union[List, None] = None,
+        use_scaler: Union[str, None] = "robust",
     ):
         # TODO move the columns select after the featurizer
         edf = get_dataframe_columns(res._edges, use_columns)
         edf, y = check_target_not_in_features(edf, y, remove=True)
         edf = remove_internal_namespace_if_present(edf)
         X_enc, y_enc, [mlb, data_vec], label_vec = self._edge_featurizer(
-            edf, y, res._source, res._destination
+            edf, y, res._source, res._destination, use_scaler=use_scaler
         )
         res.edge_features = X_enc
         res.edge_target = y_enc
@@ -881,6 +899,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         use_columns: Union[None, List] = None,
         inplace: bool = False,
         remove_node_column: bool = True,
+        use_scaler: Union[str, None] = "robust",
     ):
         """
             Featurize Nodes or Edges of the Graph.
@@ -897,9 +916,11 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         else:
             res = self.bind()
         if kind == "nodes":
-            res = self._featurize_nodes(res, y, use_columns, remove_node_column)
+            res = self._featurize_nodes(
+                res, y, use_columns, remove_node_column, use_scaler=use_scaler
+            )
         elif kind == "edges":
-            res = self._featurize_edges(res, y, use_columns)
+            res = self._featurize_edges(res, y, use_columns, use_scaler=use_scaler)
         else:
             logger.warning("One may only featurize `nodes` or `edges`")
             return self
@@ -985,10 +1006,10 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         scale: float = 2,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
-        spread=0.5,
-        local_connectivity=1,
-        repulsion_strength=1,
-        negative_sample_rate=5,
+        spread: float = 0.5,
+        local_connectivity: int = 1,
+        repulsion_strength: float = 1,
+        negative_sample_rate: int = 5,
         n_components: int = 2,
         metric: str = "euclidean",
         scale_xy: float = 10,
@@ -1045,11 +1066,11 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         res._set_new_kwargs(**umap_kwargs)
 
         if kind == "nodes":
-            # make a node_entity to index dict
+            # make a node_entity to index dict to match with the implicit edges gotten from UMAPing
             # nodes = res.materialize_nodes()
             if hasattr(res, "_node") and res._node is not None:
                 nodes = res._nodes[res._node].values
-                if len(nodes) == len(np.unique(nodes)):
+                if len(nodes) != len(np.unique(nodes)):
                     logger.warn(
                         "There are repeat entities in node table, we will not relabel nodes"
                     )
