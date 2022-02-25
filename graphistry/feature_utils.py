@@ -80,7 +80,7 @@ from . import constants as config
 from .umap_utils import UMAPMixin
 from .ai_utils import setup_logger
 
-logger = setup_logger(__name__)
+logger = setup_logger(__name__, verbose=False)
 
 encoders_dirty: Dict = {
     "similarity": SimilarityEncoder(similarity="ngram"),
@@ -514,7 +514,7 @@ def process_textual_or_other_dataframes(
     :param n_topics:
     :param use_scaler: string argument in
     :param confidence: Number between 0 and 1, will pass column for textual processing if total entries are string
-            like in a column and above this threshold.
+            like in a column and above this relative threshold.
     :param min_words: Number greater than 1 that sets the threshold for average number of words to include column for
             textual sentence encoding. Lower values means that columns will be labeled textual and sent to sentence-encoder
     :param model_name: SentenceTransformer model name. See available list at
@@ -574,6 +574,12 @@ def get_cardinality_ratio(df: pd.DataFrame):
     return ratios
 
 
+def make_dense(X):
+    if scipy.sparse.issparse(X):
+        return X.todense()
+    return X
+
+
 def process_dirty_dataframes(
     ndf: pd.DataFrame,
     y: pd.DataFrame,
@@ -610,12 +616,13 @@ def process_dirty_dataframes(
         if not is_dataframe_all_numeric(ndf):
             logger.info("Encoding DataFrame might take a few minutes --------")
             X_enc = data_encoder.fit_transform(ndf, y)
-            X_enc = X_enc.astype(float)  # otherwise the safe divide is borqued
+            X_enc = make_dense(X_enc)
+            #X_enc = X_enc.astype(float)
             all_transformers = data_encoder.transformers
             features_transformed = data_encoder.get_feature_names_out()
             logger.info(f"-Shape of data {X_enc.shape}\n")
-            logger.info(f"-Transformers: {all_transformers}\n")
-            logger.info(f"-Transformed Columns: {features_transformed[:20]}...\n")
+            logger.info(f"-Transformers: \n{all_transformers}\n")
+            logger.info(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
             logger.info(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
             X_enc = pd.DataFrame(X_enc, columns=features_transformed)
             X_enc = X_enc.fillna(0)
@@ -773,6 +780,7 @@ def prune_weighted_edges_df(
     desc = wdf.describe()  # TODO, perhaps add Box-Cox transform, etc?
     mean = desc[config.WEIGHT]["mean"]
     std = desc[config.WEIGHT]["std"]
+    logger.info(f'edge weights: mean( {mean:.2f}), std( {std:.2f})')
     wdf2 = wdf[wdf[config.WEIGHT] >= mean + scale * std]
     # TODO remove either src -> dst and dst -> src so that we don't have double edges
     logger.info(f"Pruning weighted edge DataFrame from {len(wdf)} to {len(wdf2)} edges")
