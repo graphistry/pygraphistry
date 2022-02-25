@@ -7,30 +7,29 @@ from graphistry.layout.utils import Poset
 
 class Graph(object):
     """
+        The graph is stored in disjoint-sets holding each connected component in C as a list of graph_core objects.
 
-       The graph is stored in disjoint-sets holding each connected component in C as a list of graph_core objects.
+        **Attributes**
+            C (list[GraphBase]): list of graph_core components.
 
-       Attributes:
-          C (list[GraphBase]): list of graph_core components.
-
-       Methods:
-          add_vertex(v): add vertex v into the Graph as a new component
-          add_edge(e): add edge e and its vertices into the Graph possibly merging the
+        **Methods**
+            add_vertex(v): add vertex v into the Graph as a new component
+            add_edge(e): add edge e and its vertices into the Graph possibly merging the
             associated graph_core components
-          get_vertices_count(): see order()
-          V(): see graph_core
-          E(): see graph_core
-          remove_edge(e): remove edge e possibly spawning two new cores
+            get_vertices_count(): see order()
+            V(): see graph_core
+            E(): see graph_core
+            remove_edge(e): remove edge e possibly spawning two new cores
             if the graph_core that contained e gets disconnected.
-          remove_vertex(v): remove vertex v and all its edges.
-          order(): the order of the graph (number of vertices)
-          norm(): the norm of the graph (number of edges)
-          deg_min(): the minimum degree of vertices
-          deg_max(): the maximum degree of vertices
-          deg_avg(): the average degree of vertices
-          eps(): the graph epsilon value (norm/order), average number of edges per vertex. 
-          connected(): returns True if the graph is connected (i.e. it has only one component).
-          components(): returns self.C
+            remove_vertex(v): remove vertex v and all its edges.
+            order(): the order of the graph (number of vertices)
+            norm(): the norm of the graph (number of edges)
+            deg_min(): the minimum degree of vertices
+            deg_max(): the maximum degree of vertices
+            deg_avg(): the average degree of vertices
+            eps(): the graph epsilon value (norm/order), average number of edges per vertex.
+            connected(): returns True if the graph is connected (i.e. it has only one component).
+            components(): returns self.C
     """
 
     component_class = GraphBase
@@ -43,7 +42,7 @@ class Graph(object):
         self.directed = directed
 
         for v in V:
-            v.c = Poset([v]) # at first, every vertex is its own component
+            v.c = Poset([v])  # at first, every vertex is its own component
         components = [v.c for v in V]
         # then pass through edges and union associated vertices such that
         # CV finally holds only connected sets:

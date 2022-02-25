@@ -3,49 +3,49 @@ from graphistry.layout.utils import Poset
 
 class GraphBase(object):
     """
-    A connected graph of Vertex/Edge objects. A GraphBase is a *component* of a Graph that contains a connected set of Vertex and Edges.
+        A connected graph of Vertex/Edge objects. A GraphBase is a *component* of a Graph that contains a connected set of Vertex and Edges.
 
-       Attributes:
-         verticesPoset (Poset[Vertex]): the partially ordered set of vertices of the graph.
-         edgesPoset (Poset[Edge]): the partially ordered set of edges of the graph.
-         degenerated_edges (set[Edge]): the set of *degenerated* edges (of degree 0).
-         directed (bool): indicates if the graph is considered *oriented* or not.
+        Attributes:
+            verticesPoset (Poset[Vertex]): the partially ordered set of vertices of the graph.
+            edgesPoset (Poset[Edge]): the partially ordered set of edges of the graph.
+            degenerated_edges (set[Edge]): the set of *degenerated* edges (of degree 0).
+            directed (bool): indicates if the graph is considered *oriented* or not.
 
-       Methods:
-         V(cond=None): generates an iterator over vertices, with optional filter
-         E(cond=None): generates an iterator over edges, with optional filter
-         M(cond=None): returns the associativity matrix of the graph component
-         order(): the order of the graph (number of vertices)
-         norm(): the norm of the graph (number of edges)
-         deg_min(): the minimum degree of vertices
-         deg_max(): the maximum degree of vertices
-         deg_avg(): the average degree of vertices
-         eps(): the graph epsilon value (norm/order), average number of edges per vertex.
-         path(x,y,f_io=0,hook=None): shortest path between vertices x and y by breadth-first descent,
-           contrained by f_io direction if provided. The path is returned as a list of Vertex objects.
-           If a *hook* function is provided, it is called at every vertex added to the path, passing
-           the vertex object as argument.
-         roots(): returns the list of *roots* (vertices with no inward edges).
-         leaves(): returns the list of *leaves* (vertices with no outward edges).
-         add_single_vertex(v): allow a GraphBase to hold a single vertex.
-         add_edge(e): add edge e. At least one of its vertex must belong to the graph,
-           the other being added automatically.
-         remove_edge(e): remove Edge e, asserting that the resulting graph is still connex.
-         remove_vertex(x): remove Vertex x and all associated edges.
-         dijkstra(x,f_io=0,hook=None): shortest weighted-edges paths between x and all other vertices
-           by dijkstra's algorithm with heap used as priority queue.
-         get_scs_with_feedback(): returns the set of strongly connected components
-           ("scs") by using Tarjan algorithm.
-           These are maximal sets of vertices such that there is a path from each
-           vertex to every other vertex.
-           The algorithm performs a DFS from the provided list of root vertices.
-           A cycle is of course a strongly connected component,
-           but a strongly connected component can include several cycles.
-           The Feedback Acyclic Set of edge to be removed/reversed is provided by
-           marking the edges with a "feedback" flag.
-           Complexity is O(V+E).
-         partition(): returns a *partition* of the connected graph as a list of lists.
-         neighbors(v): returns neighbours of a vertex v.
+        Methods:
+            V(cond=None): generates an iterator over vertices, with optional filter
+            E(cond=None): generates an iterator over edges, with optional filter
+            M(cond=None): returns the associativity matrix of the graph component
+            order(): the order of the graph (number of vertices)
+            norm(): the norm of the graph (number of edges)
+            deg_min(): the minimum degree of vertices
+            deg_max(): the maximum degree of vertices
+            deg_avg(): the average degree of vertices
+            eps(): the graph epsilon value (norm/order), average number of edges per vertex.
+            path(x,y,f_io=0,hook=None): shortest path between vertices x and y by breadth-first descent,
+            contrained by f_io direction if provided. The path is returned as a list of Vertex objects.
+            If a *hook* function is provided, it is called at every vertex added to the path, passing
+            the vertex object as argument.
+            roots(): returns the list of *roots* (vertices with no inward edges).
+            leaves(): returns the list of *leaves* (vertices with no outward edges).
+            add_single_vertex(v): allow a GraphBase to hold a single vertex.
+            add_edge(e): add edge e. At least one of its vertex must belong to the graph,
+            the other being added automatically.
+            remove_edge(e): remove Edge e, asserting that the resulting graph is still connex.
+            remove_vertex(x): remove Vertex x and all associated edges.
+            dijkstra(x,f_io=0,hook=None): shortest weighted-edges paths between x and all other vertices
+            by dijkstra's algorithm with heap used as priority queue.
+            get_scs_with_feedback(): returns the set of strongly connected components
+            ("scs") by using Tarjan algorithm.
+            These are maximal sets of vertices such that there is a path from each
+            vertex to every other vertex.
+            The algorithm performs a DFS from the provided list of root vertices.
+            A cycle is of course a strongly connected component,
+            but a strongly connected component can include several cycles.
+            The Feedback Acyclic Set of edge to be removed/reversed is provided by
+            marking the edges with a "feedback" flag.
+            Complexity is O(V+E).
+            partition(): returns a *partition* of the connected graph as a list of lists.
+            neighbors(v): returns neighbours of a vertex v.
     """
 
     def __init__(self, V = None, E = None, directed = True):
