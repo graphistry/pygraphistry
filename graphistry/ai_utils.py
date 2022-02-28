@@ -18,11 +18,12 @@ import graphistry
 from . import constants as config
 
 
-def setup_logger(name):
+def setup_logger(name, verbose=False):
     logger = logging.getLogger(name)
     FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
     logging.basicConfig(format=FORMAT)
-    logger.setLevel(logging.DEBUG)
+    if verbose:
+        logger.setLevel(logging.DEBUG)
     return logger
 
 
