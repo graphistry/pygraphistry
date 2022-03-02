@@ -5,8 +5,14 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
+from .ai_utils import setup_logger
+
+logger = setup_logger(name=__name__, verbose=False)
+
+
 try:
     import scipy
+    import scipy.sparse
     import torch
 
     from dirty_cat import (
@@ -30,8 +36,16 @@ try:
     )
 
 except:
-    SuperVectorizer = Any
+    logger.error("FAILED IMPORTING from Feature_utils")
+    scipy = (Any,)
+    torch = Any
+    SuperVectorizer = (Any,)
+    SimilarityEncoder = (Any,)
+    TargetEncoder = (Any,)
+    MinHashEncoder = (Any,)
+    GapEncoder = (Any,)
     SentenceTransformer = Any
+    SimpleImputer = (Any,)
     MultiLabelBinarizer = Any
     MinMaxScaler = Any
     QuantileTransformer = Any
@@ -80,17 +94,14 @@ from graphistry.compute import ComputeMixin
 
 from . import constants as config
 from .umap_utils import UMAPMixin
-from .ai_utils import setup_logger
 
-logger = setup_logger(__name__, verbose=False)
-
-encoders_dirty: Dict = {
-    "similarity": SimilarityEncoder(similarity="ngram"),
-    "target": TargetEncoder(handle_unknown="ignore"),
-    "minhash": MinHashEncoder(n_components=config.N_HASHERS_DEFAULT),
-    "gap": GapEncoder(n_components=config.N_TOPICS_DEFAULT),
-    "super": SuperVectorizer(auto_cast=True),
-}
+# encoders_dirty: Dict = {
+#     "similarity": SimilarityEncoder(similarity="ngram"),
+#     "target": TargetEncoder(handle_unknown="ignore"),
+#     "minhash": MinHashEncoder(n_components=config.N_HASHERS_DEFAULT),
+#     "gap": GapEncoder(n_components=config.N_TOPICS_DEFAULT),
+#     "super": SuperVectorizer(auto_cast=True),
+# }
 
 
 def get_train_test_sets(X, y, test_size):
@@ -182,9 +193,15 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
     if df is None:
         return None
     # here we drop all _namespace like _x, _y, etc, so that featurization doesn't include them idempotent-ly
-    reserved_namespace = [config.X, config.Y, config.SRC, config.DST, config.WEIGHT]
+    reserved_namespace = [
+        config.X,
+        config.Y,
+        config.SRC,
+        config.DST,
+        config.WEIGHT,
+        config.IMPLICIT_NODE_ID,
+    ]
     df = df.drop(columns=reserved_namespace, errors="ignore")
-    # logger.info(df.head(3))
     return df
 
 
@@ -227,9 +244,9 @@ def impute_and_scale_matrix(
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
-    n_bins=5,
-    encode="ordinal",
-    strategy="uniform",
+    n_bins: int = 5,
+    encode: str = "ordinal",
+    strategy: str = "uniform",
 ):
     """
         Helper function for imputing and scaling np.ndarray data using different scaling transformers.
@@ -259,7 +276,7 @@ def impute_and_scale_matrix(
         # scale the resulting values column-wise between min and max column values and sets them between 0 and 1
         scaler = MinMaxScaler()
     elif use_scaler == "quantile":
-        assert output_distribution in ["normal", "uniform"], logger.error(
+        assert output_distribution in available_quantile_distributions, logger.error(
             f"output_distribution must be in {available_quantile_distributions}, got {output_distribution}"
         )
         scaler = QuantileTransformer(
@@ -286,11 +303,14 @@ def impute_and_scale_matrix(
 
 def impute_and_scale_df(
     df,
-    impute=True,
-    use_scaler="minmax",
-    n_quantiles=100,
+    use_scaler: str = "minmax",
+    impute: bool = True,
+    n_quantiles: int = 10,
+    output_distribution: str = "normal",
     quantile_range=(25, 75),
-    output_distribution="normal",
+    n_bins: int = 5,
+    encode: str = "ordinal",
+    strategy: str = "uniform",
 ):
     columns = df.columns
     index = df.index
@@ -309,21 +329,25 @@ def impute_and_scale_df(
         n_quantiles=n_quantiles,
         quantile_range=quantile_range,
         output_distribution=output_distribution,
+        n_bins=n_bins,
+        encode=encode,
+        strategy=strategy,
     )
 
     return pd.DataFrame(res, columns=columns, index=index), imputer, scaler
 
 
-def get_dataframe_by_column_dtype(df, types=None, exclude=None):
+def get_dataframe_by_column_dtype(df, include=None, exclude=None):
+    # verbose function that might be overkill.
     if exclude is not None:
         df = df.select_dtypes(exclude=exclude)
-    if types is not None:
-        df = df.select_dtypes(include=types)
+    if include is not None:
+        df = df.select_dtypes(include=include)
     return df
 
 
 def group_columns_by_dtypes(df: pd.DataFrame, verbose: bool = True) -> Dict:
-    # so very useful on large DataFrames, super useful if we use a feature_column type transformer too
+    # very useful on large DataFrames, super useful if we use a feature_column type transformer too
     gtypes = df.columns.to_series().groupby(df.dtypes).groups
     gtypes = {k.name: list(v) for k, v in gtypes.items()}
     if verbose:
@@ -777,7 +801,7 @@ processors_node = {
 # ###############################################################################
 
 
-def prune_weighted_edges_df(
+def prune_weighted_edges_df_and_relabel_nodes(
     wdf: pd.DataFrame, scale: float = 1.0, index_to_nodes_dict: Dict = None
 ) -> pd.DataFrame:
     """
@@ -795,7 +819,10 @@ def prune_weighted_edges_df(
     std = desc[config.WEIGHT]["std"]
     max_val = desc[config.WEIGHT]["max"]
     logger.info(f"edge weights: mean({mean:.2f}), std({std:.2f}), max({max_val})")
-    wdf2 = wdf[wdf[config.WEIGHT] >= mean + scale * std]
+    eps = 1e-3
+    wdf2 = wdf[
+        wdf[config.WEIGHT] >= max_val - eps - np.min([scale * std, max_val])
+    ]  # adds eps so if scale = 0, we have small window/wiggle room
     # TODO remove either src -> dst and dst -> src so that we don't have double edges
     logger.info(f"Pruning weighted edge DataFrame from {len(wdf)} to {len(wdf2)} edges")
     if index_to_nodes_dict is not None:
@@ -823,6 +850,12 @@ def get_dataframe_columns(df: pd.DataFrame, columns: Union[List, None] = None): 
     if len(columns):
         logger.info(f"returning DataFrame with columns `{columns}`")
         return df[columns]
+
+
+def add_implicit_node_identifier(res):
+    ndf = res._nodes
+    # assert config.IMPLICIT_NODE_ID not in ndf.columns, f'{}'
+    ndf[config.IMPLICIT_NODE_ID] = range(len(ndf))
 
 
 class FeatureMixin(ComputeMixin, UMAPMixin):
@@ -853,7 +886,6 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         remove_node_column: bool = True,  # since node label might be index or unique names
         use_scaler: Union[str, None] = "robust",
     ):
-
         ndf = remove_node_column_from_ndf_and_return_ndf_from_res(
             res, remove_node_column
         )
@@ -866,6 +898,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             ndf, y, use_scaler=use_scaler
         )
         # set the new variables
+        add_implicit_node_identifier(res)
         res.node_features = X_enc
         res.node_target = y_enc
         res.node_encoder = data_vec
@@ -1068,18 +1101,27 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         if kind == "nodes":
             # make a node_entity to index dict to match with the implicit edges gotten from UMAPing
             # nodes = res.materialize_nodes()
-            if hasattr(res, "_node") and res._node is not None:
-                nodes = res._nodes[res._node].values
-                if len(nodes) != len(np.unique(nodes)):
-                    logger.warn(
-                        "There are repeat entities in node table, we will not relabel nodes"
-                    )
-                    index_to_nodes_dict = None
-                else:
+            index_to_nodes_dict = None
+            if hasattr(res, "_node") and res._node is None:  # thanks Leo
+                res = res.nodes(res._nodes.reset_index(), config.IMPLICIT_NODE_ID)
+
+            if (
+                hasattr(res, "_nodes")
+                and hasattr(res, "_node")
+                and res._node is not None
+                and hasattr(res._nodes, config.IMPLICIT_NODE_ID)
+            ):
+                implicit_nodes = res._nodes[
+                    config.IMPLICIT_NODE_ID
+                ].values  # these are the integer node ids that line up with UMAP's calculation
+
+                nodes = res._nodes[
+                    res._node
+                ].values  # the named node in g.nodes(ndf, 'node_name')
+                if len(np.unique(nodes)) == len(np.unique(implicit_nodes)):
                     logger.info(f"Relabeling nodes")
+                    # we use this to relabel from integer values to 'node_name' given in g.nodes(ndf, 'node_name')
                     index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-            else:
-                index_to_nodes_dict = None
 
             X, y = self._featurize_or_get_nodes_data_if_X_is_None(
                 res, X, y, use_columns
@@ -1088,10 +1130,12 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             res.weighted_adjacency_nodes = res._weighted_adjacency
             res.node_embedding = xy
             # TODO add edge filter so graph doesn't have double edges
-            res.weighted_edges_df_from_nodes = prune_weighted_edges_df(
-                res._weighted_edges_df,
-                scale=scale,
-                index_to_nodes_dict=index_to_nodes_dict,
+            res.weighted_edges_df_from_nodes = (
+                prune_weighted_edges_df_and_relabel_nodes(
+                    res._weighted_edges_df,
+                    scale=scale,
+                    index_to_nodes_dict=index_to_nodes_dict,
+                )
             )
         elif kind == "edges":
             X, y = self._featurize_or_get_edges_dataframe_if_X_is_None(
@@ -1100,8 +1144,10 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             xy = scale_xy * res.fit_transform(X, y)
             res.weighted_adjacency_edges = res._weighted_adjacency
             res.edge_embedding = xy
-            res.weighted_edges_df_from_edges = prune_weighted_edges_df(
-                res._weighted_edges_df, scale=scale, index_to_nodes_dict=None
+            res.weighted_edges_df_from_edges = (
+                prune_weighted_edges_df_and_relabel_nodes(
+                    res._weighted_edges_df, scale=scale, index_to_nodes_dict=None
+                )
             )
         elif kind is None:
             logger.warning(
@@ -1111,7 +1157,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
                 logger.info(f"New Matrix `X` passed in for UMAP-ing")
                 xy = res.fit_transform(X, y)
                 res._xy = xy
-                res._weighted_edges_df = prune_weighted_edges_df(
+                res._weighted_edges_df = prune_weighted_edges_df_and_relabel_nodes(
                     res._weighted_edges_df, scale=scale
                 )
                 logger.info(

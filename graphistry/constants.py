@@ -6,6 +6,9 @@ WEIGHT = "weight"
 # for UMAP reserved namespace
 X = "x"
 Y = "y"
+IMPLICIT_NODE_ID = (
+    "_n"  # for g.featurize(..).umap(..) -> g.weighted_edges_from_nodes_df
+)
 
 # ###############################################################
 # consistent clf pipelining and constructor methods across files

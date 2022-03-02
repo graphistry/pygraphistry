@@ -18,15 +18,20 @@ import graphistry
 from . import constants as config
 
 
-def setup_logger(name):
-    logger = logging.getLogger(name)
-    FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
+def setup_logger(name, verbose=True):
+    if verbose:
+        FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
+    else:
+        FORMAT = "%(message)s\n"
     logging.basicConfig(format=FORMAT)
+    logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     return logger
 
 
-logger = setup_logger(__name__)
+# need outside config setting this
+verbose = True
+logger = setup_logger(__name__, verbose)
 
 
 def tqdm_progress_bar(total, *args, **kwargs):
