@@ -22,10 +22,11 @@ def setup_logger(name, verbose=True):
     if verbose:
         FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
     else:
-        FORMAT = "%(message)s\n"
+        FORMAT = "   %(message)s\n"
     logging.basicConfig(format=FORMAT)
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
+    return logger
 
 
 # need outside config setting this
