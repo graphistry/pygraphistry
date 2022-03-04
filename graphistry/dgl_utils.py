@@ -118,6 +118,9 @@ class DGLGraphMixin(FeatureMixin):
     def _convert_edgeDF_to_DGL(self, res: Any, node_column: str, weight_column: str):
         logger.info("converting edge DataFrame to DGL graph")
 
+        if node_column is None:
+            node_column = config.IMPLICIT_NODE_ID
+
         if not res._removed_edges_previously:
             res._remove_edges_not_in_nodes(node_column)
 
@@ -177,7 +180,7 @@ class DGLGraphMixin(FeatureMixin):
 
     def build_dgl_graph(
         self,
-        node_column: str,
+        node_column: str = None,
         weight_column: str = None,
         X_nodes: pd.DataFrame = None,
         X_edges: pd.DataFrame = None,
@@ -247,7 +250,7 @@ if __name__ == "__main__":
     import torch
     import torch.nn.functional as F
 
-    logger = setup_logger('Main in DGL_utils', verbose=False)
+    logger = setup_logger("Main in DGL_utils", verbose=False)
 
     edf = get_botnet_dataframe(15000)
     edf = edf.drop_duplicates()
@@ -374,17 +377,21 @@ if __name__ == "__main__":
 
         pred = logits.argmax(1)
         acc = sum(pred[test_mask] == labels[test_mask]) / len(pred[test_mask])
-        
+
         opt.zero_grad()
         loss.backward()
         opt.step()
         if epoch % 100 == 0:
-            print(f'epoch: {epoch} --------\nloss: {loss.item():.4f}\n\taccuracy: {acc:.4f}')
+            print(
+                f"epoch: {epoch} --------\nloss: {loss.item():.4f}\n\taccuracy: {acc:.4f}"
+            )
 
     # trained comparison
     logits = model(G, node_features)
     pred = logits.argmax(1)
 
-    accuracy = sum(pred[test_mask] == labels[test_mask]) / len(pred[test_mask])  # does pretty well!
-    print('-'*60)
-    print(f'Final Accuracy: {100 * accuracy:.2f}%')
+    accuracy = sum(pred[test_mask] == labels[test_mask]) / len(
+        pred[test_mask]
+    )  # does pretty well!
+    print("-" * 60)
+    print(f"Final Accuracy: {100 * accuracy:.2f}%")

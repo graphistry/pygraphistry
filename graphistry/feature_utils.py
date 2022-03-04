@@ -1,9 +1,11 @@
 from time import time
 from typing import List, Union, Dict, Callable, Any, Tuple, Optional
 from functools import partial
+import copy
 
 import numpy as np
 import pandas as pd
+
 
 from .ai_utils import setup_logger
 
@@ -154,7 +156,7 @@ def check_target_not_in_features(
                 remove_cols.append(c)
     else:
         logger.warning(f"Target is not of type(DataFrame) and has no columns")
-    if remove:
+    if remove and len(remove_cols):
         logger.info(f"Removing {remove_cols} columns from DataFrame")
         tf = df.drop(columns=remove_cols, errors="ignore")
         return tf, y
@@ -200,6 +202,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.DST,
         config.WEIGHT,
         config.IMPLICIT_NODE_ID,
+        'index' # in umap, we add
     ]
     df = df.copy(deep=False).drop(columns=reserved_namespace, errors="ignore")
     return df
@@ -235,111 +238,6 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
 #      Featurization Functions and Utils
 #
 # ###############################################################################
-
-
-def impute_and_scale_matrix(
-    X: np.ndarray,
-    use_scaler: str = "minmax",
-    impute: bool = True,
-    n_quantiles: int = 10,
-    output_distribution: str = "normal",
-    quantile_range=(25, 75),
-    n_bins: int = 5,
-    encode: str = "ordinal",
-    strategy: str = "uniform",
-    keep_n_decimals: int = 5,
-):
-    """
-        Helper function for imputing and scaling np.ndarray data using different scaling transformers.
-    :param X: np.ndarray
-    :param impute: whether to run imputing or not
-    :param use_scaler: string in ["minmax", "quantile", "zscale", "robust"], selects scaling transformer
-    :param n_quantiles: if use_scaler = 'quantile', sets the quantile bin size.
-    :param output_distribution: if use_scaler = 'quantile', can return distribution as ["normal", "uniform"]
-    :param quantile_range: if use_scaler = 'robust', sets the quantile range.
-    :params TODO add kbins desc
-    :return: scaled array, imputer instances or None, scaler instance or None
-    """
-    available_preprocessors = ["minmax", "quantile", "zscale", "robust", "kbins"]
-    available_quantile_distributions = ["normal", "uniform"]
-
-    imputer = None
-    res = X
-    if impute:
-        logger.info(f"Imputing Values using mean strategy")
-        # impute values
-        imputer = SimpleImputer(missing_values=np.nan, strategy="mean")
-        imputer = imputer.fit(X)
-        res = imputer.transform(X)
-
-    scaler = None
-    if use_scaler == "minmax":
-        # scale the resulting values column-wise between min and max column values and sets them between 0 and 1
-        scaler = MinMaxScaler()
-    elif use_scaler == "quantile":
-        assert output_distribution in available_quantile_distributions, logger.error(
-            f"output_distribution must be in {available_quantile_distributions}, got {output_distribution}"
-        )
-        scaler = QuantileTransformer(
-            n_quantiles=n_quantiles, output_distribution=output_distribution
-        )
-    elif use_scaler == "zscale":
-        scaler = StandardScaler()
-    elif use_scaler == "robust":
-        scaler = RobustScaler(quantile_range=quantile_range)
-    elif use_scaler == "kbins":
-        scaler = KBinsDiscretizer(n_bins=n_bins, encode=encode, strategy=strategy)
-    elif use_scaler is None:
-        return res, imputer, scaler
-    else:
-        logger.error(
-            f"`scaling` must be on of {available_preprocessors} or {None}, got {scaler}.\nData is not scaled"
-        )
-        return res, imputer, scaler
-
-    logger.info(f"Applying {use_scaler}-Scaling")
-    res = scaler.fit_transform(res)
-    res = np.round(
-        res, decimals=keep_n_decimals
-    )  # since zscale with have small negative residuals (-1e-17) and that kills Hellinger in umap..
-    return res, imputer, scaler
-
-
-def impute_and_scale_df(
-    df,
-    use_scaler: str = "minmax",
-    impute: bool = True,
-    n_quantiles: int = 10,
-    output_distribution: str = "normal",
-    quantile_range=(25, 75),
-    n_bins: int = 5,
-    encode: str = "ordinal",
-    strategy: str = "uniform",
-):
-    columns = df.columns
-    index = df.index
-
-    if not is_dataframe_all_numeric(df):
-        logger.warn(
-            f"Impute and Scaling can only happen on a Numeric DataFrame.\n -- Try featurizing the DataFrame first using graphistry.featurize(..)"
-        )
-        return df
-
-    X = df.values
-    res, imputer, scaler = impute_and_scale_matrix(
-        X,
-        impute=impute,
-        use_scaler=use_scaler,
-        n_quantiles=n_quantiles,
-        quantile_range=quantile_range,
-        output_distribution=output_distribution,
-        n_bins=n_bins,
-        encode=encode,
-        strategy=strategy,
-    )
-
-    return pd.DataFrame(res, columns=columns, index=index), imputer, scaler
-
 
 def get_dataframe_by_column_dtype(df, include=None, exclude=None):
     # verbose function that might be overkill.
@@ -502,6 +400,113 @@ def get_textual_columns(
 #
 # #########################################################################################
 
+def impute_and_scale_matrix(
+    X: np.ndarray,
+    use_scaler: str = "minmax",
+    impute: bool = True,
+    n_quantiles: int = 10,
+    output_distribution: str = "normal",
+    quantile_range=(25, 75),
+    n_bins: int = 5,
+    encode: str = "ordinal",
+    strategy: str = "uniform",
+    keep_n_decimals: int = 5,
+):
+    """
+        Helper function for imputing and scaling np.ndarray data using different scaling transformers.
+    :param X: np.ndarray
+    :param impute: whether to run imputing or not
+    :param use_scaler: string in ["minmax", "quantile", "zscale", "robust"], selects scaling transformer
+    :param n_quantiles: if use_scaler = 'quantile', sets the quantile bin size.
+    :param output_distribution: if use_scaler = 'quantile', can return distribution as ["normal", "uniform"]
+    :param quantile_range: if use_scaler = 'robust', sets the quantile range.
+    :params TODO add kbins desc
+    :return: scaled array, imputer instances or None, scaler instance or None
+    """
+    available_preprocessors = ["minmax", "quantile", "zscale", "robust", "kbins"]
+    available_quantile_distributions = ["normal", "uniform"]
+
+    imputer = None
+    res = X
+    if impute:
+        logger.info(f"Imputing Values using mean strategy")
+        # impute values
+        imputer = SimpleImputer(missing_values=np.nan, strategy="mean")
+        imputer = imputer.fit(X)
+        res = imputer.transform(X)
+
+    scaler = None
+    if use_scaler == "minmax":
+        # scale the resulting values column-wise between min and max column values and sets them between 0 and 1
+        scaler = MinMaxScaler()
+    elif use_scaler == "quantile":
+        assert output_distribution in available_quantile_distributions, logger.error(
+            f"output_distribution must be in {available_quantile_distributions}, got {output_distribution}"
+        )
+        scaler = QuantileTransformer(
+            n_quantiles=n_quantiles, output_distribution=output_distribution
+        )
+    elif use_scaler == "zscale":
+        scaler = StandardScaler()
+    elif use_scaler == "robust":
+        scaler = RobustScaler(quantile_range=quantile_range)
+    elif use_scaler == "kbins":
+        scaler = KBinsDiscretizer(n_bins=n_bins, encode=encode, strategy=strategy)
+    elif use_scaler is None:
+        return res, imputer, scaler
+    else:
+        logger.error(
+            f"`scaling` must be on of {available_preprocessors} or {None}, got {scaler}.\nData is not scaled"
+        )
+        return res, imputer, scaler
+
+    logger.info(f"Applying {use_scaler}-Scaling")
+    res = scaler.fit_transform(res)
+    res = np.round(
+        res, decimals=keep_n_decimals
+    )  # since zscale with have small negative residuals (-1e-17) and that kills Hellinger in umap..
+    return res, imputer, scaler
+
+
+def impute_and_scale_df(
+    df,
+    use_scaler: str = "minmax",
+    impute: bool = True,
+    n_quantiles: int = 10,
+    output_distribution: str = "normal",
+    quantile_range=(25, 75),
+    n_bins: int = 5,
+    encode: str = "ordinal",
+    strategy: str = "uniform",
+    keep_n_decimals: int = 5,
+
+):
+    columns = df.columns
+    index = df.index
+
+    if not is_dataframe_all_numeric(df):
+        logger.warn(
+            f"Impute and Scaling can only happen on a Numeric DataFrame.\n -- Try featurizing the DataFrame first using graphistry.featurize(..)"
+        )
+        return df
+
+    X = df.values
+    res, imputer, scaler = impute_and_scale_matrix(
+        X,
+        impute=impute,
+        use_scaler=use_scaler,
+        n_quantiles=n_quantiles,
+        quantile_range=quantile_range,
+        output_distribution=output_distribution,
+        n_bins=n_bins,
+        encode=encode,
+        strategy=strategy,
+        keep_n_decimals=keep_n_decimals
+    )
+
+    return pd.DataFrame(res, columns=columns, index=index), imputer, scaler
+
+
 
 def encode_textual(
     df: pd.DataFrame,
@@ -584,6 +589,7 @@ def process_textual_or_other_dataframes(
         embeddings = np.c_[embeddings, X_enc.values]
         columns = faux_columns + list(X_enc.columns.values)
     else:
+        logger.warning(f'! Data Encoder is {data_encoder}')
         columns = faux_columns  # just sentence-transformers
 
     # now remove the leading zeros
@@ -852,11 +858,9 @@ def get_dataframe_columns(df: pd.DataFrame, columns: Union[List, None] = None):
     if columns is None:
         # just pass through df
         return df
-    if columns == []:  # hmmm do i want this behavior? #FIXME??
-        logger.warning(
-            f"Passing an empty column list [] returns None rather than original DataFrame"
-        )
-        return None
+    if columns == []:
+        # just pass through df
+        return df
     if len(columns):
         logger.info(f"returning DataFrame with columns `{columns}`")
         return df[columns]
@@ -890,10 +894,16 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
     def _featurize_nodes(
         self,
         res: Any,
-        y: Union[pd.DataFrame, np.ndarray],
+        y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
         use_columns: Union[List, None] = None,
-        remove_node_column: bool = True,  # since node label might be index or unique names
         use_scaler: Union[str, None] = "robust",
+        cardinality_threshold: int = 40,
+        cardinality_threshold_target: int = 120,
+        n_topics: int = config.N_TOPICS_DEFAULT,
+        confidence: float = 0.35,
+        min_words: float = 2.5,
+        model_name: str = "paraphrase-MiniLM-L6-v2",
+        remove_node_column: bool = True,
     ):
         ndf = remove_node_column_from_ndf_and_return_ndf_from_res(
             res, remove_node_column
@@ -904,7 +914,15 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         ndf = remove_internal_namespace_if_present(ndf)
         # now vectorize it all
         X_enc, y_enc, data_vec, label_vec = self._node_featurizer(
-            ndf, y, use_scaler=use_scaler
+            ndf,
+            y=y,
+            use_scaler=use_scaler,
+            cardinality_threshold=cardinality_threshold,
+            cardinality_threshold_target=cardinality_threshold_target,
+            n_topics=n_topics,
+            confidence=confidence,
+            min_words=min_words,
+            model_name=model_name,
         )
         # set the new variables
         add_implicit_node_identifier(res)
@@ -920,13 +938,35 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         y: Union[pd.DataFrame, np.ndarray],
         use_columns: Union[List, None] = None,
         use_scaler: Union[str, None] = "robust",
+        cardinality_threshold: int = 40,
+        cardinality_threshold_target: int = 20,
+        n_topics: int = config.N_TOPICS_DEFAULT,
+        confidence: float = 0.35,
+        min_words: float = 2.5,
+        model_name: str = "paraphrase-MiniLM-L6-v2",
     ):
         # TODO move the columns select after the featurizer
+        if use_columns is not None:
+            # have to add src, dst or get errors
+            use_columns = copy.copy(use_columns)
+            use_columns += list([res._source, res._destination])
+            use_columns = list(set(use_columns))
+            
         edf = get_dataframe_columns(res._edges, use_columns)
         edf, y = check_target_not_in_features(edf, y, remove=True)
-        # edf = remove_internal_namespace_if_present(edf)  # this was dumb as we need the config.namespace
+
         X_enc, y_enc, [mlb, data_vec], label_vec = self._edge_featurizer(
-            edf, y, res._source, res._destination, use_scaler=use_scaler
+            edf=edf,
+            y=y,
+            src=res._source,
+            dst=res._destination,
+            use_scaler=use_scaler,
+            cardinality_threshold=cardinality_threshold,
+            cardinality_threshold_target=cardinality_threshold_target,
+            n_topics=n_topics,
+            confidence=confidence,
+            min_words=min_words,
+            model_name=model_name,
         )
         res.edge_features = X_enc
         res.edge_target = y_enc
@@ -939,8 +979,14 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         kind: str = "nodes",
         y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
         use_columns: Union[List, None] = None,
-        remove_node_column: bool = True,
         use_scaler: Union[str, None] = "robust",
+        cardinality_threshold: int = 40,
+        cardinality_threshold_target: int = 400,
+        n_topics: int = config.N_TOPICS_DEFAULT,
+        confidence: float = 0.35,
+        min_words: float = 2.5,
+        model_name: str = "paraphrase-MiniLM-L6-v2",
+        remove_node_column: bool = True,
         inplace: bool = False,
     ):
         """
@@ -963,10 +1009,31 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
 
         if kind == "nodes":
             res = self._featurize_nodes(
-                res, y, use_columns, remove_node_column, use_scaler=use_scaler
+                res,
+                y=y,
+                use_columns=use_columns,
+                use_scaler=use_scaler,
+                cardinality_threshold=cardinality_threshold,
+                cardinality_threshold_target=cardinality_threshold_target,
+                n_topics=n_topics,
+                confidence=confidence,
+                min_words=min_words,
+                model_name=model_name,
+                remove_node_column=remove_node_column,
             )
         elif kind == "edges":
-            res = self._featurize_edges(res, y, use_columns, use_scaler=use_scaler)
+            res = self._featurize_edges(
+                res,
+                y=y,
+                use_columns=use_columns,
+                use_scaler=use_scaler,
+                cardinality_threshold=cardinality_threshold,
+                cardinality_threshold_target=cardinality_threshold_target,
+                n_topics=n_topics,
+                confidence=confidence,
+                min_words=min_words,
+                model_name=model_name,
+            )
         else:
             logger.warning(f"One may only featurize `nodes` or `edges`, got {kind}")
             return self
@@ -977,18 +1044,34 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         self,
         res: Any,
         X: Union[np.ndarray, None],
-        y: Union[np.ndarray, List, None],
-        use_columns: Union[List, None],
-        use_scaler: str = None,
+        y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
+        use_columns: Union[List, None] = None,
+        use_scaler: Union[str, None] = "robust",
+        cardinality_threshold: int = 40,
+        cardinality_threshold_target: int = 400,
+        n_topics: int = config.N_TOPICS_DEFAULT,
+        confidence: float = 0.35,
+        min_words: float = 2.5,
+        model_name: str = "paraphrase-MiniLM-L6-v2",
+        remove_node_column: bool = True,
+        featurize: bool = False,
     ):
         """
             helper method gets node feature and target matrix if X, y are not specified.
             if X, y are specified will set them as `node_target` and `node_target` attributes
+        ---------------------------------------------------------------------------------------
         :param X: ndArray Data Matrix, default None
         :param y: target, default None
         :param use_columns: which columns to featurize if X is None
+        :param use_scaler:
+        :param featurize: if True, will force re-featurization -- useful in DGL_utils if we want to run other scalers
         :return: data `X` and `y`
         """
+        if featurize:
+            # remove node_features
+            if hasattr(res, "node_features"):
+                delattr(res, "node_features")
+
         if X is None:
             if hasattr(res, "node_features"):
                 X = res.node_features
@@ -998,7 +1081,17 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
                     "Calling `featurize` to create data matrix `X` over nodes DataFrame"
                 )
                 res = self._featurize_nodes(
-                    res, y=y, use_columns=use_columns, use_scaler=use_scaler
+                    res,
+                    y=y,
+                    use_columns=use_columns,
+                    use_scaler=use_scaler,
+                    cardinality_threshold=cardinality_threshold,
+                    cardinality_threshold_target=cardinality_threshold_target,
+                    n_topics=n_topics,
+                    confidence=confidence,
+                    min_words=min_words,
+                    model_name=model_name,
+                    remove_node_column=remove_node_column
                 )
                 return self._featurize_or_get_nodes_dataframe_if_X_is_None(
                     res, res.node_features, res.node_target, use_columns, use_scaler
@@ -1016,13 +1109,19 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         self,
         res: Any,
         X: Union[np.ndarray, None],
-        y: Union[np.ndarray, List, None],
-        use_columns: Union[List, None],
-        use_scaler: str = None,
+        y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
+        use_columns: Union[List, None] = None,
+        use_scaler: Union[str, None] = "robust",
+        cardinality_threshold: int = 40,
+        cardinality_threshold_target: int = 20,
+        n_topics: int = config.N_TOPICS_DEFAULT,
+        confidence: float = 0.35,
+        min_words: float = 2.5,
+        model_name: str = "paraphrase-MiniLM-L6-v2",
     ):
         """
             helper method gets edge feature and target matrix if X, y are not specified
-
+        --------------------------------------------------------------------------------
         :param X: ndArray Data Matrix
         :param y: target, default None
         :param use_columns: which columns to featurize if X is None
@@ -1036,7 +1135,16 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
                     "Calling `featurize` to create data matrix `X` over edges DataFrame"
                 )
                 res = self._featurize_edges(
-                    res, y=y, use_columns=use_columns, use_scaler=use_scaler
+                    res,
+                    y=y,
+                    use_columns=use_columns,
+                    use_scaler=use_scaler,
+                    cardinality_threshold=cardinality_threshold,
+                    cardinality_threshold_target=cardinality_threshold_target,
+                    n_topics=n_topics,
+                    confidence=confidence,
+                    min_words=min_words,
+                    model_name=model_name,
                 )
                 return self._featurize_or_get_edges_dataframe_if_X_is_None(
                     res, res.edge_features, res.edge_target, use_columns, use_scaler
@@ -1047,7 +1155,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         self,
         kind: str = "nodes",
         use_columns: Union[List, None] = None,
-        featurize: bool = True,  # TODO ask Leo what this was for again?
+        featurize: bool = False,  # TODO ask Leo what this was for again?
         encode_position: bool = True,
         encode_weight: bool = True,
         inplace: bool = False,
@@ -1118,7 +1226,6 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
 
         if kind == "nodes":
             # make a node_entity to index dict to match with the implicit edges gotten from UMAPing
-            # nodes = res.materialize_nodes()
             index_to_nodes_dict = None
             if hasattr(res, "_node") and res._node is None:  # thanks Leo
                 res = res.nodes(res._nodes.reset_index(), config.IMPLICIT_NODE_ID)
