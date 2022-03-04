@@ -3,6 +3,8 @@ import logging
 from .Plottable import Plottable
 from .layout import SugiyamaLayout
 from .util import deprecated
+import pandas as pd
+from graphistry.layout import Graph
 
 logger = logging.getLogger('layouts')
 
@@ -76,7 +78,25 @@ class LayoutsMixin(MIXIN_BASE):
         return g2
 
     def label_components(self):
-        pass
+        g = self
+        g2 = self.materialize_nodes()
+        if isinstance(g._edges, pd.DataFrame):
+            gg = SugiyamaLayout.graph_from_pandas(g._edges, source_column = g2._source, target_column = g2._destination)
+        elif isinstance(g._edges, Graph):
+            gg = g._edges
+        else:
+            raise TypeError
+        # the component index used internally is not contingent because of the elimination algorithm used, so we renum here
+        comps = {v.component: i for i, v in enumerate(gg.vertices())}
+        comps_map = {u: i for i, u in enumerate(comps.values())}
+        component_ids = [comps_map[comps[gg.get_vertex_from_data(id).component]] for id in g2._nodes[g2._node]]
+        component_sizes = [len(list(gg.get_vertex_from_data(id).component.vertices())) for id in g2._nodes[g2._node]]
+        g2._nodes['component_id'] = component_ids
+        g2._nodes['component_size'] = component_sizes
+        g2 = g2.nodes(g2._nodes.sort_values(
+            by = "component_id",
+            ascending = True))
+        return g2
 
     @deprecated("Superseded by the layered layout implementation.")
     def deprecated_tree_layout(

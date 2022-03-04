@@ -110,6 +110,25 @@ class CustomRankingSugiyamaLayout(SugiyamaLayout):
                     self.layers[rank].append(v)
 
 
+def graph_from_arrays(vertices, edges):
+    """
+        Utility to make a graph from two arrays e.g.
+
+        ::
+
+            g = graph_from_array(["a","b","c],["ab", "bc])
+
+        :param vertices: array of vertex names
+        :param edges: array of edges
+        :return:
+
+    """
+    v = [Vertex(u) for u in vertices]
+    dic = dict(zip(vertices, v))
+    e = [Edge(dic[u[0]], dic[u[1]], data = u) for u in edges]
+    return Graph(v, e)
+
+
 class TestLayout(unittest.TestCase):
 
     def sample_graph1(self):
@@ -491,18 +510,28 @@ class TestLayout(unittest.TestCase):
         assert SugiyamaLayout.has_cycles(g)
 
     def test_data(self):
-
-        v = ('a', 'b', 'c', 'd')
-        V = [Vertex(x) for x in v]
-        D = dict(zip(v, V))
+        v = ['a', 'b', 'c', 'd']
         e = ['ab', 'ac', 'bc', 'cd']
-        E = [Edge(D[xy[0]], D[xy[1]], data = xy) for xy in e]
+        g = graph_from_arrays(v, e)
 
-        g = Graph(V, E)
         assert len(list(g.vertices())) == len(v)
-        assert len(list(g.edges())) == len(E)
+        assert len(list(g.edges())) == len(e)
         assert set(n.data for n in g.vertices()) == set(v)
         assert set(n.v[0].data + n.v[1].data for n in g.edges()) == set(e)
+
+    def test_components(self):
+        v = ['a', 'b', 'c', 'd', 'e', 'f']
+        e = ['ab', 'cd', 'de', 'ec']
+        g = graph_from_arrays(v, e)
+        assert len(g.components) == 3
+        assert len(list(g.components[0].vertices())) == 2
+        assert len(list(g.components[0].edges())) == 1
+        assert len(list(g.components[1].vertices())) == 3
+        assert len(list(g.components[1].edges())) == 3
+        comps = {v.component: i for i, v in enumerate(g.vertices())}
+        comps_map = {u: i for i, u in enumerate(comps.values())}
+        for v in g.vertices():
+            print(v.data, comps_map[comps[v.component]])
 
     def test_tree_layout(self):
         lg = LGFull()
@@ -590,3 +619,10 @@ class TestLayout(unittest.TestCase):
             {'level': 1, 'n': 'b', 'v': 1, 'x': 0.0, 'y': 0},
             {'level': 0, 'n': 'a', 'v': 0, 'x': 0.5, 'y': 1}
         ]
+
+    def test_label_components(self):
+        lg = LGFull()
+        g = lg.edges(pd.DataFrame({'s': ['a', 'c', 'd', 'e', 'f'], 'd': ['b', 'd', 'e', 'c', 'f']}), 's', 'd').label_components()
+        series = g._nodes.groupby("component_id")["component_id"].count().sort_values(ascending = True)
+        assert list(series) == [1, 2, 3]
+        print(g._nodes.head(10))

@@ -2,6 +2,8 @@
 from typing import List
 from .graphBase import GraphBase
 from graphistry.layout.utils import Poset
+import pandas as np
+
 
 class Graph(object):
     """
@@ -60,8 +62,7 @@ class Graph(object):
                 # update reference:
                 for z in y.component:
                     z.component = x.component
-        # now create edge sets from connected vertex sets and
-        # make the GraphBase connected graphs for this component :
+        # create the components
         self.components = []
         for vertices in components:
             edge_set = set()
@@ -104,6 +105,12 @@ class Graph(object):
     def get_vertices_count(self):
         return sum([c.order() for c in self.components])
 
+    def get_vertex_from_data(self, data):
+        for v in self.vertices():
+            if v.data == data:
+                return v
+        return None
+
     def vertices(self):
         for c in self.components:
             vertices = c.verticesPoset
@@ -136,7 +143,6 @@ class Graph(object):
         return e
 
     def remove_vertex(self, x):
-        # get the GraphBase:
         c = x.component
         if c not in self.components:
             return None
