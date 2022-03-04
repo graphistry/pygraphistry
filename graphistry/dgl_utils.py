@@ -1,16 +1,14 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
-from typing import List, Any, Optional
+from typing import List, Any
 
 import dgl
 import pandas as pd
-import torch
 
 from . import constants as config
 from .feature_utils import FeatureMixin, convert_to_torch
 from .ai_utils import pandas_to_sparse_adjacency, setup_logger
 
 logger = setup_logger(__name__, verbose=True)
-
 
 def pandas_to_dgl_graph(
     df: pd.DataFrame, src: str, dst: str, weight_col: str = None, device: str = "cpu"
@@ -43,6 +41,8 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     :param ratio: mimics train/test split. `ratio` sets number of True vs False mask entries.
     :return: train and test torch tensor masks
     """
+    import torch
+
     train_mask = torch.zeros(n, dtype=torch.bool).bernoulli(ratio)
     test_mask = ~train_mask
     return train_mask, test_mask
