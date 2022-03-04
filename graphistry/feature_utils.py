@@ -283,7 +283,6 @@ def where_is_currency_column(df: pd.DataFrame, col: str):
             return True
         except:
             return False
-        return False
 
     mask = df[col].apply(lambda x: check_if_currency)
     return mask

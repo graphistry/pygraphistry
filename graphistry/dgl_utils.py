@@ -1,8 +1,11 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
 from typing import List, Any
-
-import dgl
 import pandas as pd
+
+try:
+    import dgl
+except:
+    dgl = Any
 
 from . import constants as config
 from .feature_utils import FeatureMixin, convert_to_torch

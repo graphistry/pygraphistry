@@ -1,17 +1,50 @@
 # import cugraph
 import logging
 from collections import Counter
+from typing import Any
 
 import numpy as np
 import pandas as pd
-from dirty_cat import SimilarityEncoder
-from sklearn.inspection import permutation_importance
-from sklearn.manifold import MDS
-from sklearn.model_selection import cross_val_score
-from sklearn.neighbors import NearestNeighbors
 
 import graphistry
 from . import constants as config
+
+
+try:
+    from dirty_cat import SimilarityEncoder
+    from sklearn.inspection import permutation_importance
+    from sklearn.manifold import MDS
+    from sklearn.model_selection import cross_val_score
+    from sklearn.neighbors import NearestNeighbors
+
+except:
+    SimilarityEncoder = Any
+    permutation_importance = Any
+    MDS = Any
+    cross_val_score = Any
+    NearestNeighbors = Any
+    scipy = Any
+    torch = Any
+
+
+def reimport():
+    """
+        Helper function so that Graphistry loads without error when Graphistry[ai] is not loaded
+    :return:
+    """
+    try:
+        from dirty_cat import SimilarityEncoder
+        from sklearn.inspection import permutation_importance
+        from sklearn.manifold import MDS
+        from sklearn.model_selection import cross_val_score
+        from sklearn.neighbors import NearestNeighbors
+
+    except ModuleNotFoundError as e:
+        logger.error(
+            f"AI Packages not found, trying running `pip install graphistry[ai]`",
+            exc_info=True,
+        )
+        raise e
 
 
 def setup_logger(name, verbose=True):
