@@ -9,10 +9,11 @@ from graphistry.dgl_utils import *
 
 try:
     import dirty_cat
+    import sklearn
 except:
     dirty_cat = Any
+    sklearn = Any
     
-import sklearn
 import warnings
 
 warnings.filterwarnings("ignore")
