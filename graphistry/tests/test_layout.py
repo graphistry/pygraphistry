@@ -76,8 +76,8 @@ def create_scenario():
     E.append(edge)
 
     G = Graph(vertices, E)
-    assert len(G.C) == 1
-    gr = G.C[0]
+    assert len(G.components) == 1
+    gr = G.components[0]
 
     # not needed anymore...
     # r = filter(lambda x: len(x.e_in()) == 0, gr.verticesPoset)
@@ -160,7 +160,7 @@ class TestLayout(unittest.TestCase):
         for e in ('ab', 'bc', 'cd', 'de', 'eb', 'bf', 'dg', 'gh', 'fh'):
             edges.append(Edge(vertices[e[0]], vertices[e[1]]))
         g = Graph(vertices.values(), edges)
-        layout = SugiyamaLayout(g.C[0])
+        layout = SugiyamaLayout(g.components[0])
         layout.init_all()
         assert len(layout.inverted_edges) == 1
         assert layout.inverted_edges[0] == edges[4]
@@ -246,8 +246,8 @@ class TestLayout(unittest.TestCase):
         assert p == g2.path(V[0], V[3], 1)
         x = pickler(g2)
         g3 = loads(x)
-        assert len(g3.C) == 1
-        assert ''.join([v.data for v in g3.C[0].verticesPoset]) == 'abcd'
+        assert len(g3.components) == 1
+        assert ''.join([v.data for v in g3.components[0].verticesPoset]) == 'abcd'
 
     def test_remove(self):
         v1 = Vertex('a')
@@ -272,15 +272,15 @@ class TestLayout(unittest.TestCase):
         g = Graph([v1, v2, v3, v4], [e1, e2])
         g.add_edge(Edge(v4, v5))
         g.add_edge(Edge(v3, v5))
-        assert len(g.C) == 1
+        assert len(g.components) == 1
         g.remove_vertex(v1)
-        assert len(g.C) == 2
-        assert ''.join([v.data for v in g.C[0].verticesPoset]) == 'b'
-        assert [v.data for v in g.C[1].verticesPoset] == ['c', 4, 5]
+        assert len(g.components) == 2
+        assert ''.join([v.data for v in g.components[0].verticesPoset]) == 'b'
+        assert [v.data for v in g.components[1].verticesPoset] == ['c', 4, 5]
         x = pickler(g)
         y = loads(x)
-        assert len(y.C) == 2
-        assert [v.data for v in y.C[1].verticesPoset] == ['c', 4, 5]
+        assert len(y.components) == 2
+        assert [v.data for v in y.components[1].verticesPoset] == ['c', 4, 5]
 
     def test_cycles(self):
         names = ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h')
@@ -298,14 +298,14 @@ class TestLayout(unittest.TestCase):
     def test_Matrix(self):
         vertices, edges = self.sample_graph1()
         g = Graph(vertices, edges, directed = True)
-        assert len(g.C) == 1
-        g = g.C[0]
+        assert len(g.components) == 1
+        g = g.components[0]
         m = np.array(g.matrix())
         assert (m + m.T).sum() == 0
 
     def test_splines(self):
         gr = GraphBase(*self.sample_graph3())
-        for v in gr.V():
+        for v in gr.vertices():
             v.view = Rectangle(10, 10)
         sug = SugiyamaLayout(gr)
         sug.init_all(roots = [gr.verticesPoset[0]], inverted_edges = [])
@@ -315,18 +315,18 @@ class TestLayout(unittest.TestCase):
             for v, x in sug.layoutVertices.items():
                 print(x, v.view.xy)
             i += 1
-        for e in gr.E():
+        for e in gr.edges():
             e.view = EdgeViewer()
         sug.route_edge = route_with_splines
         sug.layout_edges()
-        for e in sug.g.E():
+        for e in sug.g.edges():
             print('edge (%s -> %s) :' % e.v)
             print(e.view._pts)
             print(e.view.splines)
 
     def test_rounded_corners(self):
         gr = GraphBase(*self.sample_graph3())
-        for v in gr.V():
+        for v in gr.vertices():
             v.view = Rectangle(10, 10)
         sug = SugiyamaLayout(gr)
         sug.init_all(roots = [gr.verticesPoset[0]], inverted_edges = [])
@@ -336,11 +336,11 @@ class TestLayout(unittest.TestCase):
             for v, x in sug.layoutVertices.items():
                 print(x, v.view.xy)
             i += 1
-        for e in gr.E():
+        for e in gr.edges():
             e.view = EdgeViewer()
         sug.route_edge = route_with_rounded_corners
         sug.layout_edges()
-        for e in sug.g.E():
+        for e in sug.g.edges():
             print('edge (%s -> %s) :' % e.v)
             print(e.view._pts)
 
@@ -421,7 +421,7 @@ class TestLayout(unittest.TestCase):
                               (5, 6), (6, 7), (6, 12), (7, 8), (7, 9), (8, 9), (8, 10), (9, 10), (10, 11),
                               (12, 13), (13, 14), (14, 13), (14, 15), (15, 6)])
         g = Graph(vertices, edges)
-        g = g.C[0]
+        g = g.components[0]
         P = g.partition()
         assert len(P) == 3
         assert sum([len(p) for p in P]) == g.order()
@@ -499,10 +499,10 @@ class TestLayout(unittest.TestCase):
         E = [Edge(D[xy[0]], D[xy[1]], data = xy) for xy in e]
 
         g = Graph(V, E)
-        assert len(list(g.V())) == len(v)
-        assert len(list(g.E())) == len(E)
-        assert set(n.data for n in g.V()) == set(v)
-        assert set(n.v[0].data + n.v[1].data for n in g.E()) == set(e)
+        assert len(list(g.vertices())) == len(v)
+        assert len(list(g.edges())) == len(E)
+        assert set(n.data for n in g.vertices()) == set(v)
+        assert set(n.v[0].data + n.v[1].data for n in g.edges()) == set(e)
 
     def test_tree_layout(self):
         lg = LGFull()

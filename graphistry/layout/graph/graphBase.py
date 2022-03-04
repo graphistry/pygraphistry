@@ -12,8 +12,8 @@ class GraphBase(object):
             directed (bool): indicates if the graph is considered *oriented* or not.
 
         Methods:
-            V(cond=None): generates an iterator over vertices, with optional filter
-            E(cond=None): generates an iterator over edges, with optional filter
+            vertices(cond=None): generates an iterator over vertices, with optional filter
+            edges(cond=None): generates an iterator over edges, with optional filter
             matrix(cond=None): returns the associativity matrix of the graph component
             order(): the order of the graph (number of vertices)
             norm(): the norm of the graph (number of edges)
@@ -48,13 +48,13 @@ class GraphBase(object):
             neighbors(v): returns neighbours of a vertex v.
     """
 
-    def __init__(self, V = None, E = None, directed = True):
-        if V is None:
-            V = []
-        if E is None:
-            E = []
+    def __init__(self, vertices = None, edges = None, directed = True):
+        if vertices is None:
+            vertices = []
+        if edges is None:
+            edges = []
         self.directed = directed
-        self.verticesPoset = Poset(V)
+        self.verticesPoset = Poset(vertices)
         self.edgesPoset = Poset([])
 
         self.degenerated_edges = set()
@@ -66,7 +66,7 @@ class GraphBase(object):
                 e.detach()
             return
 
-        for e in E:
+        for e in edges:
             x = self.verticesPoset.get(e.v[0])
             y = self.verticesPoset.get(e.v[1])
             if x is None or y is None:
@@ -87,7 +87,7 @@ class GraphBase(object):
                     v.component = x.component
             s = x.component
         # check if graph is connected:
-        for v in self.V():
+        for v in self.vertices():
             if v.component is None or (v.component != s):
                 raise ValueError("unconnected Vertex %s" % v.data)
             else:
@@ -143,20 +143,20 @@ class GraphBase(object):
     def remove_vertex(self, x):
         if x not in self.verticesPoset:
             return
-        V = x.neighbors()  # get all neighbor vertices to check paths
-        E = x.detach()  # remove the edges from x and neighbors list
+        vertices = x.neighbors()  # get all neighbor vertices to check paths
+        edges = x.detach()  # remove the edges from x and neighbors list
         # now we need to check if all neighbors are still connected,
         # and it is sufficient to check if one of them is connected to
         # all others:
-        v0 = V.pop(0)
-        for v in V:
+        v0 = vertices.pop(0)
+        for v in vertices:
             if not self.path(v0, v):
                 # repair everything and raise exception if not connected:
-                for e in E:
+                for e in edges:
                     e.attach()
                 raise ValueError(x)
         # remove edges and vertex from internal sets:
-        for e in E:
+        for e in edges:
             self.edgesPoset.remove(e)
         x = self.verticesPoset.remove(x)
         x.component = None
@@ -165,32 +165,32 @@ class GraphBase(object):
     def constant_function(self, value):
         return lambda x: value
 
-    def V(self, cond = None):
-        V = self.verticesPoset
+    def vertices(self, cond = None):
+        vertices = self.verticesPoset
         if cond is None:
             cond = self.constant_function(True)
-        for v in V:
+        for v in vertices:
             if cond(v):
                 yield v
 
-    def E(self, cond = None):
-        E = self.edgesPoset
+    def edges(self, cond = None):
+        edges = self.edgesPoset
         if cond is None:
             cond = self.constant_function(True)
-        for e in E:
+        for e in edges:
             if cond(e):
                 yield e
 
     def matrix(self, cond = None):
         """
-            This associativity matrix is like the adjacency matrix but anti-symmetric.
-        :param cond:
-        :return:
+            This associativity matrix is like the adjacency matrix but antisymmetric.
+        :param cond: same a the condition function in vertices().
+        :return: array
         """
         from array import array
 
         mat = []
-        for v in self.V(cond):
+        for v in self.vertices(cond):
             vec = array("b", [0] * self.order())
             mat.append(vec)
             for e in v.e_in():
@@ -406,8 +406,8 @@ class GraphBase(object):
     # derivated graphs:
     # -----------------
 
-    # returns subgraph spanned by vertices V
-    def spans(self, V):
+    # returns subgraph spanned by vertices vertices
+    def spans(self, vertices):
         raise NotImplementedError
 
     # returns join of G (if disjoint)
@@ -423,13 +423,13 @@ class GraphBase(object):
         raise NotImplementedError
 
     def __getstate__(self):
-        V = [v for v in self.verticesPoset]
-        E = [e for e in self.edgesPoset]
-        return (V, E, self.directed)
+        vertices = [v for v in self.verticesPoset]
+        edges = [e for e in self.edgesPoset]
+        return (vertices, edges, self.directed)
 
     def __setstate__(self, state):
-        V, E, directed = state
-        for e in E:
-            e.v = [V[x] for x in e._v]
+        vertices, edges, directed = state
+        for e in edges:
+            e.v = [vertices[x] for x in e._v]
             del e._v
-        GraphBase.__init__(self, V, E, directed)
+        GraphBase.__init__(self, vertices, edges, directed)

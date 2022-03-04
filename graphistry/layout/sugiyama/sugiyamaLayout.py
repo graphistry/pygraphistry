@@ -100,12 +100,12 @@ class SugiyamaLayout(object):
         self.dw = 10
         self.dh = 10
         self.dag = False
-        for v in self.g.V():
+        for v in self.g.vertices():
             # assert hasattr(v, "view")
             if not hasattr(v, "view"):
                 v.view = Rectangle()
             self.layoutVertices[v] = LayoutVertex()
-        self.dw, self.dh = size_median([v.view for v in self.g.V()])
+        self.dw, self.dh = size_median([v.view for v in self.g.vertices()])
         self.init_done = False
 
     def init_all(self, roots = None, inverted_edges = None, optimize = False):
@@ -131,7 +131,7 @@ class SugiyamaLayout(object):
 
         self._layer_all(roots, optimize)
         # add dummy vertex/edge for 'long' edges:
-        for e in self.g.E():
+        for e in self.g.edges():
             self.create_dummies(e)
         # precompute some layers values:
         for layer in self.layers:
@@ -174,14 +174,14 @@ class SugiyamaLayout(object):
         else:
             raise TypeError
 
-        for v in gg.V():
+        for v in gg.vertices():
             v.view = Rectangle()
 
-        sug = SugiyamaLayout(gg.C[0])
+        sug = SugiyamaLayout(gg.components[0])
         sug.init_all()
         sug.layout(iteration_count, topological_coordinates = topological_coordinates, layout_direction = layout_direction)
 
-        positions = SugiyamaLayout._get_positions(sug, gg.C[0].verticesPoset, layout_direction, topological_coordinates = topological_coordinates,include_levels=include_levels)
+        positions = SugiyamaLayout._get_positions(sug, gg.components[0].verticesPoset, layout_direction, topological_coordinates = topological_coordinates,include_levels=include_levels)
         return positions
 
     @staticmethod
@@ -233,9 +233,9 @@ class SugiyamaLayout(object):
         else:
             raise TypeError
 
-        for v in gg.V():
+        for v in gg.vertices():
             v.view = Rectangle()
-        for component in gg.C:
+        for component in gg.components:
             component.get_scs_with_feedback()
             inverted = [x for x in component.edgesPoset if x.feedback]
             if len(inverted) > 0:
@@ -645,7 +645,7 @@ class SugiyamaLayout(object):
         """
             Basic edge routing applied only for edges with dummy points. Enhanced edge routing can be performed by using the appropriate
         """
-        for e in self.g.E():
+        for e in self.g.edges():
             if hasattr(e, "view"):
                 coll = []
                 if e in self.ctrls:
