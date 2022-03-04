@@ -28,8 +28,8 @@ class Edge(EdgeBase):
         self.w = w
         self.data = data
         self.feedback = False
-        if connect and (x.c is None or y.c is None):
-            c = x.c or y.c
+        if connect and (x.component is None or y.component is None):
+            c = x.component or y.component
             c.add_edge(self)
 
     def attach(self):

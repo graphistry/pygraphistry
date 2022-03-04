@@ -2,6 +2,7 @@ from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHE
 import logging
 from .Plottable import Plottable
 from .layout import SugiyamaLayout
+from .util import deprecated
 
 logger = logging.getLogger('layouts')
 
@@ -74,6 +75,10 @@ class LayoutsMixin(MIXIN_BASE):
         g2._nodes[x_col] = [triples[id][0] * width for id in g2._nodes[g2._node]]
         return g2
 
+    def label_components(self):
+        pass
+
+    @deprecated("Superseded by the layered layout implementation.")
     def deprecated_tree_layout(
             self,
             level_col: Optional[str] = None,

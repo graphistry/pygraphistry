@@ -7,7 +7,7 @@ class Vertex(VertexBase):
        Vertex class enhancing a VertexBase with graph-related features.
 
        **Attributes**
-            c (GraphBase): the component of connected vertices that contains this vertex. By default, a vertex belongs no component but when it is added in a graph, c points to the connected component in this graph.
+            component (GraphBase): the component of connected vertices that contains this vertex. By default, a vertex belongs no component but when it is added in a graph, c points to the connected component in this graph.
             data (object) : an object associated with the vertex.
 
     """
@@ -15,9 +15,9 @@ class Vertex(VertexBase):
     def __init__(self, data = None):
         super().__init__()
         # by default, a new vertex belongs to its own component
-        # but when the vertex is added to a graph, c points to the
+        # but when the vertex is added to a graph, component points to the
         # connected component where it belongs.
-        self.c = None
+        self.component = None
         self.data = data
         self.__index = None
         self.view = Rectangle()
@@ -27,8 +27,8 @@ class Vertex(VertexBase):
         from .graphBase import GraphBase
         if self.__index:
             return self.__index
-        elif isinstance(self.c, GraphBase):
-            self.__index = self.c.verticesPoset.index(self)
+        elif isinstance(self.component, GraphBase):
+            self.__index = self.component.verticesPoset.index(self)
             return self.__index
         else:
             return None
@@ -50,5 +50,5 @@ class Vertex(VertexBase):
 
     def __setstate__(self, state):
         self.__index, self.data = state
-        self.c = None
+        self.component = None
         self.e = []

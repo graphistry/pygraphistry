@@ -14,7 +14,7 @@ class GraphBase(object):
         Methods:
             V(cond=None): generates an iterator over vertices, with optional filter
             E(cond=None): generates an iterator over edges, with optional filter
-            M(cond=None): returns the associativity matrix of the graph component
+            matrix(cond=None): returns the associativity matrix of the graph component
             order(): the order of the graph (number of vertices)
             norm(): the norm of the graph (number of edges)
             deg_min(): the minimum degree of vertices
@@ -61,7 +61,7 @@ class GraphBase(object):
 
         if len(self.verticesPoset) == 1:
             v = self.verticesPoset[0]
-            v.c = self
+            v.component = self
             for e in v.e:
                 e.detach()
             return
@@ -76,22 +76,22 @@ class GraphBase(object):
                 self.degenerated_edges.add(e)
             e = self.edgesPoset.add(e)
             e.attach()
-            if x.c is None:
-                x.c = Poset([x])
-            if y.c is None:
-                y.c = Poset([y])
-            if id(x.c) != id(y.c):
-                x, y = (x, y) if len(x.c) > len(y.c) else (y, x)
-                x.c.update(y.c)
-                for v in y.c:
-                    v.c = x.c
-            s = x.c
+            if x.component is None:
+                x.component = Poset([x])
+            if y.component is None:
+                y.component = Poset([y])
+            if id(x.component) != id(y.component):
+                x, y = (x, y) if len(x.component) > len(y.component) else (y, x)
+                x.component.update(y.component)
+                for v in y.component:
+                    v.component = x.component
+            s = x.component
         # check if graph is connected:
         for v in self.V():
-            if v.c is None or (v.c != s):
+            if v.component is None or (v.component != s):
                 raise ValueError("unconnected Vertex %s" % v.data)
             else:
-                v.c = self
+                v.component = self
 
     def roots(self):
         return list(filter(lambda v: len(v.e_in()) == 0, self.verticesPoset))
@@ -102,7 +102,7 @@ class GraphBase(object):
     def add_single_vertex(self, v):
         if len(self.edgesPoset) == 0 and len(self.verticesPoset) == 0:
             v = self.verticesPoset.add(v)
-            v.c = self
+            v.component = self
             return v
         return None
 
@@ -118,8 +118,8 @@ class GraphBase(object):
         e.v = (x, y)
         e.attach()
         e = self.edgesPoset.add(e)
-        x.c = self
-        y.c = self
+        x.component = self
+        y.component = self
         if e.degree == 0:
             self.degenerated_edges.add(e)
         return e
@@ -159,7 +159,7 @@ class GraphBase(object):
         for e in E:
             self.edgesPoset.remove(e)
         x = self.verticesPoset.remove(x)
-        x.c = None
+        x.component = None
         return x
 
     def constant_function(self, value):
@@ -181,7 +181,12 @@ class GraphBase(object):
             if cond(e):
                 yield e
 
-    def M(self, cond = None):
+    def matrix(self, cond = None):
+        """
+            This associativity matrix is like the adjacency matrix but anti-symmetric.
+        :param cond:
+        :return:
+        """
         from array import array
 
         mat = []
@@ -394,7 +399,7 @@ class GraphBase(object):
     # merge GraphBase G into self
     def union_update(self, G):
         for v in G.verticesPoset:
-            v.c = self
+            v.component = self
         self.verticesPoset.update(G.verticesPoset)
         self.edgesPoset.update(G.edgesPoset)
 

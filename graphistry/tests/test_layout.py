@@ -1,6 +1,7 @@
 from pickle import dumps, loads, HIGHEST_PROTOCOL
 import unittest, pytest
 import pandas as pd
+import numpy as np
 from graphistry.layout import Edge, Graph, Vertex, EdgeViewer, Layer, Rectangle, GraphBase, SugiyamaLayout, DummyVertex, route_with_splines, route_with_rounded_corners, Poset
 from graphistry.compute import ComputeMixin
 from graphistry.layouts import LayoutsMixin
@@ -174,7 +175,7 @@ class TestLayout(unittest.TestCase):
         v2 = Vertex("v2")
         assert v2.data == "v2"
         assert v1.e_to(v2) is None
-        assert v1.c is None and v2.c is None
+        assert v1.component is None and v2.component is None
         x = pickler(v2)
         y = loads(x)
         assert y.data == "v2"
@@ -218,7 +219,7 @@ class TestLayout(unittest.TestCase):
         g1.add_edge(E[0])
         assert g1.order() == 2
         assert g1.norm() == 1
-        assert V[0].c == V[1].c == g1
+        assert V[0].component == V[1].component == g1
         g1.add_edge(E[2])
         assert g1.order() == 3
         assert g1.norm() == 2
@@ -282,28 +283,25 @@ class TestLayout(unittest.TestCase):
         assert [v.data for v in y.C[1].verticesPoset] == ['c', 4, 5]
 
     def test_cycles(self):
-        v = ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h')
-        V = [Vertex(x) for x in v]
-        D = dict(zip(v, V))
-        e = ['ab', 'bc', 'cd', 'be', 'ef', 'ea', 'fg', 'cg', 'gf', 'dh', 'hg', 'hd', 'dc', 'bf']
-        E = [Edge(D[xy[0]], D[xy[1]], data = xy) for xy in e]
-        g1 = GraphBase(V, E)
-        scs = g1.get_scs_with_feedback([V[0]])
+        names = ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h')
+        vertices = [Vertex(name) for name in names]
+        vertex_dic = dict(zip(names, vertices))
+        edges_names = ['ab', 'bc', 'cd', 'be', 'ef', 'ea', 'fg', 'cg', 'gf', 'dh', 'hg', 'hd', 'dc', 'bf']
+        edges = [Edge(vertex_dic[name[0]], vertex_dic[name[1]], data = name) for name in edges_names]
+        g1 = GraphBase(vertices, edges)
+        scs = g1.get_scs_with_feedback([vertices[0]])
         assert len(scs) == 3
         assert [v.data for v in scs[0]] == ['g', 'f']
         assert [v.data for v in scs[1]] == ['c', 'd', 'h']
         assert [v.data for v in scs[2]] == ['a', 'b', 'e']
 
     def test_Matrix(self):
-        V, E = self.sample_graph1()
-        G = Graph(V, E, directed = True)
-        assert len(G.C) == 1
-        g = G.C[0]
-        M = g.M()
-        from numpy import matrix
-        M = matrix(M)
-        S = M + M.transpose()
-        assert S.sum() == 0
+        vertices, edges = self.sample_graph1()
+        g = Graph(vertices, edges, directed = True)
+        assert len(g.C) == 1
+        g = g.C[0]
+        m = np.array(g.matrix())
+        assert (m + m.T).sum() == 0
 
     def test_splines(self):
         gr = GraphBase(*self.sample_graph3())

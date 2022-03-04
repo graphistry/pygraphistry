@@ -42,8 +42,8 @@ class Graph(object):
         self.directed = directed
 
         for v in V:
-            v.c = Poset([v])  # at first, every vertex is its own component
-        components = [v.c for v in V]
+            v.component = Poset([v])  # at first, every vertex is its own component
+        components = [v.component for v in V]
         # then pass through edges and union associated vertices such that
         # CV finally holds only connected sets:
         for e in E:
@@ -51,17 +51,17 @@ class Graph(object):
             y = e.v[1]
             assert x in V
             assert y in V
-            assert x.c in components
-            assert y.c in components
+            assert x.component in components
+            assert y.component in components
             e.attach()
-            if x.c != y.c:
-                # merge y.c into x.c :
-                x.c.update(y.c)
+            if x.component != y.component:
+                # merge y.component into x.component :
+                x.component.update(y.component)
                 # update set list (MUST BE DONE BEFORE UPDATING REFS!)
-                components.remove(y.c)
+                components.remove(y.component)
                 # update reference:
-                for z in y.c:
-                    z.c = x.c
+                for z in y.component:
+                    z.component = x.component
         # now create edge sets from connected vertex sets and
         # make the GraphBase connected graphs for this component :
         self.C = []
@@ -87,8 +87,8 @@ class Graph(object):
         x = self.add_vertex(x)
         y = self.add_vertex(y)
 
-        cx = x.c
-        cy = y.c
+        cx = x.component
+        cy = y.component
 
         e = cy.add_edge(e)
         # connect (union) the graphs:
@@ -120,8 +120,8 @@ class Graph(object):
 
     def remove_edge(self, e):
         # get the GraphBase:
-        c = e.v[0].c
-        assert c == e.v[1].c
+        c = e.v[0].component
+        assert c == e.v[1].component
         if c not in self.C:
             return None
         # remove edge in GraphBase and replace it with two new cores
@@ -139,7 +139,7 @@ class Graph(object):
 
     def remove_vertex(self, x):
         # get the GraphBase:
-        c = x.c
+        c = x.component
         if c not in self.C:
             return None
         try:
@@ -180,10 +180,10 @@ class Graph(object):
     def path(self, x, y, f_io = 0, hook = None):
         if x == y:
             return []
-        if x.c != y.c:
+        if x.component != y.component:
             return None
         # path:
-        return x.c.path(x, y, f_io, hook)
+        return x.component.path(x, y, f_io, hook)
 
     def N(self, v, f_io = 0):
         return v.neighbors(f_io)
