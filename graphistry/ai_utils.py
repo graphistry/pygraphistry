@@ -1,17 +1,14 @@
-# TODO cugraph not installing properly in virt env locally...
 # import cugraph
 import logging
 from collections import Counter
 
 import numpy as np
 import pandas as pd
-import torch
 from dirty_cat import SimilarityEncoder
 from sklearn.inspection import permutation_importance
 from sklearn.manifold import MDS
 from sklearn.model_selection import cross_val_score
 from sklearn.neighbors import NearestNeighbors
-from tqdm import tqdm
 
 import graphistry
 from . import constants as config
@@ -34,6 +31,7 @@ logger = setup_logger(__name__, verbose)
 
 
 def tqdm_progress_bar(total, *args, **kwargs):
+    from tqdm import tqdm
     global pbar
     pbar = tqdm(total=total, *args, **kwargs)
 
@@ -185,6 +183,7 @@ def get_available_devices():
         device (torch.device): Main device (GPU 0 or CPU).
         gpu_ids (list): List of IDs of all GPUs that are available.
     """
+    import torch
     gpu_ids = []
     if torch.cuda.is_available():
         gpu_ids += [gpu_id for gpu_id in range(torch.cuda.device_count())]
@@ -289,7 +288,7 @@ def fit_pipeline(pipeline, X, y, scoring="r2"):
     return scores, result
 
 
-def plot_feature_importances(importances, feature_names, n=20):
+def _plot_feature_importances(importances, feature_names, n=20):
     import matplotlib.pyplot as plt
     indices = np.argsort(importances)
     # Sort from least to most
@@ -311,17 +310,17 @@ def plot_feature_importances(importances, feature_names, n=20):
 # ###############################################################################
 
 
-def calculate_column_similarity(y: pd.Series, n_points: int = 10):
+def _calculate_column_similarity(y: pd.Series, n_points: int = 10):
     # y is a pandas series of labels for a given dataset
     sorted_values = y.sort_values().unique()
     similarity_encoder = SimilarityEncoder(similarity="ngram")
     transformed_values = similarity_encoder.fit_transform(sorted_values.reshape(-1, 1))
 
-    plot_MDS(transformed_values, similarity_encoder, sorted_values, n_points=n_points)
+    _plot_MDS(transformed_values, similarity_encoder, sorted_values, n_points=n_points)
     return transformed_values, similarity_encoder, sorted_values
 
 
-def plot_MDS(transformed_values, similarity_encoder, sorted_values, n_points=15):
+def _plot_MDS(transformed_values, similarity_encoder, sorted_values, n_points=15):
     # TODO try this with UMAP
     import matplotlib.pyplot as plt
 
