@@ -3,7 +3,6 @@
 import logging
 from collections import Counter
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
@@ -291,6 +290,7 @@ def fit_pipeline(pipeline, X, y, scoring="r2"):
 
 
 def plot_feature_importances(importances, feature_names, n=20):
+    import matplotlib.pyplot as plt
     indices = np.argsort(importances)
     # Sort from least to most
     indices = list(reversed(indices))
@@ -323,6 +323,8 @@ def calculate_column_similarity(y: pd.Series, n_points: int = 10):
 
 def plot_MDS(transformed_values, similarity_encoder, sorted_values, n_points=15):
     # TODO try this with UMAP
+    import matplotlib.pyplot as plt
+
     mds = MDS(dissimilarity="precomputed", n_init=10, random_state=42)
     two_dim_data = mds.fit_transform(1 - transformed_values)  # transformed values lie
 
