@@ -1,18 +1,23 @@
 # python -m unittest
 
 import unittest
+from typing import Any
 import copy, datetime as dt, graphistry, os, pandas as pd
 
 from graphistry.feature_utils import *
 from graphistry.dgl_utils import *
 
-import dirty_cat
+try:
+    import dirty_cat
+except:
+    dirty_cat = Any
+    
 import sklearn
 import warnings
 
 warnings.filterwarnings("ignore")
 
-from data import get_reddit_dataframe, get_stocks_dataframe
+from data import get_reddit_dataframe #, get_stocks_dataframe
 
 bad_df = pd.DataFrame(
     {
