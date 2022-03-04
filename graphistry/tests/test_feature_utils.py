@@ -104,13 +104,13 @@ double_target_edge = pd.DataFrame(
 # ###############################################
 # For NODE FEATURIZATION AND TESTS
 # data to test textual and meta DataFrame
-ndf_reddit = pd.read_csv('graphistry/tests/data/reddit.csv')
+ndf_reddit = pd.read_csv('graphistry/tests/data/reddit.csv', index_col=0)
 
 text_cols_reddit = ["title", "document"]
 meta_cols_reddit = ["user", "type", "label"]
 good_cols_reddit = text_cols_reddit + meta_cols_reddit
 
-ndf_reddit = ndf_reddit[good_cols_reddit]
+#ndf_reddit = ndf_reddit[good_cols_reddit]
 
 double_target_reddit = pd.DataFrame(
     {"label": ndf_reddit.label.values, "type": ndf_reddit["type"].values}
