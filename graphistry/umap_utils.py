@@ -1,11 +1,14 @@
 # a base class for UMAP to run on cpu or gpu
 from time import time
-from typing import Union
+from typing import Union, Any
 
 import numpy as np
 import pandas as pd
-import umap
-
+try:
+    import umap
+except:
+    umap = Any
+    
 from . import constants as config
 from .ai_utils import setup_logger
 
