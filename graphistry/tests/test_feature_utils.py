@@ -18,7 +18,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-from data import get_reddit_dataframe #, get_stocks_dataframe
+#from data import get_reddit_dataframe #, get_stocks_dataframe
 
 bad_df = pd.DataFrame(
     {
@@ -104,7 +104,7 @@ double_target_edge = pd.DataFrame(
 # ###############################################
 # For NODE FEATURIZATION AND TESTS
 # data to test textual and meta DataFrame
-ndf_reddit = get_reddit_dataframe(nrows=100, min_doc_length=20)
+ndf_reddit = pd.read_csv('graphistry/tests/data/reddit.csv')
 
 text_cols_reddit = ["title", "document"]
 meta_cols_reddit = ["user", "type", "label"]
