@@ -184,6 +184,7 @@ class GraphBase(object):
     def matrix(self, cond = None):
         """
             This associativity matrix is like the adjacency matrix but antisymmetric.
+
         :param cond: same a the condition function in vertices().
         :return: array
         """
