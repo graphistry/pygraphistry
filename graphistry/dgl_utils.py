@@ -54,6 +54,10 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
 
 
 class DGLGraphMixin(FeatureMixin):
+    """
+        Automagic DGL models from Graphistry Instances.
+        
+    """
     def __init__(
         self,
         train_split: float = 0.8,

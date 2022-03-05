@@ -43,6 +43,10 @@ umap_kwargs_euclidean = {
 
 
 class UMAPMixin(object):
+    """
+        UMAP Mixin for automagic UMAPing
+        
+    """
     def __init__(
         self,
         n_neighbors: int = 12,
