@@ -36,3 +36,19 @@ graphistry.ArrowFileUploader module
     :undoc-members:
     :show-inheritance:
 
+graphistry.ai module
+-----------------------------------
+
+.. automodule:: graphistry.ai
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    
+graphistry.data module
+-----------------------------------
+
+.. automodule:: graphistry.data
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
