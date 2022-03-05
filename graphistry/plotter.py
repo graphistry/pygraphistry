@@ -7,8 +7,8 @@ from .dgl_utils import DGLGraphMixin, has_dependancy as has_dgl
 
 mixins = (
     [CosmosMixin, NeptuneMixin, GremlinMixin, LayoutsMixin]
-    + [DGLGraphMixin if has_dgl and has_featurize else []]
-    + [FeatureMixin if has_featurize else []] +
+    + ([DGLGraphMixin] if has_dgl and has_featurize else [])
+    + ([FeatureMixin] if has_featurize else []) +
     [ComputeMixin, PlotterBase, object]
 )
 
