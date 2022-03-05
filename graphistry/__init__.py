@@ -1,4 +1,4 @@
-# from graphistry import ai #import feature_utils
+
 from graphistry.pygraphistry import (  # noqa: E402, F401
     client_protocol_hostname,
     protocol,
@@ -39,13 +39,10 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     drop_graph,
     layout_settings,
     nodexl,
-    FeatureMixin,
     ArrowUploader,
     ArrowFileUploader,
     PyGraphistry,
 )
-
-# from graphistry.ai import FeatureMixin
 
 from ._version import get_versions
 
