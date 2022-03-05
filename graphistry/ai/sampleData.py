@@ -1,7 +1,11 @@
 import numpy as np
-import torch
-import dgl
 
+try:
+    import torch
+    import dgl
+except:
+    torch = None
+    dgl = None
 
 def get_heterograph():
     # from https://docs.dgl.ai/en/0.6.x/guide/training.html#guide-training-heterogeneous-graph-example
