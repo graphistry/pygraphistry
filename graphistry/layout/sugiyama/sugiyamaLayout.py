@@ -121,13 +121,19 @@ class SugiyamaLayout(object):
         """
         if self.init_done:
             return
+        root_inverted_edges = []
         if roots is None:
-            # taking the ones with outgoing edges only for downflow
+            # roots are vertices without parents here
             roots = [v for v in self.g.verticesPoset if len(v.e_in()) == 0]
+        else:
+            for r in roots:
+                if len(self.g.verticesPoset.get(r).e_in())>0:
+                    for e in self.g.verticesPoset.get(r).e_in():
+                        root_inverted_edges.append(e)
         if inverted_edges is None:
             _ = self.g.get_scs_with_feedback(roots)
             inverted_edges = [x for x in self.g.edgesPoset if x.feedback]
-        self.inverted_edges = inverted_edges
+        self.inverted_edges = inverted_edges + root_inverted_edges
 
         self._layer_all(roots, optimize)
         # add dummy vertex/edge for 'long' edges:
@@ -146,7 +152,8 @@ class SugiyamaLayout(object):
             target_column = "target",
             layout_direction = 0,
             topological_coordinates = False,
-            include_levels=False):
+            roots = None,
+            include_levels = False):
         """
         Returns the positions from a Sugiyama layout iteration.
 
@@ -162,7 +169,7 @@ class SugiyamaLayout(object):
         :param     target_column: if a Pandas frame is given, the name of the column with the target of the edges
         :param     topological_coordinates: whether to use coordinates with the x-values in the [0,1] range and the y-value equal to the layer index.
         :param     include_levels: whether the tree-level is included together with the coordinates. If so, you get a triple (x,y,level).
-
+        :param     roots: optional list of roots.
         **Returns**
             a dictionary of positions.
 
@@ -178,14 +185,16 @@ class SugiyamaLayout(object):
             v.view = Rectangle()
 
         sug = SugiyamaLayout(gg.components[0])
-        sug.init_all()
+        root_vertices = SugiyamaLayout.ensure_roots_are_vertices(gg, roots)
+
+        sug.init_all(roots = root_vertices)
         sug.layout(iteration_count, topological_coordinates = topological_coordinates, layout_direction = layout_direction)
 
-        positions = SugiyamaLayout._get_positions(sug, gg.components[0].verticesPoset, layout_direction, topological_coordinates = topological_coordinates,include_levels=include_levels)
+        positions = SugiyamaLayout._get_positions(sug, gg.components[0].verticesPoset, layout_direction, topological_coordinates = topological_coordinates, include_levels = include_levels)
         return positions
 
     @staticmethod
-    def _get_positions(sug, poset, layout_direction = 0, topological_coordinates = False,include_levels=False):
+    def _get_positions(sug, poset, layout_direction = 0, topological_coordinates = False, include_levels = False):
         """
             Returns actual (real or topological) positions together with the level as a triple.
         """
@@ -194,7 +203,7 @@ class SugiyamaLayout(object):
             # note that the layering index goes up and the x-value to the right (standard coordinate system)
             max_index = max([v.view.xy[1] for v in poset])
             if layout_direction == 0:  # top-to-bottom
-                tuples = {v.data: (v.view.xy[0], v.view.xy[1], lv[v].layer) for v in poset} if include_levels else  {v.data: (v.view.xy[0], v.view.xy[1]) for v in poset}
+                tuples = {v.data: (v.view.xy[0], v.view.xy[1], lv[v].layer) for v in poset} if include_levels else {v.data: (v.view.xy[0], v.view.xy[1]) for v in poset}
             elif layout_direction == 1:  # right-to-left
                 tuples = {v.data: (v.view.xy[1], v.view.xy[0], lv[v].layer) for v in poset} if include_levels else {v.data: (v.view.xy[1], v.view.xy[0]) for v in poset}
             elif layout_direction == 2:  # bottom-to-top
@@ -207,7 +216,7 @@ class SugiyamaLayout(object):
             if layout_direction == 0:  # top-to-bottom
                 tuples = {v.data: (v.view.xy[0], -v.view.xy[1], lv[v].layer) for v in poset} if include_levels else {v.data: (v.view.xy[0], -v.view.xy[1]) for v in poset}
             elif layout_direction == 1:  # right-to-left
-                tuples = {v.data: (-v.view.xy[1], v.view.xy[0], lv[v].layer) for v in poset} if include_levels else  {v.data: (-v.view.xy[1], v.view.xy[0]) for v in poset}
+                tuples = {v.data: (-v.view.xy[1], v.view.xy[0], lv[v].layer) for v in poset} if include_levels else {v.data: (-v.view.xy[1], v.view.xy[0]) for v in poset}
             elif layout_direction == 2:  # bottom-to-top
                 tuples = {v.data: (v.view.xy[0], v.view.xy[1], lv[v].layer) for v in poset} if include_levels else {v.data: (v.view.xy[0], v.view.xy[1]) for v in poset}
             elif layout_direction == 3:  # left-to-right
@@ -262,6 +271,30 @@ class SugiyamaLayout(object):
             self.set_coordinates()
         self.layout_edges()
 
+    @staticmethod
+    def ensure_roots_are_vertices(g: Graph, roots: list):
+        """
+            Turns the given list of roots (names or data) to actual vertices in the given graph.
+
+        :param g: the graph wherein the given roots names are supposed to be
+        :param roots: a list of roots
+        :return: the list of vertices to use as roots
+        """
+        if roots is None:
+            return []
+        if not isinstance(roots, list):
+            raise TypeError
+        if len(roots) == 0:
+            return []
+
+        # we will simply ignore the given roots not corresponding to any vertices
+        vertex_roots = []
+        for u in roots:
+            found = g.get_vertex_from_data(u)
+            if found is not None:
+                vertex_roots.append(found)
+        return vertex_roots
+
     def _edge_inverter(self):
         for e in self.inverted_edges:
             x, y = e.v
@@ -283,6 +316,7 @@ class SugiyamaLayout(object):
         self._edge_inverter()
         r = [x for x in self.g.verticesPoset if (len(x.e_in()) == 0 and x not in roots)]
         self._layer_init(roots + r)
+        # self._layer_init(roots)
         if optimize:
             self._layer_optimization()
         self._edge_inverter()
@@ -333,7 +367,7 @@ class SugiyamaLayout(object):
            The Layer is created if it is the first vertex with this layer.
         """
         assert self.dag
-        r = max([self.layoutVertices[x].layer for x in v.neighbors(-1)] + [-1]) + 1
+        r = max([float("-inf") if self.layoutVertices[x].layer is None else  self.layoutVertices[x].layer for x in v.neighbors(-1)] + [-1]) + 1
         self.layoutVertices[v].layer = r
         # add it to its layer:
         try:
@@ -366,7 +400,7 @@ class SugiyamaLayout(object):
             Creates and defines all dummy vertices for edge e.
         """
         source, target = e.v
-        r0, r1 = self.layoutVertices[source].layer, self.layoutVertices[target].layer
+        r0, r1 = self.layoutVertices[source].layer  , self.layoutVertices[target].layer
         if r0 > r1:
             assert e in self.inverted_edges
             source, target = target, source

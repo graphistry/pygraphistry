@@ -110,7 +110,7 @@ class CustomRankingSugiyamaLayout(SugiyamaLayout):
                     self.layers[rank].append(v)
 
 
-def graph_from_arrays(vertices, edges):
+def create_graph_from_arrays(vertices, edges) -> Graph:
     """
         Utility to make a graph from two arrays e.g.
 
@@ -120,7 +120,7 @@ def graph_from_arrays(vertices, edges):
 
         :param vertices: array of vertex names
         :param edges: array of edges
-        :return:
+        :return: a Graph
 
     """
     v = [Vertex(u) for u in vertices]
@@ -512,7 +512,7 @@ class TestLayout(unittest.TestCase):
     def test_data(self):
         v = ['a', 'b', 'c', 'd']
         e = ['ab', 'ac', 'bc', 'cd']
-        g = graph_from_arrays(v, e)
+        g = create_graph_from_arrays(v, e)
 
         assert len(list(g.vertices())) == len(v)
         assert len(list(g.edges())) == len(e)
@@ -522,7 +522,7 @@ class TestLayout(unittest.TestCase):
     def test_components(self):
         v = ['a', 'b', 'c', 'd', 'e', 'f']
         e = ['ab', 'cd', 'de', 'ec']
-        g = graph_from_arrays(v, e)
+        g = create_graph_from_arrays(v, e)
         assert len(g.components) == 3
         assert len(list(g.components[0].vertices())) == 2
         assert len(list(g.components[0].edges())) == 1
@@ -535,7 +535,7 @@ class TestLayout(unittest.TestCase):
 
     def test_tree_layout(self):
         lg = LGFull()
-        g = lg.edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd').tree_layout()
+        g = lg.edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd').tree_layout( )
         print(g._nodes.to_dict(orient = 'records'))
         assert g._nodes.to_dict(orient = 'records') == [
             {'id': 'a', 'level': 0, 'x': 0.0, 'y': 1},
@@ -589,11 +589,11 @@ class TestLayout(unittest.TestCase):
         lg = LGFull()
         g = (lg
              .edges(pd.DataFrame({'s': ['a', 'a'], 'd': ['b', 'c']}), 's', 'd')
-             .tree_layout(allow_cycles = True, level_align = 'center', width = 100, height = 100))
+             .tree_layout(allow_cycles = True, level_align = 'center', width = 100, height = 100, roots = ["b"]))
         assert g._nodes.to_dict(orient = 'records') == [
-            {'id': 'a', 'level': 0, 'x': 50.0, 'y': 100},
-            {'id': 'b', 'level': 1, 'x': 0.0, 'y': 0},
-            {'id': 'c', 'level': 1, 'x': 100.0, 'y': 0}
+            {'id': 'a', 'level': 1, 'x': 0.0, 'y': 100},
+            {'id': 'b', 'level': 0, 'x': 0.0, 'y': 200},
+            {'id': 'c', 'level': 2, 'x': 0.0, 'y': 0}
         ]
 
     def test_tree_layout_sort_ascending(self):
@@ -626,3 +626,12 @@ class TestLayout(unittest.TestCase):
         series = g._nodes.groupby("component_id")["component_id"].count().sort_values(ascending = True)
         assert list(series) == [1, 2, 3]
         print(g._nodes.head(10))
+
+    def test_ensure_roots(self):
+        g = create_graph_from_arrays(["1", "2", "3"], ["12", "23"])
+        vr = SugiyamaLayout.ensure_roots_are_vertices(g, ["2", "5"])
+        assert len(vr) == 1
+        assert vr[0].data == "2"
+
+        vr = SugiyamaLayout.ensure_roots_are_vertices(g, [])
+        assert vr == []

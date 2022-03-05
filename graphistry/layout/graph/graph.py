@@ -106,8 +106,10 @@ class Graph(object):
         return sum([c.order() for c in self.components])
 
     def get_vertex_from_data(self, data):
+        if data is None:
+            return None
         for v in self.vertices():
-            if v.data == data:
+            if v.data is not None and str(v.data) == str(data):
                 return v
         return None
 
