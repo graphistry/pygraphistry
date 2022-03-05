@@ -16,7 +16,6 @@ try:
     from sklearn.manifold import MDS
     from sklearn.model_selection import cross_val_score
     from sklearn.neighbors import NearestNeighbors
-
 except:
     SimilarityEncoder = Any
     permutation_importance = Any
