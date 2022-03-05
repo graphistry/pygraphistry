@@ -250,7 +250,7 @@ class DGLGraphMixin(FeatureMixin):
         return 1
 
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
     # import graphistry
     # from graphistry.networks import LinkPredModelMultiOutput
     # from graphistry.ai_utils import setup_logger
