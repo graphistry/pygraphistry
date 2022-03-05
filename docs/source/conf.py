@@ -14,14 +14,14 @@ import os, sys
 from distutils.version import LooseVersion
 
 # sys.path.insert(0, os.path.abspath('.'))
-sys.path.insert(0, os.path.abspath('../..'))
+sys.path.insert(0, os.path.abspath("../.."))
 import graphistry
 
 # -- Project information -----------------------------------------------------
 
-project = 'PyGraphistry'
-copyright = '2021, Graphistry, Inc.'
-author = 'Graphistry, Inc.'
+project = "PyGraphistry"
+copyright = "2021, Graphistry, Inc."
+author = "Graphistry, Inc."
 
 # The full version, including alpha/beta/rc tags
 version = LooseVersion(graphistry.__version__).vstring
@@ -33,11 +33,11 @@ relesae = version
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
-    'sphinx.ext.autodoc',
+    "sphinx.ext.autodoc",
     #'sphinx.ext.autosummary',
     #'sphinx.ext.intersphinx',
-    'sphinx.ext.ifconfig',
-    'sphinx_autodoc_typehints',
+    "sphinx.ext.ifconfig",
+    "sphinx_autodoc_typehints",
 ]
 
 #FIXME Why is sphinx/autodoc failing here?
@@ -50,12 +50,20 @@ nitpick_ignore = [
     ('py:class', 'graphistry.layouts.LayoutsMixin'),
     ('py:class', 'graphistry.compute.ComputeMixin'),
     ('py:class', 'graphistry.Plottable.Plottable'),
+    ('py:class', 'graphistry.feature_utils.FeatureMixin'),
+    ('py:class', 'graphistry.dgl_utils.DGLMixin'),
+    ('py:class', 'graphistry.umap_utils.UMAPMixin'),
     ('py:class', 'graphistry.PlotterBase.PlotterBase'),
     ('py:class', 'IGraph graph'),
     ('py:class', 'dgl'),
     ('py:class', 'matplotlib'),
     ('py:class', 'torch'),
     ('py:class', 'umap'),
+    ('py:class', 'sentence-transformers'),
+    ('py:class', 'umap-learn'),
+    ('py:class', 'dirty-cat'),
+    ('py:class', 'scikit-learn'),
+    ('py:class', 'scipy'),
     ('py:class', 'seaborn'),
     ('py:class', 'NetworkX graph'),
     ('py:class', 'Pandas dataframe'),
@@ -72,31 +80,31 @@ nitpick_ignore = [
     ('py:data', 'typing.Union')
 ]
 
-set_type_checking_flag=True
-#typehints_fully_qualified=True
-always_document_param_types=True
-typehints_document_rtype=True
+set_type_checking_flag = True
+# typehints_fully_qualified=True
+always_document_param_types = True
+typehints_document_rtype = True
 
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ['_templates']
+templates_path = ["_templates"]
 
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
 # source_suffix = ['.rst', '.md']
-source_suffix = '.rst'
+source_suffix = ".rst"
 
 # The encoding of source files.
-source_encoding = 'utf-8-sig'
+source_encoding = "utf-8-sig"
 
 # The master toctree document.
-master_doc = 'index'
+master_doc = "index"
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = []
 
-pygments_style = 'sphinx'
+pygments_style = "sphinx"
 todo_include_todos = False
 
 # -- Options for HTML output -------------------------------------------------
@@ -104,7 +112,7 @@ todo_include_todos = False
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'sphinx_rtd_theme'
+html_theme = "sphinx_rtd_theme"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -114,50 +122,51 @@ html_static_path = []  # '_static'
 html_show_sphinx = False
 html_show_sourcelink = False
 
-htmlhelp_basename = 'PyGraphistrydoc'
-
+htmlhelp_basename = "PyGraphistrydoc"
 
 
 # -- Options for LaTeX output ---------------------------------------------
 
 latex_elements = {
-# The paper size ('letterpaper' or 'a4paper').
-#'papersize': 'letterpaper',
-
-# The font size ('10pt', '11pt' or '12pt').
-#'pointsize': '10pt',
-
-# Additional stuff for the LaTeX preamble.
-#'preamble': '',
-
-# Latex figure (float) alignment
-#'figure_align': 'htbp',
+    # The paper size ('letterpaper' or 'a4paper').
+    #'papersize': 'letterpaper',
+    # The font size ('10pt', '11pt' or '12pt').
+    #'pointsize': '10pt',
+    # Additional stuff for the LaTeX preamble.
+    #'preamble': '',
+    # Latex figure (float) alignment
+    #'figure_align': 'htbp',
 }
 
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-  (master_doc, 'PyGraphistry.tex', u'PyGraphistry Documentation',
-   u'Graphistry, Inc.', 'manual'),
+    (
+        master_doc,
+        "PyGraphistry.tex",
+        u"PyGraphistry Documentation",
+        u"Graphistry, Inc.",
+        "manual",
+    ),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
 # the title page.
-#latex_logo = None
+# latex_logo = None
 
 # For "manual" documents, if this is true, then toplevel headings are parts,
 # not chapters.
-#latex_use_parts = False
+# latex_use_parts = False
 
 # If true, show page references after internal links.
-#latex_show_pagerefs = False
+# latex_show_pagerefs = False
 
 # If true, show URL addresses after external links.
-#latex_show_urls = False
+# latex_show_urls = False
 
 # Documents to append as an appendix to all manuals.
-#latex_appendices = []
+# latex_appendices = []
 
 # If false, no module index is generated.
 latex_domain_indices = False
@@ -167,13 +176,10 @@ latex_domain_indices = False
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [
-    (master_doc, 'pygraphistry', u'PyGraphistry Documentation',
-     [author], 1)
-]
+man_pages = [(master_doc, "pygraphistry", u"PyGraphistry Documentation", [author], 1)]
 
 # If true, show URL addresses after external links.
-#man_show_urls = False
+# man_show_urls = False
 
 
 # -- Options for Texinfo output -------------------------------------------
@@ -182,22 +188,28 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-  (master_doc, 'PyGraphistry', u'PyGraphistry Documentation',
-   author, 'PyGraphistry', 'One line description of project.',
-   'Miscellaneous'),
+    (
+        master_doc,
+        "PyGraphistry",
+        u"PyGraphistry Documentation",
+        author,
+        "PyGraphistry",
+        "One line description of project.",
+        "Miscellaneous",
+    ),
 ]
 
 # Documents to append as an appendix to all manuals.
-#texinfo_appendices = []
+# texinfo_appendices = []
 
 # If false, no module index is generated.
 texinfo_domain_indices = False
 
 # How to display URL addresses: 'footnote', 'no', or 'inline'.
-#texinfo_show_urls = 'footnote'
+# texinfo_show_urls = 'footnote'
 
 # If true, do not generate a @detailmenu in the "Top" node's menu.
-#texinfo_no_detailmenu = False
+# texinfo_no_detailmenu = False
 
 
 # -- Options for Epub output ----------------------------------------------
@@ -209,66 +221,66 @@ epub_publisher = author
 epub_copyright = copyright
 
 # The basename for the epub file. It defaults to the project name.
-#epub_basename = project
+# epub_basename = project
 
 # The HTML theme for the epub output. Since the default themes are not optimized
 # for small screen space, using the same theme for HTML and epub output is
 # usually not wise. This defaults to 'epub', a theme designed to save visual
 # space.
-#epub_theme = 'epub'
+# epub_theme = 'epub'
 
 # The language of the text. It defaults to the language option
 # or 'en' if the language is not set.
-#epub_language = ''
+# epub_language = ''
 
 # The scheme of the identifier. Typical schemes are ISBN or URL.
-#epub_scheme = ''
+# epub_scheme = ''
 
 # The unique identifier of the text. This can be a ISBN number
 # or the project homepage.
-#epub_identifier = ''
+# epub_identifier = ''
 
 # A unique identification for the text.
-#epub_uid = ''
+# epub_uid = ''
 
 # A tuple containing the cover image and cover page html template filenames.
-#epub_cover = ()
+# epub_cover = ()
 
 # A sequence of (type, uri, title) tuples for the guide element of content.opf.
-#epub_guide = ()
+# epub_guide = ()
 
 # HTML files that should be inserted before the pages created by sphinx.
 # The format is a list of tuples containing the path and title.
-#epub_pre_files = []
+# epub_pre_files = []
 
 # HTML files shat should be inserted after the pages created by sphinx.
 # The format is a list of tuples containing the path and title.
-#epub_post_files = []
+# epub_post_files = []
 
 # A list of files that should not be packed into the epub file.
-epub_exclude_files = ['search.html']
+epub_exclude_files = ["search.html"]
 
 # The depth of the table of contents in toc.ncx.
-#epub_tocdepth = 3
+# epub_tocdepth = 3
 
 # Allow duplicate toc entries.
-#epub_tocdup = True
+# epub_tocdup = True
 
 # Choose between 'default' and 'includehidden'.
-#epub_tocscope = 'default'
+# epub_tocscope = 'default'
 
 # Fix unsupported image types using the Pillow.
-#epub_fix_images = False
+# epub_fix_images = False
 
 # Scale large images.
-#epub_max_image_width = 0
+# epub_max_image_width = 0
 
 # How to display URL addresses: 'footnote', 'no', or 'inline'.
-#epub_show_urls = 'inline'
+# epub_show_urls = 'inline'
 
 # If false, no index is generated.
-#epub_use_index = True
+# epub_use_index = True
 
 
 # Example configuration for intersphinx: refer to the Python standard library.
-#intersphinx_mapping = {'https://docs.python.org/': None}
+# intersphinx_mapping = {'https://docs.python.org/': None}
