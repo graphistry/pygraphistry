@@ -14,7 +14,6 @@ from . import util
 from . import bolt_util
 from .plotter import Plotter
 
-
 import logging
 
 logger = logging.getLogger(__name__)
