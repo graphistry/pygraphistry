@@ -36,9 +36,11 @@ try:
         MultiLabelBinarizer,
         KBinsDiscretizer,
     )
+    has_dependancy = True
 
 except:
     logger.error("FAILED IMPORTING from Feature_utils")
+    has_dependancy = False
     scipy = (Any,)
     torch = Any
     SuperVectorizer = (Any,)
@@ -96,14 +98,6 @@ from graphistry.compute import ComputeMixin
 
 from . import constants as config
 from .umap_utils import UMAPMixin
-
-# encoders_dirty: Dict = {
-#     "similarity": SimilarityEncoder(similarity="ngram"),
-#     "target": TargetEncoder(handle_unknown="ignore"),
-#     "minhash": MinHashEncoder(n_components=config.N_HASHERS_DEFAULT),
-#     "gap": GapEncoder(n_components=config.N_TOPICS_DEFAULT),
-#     "super": SuperVectorizer(auto_cast=True),
-# }
 
 
 def get_train_test_sets(X, y, test_size):

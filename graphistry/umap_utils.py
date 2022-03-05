@@ -4,10 +4,13 @@ from typing import Union, Any
 
 import numpy as np
 import pandas as pd
+
 try:
     import umap
+    has_dependancy = True
 except:
     umap = Any
+    has_dependancy = False
     
 from . import constants as config
 from .ai_utils import setup_logger
@@ -51,27 +54,28 @@ class UMAPMixin(object):
         n_components: int = 2,
         metric: str = "euclidean",
     ):
-
-        umap_kwargs = dict(
-            n_components=n_components,
-            metric=metric,
-            n_neighbors=n_neighbors,
-            min_dist=min_dist,
-            spread=spread,
-            local_connectivity=local_connectivity,
-            repulsion_strength=repulsion_strength,
-            negative_sample_rate=negative_sample_rate,
-        )
-
-        self.n_components = n_components
-        self.metric = metric
-        self.n_neighbors = n_neighbors
-        self.min_dist = min_dist
-        self.spread = spread
-        self.local_connectivity = local_connectivity
-        self.repulsion_strength = repulsion_strength
-        self.negative_sample_rate = negative_sample_rate
-        self._umap = umap.UMAP(**umap_kwargs)
+        if has_dependancy:
+            umap_kwargs = dict(
+                n_components=n_components,
+                metric=metric,
+                n_neighbors=n_neighbors,
+                min_dist=min_dist,
+                spread=spread,
+                local_connectivity=local_connectivity,
+                repulsion_strength=repulsion_strength,
+                negative_sample_rate=negative_sample_rate,
+            )
+    
+            self.n_components = n_components
+            self.metric = metric
+            self.n_neighbors = n_neighbors
+            self.min_dist = min_dist
+            self.spread = spread
+            self.local_connectivity = local_connectivity
+            self.repulsion_strength = repulsion_strength
+            self.negative_sample_rate = negative_sample_rate
+            self._umap = umap.UMAP(**umap_kwargs)
+        
 
     def _set_new_kwargs(self, **kwargs):
         self._umap = umap.UMAP(**kwargs)

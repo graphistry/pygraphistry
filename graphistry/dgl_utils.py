@@ -4,8 +4,10 @@ import pandas as pd
 
 try:
     import dgl
+    has_dependancy = True
 except:
     dgl = Any
+    has_dependancy = False
 
 from . import constants as config
 from .feature_utils import FeatureMixin, convert_to_torch
