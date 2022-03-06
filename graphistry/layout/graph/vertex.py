@@ -52,3 +52,6 @@ class Vertex(VertexBase):
         self.__index, self.data = state
         self.component = None
         self.e = []
+
+    def __str__(self):
+        return self.data

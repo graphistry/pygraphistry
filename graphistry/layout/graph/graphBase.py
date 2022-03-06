@@ -8,7 +8,7 @@ class GraphBase(object):
         Attributes:
             verticesPoset (Poset[Vertex]): the partially ordered set of vertices of the graph.
             edgesPoset (Poset[Edge]): the partially ordered set of edges of the graph.
-            degenerated_edges (set[Edge]): the set of *degenerated* edges (of degree 0).
+            loops (set[Edge]): the set of *loop* edges (of degree 0).
             directed (bool): indicates if the graph is considered *oriented* or not.
 
         Methods:
@@ -57,7 +57,7 @@ class GraphBase(object):
         self.verticesPoset = Poset(vertices)
         self.edgesPoset = Poset([])
 
-        self.degenerated_edges = set()
+        self.loops = set()
 
         if len(self.verticesPoset) == 1:
             v = self.verticesPoset[0]
@@ -73,7 +73,7 @@ class GraphBase(object):
                 raise ValueError("unknown Vertex (%s or %s)" % e.v)
             e.v = (x, y)
             if e.degree == 0:
-                self.degenerated_edges.add(e)
+                self.loops.add(e)
             e = self.edgesPoset.add(e)
             e.attach()
             if x.component is None:
@@ -121,7 +121,7 @@ class GraphBase(object):
         x.component = self
         y.component = self
         if e.degree == 0:
-            self.degenerated_edges.add(e)
+            self.loops.add(e)
         return e
 
     def remove_edge(self, e):
@@ -136,8 +136,8 @@ class GraphBase(object):
             raise ValueError(e)
         else:
             e = self.edgesPoset.remove(e)
-            if e in self.degenerated_edges:
-                self.degenerated_edges.remove(e)
+            if e in self.loops:
+                self.loops.remove(e)
             return e
 
     def remove_vertex(self, x):

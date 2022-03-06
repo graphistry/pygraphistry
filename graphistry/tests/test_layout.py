@@ -327,7 +327,7 @@ class TestLayout(unittest.TestCase):
         for v in gr.vertices():
             v.view = Rectangle(10, 10)
         sug = SugiyamaLayout(gr)
-        sug.init_all(roots = [gr.verticesPoset[0]], inverted_edges = [])
+        sug.init_all(roots = [gr.verticesPoset[0]])
         i = 0
         for s in sug.draw_step():
             print('--- step %d ' % i + '-' * 20)
@@ -535,7 +535,7 @@ class TestLayout(unittest.TestCase):
 
     def test_tree_layout(self):
         lg = LGFull()
-        g = lg.edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd').tree_layout( )
+        g = lg.edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd').tree_layout()
         print(g._nodes.to_dict(orient = 'records'))
         assert g._nodes.to_dict(orient = 'records') == [
             {'id': 'a', 'level': 0, 'x': 0.0, 'y': 1},
@@ -588,12 +588,13 @@ class TestLayout(unittest.TestCase):
     def test_tree_layout_center_tree(self):
         lg = LGFull()
         g = (lg
-             .edges(pd.DataFrame({'s': ['a', 'a'], 'd': ['b', 'c']}), 's', 'd')
+             .edges(pd.DataFrame({'s': ['a', 'a', 'd'], 'd': ['b', 'c', 'c']}), 's', 'd')
              .tree_layout(allow_cycles = True, level_align = 'center', width = 100, height = 100, roots = ["b"]))
         assert g._nodes.to_dict(orient = 'records') == [
-            {'id': 'a', 'level': 1, 'x': 0.0, 'y': 100},
-            {'id': 'b', 'level': 0, 'x': 0.0, 'y': 200},
-            {'id': 'c', 'level': 2, 'x': 0.0, 'y': 0}
+            {'id': 'a', 'level': 1, 'x': 0.0, 'y': 200},
+            {'id': 'd', 'level': 3, 'x': 0.0, 'y': 0},
+            {'id': 'b', 'level': 0, 'x': 0.0, 'y': 300},
+            {'id': 'c', 'level': 2, 'x': 0.0, 'y': 100}
         ]
 
     def test_tree_layout_sort_ascending(self):

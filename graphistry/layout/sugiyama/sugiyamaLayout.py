@@ -121,19 +121,37 @@ class SugiyamaLayout(object):
         """
         if self.init_done:
             return
-        root_inverted_edges = []
-        if roots is None:
-            # roots are vertices without parents here
-            roots = [v for v in self.g.verticesPoset if len(v.e_in()) == 0]
+        collect_inverted_edges = {}
+        root_inverted_edges = set()
+        # guessed roots are vertices without parents
+        guessed_roots = [v for v in self.g.verticesPoset if len(v.e_in()) == 0]
+        if roots is None or len(roots) == 0:
+            roots = guessed_roots
         else:
+            # the given roots might be leaves and the layering assignmnent goes downstream
+            # so we need the flip edges pointing to the given roots
             for r in roots:
-                if len(self.g.verticesPoset.get(r).e_in())>0:
+                if len(self.g.verticesPoset.get(r).e_in()) > 0:
                     for e in self.g.verticesPoset.get(r).e_in():
-                        root_inverted_edges.append(e)
+                        root_inverted_edges.add(e)
+            # in addition, the actual guessed roots can only be reached via the downflow if we flip the incoming edges on them
+            for r in guessed_roots:
+                if r in roots:
+                    continue
+                for e in self.g.verticesPoset.get(r).e_out():
+                    if e in root_inverted_edges:
+                        break
+                    # if has been flipped above, don't do it twice
+                    if e.v[1] not in roots:
+                        root_inverted_edges.add(e)
+                        break
         if inverted_edges is None:
             _ = self.g.get_scs_with_feedback(roots)
-            inverted_edges = [x for x in self.g.edgesPoset if x.feedback]
-        self.inverted_edges = inverted_edges + root_inverted_edges
+            collect_inverted_edges = {x for x in self.g.edgesPoset if x.feedback}
+        else:
+            collect_inverted_edges = set(inverted_edges)
+        collect_inverted_edges.update(root_inverted_edges)
+        self.inverted_edges = list(collect_inverted_edges)
 
         self._layer_all(roots, optimize)
         # add dummy vertex/edge for 'long' edges:
@@ -170,6 +188,7 @@ class SugiyamaLayout(object):
         :param     topological_coordinates: whether to use coordinates with the x-values in the [0,1] range and the y-value equal to the layer index.
         :param     include_levels: whether the tree-level is included together with the coordinates. If so, you get a triple (x,y,level).
         :param     roots: optional list of roots.
+
         **Returns**
             a dictionary of positions.
 
@@ -296,16 +315,20 @@ class SugiyamaLayout(object):
         return vertex_roots
 
     def _edge_inverter(self):
+        """
+            Inverts the edges from the `inverted_edges` set.
+            Usually this method is called before and after some change to ensure that the cycles don't create issues.
+        """
         for e in self.inverted_edges:
             x, y = e.v
             e.v = (y, x)
         self.dag = not self.dag
         if self.dag:
-            for e in self.g.degenerated_edges:
+            for e in self.g.loops:
                 e.detach()
                 self.g.edgesPoset.remove(e)
         else:
-            for e in self.g.degenerated_edges:
+            for e in self.g.loops:
                 self.g.add_edge(e)
 
     def _layer_all(self, roots, optimize = False):
@@ -315,7 +338,7 @@ class SugiyamaLayout(object):
         """
         self._edge_inverter()
         r = [x for x in self.g.verticesPoset if (len(x.e_in()) == 0 and x not in roots)]
-        self._layer_init(roots + r)
+        self._layer_init(roots)
         # self._layer_init(roots)
         if optimize:
             self._layer_optimization()
@@ -367,7 +390,7 @@ class SugiyamaLayout(object):
            The Layer is created if it is the first vertex with this layer.
         """
         assert self.dag
-        r = max([float("-inf") if self.layoutVertices[x].layer is None else  self.layoutVertices[x].layer for x in v.neighbors(-1)] + [-1]) + 1
+        r = max([float("-inf") if self.layoutVertices[x].layer is None else self.layoutVertices[x].layer for x in v.neighbors(-1)] + [-1]) + 1
         self.layoutVertices[v].layer = r
         # add it to its layer:
         try:
@@ -400,7 +423,7 @@ class SugiyamaLayout(object):
             Creates and defines all dummy vertices for edge e.
         """
         source, target = e.v
-        r0, r1 = self.layoutVertices[source].layer  , self.layoutVertices[target].layer
+        r0, r1 = self.layoutVertices[source].layer, self.layoutVertices[target].layer
         if r0 > r1:
             assert e in self.inverted_edges
             source, target = target, source

@@ -1,4 +1,3 @@
-
 from .edgeBase import EdgeBase
 
 
@@ -76,3 +75,6 @@ class Edge(EdgeBase):
         xi, yi, self.w, self.data, self.feedback = state
         self._v = [xi, yi]
         self.degree = 0 if xi == yi else 1
+
+    def __str__(self):
+        return f"""{self.v[0].data}->{self.v[1].data}"""
