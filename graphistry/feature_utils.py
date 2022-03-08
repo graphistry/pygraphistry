@@ -819,12 +819,14 @@ def prune_weighted_edges_df_and_relabel_nodes(
     """
     # we want to prune edges, so we calculate some statistics
     desc = wdf.describe()
+    eps = 1e-3
+
     mean = desc[config.WEIGHT]["mean"]
     std = desc[config.WEIGHT]["std"]
-    max_val = desc[config.WEIGHT]["max"]
-    min_val = desc[config.WEIGHT]["min"]
-    eps = 1e-3
-    thresh = np.max([max_val - eps - scale * std, min_val])
+    max_val = desc[config.WEIGHT]["max"]+eps
+    min_val = desc[config.WEIGHT]["min"]-eps
+    thresh = np.max([max_val - scale, min_val]) # if std =0 we add eps so we still have scale in the equation
+    
     logger.info(
         f"edge weights: mean({mean:.2f}), std({std:.2f}), max({max_val}), min({min_val:.2f}), thresh({thresh:.2f})"
     )
@@ -866,10 +868,10 @@ def add_implicit_node_identifier(res):
 
 class FeatureMixin(ComputeMixin, UMAPMixin):
     """
-    FeatureMixin for automatic featurization of nodes and edges DataFrames.
-    Subclasses UMAPMixin for umap-ing of automatic features.
-
-    TODO: add example usage doc
+        FeatureMixin for automatic featurization of nodes and edges DataFrames.
+        Subclasses UMAPMixin for umap-ing of automatic features.
+    
+        TODO: add example usage doc
     """
 
     def __init__(self, *args, **kwargs):
