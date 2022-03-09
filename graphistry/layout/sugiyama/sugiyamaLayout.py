@@ -122,36 +122,42 @@ class SugiyamaLayout(object):
         if self.init_done:
             return
         collect_inverted_edges = {}
+
         root_inverted_edges = set()
         # guessed roots are vertices without parents
         guessed_roots = [v for v in self.g.verticesPoset if len(v.e_in()) == 0]
         if roots is None or len(roots) == 0:
             roots = guessed_roots
-        else:
-            # the given roots might be leaves and the layering assignmnent goes downstream
-            # so we need the flip edges pointing to the given roots
-            for r in roots:
-                if len(self.g.verticesPoset.get(r).e_in()) > 0:
-                    for e in self.g.verticesPoset.get(r).e_in():
-                        root_inverted_edges.add(e)
-            # in addition, the actual guessed roots can only be reached via the downflow if we flip the incoming edges on them
-            for r in guessed_roots:
-                if r in roots:
-                    continue
-                for e in self.g.verticesPoset.get(r).e_out():
-                    if e in root_inverted_edges:
-                        break
-                    # if has been flipped above, don't do it twice
-                    if e.v[1] not in roots:
-                        root_inverted_edges.add(e)
-                        break
+        # else:
+        #     # the given roots might be leaves and the layering assignmnent goes downstream
+        #     # so we need the flip edges pointing to the given roots
+        #     for r in roots:
+        #         if len(self.g.verticesPoset.get(r).e_in()) > 0:
+        #             for e in self.g.verticesPoset.get(r).e_in():
+        #                 root_inverted_edges.add(e)
+        #     # in addition, the actual guessed roots can only be reached via the downflow if we flip the incoming edges on them
+        #     for r in guessed_roots:
+        #         if r in roots:
+        #             continue
+        #         # if at least one edge to this root has already been flipped we're good
+        #         found_one = [e for e in self.g.verticesPoset.get(r).e_out() if e in root_inverted_edges]
+        #         if len(found_one) == 0:
+        #             root_inverted_edges.add(self.g.verticesPoset.get(r).e_out()[0])
+
+        # self.inverted_edges = root_inverted_edges
+        # self._edge_inverter()
+        # _ = self.g.get_scs_with_feedback(roots)
+        # feedback_set = {x for x in self.g.edgesPoset if x.feedback}
+        # self._edge_inverter()
+        #
+        # collect_inverted_edges = set(inverted_edges or {})
+        # collect_inverted_edges.update(root_inverted_edges, feedback_set)
+        # self.inverted_edges = list(collect_inverted_edges)
+
         if inverted_edges is None:
             _ = self.g.get_scs_with_feedback(roots)
-            collect_inverted_edges = {x for x in self.g.edgesPoset if x.feedback}
-        else:
-            collect_inverted_edges = set(inverted_edges)
-        collect_inverted_edges.update(root_inverted_edges)
-        self.inverted_edges = list(collect_inverted_edges)
+            inverted_edges = [x for x in self.g.edgesPoset if x.feedback]
+        self.inverted_edges = inverted_edges
 
         self._layer_all(roots, optimize)
         # add dummy vertex/edge for 'long' edges:
@@ -337,37 +343,64 @@ class SugiyamaLayout(object):
         The initial layer is based on precedence relationships, optimal ranking may be derived from network flow (simplex).
         """
         self._edge_inverter()
-        r = [x for x in self.g.verticesPoset if (len(x.e_in()) == 0 and x not in roots)]
         self._layer_init(roots)
-        # self._layer_init(roots)
+        # if custom roots are given we need to deal with the actual roots
+        # self.fix_roots(roots)
+
         if optimize:
             self._layer_optimization()
         self._edge_inverter()
 
-    def _layer_init(self, unranked):
+    def fix_roots(self, roots):
+        remaining_roots = [x for x in self.g.verticesPoset if (len(x.e_in()) == 0 and x not in roots)]
+        for r in remaining_roots:
+            # in this case we take the layer closest to the roots
+            # however, since we go via the parents it means that they also might not have a layer assigned yet
+            nearest, offset = self.find_nearest_layer(r)
+
+            self._layer_init([r], offset)
+
+    def _layer_init(self, vertices, offset = 0):
         """
         Computes layer of provided unranked list of vertices and all their children.
         A vertex will be assigned a layer when all its inward edges have been scanned.
         When a vertex is assigned a layer, its outward edges are marked scanned.
 
-        :param unranked: List of unassigned layer vertices
+        :param vertices: List of unassigned layer vertices
         """
         assert self.dag
-        scanned = {}
+        seen = set()
+
         # set layer of unranked based on its in-edges vertices ranks:
-        while len(unranked) > 0:
-            coll = []
-            for v in unranked:
-                self._set_layer(v)
-                # mark out-edges has scan-able:
-                for e in v.e_out():
-                    scanned[e] = True
-                # check if out-vertices are layer-able:
-                for x in v.neighbors(+1):
-                    if not (False in [scanned.get(e, False) for e in x.e_in()]):
-                        if x not in coll:
-                            coll.append(x)
-            unranked = coll
+        # while len(vertices) > 0:
+        #     coll = []
+        #     for v in vertices:
+        #         self._set_layer(v)
+        #         # mark out-edges as scanned:
+        #         for e in v.e_out():
+        #             should_visit[e] = True
+        #         # check if out-vertices are layer-able:
+        #         for x in v.neighbors(+1):
+        #             # if no edge leads to this neighbor we add it to the collection
+        #             if not (False in [should_visit.get(e, False) for e in x.e_in()]):
+        #                 if x not in coll:
+        #                     coll.append(x)
+        #     vertices = coll
+        def visit(node, backwards = False):
+            self._set_layer(node, backwards)
+            seen.add(node)
+
+            children = node.neighbors(+1)
+            for child in children:
+                if child not in seen:
+                    visit(child)
+            parents = node.neighbors(-1)
+            for parent in parents:
+                if parent not in seen:
+                    visit(parent, True)
+
+        for v in vertices:
+            visit(v)
 
     def _layer_optimization(self):
         """
@@ -384,20 +417,48 @@ class SugiyamaLayout(object):
                         gx.layer = gv.layer - 1
                         self.layers[gv.layer - 1].append(x)
 
-    def _set_layer(self, v):
+    def _set_layer(self, v, backwards = False):
         """
             Sets layer value for vertex v and add it to the corresponding layer.
            The Layer is created if it is the first vertex with this layer.
         """
         assert self.dag
-        r = max([float("-inf") if self.layoutVertices[x].layer is None else self.layoutVertices[x].layer for x in v.neighbors(-1)] + [-1]) + 1
+        if not self.layoutVertices[v].layer is None:
+            # layer has been set before
+            return
+        if backwards:
+            r = min([self.layoutVertices[x].layer for x in v.neighbors(+1) if self.layoutVertices[x].layer is not None]) + 1
+        else:
+            r = max([float("-inf") if self.layoutVertices[x].layer is None else self.layoutVertices[x].layer for x in v.neighbors(-1)] + [-1]) + 1
+
         self.layoutVertices[v].layer = r
         # add it to its layer:
         try:
+            if len(self.layers) < r + 1:
+                for i in range(r + 1 - len(self.layers)):
+                    self.layers.append(Layer([]))
             self.layers[r].append(v)
         except IndexError:
-            assert r == len(self.layers)
+            # assert r == len(self.layers)
             self.layers.append(Layer([v]))
+
+    def find_nearest_layer(self, start_vertex):
+        visited = []
+        queue = []
+
+        visited.append(start_vertex)
+        queue.append([start_vertex, 0])
+
+        while queue:
+            s, level = queue.pop(0)
+            if self.layoutVertices[s].layer is not None:
+                return s, level
+
+            for neighbour in s.neighbors(0):
+                if neighbour not in visited:
+                    visited.append(neighbour)
+                    queue.append([neighbour, level + 1])
+        return None, None
 
     def dummyctrl(self, r, control_vertices):
         """
@@ -425,7 +486,7 @@ class SugiyamaLayout(object):
         source, target = e.v
         r0, r1 = self.layoutVertices[source].layer, self.layoutVertices[target].layer
         if r0 > r1:
-            assert e in self.inverted_edges
+            # assert e in self.inverted_edges
             source, target = target, source
             r0, r1 = r1, r0
         if (r1 - r0) > 1:

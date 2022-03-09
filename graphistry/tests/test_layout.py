@@ -314,6 +314,11 @@ class TestLayout(unittest.TestCase):
         assert [v.data for v in scs[1]] == ['c', 'd', 'h']
         assert [v.data for v in scs[2]] == ['a', 'b', 'e']
 
+        g = create_graph_from_arrays(["0", "1", "2"], ["01", "12", "20"])
+        r = g.get_vertex_from_data("2")
+        found = g.components[0].get_scs_with_feedback(roots = [r])
+        assert len([e for e in g.components[0].edges() if e.feedback]) == 1
+
     def test_Matrix(self):
         vertices, edges = self.sample_graph1()
         g = Graph(vertices, edges, directed = True)
@@ -636,3 +641,49 @@ class TestLayout(unittest.TestCase):
 
         vr = SugiyamaLayout.ensure_roots_are_vertices(g, [])
         assert vr == []
+
+    def test_root_fixing(self):
+        # # the 5->2 edge is upstream and turns 5 into a root but we give an explicit root
+        # g = create_graph_from_arrays(["0", "1", "2", "3", "4", "5", "6"], ["01", "02", "13", "14", "52", "26"])
+        # r = g.get_vertex_from_data("0")
+        # component = g.components[0]
+        # sug = SugiyamaLayout(component)
+        # sug.dag = True
+        # sug._layer_init([r])
+        # sug.fix_roots([r])
+        # found = {i: {v.data for v in layer} for i, layer in enumerate(sug.layers)}
+        # assert found == {
+        #     0: {'0'},
+        #     1: {'1', '2'},
+        #     2: {'3', '4', '6', '5'}
+        # }
+
+        # # in this case 0 is a sink for the whole graph but we can nevertheless give it as a root
+        # g = create_graph_from_arrays(["0", "1", "2", "3", "4", "5", "6"], ["10", "20", "31", "41", "52", "62"])
+        # r = g.get_vertex_from_data("0")
+        # component = g.components[0]
+        # sug = SugiyamaLayout(component)
+        # sug.dag = True
+        # sug._layer_init([r])
+        # # sug.fix_roots([r])
+        # found = {i: {v.data for v in layer} for i, layer in enumerate(sug.layers)}
+        # assert found == {
+        #     0: {'0'},
+        #     1: {'1', '2'},
+        #     2: {'3', '4', '6', '5'}
+        # }
+
+        # in this case 5 is a leaf
+        g = create_graph_from_arrays(["0", "1", "2", "3", "4", "5", "6"], ["01", "02", "13", "14", "25", "26"])
+        r = g.get_vertex_from_data("5")
+        component = g.components[0]
+        sug = SugiyamaLayout(component)
+        pos = SugiyamaLayout.arrange(g, roots = [r])
+        print(pos)
+        found = {i: {v.data for v in layer} for i, layer in enumerate(sug.layers)}
+        # assert found == {
+        #     0: {'0'},
+        #     1: {'1', '2'},
+        #     2: {'3', '4', '6', '5'}
+        # }
+        print(found)

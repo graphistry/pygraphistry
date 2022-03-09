@@ -297,6 +297,13 @@ class GraphBase(object):
         return dic
 
     def get_scs_with_feedback(self, roots = None):
+        """
+            Minimum FAS algorithm (feedback arc set) creating a DAG.
+
+        :param roots:
+        :return:
+        """
+
         from sys import getrecursionlimit, setrecursionlimit
         from .vertex import Vertex
 
@@ -330,7 +337,7 @@ class GraphBase(object):
         if roots is None:
             roots = self.roots()
         self.stack = []
-        scs = []
+        flipped_edges = []
         Vertex.ncur = 1
         for v in self.verticesPoset:
             v.ind = 0
@@ -338,11 +345,11 @@ class GraphBase(object):
         for v in roots:
             v = self.verticesPoset.get(v)
             if v.ind == 0:
-                visitor(v, scs)
+                visitor(v, flipped_edges)
         # now possibly unvisited vertices:
         for v in self.verticesPoset:
             if v.ind == 0:
-                visitor(v, scs)
+                visitor(v, flipped_edges)
         # clean up Tarjan-specific data:
         for v in self.verticesPoset:
             del v.ind
@@ -351,7 +358,7 @@ class GraphBase(object):
         del Vertex.ncur
         del self.stack
         setrecursionlimit(limit)
-        return scs
+        return flipped_edges
 
     def partition(self):
         vertices = self.verticesPoset.copy()
@@ -434,3 +441,19 @@ class GraphBase(object):
             e.v = [vertices[x] for x in e._v]
             del e._v
         GraphBase.__init__(self, vertices, edges, directed)
+
+    def dft(self, start_vertex = None):
+        result = []
+
+        if start_vertex is None:
+            start_vertex = next(self.vertices())
+
+        def recursive_helper(node):
+            result.append(node)
+            children = [e.v[1] for e in node.e_out()]
+            for child in children:
+                if child not in result:
+                    recursive_helper(child)
+
+        recursive_helper(start_vertex)
+        return result

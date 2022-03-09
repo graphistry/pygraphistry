@@ -22,6 +22,7 @@ class LayoutVertex(object):
         self.pos = None
         self.x = 0
         self.bar = None
+        self.nvs = None
 
     def __str__(self):
         s = "(%3d,%3d) x=%s" % (self.layer, self.pos, str(self.x))

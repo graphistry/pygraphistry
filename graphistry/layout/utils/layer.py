@@ -114,24 +114,33 @@ class Layer(list):
         upper or lower layer (depending on layout.dirv state).
         """
         assert self.layout.dag
-        dirv = self.layout.dirv
-        grxv = self.layout.layoutVertices[v]
-        try:  # (cache)
-            return grxv.nvs[dirv]
-        except AttributeError:
-            grxv.nvs = {-1: v.neighbors(-1), +1: v.neighbors(+1)}
-            if grxv.dummy:
-                return grxv.nvs[dirv]
-            # v is real, v.neighbors are graph neigbors but we need layers neighbors
-            for d in (-1, +1):
-                tr = grxv.layer + d
-                for i, x in enumerate(v.neighbors(d)):
-                    if self.layout.layoutVertices[x].layer == tr:
-                        continue
-                    e = v.e_with(x)
-                    dum = self.layout.ctrls[e][tr]
-                    grxv.nvs[d][i] = dum
-            return grxv.nvs[dirv]
+        direction = self.layout.dirv
+        layout_vertex = self.layout.layoutVertices[v]
+        layer_index = layout_vertex.layer
+        if layout_vertex.nvs is not None and direction in layout_vertex.nvs:
+            return layout_vertex.nvs[direction]
+        else:
+            above = [u for u in v.neighbors(0) if self.layout.layoutVertices[u].layer == layer_index - 1]
+            below = [u for u in v.neighbors(0) if self.layout.layoutVertices[u].layer == layer_index + 1]
+            layout_vertex.nvs = {-1: above, +1: below}
+            # if layout_vertex.dummy:
+            return layout_vertex.nvs[direction]
+        # try:
+        #     return layout_vertex.nvs[direction]
+        # except AttributeError:
+        #     layout_vertex.nvs = {-1: v.neighbors(-1), +1: v.neighbors(+1)}
+        #     if layout_vertex.dummy:
+        #         return layout_vertex.nvs[direction]
+        #     # v is real, v.neighbors are graph neigbors but we need layers neighbors
+        #     for d in (-1, +1):
+        #         tr = layout_vertex.layer + d
+        #         for i, x in enumerate(v.neighbors(d)):
+        #             if self.layout.layoutVertices[x].layer == tr:
+        #                 continue
+        #             e = v.e_with(x)
+        #             dum = self.layout.ctrls[e][tr]
+        #             layout_vertex.nvs[d][i] = dum
+        #     return layout_vertex.nvs[direction]
 
     def _crossings(self):
         """

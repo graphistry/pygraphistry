@@ -21,7 +21,7 @@ class DummyVertex(LayoutVertex):
             Reflect the Vertex method and returns the list of adjacent vertices (possibly dummy) in the given direction.
             :param direction: +1 for the next layer (children) and -1 (parents) for the previous
         """
-        assert direction == +1 or direction == -1
+        # assert direction == +1 or direction == -1
         assert isinstance(self.layer, int)
         v = self.control_vertices.get(int(self.layer) + direction)
         return [v] if v is not None else []
