@@ -180,7 +180,7 @@ class TestLayout(unittest.TestCase):
             edges.append(Edge(vertices[e[0]], vertices[e[1]]))
         g = Graph(vertices.values(), edges)
         layout = SugiyamaLayout(g.components[0])
-        layout.init_all()
+        layout.initialize()
         assert len(layout.inverted_edges) == 1
         assert layout.inverted_edges[0] == edges[4]
         assert layout.layoutVertices[vertices['e']].layer == 4
@@ -327,46 +327,8 @@ class TestLayout(unittest.TestCase):
         m = np.array(g.matrix())
         assert (m + m.T).sum() == 0
 
-    def test_splines(self):
-        gr = GraphBase(*self.sample_graph3())
-        for v in gr.vertices():
-            v.view = Rectangle(10, 10)
-        sug = SugiyamaLayout(gr)
-        sug.init_all(roots = [gr.verticesPoset[0]])
-        i = 0
-        for s in sug.draw_step():
-            print('--- step %d ' % i + '-' * 20)
-            for v, x in sug.layoutVertices.items():
-                print(x, v.view.xy)
-            i += 1
-        for e in gr.edges():
-            e.view = EdgeViewer()
-        sug.route_edge = route_with_splines
-        sug.layout_edges()
-        for e in sug.g.edges():
-            print('edge (%s -> %s) :' % e.v)
-            print(e.view._pts)
-            print(e.view.splines)
 
-    def test_rounded_corners(self):
-        gr = GraphBase(*self.sample_graph3())
-        for v in gr.vertices():
-            v.view = Rectangle(10, 10)
-        sug = SugiyamaLayout(gr)
-        sug.init_all(roots = [gr.verticesPoset[0]], inverted_edges = [])
-        i = 0
-        for s in sug.draw_step():
-            print('--- step %d ' % i + '-' * 20)
-            for v, x in sug.layoutVertices.items():
-                print(x, v.view.xy)
-            i += 1
-        for e in gr.edges():
-            e.view = EdgeViewer()
-        sug.route_edge = route_with_rounded_corners
-        sug.layout_edges()
-        for e in sug.g.edges():
-            print('edge (%s -> %s) :' % e.v)
-            print(e.view._pts)
+
 
     @staticmethod
     def get_layer_data(layout):
@@ -383,7 +345,7 @@ class TestLayout(unittest.TestCase):
         gr, data_to_vertex = create_scenario()
         sug = SugiyamaLayout(gr)
         sug.route_edge = route_with_rounded_corners
-        sug.init_all()
+        sug.initialize()
         # layer 0: v4      v0
         #          \     / |
         # layer 1:   \   v1 |
@@ -415,7 +377,7 @@ class TestLayout(unittest.TestCase):
             4: [data_to_vertex['v3']],
         }
         sug.init_ranking(rank_to_data)
-        sug.init_all()
+        sug.initialize()
         # layer 0: v4      v0
         #          \     / |
         # layer 1:   \   v1 |
@@ -462,7 +424,7 @@ class TestLayout(unittest.TestCase):
         }
         try:
             sug.init_ranking(rank_to_data)
-            sug.init_all()
+            sug.initialize()
         except ValueError as e:
             assert e.message == 'bad ranking'
 
@@ -594,7 +556,7 @@ class TestLayout(unittest.TestCase):
         lg = LGFull()
         g = (lg
              .edges(pd.DataFrame({'s': ['a', 'a', 'd'], 'd': ['b', 'c', 'c']}), 's', 'd')
-             .tree_layout(allow_cycles = True, level_align = 'center', width = 100, height = 100, roots = ["b"]))
+             .tree_layout(allow_cycles = True, level_align = 'center', width = 100, height = 100, root = "b"))
         assert g._nodes.to_dict(orient = 'records') == [
             {'id': 'a', 'level': 1, 'x': 0.0, 'y': 200},
             {'id': 'd', 'level': 3, 'x': 0.0, 'y': 0},
@@ -635,12 +597,12 @@ class TestLayout(unittest.TestCase):
 
     def test_ensure_roots(self):
         g = create_graph_from_arrays(["1", "2", "3"], ["12", "23"])
-        vr = SugiyamaLayout.ensure_roots_are_vertices(g, ["2", "5"])
-        assert len(vr) == 1
-        assert vr[0].data == "2"
+        found = SugiyamaLayout.ensure_root_is_vertex(g, "2")
+        assert found is not None
+        assert found.data == "2"
 
-        vr = SugiyamaLayout.ensure_roots_are_vertices(g, [])
-        assert vr == []
+        found = SugiyamaLayout.ensure_root_is_vertex(g, [])
+        assert found is None
 
     def test_root_fixing(self):
         # # the 5->2 edge is upstream and turns 5 into a root but we give an explicit root
@@ -678,7 +640,7 @@ class TestLayout(unittest.TestCase):
         r = g.get_vertex_from_data("5")
         component = g.components[0]
         sug = SugiyamaLayout(component)
-        pos = SugiyamaLayout.arrange(g, roots = [r])
+        pos = SugiyamaLayout.arrange(g, root = r)
         print(pos)
         found = {i: {v.data for v in layer} for i, layer in enumerate(sug.layers)}
         # assert found == {
@@ -687,3 +649,30 @@ class TestLayout(unittest.TestCase):
         #     2: {'3', '4', '6', '5'}
         # }
         print(found)
+
+    def test_kaons(self):
+        g = Graph()
+
+        bosons = Vertex("Boson")
+        higgs = Vertex("Higgs")
+        pions = Vertex("Pions")
+        kaons = Vertex("Kaons")
+        hadrons = Vertex("Hadrons")
+
+        # e1 = Edge(bosons, higgs)
+        e2 = Edge(bosons, kaons)
+        e3 = Edge(bosons, pions)
+        e4 = Edge(pions, hadrons)
+        e5 = Edge(kaons, hadrons)
+
+        g.add_edges([e2, e3, e4, e5])
+
+        component = g.components[0]
+        sug = SugiyamaLayout(component)
+        pos = SugiyamaLayout.arrange(g, root = bosons)
+
+    def test_fork(self):
+        g = create_graph_from_arrays(["0", "1", "2", "3", "4"], ["10", "20", "30", "04"])
+        component = g.components[0]
+        sug = SugiyamaLayout(component)
+        pos = SugiyamaLayout.arrange(g, root = None)

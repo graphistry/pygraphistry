@@ -34,7 +34,7 @@ class SugiyamaLayout(object):
         - layoutVertices (dict): associate vertex (possibly dummy) with their sugiyama attributes
         - ctrls (dict): associate edge with all its vertices (including dummies)
         - dag (bool): the current acyclic state
-        - init_done (bool): True if state is initialized (see init_all).
+        - init_done (bool): True if things were initialized
 
     **Example**
 
@@ -87,6 +87,7 @@ class SugiyamaLayout(object):
         self.dirvh = dirvh
 
     def __init__(self, g: GraphBase):
+        self.inverted_edges = None
         self.dirvh = 0
         self.order_iter = 8
         self.order_attr = "pos"
@@ -108,64 +109,43 @@ class SugiyamaLayout(object):
         self.dw, self.dh = size_median([v.view for v in self.g.vertices()])
         self.init_done = False
 
-    def init_all(self, roots = None, inverted_edges = None, optimize = False):
+    def initialize(self, root = None):
         """
-            Initializes the layout algorithm by computing roots (unless provided),
-            inverted edges (unless provided), vertices ranks and creates all dummy
-            vertices and layers.
+            Initializes the layout algorithm.
              
              Parameters:
-                - roots (list[Vertex]): set *root* vertices (layer 0)
-                - inverted_edges (list[Edge]): set edges to invert to have a DAG.
-                - optimize (bool): optimize ranking if True (default False)
+                - root (Vertex): a vertex to be used as root
         """
         if self.init_done:
             return
-        collect_inverted_edges = {}
 
-        root_inverted_edges = set()
         # guessed roots are vertices without parents
-        guessed_roots = [v for v in self.g.verticesPoset if len(v.e_in()) == 0]
-        if roots is None or len(roots) == 0:
-            roots = guessed_roots
-        # else:
-        #     # the given roots might be leaves and the layering assignmnent goes downstream
-        #     # so we need the flip edges pointing to the given roots
-        #     for r in roots:
-        #         if len(self.g.verticesPoset.get(r).e_in()) > 0:
-        #             for e in self.g.verticesPoset.get(r).e_in():
-        #                 root_inverted_edges.add(e)
-        #     # in addition, the actual guessed roots can only be reached via the downflow if we flip the incoming edges on them
-        #     for r in guessed_roots:
-        #         if r in roots:
-        #             continue
-        #         # if at least one edge to this root has already been flipped we're good
-        #         found_one = [e for e in self.g.verticesPoset.get(r).e_out() if e in root_inverted_edges]
-        #         if len(found_one) == 0:
-        #             root_inverted_edges.add(self.g.verticesPoset.get(r).e_out()[0])
+        no_parent_vertices = [v for v in self.g.verticesPoset if len(v.e_in()) == 0]
+        if root is None:
+            roots = no_parent_vertices
+        else:
+            found = SugiyamaLayout.ensure_root_is_vertex(self.g, root)
+            if found is not None:
+                roots = [found]
+            else:
+                roots = no_parent_vertices
 
-        # self.inverted_edges = root_inverted_edges
-        # self._edge_inverter()
-        # _ = self.g.get_scs_with_feedback(roots)
-        # feedback_set = {x for x in self.g.edgesPoset if x.feedback}
-        # self._edge_inverter()
-        #
-        # collect_inverted_edges = set(inverted_edges or {})
-        # collect_inverted_edges.update(root_inverted_edges, feedback_set)
-        # self.inverted_edges = list(collect_inverted_edges)
-
-        if inverted_edges is None:
-            _ = self.g.get_scs_with_feedback(roots)
-            inverted_edges = [x for x in self.g.edgesPoset if x.feedback]
+        # make the graph acyclic through the FAS algorithm
+        _ = self.g.get_scs_with_feedback(roots)
+        inverted_edges = [x for x in self.g.edgesPoset if x.feedback]
         self.inverted_edges = inverted_edges
 
-        self._layer_all(roots, optimize)
+        self._layer_all(roots)
+
         # add dummy vertex/edge for 'long' edges:
         for e in self.g.edges():
             self.create_dummies(e)
+
         # precompute some layers values:
         for layer in self.layers:
             layer.setup(self)
+
+        # do this only once
         self.init_done = True
 
     @staticmethod
@@ -176,7 +156,7 @@ class SugiyamaLayout(object):
             target_column = "target",
             layout_direction = 0,
             topological_coordinates = False,
-            roots = None,
+            root = None,
             include_levels = False):
         """
         Returns the positions from a Sugiyama layout iteration.
@@ -193,7 +173,7 @@ class SugiyamaLayout(object):
         :param     target_column: if a Pandas frame is given, the name of the column with the target of the edges
         :param     topological_coordinates: whether to use coordinates with the x-values in the [0,1] range and the y-value equal to the layer index.
         :param     include_levels: whether the tree-level is included together with the coordinates. If so, you get a triple (x,y,level).
-        :param     roots: optional list of roots.
+        :param     root: optional list of roots.
 
         **Returns**
             a dictionary of positions.
@@ -210,9 +190,9 @@ class SugiyamaLayout(object):
             v.view = Rectangle()
 
         sug = SugiyamaLayout(gg.components[0])
-        root_vertices = SugiyamaLayout.ensure_roots_are_vertices(gg, roots)
+        root_vertices = SugiyamaLayout.ensure_root_is_vertex(gg, root)
 
-        sug.init_all(roots = root_vertices)
+        sug.initialize(root = root_vertices)
         sug.layout(iteration_count, topological_coordinates = topological_coordinates, layout_direction = layout_direction)
 
         positions = SugiyamaLayout._get_positions(sug, gg.components[0].verticesPoset, layout_direction, topological_coordinates = topological_coordinates, include_levels = include_levels)
@@ -297,28 +277,25 @@ class SugiyamaLayout(object):
         self.layout_edges()
 
     @staticmethod
-    def ensure_roots_are_vertices(g: Graph, roots: list):
+    def ensure_root_is_vertex(g: Graph, root: object):
         """
             Turns the given list of roots (names or data) to actual vertices in the given graph.
 
         :param g: the graph wherein the given roots names are supposed to be
-        :param roots: a list of roots
+        :param root: the data or the vertex
         :return: the list of vertices to use as roots
         """
-        if roots is None:
-            return []
-        if not isinstance(roots, list):
-            raise TypeError
-        if len(roots) == 0:
-            return []
+        if root is None:
+            return None
+        if isinstance(root, Vertex):
+            return root
 
-        # we will simply ignore the given roots not corresponding to any vertices
-        vertex_roots = []
-        for u in roots:
-            found = g.get_vertex_from_data(u)
-            if found is not None:
-                vertex_roots.append(found)
-        return vertex_roots
+        # we will simply ignore the given root not corresponding to any vertices
+        found = g.get_vertex_from_data(root)
+        if found is not None:
+            return found
+        else:
+            return None
 
     def _edge_inverter(self):
         """
@@ -351,16 +328,7 @@ class SugiyamaLayout(object):
             self._layer_optimization()
         self._edge_inverter()
 
-    def fix_roots(self, roots):
-        remaining_roots = [x for x in self.g.verticesPoset if (len(x.e_in()) == 0 and x not in roots)]
-        for r in remaining_roots:
-            # in this case we take the layer closest to the roots
-            # however, since we go via the parents it means that they also might not have a layer assigned yet
-            nearest, offset = self.find_nearest_layer(r)
-
-            self._layer_init([r], offset)
-
-    def _layer_init(self, vertices, offset = 0):
+    def _layer_init(self, vertices):
         """
         Computes layer of provided unranked list of vertices and all their children.
         A vertex will be assigned a layer when all its inward edges have been scanned.
@@ -369,38 +337,54 @@ class SugiyamaLayout(object):
         :param vertices: List of unassigned layer vertices
         """
         assert self.dag
-        seen = set()
 
-        # set layer of unranked based on its in-edges vertices ranks:
-        # while len(vertices) > 0:
-        #     coll = []
-        #     for v in vertices:
-        #         self._set_layer(v)
-        #         # mark out-edges as scanned:
-        #         for e in v.e_out():
-        #             should_visit[e] = True
-        #         # check if out-vertices are layer-able:
-        #         for x in v.neighbors(+1):
-        #             # if no edge leads to this neighbor we add it to the collection
-        #             if not (False in [should_visit.get(e, False) for e in x.e_in()]):
-        #                 if x not in coll:
-        #                     coll.append(x)
-        #     vertices = coll
-        def visit(node, backwards = False):
-            self._set_layer(node, backwards)
-            seen.add(node)
+        def normal_visit(real_roots):
+            should_visit = {}
+            # set layer of unranked based on its in-edges vertices ranks:
+            while len(real_roots) > 0:
+                coll = []
+                for v in real_roots:
+                    self._set_layer(v)
+                    # mark out-edges as scanned:
+                    for e in v.e_out():
+                        should_visit[e] = True
+                    # check if out-vertices are layer-able:
+                    for x in v.neighbors(+1):
+                        # if no edge leads to this neighbor we add it to the collection
+                        if not (False in [should_visit.get(e, False) for e in x.e_in()]):
+                            if x not in coll:
+                                coll.append(x)
+                real_roots = coll
 
-            children = node.neighbors(+1)
-            for child in children:
-                if child not in seen:
-                    visit(child)
-            parents = node.neighbors(-1)
-            for parent in parents:
-                if parent not in seen:
-                    visit(parent, True)
+        def dft_visit(fake_root):
+            seen = set()
 
-        for v in vertices:
-            visit(v)
+            def visit(node, backwards = False):
+                self._set_layer(node, backwards)
+                seen.add(node)
+
+                children = node.neighbors(+1)
+                for child in children:
+                    if child not in seen:
+                        visit(child)
+                parents = node.neighbors(-1)
+                for parent in parents:
+                    if parent not in seen:
+                        visit(parent, True)
+
+            visit(fake_root)
+
+        normal = []
+        dft = []
+        for vv in vertices:
+            if len(vv.e_in()) == 0:
+                normal.append(vv)
+            else:
+                dft.append(vv)
+        if len(normal) > 0:
+            normal_visit(normal)
+        for vv in dft:
+            dft_visit(vv)
 
     def _layer_optimization(self):
         """
