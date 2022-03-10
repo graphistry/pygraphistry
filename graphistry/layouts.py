@@ -39,11 +39,15 @@ class LayoutsMixin(MIXIN_BASE):
 
         x_col = g._point_x if g._point_x is not None else 'x'
         if self._point_x is None:
-            g = g.bind(point_x = x_col)
+            g = g.bind(point_x = x_col).layout_settings(
+                    play=0
+                )
 
         y_col = g._point_y if g._point_y is not None else 'y'
         if g._point_y is None:
-            g = g.bind(point_y = y_col)
+            g = g.bind(point_y = y_col).layout_settings(
+                    play=0
+                )
 
         # since the coordinates are topological
         if width is None:
@@ -56,7 +60,7 @@ class LayoutsMixin(MIXIN_BASE):
         # ============================================================
         if level_col is None:
             level_col = 'level'
-        g2 = self.materialize_nodes()
+        g2 = g.materialize_nodes()
         # check cycles
         if not allow_cycles:
             if SugiyamaLayout.has_cycles(g._edges, source_column = g2._source, target_column = g2._destination):
@@ -65,24 +69,20 @@ class LayoutsMixin(MIXIN_BASE):
         triples = SugiyamaLayout.arrange(g2._edges, topological_coordinates = True, source_column = g2._source, target_column = g2._destination, include_levels = True, root = root)
         g2._nodes[level_col] = [triples[id][2] for id in g2._nodes[g2._node]]
         g2._nodes[y_col] = [triples[id][1] * height for id in g2._nodes[g2._node]]
-        g3 = g2.bind(point_y=y_col).layout_settings(
-                    play=0
-                )
-        if (g3._nodes is None) or (len(g3._nodes) == 0):
-            return g3
+        
+        if (g2._nodes is None) or (len(g2._nodes) == 0):
+            return g2
         # ============================================================
         #  y-values
         # ============================================================
         if level_sort_values_by is not None:
-            g3 = g2.nodes(g3._nodes.sort_values(
+            g2 = g2.nodes(g2._nodes.sort_values(
                 by = level_sort_values_by,
                 ascending = level_sort_values_by_ascending))
 
-        g3._nodes[x_col] = [triples[id][0] * width for id in g3._nodes[g3._node]]
-        g4 = g3.bind(point_x=x_col).layout_settings(
-                    play=0
-                )
-        return g4
+        g2._nodes[x_col] = [triples[id][0] * width for id in g2._nodes[g2._node]]
+    
+        return g2
 
     def label_components(self):
         """
