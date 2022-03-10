@@ -65,18 +65,24 @@ class LayoutsMixin(MIXIN_BASE):
         triples = SugiyamaLayout.arrange(g2._edges, topological_coordinates = True, source_column = g2._source, target_column = g2._destination, include_levels = True, root = root)
         g2._nodes[level_col] = [triples[id][2] for id in g2._nodes[g2._node]]
         g2._nodes[y_col] = [triples[id][1] * height for id in g2._nodes[g2._node]]
-        if (g2._nodes is None) or (len(g2._nodes) == 0):
-            return g
+        g3 = g2.bind(point_y=y_col).layout_settings(
+                    play=0
+                )
+        if (g3._nodes is None) or (len(g3._nodes) == 0):
+            return g3
         # ============================================================
         #  y-values
         # ============================================================
         if level_sort_values_by is not None:
-            g2 = g2.nodes(g2._nodes.sort_values(
+            g3 = g2.nodes(g3._nodes.sort_values(
                 by = level_sort_values_by,
                 ascending = level_sort_values_by_ascending))
 
-        g2._nodes[x_col] = [triples[id][0] * width for id in g2._nodes[g2._node]]
-        return g2
+        g3._nodes[x_col] = [triples[id][0] * width for id in g3._nodes[g3._node]]
+        g4 = g3.bind(point_x=x_col).layout_settings(
+                    play=0
+                )
+        return g4
 
     def label_components(self):
         """
