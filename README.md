@@ -659,7 +659,7 @@ g2 = g.materialize_nodes()
 g2._nodes  # pd.DataFrame({'id': ['a', 'b', 'c']})
 ```
 
-***Compute degrees**
+**Compute degrees**:
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
 g2 = g.get_degree()
@@ -695,7 +695,7 @@ g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
 g.plot()
 ```
 
-**Removing nodes**
+**Removing nodes**:
 
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']}))
