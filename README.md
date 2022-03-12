@@ -289,30 +289,31 @@ Set visual attributes through [quick data bindings](https://hub.graphistry.com/d
       .bind(source='col_a', destination='col_b', node='col_c')
       .bind(
         point_color='col_a',
-      point_size='col_b',
-      point_title='col_c',
-      point_x='col_d',
-      point_y='col_e')
+        point_size='col_b',
+        point_title='col_c',
+        point_x='col_d',
+        point_y='col_e')
       .bind(
         edge_color='col_m',
-      edge_weight='col_n',
-      edge_title='col_o')
+        edge_weight='col_n',
+        edge_title='col_o')
       .encode_edge_color('timestamp', ["blue", "yellow", "red"], as_continuous=True)
       .encode_point_icon('device_type', categorical_mapping={'macbook': 'laptop', ...})
       .encode_point_badge('passport', 'TopRight', categorical_mapping={'Canada': 'flag-icon-ca', ...})
+      .encode_point_color('score', ['black', 'white'])
       .addStyle(bg={'color': 'red'}, fg={}, page={'title': 'My Graph'}, logo={})
       .settings(url_params={
         'play': 2000,
-      'menu': True, 'info': True,
-      'showArrows': True,
-      'pointSize': 2.0, 'edgeCurvature': 0.5,
-      'edgeOpacity': 1.0, 'pointOpacity': 1.0,
-      'lockedX': False, 'lockedY': False, 'lockedR': False,
-      'linLog': False, 'strongGravity': False, 'dissuadeHubs': False,
-      'edgeInfluence': 1.0, 'precisionVsSpeed': 1.0, 'gravity': 1.0, 'scalingRatio': 1.0,
-      'showLabels': True, 'showLabelOnHover': True,
-      'showPointsOfInterest': True, 'showPointsOfInterestLabel': True, 'showLabelPropertiesOnHover': True,
-      'pointsOfInterestMax': 5
+        'menu': True, 'info': True,
+        'showArrows': True,
+        'pointSize': 2.0, 'edgeCurvature': 0.5,
+        'edgeOpacity': 1.0, 'pointOpacity': 1.0,
+        'lockedX': False, 'lockedY': False, 'lockedR': False,
+        'linLog': False, 'strongGravity': False, 'dissuadeHubs': False,
+        'edgeInfluence': 1.0, 'precisionVsSpeed': 1.0, 'gravity': 1.0, 'scalingRatio': 1.0,
+        'showLabels': True, 'showLabelOnHover': True,
+        'showPointsOfInterest': True, 'showPointsOfInterestLabel': True, 'showLabelPropertiesOnHover': True,
+        'pointsOfInterestMax': 5
       })
       .plot()
   ```
@@ -553,14 +554,21 @@ For more in-depth examples, check out the tutorials on [colors](demos/more_examp
 You may want more controls like using gradients or maping specific values:
 
 ```python
+g.encode_edge_color('int_col')  # int32 or int64
 g.encode_edge_color('time_col', ["blue", "red"], as_continuous=True)
-g.encode_edge_color('type_col', ["#000", "#F00", "#F0F", "#0FF"], as_categorical=True)
+g.encode_edge_color('type', as_categorical=True,
+  categorical_mapping={"cat": "red", "sheep": "blue"}, default_mapping='#CCC') 
 g.encode_edge_color('brand',
   categorical_mapping={'toyota': 'red', 'ford': 'blue'},
   default_mapping='#CCC')
+g.encode_point_size('numeric_col')
 g.encode_point_size('criticality',
   categorical_mapping={'critical': 200, 'ok': 100},
   default_mapping=50)
+g.encode_point_color('int_col')  # int32 or int64
+g.encode_point_color('time_col', ["blue", "red"], as_continuous=True)
+g.encode_point_color('type', as_categorical=True,
+  categorical_mapping={"cat": "red", "sheep": "blue"}, default_mapping='#CCC') 
 ```
 
 For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb).
@@ -651,7 +659,7 @@ g2 = g.materialize_nodes()
 g2._nodes  # pd.DataFrame({'id': ['a', 'b', 'c']})
 ```
 
-***Compute degrees**
+**Compute degrees**:
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
 g2 = g.get_degree()
@@ -687,7 +695,7 @@ g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
 g.plot()
 ```
 
-**Removing nodes**
+**Removing nodes**:
 
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']}))
