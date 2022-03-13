@@ -11,6 +11,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
 
+## [0.21.0 - 2022-03-13]
+
+### Added
+
+* Better implementation of `.tree_layout(...)` using Sugiyama; good for small/medium DAGs
+* Layout rotation method `.rotate(degree)`
+* Compute method `.hops(nodes, hops, to_fixed_point, direction)`
+
+### Changed
+
+* Infra: `test-cpu-local-minimum.sh` accepts params
+
 ## [0.20.6 - 2022-03-12]
 
 ### Fixed

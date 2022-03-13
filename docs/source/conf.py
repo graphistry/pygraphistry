@@ -64,7 +64,9 @@ nitpick_ignore = [
     ('py:data', 'typing.List'),
     ('py:data', 'typing.Optional'),
     ('py:data', 'typing.Tuple'),
-    ('py:data', 'typing.Union')
+    ('py:data', 'typing.Union'),
+    ('py:class','pandas.core.frame.DataFrame')
+
 ]
 
 set_type_checking_flag=True
