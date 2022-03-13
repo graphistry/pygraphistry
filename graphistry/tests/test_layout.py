@@ -1,10 +1,11 @@
 from pickle import dumps, loads, HIGHEST_PROTOCOL
-import unittest, pytest
-import pandas as pd
-import numpy as np
-from graphistry.layout import Edge, Graph, Vertex, EdgeViewer, Layer, Rectangle, GraphBase, SugiyamaLayout, DummyVertex, route_with_splines, route_with_rounded_corners, Poset
+import numpy as np, pandas as pd, pytest, unittest
+#from graphistry.layout import Edge, Graph, Vertex, EdgeViewer, Layer, Rectangle, GraphBase, SugiyamaLayout, DummyVertex, route_with_splines, route_with_rounded_corners, Poset
 from graphistry.compute import ComputeMixin
 from graphistry.layouts import LayoutsMixin
+from graphistry.layout.graph import Edge, Graph, Vertex, GraphBase
+from graphistry.layout.sugiyama import SugiyamaLayout
+from graphistry.layout.utils import EdgeViewer, Layer, Rectangle, DummyVertex, route_with_rounded_corners, Poset 
 from graphistry.plotter import PlotterBase
 
 
@@ -128,6 +129,52 @@ def create_graph_from_arrays(vertices, edges) -> Graph:
     e = [Edge(dic[u[0]], dic[u[1]], data = u) for u in edges]
     return Graph(v, e)
 
+
+class TestLayoutRotation(unittest.TestCase):
+
+    def test_0(self):
+        """
+        Test the rotation of a graph with no rotation
+        """
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd'],
+            'x': [2, 0, -2, 0],
+            'y': [0, 2, 0, -2]
+        })
+        lg = LGFull().nodes(nodes_df, 'id').bind(point_x='x', point_y='y')
+        lg2 = lg.rotate(0)
+        assert np.isclose(lg2._nodes.x, [2.0, 0.0, -2.0, 0.0]).all()
+        assert np.isclose(lg2._nodes.y, [0.0, 2.0, 0.0, -2.0]).all()
+
+    def test_90(self):
+        """
+        Test the rotation of a graph with a 90 degree rotation
+        """
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd'],
+            'x': [2, 0, -2, 0],
+            'y': [0, 2, 0, -2]
+        })
+        lg = LGFull().nodes(nodes_df, 'id').bind(point_x='x', point_y='y')
+        lg2 = lg.rotate(90)
+        print('lg2', lg2._nodes.x, lg2._nodes.y)
+        assert np.isclose(lg2._nodes.x, [0.0, 2.0, 0.0, -2.0]).all()
+        assert np.isclose(lg2._nodes.y, [-2.0, 0.0, 2.0, 0.0]).all()
+
+    def test_negative_90(self):
+        """
+        Test the rotation of a graph with a -90 degree rotation
+        """
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd'],
+            'x': [2, 0, -2, 0],
+            'y': [0, 2, 0, -2]
+        })
+        lg = LGFull().nodes(nodes_df, 'id').bind(point_x='x', point_y='y')
+        lg2 = lg.rotate(-90)
+        print('lg2', lg2._nodes.x, lg2._nodes.y)
+        assert np.isclose(lg2._nodes.x, [0.0, -2.0, 0.0, 2.0]).all()
+        assert np.isclose(lg2._nodes.y, [2.0, 0.0, -2.0, 0.0]).all()
 
 class TestLayout(unittest.TestCase):
 
@@ -316,7 +363,8 @@ class TestLayout(unittest.TestCase):
 
         g = create_graph_from_arrays(["0", "1", "2"], ["01", "12", "20"])
         r = g.get_vertex_from_data("2")
-        found = g.components[0].get_scs_with_feedback(roots = [r])
+        #found = 
+        g.components[0].get_scs_with_feedback(roots = [r])
         assert len([e for e in g.components[0].edges() if e.feedback]) == 1
 
     def test_Matrix(self):
@@ -654,7 +702,8 @@ class TestLayout(unittest.TestCase):
         g = Graph()
 
         bosons = Vertex("Boson")
-        higgs = Vertex("Higgs")
+        #higgs = 
+        Vertex("Higgs")
         pions = Vertex("Pions")
         kaons = Vertex("Kaons")
         hadrons = Vertex("Hadrons")
@@ -668,11 +717,15 @@ class TestLayout(unittest.TestCase):
         g.add_edges([e2, e3, e4, e5])
 
         component = g.components[0]
-        sug = SugiyamaLayout(component)
-        pos = SugiyamaLayout.arrange(g, root = bosons)
+        #sug = 
+        SugiyamaLayout(component)
+        #pos = 
+        SugiyamaLayout.arrange(g, root = bosons)
 
     def test_fork(self):
         g = create_graph_from_arrays(["0", "1", "2", "3", "4"], ["10", "20", "30", "04"])
         component = g.components[0]
-        sug = SugiyamaLayout(component)
-        pos = SugiyamaLayout.arrange(g, root = None)
+        #sug = 
+        SugiyamaLayout(component)
+        #pos = 
+        SugiyamaLayout.arrange(g, root = None)

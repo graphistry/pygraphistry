@@ -3,11 +3,11 @@ from typing import Iterable
 import os, numpy as np, pandas as pd, pyarrow as pa, pytest, queue
 from common import NoAuthTestCase
 from concurrent.futures import Future
+from functools import lru_cache
 from mock import patch
 
 from graphistry.plotter import PlotterBase
 from graphistry.compute import ComputeMixin
-
 
 class CG(ComputeMixin):
     def __init__(self, *args, **kwargs):
@@ -20,6 +20,52 @@ class CGFull(ComputeMixin, PlotterBase, object):
         super(CGFull, self).__init__(*args, **kwargs)
         PlotterBase.__init__(self, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
+
+
+@lru_cache(maxsize=1)
+def hops_graph():
+    nodes_df = pd.DataFrame([
+        {'node': 'a'},
+        {'node': 'b'},
+        {'node': 'c'},
+        {'node': 'd'},
+        {'node': 'e'},
+        {'node': 'f'},
+        {'node': 'g'},
+        {'node': 'h'},
+        {'node': 'i'},
+        {'node': 'j'},
+        {'node': 'k'},
+        {'node': 'l'},
+        {'node': 'm'},
+        {'node': 'n'},
+        {'node': 'o'},
+        {'node': 'p'}
+    ]).assign(type='n')
+
+    edges_df = pd.DataFrame([
+        {'s': 'e', 'd': 'l'},
+        {'s': 'l', 'd': 'b'},
+        {'s': 'k', 'd': 'a'},
+        {'s': 'e', 'd': 'g'},
+        {'s': 'g', 'd': 'a'},
+        {'s': 'd', 'd': 'f'},
+        {'s': 'd', 'd': 'c'},
+        {'s': 'd', 'd': 'j'},
+        {'s': 'd', 'd': 'i'},
+        {'s': 'd', 'd': 'h'},
+        {'s': 'j', 'd': 'p'},
+        {'s': 'i', 'd': 'n'},
+        {'s': 'h', 'd': 'm'},
+        {'s': 'j', 'd': 'o'},
+        {'s': 'o', 'd': 'b'},
+        {'s': 'm', 'd': 'a'},
+        {'s': 'n', 'd': 'a'},
+        {'s': 'p', 'd': 'b'},
+    ]).assign(type='e')
+
+    return CGFull().nodes(nodes_df, 'node').edges(edges_df, 's', 'd')
+
 
 class TestComputeMixin(NoAuthTestCase):
 
@@ -124,3 +170,56 @@ class TestComputeMixin(NoAuthTestCase):
         g = cg.edges(pd.DataFrame({'x': ['m', 'm', 'n', 'm'], 'y': ['a', 'b', 'c', 'd']}), 'x', 'y')
         g2 = g.drop_nodes(['m'])
         assert g2._edges.to_dict(orient='records') == [{'x': 'n', 'y': 'c'}]
+
+
+    def test_hop_0(self):
+
+        g = hops_graph()
+        g2 = g.hop(pd.DataFrame({g._node: []}), 0)
+        assert g2._nodes.shape == (0, 2)
+        assert g2._edges.shape == (0, 3)
+
+    def test_hop_0b(self):
+
+        g = hops_graph()
+        g2 = g.hop(pd.DataFrame({g._node: ['d']}), 0)
+        assert g2._nodes.shape == (1, 2)
+        assert g2._edges.shape == (0, 3)
+
+    def test_hop_1_1_forwards(self):
+        g = hops_graph()
+        g2 = g.hop(pd.DataFrame({g._node: ['d']}), 1)
+        assert g2._nodes.shape == (6, 2)
+        assert (g2._nodes[g2._node].sort_values().to_list() ==  # noqa: W504
+            sorted(['f', 'j', 'd','i', 'c', 'h']))
+        assert g2._edges.shape == (5, 3)
+
+    def test_hop_2_1_forwards(self):
+        g = hops_graph()
+        g2 = g.hop(pd.DataFrame({g._node: ['k', 'd']}), 1)
+        assert g2._nodes.shape == (8, 2)
+        assert g2._edges.shape == (6, 3)
+
+    def test_hop_2_2_forwards(self):
+        g = hops_graph()
+        g2 = g.hop(pd.DataFrame({g._node: ['k', 'd']}), 2)
+        assert g2._nodes.shape == (12, 2)
+        assert g2._edges.shape == (10, 3)
+
+    def test_hop_2_all_forwards(self):
+        g = hops_graph()
+        g2 = g.hop(pd.DataFrame({g._node: ['k', 'd']}), to_fixed_point=True)
+        assert g2._nodes.shape == (13, 2)
+        assert g2._edges.shape == (14, 3)
+
+    def test_hop_1_2_undirected(self):
+        g = hops_graph()
+        g2 = g.hop(pd.DataFrame({g._node: ['j']}), 2, direction='undirected')
+        assert g2._nodes.shape == (9, 2)
+        assert g2._edges.shape == (9, 3)
+
+    def test_hop_1_all_reverse(self):
+        g = hops_graph()
+        g2 = g.hop(pd.DataFrame({g._node: ['b']}), direction='reverse', to_fixed_point=True)
+        assert g2._nodes.shape == (7, 2)
+        assert g2._edges.shape == (7, 3)

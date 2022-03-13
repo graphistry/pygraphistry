@@ -1,3 +1,5 @@
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 from .rectangle import Rectangle
 from .layoutVertex import LayoutVertex
 

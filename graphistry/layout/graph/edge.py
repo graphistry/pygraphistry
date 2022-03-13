@@ -1,3 +1,5 @@
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 from .edgeBase import EdgeBase
 
 

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 from typing import List
 from .graphBase import GraphBase
 from graphistry.layout.utils import Poset

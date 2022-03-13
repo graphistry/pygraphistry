@@ -1,10 +1,9 @@
-from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHECKING
-import logging
+from typing import Any, Callable, cast, Iterable, List, Optional, Set, Union, TYPE_CHECKING
+import logging, math, pandas as pd
 from .Plottable import Plottable
 from .layout import SugiyamaLayout
+from .layout.graph import Graph
 from .util import deprecated
-import pandas as pd
-from graphistry.layout import Graph
 
 logger = logging.getLogger('layouts')
 
@@ -25,12 +24,14 @@ class LayoutsMixin(MIXIN_BASE):
                     level_sort_values_by_ascending: bool = True,
                     width: Optional[float] = None,
                     height: Optional[float] = None,
+                    rotate: Optional[float] = None,
                     allow_cycles = True,
                     root=None,
                     *args,
                     **kwargs):
         """
             Improved tree layout based on the Sugiyama algorithm.
+            * rotate: rotates the layout by the given angle (in degrees)
         """
         g: Plottable = self
 
@@ -39,11 +40,15 @@ class LayoutsMixin(MIXIN_BASE):
 
         x_col = g._point_x if g._point_x is not None else 'x'
         if self._point_x is None:
-            g = g.bind(point_x = x_col)
+            g = g.bind(point_x = x_col).layout_settings(
+                play=0
+            )
 
         y_col = g._point_y if g._point_y is not None else 'y'
         if g._point_y is None:
-            g = g.bind(point_y = y_col)
+            g = g.bind(point_y = y_col).layout_settings(
+                play=0
+            )
 
         # since the coordinates are topological
         if width is None:
@@ -56,7 +61,7 @@ class LayoutsMixin(MIXIN_BASE):
         # ============================================================
         if level_col is None:
             level_col = 'level'
-        g2 = self.materialize_nodes()
+        g2 = g.materialize_nodes()
         # check cycles
         if not allow_cycles:
             if SugiyamaLayout.has_cycles(g._edges, source_column = g2._source, target_column = g2._destination):
@@ -65,8 +70,9 @@ class LayoutsMixin(MIXIN_BASE):
         triples = SugiyamaLayout.arrange(g2._edges, topological_coordinates = True, source_column = g2._source, target_column = g2._destination, include_levels = True, root = root)
         g2._nodes[level_col] = [triples[id][2] for id in g2._nodes[g2._node]]
         g2._nodes[y_col] = [triples[id][1] * height for id in g2._nodes[g2._node]]
+        
         if (g2._nodes is None) or (len(g2._nodes) == 0):
-            return g
+            return g2
         # ============================================================
         #  y-values
         # ============================================================
@@ -76,7 +82,37 @@ class LayoutsMixin(MIXIN_BASE):
                 ascending = level_sort_values_by_ascending))
 
         g2._nodes[x_col] = [triples[id][0] * width for id in g2._nodes[g2._node]]
+
+        if rotate is not None:
+            g2 = cast(LayoutsMixin, g2).rotate(rotate)
+    
         return g2
+
+
+    def rotate(self, degree: float = 0):
+        """
+            Rotates the layout by the given angle.
+        """
+        g = self
+
+        angle = math.radians(degree)
+
+        if g._point_x is None or g._point_y is None:
+            raise ValueError("No point bindings set yet for x/y")
+        if g._nodes is None:
+            raise ValueError("No points set yet")
+        if g._point_x not in g._nodes or g._point_y not in g._nodes:
+            raise ValueError(f'Did not find position columns {g._point_x} or {g._point_y} in nodes')
+        
+        g2 = g.nodes(
+            g._nodes.assign(
+                **{
+                    g._point_x: g._nodes[g._point_x] * math.cos(angle) + g._nodes[g._point_y] * math.sin(angle),
+                    g._point_y: -g._nodes[g._point_x] * math.sin(angle) + g._nodes[g._point_y] * math.cos(angle)
+                }
+            ))
+        return g2
+
 
     def label_components(self):
         """
@@ -189,9 +225,9 @@ class LayoutsMixin(MIXIN_BASE):
             mx_group = grouped.size().max()
             # TODO switch to grouped when above rapids 0.19 fallback gone
             nodes2_df = (g2
-                         ._nodes.groupby(level_col, sort = True)
-                         .apply(lambda df: df.assign(
-                **{x_col: (df['x'] + 0.5) / (0.0 + len(df))})))
+                    ._nodes.groupby(level_col, sort = True)
+                    .apply(lambda df: df.assign(
+                        **{x_col: (df['x'] + 0.5) / (0.0 + len(df))})))
             nodes2_df[x_col] = mx_group * nodes2_df[x_col]
             g2 = g2.nodes(nodes2_df)
         else:

@@ -1,3 +1,5 @@
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 from graphistry.layout.utils import Rectangle
 from .vertexBase import VertexBase
 

@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-import typing
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
+import pandas as pd, typing
 from sys import getrecursionlimit, setrecursionlimit
 
-from graphistry.layout import Rectangle, Vertex, GraphBase, size_median, Graph, Edge, DummyVertex
-from graphistry.layout.utils import LayoutVertex
+from graphistry.layout.graph import Vertex, GraphBase, Graph, Edge
+from graphistry.layout.utils import DummyVertex, LayoutVertex, Rectangle, size_median
 from graphistry.layout.utils.layer import Layer
-import pandas as pd
 
 
 class SugiyamaLayout(object):
