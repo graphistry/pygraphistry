@@ -1,6 +1,5 @@
 import hashlib, logging, os, platform as p, random, string, sys, uuid, warnings
 from distutils.version import LooseVersion, StrictVersion
-import warnings
 
 
 def cmp(x, y):

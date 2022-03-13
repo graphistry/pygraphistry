@@ -316,7 +316,8 @@ class TestLayout(unittest.TestCase):
 
         g = create_graph_from_arrays(["0", "1", "2"], ["01", "12", "20"])
         r = g.get_vertex_from_data("2")
-        found = g.components[0].get_scs_with_feedback(roots = [r])
+        #found = 
+        g.components[0].get_scs_with_feedback(roots = [r])
         assert len([e for e in g.components[0].edges() if e.feedback]) == 1
 
     def test_Matrix(self):
@@ -654,7 +655,8 @@ class TestLayout(unittest.TestCase):
         g = Graph()
 
         bosons = Vertex("Boson")
-        higgs = Vertex("Higgs")
+        #higgs = 
+        Vertex("Higgs")
         pions = Vertex("Pions")
         kaons = Vertex("Kaons")
         hadrons = Vertex("Hadrons")
@@ -668,11 +670,15 @@ class TestLayout(unittest.TestCase):
         g.add_edges([e2, e3, e4, e5])
 
         component = g.components[0]
-        sug = SugiyamaLayout(component)
-        pos = SugiyamaLayout.arrange(g, root = bosons)
+        #sug = 
+        SugiyamaLayout(component)
+        #pos = 
+        SugiyamaLayout.arrange(g, root = bosons)
 
     def test_fork(self):
         g = create_graph_from_arrays(["0", "1", "2", "3", "4"], ["10", "20", "30", "04"])
         component = g.components[0]
-        sug = SugiyamaLayout(component)
-        pos = SugiyamaLayout.arrange(g, root = None)
+        #sug = 
+        SugiyamaLayout(component)
+        #pos = 
+        SugiyamaLayout.arrange(g, root = None)

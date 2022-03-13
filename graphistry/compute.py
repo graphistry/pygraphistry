@@ -72,9 +72,9 @@ class ComputeMixin(MIXIN_BASE):
             .agg({g._source: 'count'})
             .reset_index()
             .rename(columns = {
-            g._source: col,
-            g._destination: g_nodes._node
-        }))
+                g._source: col,
+                g._destination: g_nodes._node
+            }))
         nodes_df = (g_nodes._nodes
                     [[c for c in g_nodes._nodes.columns if c != col]]
                     .merge(in_degree_df, how = 'left', on = g._node))

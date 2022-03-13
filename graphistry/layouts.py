@@ -40,14 +40,14 @@ class LayoutsMixin(MIXIN_BASE):
         x_col = g._point_x if g._point_x is not None else 'x'
         if self._point_x is None:
             g = g.bind(point_x = x_col).layout_settings(
-                    play=0
-                )
+                play=0
+            )
 
         y_col = g._point_y if g._point_y is not None else 'y'
         if g._point_y is None:
             g = g.bind(point_y = y_col).layout_settings(
-                    play=0
-                )
+                play=0
+            )
 
         # since the coordinates are topological
         if width is None:
@@ -195,9 +195,9 @@ class LayoutsMixin(MIXIN_BASE):
             mx_group = grouped.size().max()
             # TODO switch to grouped when above rapids 0.19 fallback gone
             nodes2_df = (g2
-                         ._nodes.groupby(level_col, sort = True)
-                         .apply(lambda df: df.assign(
-                **{x_col: (df['x'] + 0.5) / (0.0 + len(df))})))
+                    ._nodes.groupby(level_col, sort = True)
+                    .apply(lambda df: df.assign(
+                        **{x_col: (df['x'] + 0.5) / (0.0 + len(df))})))
             nodes2_df[x_col] = mx_group * nodes2_df[x_col]
             g2 = g2.nodes(nodes2_df)
         else:
