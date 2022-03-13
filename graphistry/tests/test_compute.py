@@ -25,43 +25,43 @@ class CGFull(ComputeMixin, PlotterBase, object):
 @lru_cache(maxsize=1)
 def hops_graph():
     nodes_df = pd.DataFrame([
-        {'node': '431276-1307141'},
-        {'node': '431276-1306509'},
-        {'node': '431276-1528963'},
-        {'node': '431276-1343384'},
-        {'node': '431276-1527699'},
-        {'node': '431276-1308405'},
-        {'node': '431276-1308089'},
-        {'node': '431276-1529279'},
-        {'node': '431276-1343700'},
-        {'node': '431276-1308721'},
-        {'node': '431276-1306825'},
-        {'node': '431276-1528015'},
-        {'node': '1529911-1529595'},
-        {'node': '1344016-1342436'},
-        {'node': '1421143-1420827'},
-        {'node': '1309353-1309037'}
+        {'node': 'a'},
+        {'node': 'b'},
+        {'node': 'c'},
+        {'node': 'd'},
+        {'node': 'e'},
+        {'node': 'f'},
+        {'node': 'g'},
+        {'node': 'h'},
+        {'node': 'i'},
+        {'node': 'j'},
+        {'node': 'k'},
+        {'node': 'l'},
+        {'node': 'm'},
+        {'node': 'n'},
+        {'node': 'o'},
+        {'node': 'p'}
     ]).assign(type='n')
 
     edges_df = pd.DataFrame([
-        {'s': '431276-1527699', 'd': '431276-1528015'},
-        {'s': '431276-1528015', 'd': '431276-1306509'},
-        {'s': '431276-1306825', 'd': '431276-1307141'},
-        {'s': '431276-1527699', 'd': '431276-1308089'},
-        {'s': '431276-1308089', 'd': '431276-1307141'},
-        {'s': '431276-1343384', 'd': '431276-1308405'},
-        {'s': '431276-1343384', 'd': '431276-1528963'},
-        {'s': '431276-1343384', 'd': '431276-1308721'},
-        {'s': '431276-1343384', 'd': '431276-1343700'},
-        {'s': '431276-1343384', 'd': '431276-1529279'},
-        {'s': '431276-1308721', 'd': '1309353-1309037'},
-        {'s': '431276-1343700', 'd': '1344016-1342436'},
-        {'s': '431276-1529279', 'd': '1529911-1529595'},
-        {'s': '431276-1308721', 'd': '1421143-1420827'},
-        {'s': '1421143-1420827', 'd': '431276-1306509'},
-        {'s': '1529911-1529595', 'd': '431276-1307141'},
-        {'s': '1344016-1342436', 'd': '431276-1307141'},
-        {'s': '1309353-1309037', 'd': '431276-1306509'},
+        {'s': 'e', 'd': 'l'},
+        {'s': 'l', 'd': 'b'},
+        {'s': 'k', 'd': 'a'},
+        {'s': 'e', 'd': 'g'},
+        {'s': 'g', 'd': 'a'},
+        {'s': 'd', 'd': 'f'},
+        {'s': 'd', 'd': 'c'},
+        {'s': 'd', 'd': 'j'},
+        {'s': 'd', 'd': 'i'},
+        {'s': 'd', 'd': 'h'},
+        {'s': 'j', 'd': 'p'},
+        {'s': 'i', 'd': 'n'},
+        {'s': 'h', 'd': 'm'},
+        {'s': 'j', 'd': 'o'},
+        {'s': 'o', 'd': 'b'},
+        {'s': 'm', 'd': 'a'},
+        {'s': 'n', 'd': 'a'},
+        {'s': 'p', 'd': 'b'},
     ]).assign(type='e')
 
     return CGFull().nodes(nodes_df, 'node').edges(edges_df, 's', 'd')
@@ -182,44 +182,44 @@ class TestComputeMixin(NoAuthTestCase):
     def test_hop_0b(self):
 
         g = hops_graph()
-        g2 = g.hop(pd.DataFrame({g._node: ['431276-1343384']}), 0)
+        g2 = g.hop(pd.DataFrame({g._node: ['d']}), 0)
         assert g2._nodes.shape == (1, 2)
         assert g2._edges.shape == (0, 3)
 
     def test_hop_1_1_forwards(self):
         g = hops_graph()
-        g2 = g.hop(pd.DataFrame({g._node: ['431276-1343384']}), 1)
+        g2 = g.hop(pd.DataFrame({g._node: ['d']}), 1)
         assert g2._nodes.shape == (6, 2)
         assert (g2._nodes[g2._node].sort_values().to_list() ==  # noqa: W504
-            sorted(['431276-1308405', '431276-1308721', '431276-1343384','431276-1343700', '431276-1528963', '431276-1529279']))
+            sorted(['f', 'j', 'd','i', 'c', 'h']))
         assert g2._edges.shape == (5, 3)
 
     def test_hop_2_1_forwards(self):
         g = hops_graph()
-        g2 = g.hop(pd.DataFrame({g._node: ['431276-1306825', '431276-1343384']}), 1)
+        g2 = g.hop(pd.DataFrame({g._node: ['k', 'd']}), 1)
         assert g2._nodes.shape == (8, 2)
         assert g2._edges.shape == (6, 3)
 
     def test_hop_2_2_forwards(self):
         g = hops_graph()
-        g2 = g.hop(pd.DataFrame({g._node: ['431276-1306825', '431276-1343384']}), 2)
+        g2 = g.hop(pd.DataFrame({g._node: ['k', 'd']}), 2)
         assert g2._nodes.shape == (12, 2)
         assert g2._edges.shape == (10, 3)
 
     def test_hop_2_all_forwards(self):
         g = hops_graph()
-        g2 = g.hop(pd.DataFrame({g._node: ['431276-1306825', '431276-1343384']}), to_fixed_point=True)
+        g2 = g.hop(pd.DataFrame({g._node: ['k', 'd']}), to_fixed_point=True)
         assert g2._nodes.shape == (13, 2)
         assert g2._edges.shape == (14, 3)
 
     def test_hop_1_2_undirected(self):
         g = hops_graph()
-        g2 = g.hop(pd.DataFrame({g._node: ['431276-1308721']}), 2, direction='undirected')
+        g2 = g.hop(pd.DataFrame({g._node: ['j']}), 2, direction='undirected')
         assert g2._nodes.shape == (9, 2)
         assert g2._edges.shape == (9, 3)
 
     def test_hop_1_all_reverse(self):
         g = hops_graph()
-        g2 = g.hop(pd.DataFrame({g._node: ['431276-1306509']}), direction='reverse', to_fixed_point=True)
+        g2 = g.hop(pd.DataFrame({g._node: ['b']}), direction='reverse', to_fixed_point=True)
         assert g2._nodes.shape == (7, 2)
         assert g2._edges.shape == (7, 3)
