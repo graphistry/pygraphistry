@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+* Graph AI branch: Autoencoding
+* Graph AI branch: UMAP
+* Graph AI branch: GNNs
+
 ## [0.21.0 - 2022-03-13]
 
 ### Added
@@ -18,6 +22,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 
 * Infra: `test-cpu-local-minimum.sh` accepts params
+
+## [0.20.6 - 2022-03-12]
+
+### Fixed
+
+* Docs: Point color encodings
 
 ## [0.20.5 - 2021-12-06]
 
