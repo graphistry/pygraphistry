@@ -707,6 +707,8 @@ g2d = g2.tree_layout(level_sort_values_by=['type', 'degree'], level_sort_values_
 g3a = g2a.layout_settings(locked_r=True, play=1000)
 g3b = g2a.layout_settings(locked_y=True, play=0)
 g3c = g2a.layout_settings(locked_x=True)
+
+g4 = g2.tree_layout().rotate(90)
 ```
 ## Next Steps
 
