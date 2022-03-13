@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 * Sugiyama layout implementation for `.tree_layout(...)`
 * Layout rotation method `.rotate(degree)`
+* Compute method `.hops(nodes, hops, to_fixed_point, direction)`
 
 ### Fixed
 
