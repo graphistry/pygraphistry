@@ -651,7 +651,7 @@ g2 = g.materialize_nodes()
 g2._nodes  # pd.DataFrame({'id': ['a', 'b', 'c']})
 ```
 
-***Compute degrees**
+**Compute degrees**:
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
 g2 = g.get_degree()
@@ -661,6 +661,27 @@ g2._nodes  # pd.DataFrame({
            #  'degree_out': [1, 1, 0],
            #  'degree': [1, 1, 1]
            #})
+```
+
+**Graph pattern matching**:
+
+Traverse within a graph, or expand one graph against another
+
+```python
+g = graphistry.edges(pd.read_csv('data.csv'), 's', 'd')
+g2 = g.materialize_nodes()
+
+# (a or b)-[1 to 8 hops]->(anynode), based on graph g2
+g3 = g2.hop(pd.DataFrame({g._node: ['a', 'b']}), hops=8)
+
+# (c)<-[any number of hops]-(any node), based on graph g3
+g4 = g3.hop(pd.DataFrame({g._node: ['c']}), direction='reverse', to_fixed_point=True)
+
+# (c)-[incoming or outgoing edge]-(any node),
+# for c in g4 with expansions against nodes/edges in g2
+g5 = g2.hop(pd.DataFrame({g4._nodes, hops=1, direction='undirected')
+
+g5.plot()
 ```
 
 **Pipelining**:

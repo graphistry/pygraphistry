@@ -7,14 +7,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.21.0 - 2022-03-13]
+
 ### Added
-* Sugiyama layout implementation for `.tree_layout(...)`
+
+* Better implementation of `.tree_layout(...)` using Sugiyama; good for small/medium DAGs
 * Layout rotation method `.rotate(degree)`
 * Compute method `.hops(nodes, hops, to_fixed_point, direction)`
 
-### Fixed
+### Changed
 
-* Infra: `test-cpu-local-minimum.sh` passes through `$@`
+* Infra: `test-cpu-local-minimum.sh` accepts params
 
 ## [0.20.5 - 2021-12-06]
 
