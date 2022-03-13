@@ -1,10 +1,11 @@
 from pickle import dumps, loads, HIGHEST_PROTOCOL
-import unittest, pytest
-import pandas as pd
-import numpy as np
-from graphistry.layout import Edge, Graph, Vertex, EdgeViewer, Layer, Rectangle, GraphBase, SugiyamaLayout, DummyVertex, route_with_splines, route_with_rounded_corners, Poset
+import numpy as np, pandas as pd, pytest, unittest
+#from graphistry.layout import Edge, Graph, Vertex, EdgeViewer, Layer, Rectangle, GraphBase, SugiyamaLayout, DummyVertex, route_with_splines, route_with_rounded_corners, Poset
 from graphistry.compute import ComputeMixin
 from graphistry.layouts import LayoutsMixin
+from graphistry.layout.graph import Edge, Graph, Vertex, GraphBase
+from graphistry.layout.sugiyama import SugiyamaLayout
+from graphistry.layout.utils import EdgeViewer, Layer, Rectangle, DummyVertex, route_with_rounded_corners, Poset 
 from graphistry.plotter import PlotterBase
 
 

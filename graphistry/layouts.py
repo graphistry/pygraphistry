@@ -1,10 +1,9 @@
 from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHECKING
-import logging
+import logging, math, pandas as pd
 from .Plottable import Plottable
 from .layout import SugiyamaLayout
+from .layout.graph import Graph
 from .util import deprecated
-import pandas as pd
-from graphistry.layout import Graph
 
 logger = logging.getLogger('layouts')
 
