@@ -1,5 +1,7 @@
 from collections import OrderedDict
 
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 
 class Poset(object):
     """

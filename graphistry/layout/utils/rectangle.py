@@ -1,3 +1,5 @@
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 class Rectangle(object):
     """
         Rectangular region.

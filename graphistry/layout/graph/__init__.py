@@ -1,3 +1,5 @@
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 from .vertexBase import VertexBase
 from .vertex import Vertex
 from .edgeBase import EdgeBase

@@ -1,3 +1,5 @@
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 from .geometry import rectangle_point_intersection, angle_between_vectors, sqrt
 
 

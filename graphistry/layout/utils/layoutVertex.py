@@ -1,3 +1,5 @@
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 class LayoutVertex(object):
     """
     The Sugiyama layout adds new attributes to vertices.

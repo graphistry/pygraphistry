@@ -1,4 +1,5 @@
 from bisect import bisect
+# DEPRECRATED: Non-vector operators over non-vectorized data
 
 
 class Layer(list):

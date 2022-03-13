@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 from numpy import array, cos, sin
 from math import atan2, sqrt
 

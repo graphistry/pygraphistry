@@ -1,3 +1,5 @@
+# DEPRECRATED: Non-vector operators over non-vectorized data
+
 class VertexBase(object):
     """
         Base class for vertices.
