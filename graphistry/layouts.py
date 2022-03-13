@@ -1,4 +1,4 @@
-from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHECKING
+from typing import Any, Callable, cast, Iterable, List, Optional, Set, Union, TYPE_CHECKING
 import logging, math, pandas as pd
 from .Plottable import Plottable
 from .layout import SugiyamaLayout
@@ -84,7 +84,7 @@ class LayoutsMixin(MIXIN_BASE):
         g2._nodes[x_col] = [triples[id][0] * width for id in g2._nodes[g2._node]]
 
         if rotate is not None:
-            g2 = g2.rotate(rotate)
+            g2 = cast(LayoutsMixin, g2).rotate(rotate)
     
         return g2
 
