@@ -242,7 +242,7 @@ class ComputeMixin(MIXIN_BASE):
         matches_edges = edges_indexed[[EDGE_ID]][:0]
 
         while True:
-            if not to_fixed_point:
+            if not to_fixed_point and hops_remaining is not None:
                 if hops_remaining < 1:
                     break
                 hops_remaining = hops_remaining - 1
