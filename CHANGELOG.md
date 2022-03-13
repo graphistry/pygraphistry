@@ -7,6 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+* Sugiyama layout implementation for `.tree_layout(...)`
+* Layout rotation method `.rotate(degree)`
+
+### Fixed
+
+* Infra: `test-cpu-local-minimum.sh` passes through `$@`
+
 ## [0.20.5 - 2021-12-06]
 
 ### Changed

@@ -130,6 +130,52 @@ def create_graph_from_arrays(vertices, edges) -> Graph:
     return Graph(v, e)
 
 
+class TestLayoutRotation(unittest.TestCase):
+
+    def test_0(self):
+        """
+        Test the rotation of a graph with no rotation
+        """
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd'],
+            'x': [2, 0, -2, 0],
+            'y': [0, 2, 0, -2]
+        })
+        lg = LGFull().nodes(nodes_df, 'id').bind(point_x='x', point_y='y')
+        lg2 = lg.rotate(0)
+        assert np.isclose(lg2._nodes.x, [2.0, 0.0, -2.0, 0.0]).all()
+        assert np.isclose(lg2._nodes.y, [0.0, 2.0, 0.0, -2.0]).all()
+
+    def test_90(self):
+        """
+        Test the rotation of a graph with a 90 degree rotation
+        """
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd'],
+            'x': [2, 0, -2, 0],
+            'y': [0, 2, 0, -2]
+        })
+        lg = LGFull().nodes(nodes_df, 'id').bind(point_x='x', point_y='y')
+        lg2 = lg.rotate(90)
+        print('lg2', lg2._nodes.x, lg2._nodes.y)
+        assert np.isclose(lg2._nodes.x, [0.0, 2.0, 0.0, -2.0]).all()
+        assert np.isclose(lg2._nodes.y, [-2.0, 0.0, 2.0, 0.0]).all()
+
+    def test_negative_90(self):
+        """
+        Test the rotation of a graph with a -90 degree rotation
+        """
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd'],
+            'x': [2, 0, -2, 0],
+            'y': [0, 2, 0, -2]
+        })
+        lg = LGFull().nodes(nodes_df, 'id').bind(point_x='x', point_y='y')
+        lg2 = lg.rotate(-90)
+        print('lg2', lg2._nodes.x, lg2._nodes.y)
+        assert np.isclose(lg2._nodes.x, [0.0, -2.0, 0.0, 2.0]).all()
+        assert np.isclose(lg2._nodes.y, [2.0, 0.0, -2.0, 0.0]).all()
+
 class TestLayout(unittest.TestCase):
 
     def sample_graph1(self):

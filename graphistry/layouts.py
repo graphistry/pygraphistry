@@ -24,12 +24,14 @@ class LayoutsMixin(MIXIN_BASE):
                     level_sort_values_by_ascending: bool = True,
                     width: Optional[float] = None,
                     height: Optional[float] = None,
+                    rotate: Optional[float] = None,
                     allow_cycles = True,
                     root=None,
                     *args,
                     **kwargs):
         """
             Improved tree layout based on the Sugiyama algorithm.
+            * rotate: rotates the layout by the given angle (in degrees)
         """
         g: Plottable = self
 
@@ -80,8 +82,37 @@ class LayoutsMixin(MIXIN_BASE):
                 ascending = level_sort_values_by_ascending))
 
         g2._nodes[x_col] = [triples[id][0] * width for id in g2._nodes[g2._node]]
+
+        if rotate is not None:
+            g2 = g2.rotate(rotate)
     
         return g2
+
+
+    def rotate(self, degree: float = 0):
+        """
+            Rotates the layout by the given angle.
+        """
+        g = self
+
+        angle = math.radians(degree)
+
+        if g._point_x is None or g._point_y is None:
+            raise ValueError("No point bindings set yet for x/y")
+        if g._nodes is None:
+            raise ValueError("No points set yet")
+        if g._point_x not in g._nodes or g._point_y not in g._nodes:
+            raise ValueError(f'Did not find position columns {g._point_x} or {g._point_y} in nodes')
+        
+        g2 = g.nodes(
+            g._nodes.assign(
+                **{
+                    g._point_x: g._nodes[g._point_x] * math.cos(angle) + g._nodes[g._point_y] * math.sin(angle),
+                    g._point_y: -g._nodes[g._point_x] * math.sin(angle) + g._nodes[g._point_y] * math.cos(angle)
+                }
+            ))
+        return g2
+
 
     def label_components(self):
         """
