@@ -21,7 +21,7 @@ dev_extras = {
 
 base_extras = {
     'igraph': ['python-igraph'],
-    'networkx': ['networkx==2.2'],
+    'networkx': ['networkx>=2.5'],
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl', 'xlrd'],
@@ -45,7 +45,7 @@ setup(
     name='graphistry',
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
-    packages = ['graphistry'],
+    packages = find_packages(),
     platforms='any',
     description = 'A visual graph analytics library for extracting, transforming, displaying, and sharing big graphs with end-to-end GPU acceleration',
     long_description=open("./README.md").read(),
