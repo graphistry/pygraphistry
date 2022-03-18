@@ -17,20 +17,22 @@ then
     NETWORK="--net grph_net"
 fi
 
-echo "PREP"
-
 if [ "$WITH_NEO4J" == "1" ]
 then
+    echo "WITH_NEO4J"
     ( cd ../test/db/neo4j && ./launch.sh )
 fi
 
-docker-compose build \
-    --build-arg PYTHON_VERSION=${PYTHON_VERSION} \
-    --build-arg PIP_DEPS="${PIP_DEPS}" \
-    test-cpu
+if [ "$WITH_BUILD" == "1"]
+then
+    echo "WITH_BUILD"
+    docker-compose build \
+        --build-arg PYTHON_VERSION=${PYTHON_VERSION} \
+        --build-arg PIP_DEPS="${PIP_DEPS}" \
+        test-cpu
+fi
 
 echo "RUN"
-
 docker run \
     --security-opt seccomp=unconfined \
     -e PYTEST_CURRENT_TEST=TRUE \
