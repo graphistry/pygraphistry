@@ -53,13 +53,11 @@ def setup_logger(name, verbose=True):
         FORMAT = "   %(message)s\n"
     logging.basicConfig(format=FORMAT)
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.DEBUG if verbose else logging.ERROR)
     return logger
 
 
-# need outside config setting this
-verbose = True
-logger = setup_logger(__name__, verbose)
+logger = setup_logger(__name__)
 
 
 def tqdm_progress_bar(total, *args, **kwargs):
