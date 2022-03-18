@@ -1,32 +1,28 @@
+import copy, numpy as np, pandas as pd
+from functools import partial
 from time import time
 from typing import List, Union, Dict, Callable, Any, Tuple, Optional
-from functools import partial
-import copy
-
-import numpy as np
-import pandas as pd
-
 
 from .ai_utils import setup_logger
+from .compute import ComputeMixin
+from . import constants as config
+from .umap_utils import UMAPMixin
 
 logger = setup_logger(name=__name__, verbose=False)
 
 
-try:
-    import scipy
-    import scipy.sparse
-    import torch
 
+import_exn = None
+try:
+    import scipy, scipy.sparse, torch
     from dirty_cat import (
         SuperVectorizer,
-        SimilarityEncoder,
-        TargetEncoder,
-        MinHashEncoder,
+        #SimilarityEncoder,
+        #TargetEncoder,
+        #MinHashEncoder,
         GapEncoder,
     )
-
     from sentence_transformers import SentenceTransformer
-
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import (
         MinMaxScaler,
@@ -38,15 +34,19 @@ try:
     )
     has_dependancy = True
 
-except:
-    logger.error("FAILED IMPORTING from Feature_utils")
+except ModuleNotFoundError as e:
+    logger.debug(
+        f"AI Packages not found, trying running `pip install graphistry[ai]`",
+        exc_info=True,
+    )
+    import_exn = e
     has_dependancy = False
     scipy = (Any,)
     torch = Any
     SuperVectorizer = (Any,)
-    SimilarityEncoder = (Any,)
-    TargetEncoder = (Any,)
-    MinHashEncoder = (Any,)
+    #SimilarityEncoder = (Any,)
+    #TargetEncoder = (Any,)
+    #MinHashEncoder = (Any,)
     GapEncoder = (Any,)
     SentenceTransformer = Any
     SimpleImputer = (Any,)
@@ -59,45 +59,9 @@ except:
     scipy = Any
     torch = Any
 
-
-def reimport():
-    """
-        Helper function so that Graphistry loads without error when Graphistry[ai] is not loaded
-    :return:
-    """
-    try:
-        import scipy
-        import torch
-
-        from dirty_cat import (
-            SuperVectorizer,
-            SimilarityEncoder,
-            TargetEncoder,
-            MinHashEncoder,
-            GapEncoder,
-        )
-        from sentence_transformers import SentenceTransformer
-        from sklearn.impute import SimpleImputer
-        from sklearn.preprocessing import (
-            MinMaxScaler,
-            QuantileTransformer,
-            StandardScaler,
-            RobustScaler,
-            MultiLabelBinarizer,
-        )
-
-    except ModuleNotFoundError as e:
-        logger.error(
-            f"AI Packages not found, trying running `pip install graphistry[ai]`",
-            exc_info=True,
-        )
-        raise e
-
-
-from graphistry.compute import ComputeMixin
-
-from . import constants as config
-from .umap_utils import UMAPMixin
+def assert_imported():
+    if not has_dependancy:
+        raise import_exn
 
 
 def get_train_test_sets(X, y, test_size):
@@ -996,7 +960,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         :return: self, with new attributes set by the featurization process
 
         """
-        reimport()
+        assert_imported()
         if inplace:
             res = self
         else:
@@ -1197,7 +1161,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         :param engine: selects which engine to use to calculate UMAP: NotImplemented yet, default UMAP-LEARN
         :return: self, with attributes set with new data
         """
-        reimport()
+        assert_imported()
 
         self.suffix = suffix
         xy = None
