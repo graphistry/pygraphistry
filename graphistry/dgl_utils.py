@@ -169,8 +169,8 @@ class DGLGraphMixin(FeatureMixin):
         logger.info("Running Node Featurization for DGL Graph")
 
         # res = self.featurize(kind="nodes", y=y, use_columns=use_columns, use_scaler=use_scaler, inplace=False)
-        X_enc, y_enc = self._featurize_or_get_nodes_dataframe_if_X_is_None(
-            res=res, X=X, y=y, use_columns=use_columns, use_scaler=use_scaler
+        X_enc, y_enc = res._featurize_or_get_nodes_dataframe_if_X_is_None(
+            X=X, y=y, use_columns=use_columns, use_scaler=use_scaler
         )
 
         ndata = convert_to_torch(X_enc, y_enc)
@@ -190,8 +190,8 @@ class DGLGraphMixin(FeatureMixin):
         logger.info("Running Edge Featurization for DGL Graph")
 
         # res = self.featurize(kind="edges", y=y, use_columns=use_columns, use_scaler=use_scaler, inplace=False)
-        X_enc, y_enc = self._featurize_or_get_edges_dataframe_if_X_is_None(
-            res=res, X=X, y=y, use_columns=use_columns, use_scaler=use_scaler
+        X_enc, y_enc = res._featurize_or_get_edges_dataframe_if_X_is_None(
+            X=X, y=y, use_columns=use_columns, use_scaler=use_scaler
         )
 
         edata = convert_to_torch(X_enc, y_enc)

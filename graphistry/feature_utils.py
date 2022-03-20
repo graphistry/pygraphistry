@@ -11,7 +11,6 @@ from .umap_utils import UMAPMixin
 logger = setup_logger(name=__name__, verbose=False)
 
 
-
 import_exn = None
 try:
     import scipy, scipy.sparse, torch
@@ -89,22 +88,20 @@ def safe_divide(a, b):
     return np.divide(a, b, out=np.zeros_like(a), where=b != 0.0, casting="unsafe")
 
 
-def check_target_not_in_features(
+def features_without_target(
     df: pd.DataFrame,
-    y: Union[pd.DataFrame, pd.Series, np.ndarray, List],
-    remove: bool = True,
-) -> Tuple[pd.DataFrame, Union[pd.DataFrame, pd.Series, np.ndarray, List]]:
+    y: Union[pd.DataFrame, pd.Series, np.ndarray, List]
+) -> pd.DataFrame:
     """
         Checks if y DataFrame column name is in df, and removes it from df if so
     _________________________________________________________________________
 
     :param df: model DataFrame
     :param y: target DataFrame
-    :param remove: whether to remove columns from df, default True
     :return: DataFrames of model and target
     """
     if y is None:
-        return df, y
+        return df
     remove_cols = []
     if hasattr(y, "columns") and hasattr(df, "columns"):
         yc = y.columns
@@ -114,31 +111,28 @@ def check_target_not_in_features(
                 remove_cols.append(c)
     else:
         logger.warning(f"Target is not of type(DataFrame) and has no columns")
-    if remove and len(remove_cols):
+    if len(remove_cols):
         logger.info(f"Removing {remove_cols} columns from DataFrame")
         tf = df.drop(columns=remove_cols, errors="ignore")
-        return tf, y
-    return df, y  # will just pass through data
+        return tf
+    return df
 
-
-def remove_node_column_from_ndf_and_return_ndf_from_res(res, remove_node_column: bool):
+def remove_node_column_from_ndf_and_return_ndf(g):
     """
         Helper method to make sure that node name is not featurized
     _________________________________________________________________________
 
     :param res:
-    :param remove_node_column: bool, whether to remove node column or not
     :return: node DataFrame with or without node column
     """
-    if remove_node_column:
-        if hasattr(res, "_node"):
-            node_label = res._node
-            if node_label is not None:
-                logger.info(
-                    f"removing node column `{node_label}` so we do not featurize it"
-                )
-                return res._nodes.drop(columns=[node_label], errors="ignore")
-    return res._nodes  # just pass through dataframe if false
+    if g._node is not None:
+        node_label = g._node
+        if node_label is not None and node_label in g.columns:
+            logger.info(
+                f"removing node column `{node_label}` so we do not featurize it"
+            )
+            return g._nodes.drop(columns=[node_label], errors="ignore")
+    return g._nodes
 
 
 def remove_internal_namespace_if_present(df: pd.DataFrame):
@@ -162,7 +156,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.IMPLICIT_NODE_ID,
         'index' # in umap, we add
     ]
-    df = df.copy(deep=False).drop(columns=reserved_namespace, errors="ignore")
+    df = df.drop(columns=reserved_namespace, errors="ignore")
     return df
 
 
@@ -681,6 +675,7 @@ def process_edge_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
+    featurize=True
 ) -> Union[pd.DataFrame, Callable, Any]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
@@ -694,6 +689,11 @@ def process_edge_dataframes(
     :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
+
+    #FIXME what to return?
+    if not featurize:
+        return edf, y, None, None
+
     t = time()
     mlb_pairwise_edge_encoder = MultiLabelBinarizer()
     source = edf[src]
@@ -779,6 +779,7 @@ def prune_weighted_edges_df_and_relabel_nodes(
 
     :param wdf: weighted edge DataFrame gotten via UMAP
     :param scale: lower values means less edges > (max - scale * std)
+    :param index_to_nodes_dict: dict of index to node name; remap src/dst values if provided 
     :return: pd.DataFrame
     """
     # we want to prune edges, so we calculate some statistics
@@ -801,33 +802,11 @@ def prune_weighted_edges_df_and_relabel_nodes(
         f"Pruning weighted edge DataFrame from {len(wdf):,} to {len(wdf2):,} edges."
     )
     if index_to_nodes_dict is not None:
-        wdf2[config.SRC] = wdf2[config.SRC].apply(lambda x: index_to_nodes_dict[x])
-        wdf2[config.DST] = wdf2[config.DST].apply(lambda x: index_to_nodes_dict[x])
+        wdf2 = wdf2.replace({
+            config.SRC: index_to_nodes_dict,
+            config.DST: index_to_nodes_dict,
+        })
     return wdf2
-
-
-def get_dataframe_columns(df: pd.DataFrame, columns: Union[List, None] = None):
-    """
-        helper method to get columns from DataFrame -- does not check if column is in DataFrame, that is up to user
-
-    :param df: DataFrame
-    :param columns: columns you want to include in analysis/featurization
-    :return: DataFrame with columns
-    """
-    if columns is None:
-        # just pass through df
-        return df
-    if columns == []:
-        # just pass through df
-        return df
-    if len(columns):
-        logger.info(f"returning DataFrame with columns `{columns}`")
-        return df[columns]
-
-
-def add_implicit_node_identifier(res):
-    ndf = res._nodes
-    ndf[config.IMPLICIT_NODE_ID] = range(len(ndf))
 
 
 class FeatureMixin(ComputeMixin, UMAPMixin):
@@ -850,7 +829,6 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
 
     def _featurize_nodes(
         self,
-        res: Any,
         y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
         use_columns: Union[List, None] = None,
         use_scaler: Union[str, None] = "robust",
@@ -861,37 +839,50 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
+        featurize: bool = True
     ):
-        ndf = remove_node_column_from_ndf_and_return_ndf_from_res(
-            res, remove_node_column
-        )
+        ndf = remove_node_column_from_ndf_and_return_ndf(self, remove_node_column)
         # TODO move the columns select after the featurizer?
-        ndf = get_dataframe_columns(ndf, use_columns)
-        ndf, y = check_target_not_in_features(ndf, y, remove=True)
+        ndf = ndf[use_columns] if use_columns is not None else ndf
+        ndf = features_without_target(ndf, y)
         ndf = remove_internal_namespace_if_present(ndf)
-        # now vectorize it all
-        X_enc, y_enc, data_vec, label_vec = self._node_featurizer(
-            ndf,
-            y=y,
-            use_scaler=use_scaler,
-            cardinality_threshold=cardinality_threshold,
-            cardinality_threshold_target=cardinality_threshold_target,
-            n_topics=n_topics,
-            confidence=confidence,
-            min_words=min_words,
-            model_name=model_name,
+
+
+        res = self.nodes(
+            self._nodes.assign(**{
+                #FIXME unnecessary?
+                config.IMPLICIT_NODE_ID: range(len(ndf))
+            })
         )
-        # set the new variables
-        add_implicit_node_identifier(res)
-        res.node_features = X_enc
-        res.node_target = y_enc
-        res.node_encoder = data_vec
-        res.node_target_encoder = label_vec
+
+        if featurize:
+
+            assert_imported()
+
+            # now vectorize it all
+            X_enc, y_enc, data_vec, label_vec = self._node_featurizer(
+                ndf,
+                y=y,
+                use_scaler=use_scaler,
+                cardinality_threshold=cardinality_threshold,
+                cardinality_threshold_target=cardinality_threshold_target,
+                n_topics=n_topics,
+                confidence=confidence,
+                min_words=min_words,
+                model_name=model_name,
+            )
+            res.node_features = X_enc
+            res.node_target = y_enc
+            res.node_encoder = data_vec
+            res.node_target_encoder = label_vec
+
+        else:
+            res.node_features = ndf
+
         return res
 
     def _featurize_edges(
         self,
-        res: Any,
         y: Union[pd.DataFrame, np.ndarray],
         use_columns: Union[List, None] = None,
         use_scaler: Union[str, None] = "robust",
@@ -901,34 +892,42 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
+        featurize: bool = True
     ):
         # TODO move the columns select after the featurizer
         if use_columns is not None:
-            # have to add src, dst or get errors
-            use_columns = copy.copy(use_columns)
-            use_columns += list([res._source, res._destination])
-            use_columns = list(set(use_columns))
+            use_columns = list(set(use_columns + list([self._source, self._destination])))
             
-        edf = get_dataframe_columns(res._edges, use_columns)
-        edf, y = check_target_not_in_features(edf, y, remove=True)
+        edf = self._edges[ use_columns ] if use_columns is not None else self._edges
+        edf = features_without_target(edf, y)
 
-        X_enc, y_enc, [mlb, data_vec], label_vec = self._edge_featurizer(
-            edf=edf,
-            y=y,
-            src=res._source,
-            dst=res._destination,
-            use_scaler=use_scaler,
-            cardinality_threshold=cardinality_threshold,
-            cardinality_threshold_target=cardinality_threshold_target,
-            n_topics=n_topics,
-            confidence=confidence,
-            min_words=min_words,
-            model_name=model_name,
-        )
-        res.edge_features = X_enc
-        res.edge_target = y_enc
-        res.edge_encoders = [mlb, data_vec]
-        res.edge_target_encoder = label_vec
+        res = self.bind()
+
+        if featurize:
+
+            assert_imported()
+
+            X_enc, y_enc, [mlb, data_vec], label_vec = process_edge_dataframes(
+                edf=edf,
+                y=y,
+                src=self._source,
+                dst=self._destination,
+                use_scaler=use_scaler,
+                cardinality_threshold=cardinality_threshold,
+                cardinality_threshold_target=cardinality_threshold_target,
+                n_topics=n_topics,
+                confidence=confidence,
+                min_words=min_words,
+                model_name=model_name,
+                featurize=featurize
+            )
+            res.edge_features = X_enc
+            res.edge_target = y_enc
+            res.edge_encoders = [mlb, data_vec]
+            res.edge_target_encoder = label_vec
+        else:
+            res.edge_features = edf
+
         return res
 
     def featurize(
@@ -965,8 +964,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             res = self.bind()
 
         if kind == "nodes":
-            res = self._featurize_nodes(
-                res,
+            res = res._featurize_nodes(
                 y=y,
                 use_columns=use_columns,
                 use_scaler=use_scaler,
@@ -977,10 +975,10 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
                 min_words=min_words,
                 model_name=model_name,
                 remove_node_column=remove_node_column,
+                featurize=True
             )
         elif kind == "edges":
-            res = self._featurize_edges(
-                res,
+            res = res._featurize_edges(
                 y=y,
                 use_columns=use_columns,
                 use_scaler=use_scaler,
@@ -990,6 +988,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
+                featurize=True
             )
         else:
             logger.warning(f"One may only featurize `nodes` or `edges`, got {kind}")
@@ -999,7 +998,6 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
 
     def _featurize_or_get_nodes_dataframe_if_X_is_None(
         self,
-        res: Any,
         X: Union[np.ndarray, None],
         y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
         use_columns: Union[List, None] = None,
@@ -1011,7 +1009,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
-        featurize: bool = False,
+        featurize: bool = True
     ):
         """
             helper method gets node feature and target matrix if X, y are not specified.
@@ -1026,19 +1024,18 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         """
         if featurize:
             # remove node_features
-            if hasattr(res, "node_features"):
-                delattr(res, "node_features")
+            if hasattr(self, "node_features"):
+                delattr(self, "node_features")
 
         if X is None:
-            if hasattr(res, "node_features"):
-                X = res.node_features
+            if hasattr(self, "node_features"):
+                X = self.node_features
                 logger.info(f"Found Node features in `res`")
             else:
                 logger.warning(
                     "Calling `featurize` to create data matrix `X` over nodes DataFrame"
                 )
-                res = self._featurize_nodes(
-                    res,
+                res = res._featurize_nodes(
                     y=y,
                     use_columns=use_columns,
                     use_scaler=use_scaler,
@@ -1048,14 +1045,15 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
                     confidence=confidence,
                     min_words=min_words,
                     model_name=model_name,
-                    remove_node_column=remove_node_column
+                    remove_node_column=remove_node_column,
+                    featurize=featurize
                 )
-                return self._featurize_or_get_nodes_dataframe_if_X_is_None(
-                    res, res.node_features, res.node_target, use_columns, use_scaler
+                return res._featurize_or_get_nodes_dataframe_if_X_is_None(
+                    res.node_features, res.node_target, use_columns, use_scaler, featurize=featurize
                 )  # now we are guaranteed to have node feature and target matrices.
         if y is None:
-            if hasattr(res, "node_target"):
-                y = res.node_target
+            if hasattr(self, "node_target"):
+                y = self.node_target
                 logger.info(
                     f"Fetching `node_target` in `res`. Target is type {type(y)}"
                 )
@@ -1063,8 +1061,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         return X, y
 
     def _featurize_or_get_edges_dataframe_if_X_is_None(
-        self,
-        res: Any,
+        self: Any,
         X: Union[np.ndarray, None],
         y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
         use_columns: Union[List, None] = None,
@@ -1075,6 +1072,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
+        featurize: bool = True
     ):
         """
             helper method gets edge feature and target matrix if X, y are not specified
@@ -1085,14 +1083,13 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         :return: data `X` and `y`
         """
         if X is None:
-            if hasattr(res, "edge_features"):
-                X = res.edge_features
+            if hasattr(self, "edge_features"):
+                X = self.edge_features
             else:
-                logger.warning(
+                logger.info(
                     "Calling `featurize` to create data matrix `X` over edges DataFrame"
                 )
                 res = self._featurize_edges(
-                    res,
                     y=y,
                     use_columns=use_columns,
                     use_scaler=use_scaler,
@@ -1102,204 +1099,13 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
                     confidence=confidence,
                     min_words=min_words,
                     model_name=model_name,
+                    featurize=featurize
                 )
-                return self._featurize_or_get_edges_dataframe_if_X_is_None(
-                    res, res.edge_features, res.edge_target, use_columns, use_scaler
+                return res._featurize_or_get_edges_dataframe_if_X_is_None(
+                    res.edge_features, res.edge_target, use_columns, use_scaler
                 )
         return X, y
 
-    def umap(
-        self,
-        kind: str = "nodes",
-        use_columns: Union[List, None] = None,
-        featurize: bool = False,  # TODO ask Leo what this was for again?
-        encode_position: bool = True,
-        encode_weight: bool = True,
-        inplace: bool = False,
-        X: np.ndarray = None,
-        y: Union[np.ndarray, List] = None,
-        scale: float = 0.1,
-        n_neighbors: int = 12,
-        min_dist: float = 0.1,
-        spread: float = 0.5,
-        local_connectivity: int = 1,
-        repulsion_strength: float = 1,
-        negative_sample_rate: int = 5,
-        n_components: int = 2,
-        metric: str = "euclidean",
-        scale_xy: float = 10,
-        suffix: str = "",
-        play: Optional[int] = 0,
-        engine: str = "umap_learn",
-    ):
-        """
-            UMAP the featurized node or edges data, or pass in your own X, y (optional).
-
-        :param kind: `nodes` or `edges` or None. If None, expects explicit X, y (optional) matrices, and will Not
-                associate them to nodes or edges. If X, y (optional) is given, with kind = [nodes, edges],
-                it will associate new matrices to nodes or edges attributes.
-        :param use_columns: List of columns to use for featurization if featurization hasn't been applied.
-        :param featurize: Whether to re-featurize, or use previous features, and just slice into appropriate columns
-        :param encode_weight: if True, will set new edges_df from implicit UMAP, default True.
-        :param encode_position: whether to set default plotting bindings -- positions x,y from umap for .plot()
-        :param X: ndarray of features
-        :param y: ndarray of targets
-        :param scale: multiplicative scale for pruning weighted edge DataFrame gotten from UMAP (mean + scale *std)
-        :param n_neighbors: UMAP number of nearest neighbors to include for UMAP connectivity, lower makes more compact layouts. Minimum 2.
-        :param min_dist: UMAP float between 0 and 1, lower makes more compact layouts.
-        :param spread: UMAP spread of values for relaxation
-        :param local_connectivity: UMAP connectivity parameter
-        :param repulsion_strength: UMAP repulsion strength
-        :param negative_sample_rate: UMAP negative sampling rate
-        :param n_components: number of components in the UMAP projection, default 2
-        :param metric: UMAP metric, default 'euclidean'. Other useful ones are 'hellinger', '..'
-                see (UMAP-LEARN)[https://umap-learn.readthedocs.io/en/latest/parameters.html] documentation for more.
-        :param suffix: optional suffix to add to x, y attributes of umap.
-        :param play: Graphistry play parameter, default 0, how much to evolve the network during clustering
-        :param engine: selects which engine to use to calculate UMAP: NotImplemented yet, default UMAP-LEARN
-        :return: self, with attributes set with new data
-        """
-        assert_imported()
-
-        self.suffix = suffix
-        xy = None
-        umap_kwargs = dict(
-            n_components=n_components,
-            metric=metric,
-            n_neighbors=n_neighbors,
-            min_dist=min_dist,
-            spread=spread,
-            local_connectivity=local_connectivity,
-            repulsion_strength=repulsion_strength,
-            negative_sample_rate=negative_sample_rate,
-        )
-
-        if inplace:
-            res = self
-        else:
-            res = self.bind()
-
-        res._set_new_kwargs(**umap_kwargs)
-
-        if kind == "nodes":
-            # make a node_entity to index dict to match with the implicit edges gotten from UMAPing
-            index_to_nodes_dict = None
-            if hasattr(res, "_node") and res._node is None:  # thanks Leo
-                res = res.nodes(res._nodes.reset_index(), config.IMPLICIT_NODE_ID)
-
-            if (
-                hasattr(res, "_nodes")
-                and hasattr(res, "_node")
-                and res._node is not None
-                and hasattr(res._nodes, config.IMPLICIT_NODE_ID)
-            ):
-                implicit_nodes = res._nodes[
-                    config.IMPLICIT_NODE_ID
-                ].values  # these are the integer node ids that line up with UMAP's calculation
-
-                nodes = res._nodes[
-                    res._node
-                ].values  # the named node in g.nodes(ndf, 'node_name')
-                if len(np.unique(nodes)) == len(np.unique(implicit_nodes)):
-                    logger.info(f"Relabeling nodes")
-                    # we use this to relabel from integer values to 'node_name' given in g.nodes(ndf, 'node_name')
-                    index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-
-            X, y = self._featurize_or_get_nodes_dataframe_if_X_is_None(
-                res, X, y, use_columns
-            )
-            xy = scale_xy * res.fit_transform(X, y)
-            res.weighted_adjacency_nodes = res._weighted_adjacency
-            res.node_embedding = xy
-            # TODO add edge filter so graph doesn't have double edges
-            res.weighted_edges_df_from_nodes = (
-                prune_weighted_edges_df_and_relabel_nodes(
-                    res._weighted_edges_df,
-                    scale=scale,
-                    index_to_nodes_dict=index_to_nodes_dict,
-                )
-            )
-        elif kind == "edges":
-            X, y = self._featurize_or_get_edges_dataframe_if_X_is_None(
-                res, X, y, use_columns
-            )
-            xy = scale_xy * res.fit_transform(X, y)
-            res.weighted_adjacency_edges = res._weighted_adjacency
-            res.edge_embedding = xy
-            res.weighted_edges_df_from_edges = (
-                prune_weighted_edges_df_and_relabel_nodes(
-                    res._weighted_edges_df, scale=scale, index_to_nodes_dict=None
-                )
-            )
-        elif kind is None:
-            logger.warning(
-                f"kind should be one of `nodes` or `edges` unless you are passing explicit matrices"
-            )
-            if X is not None:
-                logger.info(f"New Matrix `X` passed in for UMAP-ing")
-                xy = res.fit_transform(X, y)
-                res._xy = xy
-                res._weighted_edges_df = prune_weighted_edges_df_and_relabel_nodes(
-                    res._weighted_edges_df, scale=scale
-                )
-                logger.info(
-                    f"Reduced Coordinates are stored in `._xy` attribute and "
-                    f"pruned weighted_edge_df in `._weighted_edges_df` attribute"
-                )
-            else:
-                logger.error(
-                    f"If `kind` is `None`, `X` and optionally `y` must be given"
-                )
-        else:
-            raise ValueError(
-                f"`kind` needs to be one of `nodes`, `edges`, `None`, got {kind}"
-            )
-        res = self._bind_xy_from_umap(res, kind, encode_position, encode_weight, play)
-        if not inplace:
-            return res
-
-    def _bind_xy_from_umap(
-        self,
-        res: Any,
-        kind: str,
-        encode_position: bool,
-        encode_weight: bool,
-        play: Optional[int],
-    ):
-        # todo make sure xy is two dim, might be 3 or more....
-        df = res._nodes if kind == "nodes" else res._edges
-
-        df = df.copy(deep=False)
-        x_name = config.X + self.suffix
-        y_name = config.Y + self.suffix
-        if kind == "nodes":
-            emb = res.node_embedding
-        else:
-            emb = res.edge_embedding
-        df[x_name] = emb.T[0]
-        df[y_name] = emb.T[1]
-
-        res = res.nodes(df) if kind == "nodes" else res.edges(df)
-
-        if encode_weight and kind == "nodes":
-            w_name = config.WEIGHT + self.suffix
-            umap_df = res.weighted_edges_df_from_nodes.copy(deep=False)
-            umap_df = umap_df.rename({config.WEIGHT: w_name})
-            res = res.edges(umap_df, config.SRC, config.DST)
-            logger.info(
-                f"Wrote new edges_dataframe from UMAP embedding of shape {res._edges.shape}"
-            )
-            res = res.bind(edge_weight=w_name)
-
-        if encode_position and kind == "nodes":
-            if play is not None:
-                return res.bind(point_x=x_name, point_y=y_name).layout_settings(
-                    play=play
-                )
-            else:
-                return res.bind(point_x=x_name, point_y=y_name)
-
-        return res
 
     def filter_edges(
         self,
