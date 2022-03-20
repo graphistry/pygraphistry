@@ -17,7 +17,7 @@ try:
     has_dependancy = True
 except ModuleNotFoundError as e:
     logger.debug(
-        f"UMAP not found, trying running `pip install graphistry[ai]`",
+        "UMAP not found, trying running `pip install graphistry[ai]`",
         exc_info=True
     )
     import_exn = e
@@ -273,22 +273,22 @@ class UMAPMixin(object):
             )
         elif kind is None:
             logger.warning(
-                f"kind should be one of `nodes` or `edges` unless you are passing explicit matrices"
+                "kind should be one of `nodes` or `edges` unless you are passing explicit matrices"
             )
             if X is not None:
-                logger.info(f"New Matrix `X` passed in for UMAP-ing")
+                logger.info("New Matrix `X` passed in for UMAP-ing")
                 xy = res.fit_transform(X, y)
                 res._xy = xy
                 res._weighted_edges_df = prune_weighted_edges_df_and_relabel_nodes(
                     res._weighted_edges_df, scale=scale
                 )
                 logger.info(
-                    f"Reduced Coordinates are stored in `._xy` attribute and "
-                    f"pruned weighted_edge_df in `._weighted_edges_df` attribute"
+                    "Reduced Coordinates are stored in `._xy` attribute and "
+                    "pruned weighted_edge_df in `._weighted_edges_df` attribute"
                 )
             else:
                 logger.error(
-                    f"If `kind` is `None`, `X` and optionally `y` must be given"
+                    "If `kind` is `None`, `X` and optionally `y` must be given"
                 )
         else:
             raise ValueError(

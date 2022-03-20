@@ -97,7 +97,7 @@ class PyGraphistry(object):
             if (key is None) and (PyGraphistry._is_authenticated is False):
                 util.error(
                     "In api=1 / api=2 mode, API key not set explicitly in `register()` or available at "
-                    + EnvVarNames["api_key"]
+                    + EnvVarNames["api_key"]  # noqa: W503
                 )
             if not PyGraphistry._is_authenticated:
                 PyGraphistry._check_key_and_version()
@@ -123,8 +123,8 @@ class PyGraphistry(object):
         token = (
             ArrowUploader(
                 server_base_path=PyGraphistry.protocol()
-                + "://"
-                + PyGraphistry.server(),
+                + "://"                     # noqa: W503
+                + PyGraphistry.server(),    # noqa: W503
                 certificate_validation=PyGraphistry.certificate_validation(),
             )
             .login(username, password)
@@ -150,8 +150,8 @@ class PyGraphistry(object):
             token = (
                 ArrowUploader(
                     server_base_path=PyGraphistry.protocol()
-                    + "://"
-                    + PyGraphistry.server(),
+                    + "://"                   # noqa: W503
+                    + PyGraphistry.server(),  # noqa: W503
                     certificate_validation=PyGraphistry.certificate_validation(),
                 )
                 .refresh(PyGraphistry.api_token() if using_self_token else token)
@@ -175,8 +175,8 @@ class PyGraphistry(object):
                 PyGraphistry._is_authenticated = False
             ok = ArrowUploader(
                 server_base_path=PyGraphistry.protocol()
-                + "://"
-                + PyGraphistry.server(),
+                + "://"                   # noqa: W503
+                + PyGraphistry.server(),  # noqa: W503
                 certificate_validation=PyGraphistry.certificate_validation(),
             ).verify(PyGraphistry.api_token() if using_self_token else token)
             if using_self_token:
@@ -1918,8 +1918,8 @@ class PyGraphistry(object):
             cver = sys.modules["graphistry"].__version__
             if (
                 "pygraphistry" in jres
-                and "minVersion" in jres["pygraphistry"]
-                and "latestVersion" in jres["pygraphistry"]
+                and "minVersion" in jres["pygraphistry"]     # noqa: W503
+                and "latestVersion" in jres["pygraphistry"]  # noqa: W503
             ):
                 mver = jres["pygraphistry"]["minVersion"]
                 lver = jres["pygraphistry"]["latestVersion"]

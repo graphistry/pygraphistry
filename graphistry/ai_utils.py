@@ -40,7 +40,7 @@ def reimport():
 
     except ModuleNotFoundError as e:
         logger.error(
-            f"AI Packages not found, trying running `pip install graphistry[ai]`",
+            "AI Packages not found, trying running `pip install graphistry[ai]`",
             exc_info=True,
         )
         raise e

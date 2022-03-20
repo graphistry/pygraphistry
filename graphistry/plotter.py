@@ -8,9 +8,9 @@ from .umap_utils import UMAPMixin, has_dependancy as has_umap
 
 mixins = (
     [CosmosMixin, NeptuneMixin, GremlinMixin, LayoutsMixin]
-    + ([DGLGraphMixin] if has_dgl and has_featurize else [])
-    + ([FeatureMixin] if has_featurize else []) +
-    [ComputeMixin, PlotterBase, object]
+    + ([DGLGraphMixin] if has_dgl and has_featurize else [])  # noqa: W503
+    + ([FeatureMixin] if has_featurize else [])               # noqa: W503
+    + [ComputeMixin, PlotterBase, object]                     # noqa: W503
 )
 
 class Plotter(  # type: ignore

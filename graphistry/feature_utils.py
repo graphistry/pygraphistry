@@ -35,7 +35,7 @@ try:
 
 except ModuleNotFoundError as e:
     logger.debug(
-        f"AI Packages not found, trying running `pip install graphistry[ai]`",
+        "AI Packages not found, trying running `pip install graphistry[ai]`",
         exc_info=True,
     )
     import_exn = e
@@ -110,7 +110,7 @@ def features_without_target(
             if c in xc:
                 remove_cols.append(c)
     else:
-        logger.warning(f"Target is not of type(DataFrame) and has no columns")
+        logger.warning("Target is not of type(DataFrame) and has no columns")
     if len(remove_cols):
         logger.info(f"Removing {remove_cols} columns from DataFrame")
         tf = df.drop(columns=remove_cols, errors="ignore")
@@ -154,7 +154,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.DST,
         config.WEIGHT,
         config.IMPLICIT_NODE_ID,
-        'index' # in umap, we add
+        'index'  # in umap, we add
     ]
     df = df.drop(columns=reserved_namespace, errors="ignore")
     return df
@@ -226,9 +226,9 @@ def set_to_bool(df: pd.DataFrame, col: str, value: Any):
 def where_is_currency_column(df: pd.DataFrame, col: str):
     # simple heuristics:
     def check_if_currency(x: str):
-        if "$" in x:  ## hmmm need to add for ALL currencies...
+        if "$" in x:   # hmmm need to add for ALL currencies...
             return True
-        if "," in x:  # and ints next to it
+        if "," in x:   # and ints next to it
             return True
         try:
             x = float(x)
@@ -310,7 +310,7 @@ def check_if_textual_column(
     abundance = sum(isstring) / len(df)
     assert (
         min_words > 1
-    ), f"probably best to have at least a word if you want to consider this a textual column?"
+    ), "probably best to have at least a word if you want to consider this a textual column?"
     if abundance >= confidence:
         # now check how many words
         n_words = df[col].apply(lambda x: len(x.split()) if isinstance(x, str) else 0)
@@ -341,7 +341,7 @@ def get_textual_columns(
         if check_if_textual_column(df, col, confidence=confidence, min_words=min_words):
             text_cols.append(col)
     if len(text_cols) == 0:
-        logger.info(f"No Textual Columns were found")
+        logger.info("No Textual Columns were found")
     return text_cols
 
 
@@ -380,7 +380,7 @@ def impute_and_scale_matrix(
     imputer = None
     res = X
     if impute:
-        logger.info(f"Imputing Values using mean strategy")
+        logger.info("Imputing Values using mean strategy")
         # impute values
         imputer = SimpleImputer(missing_values=np.nan, strategy="mean")
         imputer = imputer.fit(X)
@@ -437,7 +437,7 @@ def impute_and_scale_df(
 
     if not is_dataframe_all_numeric(df):
         logger.warn(
-            f"Impute and Scaling can only happen on a Numeric DataFrame.\n -- Try featurizing the DataFrame first using graphistry.featurize(..)"
+            "Impute and Scaling can only happen on a Numeric DataFrame.\n -- Try featurizing the DataFrame first using graphistry.featurize(..)"
         )
         return df
 
@@ -515,7 +515,7 @@ def process_textual_or_other_dataframes(
     """
     t = time()
     if len(df) == 0 or df.empty:
-        logger.warning(f"DataFrame seems to be Empty")
+        logger.warning("DataFrame seems to be Empty")
 
     embeddings, text_cols = encode_textual(
         df, confidence=confidence, min_words=min_words, model_name=model_name
@@ -622,9 +622,9 @@ def process_dirty_dataframes(
         else:
             # if we pass only a numeric DF, data_encoder throws
             # RuntimeError: No transformers could be generated !
-            logger.info(f"-*-*-DataFrame is already completely numeric")
+            logger.info("-*-*-DataFrame is already completely numeric")
             X_enc = ndf.astype(float)
-            data_encoder = False  ## DO NOT SET THIS TO NONE
+            data_encoder = False  # DO NOT SET THIS TO NONE
             features_transformed = ndf.columns
             logger.info(f"-Shape of data {X_enc.shape}\n")
             logger.info(f"-Columns: {features_transformed[:20]}...\n")
@@ -634,12 +634,12 @@ def process_dirty_dataframes(
     else:
         X_enc = None
         data_encoder = None
-        logger.info(f"*Given DataFrame seems to be empty")
+        logger.info("*Given DataFrame seems to be empty")
 
     if y is not None:
         if not is_dataframe_all_numeric(y):
             t2 = time()
-            logger.info(f"-Fitting Targets --\n")
+            logger.info("-Fitting Targets --\n")
             label_encoder = SuperVectorizer(
                 auto_cast=True,
                 cardinality_threshold=cardinality_threshold_target,
@@ -657,7 +657,7 @@ def process_dirty_dataframes(
                 f"--Fitting SuperVectorizer on TARGET took {(time()-t2)/60:.2f} minutes\n"
             )
         else:
-            logger.info(f"-*-*-Target DataFrame is already completely numeric")
+            logger.info("-*-*-Target DataFrame is already completely numeric")
             y_enc = y
 
     return X_enc, y_enc, data_encoder, label_encoder
@@ -698,7 +698,7 @@ def process_edge_dataframes(
     mlb_pairwise_edge_encoder = MultiLabelBinarizer()
     source = edf[src]
     destination = edf[dst]
-    logger.info(f"Encoding Edges using MultiLabelBinarizer")
+    logger.info("Encoding Edges using MultiLabelBinarizer")
     T = mlb_pairwise_edge_encoder.fit_transform(zip(source, destination))
     T = 1.0 * T  # coerce to float, or divide= will throw error under z_scale below
     logger.info(f"-Shape of Edge-2-Edge encoder {T.shape}")
@@ -788,9 +788,9 @@ def prune_weighted_edges_df_and_relabel_nodes(
 
     mean = desc[config.WEIGHT]["mean"]
     std = desc[config.WEIGHT]["std"]
-    max_val = desc[config.WEIGHT]["max"]+eps
-    min_val = desc[config.WEIGHT]["min"]-eps
-    thresh = np.max([max_val - scale, min_val]) # if std =0 we add eps so we still have scale in the equation
+    max_val = desc[config.WEIGHT]["max"] + eps
+    min_val = desc[config.WEIGHT]["min"] - eps
+    thresh = np.max([max_val - scale, min_val])  # if std =0 we add eps so we still have scale in the equation
     
     logger.info(
         f"edge weights: mean({mean:.2f}), std({std:.2f}), max({max_val}), min({min_val:.2f}), thresh({thresh:.2f})"
@@ -1030,12 +1030,12 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         if X is None:
             if hasattr(self, "node_features"):
                 X = self.node_features
-                logger.info(f"Found Node features in `res`")
+                logger.info("Found Node features in `res`")
             else:
                 logger.warning(
                     "Calling `featurize` to create data matrix `X` over nodes DataFrame"
                 )
-                res = res._featurize_nodes(
+                res = self._featurize_nodes(
                     y=y,
                     use_columns=use_columns,
                     use_scaler=use_scaler,
@@ -1127,7 +1127,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
                 )
             )
         else:
-            logger.error(f"UMAP has not been run, run g.featurize(...).umap(...) first")
+            logger.error("UMAP has not been run, run g.featurize(...).umap(...) first")
 
         # write new res._edges df
         res = self._bind_xy_from_umap(

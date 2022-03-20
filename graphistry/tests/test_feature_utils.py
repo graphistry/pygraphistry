@@ -2,10 +2,14 @@
 
 import unittest
 from typing import Any
-import copy, datetime as dt, graphistry, os, pandas as pd
+import copy, datetime as dt, graphistry, numpy as np, os, pandas as pd
 
-from graphistry.feature_utils import *
-from graphistry.dgl_utils import *
+from graphistry.feature_utils import (
+    process_dirty_dataframes,
+    process_textual_or_other_dataframes,
+    remove_internal_namespace_if_present
+)
+#from graphistry.dgl_utils import *
 
 try:
     import dirty_cat
@@ -76,8 +80,7 @@ bad_df = pd.DataFrame(
         ],
         "textual": [
             "here we have a sentence. And here is another sentence. Graphistry is an amazing tool!"
-        ]
-        * 4,
+        ] * 4,
     }
 )
 
@@ -454,12 +457,12 @@ class TestUMAPMethods(unittest.TestCase):
         for kind, g in [('nodes', graphistry.nodes(ndf_reddit))]:
             g2 = g.umap(kind=kind)
             last_shape = 0
-            for scale in np.linspace(0, 6, 8): # six sigma in 8 steps
+            for scale in np.linspace(0, 6, 8):  # six sigma in 8 steps
                 g3 = g2.filter_edges(scale=scale)
                 shape = g3._edges.shape
-                print('*'*90)
+                print('*' * 90)
                 print(f'{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}')
-                print('-'*80)
+                print('-' * 80)
                 self.assertGreaterEqual(shape[0], last_shape)
                 last_shape = shape[0]
                 

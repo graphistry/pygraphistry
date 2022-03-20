@@ -130,11 +130,11 @@ class DGLGraphMixin(FeatureMixin):
         res = nodes.isin(self.entity_to_index)
         if res.sum() != len(nodes):
             logger.warning(
-                f"Some Edges connect to Nodes not explicitly mentioned in nodes DataFrame (ndf)"
+                "Some Edges connect to Nodes not explicitly mentioned in nodes DataFrame (ndf)"
             )
         if len(self.entity_to_index) > len(nodes):
             logger.warning(
-                f"There are more entities in edges DataFrame (edf) than in nodes DataFrame (ndf)"
+                "There are more entities in edges DataFrame (edf) than in nodes DataFrame (ndf)"
             )
 
     def _convert_edgeDF_to_DGL(self, res: Any, node_column: str, weight_column: str):
@@ -256,9 +256,8 @@ class DGLGraphMixin(FeatureMixin):
 
     def __getitem__(self, idx):
         # get one example by index
-        idx = 1  # only one graph here
         if self.DGL_graph is None:
-            logger.warn(f"DGL graph is not built, run `g.build_dgl_graph(..)` first")
+            logger.warn("DGL graph is not built, run `g.build_dgl_graph(..)` first")
         return self.DGL_graph
 
     def __len__(self):
