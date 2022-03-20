@@ -1,5 +1,5 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
-from typing import List, Any
+from typing import List, Any, TYPE_CHECKING
 import pandas as pd
 
 try:
@@ -14,6 +14,16 @@ from .feature_utils import FeatureMixin, convert_to_torch
 from .ai_utils import pandas_to_sparse_adjacency, setup_logger
 
 logger = setup_logger(__name__, verbose=True)
+
+
+if TYPE_CHECKING:
+    MIXIN_BASE = FeatureMixin
+else:
+    MIXIN_BASE = object
+
+
+###############################################################################
+
 
 def pandas_to_dgl_graph(
     df: pd.DataFrame, src: str, dst: str, weight_col: str = None, device: str = "cpu"
@@ -53,7 +63,7 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     return train_mask, test_mask
 
 
-class DGLGraphMixin(FeatureMixin):
+class DGLGraphMixin(MIXIN_BASE):
     """
         Automagic DGL models from Graphistry Instances.
         

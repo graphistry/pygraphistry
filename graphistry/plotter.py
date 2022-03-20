@@ -19,8 +19,7 @@ class Plotter(  # type: ignore
     def __init__(self, *args, **kwargs):
         PlotterBase.__init__(self, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
-        if has_featurize:
-            FeatureMixin.__init__(self, *args, **kwargs)
+        FeatureMixin.__init__(self, *args, **kwargs)
         if has_dgl:
             DGLGraphMixin.__init__(self, *args, **kwargs)
         if has_umap:

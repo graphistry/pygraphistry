@@ -1,11 +1,16 @@
-# a base class for UMAP to run on cpu or gpu
+from typing import Any, List, Optional, Union, TYPE_CHECKING
 import numpy as np, pandas as pd
 from time import time
-from typing import Any, List, Optional, Union
 from . import constants as config
 from .ai_utils import setup_logger
-from .feature_utils import prune_weighted_edges_df_and_relabel_nodes
+from .feature_utils import prune_weighted_edges_df_and_relabel_nodes, FeatureMixin
 logger = setup_logger(name=__name__, verbose=False)
+
+
+if TYPE_CHECKING:
+    MIXIN_BASE = FeatureMixin
+else:
+    MIXIN_BASE = object
 
 
 ###############################################################################
@@ -69,7 +74,7 @@ def umap_graph_to_weighted_edges(umap_graph, cfg=config):
     return _weighted_edges_df
 
 
-class UMAPMixin(object):
+class UMAPMixin(MIXIN_BASE):
     """
         UMAP Mixin for automagic UMAPing
         

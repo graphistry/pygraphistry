@@ -1,5 +1,5 @@
-from graphistry.Plottable import Plottable
 from typing import Any, Callable, Iterable, List, Optional, Union
+from graphistry.Plottable import Plottable
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
@@ -17,6 +17,9 @@ from .plotter import Plotter
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+###############################################################################
 
 
 EnvVarNames = {

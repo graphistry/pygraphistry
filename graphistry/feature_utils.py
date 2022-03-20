@@ -1,15 +1,19 @@
+from typing import List, Union, Dict, Callable, Any, Tuple, Optional, TYPE_CHECKING
 import copy, numpy as np, pandas as pd
 from functools import partial
 from time import time
-from typing import List, Union, Dict, Callable, Any, Tuple, Optional
 
 from .ai_utils import setup_logger
 from .compute import ComputeMixin
+from .Plottable import Plottable
 from . import constants as config
-from .umap_utils import UMAPMixin
 
 logger = setup_logger(name=__name__, verbose=False)
 
+if TYPE_CHECKING:
+    MIXIN_BASE = ComputeMixin
+else:
+    MIXIN_BASE = object
 
 import_exn = None
 try:
@@ -809,7 +813,7 @@ def prune_weighted_edges_df_and_relabel_nodes(
     return wdf2
 
 
-class FeatureMixin(ComputeMixin, UMAPMixin):
+class FeatureMixin(MIXIN_BASE):
     """
         FeatureMixin for automatic featurization of nodes and edges DataFrames.
         Subclasses UMAPMixin for umap-ing of automatic features.
