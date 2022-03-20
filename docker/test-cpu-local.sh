@@ -23,7 +23,7 @@ then
     ( cd ../test/db/neo4j && ./launch.sh )
 fi
 
-if [ "$WITH_BUILD" == "1"]
+if [ "$WITH_BUILD" == "1" ]
 then
     echo "WITH_BUILD"
     docker-compose build \
