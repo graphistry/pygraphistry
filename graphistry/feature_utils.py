@@ -839,16 +839,14 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
     """
 
     def __init__(self, *args, **kwargs):
-        from functools import partial
-
-        super().__init__()
-        ComputeMixin.__init__(self, *args, **kwargs)
+        pass
+        #super().__init__()
+        #ComputeMixin.__init__(self, *args, **kwargs)
         # FeatureMixin.__init__(self, *args, **kwargs)
-        UMAPMixin.__init__(self, *args, **kwargs)
-        self._node_featurizer = (
-            process_textual_or_other_dataframes  # partial(.., *args, **kwargs)
-        )
-        self._edge_featurizer = process_edge_dataframes
+        #UMAPMixin.__init__(self, *args, **kwargs)
+        
+    def _node_featurizer(self, *args, **kwargs):
+        return process_textual_or_other_dataframes(*args, **kwargs)
 
     def _featurize_nodes(
         self,

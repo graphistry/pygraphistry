@@ -42,12 +42,29 @@ umap_kwargs_euclidean = {
 }
 
 
+def umap_graph_to_weighted_edges(umap_graph, cfg=config):
+    logger.debug("Calculating weighted adjacency (edge) DataFrame")
+    coo = umap_graph.tocoo()
+    src, dst, weight_col = cfg.SRC, cfg.DST, cfg.WEIGHT
+
+    _weighted_edges_df = pd.DataFrame(
+        {src: coo.row, dst: coo.col, weight_col: coo.data}
+    )
+
+    return _weighted_edges_df
+
+
 class UMAPMixin(object):
     """
         UMAP Mixin for automagic UMAPing
         
     """
-    def __init__(
+
+    def __init__(self):
+        self.umap_initialized = False
+        pass
+
+    def umap_lazy_init(
         self,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
@@ -58,7 +75,11 @@ class UMAPMixin(object):
         n_components: int = 2,
         metric: str = "euclidean",
     ):
-        if has_dependancy:
+
+        #FIXME remove as set_new_kwargs will always replace?
+
+        if has_dependancy and not self.umap_initialized:
+
             umap_kwargs = dict(
                 n_components=n_components,
                 metric=metric,
@@ -79,9 +100,13 @@ class UMAPMixin(object):
             self.repulsion_strength = repulsion_strength
             self.negative_sample_rate = negative_sample_rate
             self._umap = umap.UMAP(**umap_kwargs)
-        
 
+            self.umap_initialized = True
+
+
+    #TODO should this cascade with umap_lazy_init?
     def _set_new_kwargs(self, **kwargs):
+        assert_imported()
         self._umap = umap.UMAP(**kwargs)
 
     def _check_target_is_one_dimensional(self, y: Union[np.ndarray, None]):

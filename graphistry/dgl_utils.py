@@ -70,11 +70,24 @@ class DGLGraphMixin(FeatureMixin):
         :param device: Whether to put on cpu or gpu. Can always envoke .to(gpu) on returned DGL graph later, Default 'cpu'
         """
 
-        self.train_split = train_split
-        self.device = device
-        self._removed_edges_previously = False
-        FeatureMixin.__init__(self, *args, **kwargs)
-        self.DGL_graph = None
+        self.dgl_initialized = False
+
+
+    def dgl_lazy_init(self, train_split: float = 0.8, device: str = "cpu"):
+        """
+        Initialize DGL graph lazily
+        :return:
+        """
+
+        if not self.dgl_initialized:
+
+            self.train_split = train_split
+            self.device = device
+            self._removed_edges_previously = False
+            self.DGL_graph = None
+
+            self.dgl_initialized = True
+
 
     def _prune_edge_target(self):
         if hasattr(self, "edge_target") and hasattr(self, "_MASK"):
@@ -201,10 +214,13 @@ class DGLGraphMixin(FeatureMixin):
         use_edge_scaler: str = None,
         inplace: bool = False,
     ):
+
         if inplace:
             res = self
         else:
             res = self.bind()
+
+        res.dgl_lazy_init()
 
         if hasattr(res, "_MASK"):
             if y_edges is not None:
