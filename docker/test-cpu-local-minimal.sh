@@ -11,5 +11,4 @@ PIP_DEPS=${PIP_DEPS:--e .[test]} \
         --ignore=graphistry/tests/test_ipython.py \
         --ignore=graphistry/tests/test_nodexl.py \
         --ignore=graphistry/tests/test_tigergraph \
-        --ignore-graphistry/tests/test_feature_utils \
-
+        --ignore=graphistry/tests/test_feature_utils
