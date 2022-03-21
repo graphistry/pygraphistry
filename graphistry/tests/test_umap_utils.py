@@ -2,10 +2,10 @@ from typing import Any
 import copy, datetime as dt, graphistry, numpy as np, os, pandas as pd
 import pytest, unittest
 
+from graphistry.ai_utils import setup_logger
 from graphistry.umap_utils import (
     has_dependancy
 )
-
 from graphistry.tests.test_feature_utils import (
 
     ndf_reddit,
@@ -25,16 +25,20 @@ from graphistry.tests.test_feature_utils import (
 )
 
 
+logger = setup_logger(name=__name__, verbose=False)
+
+
 triangleEdges = pd.DataFrame({
-    'src': ['a', 'b', 'c'],
-    'dst': ['b', 'c', 'a'],
-    'int': [0, 1, 2],
-    'flt': [0.0, 1.0, 2.0],
-    'y': [0.0, 1.0, 2.0]
+    'src': ['a', 'b', 'c'] * 3,
+    'dst': ['b', 'c', 'a'] * 3,
+    'int': [0, 1, 2] * 3,
+    'flt': [0.0, 1.0, 2.0] * 3,
+    'y': [0.0, 1.0, 2.0] * 3
 })
 edge_ints = ['int']
 edge_floats = ['flt']
 edge_numeric = edge_ints + edge_floats
+edge_target = triangleEdges[['y']]
 
 triangleNodes = pd.DataFrame({
     'id': ['a', 'b', 'c'],
@@ -45,7 +49,7 @@ triangleNodes = pd.DataFrame({
 node_ints = ['int']
 node_floats = ['flt']
 node_numeric = node_ints + node_floats
-
+node_target = triangleNodes[['y']]
 
 class TestUMAPMethods(unittest.TestCase):
     
@@ -86,8 +90,10 @@ class TestUMAPMethods(unittest.TestCase):
 
         ndf = remove_internal_namespace_if_present(ndf)
         cols = ndf.columns
+        print('g_nodes', g._nodes)
+        print('df', df)
         self.assertTrue(
-            np.all(ndf.reset_index(drop=True) == df[cols].reset_index(drop=True)),
+            np.array_equal(ndf.reset_index(drop=True), df[cols].reset_index(drop=True)),
             f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
         )
 
@@ -95,11 +101,11 @@ class TestUMAPMethods(unittest.TestCase):
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         for use_col in use_cols:
             for target in targets:
-                print("*" * 90)
+                logger.debug("*" * 90)
                 value = [target, use_col]
-                print(f"{kind} -- {name}")
-                print(f"{value}")
-                print("-" * 80)
+                logger.debug(f"{kind} -- {name}")
+                logger.debug(f"{value}")
+                logger.debug("-" * 80)
                 g2 = g.umap(kind=kind, y=target, use_columns=use_col, featurize=False)
 
                 self.cases_test_graph(g2, kind=kind, df=df)
@@ -107,29 +113,29 @@ class TestUMAPMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def test_node_umap(self):
         g = graphistry.nodes(triangleNodes)
-        use_cols = [None, node_ints, node_floats, node_numeric]
-        targets = [None, 'y', 'y', 'y']
+        use_cols = [node_ints, node_floats, node_numeric]
+        targets = [node_target]
         self._test_umap(
             g,
             use_cols=use_cols,
             targets=targets,
             name="Node UMAP with `(target, use_col)=`",
             kind="nodes",
-            df=ndf_reddit,
+            df=triangleNodes,
         )
 
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def test_edge_umap(self):
         g = graphistry.edges(triangleEdges, "src", "dst")
-        targets = [None, edge_ints, edge_floats, edge_numeric]
-        use_cols = [None, 'y', 'y', 'y']
+        use_cols = [edge_ints, edge_floats, edge_numeric]
+        targets = [edge_target]
         self._test_umap(
             g,
             use_cols=use_cols,
             targets=targets,
             name="Edge UMAP with `(target, use_col)=`",
             kind="edges",
-            df=edge_df,
+            df=triangleEdges,
         )
 
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")

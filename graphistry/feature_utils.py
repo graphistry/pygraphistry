@@ -131,7 +131,7 @@ def remove_node_column_from_ndf_and_return_ndf(g):
     """
     if g._node is not None:
         node_label = g._node
-        if node_label is not None and node_label in g.columns:
+        if node_label is not None and node_label in g._nodes.columns:
             logger.info(
                 f"removing node column `{node_label}` so we do not featurize it"
             )
@@ -696,7 +696,8 @@ def process_edge_dataframes(
 
     #FIXME what to return?
     if not featurize:
-        return edf, y, None, None
+        edf2 = edf.select_dtypes(include=np.number)
+        return edf2, y, [None, None], None
 
     t = time()
     mlb_pairwise_edge_encoder = MultiLabelBinarizer()
@@ -845,15 +846,22 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         featurize: bool = True
     ):
-        ndf = remove_node_column_from_ndf_and_return_ndf(self, remove_node_column)
+
+        res = self.bind()
+        if self._nodes is None:
+            raise ValueError('Expected nodes; try running nodes.materialize_nodes() first if you only have edges')
+
+        ndf = res._nodes
+        if remove_node_column:
+            remove_node_column_from_ndf_and_return_ndf(res)
         # TODO move the columns select after the featurizer?
         ndf = ndf[use_columns] if use_columns is not None else ndf
         ndf = features_without_target(ndf, y)
         ndf = remove_internal_namespace_if_present(ndf)
 
 
-        res = self.nodes(
-            self._nodes.assign(**{
+        res = res.nodes(
+            res._nodes.assign(**{
                 #FIXME unnecessary?
                 config.IMPLICIT_NODE_ID: range(len(ndf))
             })
@@ -864,6 +872,7 @@ class FeatureMixin(MIXIN_BASE):
             assert_imported()
 
             # now vectorize it all
+            #FIXME self or res?
             X_enc, y_enc, data_vec, label_vec = self._node_featurizer(
                 ndf,
                 y=y,
@@ -882,6 +891,9 @@ class FeatureMixin(MIXIN_BASE):
 
         else:
             res.node_features = ndf
+            res.node_target = y
+            res.node_encoder = None
+            res.node_target_encoder = None
 
         return res
 
@@ -907,33 +919,25 @@ class FeatureMixin(MIXIN_BASE):
 
         res = self.bind()
 
-        if featurize:
+        X_enc, y_enc, [mlb, data_vec], label_vec = process_edge_dataframes(
+            edf=edf,
+            y=y,
+            src=self._source,
+            dst=self._destination,
+            use_scaler=use_scaler,
+            cardinality_threshold=cardinality_threshold,
+            cardinality_threshold_target=cardinality_threshold_target,
+            n_topics=n_topics,
+            confidence=confidence,
+            min_words=min_words,
+            model_name=model_name,
+            featurize=featurize
+        )
+        res.edge_features = X_enc
+        res.edge_target = y_enc
+        res.edge_encoders = [mlb, data_vec]
+        res.edge_target_encoder = label_vec
 
-            assert_imported()
-
-            X_enc, y_enc, [mlb, data_vec], label_vec = process_edge_dataframes(
-                edf=edf,
-                y=y,
-                src=self._source,
-                dst=self._destination,
-                use_scaler=use_scaler,
-                cardinality_threshold=cardinality_threshold,
-                cardinality_threshold_target=cardinality_threshold_target,
-                n_topics=n_topics,
-                confidence=confidence,
-                min_words=min_words,
-                model_name=model_name,
-                featurize=featurize
-            )
-            res.edge_features = X_enc
-            res.edge_target = y_enc
-            res.edge_encoders = [mlb, data_vec]
-            res.edge_target_encoder = label_vec
-        else:
-            res.edge_features = edf
-            res.edge_target = y
-            res.edge_encoders = None
-            res.edge_target_encoder = None
 
         return res
 
