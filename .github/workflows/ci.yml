@@ -30,6 +30,11 @@ jobs:
 
     - name: Checkout repo
       uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
@@ -62,6 +67,11 @@ jobs:
 
     - name: Checkout repo
       uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
@@ -98,6 +108,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
 
     - name: Neo4j connector tests
       run: |
@@ -111,6 +126,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
 
     - name: Set up Python 3.7
       uses: actions/setup-python@v2
