@@ -106,7 +106,7 @@ class TestUMAPMethods(unittest.TestCase):
 
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def test_node_umap(self):
-        g = graphistry.nodes(ndf_reddit)
+        g = graphistry.nodes(triangleNodes)
         use_cols = [None, node_ints, node_floats, node_numeric]
         targets = [None, 'y', 'y', 'y']
         self._test_umap(
@@ -120,7 +120,7 @@ class TestUMAPMethods(unittest.TestCase):
 
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def test_edge_umap(self):
-        g = graphistry.edges(edge_df, "src", "dst")
+        g = graphistry.edges(triangleEdges, "src", "dst")
         targets = [None, edge_ints, edge_floats, edge_numeric]
         use_cols = [None, 'y', 'y', 'y']
         self._test_umap(
@@ -134,7 +134,7 @@ class TestUMAPMethods(unittest.TestCase):
 
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def test_filter_edges(self):
-        for kind, g in [('nodes', graphistry.nodes(ndf_reddit))]:
+        for kind, g in [('nodes', graphistry.nodes(triangleNodes))]:
             g2 = g.umap(kind=kind, featurize=False)
             last_shape = 0
             for scale in np.linspace(0, 6, 8):  # six sigma in 8 steps
