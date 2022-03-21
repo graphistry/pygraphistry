@@ -101,6 +101,43 @@ jobs:
         ./bin/test.sh
 
 
+  test-core-umap:
+
+    needs: [ test-minimal-python ]
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: [3.6, 3.7, 3.8, 3.9]
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install -e .[test,umap-learn]
+
+    - name: Core tests
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-umap-learn-core.sh
+
+
   test-neo4j:
 
     needs: [ test-minimal-python ]

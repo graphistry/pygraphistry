@@ -19,8 +19,32 @@ from graphistry.tests.test_feature_utils import (
     double_target_edge,
     good_edge_cols,
 
-    remove_internal_namespace_if_present
+    remove_internal_namespace_if_present,
+
+    has_dependancy as has_featurize
 )
+
+
+triangleEdges = pd.DataFrame({
+    'src': ['a', 'b', 'c'],
+    'dst': ['b', 'c', 'a'],
+    'int': [0, 1, 2],
+    'flt': [0.0, 1.0, 2.0],
+    'y': [0.0, 1.0, 2.0]
+})
+edge_ints = ['int']
+edge_floats = ['flt']
+edge_numeric = edge_ints + edge_floats
+
+triangleNodes = pd.DataFrame({
+    'id': ['a', 'b', 'c'],
+    'int': [1, 2, 3],
+    'flt': [0.0, 1.0, 2.0],
+    'y': [0.0, 1.0, 2.0]
+})
+node_ints = ['int']
+node_floats = ['flt']
+node_numeric = node_ints + node_floats
 
 
 class TestUMAPMethods(unittest.TestCase):
@@ -76,11 +100,69 @@ class TestUMAPMethods(unittest.TestCase):
                 print(f"{kind} -- {name}")
                 print(f"{value}")
                 print("-" * 80)
-                g2 = g.umap(kind=kind, y=target, use_columns=use_col)
+                g2 = g.umap(kind=kind, y=target, use_columns=use_col, featurize=False)
 
                 self.cases_test_graph(g2, kind=kind, df=df)
 
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
+    def test_node_umap(self):
+        g = graphistry.nodes(ndf_reddit)
+        use_cols = [None, node_ints, node_floats, node_numeric]
+        targets = [None, 'y', 'y', 'y']
+        self._test_umap(
+            g,
+            use_cols=use_cols,
+            targets=targets,
+            name="Node UMAP with `(target, use_col)=`",
+            kind="nodes",
+            df=ndf_reddit,
+        )
+
+    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
+    def test_edge_umap(self):
+        g = graphistry.edges(edge_df, "src", "dst")
+        targets = [None, edge_ints, edge_floats, edge_numeric]
+        use_cols = [None, 'y', 'y', 'y']
+        self._test_umap(
+            g,
+            use_cols=use_cols,
+            targets=targets,
+            name="Edge UMAP with `(target, use_col)=`",
+            kind="edges",
+            df=edge_df,
+        )
+
+    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
+    def test_filter_edges(self):
+        for kind, g in [('nodes', graphistry.nodes(ndf_reddit))]:
+            g2 = g.umap(kind=kind, featurize=False)
+            last_shape = 0
+            for scale in np.linspace(0, 6, 8):  # six sigma in 8 steps
+                g3 = g2.filter_edges(scale=scale)
+                shape = g3._edges.shape
+                print('*' * 90)
+                print(f'{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}')
+                print('-' * 80)
+                self.assertGreaterEqual(shape[0], last_shape)
+                last_shape = shape[0]
+
+
+class TestUMAPAIMethods(unittest.TestCase):
+
+    @pytest.mark.skipif(not has_dependancy or not has_featurize, reason="requires ai+umap feature dependencies")
+    def _test_umap(self, g, use_cols, targets, name, kind, df):
+        for use_col in use_cols:
+            for target in targets:
+                print("*" * 90)
+                value = [target, use_col]
+                print(f"{kind} -- {name}")
+                print(f"{value}")
+                print("-" * 80)
+                g2 = g.umap(kind=kind, y=target, use_columns=use_col)
+
+                self.cases_test_graph(g2, kind=kind, df=df)
+
+    @pytest.mark.skipif(not has_dependancy or not has_featurize, reason="requires ai+umap feature dependencies")
     def test_node_umap(self):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, good_cols_reddit, meta_cols_reddit]
@@ -94,7 +176,7 @@ class TestUMAPMethods(unittest.TestCase):
             df=ndf_reddit,
         )
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_dependancy or not has_featurize, reason="requires ai+umap feature dependencies")
     def test_edge_umap(self):
         g = graphistry.edges(edge_df, "src", "dst")
         targets = [None, single_target_edge, double_target_edge]
@@ -108,7 +190,7 @@ class TestUMAPMethods(unittest.TestCase):
             df=edge_df,
         )
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_dependancy or not has_featurize, reason="requires ai+umap feature dependencies")
     def test_filter_edges(self):
         for kind, g in [('nodes', graphistry.nodes(ndf_reddit))]:
             g2 = g.umap(kind=kind)

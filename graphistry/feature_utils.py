@@ -931,6 +931,9 @@ class FeatureMixin(MIXIN_BASE):
             res.edge_target_encoder = label_vec
         else:
             res.edge_features = edf
+            res.edge_target = y
+            res.edge_encoders = None
+            res.edge_target_encoder = None
 
         return res
 
