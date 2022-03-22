@@ -4,7 +4,8 @@ from time import time
 from . import constants as config
 from .ai_utils import setup_logger
 from .feature_utils import prune_weighted_edges_df_and_relabel_nodes, FeatureMixin
-logger = setup_logger(name=__name__, verbose=False)
+
+logger = setup_logger(name=__name__, verbose=True)
 
 
 if TYPE_CHECKING:
@@ -19,15 +20,16 @@ else:
 import_exn = None
 try:
     import umap
+
     has_dependancy = True
 except ModuleNotFoundError as e:
     logger.debug(
-        "UMAP not found, trying running `pip install graphistry[ai]`",
-        exc_info=True
+        "UMAP not found, trying running `pip install graphistry[ai]`", exc_info=True
     )
     import_exn = e
     has_dependancy = False
     umap = Any
+
 
 def assert_imported():
     if not has_dependancy:
@@ -76,8 +78,8 @@ def umap_graph_to_weighted_edges(umap_graph, cfg=config):
 
 class UMAPMixin(MIXIN_BASE):
     """
-        UMAP Mixin for automagic UMAPing
-        
+    UMAP Mixin for automagic UMAPing
+
     """
 
     def __init__(self):
@@ -96,7 +98,7 @@ class UMAPMixin(MIXIN_BASE):
         metric: str = "euclidean",
     ):
 
-        #FIXME remove as set_new_kwargs will always replace?
+        # FIXME remove as set_new_kwargs will always replace?
 
         if has_dependancy and not self.umap_initialized:
 
@@ -110,7 +112,7 @@ class UMAPMixin(MIXIN_BASE):
                 repulsion_strength=repulsion_strength,
                 negative_sample_rate=negative_sample_rate,
             )
-    
+
             self.n_components = n_components
             self.metric = metric
             self.n_neighbors = n_neighbors
@@ -123,8 +125,7 @@ class UMAPMixin(MIXIN_BASE):
 
             self.umap_initialized = True
 
-
-    #TODO should this cascade with umap_lazy_init?
+    # TODO should this cascade with umap_lazy_init?
     def _set_new_kwargs(self, **kwargs):
         assert_imported()
         self._umap = umap.UMAP(**kwargs)
@@ -142,7 +143,7 @@ class UMAPMixin(MIXIN_BASE):
             )
             return None
 
-    #FIXME rename to umap_fit
+    # FIXME rename to umap_fit
     def fit(self, X: np.ndarray, y: Union[np.ndarray, None] = None):
         t = time()
         y = self._check_target_is_one_dimensional(y)
@@ -155,7 +156,7 @@ class UMAPMixin(MIXIN_BASE):
         logger.info(f" - or {X.shape[0]/mins:.2f} rows per minute")
         return self
 
-    #FIXME rename to umap_fit_transform
+    # FIXME rename to umap_fit_transform
     def fit_transform(self, X: np.ndarray, y: Union[np.ndarray, None] = None):
         self.fit(X, y)
         return self._umap.transform(X)
@@ -236,21 +237,21 @@ class UMAPMixin(MIXIN_BASE):
 
         if kind == "nodes":
 
-            #FIXME not sure if this is preserving the intent
-            #... when should/shouldn't we relabel? 
+            # FIXME not sure if this is preserving the intent
+            # ... when should/shouldn't we relabel?
             index_to_nodes_dict = None
             if res._node is None:
                 res = res.nodes(
-                    res._nodes
-                        .reset_index(drop=True).reset_index()
-                        .rename(columns={'index': config.IMPLICIT_NODE_ID}),
-                    config.IMPLICIT_NODE_ID
+                    res._nodes.reset_index(drop=True)
+                    .reset_index()
+                    .rename(columns={"index": config.IMPLICIT_NODE_ID}),
+                    config.IMPLICIT_NODE_ID,
                 )
                 nodes = res._nodes[res._node].values
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
-            X, y = res._featurize_or_get_nodes_dataframe_if_X_is_None(
-                X, y, use_columns, featurize=featurize
+            X, y, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(
+                X, y, use_columns, refeaturize=featurize
             )
             xy = scale_xy * res.fit_transform(X, y)
             res.weighted_adjacency_nodes = res._weighted_adjacency
@@ -265,8 +266,8 @@ class UMAPMixin(MIXIN_BASE):
                 )
             )
         elif kind == "edges":
-            X, y = res._featurize_or_get_edges_dataframe_if_X_is_None(
-                X, y, use_columns, featurize=featurize
+            X, y, res = res._featurize_or_get_edges_dataframe_if_X_is_None(
+                X, y, use_columns, refeaturize=featurize
             )
             xy = scale_xy * res.fit_transform(X, y)
             res.weighted_adjacency_edges = res._weighted_adjacency

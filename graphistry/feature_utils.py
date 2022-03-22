@@ -8,7 +8,7 @@ from .compute import ComputeMixin
 from .Plottable import Plottable
 from . import constants as config
 
-logger = setup_logger(name=__name__, verbose=False)
+logger = setup_logger(name=__name__, verbose=True)
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
@@ -20,9 +20,9 @@ try:
     import scipy, scipy.sparse, torch
     from dirty_cat import (
         SuperVectorizer,
-        #SimilarityEncoder,
-        #TargetEncoder,
-        #MinHashEncoder,
+        # SimilarityEncoder,
+        # TargetEncoder,
+        # MinHashEncoder,
         GapEncoder,
     )
     from sentence_transformers import SentenceTransformer
@@ -35,6 +35,7 @@ try:
         MultiLabelBinarizer,
         KBinsDiscretizer,
     )
+
     has_dependancy = True
 
 except ModuleNotFoundError as e:
@@ -47,9 +48,9 @@ except ModuleNotFoundError as e:
     scipy = (Any,)
     torch = Any
     SuperVectorizer = (Any,)
-    #SimilarityEncoder = (Any,)
-    #TargetEncoder = (Any,)
-    #MinHashEncoder = (Any,)
+    # SimilarityEncoder = (Any,)
+    # TargetEncoder = (Any,)
+    # MinHashEncoder = (Any,)
     GapEncoder = (Any,)
     SentenceTransformer = Any
     SimpleImputer = (Any,)
@@ -61,6 +62,7 @@ except ModuleNotFoundError as e:
     KBinsDiscretizer = Any
     scipy = Any
     torch = Any
+
 
 def assert_imported():
     if not has_dependancy:
@@ -93,8 +95,7 @@ def safe_divide(a, b):
 
 
 def features_without_target(
-    df: pd.DataFrame,
-    y: Union[pd.DataFrame, pd.Series, np.ndarray, List]
+    df: pd.DataFrame, y: Union[pd.DataFrame, pd.Series, np.ndarray, List]
 ) -> pd.DataFrame:
     """
         Checks if y DataFrame column name is in df, and removes it from df if so
@@ -120,6 +121,7 @@ def features_without_target(
         tf = df.drop(columns=remove_cols, errors="ignore")
         return tf
     return df
+
 
 def remove_node_column_from_ndf_and_return_ndf(g):
     """
@@ -158,7 +160,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.DST,
         config.WEIGHT,
         config.IMPLICIT_NODE_ID,
-        'index'  # in umap, we add
+        "index",  # in umap, we add
     ]
     df = df.drop(columns=reserved_namespace, errors="ignore")
     return df
@@ -195,6 +197,18 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
 #
 # ###############################################################################
 
+numeric_dtypes = [
+    "float64",
+    "float32",
+    "float",
+    "int",
+    "int8",
+    "int16",
+    "int32",
+    "int64",
+]
+
+
 def get_dataframe_by_column_dtype(df, include=None, exclude=None):
     # verbose function that might be overkill.
     if exclude is not None:
@@ -230,9 +244,9 @@ def set_to_bool(df: pd.DataFrame, col: str, value: Any):
 def where_is_currency_column(df: pd.DataFrame, col: str):
     # simple heuristics:
     def check_if_currency(x: str):
-        if "$" in x:   # hmmm need to add for ALL currencies...
+        if "$" in x:  # hmmm need to add for ALL currencies...
             return True
-        if "," in x:   # and ints next to it
+        if "," in x:  # and ints next to it
             return True
         try:
             x = float(x)
@@ -355,6 +369,7 @@ def get_textual_columns(
 #
 # #########################################################################################
 
+
 def impute_and_scale_matrix(
     X: np.ndarray,
     use_scaler: str = "minmax",
@@ -434,7 +449,6 @@ def impute_and_scale_df(
     encode: str = "ordinal",
     strategy: str = "uniform",
     keep_n_decimals: int = 5,
-
 ):
     columns = df.columns
     index = df.index
@@ -456,11 +470,10 @@ def impute_and_scale_df(
         n_bins=n_bins,
         encode=encode,
         strategy=strategy,
-        keep_n_decimals=keep_n_decimals
+        keep_n_decimals=keep_n_decimals,
     )
 
     return pd.DataFrame(res, columns=columns, index=index), imputer, scaler
-
 
 
 def encode_textual(
@@ -544,7 +557,7 @@ def process_textual_or_other_dataframes(
         embeddings = np.c_[embeddings, X_enc.values]
         columns = faux_columns + list(X_enc.columns.values)
     else:
-        logger.warning(f'! Data Encoder is {data_encoder}')
+        logger.warning(f"! Data Encoder is {data_encoder}")
         columns = faux_columns  # just sentence-transformers
 
     # now remove the leading zeros
@@ -679,7 +692,7 @@ def process_edge_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-    featurize=True
+    featurize=True,
 ) -> Union[pd.DataFrame, Callable, Any]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
@@ -694,7 +707,7 @@ def process_edge_dataframes(
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
 
-    #FIXME what to return?
+    # FIXME what to return?
     if not featurize:
         edf2 = edf.select_dtypes(include=np.number)
         return edf2, y, [None, None], None
@@ -784,7 +797,7 @@ def prune_weighted_edges_df_and_relabel_nodes(
 
     :param wdf: weighted edge DataFrame gotten via UMAP
     :param scale: lower values means less edges > (max - scale * std)
-    :param index_to_nodes_dict: dict of index to node name; remap src/dst values if provided 
+    :param index_to_nodes_dict: dict of index to node name; remap src/dst values if provided
     :return: pd.DataFrame
     """
     # we want to prune edges, so we calculate some statistics
@@ -795,8 +808,10 @@ def prune_weighted_edges_df_and_relabel_nodes(
     std = desc[config.WEIGHT]["std"]
     max_val = desc[config.WEIGHT]["max"] + eps
     min_val = desc[config.WEIGHT]["min"] - eps
-    thresh = np.max([max_val - scale, min_val])  # if std =0 we add eps so we still have scale in the equation
-    
+    thresh = np.max(
+        [max_val - scale, min_val]
+    )  # if std =0 we add eps so we still have scale in the equation
+
     logger.info(
         f"edge weights: mean({mean:.2f}), std({std:.2f}), max({max_val}), min({min_val:.2f}), thresh({thresh:.2f})"
     )
@@ -807,28 +822,30 @@ def prune_weighted_edges_df_and_relabel_nodes(
         f"Pruning weighted edge DataFrame from {len(wdf):,} to {len(wdf2):,} edges."
     )
     if index_to_nodes_dict is not None:
-        wdf2 = wdf2.replace({
-            config.SRC: index_to_nodes_dict,
-            config.DST: index_to_nodes_dict,
-        })
+        wdf2 = wdf2.replace(
+            {
+                config.SRC: index_to_nodes_dict,
+                config.DST: index_to_nodes_dict,
+            }
+        )
     return wdf2
 
 
 class FeatureMixin(MIXIN_BASE):
     """
-        FeatureMixin for automatic featurization of nodes and edges DataFrames.
-        Subclasses UMAPMixin for umap-ing of automatic features.
-    
-        TODO: add example usage doc
+    FeatureMixin for automatic featurization of nodes and edges DataFrames.
+    Subclasses UMAPMixin for umap-ing of automatic features.
+
+    TODO: add example usage doc
     """
 
     def __init__(self, *args, **kwargs):
         pass
-        #super().__init__()
-        #ComputeMixin.__init__(self, *args, **kwargs)
+        # super().__init__()
+        # ComputeMixin.__init__(self, *args, **kwargs)
         # FeatureMixin.__init__(self, *args, **kwargs)
-        #UMAPMixin.__init__(self, *args, **kwargs)
-        
+        # UMAPMixin.__init__(self, *args, **kwargs)
+
     def _node_featurizer(self, *args, **kwargs):
         return process_textual_or_other_dataframes(*args, **kwargs)
 
@@ -844,35 +861,41 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
-        featurize: bool = True
+        featurize: bool = True,
     ):
 
         res = self.bind()
         if self._nodes is None:
-            raise ValueError('Expected nodes; try running nodes.materialize_nodes() first if you only have edges')
+            raise ValueError(
+                "Expected nodes; try running nodes.materialize_nodes() first if you only have edges"
+            )
 
         ndf = res._nodes
         if remove_node_column:
-            remove_node_column_from_ndf_and_return_ndf(res)
+            ndf = remove_node_column_from_ndf_and_return_ndf(res)
         # TODO move the columns select after the featurizer?
         ndf = ndf[use_columns] if use_columns is not None else ndf
         ndf = features_without_target(ndf, y)
         ndf = remove_internal_namespace_if_present(ndf)
 
+        # FIXME should be in UMAP instead?
+        # res = res.nodes(
+        #     res._nodes.assign(**{
+        #         #FIXME unnecessary?
+        #         config.IMPLICIT_NODE_ID: range(len(ndf))
+        #     })
+        # )
 
-        res = res.nodes(
-            res._nodes.assign(**{
-                #FIXME unnecessary?
-                config.IMPLICIT_NODE_ID: range(len(ndf))
-            })
-        )
+        if not featurize:
+            X_enc = ndf.select_dtypes(include=np.number)
+            y_enc = y
+            data_vec = None
+            label_vec = None
 
-        if featurize:
-
+        else:
             assert_imported()
-
             # now vectorize it all
-            #FIXME self or res?
+            # FIXME self or res?
             X_enc, y_enc, data_vec, label_vec = self._node_featurizer(
                 ndf,
                 y=y,
@@ -884,16 +907,17 @@ class FeatureMixin(MIXIN_BASE):
                 min_words=min_words,
                 model_name=model_name,
             )
-            res.node_features = X_enc
-            res.node_target = y_enc
-            res.node_encoder = data_vec
-            res.node_target_encoder = label_vec
 
-        else:
-            res.node_features = ndf
-            res.node_target = y
-            res.node_encoder = None
-            res.node_target_encoder = None
+        res.node_features = X_enc
+        res.node_target = y_enc
+        res.node_encoder = data_vec
+        res.node_target_encoder = label_vec
+        # TODO add scalers too
+        # else:
+        #     res.node_features = ndf
+        #     res.node_target = y
+        #     res.node_encoder = None
+        #     res.node_target_encoder = None
 
         return res
 
@@ -908,36 +932,46 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        featurize: bool = True
+        featurize: bool = True,
     ):
         # TODO move the columns select after the featurizer
         if use_columns is not None:
-            use_columns = list(set(use_columns + list([self._source, self._destination])))
-            
-        edf = self._edges[ use_columns ] if use_columns is not None else self._edges
+            use_columns = list(
+                set(use_columns + list([self._source, self._destination]))
+            )
+
+        edf = self._edges[use_columns] if use_columns is not None else self._edges
         edf = features_without_target(edf, y)
 
-        res = self.bind()
+        if not featurize:
 
-        X_enc, y_enc, [mlb, data_vec], label_vec = process_edge_dataframes(
-            edf=edf,
-            y=y,
-            src=self._source,
-            dst=self._destination,
-            use_scaler=use_scaler,
-            cardinality_threshold=cardinality_threshold,
-            cardinality_threshold_target=cardinality_threshold_target,
-            n_topics=n_topics,
-            confidence=confidence,
-            min_words=min_words,
-            model_name=model_name,
-            featurize=featurize
-        )
+            X_enc = edf.select_dtypes(include=np.number)
+            y_enc = y
+            data_vec = None
+            label_vec = None
+
+        else:
+            res = self.bind()
+
+            X_enc, y_enc, [mlb, data_vec], label_vec = process_edge_dataframes(
+                edf=edf,
+                y=y,
+                src=self._source,
+                dst=self._destination,
+                use_scaler=use_scaler,
+                cardinality_threshold=cardinality_threshold,
+                cardinality_threshold_target=cardinality_threshold_target,
+                n_topics=n_topics,
+                confidence=confidence,
+                min_words=min_words,
+                model_name=model_name,
+                featurize=featurize,
+            )
+
         res.edge_features = X_enc
         res.edge_target = y_enc
         res.edge_encoders = [mlb, data_vec]
         res.edge_target_encoder = label_vec
-
 
         return res
 
@@ -986,7 +1020,7 @@ class FeatureMixin(MIXIN_BASE):
                 min_words=min_words,
                 model_name=model_name,
                 remove_node_column=remove_node_column,
-                featurize=True
+                featurize=True,
             )
         elif kind == "edges":
             res = res._featurize_edges(
@@ -999,7 +1033,7 @@ class FeatureMixin(MIXIN_BASE):
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
-                featurize=True
+                featurize=True,
             )
         else:
             logger.warning(f"One may only featurize `nodes` or `edges`, got {kind}")
@@ -1020,7 +1054,7 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
-        featurize: bool = True
+        refeaturize: bool = False,
     ):
         """
             helper method gets node feature and target matrix if X, y are not specified.
@@ -1030,13 +1064,16 @@ class FeatureMixin(MIXIN_BASE):
         :param y: target, default None
         :param use_columns: which columns to featurize if X is None
         :param use_scaler:
-        :param featurize: if True, will force re-featurization -- useful in DGL_utils if we want to run other scalers
+        :param refeaturize: if True, will force re-featurization -- useful in DGL_utils if we want to run other scalers
         :return: data `X` and `y`
         """
-        if featurize:
-            # remove node_features
+
+        if refeaturize:
+            # remove node_features, forces re-featurization
             if hasattr(self, "node_features"):
                 delattr(self, "node_features")
+
+        res = self.bind()
 
         if X is None:
             if hasattr(self, "node_features"):
@@ -1046,6 +1083,7 @@ class FeatureMixin(MIXIN_BASE):
                 logger.warning(
                     "Calling `featurize` to create data matrix `X` over nodes DataFrame"
                 )
+                # this sets .node_* on res, but it is no longer passed through...
                 res = self._featurize_nodes(
                     y=y,
                     use_columns=use_columns,
@@ -1057,10 +1095,14 @@ class FeatureMixin(MIXIN_BASE):
                     min_words=min_words,
                     model_name=model_name,
                     remove_node_column=remove_node_column,
-                    featurize=featurize
+                    featurize=True,
                 )
                 return res._featurize_or_get_nodes_dataframe_if_X_is_None(
-                    res.node_features, res.node_target, use_columns, use_scaler, featurize=featurize
+                    res.node_features,
+                    res.node_target,
+                    use_columns,
+                    use_scaler,
+                    refeaturize=False,
                 )  # now we are guaranteed to have node feature and target matrices.
         if y is None:
             if hasattr(self, "node_target"):
@@ -1068,8 +1110,8 @@ class FeatureMixin(MIXIN_BASE):
                 logger.info(
                     f"Fetching `node_target` in `res`. Target is type {type(y)}"
                 )
-        # now on the return the X, y will
-        return X, y
+        # now on the return the X, y will be set
+        return X, y, res
 
     def _featurize_or_get_edges_dataframe_if_X_is_None(
         self: Any,
@@ -1083,7 +1125,7 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        featurize: bool = True
+        refeaturize: bool = True,
     ):
         """
             helper method gets edge feature and target matrix if X, y are not specified
@@ -1093,6 +1135,14 @@ class FeatureMixin(MIXIN_BASE):
         :param use_columns: which columns to featurize if X is None
         :return: data `X` and `y`
         """
+
+        if refeaturize:
+            # remove node_features, forces re-featurization
+            if hasattr(self, "edge_features"):
+                delattr(self, "edge_features")
+
+        res = self.bind()
+
         if X is None:
             if hasattr(self, "edge_features"):
                 X = self.edge_features
@@ -1110,13 +1160,12 @@ class FeatureMixin(MIXIN_BASE):
                     confidence=confidence,
                     min_words=min_words,
                     model_name=model_name,
-                    featurize=featurize
+                    featurize=True,
                 )
                 return res._featurize_or_get_edges_dataframe_if_X_is_None(
                     res.edge_features, res.edge_target, use_columns, use_scaler
                 )
-        return X, y
-
+        return X, y, res
 
     def filter_edges(
         self,

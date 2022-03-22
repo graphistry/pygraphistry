@@ -7,9 +7,10 @@ from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_textual_or_other_dataframes,
     remove_internal_namespace_if_present,
-    has_dependancy
+    has_dependancy,
 )
-#from graphistry.dgl_utils import *
+
+# from graphistry.dgl_utils import *
 
 try:
     import dirty_cat
@@ -17,12 +18,15 @@ try:
 except:
     dirty_cat = Any
     sklearn = Any
-    
+
 import warnings
 
 warnings.filterwarnings("ignore")
 
-#from data import get_reddit_dataframe #, get_stocks_dataframe
+model_avg_name = (
+    "average_word_embeddings_komninos"  # fastest vectorizer in transformer models
+)
+
 
 bad_df = pd.DataFrame(
     {
@@ -80,7 +84,8 @@ bad_df = pd.DataFrame(
         ],
         "textual": [
             "here we have a sentence. And here is another sentence. Graphistry is an amazing tool!"
-        ] * 4,
+        ]
+        * 4,
     }
 )
 
@@ -107,13 +112,13 @@ double_target_edge = pd.DataFrame(
 # ###############################################
 # For NODE FEATURIZATION AND TESTS
 # data to test textual and meta DataFrame
-ndf_reddit = pd.read_csv('graphistry/tests/data/reddit.csv', index_col=0)
+ndf_reddit = pd.read_csv("graphistry/tests/data/reddit.csv", index_col=0)
 
 text_cols_reddit = ["title", "document"]
 meta_cols_reddit = ["user", "type", "label"]
 good_cols_reddit = text_cols_reddit + meta_cols_reddit
 
-#ndf_reddit = ndf_reddit[good_cols_reddit]
+# ndf_reddit = ndf_reddit[good_cols_reddit]
 
 
 double_target_reddit = pd.DataFrame(
@@ -212,7 +217,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 n_topics=20,
                 confidence=0.35,
                 min_words=1,
-                model_name="paraphrase-MiniLM-L6-v2",
+                model_name=model_avg_name,
             )
         print("-" * 90)
         print(context.exception)
@@ -233,7 +238,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 n_topics=20,
                 confidence=0.35,
                 min_words=min_words,
-                model_name="paraphrase-MiniLM-L6-v2",
+                model_name=model_avg_name,
             )
             self.cases_tests(x, y, x_enc, y_enc, "min_words", min_words)
 
@@ -345,7 +350,9 @@ class TestFeatureMethods(unittest.TestCase):
                 value = [target, use_col]
                 print(f"{value}")
                 print("-" * 80)
-                g2 = g.featurize(kind=kind, y=target, use_columns=use_col)
+                g2 = g.featurize(
+                    kind=kind, y=target, use_columns=use_col, model_name=model_avg_name
+                )
 
                 self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
 
@@ -377,6 +384,6 @@ class TestFeatureMethods(unittest.TestCase):
             df=edge_df,
         )
 
-                
+
 if __name__ == "__main__":
     unittest.main()
