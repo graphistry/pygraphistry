@@ -165,7 +165,7 @@ class UMAPMixin(MIXIN_BASE):
         self,
         kind: str = "nodes",
         use_columns: Union[List, None] = None,
-        featurize: bool = True,
+        featurize: bool = False,
         encode_position: bool = True,
         encode_weight: bool = True,
         inplace: bool = False,

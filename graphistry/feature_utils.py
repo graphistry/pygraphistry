@@ -5,8 +5,8 @@ from time import time
 
 from .ai_utils import setup_logger
 from .compute import ComputeMixin
-from .Plottable import Plottable
 from . import constants as config
+from collections import namedtuple
 
 logger = setup_logger(name=__name__, verbose=True)
 
@@ -491,7 +491,8 @@ def encode_textual(
     if text_cols:
         for col in text_cols:
             logger.info(f"-Calculating Embeddings for column `{col}`")
-            emb = model.encode(df[col].values)
+            # coherce to string incase there are ints, floats, nans, etc
+            emb = model.encode(df[col].astype(str).values)
             embeddings = np.c_[embeddings, emb]
         logger.info(
             f"Encoded Textual data at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per column minute"
@@ -540,7 +541,7 @@ def process_textual_or_other_dataframes(
 
     other_df = df.drop(columns=text_cols, errors="ignore")
 
-    X_enc, y_enc, data_encoder, label_encoder = process_dirty_dataframes(
+    X_enc, y_enc, data_encoder, label_encoder, _, _ = process_dirty_dataframes(
         other_df,
         y,
         cardinality_threshold=cardinality_threshold,
@@ -562,14 +563,17 @@ def process_textual_or_other_dataframes(
 
     # now remove the leading zeros
     embeddings = embeddings[:, 1:]
+    imputer, scaler = None, None
     if use_scaler:
-        embeddings, _, _ = impute_and_scale_matrix(embeddings, use_scaler=use_scaler)
+        embeddings, imputer, scaler = impute_and_scale_matrix(
+            embeddings, use_scaler=use_scaler
+        )
 
     X_enc = pd.DataFrame(embeddings, columns=columns)
     logger.info(
         f"--The entire Textual and/or other encoding process took {(time()-t)/60:.2f} minutes"
     )
-    return X_enc, y_enc, data_encoder, label_encoder
+    return X_enc, y_enc, data_encoder, label_encoder, imputer, scaler
 
 
 def get_cardinality_ratio(df: pd.DataFrame):
@@ -622,12 +626,13 @@ def process_dirty_dataframes(
     )
     label_encoder = None
     y_enc = None
+    imputer = None
+    scaler = None
     if not ndf.empty:
         if not is_dataframe_all_numeric(ndf):
             logger.info("Encoding DataFrame might take a few minutes --------")
             X_enc = data_encoder.fit_transform(ndf, y)
             X_enc = make_dense(X_enc)
-            # X_enc = X_enc.astype(float)
             all_transformers = data_encoder.transformers
             features_transformed = data_encoder.get_feature_names_out()
             logger.info(f"-Shape of data {X_enc.shape}\n")
@@ -647,7 +652,7 @@ def process_dirty_dataframes(
             logger.info(f"-Columns: {features_transformed[:20]}...\n")
 
         if use_scaler is not None:
-            X_enc, _, _ = impute_and_scale_df(X_enc, use_scaler=use_scaler)
+            X_enc, imputer, scaler = impute_and_scale_df(X_enc, use_scaler=use_scaler)
     else:
         X_enc = None
         data_encoder = None
@@ -677,7 +682,7 @@ def process_dirty_dataframes(
             logger.info("-*-*-Target DataFrame is already completely numeric")
             y_enc = y
 
-    return X_enc, y_enc, data_encoder, label_encoder
+    return X_enc, y_enc, data_encoder, label_encoder, imputer, scaler
 
 
 def process_edge_dataframes(
@@ -718,7 +723,7 @@ def process_edge_dataframes(
     destination = edf[dst]
     logger.info("Encoding Edges using MultiLabelBinarizer")
     T = mlb_pairwise_edge_encoder.fit_transform(zip(source, destination))
-    T = 1.0 * T  # coerce to float, or divide= will throw error under z_scale below
+    T = 1.0 * T  # coerce to float
     logger.info(f"-Shape of Edge-2-Edge encoder {T.shape}")
 
     other_df = edf.drop(columns=[src, dst])
@@ -727,7 +732,14 @@ def process_edge_dataframes(
         if not other_df.empty
         else f"-Rest of DataFrame has columns: {other_df.columns} and is empty"
     )
-    X_enc, y_enc, data_encoder, label_encoder = process_textual_or_other_dataframes(
+    (
+        X_enc,
+        y_enc,
+        data_encoder,
+        label_encoder,
+        _,
+        _,
+    ) = process_textual_or_other_dataframes(
         other_df,
         y,
         cardinality_threshold=cardinality_threshold,
@@ -752,7 +764,7 @@ def process_edge_dataframes(
         columns = list(mlb_pairwise_edge_encoder.classes_)
 
     if use_scaler:
-        T, _, _ = impute_and_scale_matrix(
+        T, imputer, scaler = impute_and_scale_matrix(
             T,
             use_scaler=use_scaler,
             impute=True,
@@ -766,7 +778,14 @@ def process_edge_dataframes(
     logger.info(f"**The entire Edge encoding process took {(time()-t)/60:.2f} minutes")
     # get's us close to `process_nodes_dataframe
     # TODO how can I meld mlb and sup_vec??? Difficult as it is not a per column transformer...
-    return X_enc, y_enc, [mlb_pairwise_edge_encoder, data_encoder], label_encoder
+    return (
+        X_enc,
+        y_enc,
+        [mlb_pairwise_edge_encoder, data_encoder],
+        label_encoder,
+        imputer,
+        scaler,
+    )
 
 
 # #################################################################################
@@ -775,11 +794,11 @@ def process_edge_dataframes(
 #
 # ###############################################################################
 
-processors_node = {
-    "highCardTarget": partial(
-        process_textual_or_other_dataframes,
-    )
-}
+# processors_node = {
+#     "highCardTarget": partial(
+#         process_textual_or_other_dataframes,
+#     )
+# }
 
 
 # #################################################################################
@@ -845,6 +864,23 @@ class FeatureMixin(MIXIN_BASE):
         # ComputeMixin.__init__(self, *args, **kwargs)
         # FeatureMixin.__init__(self, *args, **kwargs)
         # UMAPMixin.__init__(self, *args, **kwargs)
+        self.params = {}
+        self._params = namedtuple(
+            "parameters",
+            [
+                "kind",
+                "use_columns",
+                "use_scaler",
+                "cardinality_threshold",
+                "cardinality_threshold_target",
+                "n_topics",
+                "confidence",
+                "min_words",
+                "model_name",
+                "remove_node_column",
+                "featurize",
+            ],
+        )
 
     def _node_featurizer(self, *args, **kwargs):
         return process_textual_or_other_dataframes(*args, **kwargs)
@@ -878,25 +914,18 @@ class FeatureMixin(MIXIN_BASE):
         ndf = features_without_target(ndf, y)
         ndf = remove_internal_namespace_if_present(ndf)
 
-        # FIXME should be in UMAP instead?
-        # res = res.nodes(
-        #     res._nodes.assign(**{
-        #         #FIXME unnecessary?
-        #         config.IMPLICIT_NODE_ID: range(len(ndf))
-        #     })
-        # )
-
         if not featurize:
             X_enc = ndf.select_dtypes(include=np.number)
             y_enc = y
             data_vec = None
             label_vec = None
+            imputer = None
+            scaler = None
 
         else:
             assert_imported()
             # now vectorize it all
-            # FIXME self or res?
-            X_enc, y_enc, data_vec, label_vec = self._node_featurizer(
+            X_enc, y_enc, data_vec, label_vec, imputer, scaler = self._node_featurizer(
                 ndf,
                 y=y,
                 use_scaler=use_scaler,
@@ -912,12 +941,22 @@ class FeatureMixin(MIXIN_BASE):
         res.node_target = y_enc
         res.node_encoder = data_vec
         res.node_target_encoder = label_vec
-        # TODO add scalers too
-        # else:
-        #     res.node_features = ndf
-        #     res.node_target = y
-        #     res.node_encoder = None
-        #     res.node_target_encoder = None
+        res.node_imputer = imputer
+        res.node_scaler = scaler
+
+        res.params["nodes"] = self._params(
+            "nodes",
+            use_columns,
+            use_scaler,
+            cardinality_threshold,
+            cardinality_threshold_target,
+            n_topics,
+            confidence,
+            min_words,
+            model_name,
+            remove_node_column,
+            featurize,
+        )
 
         return res
 
@@ -949,11 +988,21 @@ class FeatureMixin(MIXIN_BASE):
             y_enc = y
             data_vec = None
             label_vec = None
+            imputer = None
+            scaler = None
+            mlb = None
 
         else:
             res = self.bind()
 
-            X_enc, y_enc, [mlb, data_vec], label_vec = process_edge_dataframes(
+            (
+                X_enc,
+                y_enc,
+                [mlb, data_vec],
+                label_vec,
+                imputer,
+                scaler,
+            ) = process_edge_dataframes(
                 edf=edf,
                 y=y,
                 src=self._source,
@@ -972,6 +1021,22 @@ class FeatureMixin(MIXIN_BASE):
         res.edge_target = y_enc
         res.edge_encoders = [mlb, data_vec]
         res.edge_target_encoder = label_vec
+        res.edge_imputer = imputer
+        res.edge_scaler = scaler
+
+        res.params["edges"] = self._params(
+            "edges",
+            use_columns,
+            use_scaler,
+            cardinality_threshold,
+            cardinality_threshold_target,
+            n_topics,
+            confidence,
+            min_words,
+            model_name,
+            "None",
+            featurize,
+        )
 
         return res
 
@@ -1071,6 +1136,9 @@ class FeatureMixin(MIXIN_BASE):
         if refeaturize:
             # remove node_features, forces re-featurization
             if hasattr(self, "node_features"):
+                logger.info(
+                    "Found Node features in `self` but removing it to force re-featurization"
+                )
                 delattr(self, "node_features")
 
         res = self.bind()
