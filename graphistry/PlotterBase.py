@@ -261,6 +261,63 @@ class PlotterBase(Plottable):
         return res
 
 
+    def encode_axis(self, rows=[]):
+        """Render radial and linear axes with optional labels
+
+        :param rows: List of rows - {
+            label: Optional[str],
+            ?r: float,
+            ?x: float,
+            ?y: float,
+            ?internal: true,
+            ?external: true,
+            ?space: true
+        }
+
+        :returns: Plotter
+        :rtype: Plotter
+
+        **Example: Several radial axes**
+            ::
+
+                g.encode_axis([
+                  {'r': 14, 'external': True, 'label': 'outermost'},
+                  {'r': 12, 'external': True},
+                  {'r': 10, 'space': True},
+                  {'r': 8, 'space': True},
+                  {'r': 6, 'internal': True},
+                  {'r': 4, 'space': True},
+                  {'r': 2, 'space': True, 'label': 'innermost'}
+                ])
+
+        **Example: Several horizontal axes**
+            ::
+
+                g.encode_axis([
+                  {"label": "a",  "y": 2, "internal": True },
+                  {"label": "b",  "y": 40, "external": True, "width": 20, "bounds": {"min": 40, "max": 400}},
+                ])
+
+        """
+
+        complex_encodings = self._complex_encodings or {}
+        if 'current' not in complex_encodings:
+            complex_encodings['current'] = {}
+        if 'default' not in complex_encodings:
+            complex_encodings['default'] = {}
+        complex_encodings['default']["pointAxisEncoding"] = {
+            "graphType": "point",
+            "encodingType": "axis",
+            "variation": "categorical",
+            "attribute": "degree",
+            "rows": rows
+        }
+
+        out = self.bind()
+        out._complex_encodings = complex_encodings
+        return out
+
+
     def encode_point_color(self, column,
             palette=None, as_categorical=None, as_continuous=None, categorical_mapping=None, default_mapping=None,
             for_default=True, for_current=False):
