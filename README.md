@@ -625,6 +625,54 @@ g.encode_point_badge('another_column', 'TopRight', categorical_mapping=...,
 
 For more in-depth examples, check out the tutorials on [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb).
 
+#### Axes
+
+Radial axes support three coloring types (`'external'`, `'internal'`, and `'space'`) and optional labels:
+
+```python
+ g.encode_axis([
+  {'r': 14, 'external': True, "label": "outermost"},
+  {'r': 12, 'external': True},
+  {'r': 10, 'space': True},
+  {'r': 8, 'space': True},
+  {'r': 6, 'internal': True},
+  {'r': 4, 'space': True},
+  {'r': 2, 'space': True, "label": "innermost"}
+])
+```
+
+Horizontal axis support optional labels and ranges:
+
+```python
+g.encode_axis([
+  {"label": "a",  "y": 2, "internal": True },
+  {"label": "b",  "y": 40, "external": True,
+   "width": 20, "bounds": {"min": 40, "max": 400}},
+])
+```
+
+Radial axis are generally used with radial positioning:
+
+```python
+g2 = (g
+  .nodes(
+    g._nodes.assign(
+      x = 1 + (g._nodes['ring']) * g._nodes['n'].apply(math.cos),
+      y = 1 + (g._nodes['ring']) * g._nodes['n'].apply(math.sin)
+  )).settings(url_params={'lockedR': 'true', 'play': 1000})
+```
+
+Horizontal axis are often used with pinned y and free x positions:
+
+```python
+g2 = (g
+  .nodes(
+    g._nodes.assign(
+      y = 50 * g._nodes['level'])
+  )).settings(url_params={'lockedY': 'true', 'play': 1000})
+```
+
+
 ### Theming
 
 You can customize several style options to match your theme:

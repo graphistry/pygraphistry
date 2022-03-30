@@ -11,6 +11,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
 
+## [0.22.0 - 2022-03-30]
+
+### Added
+
+* Horizontal and radial axis using `.encode_axis(rows=[...])`
+
 ## [0.21.0 - 2022-03-13]
 
 ### Added
