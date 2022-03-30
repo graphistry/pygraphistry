@@ -625,6 +625,32 @@ g.encode_point_badge('another_column', 'TopRight', categorical_mapping=...,
 
 For more in-depth examples, check out the tutorials on [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb).
 
+#### Axes
+
+Radial axes support three coloring types and optional labels:
+
+```python
+ g.encode_axis([
+  {'r': 14, 'external': True, "label": "outermost"},
+  {'r': 12, 'external': True},
+  {'r': 10, 'space': True},
+  {'r': 8, 'space': True},
+  {'r': 6, 'internal': True},
+  {'r': 4, 'space': True},
+  {'r': 2, 'space': True, "label": "innermost"}
+])
+```
+
+Horizontal axis support range labels:
+
+```python
+g.encode_axis([
+  {"label": "a",  "y": 2, "internal": True },
+  {"label": "b",  "y": 40, "external": True,
+   "width": 20, "bounds": {"min": 40, "max": 400}},
+])
+```
+
 ### Theming
 
 You can customize several style options to match your theme:
