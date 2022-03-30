@@ -627,7 +627,7 @@ For more in-depth examples, check out the tutorials on [badges](demos/more_examp
 
 #### Axes
 
-Radial axes support three coloring types and optional labels:
+Radial axes support three coloring types (`'external'`, `'internal'`, and `'space'`) and optional labels:
 
 ```python
  g.encode_axis([
@@ -641,7 +641,7 @@ Radial axes support three coloring types and optional labels:
 ])
 ```
 
-Horizontal axis support range labels:
+Horizontal axis support optional labels and ranges:
 
 ```python
 g.encode_axis([
@@ -650,6 +650,28 @@ g.encode_axis([
    "width": 20, "bounds": {"min": 40, "max": 400}},
 ])
 ```
+
+Radial axis are generally used with radial positioning:
+
+```python
+g2 = (g
+  .nodes(
+    g._nodes.assign(
+      x = 1 + (g._nodes['ring']) * g._nodes['n'].apply(math.cos),
+      y = 1 + (g._nodes['ring']) * g._nodes['n'].apply(math.sin)
+  )).settings(url_params={'lockedR': 'true', 'play': 1000})
+```
+
+Horizontal axis are often used with pinned y and free x positions:
+
+```python
+g2 = (g
+  .nodes(
+    g._nodes.assign(
+      y = 50 * g._nodes['level'])
+  )).settings(url_params={'lockedY': 'true', 'play': 1000})
+```
+
 
 ### Theming
 
