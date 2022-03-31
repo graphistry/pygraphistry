@@ -11,11 +11,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
 
-## [0.22.0 - 2022-03-30]
+## [0.21.4 - 2022-03-30]
 
 ### Added
 
 * Horizontal and radial axis using `.encode_axis(rows=[...])`
+
+#### Fixed
+
+* Docs: Work around https://github.com/sphinx-doc/sphinx/issues/10291
 
 ## [0.21.0 - 2022-03-13]
 
