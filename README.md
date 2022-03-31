@@ -735,7 +735,7 @@ g4 = g3.hop(pd.DataFrame({g._node: ['c']}), direction='reverse', to_fixed_point=
 
 # (c)-[incoming or outgoing edge]-(any node),
 # for c in g4 with expansions against nodes/edges in g2
-g5 = g2.hop(pd.DataFrame({g4._nodes, hops=1, direction='undirected')
+g5 = g2.hop(pd.DataFrame({g4._node: g4[g4._node]}), hops=1, direction='undirected')
 
 g5.plot()
 ```
