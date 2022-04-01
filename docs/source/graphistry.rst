@@ -44,11 +44,3 @@ graphistry.ai module
     :undoc-members:
     :show-inheritance:
     
-graphistry.data module
------------------------------------
-
-.. automodule:: graphistry.data
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
