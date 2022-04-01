@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from . import constants as config
-from .ai_utils import setup_logger
+from .util import setup_logger
 from .compute import ComputeMixin
 
 logger = setup_logger(name=__name__, verbose=False)
@@ -18,7 +18,7 @@ else:
 
 import_exn = None
 try:
-    import scipy, scipy.sparse, torch
+    import scipy, scipy.sparse
     from dirty_cat import (
         SuperVectorizer,
         GapEncoder,
@@ -44,7 +44,6 @@ except ModuleNotFoundError as e:
     import_exn = e
     has_dependancy = False
     scipy: Any = None
-    torch: Any = None
     SuperVectorizer: Any = None
     GapEncoder: Any = None
     SentenceTransformer: Any = None
@@ -56,24 +55,12 @@ except ModuleNotFoundError as e:
     RobustScaler: Any = None
     KBinsDiscretizer: Any = None
     scipy: Any = None
-    torch: Any = None
 
 
 def assert_imported():
     if not has_dependancy:
         raise import_exn
 
-
-def get_train_test_sets(X, y, test_size):
-    if test_size is None:
-        return X, None, y, None
-
-    from sklearn.model_selection import train_test_split
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=42
-    )
-    return X_train, X_test, y_train, y_test
 
 
 # #################################################################################
@@ -123,7 +110,7 @@ def remove_node_column_from_ndf_and_return_ndf(g):
         Helper method to make sure that node name is not featurized
     _________________________________________________________________________
 
-    :param res:
+    :param g: graphistry instance
     :return: node DataFrame with or without node column
     """
     if g._node is not None:
@@ -161,30 +148,6 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
     return df
 
 
-# #########################################################################################
-#
-#  Torch helpers
-#
-# #########################################################################################
-
-
-def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
-    """
-        Converts X, y to torch tensors compatible with ndata/edata of DGL graph
-    _________________________________________________________________________
-    :param X_enc: DataFrame Matrix of Values for Model Matrix
-    :param y_enc: DataFrame Matrix of Values for Target
-    :return: Dictionary of torch encoded arrays
-    """
-    if y_enc is not None:
-        data = {
-            config.FEATURE: torch.tensor(X_enc.values),
-            config.TARGET: torch.tensor(y_enc.values),
-        }
-    else:
-        data = {config.FEATURE: torch.tensor(X_enc.values)}
-    return data
-
 
 # #################################################################################
 #
@@ -192,6 +155,7 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
 #
 # ###############################################################################
 
+# can also just do np.number to get all of these, thanks @LEO!
 numeric_dtypes = [
     "float64",
     "float32",
@@ -270,7 +234,7 @@ def set_currency_to_float(df: pd.DataFrame, col: str, return_float: bool = True)
 def is_dataframe_all_numeric(df: pd.DataFrame) -> bool:
     is_all_numeric = True
     for k in df.dtypes.unique():
-        if k in ["float64", "int64", "float32", "int32"]:
+        if k in numeric_dtypes:
             continue
         else:
             is_all_numeric = False

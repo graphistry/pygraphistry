@@ -82,7 +82,7 @@ class UMAPMixin(MIXIN_BASE):
 
     """
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         self.umap_initialized = False
         pass
 

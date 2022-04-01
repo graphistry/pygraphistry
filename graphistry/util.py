@@ -1,6 +1,21 @@
 import hashlib, logging, os, platform as p, random, string, sys, uuid, warnings
 from distutils.version import LooseVersion, StrictVersion
 
+def setup_logger(name, verbose=True):
+    if verbose:
+        FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
+    else:
+        FORMAT = "   %(message)s\n"
+    logging.basicConfig(format=FORMAT)
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG if verbose else logging.ERROR)
+    return logger
+
+
+#logger = setup_logger(__name__)
+
+
+
 def cmp(x, y):
     return (x > y) - (x < y)
 

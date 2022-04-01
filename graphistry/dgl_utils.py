@@ -1,29 +1,136 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
-from typing import List, Any, TYPE_CHECKING
+from typing import List, Any, TYPE_CHECKING, Union
 import pandas as pd
+from collections import Counter
+import numpy as np
 
 try:
     import dgl
     has_dependancy = True
 except:
-    dgl = Any
+    dgl: Any = None
     has_dependancy = False
 
 from . import constants as config
-from .feature_utils import FeatureMixin, convert_to_torch
-from .ai_utils import pandas_to_sparse_adjacency, setup_logger
+from .feature_utils import FeatureMixin
+from .util import setup_logger
 
-logger = setup_logger(__name__, verbose=True)
+logger = setup_logger(__name__, verbose=False)
 
 
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
 else:
     MIXIN_BASE = object
+    
+    
+# #########################################################################################
+#
+#  Torch helpers
+#
+# #########################################################################################
 
 
-###############################################################################
+def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
+    """
+        Converts X, y to torch tensors compatible with ndata/edata of DGL graph
+    _________________________________________________________________________
+    :param X_enc: DataFrame Matrix of Values for Model Matrix
+    :param y_enc: DataFrame Matrix of Values for Target
+    :return: Dictionary of torch encoded arrays
+    """
+    import torch
+    if y_enc is not None:
+        data = {
+            config.FEATURE: torch.tensor(X_enc.values),
+            config.TARGET: torch.tensor(y_enc.values),
+        }
+    else:
+        data = {config.FEATURE: torch.tensor(X_enc.values)}
+    return data
 
+
+
+
+# #################################################################################################
+#
+#   DGL helpers
+#
+# #################################################################################################
+
+
+def get_available_devices():
+    """Get IDs of all available GPUs.
+
+    Returns:
+        device (torch.device): Main device (GPU 0 or CPU).
+        gpu_ids (list): List of IDs of all GPUs that are available.
+    """
+    import torch
+    gpu_ids = []
+    if torch.cuda.is_available():
+        gpu_ids += [gpu_id for gpu_id in range(torch.cuda.device_count())]
+        device = torch.device(f"cuda:{gpu_ids[0]}")
+        torch.cuda.set_device(device)
+    else:
+        device = torch.device("cpu")
+    
+    return device, gpu_ids
+
+
+def reindex_edgelist(df, src, dst):
+    """Since DGL needs integer contiguous node labels, this relabels as pre-processing step
+
+    :eg
+        df, ordered_nodes_dict = reindex_edgelist(df, 'to_node', 'from_node')
+        creates new columns given by config.SRC and config.DST
+    :param df: edge dataFrame
+    :param src: source column of dataframe
+    :param dst: destination column of dataframe
+
+    :returns
+        df, pandas DataFrame with new edges.
+        ordered_nodes_dict, dict ordered from most common src and dst nodes.
+    """
+    srclist = df[src]
+    dstlist = df[dst]
+    cnt = Counter(
+        pd.concat([srclist, dstlist], axis=0)
+    )  # can also use pd.Factorize but doesn't order by count, which is satisfying
+    ordered_nodes_dict = {k: i for i, (k, c) in enumerate(cnt.most_common())}
+    df[config.SRC] = df[src].apply(lambda x: ordered_nodes_dict[x])
+    df[config.DST] = df[dst].apply(lambda x: ordered_nodes_dict[x])
+    return df, ordered_nodes_dict
+
+
+def pandas_to_sparse_adjacency(df, src, dst, weight_col):
+    """
+        Takes a Pandas Dataframe and named src and dst columns into a sparse adjacency matrix in COO format
+        Needed for DGL utils
+    :param df: edges dataframe
+    :param src: source column
+    :param dst: destination column
+    :param weight_col: optional weight column
+    :return: COO sparse matrix, dictionary of src, dst nodes to index
+    """
+    # use scipy sparse to encode matrix
+    from scipy.sparse import coo_matrix
+    
+    # have to reindex to align edge list with range(n_nodes) with new SRC and DST columns
+    df, ordered_nodes_dict = reindex_edgelist(df, src, dst)
+    
+    eweight = np.array([1] * len(df))
+    if weight_col is not None:
+        eweight = df[weight_col].values
+    
+    shape = len(ordered_nodes_dict)
+    sp_mat = coo_matrix(
+        (eweight, (df[config.SRC], df[config.DST])), shape=(shape, shape)
+    )
+    return sp_mat, ordered_nodes_dict
+
+
+# ##############################################################################
 
 def pandas_to_dgl_graph(
     df: pd.DataFrame, src: str, dst: str, weight_col: str = None, device: str = "cpu"
@@ -62,6 +169,11 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     test_mask = ~train_mask
     return train_mask, test_mask
 
+########################################################################################################################
+#
+#   DGL MIXIN
+#
+#######################################################################################################################
 
 class DGLGraphMixin(MIXIN_BASE):
     """
@@ -70,10 +182,6 @@ class DGLGraphMixin(MIXIN_BASE):
     """
     def __init__(
         self,
-        train_split: float = 0.8,
-        device: str = "cpu",
-        *args,
-        **kwargs,
     ):
         """
         :param train_split: split percent between train and test, set in mask on dgl edata/ndata
@@ -104,6 +212,7 @@ class DGLGraphMixin(MIXIN_BASE):
             if self.edge_target is not None:
                 self.edge_target = self.edge_target[self._MASK]
 
+
     def _remove_edges_not_in_nodes(self, node_column: str):
         # need to do this so we get the correct ndata size ...
         nodes = self._nodes[node_column]
@@ -122,6 +231,7 @@ class DGLGraphMixin(MIXIN_BASE):
                 "** Original Edge DataFrame has been changed, some elements have been dropped **"
             )
         self._removed_edges_previously = True
+
 
     def _check_nodes_lineup_with_edges(self, node_column: str):
         nodes = self._nodes[node_column]
@@ -147,8 +257,14 @@ class DGLGraphMixin(MIXIN_BASE):
                 "There are more entities in edges DataFrame (edf) than in nodes DataFrame (ndf)"
             )
 
-    def _convert_edgeDF_to_DGL(self, res: Any, node_column: str, weight_column: str):
+
+    def _convert_edgeDF_to_DGL(self, node_column: str, weight_column: str, inplace: bool = False):
         logger.info("converting edge DataFrame to DGL graph")
+        
+        if inplace:
+            res = self
+        else:
+            res = self.bind()
 
         if node_column is None:
             node_column = config.IMPLICIT_NODE_ID
@@ -168,19 +284,20 @@ class DGLGraphMixin(MIXIN_BASE):
         res._check_nodes_lineup_with_edges(node_column)
         return res
 
+
     def _featurize_nodes_to_dgl(
         self,
-        res: Any,
-        X: pd.DataFrame,
-        y: pd.DataFrame,
+        res,
+        X: np.ndarray,
+        y: np.ndarray,
         use_columns: List,
         use_scaler: str = None,
+        #refeaturize: bool = False,
     ):
         logger.info("Running Node Featurization for DGL Graph")
 
-        # res = self.featurize(kind="nodes", y=y, use_columns=use_columns, use_scaler=use_scaler, inplace=False)
-        X_enc, y_enc = res._featurize_or_get_nodes_dataframe_if_X_is_None(
-            X=X, y=y, use_columns=use_columns, use_scaler=use_scaler
+        X_enc, y_enc, _ = res._featurize_or_get_nodes_dataframe_if_X_is_None(
+            X=X, y=y, use_columns=use_columns, use_scaler=use_scaler, refeaturize=False
         )
 
         ndata = convert_to_torch(X_enc, y_enc)
@@ -191,19 +308,20 @@ class DGLGraphMixin(MIXIN_BASE):
 
     def _featurize_edges_to_dgl(
         self,
-        res: Any,
-        X: pd.DataFrame,
-        y: pd.DataFrame,
+        res,
+        X: np.ndarray,
+        y: np.ndarray,
         use_columns: List,
         use_scaler: str = None,
+        #refeaturize: bool = False,
     ):
         logger.info("Running Edge Featurization for DGL Graph")
 
-        # res = self.featurize(kind="edges", y=y, use_columns=use_columns, use_scaler=use_scaler, inplace=False)
-        X_enc, y_enc = res._featurize_or_get_edges_dataframe_if_X_is_None(
-            X=X, y=y, use_columns=use_columns, use_scaler=use_scaler
+        # res = _featurize_nodes(
+        X_enc, y_enc, _ = self._featurize_or_get_edges_dataframe_if_X_is_None(
+            X=X, y=y, use_columns=use_columns, use_scaler=use_scaler, refeaturize=False
         )
-
+        
         edata = convert_to_torch(X_enc, y_enc)
         # add edata to the graph
         res.DGL_graph.edata.update(edata)
@@ -214,10 +332,10 @@ class DGLGraphMixin(MIXIN_BASE):
         self,
         node_column: str = None,
         weight_column: str = None,
-        X_nodes: pd.DataFrame = None,
-        X_edges: pd.DataFrame = None,
-        y_nodes: pd.DataFrame = None,
-        y_edges: pd.DataFrame = None,
+        X_nodes: np.ndarray = None,
+        X_edges: np.ndarray = None,
+        y_nodes: np.ndarray = None,
+        y_edges: np.ndarray = None,
         use_node_columns: List = None,
         use_edge_columns: List = None,
         use_node_scaler: str = None,
@@ -238,12 +356,12 @@ class DGLGraphMixin(MIXIN_BASE):
                 # note, edf, ndf, should both have unique indices
 
         # here we make node and edge features and add them to the DGL graph instance
-        res = self._convert_edgeDF_to_DGL(res, node_column, weight_column)
-        res = res._featurize_nodes_to_dgl(
-            res, X_nodes, y_nodes, use_node_columns, use_node_scaler
+        res = res._convert_edgeDF_to_DGL(node_column, weight_column, inplace)
+        res = res._featurize_nodes_to_dgl(res,
+            X_nodes, y_nodes, use_node_columns, use_node_scaler
         )
-        res = res._featurize_edges_to_dgl(
-            res, X_edges, y_edges, use_edge_columns, use_edge_scaler
+        res = res._featurize_edges_to_dgl(res,
+            X_edges, y_edges, use_edge_columns, use_edge_scaler
         )
         if not inplace:
             return res
@@ -267,7 +385,7 @@ class DGLGraphMixin(MIXIN_BASE):
     def __getitem__(self, idx):
         # get one example by index
         if self.DGL_graph is None:
-            logger.warn("DGL graph is not built, run `g.build_dgl_graph(..)` first")
+            logger.warn("DGL graph is not built, run `g.dgl_graph(..)` first")
         return self.DGL_graph
 
     def __len__(self):

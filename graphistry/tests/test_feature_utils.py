@@ -10,8 +10,6 @@ from graphistry.feature_utils import (
     has_dependancy,
 )
 
-# from graphistry.dgl_utils import *
-
 try:
     import dirty_cat
     import sklearn

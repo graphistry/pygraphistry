@@ -2,7 +2,7 @@ from typing import Any
 import copy, datetime as dt, graphistry, numpy as np, os, pandas as pd
 import pytest, unittest
 
-from graphistry.ai_utils import setup_logger
+from graphistry.util import setup_logger
 from graphistry.umap_utils import has_dependancy
 from graphistry.tests.test_feature_utils import (
     ndf_reddit,

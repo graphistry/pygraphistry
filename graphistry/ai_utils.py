@@ -1,48 +1,7 @@
-import logging
-from collections import Counter
-from typing import Any
-
-import numpy as np
 import pandas as pd
 
 import graphistry
-from . import constants as config
-
-
-# try:
-#     from dirty_cat import SimilarityEncoder
-# except:
-#     SimilarityEncoder: Any = None
-#     scipy: Any = None
-#     torch: Any = None
-#
-#
-# def reimport():
-#     """
-#         Helper function so that Graphistry loads without error when Graphistry[ai] is not loaded
-#     :return:
-#     """
-#     try:
-#         from dirty_cat import SimilarityEncoder
-#
-#     except ModuleNotFoundError as e:
-#         logger.error(
-#             "AI Packages not found, trying running `pip install graphistry[ai]`",
-#             exc_info=True,
-#         )
-#         raise e
-
-
-def setup_logger(name, verbose=True):
-    if verbose:
-        FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
-    else:
-        FORMAT = "   %(message)s\n"
-    logging.basicConfig(format=FORMAT)
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG if verbose else logging.ERROR)
-    return logger
-
+from .util import setup_logger
 
 logger = setup_logger(__name__)
 
