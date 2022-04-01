@@ -761,8 +761,7 @@ class TestPlotterStylesArrow(NoAuthTestCase):
                 fg=copy.deepcopy(fg),
                 logo=copy.deepcopy(logo),
                 page=copy.deepcopy(page),
-            )._style
-            == {"bg": bg, "fg": fg, "logo": logo, "page": page}
+            )._style == {"bg": bg, "fg": fg, "logo": logo, "page": page}
         )
         assert g.style(
             bg=copy.deepcopy(bg),
@@ -816,8 +815,7 @@ class TestPlotterStylesArrow(NoAuthTestCase):
                 fg=copy.deepcopy(fg),
                 logo=copy.deepcopy(logo),
                 page=copy.deepcopy(page),
-            )._style
-            == {"bg": bg, "fg": fg, "logo": logo, "page": page}
+            )._style == {"bg": bg, "fg": fg, "logo": logo, "page": page}
         )
         assert g.addStyle(
             bg=copy.deepcopy(bg),

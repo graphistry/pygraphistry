@@ -95,7 +95,7 @@ def safe_divide(a, b):
 
 
 def features_without_target(
-    df: pd.DataFrame, y: Union[pd.DataFrame, pd.Series, np.ndarray, List]
+    df: pd.DataFrame, y: pd.DataFrame
 ) -> pd.DataFrame:
     """
         Checks if y DataFrame column name is in df, and removes it from df if so
@@ -885,6 +885,17 @@ class FeatureMixin(MIXIN_BASE):
     def _node_featurizer(self, *args, **kwargs):
         return process_textual_or_other_dataframes(*args, **kwargs)
 
+
+    # def _set_node_features(self, res, X_enc, y_enc, data_vec, label_vec, imputer, scaler):
+    #     res.node_features = X_enc
+    #     res.node_target = y_enc
+    #     res.node_encoder = data_vec
+    #     res.node_target_encoder = label_vec
+    #     res.node_imputer = imputer
+    #     res.node_scaler = scaler
+    #     return res
+
+
     def _featurize_nodes(
         self,
         y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
@@ -897,7 +908,7 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
-        featurize: bool = True,
+        featurize: bool = True, # this has inconsistent meaning with featurize (now named refeaturize) elsewhere...
     ):
 
         res = self.bind()
@@ -1108,8 +1119,8 @@ class FeatureMixin(MIXIN_BASE):
 
     def _featurize_or_get_nodes_dataframe_if_X_is_None(
         self,
-        X: Union[np.ndarray, None],
-        y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
+        X: np.ndarray = None,
+        y: np.ndarray = None,
         use_columns: Union[List, None] = None,
         use_scaler: Union[str, None] = "robust",
         cardinality_threshold: int = 40,
@@ -1125,12 +1136,6 @@ class FeatureMixin(MIXIN_BASE):
             helper method gets node feature and target matrix if X, y are not specified.
             if X, y are specified will set them as `node_target` and `node_target` attributes
         ---------------------------------------------------------------------------------------
-        :param X: ndArray Data Matrix, default None
-        :param y: target, default None
-        :param use_columns: which columns to featurize if X is None
-        :param use_scaler:
-        :param refeaturize: if True, will force re-featurization -- useful in DGL_utils if we want to run other scalers
-        :return: data `X` and `y`
         """
 
         if refeaturize:
@@ -1182,9 +1187,9 @@ class FeatureMixin(MIXIN_BASE):
         return X, y, res
 
     def _featurize_or_get_edges_dataframe_if_X_is_None(
-        self: Any,
-        X: Union[np.ndarray, None],
-        y: Union[pd.DataFrame, pd.Series, np.ndarray, List] = None,
+        self,
+        X: np.ndarray = None,
+        y: np.ndarray = None,
         use_columns: Union[List, None] = None,
         use_scaler: Union[str, None] = "robust",
         cardinality_threshold: int = 40,

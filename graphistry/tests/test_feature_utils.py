@@ -84,8 +84,7 @@ bad_df = pd.DataFrame(
         ],
         "textual": [
             "here we have a sentence. And here is another sentence. Graphistry is an amazing tool!"
-        ]
-        * 4,
+        ] * 4,
     }
 )
 
