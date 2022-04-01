@@ -1,14 +1,15 @@
-from typing import List, Union, Dict, Callable, Any, Tuple, Optional, TYPE_CHECKING
-import copy, numpy as np, pandas as pd
-from functools import partial
+from collections import namedtuple
 from time import time
+from typing import List, Union, Dict, Callable, Any, Optional, TYPE_CHECKING
 
+import numpy as np
+import pandas as pd
+
+from . import constants as config
 from .ai_utils import setup_logger
 from .compute import ComputeMixin
-from . import constants as config
-from collections import namedtuple
 
-logger = setup_logger(name=__name__, verbose=True)
+logger = setup_logger(name=__name__, verbose=False)
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
@@ -20,9 +21,6 @@ try:
     import scipy, scipy.sparse, torch
     from dirty_cat import (
         SuperVectorizer,
-        # SimilarityEncoder,
-        # TargetEncoder,
-        # MinHashEncoder,
         GapEncoder,
     )
     from sentence_transformers import SentenceTransformer
@@ -45,23 +43,20 @@ except ModuleNotFoundError as e:
     )
     import_exn = e
     has_dependancy = False
-    scipy = (Any,)
-    torch = Any
-    SuperVectorizer = (Any,)
-    # SimilarityEncoder = (Any,)
-    # TargetEncoder = (Any,)
-    # MinHashEncoder = (Any,)
-    GapEncoder = (Any,)
-    SentenceTransformer = Any
-    SimpleImputer = (Any,)
-    MultiLabelBinarizer = Any
-    MinMaxScaler = Any
-    QuantileTransformer = Any
-    StandardScaler = Any
-    RobustScaler = Any
-    KBinsDiscretizer = Any
-    scipy = Any
-    torch = Any
+    scipy: Any = None
+    torch: Any = None
+    SuperVectorizer: Any = None
+    GapEncoder: Any = None
+    SentenceTransformer: Any = None
+    SimpleImputer: Any = None
+    MultiLabelBinarizer: Any = None
+    MinMaxScaler: Any = None
+    QuantileTransformer: Any = None
+    StandardScaler: Any = None
+    RobustScaler: Any = None
+    KBinsDiscretizer: Any = None
+    scipy: Any = None
+    torch: Any = None
 
 
 def assert_imported():
