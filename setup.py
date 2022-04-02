@@ -26,7 +26,7 @@ base_extras = {
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl', 'xlrd'],
     'jupyter': ['ipython'],
-    'umap-learn': ['umap-learn'],
+    'umap-learn': ['umap-learn', 'dirty-cat'],
     'ai': ['scikit-learn', 'scipy', 'dirty-cat', 'umap-learn', 'dgl', 'torch',
            'sentence-transformers']
 }
