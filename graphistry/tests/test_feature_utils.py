@@ -7,7 +7,7 @@ from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_textual_or_other_dataframes,
     remove_internal_namespace_if_present,
-    has_dependancy,
+    has_min_dependancy,
 )
 
 try:
@@ -159,7 +159,7 @@ class TestFeatureProcessors(unittest.TestCase):
             f"Data Target Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
         )
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_process_dirty_dataframes_scalers(self):
         # test different scalers
         for scaler in ["minmax", "quantile", "zscale", "robust", "kbins"]:
@@ -173,7 +173,7 @@ class TestFeatureProcessors(unittest.TestCase):
             )
             self.cases_tests(x, y, x_enc, y_enc, "scaler", scaler)
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_process_dirty_dataframes_data_cardinality(self):
         # test different cardinality
         for card in [4, 40, 400]:
@@ -187,7 +187,7 @@ class TestFeatureProcessors(unittest.TestCase):
             )
             self.cases_tests(x, y, x_enc, y_enc, "cardinality", card)
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_process_dirty_dataframes_target_cardinality(self):
         # test different target cardinality
         for card in [4, 40, 400]:
@@ -201,7 +201,7 @@ class TestFeatureProcessors(unittest.TestCase):
             )
             self.cases_tests(x, y, x_enc, y_enc, "target cardinality", card)
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_process_textual_or_other_dataframes_min_words(self):
         # test different target cardinality
         with self.assertRaises(Exception) as context:
@@ -357,7 +357,7 @@ class TestFeatureMethods(unittest.TestCase):
 
                 self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_node_featurizations(self):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, good_cols_reddit, meta_cols_reddit]
@@ -371,7 +371,7 @@ class TestFeatureMethods(unittest.TestCase):
             df=ndf_reddit,
         )
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_edge_featurization(self):
         g = graphistry.edges(edge_df, "src", "dst")
         targets = [None, single_target_edge, double_target_edge]

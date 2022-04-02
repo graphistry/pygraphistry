@@ -9,21 +9,31 @@ from . import constants as config
 from .util import setup_logger
 from .compute import ComputeMixin
 
-logger = setup_logger(name=__name__, verbose=False)
+logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
 else:
     MIXIN_BASE = object
 
-import_exn = None
+import_min_exn = None
+import_text_exn = None
+
+try:
+    from sentence_transformers import SentenceTransformer
+    has_dependancy_text = True
+    
+except ModuleNotFoundError as e:
+    import_text_exn = e
+    SentenceTransformer: Any = None
+    has_dependancy_text = False
+
 try:
     import scipy, scipy.sparse
     from dirty_cat import (
         SuperVectorizer,
         GapEncoder,
     )
-    from sentence_transformers import SentenceTransformer
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import (
         MinMaxScaler,
@@ -34,15 +44,15 @@ try:
         KBinsDiscretizer,
     )
 
-    has_dependancy = True
+    has_min_dependancy = True
 
 except ModuleNotFoundError as e:
     logger.debug(
         "AI Packages not found, trying running `pip install graphistry[ai]`",
         exc_info=True,
     )
-    import_exn = e
-    has_dependancy = False
+    import_min_exn = e
+    has_min_dependancy = False
     scipy: Any = None
     SuperVectorizer: Any = None
     GapEncoder: Any = None
@@ -57,9 +67,14 @@ except ModuleNotFoundError as e:
     scipy: Any = None
 
 
+def assert_imported_text():
+    if not has_dependancy_text:
+        raise import_text_exn
+
+
 def assert_imported():
-    if not has_dependancy:
-        raise import_exn
+    if not has_min_dependancy:
+        raise import_min_exn
 
 
 
@@ -446,18 +461,19 @@ def encode_textual(
 
     text_cols = get_textual_columns(df, confidence=confidence, min_words=min_words)
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
-
+    columns = []
     if text_cols:
         for col in text_cols:
             logger.info(f"-Calculating Embeddings for column `{col}`")
-            # coherce to string incase there are ints, floats, nans, etc
+            # coerce to string in case there are ints, floats, nans, etc mixed into column
             emb = model.encode(df[col].astype(str).values)
+            columns.extend([f'{col}_{k}' for k in range(emb.shape[1])])
             embeddings = np.c_[embeddings, emb]
         logger.info(
             f"Encoded Textual data at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per column minute"
         )
 
-    return embeddings, text_cols
+    return embeddings, text_cols, columns
 
 
 def process_textual_or_other_dataframes(
@@ -494,9 +510,15 @@ def process_textual_or_other_dataframes(
     if len(df) == 0 or df.empty:
         logger.warning("DataFrame seems to be Empty")
 
-    embeddings, text_cols = encode_textual(
-        df, confidence=confidence, min_words=min_words, model_name=model_name
-    )
+    embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
+    text_cols = []
+    columns_text = []
+    if has_dependancy_text:
+        embeddings, text_cols, columns_text = encode_textual(
+            df, confidence=confidence, min_words=min_words, model_name=model_name
+        )
+    else:
+        logger.info(f'! Skipping encoding any textual features since dependency {import_text_exn} is not met')
 
     other_df = df.drop(columns=text_cols, errors="ignore")
 
@@ -509,16 +531,16 @@ def process_textual_or_other_dataframes(
         use_scaler=None,  # set to None so that it happens later
     )
 
-    faux_columns = list(
-        range(embeddings.shape[1] - 1)
-    )  # minus 1 since the first column is just placeholder
+    # faux_columns = list(
+    #     range(embeddings.shape[1] - 1)
+    # )  # minus 1 since the first column is just placeholder
 
     if data_encoder is not None:
         embeddings = np.c_[embeddings, X_enc.values]
-        columns = faux_columns + list(X_enc.columns.values)
+        columns = columns_text + list(X_enc.columns.values)
     else:
         logger.warning(f"! Data Encoder is {data_encoder}")
-        columns = faux_columns  # just sentence-transformers
+        columns = columns_text  # just sentence-transformers
 
     # now remove the leading zeros
     embeddings = embeddings[:, 1:]
@@ -844,7 +866,7 @@ class FeatureMixin(MIXIN_BASE):
     def _node_featurizer(self, *args, **kwargs):
         return process_textual_or_other_dataframes(*args, **kwargs)
 
-
+    
     # def _set_node_features(self, res, X_enc, y_enc, data_vec, label_vec, imputer, scaler):
     #     res.node_features = X_enc
     #     res.node_target = y_enc
@@ -953,7 +975,6 @@ class FeatureMixin(MIXIN_BASE):
         edf = features_without_target(edf, y)
 
         if not featurize:
-
             X_enc = edf.select_dtypes(include=np.number)
             y_enc = y
             data_vec = None
@@ -963,6 +984,8 @@ class FeatureMixin(MIXIN_BASE):
             mlb = None
 
         else:
+            assert_imported()
+            
             res = self.bind()
 
             (

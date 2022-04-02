@@ -20,15 +20,15 @@ else:
 import_exn = None
 try:
     import umap
-
     has_dependancy = True
+    
 except ModuleNotFoundError as e:
     logger.debug(
         "UMAP not found, trying running `pip install graphistry[ai]`", exc_info=True
     )
     import_exn = e
     has_dependancy = False
-    umap = Any
+    umap: Any = None
 
 
 def assert_imported():

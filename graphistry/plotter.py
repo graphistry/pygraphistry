@@ -2,7 +2,7 @@ from .PlotterBase import PlotterBase
 from .compute import ComputeMixin
 from .gremlin import GremlinMixin, CosmosMixin, NeptuneMixin
 from .layouts import LayoutsMixin
-from .feature_utils import FeatureMixin, has_dependancy as has_featurize
+from .feature_utils import FeatureMixin, has_min_dependancy as has_featurize
 #from .dgl_utils import DGLGraphMixin, has_dependancy as has_dgl
 from .umap_utils import UMAPMixin, has_dependancy as has_umap
 

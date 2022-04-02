@@ -16,7 +16,7 @@ from graphistry.tests.test_feature_utils import (
     double_target_edge,
     good_edge_cols,
     remove_internal_namespace_if_present,
-    has_dependancy as has_featurize,
+    has_min_dependancy as has_featurize,
 )
 
 
@@ -150,7 +150,7 @@ class TestUMAPMethods(unittest.TestCase):
         for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
             g2 = g.umap(kind=kind, featurize=False)
             last_shape = 0
-            for scale in np.linspace(0, 6, 8):  # six sigma in 8 steps
+            for scale in np.linspace(0, 3, 8):  # six sigma in 8 steps
                 g3 = g2.filter_edges(scale=scale)
                 shape = g3._edges.shape
                 print("*" * 90)
@@ -158,7 +158,7 @@ class TestUMAPMethods(unittest.TestCase):
                     f"{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}"
                 )
                 print("-" * 80)
-                self.assertGreaterEqual(shape[0], last_shape)
+                self.assertGreaterEqual(shape[0], last_shape) # should return more and more edges
                 last_shape = shape[0]
 
 
