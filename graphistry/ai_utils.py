@@ -123,8 +123,3 @@ def get_graphistry_from_milieu_search(
     ntdf = ndf[ndf[node_col].isin(gcols)]
     g = graphistry.edges(tdf, src, dst).nodes(ntdf, node_col)
     return g
-
-
-
-
-

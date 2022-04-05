@@ -357,11 +357,11 @@ class DGLGraphMixin(MIXIN_BASE):
 
         # here we make node and edge features and add them to the DGL graph instance
         res = res._convert_edgeDF_to_DGL(node_column, weight_column, inplace)
-        res = res._featurize_nodes_to_dgl(res,
-            X_nodes, y_nodes, use_node_columns, use_node_scaler
+        res = res._featurize_nodes_to_dgl(
+            res, X_nodes, y_nodes, use_node_columns, use_node_scaler
         )
-        res = res._featurize_edges_to_dgl(res,
-            X_edges, y_edges, use_edge_columns, use_edge_scaler
+        res = res._featurize_edges_to_dgl(
+            res, X_edges, y_edges, use_edge_columns, use_edge_scaler
         )
         if not inplace:
             return res

@@ -163,7 +163,6 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
     return df
 
 
-
 # #################################################################################
 #
 #      Featurization Functions and Utils
@@ -889,7 +888,7 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
-        featurize: bool = True, # this has inconsistent meaning with featurize (now named refeaturize) elsewhere...
+        featurize: bool = True,  # this has inconsistent meaning with featurize (now named refeaturize) elsewhere...
     ):
 
         res = self.bind()

@@ -158,7 +158,7 @@ class TestUMAPMethods(unittest.TestCase):
                     f"{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}"
                 )
                 print("-" * 80)
-                self.assertGreaterEqual(shape[0], last_shape) # should return more and more edges
+                self.assertGreaterEqual(shape[0], last_shape)  # should return more and more edges
                 last_shape = shape[0]
 
 
