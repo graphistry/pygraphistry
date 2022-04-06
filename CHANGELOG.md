@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [ 2022-04-05]
+
+### Changed
+
+* Use buildkit with pip install caching for test dockerfiles
+
 ## [0.20.5 - 2021-12-06]
 
 ### Changed
