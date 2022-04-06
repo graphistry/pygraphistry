@@ -59,9 +59,9 @@ class TestUMAPMethods(unittest.TestCase):
 
     def cases_check_node_attributes(self, g):
         attributes = [
-            "weighted_edges_df_from_nodes",
-            "node_embedding",
-            "weighted_adjacency_nodes",
+            "_weighted_edges_df_from_nodes",
+            "_node_embedding",
+            "_weighted_adjacency_nodes",
             "_weighted_edges_df",
             "_weighted_adjacency",
             "_umap",
@@ -70,9 +70,9 @@ class TestUMAPMethods(unittest.TestCase):
 
     def cases_check_edge_attributes(self, g):
         attributes = [
-            "weighted_edges_df_from_edges",
-            "edge_embedding",
-            "weighted_adjacency_edges",
+            "_weighted_edges_df_from_edges",
+            "_edge_embedding",
+            "_weighted_adjacency_edges",
             "_weighted_edges_df",
             "_weighted_adjacency",
             "_umap",

@@ -294,23 +294,23 @@ class TestFeatureMethods(unittest.TestCase):
 
     def cases_check_node_attributes(self, g):
         attributes = [
-            "node_features",
-            "node_target",
-            "node_target_encoder",
-            "node_encoder",
-            "node_imputer",
-            "node_scaler",
+            "_node_features",
+            "_node_target",
+            "_node_target_encoder",
+            "_node_encoder",
+            "_node_imputer",
+            "_node_scaler",
         ]
         self._check_attributes(g, attributes)
 
     def cases_check_edge_attributes(self, g):
         attributes = [
-            "edge_features",
-            "edge_target",
-            "edge_target_encoder",
-            "edge_encoders",  # plural, since we have two
-            "edge_imputer",
-            "edge_scaler",
+            "_edge_features",
+            "_edge_target",
+            "_edge_target_encoder",
+            "_edge_encoders",  # plural, since we have two
+            "_edge_imputer",
+            "_edge_scaler",
         ]
         self._check_attributes(g, attributes)
 
@@ -319,19 +319,19 @@ class TestFeatureMethods(unittest.TestCase):
             ndf = g._nodes
             self.cases_check_node_attributes(g)
             x, y, x_enc, y_enc = (
-                g.node_features,
-                g.node_target,
-                g.node_encoder,
-                g.node_target_encoder,
+                g._node_features,
+                g._node_target,
+                g._node_encoder,
+                g._node_target_encoder,
             )
         else:
             ndf = g._edges
             self.cases_check_edge_attributes(g)
             x, y, x_enc, y_enc = (
-                g.edge_features,
-                g.edge_target,
-                g.edge_encoders,
-                g.edge_target_encoder,
+                g._edge_features,
+                g._edge_target,
+                g._edge_encoders,
+                g._edge_target_encoder,
             )
 
         cols = ndf.columns

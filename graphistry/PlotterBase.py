@@ -46,6 +46,13 @@ try:
 except ImportError:
     1
 
+maybe_umap = None
+try:
+    import umap
+    maybe_umap = umap
+except ImportError:
+    1
+
 logger = logging.getLogger('Plotter')
 
 CACHE_COERCION_SIZE = 100
@@ -131,6 +138,34 @@ class PlotterBase(Plottable):
         # Integrations
         self._bolt_driver : any = None
         self._tigergraph : any = None
+
+        self._node_embedding = None
+        self._node_encoder = None
+        self._node_features = None
+        self._node_imputer = None
+        self._node_scaler = None
+        self._node_target = None
+        self._node_target_encoder = None
+
+        self._edge_embedding = None
+        self._edge_encoders = None
+        self._edge_features = None
+        self._edge_imputer = None
+        self._edge_scaler = None
+        self._edge_target = None
+        self._edge_target_encoder = None
+
+        self._weighted_adjacency_nodes = None
+        self._weighted_adjacency_edges = None
+        self._weighted_edges_df = None
+        self._weighted_edges_df_from_nodes = None
+        self._weighted_edges_df_from_edges = None
+
+        self._umap = None
+
+        self._adjacency = None
+        self._entity_to_index = None
+        self._index_to_entity = None
 
 
     def __repr__(self):
@@ -820,6 +855,9 @@ class PlotterBase(Plottable):
         res._point_y = point_y or self._point_y
         
         return res
+
+    def copy(self) -> Plottable:
+        return copy.copy(self)
 
 
     def nodes(self, nodes: Union[Callable, Any], node=None, *args, **kwargs) -> Plottable:

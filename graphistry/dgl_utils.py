@@ -1,5 +1,5 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
-from typing import List, Any, TYPE_CHECKING, Union
+from typing import List, Any, Optional, TYPE_CHECKING, Union
 import pandas as pd
 from collections import Counter
 import numpy as np
@@ -8,7 +8,6 @@ try:
     import dgl
     has_dependancy = True
 except:
-    dgl: Any = None
     has_dependancy = False
 
 from . import constants as config
@@ -31,7 +30,7 @@ else:
 # #########################################################################################
 
 
-def convert_to_torch(X_enc: pd.DataFrame, y_enc: Union[pd.DataFrame, None]):
+def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):
     """
         Converts X, y to torch tensors compatible with ndata/edata of DGL graph
     _________________________________________________________________________
@@ -208,9 +207,8 @@ class DGLGraphMixin(MIXIN_BASE):
 
 
     def _prune_edge_target(self):
-        if hasattr(self, "edge_target") and hasattr(self, "_MASK"):
-            if self.edge_target is not None:
-                self.edge_target = self.edge_target[self._MASK]
+        if self._edge_target is not None and hasattr(self, "_MASK"):
+            self._edge_target = self._edge_target[self._MASK]
 
 
     def _remove_edges_not_in_nodes(self, node_column: str):
@@ -245,20 +243,20 @@ class DGLGraphMixin(MIXIN_BASE):
             logger.warning(
                 f"Nodes DataFrame has duplicate entries for column {node_column}"
             )
-        # now check that self.entity_to_index is in 1-1 to with self.ndf[node_column]
+        # now check that self._entity_to_index is in 1-1 to with self.ndf[node_column]
         nodes = self._nodes[node_column]
-        res = nodes.isin(self.entity_to_index)
+        res = nodes.isin(self._entity_to_index)
         if res.sum() != len(nodes):
             logger.warning(
                 "Some Edges connect to Nodes not explicitly mentioned in nodes DataFrame (ndf)"
             )
-        if len(self.entity_to_index) > len(nodes):
+        if len(self._entity_to_index) > len(nodes):
             logger.warning(
                 "There are more entities in edges DataFrame (edf) than in nodes DataFrame (ndf)"
             )
 
 
-    def _convert_edgeDF_to_DGL(self, node_column: str, weight_column: str, inplace: bool = False):
+    def _convert_edgeDF_to_DGL(self, node_column: Optional[str] = None, weight_column: Optional[str] = None, inplace: bool = False):
         logger.info("converting edge DataFrame to DGL graph")
         
         if inplace:
@@ -272,14 +270,20 @@ class DGLGraphMixin(MIXIN_BASE):
         if not res._removed_edges_previously:
             res._remove_edges_not_in_nodes(node_column)
 
-        res.DGL_graph, res._adjacency, res.entity_to_index = pandas_to_dgl_graph(
+        if res._source is None:
+            raise ValueError('source column not set, try running g.bind(source="my_col") or g.edges(df, source="my_col")')
+
+        if res._destination is None:
+            raise ValueError('destination column not set, try running g.bind(destination="my_col") or g.edges(df, destination="my_col")')
+
+        res.DGL_graph, res._adjacency, res._entity_to_index = pandas_to_dgl_graph(
             res._edges,
             res._source,
             res._destination,
             weight_col=weight_column,
             device=res.device,
         )
-        res.index_to_entity = {k: v for v, k in res.entity_to_index.items()}
+        res._index_to_entity = {k: v for v, k in res._entity_to_index.items()}
         # this is a sanity check after _remove_edges_not_in_nodes
         res._check_nodes_lineup_with_edges(node_column)
         return res
@@ -290,7 +294,7 @@ class DGLGraphMixin(MIXIN_BASE):
         res,
         X: np.ndarray,
         y: np.ndarray,
-        use_columns: List,
+        use_columns: Optional[List],
         use_scaler: str = None,
         #refeaturize: bool = False,
     ):
@@ -311,7 +315,7 @@ class DGLGraphMixin(MIXIN_BASE):
         res,
         X: np.ndarray,
         y: np.ndarray,
-        use_columns: List,
+        use_columns: Optional[List],
         use_scaler: str = None,
         #refeaturize: bool = False,
     ):

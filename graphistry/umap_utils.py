@@ -1,4 +1,5 @@
-from typing import Any, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from graphistry.Plottable import Plottable
 import numpy as np, pandas as pd
 from time import time
 from . import constants as config
@@ -28,7 +29,6 @@ except ModuleNotFoundError as e:
     )
     import_exn = e
     has_dependancy = False
-    umap: Any = None
 
 
 def assert_imported():
@@ -125,10 +125,6 @@ class UMAPMixin(MIXIN_BASE):
 
             self.umap_initialized = True
 
-    # TODO should this cascade with umap_lazy_init?
-    def _set_new_kwargs(self, **kwargs):
-        assert_imported()
-        self._umap = umap.UMAP(**kwargs)
 
     def _check_target_is_one_dimensional(self, y: Union[np.ndarray, None]):
         if y is None:
@@ -145,6 +141,9 @@ class UMAPMixin(MIXIN_BASE):
 
     # FIXME rename to umap_fit
     def fit(self, X: np.ndarray, y: Union[np.ndarray, None] = None):
+        if self._umap is None:
+            raise ValueError("UMAP is not initialized")
+
         t = time()
         y = self._check_target_is_one_dimensional(y)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
@@ -158,19 +157,21 @@ class UMAPMixin(MIXIN_BASE):
 
     # FIXME rename to umap_fit_transform
     def fit_transform(self, X: np.ndarray, y: Union[np.ndarray, None] = None):
+        if self._umap is None:
+            raise ValueError("UMAP is not initialized")
         self.fit(X, y)
         return self._umap.transform(X)
 
     def umap(
         self,
         kind: str = "nodes",
-        use_columns: Union[List, None] = None,
+        use_columns: Optional[List] = None,
         featurize: bool = False,
         encode_position: bool = True,
         encode_weight: bool = True,
         inplace: bool = False,
         X: np.ndarray = None,
-        y: Union[np.ndarray, List] = None,
+        y: Optional[Union[np.ndarray, List]] = None,
         scale: float = 0.1,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
@@ -229,11 +230,11 @@ class UMAPMixin(MIXIN_BASE):
         )
 
         if inplace:
-            res = self
+            res : UMAPMixin = self
         else:
             res = self.bind()
 
-        res._set_new_kwargs(**umap_kwargs)
+        res._umap = umap.UMAP(**umap_kwargs)
 
         if kind == "nodes":
 
@@ -241,7 +242,7 @@ class UMAPMixin(MIXIN_BASE):
             # ... when should/shouldn't we relabel?
             index_to_nodes_dict = None
             if res._node is None:
-                res = res.nodes(
+                res = res.nodes(  # type: ignore
                     res._nodes.reset_index(drop=True)
                     .reset_index()
                     .rename(columns={"index": config.IMPLICIT_NODE_ID}),
@@ -254,13 +255,13 @@ class UMAPMixin(MIXIN_BASE):
                 X, y, use_columns, refeaturize=featurize
             )
             xy = scale_xy * res.fit_transform(X, y)
-            res.weighted_adjacency_nodes = res._weighted_adjacency
-            res.node_embedding = xy
+            res._weighted_adjacency_nodes = res._weighted_adjacency
+            res._node_embedding = xy
             # TODO add edge filter so graph doesn't have double edges
             # TODO user-guidable edge merge policies like upsert?
-            res.weighted_edges_df_from_nodes = (
+            res._weighted_edges_df_from_nodes = (
                 prune_weighted_edges_df_and_relabel_nodes(
-                    res._weighted_edges_df,
+                    res._weighted_edges_df,  # type: ignore
                     scale=scale,
                     index_to_nodes_dict=index_to_nodes_dict,
                 )
@@ -270,11 +271,13 @@ class UMAPMixin(MIXIN_BASE):
                 X, y, use_columns, refeaturize=featurize
             )
             xy = scale_xy * res.fit_transform(X, y)
-            res.weighted_adjacency_edges = res._weighted_adjacency
-            res.edge_embedding = xy
-            res.weighted_edges_df_from_edges = (
+            res._weighted_adjacency_edges = res._weighted_adjacency
+            res._edge_embedding = xy
+            res._weighted_edges_df_from_edges = (
                 prune_weighted_edges_df_and_relabel_nodes(
-                    res._weighted_edges_df, scale=scale, index_to_nodes_dict=None
+                    res._weighted_edges_df,  # type: ignore
+                    scale=scale,
+                    index_to_nodes_dict=None
                 )
             )
         elif kind is None:
@@ -319,9 +322,9 @@ class UMAPMixin(MIXIN_BASE):
         x_name = config.X + self.suffix
         y_name = config.Y + self.suffix
         if kind == "nodes":
-            emb = res.node_embedding
+            emb = res._node_embedding
         else:
-            emb = res.edge_embedding
+            emb = res._edge_embedding
         df[x_name] = emb.T[0]
         df[y_name] = emb.T[1]
 
@@ -329,7 +332,7 @@ class UMAPMixin(MIXIN_BASE):
 
         if encode_weight and kind == "nodes":
             w_name = config.WEIGHT + self.suffix
-            umap_df = res.weighted_edges_df_from_nodes.copy(deep=False)
+            umap_df = res._weighted_edges_df_from_nodes.copy(deep=False)
             umap_df = umap_df.rename({config.WEIGHT: w_name})
             res = res.edges(umap_df, config.SRC, config.DST)
             logger.info(
@@ -346,3 +349,34 @@ class UMAPMixin(MIXIN_BASE):
                 return res.bind(point_x=x_name, point_y=y_name)
 
         return res
+
+
+    def filter_edges(
+        self,
+        scale: float = 0.1,
+        index_to_nodes_dict: Optional[Dict] = None,
+        inplace: bool = False,
+    ):
+        if inplace:
+            res = self
+        else:
+            res = self.bind()
+
+        if res._weighted_edges_df is not None:
+            res._weighted_edges_df_from_nodes = (
+                prune_weighted_edges_df_and_relabel_nodes(
+                    res._weighted_edges_df,
+                    scale=scale,
+                    index_to_nodes_dict=index_to_nodes_dict,
+                )
+            )
+        else:
+            logger.error("UMAP has not been run, run g.featurize(...).umap(...) first")
+
+        # write new res._edges df
+        res = self._bind_xy_from_umap(
+            res, "nodes", encode_position=True, encode_weight=True, play=0
+        )
+
+        if not inplace:
+            return res

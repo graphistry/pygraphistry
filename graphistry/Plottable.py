@@ -1,6 +1,11 @@
 from typing import Any, Callable, Iterable, List, Optional, Union
 import pandas as pd
 
+try:
+    import umap
+except ImportError:
+    1
+
 class Plottable(object):
 
     _edges : Any
@@ -36,6 +41,35 @@ class Plottable(object):
     _bolt_driver : Any
     _tigergraph : Any
 
+    _node_embedding : Optional[Any]
+    _node_encoder : Optional[Any]
+    _node_features : Optional[Any]
+    _node_imputer : Optional[Any]
+    _node_scaler : Optional[Any]
+    _node_target : Optional[Any]
+    _node_target_encoder : Optional[Any]
+
+    _edge_embedding : Optional[Any]
+    _edge_encoders : Optional[Any]
+    _edge_features : Optional[Any]
+    _edge_imputer : Optional[Any]
+    _edge_scaler : Optional[Any]
+    _edge_target : Optional[Any]
+    _edge_target_encoder : Optional[Any]
+
+    _weighted_adjacency_nodes : Optional[Any]
+    _weighted_adjacency_edges : Optional[Any]
+    _weighted_edges_df : Optional[Any]
+    _weighted_edges_df_from_nodes : Optional[Any]
+    _weighted_edges_df_from_edges : Optional[Any]
+
+    _umap : Optional[umap.UMAP]
+
+    _adjacency : Optional[Any]
+    _entity_to_index : dict
+    _index_to_entity : dict
+
+
     def __init__(self, *args, **kwargs):
         #raise RuntimeError('should not happen')
         None
@@ -44,18 +78,21 @@ class Plottable(object):
         self, nodes: Union[Callable, Any], node: Optional[str] = None,
         *args, **kwargs
     ) -> 'Plottable':
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self
 
     def edges(
         self, edges: Union[Callable, Any], source: Optional[str] = None, destination: Optional[str] = None,
         *args, **kwargs
     ) -> 'Plottable':
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self
 
     def pipe(self, graph_transform: Callable, *args, **kwargs) -> 'Plottable':
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self
 
     def bind(self, source=None, destination=None, node=None,
@@ -63,17 +100,25 @@ class Plottable(object):
              edge_source_color=None, edge_destination_color=None,
              point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
              point_x=None, point_y=None):
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def copy(self):
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self
 
     # ### compute
 
     def get_indegrees(self, col: str = 'degree_in') -> 'Plottable':
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self
 
     def materialize_nodes(self, reuse: bool = True) -> 'Plottable':
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self
 
     def get_topological_levels(
@@ -83,5 +128,6 @@ class Plottable(object):
         warn_cycles: bool = True,
         remove_self_loops: bool = True
     ) -> 'Plottable':
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self

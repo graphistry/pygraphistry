@@ -15,7 +15,7 @@ mixins = (
 
 
 class Plotter(  # type: ignore
-    *mixins
+    *mixins  # type: ignore
 ):  # type: ignore
     def __init__(self, *args, **kwargs):
         PlotterBase.__init__(self, *args, **kwargs)
