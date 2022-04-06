@@ -26,6 +26,8 @@ fi
 if [ "$WITH_BUILD" == "1" ]
 then
     echo "WITH_BUILD"
+    COMPOSE_DOCKER_CLI_BUILD=1 \
+    DOCKER_BUILDKIT=1 \
     docker-compose build \
         --build-arg PYTHON_VERSION=${PYTHON_VERSION} \
         --build-arg PIP_DEPS="${PIP_DEPS}" \
