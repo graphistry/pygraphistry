@@ -5,7 +5,7 @@ try:
     import umap
     maybe_UMAP = umap.UMAP
 except ImportError:
-    maybe_UMAP = None
+    maybe_UMAP = Any
     1
 
 class Plottable(object):

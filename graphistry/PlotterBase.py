@@ -46,13 +46,6 @@ try:
 except ImportError:
     1
 
-maybe_umap = None
-try:
-    import umap
-    maybe_umap = umap
-except ImportError:
-    1
-
 logger = logging.getLogger('Plotter')
 
 CACHE_COERCION_SIZE = 100
