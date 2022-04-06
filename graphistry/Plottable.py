@@ -3,7 +3,9 @@ import pandas as pd
 
 try:
     import umap
+    maybe_UMAP = umap.UMAP
 except ImportError:
+    maybe_UMAP = None
     1
 
 class Plottable(object):
@@ -63,7 +65,7 @@ class Plottable(object):
     _weighted_edges_df_from_nodes : Optional[Any]
     _weighted_edges_df_from_edges : Optional[Any]
 
-    _umap : Optional[umap.UMAP]
+    _umap : Optional[maybe_UMAP]
 
     _adjacency : Optional[Any]
     _entity_to_index : dict
