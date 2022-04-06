@@ -46,21 +46,19 @@ try:
     has_min_dependancy = True
 
 except ModuleNotFoundError as e:
-    logger.debug(
-        "AI Packages not found, trying running `pip install graphistry[ai]`",
-        exc_info=True,
-    )
     import_min_exn = e
     has_min_dependancy = False
     SuperVectorizer = Any
 
 def assert_imported_text():
     if not has_dependancy_text:
+        logger.error("AI Package sentence_transformers not found, trying running `pip install graphistry[ai]`")
         raise import_text_exn
 
 
 def assert_imported():
     if not has_min_dependancy:
+        logger.error("AI Packages not found, trying running `pip install graphistry[ai]`")
         raise import_min_exn
 
 
