@@ -3,7 +3,7 @@ import logging
 
 import pandas as pd
 
-from .Plottable import Plottable
+from graphistry.Plottable import Plottable
 
 logger = logging.getLogger('compute')
 
