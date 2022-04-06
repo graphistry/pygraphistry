@@ -4,7 +4,7 @@ import pandas as pd
 try:
     from umap import UMAP
 except:
-    1
+    UMAP = Any
 
 class Plottable(object):
 
