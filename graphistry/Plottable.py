@@ -1,4 +1,4 @@
-from typing import Any, Callable, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterable, List, Optional, Union
 import pandas as pd
 
 try:
@@ -64,7 +64,8 @@ class Plottable(object):
     _weighted_edges_df_from_nodes : Optional[Any]
     _weighted_edges_df_from_edges : Optional[Any]
 
-    _umap : Optional[maybe_UMAP]
+    if TYPE_CHECKING:
+        _umap : Optional[maybe_UMAP]
 
     _adjacency : Optional[Any]
     _entity_to_index : dict
