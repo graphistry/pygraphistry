@@ -1772,8 +1772,16 @@ class PlotterBase(Plottable):
 
         from .pygraphistry import PyGraphistry
 
+        def flatten_categorical(df):
+            # Avoid cat_col.where(...)-related exceptions
+            df2 = df.copy()
+            for c in df:
+                if (df[c].dtype.name == 'category'):
+                    df2[c] = df[c].astype(df[c].cat.categories.dtype)
+            return df2
+
         (elist, nlist) = self._bind_attributes_v1(edges, nodes)
-        edict = elist.where((pd.notnull(elist)), None).to_dict(orient='records')
+        edict = flatten_categorical(elist).where(pd.notnull(elist), None).to_dict(orient='records')
 
         bindings = {'idField': self._node or PlotterBase._defaultNodeId,
                     'destinationField': self._destination, 'sourceField': self._source}
@@ -1781,7 +1789,7 @@ class PlotterBase(Plottable):
                    'bindings': bindings, 'type': 'edgelist', 'graph': edict}
 
         if nlist is not None:
-            ndict = nlist.where((pd.notnull(nlist)), None).to_dict(orient='records')
+            ndict = flatten_categorical(nlist).where(pd.notnull(nlist), None).to_dict(orient='records')
             dataset['labels'] = ndict
         return dataset
 
