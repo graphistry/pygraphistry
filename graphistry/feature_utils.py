@@ -537,7 +537,7 @@ def process_textual_or_other_dataframes(
         embeddings = np.c_[embeddings, X_enc.values]
         columns = columns_text + list(X_enc.columns.values)
     else:
-        logger.warning(f"! Data Encoder is {data_encoder}")
+        logger.warning(f" Data Encoder is {data_encoder}")
         columns = columns_text  # just sentence-transformers
 
     # now remove the leading zeros
@@ -1141,7 +1141,7 @@ class FeatureMixin(MIXIN_BASE):
         if X is None:
             if self._node_features is not None:
                 X = self._node_features
-                logger.info("Found Node features in `res`")
+                logger.info("Found Node features in `self`")
             else:
                 logger.warning(
                     "Calling `featurize` to create data matrix `X` over nodes DataFrame"
@@ -1171,7 +1171,7 @@ class FeatureMixin(MIXIN_BASE):
             if self._node_target is not None:
                 y = self._node_target
                 logger.info(
-                    f"Fetching `_node_target` in `res`. Target is type {type(y)}"
+                    f"Fetching `_node_target` in `self`. Target is type {type(y)}"
                 )
         # now on the return the X, y will be set
         return X, y, res
