@@ -1,9 +1,9 @@
-from typing import Any, Callable, Iterable, List, Optional, Union, TypeAlias
+from typing import Any, Callable, Iterable, List, Optional, Union
 import pandas as pd
 
 try:
     import umap
-    maybe_UMAP: TypeAlias = umap.UMAP
+    maybe_UMAP = umap.UMAP
 except:
     1
 
