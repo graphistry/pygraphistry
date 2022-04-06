@@ -8,14 +8,16 @@ SHELL ["/bin/bash", "-c"]
 RUN mkdir /opt/pygraphistry
 WORKDIR /opt/pygraphistry
 
-RUN python -m venv pygraphistry \
+RUN --mount=type=cache,target=/root/.cache \
+    python -m venv pygraphistry \
     && source pygraphistry/bin/activate \
     && pip install --upgrade pip
 
 #install tests with stubbed package
 COPY README.md setup.py setup.cfg versioneer.py MANIFEST.in ./
 COPY graphistry/_version.py ./graphistry/_version.py
-RUN source pygraphistry/bin/activate \
+RUN --mount=type=cache,target=/root/.cache \
+    source pygraphistry/bin/activate \
     && pip list \
     && touch graphistry/__init__.py \
     && echo "PIP_DEPS: $PIP_DEPS" \
