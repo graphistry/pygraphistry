@@ -1,11 +1,10 @@
-from typing import Any, Callable, Iterable, List, Optional, Union
+from typing import Any, Callable, Iterable, List, Optional, Union, TypeAlias
 import pandas as pd
 
 try:
     import umap
-    maybe_UMAP = umap.UMAP
-except ImportError:
-    maybe_UMAP = Any
+    maybe_UMAP: TypeAlias = umap.UMAP
+except:
     1
 
 class Plottable(object):
