@@ -1,2 +1,0 @@
-graphistry.ai package
-=========================
