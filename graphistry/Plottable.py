@@ -2,8 +2,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, List, Optional, Union
 import pandas as pd
 
 try:
-    import umap
-    maybe_UMAP = umap.UMAP
+    from umap import UMAP
 except:
     1
 
@@ -64,8 +63,7 @@ class Plottable(object):
     _weighted_edges_df_from_nodes : Optional[Any]
     _weighted_edges_df_from_edges : Optional[Any]
 
-    if TYPE_CHECKING:
-        _umap : Optional[maybe_UMAP]
+    _umap : Optional[UMAP]
 
     _adjacency : Optional[Any]
     _entity_to_index : dict

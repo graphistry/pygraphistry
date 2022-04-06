@@ -44,7 +44,6 @@ try:
     )
 
     has_min_dependancy = True
-    maybe_SuperVectorizer = SuperVectorizer
 
 except ModuleNotFoundError as e:
     logger.debug(
@@ -53,7 +52,6 @@ except ModuleNotFoundError as e:
     )
     import_min_exn = e
     has_min_dependancy = False
-    maybe_SuperVectorizer = None
 
 def assert_imported_text():
     if not has_dependancy_text:
@@ -484,8 +482,8 @@ def process_textual_or_other_dataframes(
 ) -> Tuple[
     pd.DataFrame,
     Any,
-    maybe_SuperVectorizer,
-    maybe_SuperVectorizer,
+    SuperVectorizer,
+    SuperVectorizer,
     Any,
     Any
 ]:
@@ -586,8 +584,8 @@ def process_dirty_dataframes(
 ) -> Tuple[
     pd.DataFrame,
     Any,
-    maybe_SuperVectorizer,
-    maybe_SuperVectorizer,
+    SuperVectorizer,
+    SuperVectorizer,
     Any,
     Any
 ]:
