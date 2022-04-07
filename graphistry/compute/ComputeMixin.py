@@ -4,6 +4,11 @@ import logging
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from .hop import hop as hop_base
+from .filter_by_dict import (
+    filter_edges_by_dict as filter_edges_by_dict_base,
+    filter_nodes_by_dict as filter_nodes_by_dict_base
+)
 
 logger = logging.getLogger('compute')
 
@@ -218,9 +223,10 @@ class ComputeMixin(MIXIN_BASE):
         return hop_base(self, *args, **kwargs)
     hop.__doc__ = hop_base.__doc__
 
-        #hydrate nodes
-        if self._nodes is not None:
-            final_nodes = self._nodes.merge(matches_nodes, on=self._node, how='inner')
-            g_out = g_out.nodes(final_nodes)
+    def filter_nodes_by_dict(self, *args, **kwargs):
+        return filter_nodes_by_dict_base(self, *args, **kwargs)
+    filter_nodes_by_dict.__doc__ = filter_nodes_by_dict_base.__doc__
 
-        return g_out
+    def filter_edges_by_dict(self, *args, **kwargs):
+        return filter_edges_by_dict_base(self, *args, **kwargs)
+    filter_edges_by_dict.__doc__ = filter_edges_by_dict_base.__doc__
