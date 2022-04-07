@@ -3,8 +3,8 @@ graphistry package
 .. toctree::
    :maxdepth: 3
 
+   graphistry.compute
    graphistry.layout
-
 
 
 graphistry.plotter module
