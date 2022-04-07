@@ -11,6 +11,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
 
+## [0.22.0 - 2022-04-06]
+
+### Added
+
+* Node dictionary-based filtering: `g.filter_nodes_by_dict({"some": "value", "another": 2})`
+* Edge dictionary-based filtering: `g.filter_edges_by_dict({"some": "value", "another": 2})`
+* Hops support filtering: `g.hop(hops=2, edge_match={"type": "transaction"})`
+
 ## [0.21.4 - 2022-03-30]
 
 ### Added

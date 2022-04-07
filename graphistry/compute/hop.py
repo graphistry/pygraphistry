@@ -18,7 +18,7 @@ def hop(self: Plottable, nodes,
     hops: how many hops to consider, if any bound
     to_fixed_point: keep hopping until no new nodes are found
     direction: 'forward', 'backwards', 'undirected'
-    edge_match: dict of kv-pairs to exact match
+    edge_match: dict of kv-pairs to exact match (see also: filter_edges_by_dict)
 
     - currently only supports forwards hops
     - does not yet support transitive closure and backwards/undirected hops
@@ -29,7 +29,7 @@ def hop(self: Plottable, nodes,
 
     g2 = self.materialize_nodes()
 
-    edges_indexed = g2._edges.reset_index()
+    edges_indexed = g2.filter_edges_by_dict(edge_match)._edges.reset_index()
     EDGE_ID = 'index'
 
     hops_remaining = hops
