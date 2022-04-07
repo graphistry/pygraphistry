@@ -18,8 +18,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Node dictionary-based filtering: `g.filter_nodes_by_dict({"some": "value", "another": 2})`
 * Edge dictionary-based filtering: `g.filter_edges_by_dict({"some": "value", "another": 2})`
 * Hops support edge filtering: `g.hop(hops=2, edge_match={"type": "transaction"})`
-* Hops support pre-node filtering: `g.hop(hops=2, pre_node_match={"type": "account"})`
-* Hops support post-node filtering: `g.hop(hops=2, post_node_match={"type": "wallet"})`
+* Hops support pre-node filtering: `g.hop(hops=2, source_node_match={"type": "account"})`
+* Hops support post-node filtering: `g.hop(hops=2, destination_node_match={"type": "wallet"})`
 * Hops defaults to full graph if no initial nodes specified: `g.hop(hops=2, edge_match={"type": "transaction"})`
 
 ## [0.21.4 - 2022-03-30]

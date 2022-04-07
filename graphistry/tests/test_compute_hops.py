@@ -70,7 +70,7 @@ class TestComputeHopMixin(NoAuthTestCase):
 
     def test_hop_post_match(self):
         g = hops_graph()
-        g2 = g.hop(post_node_match={'node': 'b'})
+        g2 = g.hop(destination_node_match={'node': 'b'})
         assert g2._nodes.shape == (4, 2)
         assert (g2._nodes[g2._node].sort_values().to_list() ==  # noqa: W504
             sorted(['b', 'l', 'o', 'p']))
@@ -78,7 +78,7 @@ class TestComputeHopMixin(NoAuthTestCase):
 
     def test_hop_pre_match(self):
         g = hops_graph()
-        g2 = g.hop(pre_node_match={'node': 'e'})
+        g2 = g.hop(source_node_match={'node': 'e'})
         assert g2._nodes.shape == (3, 2)
         assert (g2._nodes[g2._node].sort_values().to_list() ==  # noqa: W504
             sorted(['e', 'l', 'g']))
@@ -86,7 +86,7 @@ class TestComputeHopMixin(NoAuthTestCase):
 
     def test_hop_pre_post_match_1(self):
         g = hops_graph()
-        g2 = g.hop(pre_node_match={'node': 'e'}, post_node_match={'node': 'l'})
+        g2 = g.hop(source_node_match={'node': 'e'}, destination_node_match={'node': 'l'})
         assert g2._nodes.shape == (2, 2)
         assert (g2._nodes[g2._node].sort_values().to_list() ==  # noqa: W504
             sorted(['e', 'l']))

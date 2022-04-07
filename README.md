@@ -727,11 +727,17 @@ Traverse within a graph, or expand one graph against another
 g = graphistry.edges(pd.read_csv('data.csv'), 's', 'd')
 g2 = g.materialize_nodes()
 
+# (a)-[{"v": 1, "type": "z"}]->(b) based on g
+g2b = g2.hop(
+  source_node_match={g2._node: "a"},
+  edge_match={"v": 1, "type": "z"},
+  destination_node_match={g2._node: "b"})
+
 # (a or b)-[1 to 8 hops]->(anynode), based on graph g2
-g3 = g2.hop(pd.DataFrame({g._node: ['a', 'b']}), hops=8)
+g3 = g2.hop(pd.DataFrame({g2._node: ['a', 'b']}), hops=8)
 
 # (c)<-[any number of hops]-(any node), based on graph g3
-g4 = g3.hop(pd.DataFrame({g._node: ['c']}), direction='reverse', to_fixed_point=True)
+g4 = g3.hop(source_node_match={"node": "c"}, direction='reverse', to_fixed_point=True)
 
 # (c)-[incoming or outgoing edge]-(any node),
 # for c in g4 with expansions against nodes/edges in g2
