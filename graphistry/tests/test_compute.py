@@ -170,5 +170,3 @@ class TestComputeMixin(NoAuthTestCase):
         g = cg.edges(pd.DataFrame({'x': ['m', 'm', 'n', 'm'], 'y': ['a', 'b', 'c', 'd']}), 'x', 'y')
         g2 = g.drop_nodes(['m'])
         assert g2._edges.to_dict(orient='records') == [{'x': 'n', 'y': 'c'}]
-
-

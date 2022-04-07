@@ -17,7 +17,7 @@ class TestComputeHopMixin(NoAuthTestCase):
 
         g = hops_graph()
         g2 = g.hop(pd.DataFrame({g._node: ['d']}), 0)
-        assert g2._nodes.shape == (1, 2)
+        assert g2._nodes.shape == (0, 2)
         assert g2._edges.shape == (0, 3)
 
     def test_hop_1_1_forwards(self):
@@ -66,4 +66,28 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert g2._nodes.shape == (2, 2)
         assert (g2._nodes[g2._node].sort_values().to_list() ==  # noqa: W504
             sorted(['f', 'd']))
+        assert g2._edges.shape == (1, 3)
+
+    def test_hop_post_match(self):
+        g = hops_graph()
+        g2 = g.hop(post_node_match={'node': 'b'})
+        assert g2._nodes.shape == (4, 2)
+        assert (g2._nodes[g2._node].sort_values().to_list() ==  # noqa: W504
+            sorted(['b', 'l', 'o', 'p']))
+        assert g2._edges.shape == (3, 3)
+
+    def test_hop_pre_match(self):
+        g = hops_graph()
+        g2 = g.hop(pre_node_match={'node': 'e'})
+        assert g2._nodes.shape == (3, 2)
+        assert (g2._nodes[g2._node].sort_values().to_list() ==  # noqa: W504
+            sorted(['e', 'l', 'g']))
+        assert g2._edges.shape == (2, 3)
+
+    def test_hop_pre_post_match_1(self):
+        g = hops_graph()
+        g2 = g.hop(pre_node_match={'node': 'e'}, post_node_match={'node': 'l'})
+        assert g2._nodes.shape == (2, 2)
+        assert (g2._nodes[g2._node].sort_values().to_list() ==  # noqa: W504
+            sorted(['e', 'l']))
         assert g2._edges.shape == (1, 3)

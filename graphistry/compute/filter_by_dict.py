@@ -9,8 +9,12 @@ def filter_by_dict(df, filter_dict: Optional[dict] = None) -> pd.DataFrame:
     return df where rows match all values in filter_dict
     """
 
-    if filter_dict is None:
+    if filter_dict is None or filter_dict == {}:
         return df
+
+    for col in filter_dict.keys():
+        if col not in df.columns:
+            raise ValueError(f'Key "{col}" not in columns of df, available columns are: {df.columns}')
 
     hits = (df[list(filter_dict)] == pd.Series(filter_dict)).all(axis=1)
     return df[hits]
