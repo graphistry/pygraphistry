@@ -11,8 +11,8 @@ def hop(self: Plottable,
     to_fixed_point: bool = False,
     direction: str = 'forward',
     edge_match: Optional[dict] = None,
-    pre_node_match: Optional[dict] = None,
-    post_node_match: Optional[dict] = None
+    source_node_match: Optional[dict] = None,
+    destination_node_match: Optional[dict] = None
 ) -> Plottable:
     """
     Given a graph and some source nodes, return subgraph of all paths within k-hops from the sources
@@ -23,8 +23,8 @@ def hop(self: Plottable,
     to_fixed_point: keep hopping until no new nodes are found (ignores hops)
     direction: 'forward', 'reverse', 'undirected'
     edge_match: dict of kv-pairs to exact match (see also: filter_edges_by_dict)
-    pre_node_match: dict of kv-pairs to match nodes before hopping
-    post_node_match: dict of kv-pairs to match nodes after hopping (including intermediate)
+    source_node_match: dict of kv-pairs to match nodes before hopping
+    destination_node_match: dict of kv-pairs to match nodes after hopping (including intermediate)
     """
 
     if not to_fixed_point and not isinstance(hops, int):
@@ -33,8 +33,8 @@ def hop(self: Plottable,
     if direction not in ['forward', 'reverse', 'undirected']:
         raise ValueError(f'Invalid direction: "{direction}", must be one of: "forward" (default), "reverse", "undirected"')
 
-    if post_node_match == {}:
-        post_node_match = None
+    if destination_node_match == {}:
+        destination_node_match = None
 
     g2 = self.materialize_nodes()
 
@@ -45,7 +45,7 @@ def hop(self: Plottable,
     EDGE_ID = 'index'
 
     hops_remaining = hops
-    wave_front = filter_by_dict(nodes[[ g2._node ]], pre_node_match)
+    wave_front = filter_by_dict(nodes[[ g2._node ]], source_node_match)
     matches_nodes = None
     matches_edges = edges_indexed[[EDGE_ID]][:0]
 
@@ -67,10 +67,10 @@ def hop(self: Plottable,
             )
             new_node_ids_forward = hop_edges_forward[[g2._destination]].rename(columns={g2._destination: g2._node}).drop_duplicates()
 
-            if post_node_match is not None:
+            if destination_node_match is not None:
                 new_node_ids_forward = filter_by_dict(
                     g2._nodes.merge(new_node_ids_forward, on=g2._node, how='inner'),
-                    post_node_match
+                    destination_node_match
                 )[[g2._node]]
                 hop_edges_forward = hop_edges_forward.merge(
                     new_node_ids_forward.rename(columns={g2._node: g2._destination}),
@@ -90,10 +90,10 @@ def hop(self: Plottable,
             )
             new_node_ids_reverse = hop_edges_reverse[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()
 
-            if post_node_match is not None:
+            if destination_node_match is not None:
                 new_node_ids_reverse = filter_by_dict(
                     g2._nodes.merge(new_node_ids_reverse, on=g2._node, how='inner'),
-                    post_node_match
+                    destination_node_match
                 )[[g2._node]]
                 hop_edges_reverse = hop_edges_reverse.merge(
                     new_node_ids_reverse.rename(columns={g2._node: g2._source}),
