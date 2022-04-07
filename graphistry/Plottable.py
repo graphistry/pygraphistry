@@ -85,3 +85,22 @@ class Plottable(object):
     ) -> 'Plottable':
         raise RuntimeError('should not happen')
         return self
+
+    def hop(self, nodes: pd.DataFrame,
+        hops: Optional[int] = 1,
+        to_fixed_point: bool = False,
+        direction: str = 'forward',
+        edge_match: Optional[dict] = None
+    ):
+        raise RuntimeError('should not happen')
+        return self
+
+    def filter_nodes_by_dict(self, filter_dict: Optional[dict] = None
+    ):
+        raise RuntimeError('should not happen')
+        return self
+
+    def filter_edges_by_dict(self, filter_dict: Optional[dict] = None
+    ):
+        raise RuntimeError('should not happen')
+        return self
