@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, Union
+from typing import cast, List, Optional, Tuple, Union
 import pandas as pd
 
 from graphistry.Plottable import Plottable
@@ -13,7 +13,7 @@ logger.setLevel(logging.DEBUG)
 ###############################################################################
 
 
-def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable]]) -> Plottable:
+def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable]]) -> pd.DataFrame:
     """
     Collect nodes and edges, taking care to deduplicate and tag any names
     """
@@ -151,11 +151,11 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
 
     if isinstance(ops[0], ASTEdge):
         logger.debug('adding initial node to ensure initial link has needed reversals')
-        ops = [ ASTNode() ] + ops
+        ops = cast(List[ASTObject], [ ASTNode() ]) + ops
 
     if isinstance(ops[-1], ASTEdge):
         logger.debug('adding final node to ensure final link has needed reversals')
-        ops = ops + [ ASTNode() ]
+        ops = ops + cast(List[ASTObject], [ ASTNode() ])
 
     logger.debug('final chain >> %s', ops)
 
@@ -174,7 +174,7 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
     logger.debug('============ FORWARDS ============')
 
     #forwards
-    g_stack : List[dict] = []
+    g_stack : List[Plottable] = []
     for op in ops:
         g_step = (
             op(
@@ -194,7 +194,7 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
     logger.debug('============ BACKWARDS ============')
 
     #backwards
-    g_stack_reverse : List[dict] = [g_stack[-1]]
+    g_stack_reverse : List[Plottable] = [g_stack[-1]]
     for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
         g_step_reverse = (
             (op.reverse())(

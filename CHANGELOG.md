@@ -11,6 +11,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
 
+## [0.23.0 - 2022-04-08]
+
+### Breaking
+
+* `g.edges()` now takes an optional 4th named parameter `edge` ID
+
+Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like `g.edges(some_fn, None, None, None, some_arg)`
+
+* Similar new optional `edge` ID parameter in `g.bind()`
+
+### Changed
+
+* `g.hop()` now takes optional `return_as_wave_front=False`, primarily for internal use by `chain()`
+
+### Added
+
+* `g.chain([...])` with `graphistry.ast.{n, e_forward, e_reverse, e_undirected}`
+
 ## [0.22.0 - 2022-04-06]
 
 ### Added
