@@ -19,7 +19,7 @@ class ASTObject(object):
         self._name = name
         pass
 
-    def __call__(self, g: Plottable, prev_node_wavefront: pd.DataFrame) -> Plottable:
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame]) -> Plottable:
         raise RuntimeError('__call__ not implemented')
         
     def reverse(self) -> 'ASTObject':
@@ -44,7 +44,7 @@ class ASTNode(ASTObject):
     def __repr__(self) -> str:
         return f'ASTNode(filter_dict={self._filter_dict}, name={self._name})'
 
-    def __call__(self, g: Plottable, prev_node_wavefront: pd.DataFrame) -> Plottable:
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame]) -> Plottable:
         out_g = (g
             .nodes(prev_node_wavefront if prev_node_wavefront is not None else g._nodes)
             .filter_nodes_by_dict(self._filter_dict)
@@ -110,7 +110,7 @@ class ASTEdge(ASTObject):
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self._direction}, edge_match={self._edge_match}, hops={self._hops}, to_fixed_point={self._to_fixed_point}, source_node_match={self._source_node_match}, destination_node_match={self._destination_node_match}, name={self._name})'
 
-    def __call__(self, g: Plottable, prev_node_wavefront: pd.DataFrame) -> Plottable:
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame]) -> Plottable:
 
         out_g = g.hop(
             nodes=prev_node_wavefront,
@@ -156,7 +156,7 @@ class ASTEdgeForward(ASTEdge):
         hops: Optional[int] = DEFAULT_HOPS,
         source_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
         destination_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
-        to_fixed_point: Optional[bool] = DEFAULT_FIXED_POINT,
+        to_fixed_point: bool = DEFAULT_FIXED_POINT,
         name: Optional[str] = None
     ):
         super().__init__(
@@ -183,7 +183,7 @@ class ASTEdgeReverse(ASTEdge):
         hops: Optional[int] = DEFAULT_HOPS,
         source_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
         destination_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
-        to_fixed_point: Optional[bool] = DEFAULT_FIXED_POINT,
+        to_fixed_point: bool = DEFAULT_FIXED_POINT,
         name: Optional[str] = None
     ):
         super().__init__(
@@ -210,7 +210,7 @@ class ASTEdgeUndirected(ASTEdge):
         hops: Optional[int] = DEFAULT_HOPS,
         source_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
         destination_node_match: Optional[dict] = DEFAULT_FILTER_DICT,
-        to_fixed_point: Optional[bool] = DEFAULT_FIXED_POINT,
+        to_fixed_point: bool = DEFAULT_FIXED_POINT,
         name: Optional[str] = None
     ):
         super().__init__(

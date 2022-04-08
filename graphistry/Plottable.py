@@ -87,7 +87,8 @@ class Plottable(object):
         raise RuntimeError('should not happen')
         return self
 
-    def hop(self, nodes: pd.DataFrame,
+    def hop(self,
+        nodes: Optional[pd.DataFrame],
         hops: Optional[int] = 1,
         to_fixed_point: bool = False,
         direction: str = 'forward',

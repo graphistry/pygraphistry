@@ -180,7 +180,7 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
         assert g3._source == 's'
         g4 = graphistry.edges(
             (lambda g, s: g.edges(df2)._edges.assign(**{s: 1})),
-            None, None,
+            None, None, None,
             's2')
         assert (g4._edges.columns == ['s', 'd', 's2']).all()
 
