@@ -12,7 +12,8 @@ def hop(self: Plottable,
     direction: str = 'forward',
     edge_match: Optional[dict] = None,
     source_node_match: Optional[dict] = None,
-    destination_node_match: Optional[dict] = None
+    destination_node_match: Optional[dict] = None,
+    return_as_wave_front = False
 ) -> Plottable:
     """
     Given a graph and some source nodes, return subgraph of all paths within k-hops from the sources
@@ -25,6 +26,7 @@ def hop(self: Plottable,
     edge_match: dict of kv-pairs to exact match (see also: filter_edges_by_dict)
     source_node_match: dict of kv-pairs to match nodes before hopping
     destination_node_match: dict of kv-pairs to match nodes after hopping (including intermediate)
+    return_as_wave_front: Only return the nodes/edges reached, ignoring past ones (primarily for internal use)
     """
 
     if not to_fixed_point and not isinstance(hops, int):
@@ -41,8 +43,14 @@ def hop(self: Plottable,
     if nodes is None:
         nodes = g2._nodes
 
-    edges_indexed = g2.filter_edges_by_dict(edge_match)._edges.reset_index()
-    EDGE_ID = 'index'
+    if g2._edge is None:
+        if 'index' in g2._edges.columns:
+            raise ValueError('Edges cannot have column "index", please remove or set as g._edge via bind() or edges()')
+        edges_indexed = g2.filter_edges_by_dict(edge_match)._edges.reset_index()
+        EDGE_ID = 'index'
+    else:
+        edges_indexed = g2.filter_edges_by_dict(edge_match)._edges
+        EDGE_ID = g2._edge
 
     hops_remaining = hops
     wave_front = filter_by_dict(nodes[[ g2._node ]], source_node_match)
@@ -117,15 +125,18 @@ def hop(self: Plottable,
 
         # Finally add initial nodes as confirmed also match edge + post-node predicates, not just pre-node predicates 
         if matches_nodes is None:
-            matches_nodes = pd.concat(
-                mt
-                    + ( [hop_edges_forward[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()]  # noqa: W503
-                        if hop_edges_forward is not None
-                        else mt)
-                    + ( [hop_edges_reverse[[g2._destination]].rename(columns={g2._destination: g2._node}).drop_duplicates()]  # noqa: W503
-                        if hop_edges_reverse is not None
-                        else mt),
-                ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])
+            if return_as_wave_front:
+                matches_nodes = new_node_ids[:0]
+            else:
+                matches_nodes = pd.concat(
+                    mt
+                        + ( [hop_edges_forward[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()]  # noqa: W503
+                            if hop_edges_forward is not None
+                            else mt)
+                        + ( [hop_edges_reverse[[g2._destination]].rename(columns={g2._destination: g2._node}).drop_duplicates()]  # noqa: W503
+                            if hop_edges_reverse is not None
+                            else mt),
+                    ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])
 
         combined_node_ids = pd.concat([matches_nodes, new_node_ids], ignore_index=True, sort=False).drop_duplicates()
 

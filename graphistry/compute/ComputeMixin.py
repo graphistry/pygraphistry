@@ -4,6 +4,7 @@ import logging
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from .chain import chain as chain_base
 from .hop import hop as hop_base
 from .filter_by_dict import (
     filter_edges_by_dict as filter_edges_by_dict_base,
@@ -230,3 +231,7 @@ class ComputeMixin(MIXIN_BASE):
     def filter_edges_by_dict(self, *args, **kwargs):
         return filter_edges_by_dict_base(self, *args, **kwargs)
     filter_edges_by_dict.__doc__ = filter_edges_by_dict_base.__doc__
+
+    def chain(self, *args, **kwargs):
+        return chain_base(self, *args, **kwargs)
+    chain.__doc__ = chain_base.__doc__
