@@ -723,9 +723,19 @@ g2._nodes  # pd.DataFrame({
 
 Traverse within a graph, or expand one graph against another
 
+Simple node and edge filtering via `filter_edges_by_dict()` and `filter_nodes_by_dict()`:
+
 ```python
 g = graphistry.edges(pd.read_csv('data.csv'), 's', 'd')
 g2 = g.materialize_nodes()
+
+g3 = g.filter_edges_by_dict({"v": 1, "b": True})
+g4 = g.filter_nodes_by_dict({"v2": 1, "b2": True})
+```
+
+Method `.hop()` enables slightly more complicated edge filters:
+
+```python
 
 # (a)-[{"v": 1, "type": "z"}]->(b) based on g
 g2b = g2.hop(
@@ -744,6 +754,25 @@ g4 = g3.hop(source_node_match={"node": "c"}, direction='reverse', to_fixed_point
 g5 = g2.hop(pd.DataFrame({g4._node: g4[g4._node]}), hops=1, direction='undirected')
 
 g5.plot()
+```
+
+Rich compound patterns are enabled via `.chain()`:
+
+```python
+from graphistry.ast import n, e_forward, e_reverse, e_undirected
+
+g2.chain([ n() ])
+g2.chain([ n({"v": 1, "y": True}) ])
+g2.chain([ e_forward({"type": "x"}, hops=2) ]) # simple multi-hop
+g3 = g2.chain([
+  n(name="start"),  # tag node matches
+  e_forward(hops=3),
+  e_forward(name="final_edge"), # tag edge matches
+  n(name="end")
+])
+g2.chain(n(), e_forward(), n(), e_reverse(), n()])  # rich shapes
+print('# end nodes: ', len(g3._nodes[ g3._nodes.end ]))
+print('# end edges: ', len(g3._edges[ g3._edges.final_edge ]))
 ```
 
 **Pipelining**:
