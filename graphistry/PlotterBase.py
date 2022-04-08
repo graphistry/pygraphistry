@@ -1032,7 +1032,7 @@ class PlotterBase(Plottable):
                 graphistry
                     .edges(df, 'src', 'dst')
                     .edges(sample_edges, n=2)
-                    .edges(sample_edges, None, None, 2)  # equivalent
+                    .edges(sample_edges, None, None, None, 2)  # equivalent
                     .plot()
 
         """
