@@ -698,19 +698,71 @@ g.addStyle(logo={
 
 ### Transforms
 
-You can quickly manipulate graphs as well:
+The below methods let you quickly manipulate graphs directly and with dataframe methods: Search, pattern mine, transform, and more:
 
-**Generate node table**:
+```python
+from graphistry.ast import n, e_forward, e_reverse, e_undirected
+g = (graphistry
+  .edges(pd.DataFrame({
+    's': ['a', 'b'],
+    'd': ['b', 'c'],
+    'k1': ['x', 'y']
+  }))
+  .nodes(pd.DataFrame({
+    'n': ['a', 'b', 'c'],
+    'k2': [0, 2, 4, 6]
+  })
+)
+
+g2 = graphistry.hypergraph(g._edges, ['s', 'd', 'k1'])['graph']
+g2.plot() # nodes are values from cols s, d, k1
+
+(g
+  .materialize_nodes()
+  .get_degrees()
+  .get_indegrees()
+  .get_outdegrees()
+  .pipe(lambda g2: g2.nodes(g2._nodes.assign(t=x))) # transform
+  .filter_edges_by_dict({"k1": "x"})
+  .filter_nodes_by_dict({"k2": 4})
+  .hop( # filter to subgraph
+    #almost all optional
+    direction='forward', # 'reverse', 'undirected'
+    hops=1, # number or None if to_fixed_point
+    to_fixed_point=False, 
+    source_node_match={"k2": 0},
+    edge_match={"k1": "x"},
+    destination_node_match={"k2": 2})
+  .chain([ # filter to subgraph
+    n(),
+    n({'k2': 0}),
+    n(name="start"), # add column 'start':bool
+    e_forward({'k1': 'x'}, hops=1), # same API as hop()
+    e_undirected(name='second_edge'),
+  ])
+```
+
+#### Table to graph
+
+```python
+df = pd.read_csv('events.csv')
+hg = graphistry.hypergraph(df, ['user', 'email', 'org'], direct=True)
+g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
+g.plot()
+```
+
+#### Generate node table
+
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
 g2 = g.materialize_nodes()
 g2._nodes  # pd.DataFrame({'id': ['a', 'b', 'c']})
 ```
 
-**Compute degrees**:
+#### Compute degrees
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
-g2 = g.get_degree()
+g2 = g.get_degrees()
 g2._nodes  # pd.DataFrame({
            #  'id': ['a', 'b', 'c'],
            #  'degree_in': [0, 1, 1],
@@ -719,7 +771,9 @@ g2._nodes  # pd.DataFrame({
            #})
 ```
 
-**Graph pattern matching**:
+See also `get_indegrees()` and `get_outdegrees()` 
+
+#### Graph pattern matching
 
 Traverse within a graph, or expand one graph against another
 
@@ -775,7 +829,7 @@ print('# end nodes: ', len(g3._nodes[ g3._nodes.end ]))
 print('# end edges: ', len(g3._edges[ g3._edges.final_edge ]))
 ```
 
-**Pipelining**:
+#### Pipelining
 
 ```python
 def capitalize(df, col):
@@ -790,16 +844,7 @@ g
   .pipe(lambda g: g.nodes(g._nodes.pipe(capitalize, 'nTitle')))
 ```
 
-**Table to graph**:
-
-```python
-df = pd.read_csv('events.csv')
-hg = graphistry.hypergraph(df, ['user', 'email', 'org'], direct=True)
-g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
-g.plot()
-```
-
-**Removing nodes**:
+#### Removing nodes
 
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']}))
@@ -822,6 +867,7 @@ g3c = g2a.layout_settings(locked_x=True)
 
 g4 = g2.tree_layout().rotate(90)
 ```
+
 ## Next Steps
 
 1. Create a free public data [Graphistry Hub](https://www.graphistry.com/get-started) account or [one-click launch a private Graphistry instance in AWS](https://www.graphistry.com/get-started)
