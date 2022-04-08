@@ -11,6 +11,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
 
+## [0.23.1 - 2022-04-08]
+
+### Added
+
+* Docs: `readme.md` digest of compute methods
+
+### Fixed
+
+* Docs: `get_degree()` -> `get_degrees()` (https://github.com/graphistry/pygraphistry/issues/330)
+* Upload memoization handles column renames (https://github.com/graphistry/pygraphistry/issues/326)
+
 ## [0.23.0 - 2022-04-08]
 
 ### Breaking
@@ -46,7 +57,7 @@ Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like
 
 * Horizontal and radial axis using `.encode_axis(rows=[...])`
 
-#### Fixed
+### Fixed
 
 * Docs: Work around https://github.com/sphinx-doc/sphinx/issues/10291
 
