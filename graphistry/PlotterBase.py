@@ -97,6 +97,7 @@ class PlotterBase(Plottable):
         self._source : Optional[str] = None
         self._destination : Optional[str] = None
         self._node : Optional[str] = None
+        self._edge : Optional[str] = None
         self._edge_title : Optional[str] = None
         self._edge_label : Optional[str] = None
         self._edge_color : Optional[str] = None
@@ -750,7 +751,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def bind(self, source=None, destination=None, node=None,
+    def bind(self, source=None, destination=None, node=None, edge=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
              edge_source_color=None, edge_destination_color=None,
              point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
@@ -768,6 +769,9 @@ class PlotterBase(Plottable):
 
         :param node: Attribute containing a node's ID
         :type node: str
+
+        :param edge: Attribute containing an edge's ID
+        :type edge: str
 
         :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
         :type edge_title: str
@@ -855,6 +859,7 @@ class PlotterBase(Plottable):
         res._source = source or self._source
         res._destination = destination or self._destination
         res._node = node or self._node
+        res._edge = edge or self._edge
 
         res._edge_title = edge_title or self._edge_title
         res._edge_label = edge_label or self._edge_label
@@ -967,7 +972,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def edges(self, edges: Union[Callable, Any], source=None, destination=None, *args, **kwargs) -> Plottable:
+    def edges(self, edges: Union[Callable, Any], source=None, destination=None, edge=None, *args, **kwargs) -> Plottable:
         """Specify edge list data and associated edge attribute values.
         If a callable, will be called with current Plotter and whatever positional+named arguments
 
@@ -991,9 +996,28 @@ class PlotterBase(Plottable):
             ::
 
                 import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0], 'id': [0, 1, 2]})
+                graphistry
+                    .bind(source='src', destination='dst', edge='id')
+                    .edges(df)
+                    .plot()
+
+        **Example**
+            ::
+
+                import graphistry
                 df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 graphistry
                     .edges(df, 'src', 'dst')
+                    .plot()
+
+        **Example**
+            ::
+
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0], 'id': [0, 1, 2]})
+                graphistry
+                    .edges(df, 'src', 'dst', 'id')
                     .plot()
 
         **Example**
@@ -1019,6 +1043,8 @@ class PlotterBase(Plottable):
             base = base.bind(source=source)
         if not (destination is None):
             base = base.bind(destination=destination)
+        if edge is not None:
+            base = base.bind(edge=edge)
 
         if callable(edges):
             edges2 = edges(base, *args, **kwargs)
