@@ -13,6 +13,7 @@ class Plottable(object):
     _source : Optional[str]
     _destination : Optional[str]
     _node : Optional[str]
+    _edge : Optional[str]
     _edge_title : Optional[str]
     _edge_label : Optional[str]
     _edge_color : Optional[str]
@@ -83,7 +84,7 @@ class Plottable(object):
         return self
 
     def edges(
-        self, edges: Union[Callable, Any], source: Optional[str] = None, destination: Optional[str] = None,
+        self, edges: Union[Callable, Any], source: Optional[str] = None, destination: Optional[str] = None, edge: Optional[str] = None,
         *args, **kwargs
     ) -> 'Plottable':
         if 1 + 1:
@@ -95,7 +96,7 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
-    def bind(self, source=None, destination=None, node=None,
+    def bind(self, source=None, destination=None, node=None, edge=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
              edge_source_color=None, edge_destination_color=None,
              point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
@@ -130,4 +131,33 @@ class Plottable(object):
     ) -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
+        return self
+
+    def hop(self,
+        nodes: Optional[pd.DataFrame],
+        hops: Optional[int] = 1,
+        to_fixed_point: bool = False,
+        direction: str = 'forward',
+        edge_match: Optional[dict] = None,
+        source_node_match: Optional[dict] = None,
+        destination_node_match: Optional[dict] = None,
+        return_as_wave_front: bool = False
+    ) -> 'Plottable':
+        raise RuntimeError('should not happen')
+        return self
+
+    def filter_nodes_by_dict(self, filter_dict: Optional[dict] = None) -> 'Plottable':
+        raise RuntimeError('should not happen')
+        return self
+
+    def filter_edges_by_dict(self, filter_dict: Optional[dict] = None) -> 'Plottable':
+        raise RuntimeError('should not happen')
+        return self
+
+    # FIXME python recursive typing issues
+    def chain(self, ops: List[Any]) -> 'Plottable':
+        """
+        ops is List[ASTObject]
+        """
+        raise RuntimeError('should not happen')
         return self

@@ -14,7 +14,7 @@ stubs = [
 ]
 
 dev_extras = {
-    'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1'],
+    'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1', 'Jinja2<3.1'],
     'test': ['flake8', 'mock', 'mypy', 'pytest'] + stubs,
     'build': ['build']
 }
@@ -48,7 +48,7 @@ setup(
     name='graphistry',
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
-    packages = ['graphistry'],
+    packages = find_packages(),
     platforms='any',
     description = 'A visual graph analytics library for extracting, transforming, displaying, and sharing big graphs with end-to-end GPU acceleration',
     long_description=open("./README.md").read(),

@@ -3,11 +3,11 @@ from typing import Iterable
 import os, numpy as np, pandas as pd, pyarrow as pa, pytest, queue
 from common import NoAuthTestCase
 from concurrent.futures import Future
+from functools import lru_cache
 from mock import patch
 
 from graphistry.plotter import PlotterBase
 from graphistry.compute import ComputeMixin
-
 
 class CG(ComputeMixin):
     def __init__(self, *args, **kwargs):
@@ -21,6 +21,51 @@ class CGFull(ComputeMixin, PlotterBase, object):
         super(CGFull, self).__init__(*args, **kwargs)
         PlotterBase.__init__(self, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
+
+
+@lru_cache(maxsize=1)
+def hops_graph():
+    nodes_df = pd.DataFrame([
+        {'node': 'a'},
+        {'node': 'b'},
+        {'node': 'c'},
+        {'node': 'd'},
+        {'node': 'e'},
+        {'node': 'f'},
+        {'node': 'g'},
+        {'node': 'h'},
+        {'node': 'i'},
+        {'node': 'j'},
+        {'node': 'k'},
+        {'node': 'l'},
+        {'node': 'm'},
+        {'node': 'n'},
+        {'node': 'o'},
+        {'node': 'p'}
+    ]).assign(type='n')
+
+    edges_df = pd.DataFrame([
+        {'s': 'e', 'd': 'l'},
+        {'s': 'l', 'd': 'b'},
+        {'s': 'k', 'd': 'a'},
+        {'s': 'e', 'd': 'g'},
+        {'s': 'g', 'd': 'a'},
+        {'s': 'd', 'd': 'f'},
+        {'s': 'd', 'd': 'c'},
+        {'s': 'd', 'd': 'j'},
+        {'s': 'd', 'd': 'i'},
+        {'s': 'd', 'd': 'h'},
+        {'s': 'j', 'd': 'p'},
+        {'s': 'i', 'd': 'n'},
+        {'s': 'h', 'd': 'm'},
+        {'s': 'j', 'd': 'o'},
+        {'s': 'o', 'd': 'b'},
+        {'s': 'm', 'd': 'a'},
+        {'s': 'n', 'd': 'a'},
+        {'s': 'p', 'd': 'b'},
+    ]).assign(type='e')
+
+    return CGFull().nodes(nodes_df, 'node').edges(edges_df, 's', 'd')
 
 
 class TestComputeMixin(NoAuthTestCase):
