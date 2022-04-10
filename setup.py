@@ -7,7 +7,14 @@ import versioneer
 def unique_flatten_dict(d):
   return list(set(sum( d.values(), [] )))
 
-core_requires = ['numpy', 'pandas >= 0.17.0', 'pyarrow >= 0.15.0', 'requests', 'protobuf >= 2.6.0']
+core_requires = [
+  'numpy',
+  'pandas >= 0.17.0',
+  'protobuf >= 2.6.0',
+  'pyarrow >= 0.15.0',
+  'requests',
+  'typing-extensions'
+]
 
 stubs = [
   'pandas-stubs', 'types-requests'
