@@ -759,7 +759,7 @@ def process_edge_dataframes(
     """
 
     if feature_engine == "none":
-        edf2 = edf.select_dtypes(include=np.number)
+        edf2 = edf.select_dtypes(include=[np.number])
         return edf2, y, [None, None], None, None, None
 
     t = time()

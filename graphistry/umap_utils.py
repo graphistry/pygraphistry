@@ -25,9 +25,11 @@ else:
 
 import_exn = None
 try:
-    import umap
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore",category=ImportWarning)
+        import umap
     has_dependancy = True
-    
 except ModuleNotFoundError as e:
     import_exn = e
     has_dependancy = False
@@ -159,7 +161,7 @@ class UMAPMixin(MIXIN_BASE):
         return self
 
     # FIXME rename to umap_fit_transform
-    def fit_transform(self, X: np.ndarray, y: Union[np.ndarray, None] = None):
+    def fit_transform(self, X: Any, y: Union[Any, None] = None):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         self.fit(X, y)
