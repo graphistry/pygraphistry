@@ -101,7 +101,7 @@ class TestUMAPMethods(unittest.TestCase):
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         for use_col in use_cols:
             for target in targets:
-                for featurize in [True, False]:
+                for featurize in ["none", "auto", "pandas"]:
                     logger.debug("*" * 90)
                     value = [target, use_col]
                     logger.debug(f"{kind} -- {name}")

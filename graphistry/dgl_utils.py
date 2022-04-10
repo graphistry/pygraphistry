@@ -11,7 +11,7 @@ except:
     has_dependancy = False
 
 from . import constants as config
-from .feature_utils import FeatureMixin
+from .feature_utils import FeatureEngine, FeatureMixin, resolve_feature_engine
 from .util import setup_logger
 
 logger = setup_logger(__name__, verbose=False)
@@ -317,13 +317,14 @@ class DGLGraphMixin(MIXIN_BASE):
         y: np.ndarray,
         use_columns: Optional[List],
         use_scaler: str = None,
+        feature_engine: FeatureEngine = "auto"
         #refeaturize: bool = False,
     ):
         logger.info("Running Edge Featurization for DGL Graph")
 
         # res = _featurize_nodes(
         X_enc, y_enc, _ = self._featurize_or_get_edges_dataframe_if_X_is_None(
-            X=X, y=y, use_columns=use_columns, use_scaler=use_scaler, refeaturize=False
+            X=X, y=y, use_columns=use_columns, use_scaler=use_scaler, feature_engine=resolve_feature_engine(feature_engine)
         )
         
         edata = convert_to_torch(X_enc, y_enc)

@@ -1,10 +1,15 @@
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
-from graphistry.Plottable import Plottable
 import numpy as np, pandas as pd
 from time import time
 from . import constants as config
 from .ai_utils import setup_logger
-from .feature_utils import prune_weighted_edges_df_and_relabel_nodes, FeatureMixin
+from .feature_utils import (
+    FeatureEngine,
+    FeatureMixin,
+    prune_weighted_edges_df_and_relabel_nodes,
+    resolve_feature_engine,
+    YSymbolic
+)
 
 logger = setup_logger(name=__name__, verbose=True)
 
@@ -164,12 +169,12 @@ class UMAPMixin(MIXIN_BASE):
         self,
         kind: str = "nodes",
         use_columns: Optional[List] = None,
-        featurize: bool = False,
+        feature_engine: FeatureEngine = "auto",
         encode_position: bool = True,
         encode_weight: bool = True,
         inplace: bool = False,
         X: np.ndarray = None,
-        y: Optional[Union[np.ndarray, List]] = None,
+        y: YSymbolic = None,
         scale: float = 0.1,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
@@ -191,7 +196,7 @@ class UMAPMixin(MIXIN_BASE):
                 associate them to nodes or edges. If X, y (optional) is given, with kind = [nodes, edges],
                 it will associate new matrices to nodes or edges attributes.
         :param use_columns: List of columns to use for featurization if featurization hasn't been applied.
-        :param featurize: Whether to re-featurize, or use previous features, and just slice into appropriate columns
+        :param feature_engine: How to encode data ("none", "auto", "pandas", "dirty_cat", "torch")
         :param encode_weight: if True, will set new edges_df from implicit UMAP, default True.
         :param encode_position: whether to set default plotting bindings -- positions x,y from umap for .plot()
         :param X: ndarray of features
@@ -234,6 +239,8 @@ class UMAPMixin(MIXIN_BASE):
 
         res._umap = umap.UMAP(**umap_kwargs)
 
+        resolved_feature_engine = resolve_feature_engine(feature_engine)
+
         if kind == "nodes":
 
             # FIXME not sure if this is preserving the intent
@@ -250,7 +257,7 @@ class UMAPMixin(MIXIN_BASE):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
             X, y, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(
-                X, y, use_columns, refeaturize=featurize
+                X, y, use_columns, feature_engine=resolved_feature_engine
             )
             xy = scale_xy * res.fit_transform(X, y)
             res._weighted_adjacency_nodes = res._weighted_adjacency
@@ -266,7 +273,7 @@ class UMAPMixin(MIXIN_BASE):
             )
         elif kind == "edges":
             X, y, res = res._featurize_or_get_edges_dataframe_if_X_is_None(
-                X, y, use_columns, refeaturize=featurize
+                X, y, use_columns, feature_engine=resolved_feature_engine
             )
             xy = scale_xy * res.fit_transform(X, y)
             res._weighted_adjacency_edges = res._weighted_adjacency
