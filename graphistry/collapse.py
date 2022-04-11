@@ -22,7 +22,7 @@ return g2      """
 COLLAPSE_NODE = "collapse_nodes"
 COLLAPSE_SRC_EDGE = "collapse_src"
 COLLAPSE_DST_EDGE = "collapse_dst"
-VERBOSE = FALSE
+VERBOSE = False
 
 
 def unpack(g):
@@ -151,7 +151,7 @@ def get_new_node_name(ndf, parent, child) -> str:
     ckey = in_cluster_store_keys(ndf, child)
     pkey = in_cluster_store_keys(ndf, parent)
 
-    if ckey and pkey:
+    if ckey and pkey: # pkey should be here
         new_parent_name = melt(ndf, child)
     else:  # if not, then append child to parent as the start of a new cluster group
         # might have to escape parent and child if node names are dumb eg, 'this value key'
