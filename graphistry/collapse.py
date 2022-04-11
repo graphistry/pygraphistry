@@ -22,6 +22,7 @@ return g2      """
 COLLAPSE_NODE = "collapse_nodes"
 COLLAPSE_SRC_EDGE = "collapse_src"
 COLLAPSE_DST_EDGE = "collapse_dst"
+VERBOSE = FALSE
 
 
 def unpack(g):
@@ -92,15 +93,16 @@ def get_edges_in_out_cluster(
         outcluster = set(e.values).difference(set(tdf.node.values))
         # get edges that are internal to attribute, we will use these later to collapse those edges to supernode
         incluster = set(tdf.node.values).intersection(set(e.values))
-        if len(outcluster):
-            print(
-                f"{outcluster} are edges *not* in {attribute_col}:{attribute} for node {node_id}"
-            )
-            # get directionality
-        if len(incluster):
-            print(
-                f"{incluster} are edges in {attribute_col}:{attribute} for node {node_id}"
-            )
+        if VERBOSE:
+            if len(outcluster):
+                print(
+                    f"{outcluster} are edges *not* in {attribute_col}:{attribute} for node {node_id}"
+                )
+                # get directionality
+            if len(incluster):
+                print(
+                    f"{incluster} are edges in {attribute_col}:{attribute} for node {node_id}"
+                )
         return outcluster, incluster, tdf
 
     # else: # if tdf is empty, we are at a parent node without the collapsable property
@@ -138,27 +140,31 @@ def melt(df, node):
             # add the keys to cluster
             topkey += f" {key}"  # keep whitespace
     topkey = reduce_key(topkey)
-    print(f"Collapse Final Key: {topkey}")
+    if VERBOSE:
+        print(f"start of collapse: {node}")
+        print(f"Collapse Final Key: {topkey}")
     return topkey
 
 
 def get_new_node_name(ndf, parent, child) -> str:
     # if child in cluster group, we melt it
     ckey = in_cluster_store_keys(ndf, child)
+    pkey = in_cluster_store_keys(ndf, parent)
 
-    if ckey:
+    if ckey and pkey:
         new_parent_name = melt(ndf, child)
     else:  # if not, then append child to parent as the start of a new cluster group
         # might have to escape parent and child if node names are dumb eg, 'this value key'
         new_parent_name = f"{parent} {child}"
-
+    if VERBOSE:
+        print(f"Renaming parent {parent} with child {child} as {new_parent_name}")
     return new_parent_name
 
 
-def rename_collapse_nodes(ndf, old, new):
-    rename = {old: new}
-    print(f"RENAME {rename}")
-    ndf[COLLAPSE_NODE] = ndf[node].apply(lambda x: rename[x] if x in rename else x)
+# def rename_collapse_nodes(ndf, old, new):
+#     rename = {old: new}
+#     print(f"RENAME {rename}")
+#     ndf[COLLAPSE_NODE] = ndf[node].apply(lambda x: rename[x] if x in rename else x)
 
 
 def collapse_nodes(g, parent, child):
@@ -176,7 +182,7 @@ def collapse_nodes(g, parent, child):
 
     # rename_collapse_nodes(ndf, )
     # rename = {parent: new_parent_name}
-    print(ndf)
+    # print(ndf)
     g._nodes = ndf
     return g, new_parent_name
 
@@ -236,35 +242,40 @@ def collapse(
     if has_property(g, parent, attribute, column):  # if (T, *)
         # add start node to super node index
         # g, rename = collapse_nodes(g, parent, start_node)
+        # g = collapse_edges_and_nodes(g, parent, attribute, column)
         if has_property(g, start_node, attribute, column):  # if (T, T)
-            print(f"parent: {parent}, child: {start_node} both have property")
+            if VERBOSE:
+                print("-" * 80)
+                print(f" ** parent: {parent}, child: {start_node} both have property")
+            g, new_parent_name = collapse_nodes(g, parent, start_node)
             g = collapse_edges_and_nodes(g, parent, attribute, column)
-            # collapse_edges(g, child, start_node, attribute, column)
-        else:  # if (T, F)
-            #   # recurse over children of start_node
-
             for e in get_edges_of_node(
-                g, start_node, directed=True
+                g, parent, directed=True
             ).values:  # False just includes the src node
+                # for e2 in get_edges_of_node(g, e, directed=True).values:
+                # print(f'inner {e}:{e2}')
                 collapse(
                     g, e, attribute, column, start_node
                 )  # now start_node is the parent, and the edges are the start node
     # else do nothing collapsy
     else:  # if (F, *)
         #     # do nothing to start_node, parent is start_node, and start_node is edge and recurse
-        # #
-        #     g2 = get_children(g, start_node, hops=1)
         for e in get_edges_of_node(g, start_node, directed=True).values:
-            print(
-                f"Parent {parent} does not have property, looking at node {e} from {start_node}"
-            )
-            collapse(g, e, attribute, column, start_node)
+            if VERBOSE:
+                print(
+                    f"Parent {parent} does not have property, looking at node {e} from {start_node}"
+                )
+            collapse(
+                g, e, attribute, column, start_node
+            )  # now start_node is the parent, and the edges are the start node
+            # collapse(g, e, attribute, column, start_node)
     return g
 
 
 def normalize_graph(g):
     # at the end of collapse, move anything untouched to new graph
     ndf, edf, src, dst, node = unpack(g)
+
     # move the new node names fromo COLLAPSE COL to the node column
     ndf.loc[ndf[COLLAPSE_NODE] != "None", node] = ndf.loc[
         ndf[COLLAPSE_NODE] != "None", COLLAPSE_NODE
@@ -285,6 +296,11 @@ def normalize_graph(g):
     g._nodes = ndf
     g._edges = edf
     return g
+
+
+def collapse_by(g, start_node, attribute, column, parent):
+    g = collapse(g, start_node, attribute, column, parent)
+    return normalize_graph(g)
 
 
 # def filterby(df, attribute, column, negative=False):
