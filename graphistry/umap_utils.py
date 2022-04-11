@@ -364,6 +364,9 @@ class UMAPMixin(MIXIN_BASE):
         index_to_nodes_dict: Optional[Dict] = None,
         inplace: bool = False,
     ):
+        """
+        Filter edges based on _weighted_edges_df (ex: from .umap())
+        """
         if inplace:
             res = self
         else:
@@ -378,7 +381,7 @@ class UMAPMixin(MIXIN_BASE):
                 )
             )
         else:
-            logger.error("UMAP has not been run, run g.featurize(...).umap(...) first")
+            raise RuntimeError("UMAP has not been run, run g.umap(...) first")
 
         # write new res._edges df
         res = self._bind_xy_from_umap(
