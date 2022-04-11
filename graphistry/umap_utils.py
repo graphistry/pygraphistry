@@ -358,7 +358,7 @@ class UMAPMixin(MIXIN_BASE):
         return res
 
 
-    def filter_edges(
+    def filter_weighted_edges(
         self,
         scale: float = 0.1,
         index_to_nodes_dict: Optional[Dict] = None,
