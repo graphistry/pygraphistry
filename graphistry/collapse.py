@@ -24,8 +24,8 @@ COLLAPSE_SRC_EDGE = "collapse_src"
 COLLAPSE_DST_EDGE = "collapse_dst"
 
 
-def _unpack(g):
-    #  ndf, edf, src, dst, node = _unpack(g)
+def unpack(g):
+    #  ndf, edf, src, dst, node = unpack(g)
     ndf = g._nodes
     edf = g._edges
     src = g._source
@@ -40,7 +40,7 @@ def get_children(g, node_id, hops=1):
 
 
 def has_edge(g, n1, n2, directed=True):
-    ndf, edf, src, dst, node = _unpack(g)
+    ndf, edf, src, dst, node = unpack(g)
     if directed:
         if n2 in edf[edf[src] == n1][dst].values:
             return True
@@ -53,7 +53,7 @@ def has_edge(g, n1, n2, directed=True):
 
 
 def get_edges_of_node(g, node_id, directed=True):
-    _, _, src, dst, _ = _unpack(g)
+    _, _, src, dst, _ = unpack(g)
     g2 = get_children(g, node_id, hops=1)
     if directed:
         edges = g2._edges[dst]
@@ -73,19 +73,19 @@ def is_outgoing(e, edf, src, dst):
 
 def remove_edges(g, edgelist):
     # src_edges, dst_edges = np.array(edgelist).T
-    ndf, edf, src, dst, node = _unpack(g)
+    ndf, edf, src, dst, node = unpack(g)
     tedf = edf[~edf[src].isin(edgelist) & ~edf[dst].isin(edgelist)]
     return tedf
 
 
 def get_edges_in_out_cluster(
-    g, node_id, attribute_col="level", attribute=1, directed=False
+    g, node_id, attribute=1, attribute_col="level", directed=False
 ):
     g2 = get_children(g, node_id, hops=1)
     e = get_edges_of_node(
         g, node_id, directed=directed
     )  # False just includes the src node
-    ndf, edf, src, dst, node = _unpack(g2)
+    ndf, edf, src, dst, node = unpack(g2)
     tdf = ndf[ndf[attribute_col] == attribute]
     if not tdf.empty:
         # Get edges that are not in attribute (outside edges)
@@ -114,7 +114,7 @@ def in_cluster_store(df, node):
 
 def get_cluster_store_keys(df, node):
     # checks if node is a segment in any collapse_node
-    return df[COLLAPSE_NODE].str.contains(node)
+    return df[COLLAPSE_NODE].astype(str).str.contains(str(node))
 
 
 def in_cluster_store_keys(df, node):
@@ -131,15 +131,18 @@ def melt(df, node):
     """MAIN AWESOME"""
     # suppose node = "4" will take any sequence from get_cluster_store_keys, "1 2 3", "4 3" and returns "1 2 3 4"
     rdf = df[get_cluster_store_keys(df, node)]
-    topkey = node
+    topkey = str(node)
     if not rdf.empty:
         for key in rdf[COLLAPSE_NODE].values:
+            # print(f'collapse key iter: {key}')
             # add the keys to cluster
             topkey += f" {key}"  # keep whitespace
-    return reduce_key(topkey)
+    topkey = reduce_key(topkey)
+    print(f"Collapse Final Key: {topkey}")
+    return topkey
 
 
-def get_new_node_name(ndf, parent, child):
+def get_new_node_name(ndf, parent, child) -> str:
     # if child in cluster group, we melt it
     ckey = in_cluster_store_keys(ndf, child)
 
@@ -148,7 +151,14 @@ def get_new_node_name(ndf, parent, child):
     else:  # if not, then append child to parent as the start of a new cluster group
         # might have to escape parent and child if node names are dumb eg, 'this value key'
         new_parent_name = f"{parent} {child}"
+
     return new_parent_name
+
+
+def rename_collapse_nodes(ndf, old, new):
+    rename = {old: new}
+    print(f"RENAME {rename}")
+    ndf[COLLAPSE_NODE] = ndf[node].apply(lambda x: rename[x] if x in rename else x)
 
 
 def collapse_nodes(g, parent, child):
@@ -157,16 +167,18 @@ def collapse_nodes(g, parent, child):
     # we only call this when we
     # the parent is guaranteed to be there
     # pkey = in_cluster_store_keys(ndf, parent)
-    ndf, edf, src, dst, node = _unpack(g)
+    ndf, edf, src, dst, node = unpack(g)
 
     new_parent_name = get_new_node_name(ndf, parent, child)
 
-    rename = {parent: new_parent_name}
-    ndf[COLLAPSE_NODE] = ndf[COLLAPSE_NODE].apply(
-        lambda x: rename[x] if x in rename else x
-    )
+    ndf.loc[ndf[node] == parent, COLLAPSE_NODE] = new_parent_name
+    ndf.loc[ndf[node] == child, COLLAPSE_NODE] = new_parent_name
+
+    # rename_collapse_nodes(ndf, )
+    # rename = {parent: new_parent_name}
+    print(ndf)
     g._nodes = ndf
-    return g, rename
+    return g, new_parent_name
 
 
 def collapse_edges_and_nodes(g, parent, attribute, column):
@@ -175,25 +187,37 @@ def collapse_edges_and_nodes(g, parent, attribute, column):
     outcluster, incluster, tdf = get_edges_in_out_cluster(g, parent, attribute, column)
     # keep out cluster nodes and assign them to
     # this takes care of outgoing edges
-    ndf, edf, src, dst, node = _unpack(g)
+    ndf, edf, src, dst, node = unpack(g)
 
     # new_edf2 = remove_edges(g, incluster)
     for node in incluster:
-        g, rename = collapse_nodes(g, parent, node)
+        g, new_parent_name = collapse_nodes(g, parent, node)
         # so we don't corrupt the OG src dst table
-        edf[COLLAPSE_SRC_EDGE] = edf[COLLAPSE_SRC_EDGE].apply(
-            lambda x: rename[x] if x in rename else x
-        )
-        edf[COLLAPSE_DST_EDGE] = edf[COLLAPSE_DST_EDGE].apply(
-            lambda x: rename[x] if x in rename else x
-        )
+        edf.loc[edf[src] == parent, COLLAPSE_SRC_EDGE] = new_parent_name
+        edf.loc[edf[dst] == parent, COLLAPSE_DST_EDGE] = new_parent_name
+
+        edf.loc[edf[dst] == node, COLLAPSE_DST_EDGE] = new_parent_name
+        edf.loc[edf[src] == node, COLLAPSE_SRC_EDGE] = new_parent_name
+
     g._edges = edf
     return g
 
 
 def has_property(g, ref_node, attribute, column):
-    ndf, edf, src, dst, node = _unpack(g)
+    ndf, edf, src, dst, node = unpack(g)
     return ref_node in ndf[ndf[column] == attribute][node].values
+
+
+def check_default_columns_present(g):
+    ndf, edf, src, dst, node = unpack(g)
+    if COLLAPSE_NODE not in ndf.columns:
+        ndf[COLLAPSE_NODE] = "None"
+        g._nodes = ndf
+    if COLLAPSE_SRC_EDGE not in edf.columns:
+        edf[COLLAPSE_SRC_EDGE] = "None"
+        edf[COLLAPSE_DST_EDGE] = "None"
+        g._edges = edf
+    return g
 
 
 def collapse(
@@ -207,37 +231,73 @@ def collapse(
     # if (F, T) start k-new super nodes, with k the number of children of start_node. Start node keeps k outgoing edges.
     # if (T, F) is the end of the cluster, and should keep new node as is
     # if (F, F) keep going
+    g = check_default_columns_present(g)
+
     if has_property(g, parent, attribute, column):  # if (T, *)
         # add start node to super node index
         # g, rename = collapse_nodes(g, parent, start_node)
         if has_property(g, start_node, attribute, column):  # if (T, T)
+            print(f"parent: {parent}, child: {start_node} both have property")
             g = collapse_edges_and_nodes(g, parent, attribute, column)
             # collapse_edges(g, child, start_node, attribute, column)
-        # else: # if (T, F)
-        #     # recurse over children
-        #     for e in get_edges_of_node(g, start_node, directed=True): # False just includes the src node
-        #         collapse(g, e, attribute, column, start_node) # now start_node is the parent, and the edges are the start node
+        else:  # if (T, F)
+            #   # recurse over children of start_node
+
+            for e in get_edges_of_node(
+                g, start_node, directed=True
+            ).values:  # False just includes the src node
+                collapse(
+                    g, e, attribute, column, start_node
+                )  # now start_node is the parent, and the edges are the start node
     # else do nothing collapsy
     else:  # if (F, *)
-        #     # do nothing to start_node, and recurse
+        #     # do nothing to start_node, parent is start_node, and start_node is edge and recurse
         # #
         #     g2 = get_children(g, start_node, hops=1)
-        for e in get_edges_of_node(g, start_node, directed=True):
+        for e in get_edges_of_node(g, start_node, directed=True).values:
+            print(
+                f"Parent {parent} does not have property, looking at node {e} from {start_node}"
+            )
             collapse(g, e, attribute, column, start_node)
     return g
 
 
-def filterby(df, attribute, column, negative=False):
-    if negative:
-        tdf = df[df[column] != attribute]
-    else:
-        tdf = df[df[column] == attribute]
-    return tdf
+def normalize_graph(g):
+    # at the end of collapse, move anything untouched to new graph
+    ndf, edf, src, dst, node = unpack(g)
+    # move the new node names fromo COLLAPSE COL to the node column
+    ndf.loc[ndf[COLLAPSE_NODE] != "None", node] = ndf.loc[
+        ndf[COLLAPSE_NODE] != "None", COLLAPSE_NODE
+    ]
+
+    edf.loc[edf[COLLAPSE_SRC_EDGE] != "None", src] = edf.loc[
+        edf[COLLAPSE_SRC_EDGE] != "None", COLLAPSE_SRC_EDGE
+    ]
+    edf.loc[edf[COLLAPSE_DST_EDGE] != "None", dst] = edf.loc[
+        edf[COLLAPSE_DST_EDGE] != "None", COLLAPSE_DST_EDGE
+    ]
+
+    ## convert to str
+    ndf[node] = ndf[node].astype(str)
+    edf[src] = edf[src].astype(str)
+    edf[dst] = edf[dst].astype(str)
+
+    g._nodes = ndf
+    g._edges = edf
+    return g
 
 
-def splitby(df, attribute, column):
-    pos, neg = filterby(df, attribute, column, negative=False), filterby(
-        df, attribute, column, negative=True
-    )
-    return pos, neg
-
+# def filterby(df, attribute, column, negative=False):
+#     if negative:
+#         tdf = df[df[column] != attribute]
+#     else:
+#         tdf = df[df[column] == attribute]
+#     return tdf
+#
+#
+# def splitby(df, attribute, column):
+#     pos, neg = filterby(df, attribute, column, negative=False), filterby(
+#         df, attribute, column, negative=True
+#     )
+#     return pos, neg
+#
