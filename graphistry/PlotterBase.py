@@ -18,12 +18,16 @@ from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 
+logger = logging.getLogger(__name__)
+
 maybe_cudf = None
 try:
     import cudf
     maybe_cudf = cudf
 except ImportError:
     1
+except RuntimeError:
+    logger.warning('Runtime error import cudf: Available but failed to initialize', exc_info=True)
 
 maybe_dask_dataframe = None
 try:
@@ -38,6 +42,8 @@ try:
     maybe_dask_cudf = dask_cudf
 except ImportError:
     1
+except RuntimeError:
+    logger.warning('Runtime error import dask_cudf: Available but failed to initialize', exc_info=True)
 
 maybe_spark = None
 try:
@@ -45,8 +51,6 @@ try:
     maybe_spark = pyspark
 except ImportError:
     1
-
-logger = logging.getLogger('Plotter')
 
 CACHE_COERCION_SIZE = 100
 
