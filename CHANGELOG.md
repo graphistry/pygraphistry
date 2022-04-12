@@ -14,6 +14,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
 
+## [0.23.2 - 2022-04-11]
+
+### Fixed
+
+* Avoid runtime import exn when on GPU-less systems with cudf/dask_cudf installed
+
 ## [0.23.1 - 2022-04-08]
 
 ### Added
