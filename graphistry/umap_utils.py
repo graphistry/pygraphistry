@@ -6,6 +6,7 @@ from .ai_utils import setup_logger
 from .feature_utils import (
     FeatureEngine,
     FeatureMixin,
+    XSymbolic,
     prune_weighted_edges_df_and_relabel_nodes,
     resolve_feature_engine,
     YSymbolic
@@ -170,12 +171,11 @@ class UMAPMixin(MIXIN_BASE):
     def umap(
         self,
         kind: str = "nodes",
-        use_columns: Optional[List] = None,
         feature_engine: FeatureEngine = "auto",
         encode_position: bool = True,
         encode_weight: bool = True,
         inplace: bool = False,
-        X: np.ndarray = None,
+        X: XSymbolic = None,
         y: YSymbolic = None,
         scale: float = 0.1,
         n_neighbors: int = 12,
@@ -197,7 +197,6 @@ class UMAPMixin(MIXIN_BASE):
         :param kind: `nodes` or `edges` or None. If None, expects explicit X, y (optional) matrices, and will Not
                 associate them to nodes or edges. If X, y (optional) is given, with kind = [nodes, edges],
                 it will associate new matrices to nodes or edges attributes.
-        :param use_columns: List of columns to use for featurization if featurization hasn't been applied.
         :param feature_engine: How to encode data ("none", "auto", "pandas", "dirty_cat", "torch")
         :param encode_weight: if True, will set new edges_df from implicit UMAP, default True.
         :param encode_position: whether to set default plotting bindings -- positions x,y from umap for .plot()
@@ -258,10 +257,16 @@ class UMAPMixin(MIXIN_BASE):
                 nodes = res._nodes[res._node].values
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
-            X, y, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(
-                X, y, use_columns, feature_engine=resolved_feature_engine
+            (
+                X_resolved,
+                y,
+                res
+            ) = res._featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
+                X,
+                y,
+                feature_engine=resolved_feature_engine
             )
-            xy = scale_xy * res.fit_transform(X, y)
+            xy = scale_xy * res.fit_transform(X_resolved, y)
             res._weighted_adjacency_nodes = res._weighted_adjacency
             res._node_embedding = xy
             # TODO add edge filter so graph doesn't have double edges
@@ -274,10 +279,16 @@ class UMAPMixin(MIXIN_BASE):
                 )
             )
         elif kind == "edges":
-            X, y, res = res._featurize_or_get_edges_dataframe_if_X_is_None(
-                X, y, use_columns, feature_engine=resolved_feature_engine
+            (
+                X_resolved,
+                y,
+                res
+            ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
+                X,
+                y,
+                feature_engine=resolved_feature_engine
             )
-            xy = scale_xy * res.fit_transform(X, y)
+            xy = scale_xy * res.fit_transform(X_resolved, y)
             res._weighted_adjacency_edges = res._weighted_adjacency
             res._edge_embedding = xy
             res._weighted_edges_df_from_edges = (

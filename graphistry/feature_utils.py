@@ -1,6 +1,6 @@
 from collections import namedtuple
 from time import time
-from typing import List, Union, Dict, Any, Optional, Tuple, TYPE_CHECKING
+from typing import cast, List, Union, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from typing_extensions import Literal  # Literal native to py3.8+
 
 import numpy as np
@@ -63,6 +63,24 @@ def assert_imported():
         raise import_min_exn
 
 
+# #################################################################################
+#
+#     Rough calltree
+#
+# #################################################################################
+
+# umap
+#     _featurize_or_get_nodes_dataframe_if_X_is_None
+#         _featurize_nodes
+#             _node_featurizer
+#                 process_textual_or_other_dataframes
+#                     encode_textual
+#                     process_dirty_dataframes
+#                     impute_and_scale_matrix
+#
+#    _featurize_or_get_edges_dataframe_if_X_is_None
+#      _featurize_edges
+#      _featurize_or_get_edges_dataframe_if_X_is_None
 FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
@@ -108,6 +126,24 @@ def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
     else:
         raise ValueError(f'Unexpected type for y: {type(y)}')
 
+
+XSymbolic = Optional[Union[ List[str], str, pd.DataFrame ]]
+def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic):
+
+    if isinstance(X, pd.DataFrame):
+        return X
+
+    if df is None:
+        raise ValueError("Missing data for featurization")
+
+    if X is None:
+        return df
+    elif isinstance(X, str):
+        return df[[X]]
+    elif isinstance(X, list):
+        return df[X]
+    else:
+        raise ValueError(f'Unexpected type for X: {type(X)}')
 
 # #################################################################################
 #
@@ -386,7 +422,7 @@ def get_textual_columns(
 
 
 def impute_and_scale_matrix(
-    X: np.ndarray,
+    X: pd.DataFrame,
     use_scaler: str = "minmax",
     impute: bool = True,
     n_quantiles: int = 10,
@@ -396,7 +432,7 @@ def impute_and_scale_matrix(
     encode: str = "ordinal",
     strategy: str = "uniform",
     keep_n_decimals: int = 5,
-):
+) -> np.ndarray:
     """
         Helper function for imputing and scaling np.ndarray data using different scaling transformers.
     :param X: np.ndarray
@@ -454,7 +490,7 @@ def impute_and_scale_matrix(
 
 
 def impute_and_scale_df(
-    df,
+    df: pd.DataFrame,
     use_scaler: str = "minmax",
     impute: bool = True,
     n_quantiles: int = 10,
@@ -464,7 +500,7 @@ def impute_and_scale_df(
     encode: str = "ordinal",
     strategy: str = "uniform",
     keep_n_decimals: int = 5,
-):
+) -> Tuple[pd.DataFrame, Any, Any]:
     columns = df.columns
     index = df.index
 
@@ -472,11 +508,10 @@ def impute_and_scale_df(
         logger.warn(
             "Impute and Scaling can only happen on a Numeric DataFrame.\n -- Try featurizing the DataFrame first using graphistry.featurize(..)"
         )
-        return df
+        return df, None, None
 
-    X = df.values
     res, imputer, scaler = impute_and_scale_matrix(
-        X,
+        df,
         impute=impute,
         use_scaler=use_scaler,
         n_quantiles=n_quantiles,
@@ -496,7 +531,7 @@ def encode_textual(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-):
+) -> np.ndarray:
     t = time()
     model = SentenceTransformer(model_name)
 
@@ -626,7 +661,7 @@ def make_dense(X):
 
 def process_dirty_dataframes(
     ndf: pd.DataFrame,
-    y: pd.DataFrame,
+    y: Optional[pd.DataFrame],
     cardinality_threshold: int = 40,
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
@@ -634,7 +669,7 @@ def process_dirty_dataframes(
     feature_engine: FeatureEngineConcrete = "pandas"
 ) -> Tuple[
     pd.DataFrame,
-    Any,
+    Optional[pd.DataFrame],
     SuperVectorizer,
     SuperVectorizer,
     Any,
@@ -653,6 +688,17 @@ def process_dirty_dataframes(
     :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
     :return: Encoded data matrix and target (if not None), the data encoder, and the label encoder.
     """
+
+    if feature_engine == "none" or feature_engine == "pandas":
+        return (
+            ndf.select_dtypes(include=[np.number]),
+            y.select_dtypes(include=[np.number]) if y is not None else None,
+            None,
+            None,
+            None,
+            None
+        )
+
     t = time()
     data_encoder = SuperVectorizer(
         auto_cast=True,
@@ -914,7 +960,6 @@ class FeatureMixin(MIXIN_BASE):
             "parameters",
             [
                 "kind",
-                "use_columns",
                 "use_scaler",
                 "cardinality_threshold",
                 "cardinality_threshold_target",
@@ -933,8 +978,8 @@ class FeatureMixin(MIXIN_BASE):
 
     def _featurize_nodes(
         self,
+        X: XSymbolic = None,
         y: YSymbolic = "pandas",
-        use_columns: Optional[List] = None,
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 120,
@@ -952,19 +997,19 @@ class FeatureMixin(MIXIN_BASE):
                 "Expected nodes; try running nodes.materialize_nodes() first if you only have edges"
             )
 
-        y_normalized = resolve_y(res._nodes, y)
+        X_resolved = resolve_X(res._nodes, X) 
+        y_resolved = resolve_y(res._nodes, y)
 
-        ndf = res._nodes
+        ndf = X_resolved
         if remove_node_column:
             ndf = remove_node_column_from_ndf_and_return_ndf(res)
         # TODO move the columns select after the featurizer?
-        ndf = ndf[use_columns] if use_columns is not None else ndf
         ndf = features_without_target(ndf, y)
         ndf = remove_internal_namespace_if_present(ndf)
 
         if feature_engine == "none":
             X_enc = ndf.select_dtypes(include=np.number)
-            y_enc = y_normalized
+            y_enc = y_resolved
             data_vec = None
             label_vec = None
             imputer = None
@@ -975,7 +1020,7 @@ class FeatureMixin(MIXIN_BASE):
             # now vectorize it all
             X_enc, y_enc, data_vec, label_vec, imputer, scaler = self._node_featurizer(
                 ndf,
-                y=y_normalized,
+                y=y_resolved,
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
@@ -995,7 +1040,6 @@ class FeatureMixin(MIXIN_BASE):
 
         res.params["nodes"] = self._params(
             "nodes",
-            use_columns,
             use_scaler,
             cardinality_threshold,
             cardinality_threshold_target,
@@ -1011,8 +1055,8 @@ class FeatureMixin(MIXIN_BASE):
 
     def _featurize_edges(
         self,
+        X: XSymbolic = None,
         y: YSymbolic = None,
-        use_columns: Optional[List] = None,
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 20,
@@ -1023,19 +1067,14 @@ class FeatureMixin(MIXIN_BASE):
         feature_engine: FeatureEngineConcrete = "pandas",
     ):
         # TODO move the columns select after the featurizer
-        if use_columns is not None:
-            use_columns = list(
-                set(use_columns + list([self._source, self._destination]))
-            )
+        X_resolved = resolve_X(self._edges, X)
+        y_resolved = resolve_y(self._edges, y)
 
-        y_normalized = resolve_y(self._edges, y)
-
-        edf = self._edges[use_columns] if use_columns is not None else self._edges
-        edf = features_without_target(edf, y)
+        edf = features_without_target(X_resolved, y)
 
         if feature_engine == "none":
             X_enc = edf.select_dtypes(include=np.number)
-            y_enc = y_normalized
+            y_enc = y_resolved
             data_vec = None
             label_vec = None
             imputer = None
@@ -1062,7 +1101,7 @@ class FeatureMixin(MIXIN_BASE):
                 scaler,
             ) = process_edge_dataframes(
                 edf=edf,
-                y=y_normalized,
+                y=y_resolved,
                 src=self._source,
                 dst=self._destination,
                 use_scaler=use_scaler,
@@ -1084,7 +1123,6 @@ class FeatureMixin(MIXIN_BASE):
 
         res.params["edges"] = self._params(
             "edges",
-            use_columns,
             use_scaler,
             cardinality_threshold,
             cardinality_threshold_target,
@@ -1102,7 +1140,6 @@ class FeatureMixin(MIXIN_BASE):
         self,
         kind: str = "nodes",
         y: YSymbolic = None,
-        use_columns: Optional[List] = None,
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
@@ -1119,7 +1156,6 @@ class FeatureMixin(MIXIN_BASE):
 
         :param kind: specify whether to featurize `nodes` or `edges`
         :param y: Optional Target, default None. If .featurize came with a target, it will use that target.
-        :param use_columns: Specify which DataFrame columns to use for featurization, if any.
         :param remove_node_column:
         :param use_scaler:
         :param inplace: whether to not return new graphistry instance or not, default False
@@ -1136,8 +1172,8 @@ class FeatureMixin(MIXIN_BASE):
 
         if kind == "nodes":
             res = res._featurize_nodes(
+                X=None,
                 y=resolve_y(self._nodes, y),
-                use_columns=use_columns,
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
@@ -1150,8 +1186,8 @@ class FeatureMixin(MIXIN_BASE):
             )
         elif kind == "edges":
             res = res._featurize_edges(
+                X=None,
                 y=resolve_y(self._edges, y),
-                use_columns=use_columns,
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
@@ -1169,9 +1205,8 @@ class FeatureMixin(MIXIN_BASE):
 
     def _featurize_or_get_nodes_dataframe_if_X_is_None(
         self,
-        X: np.ndarray = None,
+        X: XSymbolic = None,
         y: YSymbolic = None,
-        use_columns: Optional[List] = None,
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
@@ -1181,66 +1216,52 @@ class FeatureMixin(MIXIN_BASE):
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
         feature_engine: FeatureEngineConcrete = "pandas",
-    ):
+        reuse_if_existing = False
+    ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
         """
             helper method gets node feature and target matrix if X, y are not specified.
             if X, y are specified will set them as `_node_target` and `_node_target` attributes
         ---------------------------------------------------------------------------------------
         """
 
-        if feature_engine != "none":
-            # remove node_features, forces re-featurization
-            if self._node_features is not None:
-                logger.info(
-                    "Found Node features in `self` but removing it to force re-featurization"
-                )
-                self._node_features = None
-
         res = self.bind()
 
-        if X is None:
-            if self._node_features is not None:
-                X = self._node_features
-                logger.info("Found Node features in `res`")
-            else:
-                logger.warning(
-                    "Calling `featurize` to create data matrix `X` over nodes DataFrame"
-                )
-                # this sets .node_* on res, but it is no longer passed through...
-                res = self._featurize_nodes(
-                    y=y,
-                    use_columns=use_columns,
-                    use_scaler=use_scaler,
-                    cardinality_threshold=cardinality_threshold,
-                    cardinality_threshold_target=cardinality_threshold_target,
-                    n_topics=n_topics,
-                    confidence=confidence,
-                    min_words=min_words,
-                    model_name=model_name,
-                    remove_node_column=remove_node_column,
-                    feature_engine=feature_engine,
-                )
-                return res._featurize_or_get_nodes_dataframe_if_X_is_None(
-                    res._node_features,
-                    res._node_target,
-                    use_columns,
-                    use_scaler,
-                    feature_engine=feature_engine,
-                )  # now we are guaranteed to have node feature and target matrices.
-        if y is None:
-            if self._node_target is not None:
-                y = self._node_target
-                logger.info(
-                    f"Fetching `_node_target` in `res`. Target is type {type(y)}"
-                )
-        # now on the return the X, y will be set
-        return X, y, res
+        if not reuse_if_existing:
+            res._node_features = None
+            res._node_target = None
+
+        if reuse_if_existing and res._node_features is not None:
+            return res._node_features, res._node_target, res
+
+        res = self._featurize_nodes(
+            X,
+            y=y,
+            use_scaler=use_scaler,
+            cardinality_threshold=cardinality_threshold,
+            cardinality_threshold_target=cardinality_threshold_target,
+            n_topics=n_topics,
+            confidence=confidence,
+            min_words=min_words,
+            model_name=model_name,
+            remove_node_column=remove_node_column,
+            feature_engine=feature_engine,
+        )
+
+        assert res._node_features is not None  # ensure no infinite loop
+
+        return res._featurize_or_get_nodes_dataframe_if_X_is_None(
+            res._node_features,
+            res._node_target,
+            use_scaler,
+            feature_engine=feature_engine,
+            reuse_if_existing = True
+        )  # now we are guaranteed to have node feature and target matrices.
+
 
     def _featurize_or_get_edges_dataframe_if_X_is_None(
         self,
-        X: np.ndarray = None,
+        X: XSymbolic = None,
         y: YSymbolic = None,
-        use_columns: Optional[List] = None,
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 20,
@@ -1248,47 +1269,42 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        feature_engine: FeatureEngineConcrete = "pandas"
-    ):
+        feature_engine: FeatureEngineConcrete = "pandas",
+        reuse_if_existing = False
+    ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
         """
             helper method gets edge feature and target matrix if X, y are not specified
         --------------------------------------------------------------------------------
         :param X: ndArray Data Matrix
         :param y: target, default None
-        :param use_columns: which columns to featurize if X is None
         :return: data `X` and `y`
         """
 
-        if feature_engine != "none":
-            # forces re-featurization
-            if self._edge_features is not None:
-                self._edge_features = None
-
         res = self.bind()
 
-        if X is None:
-            if self._edge_features is not None:
-                X = self._edge_features
-            else:
-                logger.info(
-                    "Calling `featurize` to create data matrix `X` over edges DataFrame"
-                )
-                res = self._featurize_edges(
-                    y=y,
-                    use_columns=use_columns,
-                    use_scaler=use_scaler,
-                    cardinality_threshold=cardinality_threshold,
-                    cardinality_threshold_target=cardinality_threshold_target,
-                    n_topics=n_topics,
-                    confidence=confidence,
-                    min_words=min_words,
-                    model_name=model_name,
-                    feature_engine=feature_engine
-                )
-                return res._featurize_or_get_edges_dataframe_if_X_is_None(
-                    res._edge_features, res._edge_target, use_columns, use_scaler
-                )
-        return X, y, res
+        if not reuse_if_existing:
+            res._edge_features = None
+            res._edge_target = None
+
+        res = self._featurize_edges(
+            X=X,
+            y=y,
+            use_scaler=use_scaler,
+            cardinality_threshold=cardinality_threshold,
+            cardinality_threshold_target=cardinality_threshold_target,
+            n_topics=n_topics,
+            confidence=confidence,
+            min_words=min_words,
+            model_name=model_name,
+            feature_engine=feature_engine
+        )
+
+        assert res._edge_features is not None  # ensure no infinite loop
+
+        return res._featurize_or_get_edges_dataframe_if_X_is_None(
+            res._edge_features, res._edge_target, use_scaler,
+            reuse_if_existing = True
+        )
 
 
 __notes__ = """

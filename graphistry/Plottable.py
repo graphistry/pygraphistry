@@ -44,18 +44,18 @@ class Plottable(object):
 
     _node_embedding : Optional[Any]
     _node_encoder : Optional[Any]
-    _node_features : Optional[Any]
+    _node_features : Optional[pd.DataFrame]
     _node_imputer : Optional[Any]
     _node_scaler : Optional[Any]
-    _node_target : Optional[Any]
+    _node_target : Optional[pd.DataFrame]
     _node_target_encoder : Optional[Any]
 
     _edge_embedding : Optional[Any]
     _edge_encoders : Optional[Any]
-    _edge_features : Optional[Any]
+    _edge_features : Optional[pd.DataFrame]
     _edge_imputer : Optional[Any]
     _edge_scaler : Optional[Any]
-    _edge_target : Optional[Any]
+    _edge_target : Optional[pd.DataFrame]
     _edge_target_encoder : Optional[Any]
 
     _weighted_adjacency_nodes : Optional[Any]
