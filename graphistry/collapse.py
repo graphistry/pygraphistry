@@ -20,8 +20,10 @@ return g2      """
 
 
 COLLAPSE_NODE = "collapse_node"
-COLLAPSE_SRC_EDGE = "collapse_src"
-COLLAPSE_DST_EDGE = "collapse_dst"
+COLLAPSE_SRC = "collapse_src"
+COLLAPSE_DST = "collapse_dst"
+WRAP = '~'
+
 VERBOSE = True
 
 
@@ -53,9 +55,9 @@ def has_edge(g, n1, n2, directed=True):
     return False
 
 
-def get_edges_of_node(g, node_id, directed=True):
+def get_edges_of_node(g, node_id, directed=True, hops=1):
     _, _, src, dst, _ = unpack(g)
-    g2 = get_children(g, node_id, hops=1)
+    g2 = get_children(g, node_id, hops=hops)
     if directed:
         edges = g2._edges[dst]
     else:
@@ -116,7 +118,9 @@ def in_cluster_store(df, node):
 
 def get_cluster_store_keys(df, node):
     # checks if node is a segment in any collapse_node
-    return df[COLLAPSE_NODE].astype(str).str.contains(str(node))
+    # this is where you wrap the keys
+    node = wrap_key(node)
+    return df[COLLAPSE_NODE].astype(str).str.contains(node, na=False)
 
 
 def in_cluster_store_keys(df, node):
@@ -129,16 +133,25 @@ def reduce_key(key):
     return uniques
 
 
+def unwrap_key(name):
+    return name.replace(WRAP, '')
+
+def wrap_key(name):
+    name = str(name)
+    if WRAP in name:
+        return name
+    return f'{WRAP}{name}{WRAP}'
+
 def melt(df, node):
     """MAIN AWESOME"""
     # suppose node = "4" will take any sequence from get_cluster_store_keys, "1 2 3", "4 3" and returns "1 2 3 4"
     rdf = df[get_cluster_store_keys(df, node)]
-    topkey = str(node)
+    topkey = wrap_key(node)
     if not rdf.empty:
-        for key in rdf[COLLAPSE_NODE].values:
+        for key in rdf[COLLAPSE_NODE].values: # all these are already wrapped
             # print(f'collapse key iter: {key}')
             # add the keys to cluster
-            topkey += f" {key}"  # keep whitespace
+            topkey += f" {key}" # keep whitespace
     topkey = reduce_key(topkey)
     if VERBOSE:
         print(f"start of collapse: {node}")
@@ -147,42 +160,31 @@ def melt(df, node):
 
 
 def get_new_node_name(ndf, parent, child) -> str:
+    # THIS IS IMPORTANT FUNCTION -- it is where we wrap the parent child in WRAP
     # if child in cluster group, we melt it
     ckey = in_cluster_store_keys(ndf, child)
-    # pkey = in_cluster_store_keys(ndf, parent)
 
     if ckey:  # and pkey: # pkey should be redundant if recursion has done its job
         new_parent_name = melt(ndf, child)
     else:  # if not, then append child to parent as the start of a new cluster group
         # might have to escape parent and child if node names are dumb eg, 'this value key'
-        new_parent_name = f"{parent} {child}"
+        new_parent_name = f"{wrap_key(parent)} {wrap_key(child)}"
     if VERBOSE:
         print(f"Renaming parent {parent} with child {child} as {new_parent_name}")
     return reduce_key(new_parent_name)
 
 
-# def rename_collapse_nodes(ndf, old, new):
-#     rename = {old: new}
-#     print(f"RENAME {rename}")
-#     ndf[COLLAPSE_NODE] = ndf[node].apply(lambda x: rename[x] if x in rename else x)
-
-
 def collapse_nodes(g, parent, child):
     # this asserts that we SHOULD merge parent and child as super node
     # outside logic controls when that is the case
-    # we only call this when we
-    # the parent is guaranteed to be there
-    # pkey = in_cluster_store_keys(ndf, parent)
+ 
     ndf, edf, src, dst, node = unpack(g)
 
     new_parent_name = get_new_node_name(ndf, parent, child)
-
+    
     ndf.loc[ndf[node] == parent, COLLAPSE_NODE] = new_parent_name
     ndf.loc[ndf[node] == child, COLLAPSE_NODE] = new_parent_name
 
-    # rename_collapse_nodes(ndf, )
-    # rename = {parent: new_parent_name}
-    # print(ndf)
     g._nodes = ndf
     return g, new_parent_name
 
@@ -196,11 +198,11 @@ def collapse_edges_and_nodes(g, parent, attribute, column, new_parent_name):
 
     for node in incluster:
         # so we don't corrupt the OG src dst table
-        edf.loc[edf[src] == parent, COLLAPSE_SRC_EDGE] = new_parent_name
-        edf.loc[edf[dst] == parent, COLLAPSE_DST_EDGE] = new_parent_name
+        edf.loc[edf[src] == parent, COLLAPSE_SRC] = new_parent_name
+        edf.loc[edf[dst] == parent, COLLAPSE_DST] = new_parent_name
 
-        edf.loc[edf[dst] == node, COLLAPSE_DST_EDGE] = new_parent_name
-        edf.loc[edf[src] == node, COLLAPSE_SRC_EDGE] = new_parent_name
+        edf.loc[edf[dst] == node, COLLAPSE_DST] = new_parent_name
+        edf.loc[edf[src] == node, COLLAPSE_SRC] = new_parent_name
 
     g._edges = edf
     return g
@@ -208,6 +210,7 @@ def collapse_edges_and_nodes(g, parent, attribute, column, new_parent_name):
 
 def has_property(g, ref_node, attribute, column):
     ndf, edf, src, dst, node = unpack(g)
+    ref_node = unwrap_key(ref_node)
     return ref_node in ndf[ndf[column] == attribute][node].values
 
 
@@ -216,47 +219,60 @@ def check_default_columns_present(g):
     if COLLAPSE_NODE not in ndf.columns:
         ndf[COLLAPSE_NODE] = "None"
         g._nodes = ndf
-    if COLLAPSE_SRC_EDGE not in edf.columns:
-        edf[COLLAPSE_SRC_EDGE] = "None"
-        edf[COLLAPSE_DST_EDGE] = "None"
+    if COLLAPSE_SRC not in edf.columns:
+        edf[COLLAPSE_SRC] = "None"
+        edf[COLLAPSE_DST] = "None"
         g._edges = edf
     return g
 
 
-def collapse(
-    g, start_node, attribute, column, parent, seen
-):  # Basically candy crush over graph properties
-    # at ingress use collapse(g, node, attribute, column, node)
-    # see if start_node has desired property (start node can be a new node without attribute, a node with attribute, and a new collapsed node with attribute)
-    # we will need to check if (start_node: has_attribute , children nodes: has_attribute) by case (T, T) and (F, T), (T, F) and (F, F) and split them,
-    #  so we start recursive the collapse (or not) on the children, reassigning nodes and edges.
-    # if (T, T), append children nodes to start_node, re-assign the name of the node, and update the edge table with new name,
-    # if (F, T) start k-new super nodes, with k the number of children of start_node. Start node keeps k outgoing edges.
-    # if (T, F) is the end of the cluster, and should keep new node as is
-    # if (F, F) keep going
+def collapse(g, child, parent, attribute, column, seen):
+    """
+    Basically candy crush over graph properties in a topology aware situation
+    
+    basic ingress, use
+    
+    >>> seen={}
+    >>> collapse(g, parent, parent, attribute, column, seen=seen)
+    
+    where parent and child are same node.
+    
+    see if child node has desired property (can be a new node without attribute, a node with attribute, and a new collapsed node with attribute)
+    we will need to check if (start_node: has_attribute , children nodes: has_attribute) by case (T, T) and (F, T), (T, F) and (F, F) and split them,
+     so we start recursive the collapse (or not) on the children, reassigning nodes and edges.
+    if (T, T), append children nodes to start_node, re-assign the name of the node, and update the edge table with new name,
+    if (F, T) start k-new super nodes, with k the number of children of start_node. Start node keeps k outgoing edges.
+    if (T, F) is the end of the cluster, and should keep new node as is
+    if (F, F) keep going
+    """
     g = check_default_columns_present(g)
+    
+    # parent = wrap_key(parent)
+    # child = wrap_key(child)
+    
+    compute_key = f"{parent} {child}"
 
-    compute_key = f"{parent} {start_node}"
-
-    if compute_key in seen:
+    if compute_key in seen:  # it has already traversed this path, skip
         return g
     else:
         if has_property(g, parent, attribute, column):  # if (T, *)
             # add start node to super node index
             # g, rename = collapse_nodes(g, parent, start_node)
             # g = collapse_edges_and_nodes(g, parent, attribute, column)
-            if parent not in compute_key:
-                g, new_parent_name = collapse_nodes(g, parent, parent)  # its love!
-            if has_property(g, start_node, attribute, column):  # if (T, T)
+            tkey = f"{parent} {parent}"
+            if tkey not in compute_key:  # its love!
+                seen[tkey] = 1
+                g, new_parent_name = collapse_nodes(g, parent, parent) # will make a new parent key'd off of parent name
+            if has_property(g, child, attribute, column):# and has_edge(g, parent, child):  # if (T, T)
                 # now add to seen
                 seen[compute_key] = 1
-                # seen[compute_key_T] = 1
                 if VERBOSE:
                     print("-" * 80)
                     print(
-                        f" ** [ parent: {parent}, child: {start_node} ] both have property"
+                        f" ** [ parent: {parent}, child: {child} ] both have property"
                     )
-                g, new_parent_name = collapse_nodes(g, parent, start_node)
+                g, new_parent_name = collapse_nodes(g, parent, child) # will make a new parent off of parent, child names
+                # like simplicial collapse
                 g = collapse_edges_and_nodes(
                     g, parent, attribute, column, new_parent_name
                 )
@@ -264,21 +280,20 @@ def collapse(
                     g, parent, directed=True
                 ).values:  # False just includes the src node
                     collapse(
-                        g, e, attribute, column, start_node, seen
+                        g, e, child, attribute, column, seen
                     )  # now start_node is the parent, and the edges are the start node
-        # else do nothing collapsy
+        # else do nothing collapse-y to parent, move on
         else:  # if (F, *)
-            #     # do nothing to start_node, parent is start_node, and start_node is edge and recurse
-            for e in get_edges_of_node(g, start_node, directed=True).values:
+            #  do nothing to start_node, parent is start_node, and start_node is edge and recurse
+            for e in get_edges_of_node(g, child, directed=True).values:
                 if VERBOSE:
                     print(
-                        f" -- Parent {parent} does not have property, looking at node <[ {e} from {start_node} ]>"
+                        f" -- Parent {parent} does not have property, looking at node <[ {e} from {child} ]>"
                     )
                 collapse(
-                    g, e, attribute, column, start_node, seen
+                    g, e, child, attribute, column, seen
                 )  # now start_node is the parent, and the edges are the start node
-                # collapse(g, e, attribute, column, start_node)
-    return g, seen
+    return g
 
 
 def normalize_graph(g, self_edges=False):
@@ -291,11 +306,11 @@ def normalize_graph(g, self_edges=False):
     ]
     ndf = ndf.drop_duplicates()
 
-    edf.loc[edf[COLLAPSE_SRC_EDGE] != "None", src] = edf.loc[
-        edf[COLLAPSE_SRC_EDGE] != "None", COLLAPSE_SRC_EDGE
+    edf.loc[edf[COLLAPSE_SRC] != "None", src] = edf.loc[
+        edf[COLLAPSE_SRC] != "None", COLLAPSE_SRC
     ]
-    edf.loc[edf[COLLAPSE_DST_EDGE] != "None", dst] = edf.loc[
-        edf[COLLAPSE_DST_EDGE] != "None", COLLAPSE_DST_EDGE
+    edf.loc[edf[COLLAPSE_DST] != "None", dst] = edf.loc[
+        edf[COLLAPSE_DST] != "None", COLLAPSE_DST
     ]
     if not self_edges:
         edf = edf.drop_duplicates()
@@ -310,9 +325,19 @@ def normalize_graph(g, self_edges=False):
     return g
 
 
-def collapse_by(g, start_node, attribute, column, parent):
-    g, seen = collapse(g, start_node, attribute, column, parent, seen={})
-    return normalize_graph(g), seen
+def collapse_by(g, parent, start_node, attribute, column, seen):
+    collapse(g, parent, start_node, attribute, column, seen)
+    return normalize_graph(g)
+
+
+def brute_collapse(g, start_node, attribute, column, hops=3):
+    # redundant?
+    seen = {}
+    collapse(g, start_node, start_node, attribute, column, seen)
+    for n in get_edges_of_node(g, start_node, hops=hops):
+        if f"{n} {n}" not in seen:
+            collapse(g, n, attribute, column, start_node, seen)
+    return normalize_graph(g)
 
 
 # def filterby(df, attribute, column, negative=False):
