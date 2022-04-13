@@ -304,3 +304,23 @@ class ComputeMixin(MIXIN_BASE):
             g_out = g_out.nodes(final_nodes)
 
         return g_out
+
+    def collapse(self, node, attribute, column):
+        """
+            Topology Aware collapse by given column attribute starting at `node`
+            
+            Traverses Directed Graph from start node `node` and collapses clusters of nodes that share the same property
+            
+        ----------------------------------------------------------------------------------------------------------------
+        
+        :param node: start `node` to begin traversal
+        :param attribute: the given `attribute` to collapse over within `column`
+        :param column: the `column` of nodes DataFrame that contains `attribute` to collapse over
+        :returns a new Graphistry instance with nodes and edges DataFrame containing collapsed
+                nodes and edges given by column attribute
+        """
+        from .collapse import collapse_by
+        self.collapse.__doc__ = collapse_by.__doc__
+        g = self.bind()
+        # TODO FIXME CHECK SELF LOOPS?
+        return collapse_by(g, start_node=node, parent=node, attribute=attribute, column=column, seen={})

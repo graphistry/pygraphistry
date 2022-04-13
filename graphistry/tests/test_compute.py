@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*- 
-from typing import Iterable
-import os, numpy as np, pandas as pd, pyarrow as pa, pytest, queue
-from common import NoAuthTestCase
-from concurrent.futures import Future
 from functools import lru_cache
-from mock import patch
 
-from graphistry.plotter import PlotterBase
+import pandas as pd
+import pytest
+from common import NoAuthTestCase
+
 from graphistry.compute import ComputeMixin
+from graphistry.plotter import PlotterBase
+
 
 class CG(ComputeMixin):
     def __init__(self, *args, **kwargs):
@@ -21,7 +21,56 @@ class CGFull(ComputeMixin, PlotterBase, object):
         PlotterBase.__init__(self, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
 
+def get_collapse_graph(as_string=False):
+    edges = pd.DataFrame({'src': [0, -1, 1, 1, 2, 3, 3, 4, 3, 0, 6, 2, 8, -1, 1, 6],
+                          'dst': [-1, 1, 2, 5, 3, 4, 7, 5, 5, 6, 5, 8, 3, 9, 9, 10]})
+    nodes = pd.DataFrame(
+        {'node': [0, 1, 2, 3, 4, 5, 6, 7, -1, 8, 9, 10], 'level': [0, 1, 1, 1, 2, 2, 1, 1, 0, 1, 2, 1]})
+    if as_string:
+        g = CGFull().edges(edges.astype(str), 'src', 'dst').nodes(nodes.astype(str), 'node')
+    else:
+        g = CGFull().edges(edges, 'src', 'dst').nodes(nodes, 'node')
+    return g
 
+collapse_result_nodes = {'node': {0: '0',
+  1: '1 2 3 7 8',
+  4: '4',
+  5: '5',
+  6: '10 6',
+  7: '2 3 7 8',
+  8: '-1',
+  10: '9'},
+ 'level': {0: '0', 1: '1', 4: '2', 5: '2', 6: '1', 7: '1', 8: '0', 10: '2'}}
+
+collapse_result_edges = {'src': {0: '0',
+                                 1: '-1',
+                                 2: '1 2',
+                                 3: '1 2',
+                                 4: '1 2 3 7 8',
+                                 5: '1 2 3 7 8',
+                                 6: '1 2 3 7 8',
+                                 7: '4',
+                                 8: '1 2 3 7 8',
+                                 9: '0',
+                                 10: '10 6',
+                                 13: '-1',
+                                 14: '1 2',
+                                 15: '10 6'},
+ 'dst': {0: '-1',
+  1: '1 2',
+  2: '1 2 3 7 8',
+  3: '5',
+  4: '1 2 3 7 8',
+  5: '4',
+  6: '3 8',
+  7: '5',
+  8: '5',
+  9: '10 6',
+  10: '5',
+  13: '9',
+  14: '9',
+  15: '10 6'}}
+    
 @lru_cache(maxsize=1)
 def hops_graph():
     nodes_df = pd.DataFrame([
@@ -223,3 +272,23 @@ class TestComputeMixin(NoAuthTestCase):
         g2 = g.hop(pd.DataFrame({g._node: ['b']}), direction='reverse', to_fixed_point=True)
         assert g2._nodes.shape == (7, 2)
         assert g2._edges.shape == (7, 3)
+
+    def test_collapse_over_string_values(self):
+        node, attribute, column = '0', '1', 'level'
+        g = get_collapse_graph(as_string=True)
+        g2 = g.collapse(node, attribute, column)
+        assert len(g._nodes) > len(g2._edges)
+        assert len(g._edges) > len(g2._edges)
+        assert g2._edges == collapse_result_edges
+        assert g2._nodes == collapse_result_nodes
+        
+    def test_collapse_over_int_values(self):
+        node, attribute, column = 0, 1, 'level'
+        g = get_collapse_graph(as_string=False)
+        g2 = g.collapse(node, attribute, column)
+        assert len(g._nodes) > len(g2._edges)
+        assert len(g._edges) > len(g2._edges)
+        assert g2._edges == collapse_result_edges
+        assert g2._nodes == collapse_result_nodes
+
+        

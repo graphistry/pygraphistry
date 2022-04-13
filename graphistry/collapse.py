@@ -190,7 +190,7 @@ def unwrap_key(name) -> str:
     :param name: node to unwrap
     :returns unwrapped node name
     """
-    return name.replace(WRAP, "")
+    return str(name).replace(WRAP, "")
 
 
 def wrap_key(name) -> str:
@@ -334,9 +334,9 @@ def has_property(g, ref_node, attribute, column: str) -> bool:
     return ref_node in ndf[ndf[column] == attribute][node].values
 
 
-def check_default_columns_present(g):
+def check_default_columns_present_and_coerce_to_string(g):
     """
-        Helper to set COLLAPSE columns to nodes and edges dataframe
+        Helper to set COLLAPSE columns to nodes and edges dataframe, while converting src, dst, node to dtype(str)
 
     -------------------------------------------------------------------------
 
@@ -346,10 +346,15 @@ def check_default_columns_present(g):
     ndf, edf, src, dst, node = unpack(g)
     if COLLAPSE_NODE not in ndf.columns:
         ndf[COLLAPSE_NODE] = DEFAULT_VAL
+        ndf[node] = ndf[node].astype(str)
+        print(f'Converted ndf to type({type(ndf[node].values[0])})')
         g._nodes = ndf
     if COLLAPSE_SRC not in edf.columns:
         edf[COLLAPSE_SRC] = DEFAULT_VAL
         edf[COLLAPSE_DST] = DEFAULT_VAL
+        edf[src] = edf[src].astype(str)
+        edf[dst] = edf[dst].astype(str)
+        print(f'Converted edf to type({type(edf[src].values[0])})')
         g._edges = edf
     return g
 
@@ -382,9 +387,12 @@ def collapse(g, child, parent, attribute, column: str, seen: dict):
     :returns graphistry instance with collapsed nodes.
 
     """
-    g = check_default_columns_present(g)
+    g = check_default_columns_present_and_coerce_to_string(g)
 
     compute_key = f"{parent} {child}"
+    
+    parent = str(parent)
+    child = str(child)
 
     if compute_key in seen:  # it has already traversed this path, skip
         return g
@@ -414,7 +422,7 @@ def collapse(g, child, parent, attribute, column: str, seen: dict):
                     collapse(
                         g, e, child, attribute, column, seen
                     )  # now child is the parent, and the edges are the start node
-        # else do nothing collapse-y to parent, move on
+        # else do nothing collapse-y to parent, move on to child
         else:  # if (F, *)
             #  do nothing to child, parent is child, and child is edge and recurse
             for e in get_edges_of_node(g, child, directed=True).values:
@@ -492,6 +500,9 @@ def collapse_by(g, parent, start_node, attribute, column, seen):
     from time import time
 
     __doc__ = collapse.__doc__
+    
+    
+    
     n_edges = len(g._edges)
     complexity_min = int(2 * n_edges * np.log(n_edges))
     complexity_max = int(2 * n_edges ** (3 / 2))
@@ -501,7 +512,7 @@ def collapse_by(g, parent, start_node, attribute, column, seen):
             f"This Algorithm runs approximately between 2*n_edges*log(n_edges) and 2*n_edges**(3/2) in un-normalized units"
         )
         print(
-            f"Hence, in this case, between ({complexity_min/n_edges})-({complexity_max/n_edges}) for "
+            f"Hence, in this case, between O({complexity_min/n_edges:.2f} - {complexity_max/n_edges:.2f}) for "
             f"this graph normalized by {n_edges} edges"
         )
         print(
