@@ -277,7 +277,7 @@ class TestComputeMixin(NoAuthTestCase):
         node, attribute, column = '0', '1', 'level'
         g = get_collapse_graph(as_string=True)
         g2 = g.collapse(node, attribute, column)
-        assert len(g._nodes) > len(g2._edges)
+        assert len(g._nodes) > len(g2._nodes)
         assert len(g._edges) > len(g2._edges)
         assert g2._edges == collapse_result_edges
         assert g2._nodes == collapse_result_nodes
@@ -286,7 +286,7 @@ class TestComputeMixin(NoAuthTestCase):
         node, attribute, column = 0, 1, 'level'
         g = get_collapse_graph(as_string=False)
         g2 = g.collapse(node, attribute, column)
-        assert len(g._nodes) > len(g2._edges)
+        assert len(g._nodes) > len(g2._nodes)
         assert len(g._edges) > len(g2._edges)
         assert g2._edges == collapse_result_edges
         assert g2._nodes == collapse_result_nodes
