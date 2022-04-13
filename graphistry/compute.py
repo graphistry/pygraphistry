@@ -320,7 +320,7 @@ class ComputeMixin(MIXIN_BASE):
                 nodes and edges given by column attribute
         """
         from .collapse import collapse_by
-        self.collapse.__doc__ = collapse_by.__doc__
+        #self.collapse.__doc__ = collapse_by.__doc__
         g = self.bind()
         # TODO FIXME CHECK SELF LOOPS?
         return collapse_by(g, start_node=node, parent=node, attribute=attribute, column=column, seen={})
