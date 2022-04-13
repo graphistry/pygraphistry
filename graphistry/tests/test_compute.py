@@ -288,7 +288,7 @@ class TestComputeMixin(NoAuthTestCase):
         g2 = g.collapse(node, attribute, column)
         assert len(g._nodes) > len(g2._nodes)
         assert len(g._edges) > len(g2._edges)
-        assert g2._edges.to_dict() == collapse_result_edges
-        assert g2._nodes.to_dict() == collapse_result_nodes
+        assert g2._edges.astype(str).to_dict() == collapse_result_edges
+        assert g2._nodes.astype(str).to_dict() == collapse_result_nodes
 
         
