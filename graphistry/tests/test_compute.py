@@ -33,43 +33,163 @@ def get_collapse_graph(as_string=False):
     return g
 
 collapse_result_nodes = {'node': {0: '0',
-  1: '1 2 3 7 8',
+  1: '1',
+  2: '2',
+  3: '3',
   4: '4',
   5: '5',
-  6: '10 6',
-  7: '2 3 7 8',
+  6: '6',
+  7: '7',
+  8: '-1',
+  9: '8',
+  10: '9',
+  11: '10'},
+ 'level': {0: '0',
+  1: '1',
+  2: '1',
+  3: '1',
+  4: '2',
+  5: '2',
+  6: '1',
+  7: '1',
+  8: '0',
+  9: '1',
+  10: '2',
+  11: '1'},
+ 'collapse_node': {0: 'None',
+  1: '~1~ ~2~ ~3~ ~7~ ~8~',
+  2: '~1~ ~2~ ~3~ ~7~ ~8~',
+  3: '~1~ ~2~ ~3~ ~7~ ~8~',
+  4: 'None',
+  5: 'None',
+  6: '~10~ ~6~',
+  7: '~1~ ~2~ ~3~ ~7~ ~8~',
+  8: 'None',
+  9: '~1~ ~2~ ~3~ ~7~ ~8~',
+  10: 'None',
+  11: '~10~ ~6~'}}
+
+collapse_result_nodes_overwrite = {'node': {0: '0',
+  1: '~1~ ~2~ ~3~ ~7~ ~8~',
+  4: '4',
+  5: '5',
+  6: '~10~ ~6~',
   8: '-1',
   10: '9'},
- 'level': {0: '0', 1: '1', 4: '2', 5: '2', 6: '1', 7: '1', 8: '0', 10: '2'}}
+ 'level': {0: '0', 1: '1', 4: '2', 5: '2', 6: '1', 8: '0', 10: '2'},
+ 'collapse_node': {0: 'None',
+  1: '~1~ ~2~ ~3~ ~7~ ~8~',
+  4: 'None',
+  5: 'None',
+  6: '~10~ ~6~',
+  8: 'None',
+  10: 'None'}}
 
 collapse_result_edges = {'src': {0: '0',
-                                 1: '-1',
-                                 2: '1 2',
-                                 3: '1 2',
-                                 4: '1 2 3 7 8',
-                                 5: '1 2 3 7 8',
-                                 6: '1 2 3 7 8',
-                                 7: '4',
-                                 8: '1 2 3 7 8',
-                                 9: '0',
-                                 10: '10 6',
-                                 13: '-1',
-                                 14: '1 2',
-                                 15: '10 6'},
+  1: '-1',
+  2: '1',
+  3: '2',
+  4: '3',
+  5: '3',
+  6: '4',
+  7: '3',
+  8: '0',
+  9: '6',
+  10: '2',
+  11: '8',
+  12: '-1',
+  13: '1',
+  14: '6'},
  'dst': {0: '-1',
-  1: '1 2',
-  2: '1 2 3 7 8',
-  3: '5',
-  4: '1 2 3 7 8',
-  5: '4',
-  6: '3 8',
+  1: '1',
+  2: '2',
+  3: '3',
+  4: '4',
+  5: '7',
+  6: '5',
   7: '5',
-  8: '5',
-  9: '10 6',
-  10: '5',
+  8: '6',
+  9: '5',
+  10: '8',
+  11: '3',
+  12: '9',
   13: '9',
-  14: '9',
-  15: '10 6'}}
+  14: '10'},
+ 'collapse_src': {0: 'None',
+  1: 'None',
+  2: '~1~ ~2~ ~3~ ~7~ ~8~',
+  3: '~1~ ~2~ ~3~ ~7~ ~8~',
+  4: '~1~ ~2~ ~3~ ~7~ ~8~',
+  5: '~1~ ~2~ ~3~ ~7~ ~8~',
+  6: 'None',
+  7: '~1~ ~2~ ~3~ ~7~ ~8~',
+  8: 'None',
+  9: '~10~ ~6~',
+  10: '~1~ ~2~ ~3~ ~7~ ~8~',
+  11: '~1~ ~2~ ~3~ ~7~ ~8~',
+  12: 'None',
+  13: '~1~ ~2~ ~3~ ~7~ ~8~',
+  14: '~10~ ~6~'},
+ 'collapse_dst': {0: 'None',
+  1: '~1~ ~2~ ~3~ ~7~ ~8~',
+  2: '~1~ ~2~ ~3~ ~7~ ~8~',
+  3: '~1~ ~2~ ~3~ ~7~ ~8~',
+  4: 'None',
+  5: '~1~ ~2~ ~3~ ~7~ ~8~',
+  6: 'None',
+  7: 'None',
+  8: '~10~ ~6~',
+  9: 'None',
+  10: '~1~ ~2~ ~3~ ~7~ ~8~',
+  11: '~1~ ~2~ ~3~ ~7~ ~8~',
+  12: 'None',
+  13: 'None',
+  14: '~10~ ~6~'}}
+
+collapse_result_edges_overwrite = {'src': {0: '0',
+  1: '-1',
+  2: '~1~ ~2~ ~3~ ~7~ ~8~',
+  4: '~1~ ~2~ ~3~ ~7~ ~8~',
+  6: '4',
+  7: '~1~ ~2~ ~3~ ~7~ ~8~',
+  8: '0',
+  9: '~10~ ~6~',
+  12: '-1',
+  13: '~1~ ~2~ ~3~ ~7~ ~8~',
+  14: '~10~ ~6~'},
+ 'dst': {0: '-1',
+  1: '~1~ ~2~ ~3~ ~7~ ~8~',
+  2: '~1~ ~2~ ~3~ ~7~ ~8~',
+  4: '4',
+  6: '5',
+  7: '5',
+  8: '~10~ ~6~',
+  9: '5',
+  12: '9',
+  13: '9',
+  14: '~10~ ~6~'},
+ 'collapse_src': {0: 'None',
+  1: 'None',
+  2: '~1~ ~2~ ~3~ ~7~ ~8~',
+  4: '~1~ ~2~ ~3~ ~7~ ~8~',
+  6: 'None',
+  7: '~1~ ~2~ ~3~ ~7~ ~8~',
+  8: 'None',
+  9: '~10~ ~6~',
+  12: 'None',
+  13: '~1~ ~2~ ~3~ ~7~ ~8~',
+  14: '~10~ ~6~'},
+ 'collapse_dst': {0: 'None',
+  1: '~1~ ~2~ ~3~ ~7~ ~8~',
+  2: '~1~ ~2~ ~3~ ~7~ ~8~',
+  4: 'None',
+  6: 'None',
+  7: 'None',
+  8: '~10~ ~6~',
+  9: 'None',
+  12: 'None',
+  13: 'None',
+  14: '~10~ ~6~'}}
     
 @lru_cache(maxsize=1)
 def hops_graph():
@@ -276,19 +396,25 @@ class TestComputeMixin(NoAuthTestCase):
     def test_collapse_over_string_values(self):
         node, attribute, column = '0', '1', 'level'
         g = get_collapse_graph(as_string=True)
-        g2 = g.collapse(node, attribute, column)
-        assert len(g._nodes) > len(g2._nodes)
-        assert len(g._edges) > len(g2._edges)
-        assert g2._edges.to_dict() == collapse_result_edges
-        assert g2._nodes.to_dict() == collapse_result_nodes
+        for i, opt in enumerate([False, True]):
+            g2 = g.collapse(node, attribute, column, unwrap=opt)
+            assert len(g._nodes) > len(g2._nodes)
+            assert len(g._edges) > len(g2._edges)
+            assert g2._edges.astype(str).to_dict() == [collapse_result_edges_overwrite, collapse_result_edges][i]
+            assert g2._nodes.astype(str).to_dict() == [collapse_result_nodes_overwrite, collapse_result_nodes][i]
         
     def test_collapse_over_int_values(self):
         node, attribute, column = 0, 1, 'level'
+        # tests if we can still run traversal using OG labels, in Int
         g = get_collapse_graph(as_string=False)
-        g2 = g.collapse(node, attribute, column)
-        assert len(g._nodes) > len(g2._nodes)
-        assert len(g._edges) > len(g2._edges)
-        assert g2._edges.astype(str).to_dict() == collapse_result_edges
-        assert g2._nodes.astype(str).to_dict() == collapse_result_nodes
+        # self_edges = False,
+        # unwrap = False,
+        # remove_collapse = False
+        for i, opt in enumerate([False, True]):
+            g2 = g.collapse(node, attribute, column, unwrap=opt)
+            assert len(g._nodes) > len(g2._nodes)
+            assert len(g._edges) > len(g2._edges)
+            assert g2._edges.astype(str).to_dict() == [collapse_result_edges_overwrite, collapse_result_edges][i]
+            assert g2._nodes.astype(str).to_dict() == [collapse_result_nodes_overwrite, collapse_result_nodes][i]
 
         
