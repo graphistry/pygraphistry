@@ -616,6 +616,7 @@ def process_textual_or_other_dataframes(
         cardinality_threshold_target=cardinality_threshold_target,
         n_topics=n_topics,
         use_scaler=None,  # set to None so that it happens later
+        feature_engine=feature_engine
     )
 
     # faux_columns = list(
@@ -807,7 +808,7 @@ def process_edge_dataframes(
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
 
-    if feature_engine == "none":
+    if feature_engine in ["none", "pandas"]:
         edf2 = edf.select_dtypes(include=[np.number])
         return edf2, y, [None, None], None, None, None
 
@@ -843,6 +844,7 @@ def process_edge_dataframes(
         confidence=confidence,
         min_words=min_words,
         model_name=model_name,
+        feature_engine=feature_engine
     )
 
     if data_encoder is not None:

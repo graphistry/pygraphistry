@@ -7,6 +7,7 @@ from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_textual_or_other_dataframes,
     remove_internal_namespace_if_present,
+    resolve_feature_engine,
     has_min_dependancy,
 )
 
@@ -170,6 +171,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 cardinality_threshold=40,
                 cardinality_threshold_target=40,
                 n_topics=20,
+                feature_engine=resolve_feature_engine('auto')
             )
             self.cases_tests(x, y, x_enc, y_enc, "scaler", scaler)
 
@@ -184,6 +186,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 cardinality_threshold=card,
                 cardinality_threshold_target=40,
                 n_topics=20,
+                feature_engine=resolve_feature_engine('auto')
             )
             self.cases_tests(x, y, x_enc, y_enc, "cardinality", card)
 
@@ -198,6 +201,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 cardinality_threshold=40,
                 cardinality_threshold_target=card,
                 n_topics=20,
+                feature_engine=resolve_feature_engine('auto')
             )
             self.cases_tests(x, y, x_enc, y_enc, "target cardinality", card)
 
@@ -215,6 +219,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 confidence=0.35,
                 min_words=1,
                 model_name=model_avg_name,
+                feature_engine=resolve_feature_engine('auto')
             )
         print("-" * 90)
         print(context.exception)
@@ -236,6 +241,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 confidence=0.35,
                 min_words=min_words,
                 model_name=model_avg_name,
+                feature_engine=resolve_feature_engine('auto')
             )
             self.cases_tests(x, y, x_enc, y_enc, "min_words", min_words)
 

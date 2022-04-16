@@ -99,7 +99,7 @@ class TestUMAPMethods(unittest.TestCase):
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         for use_col in use_cols:
             for target in targets:
-                for featurize in ["none", "auto", "pandas"]:
+                for feature_engine in ["none", "auto", "pandas"]:
                     logger.debug("*" * 90)
                     value = [target, use_col]
                     logger.debug(f"{kind} -- {name}")
@@ -108,8 +108,8 @@ class TestUMAPMethods(unittest.TestCase):
                     g2 = g.umap(
                         kind=kind,
                         y=target,
-                        use_columns=use_col,
-                        featurize=featurize,
+                        X=use_col,
+                        feature_engine=feature_engine,
                         n_neighbors=2,
                     )
 
@@ -146,7 +146,7 @@ class TestUMAPMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
-            g2 = g.umap(kind=kind, featurize=False)
+            g2 = g.umap(kind=kind, feature_engine="none")
             last_shape = 0
             for scale in np.linspace(0, 3, 8):  # six sigma in 8 steps
                 g3 = g2.filter_edges(scale=scale)
