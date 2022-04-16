@@ -11,7 +11,15 @@ except:
     has_dependancy = False
 
 from . import constants as config
-from .feature_utils import FeatureMixin
+from .feature_utils import (
+    FeatureEngine,
+    FeatureMixin,
+    resolve_feature_engine,
+    XSymbolic,
+    YSymbolic,
+    resolve_X,
+    resolve_y
+)
 from .util import setup_logger
 
 logger = setup_logger(__name__, verbose=False)
@@ -292,16 +300,15 @@ class DGLGraphMixin(MIXIN_BASE):
     def _featurize_nodes_to_dgl(
         self,
         res,
-        X: np.ndarray,
-        y: np.ndarray,
-        use_columns: Optional[List],
+        X: pd.DataFrame,
+        y: pd.DataFrame,
         use_scaler: str = None,
         #refeaturize: bool = False,
     ):
         logger.info("Running Node Featurization for DGL Graph")
 
         X_enc, y_enc, _ = res._featurize_or_get_nodes_dataframe_if_X_is_None(
-            X=X, y=y, use_columns=use_columns, use_scaler=use_scaler, refeaturize=False
+            X=X, y=y, use_scaler=use_scaler, refeaturize=False
         )
 
         ndata = convert_to_torch(X_enc, y_enc)
@@ -313,17 +320,17 @@ class DGLGraphMixin(MIXIN_BASE):
     def _featurize_edges_to_dgl(
         self,
         res,
-        X: np.ndarray,
-        y: np.ndarray,
-        use_columns: Optional[List],
+        X: pd.DataFrame,
+        y: pd.DataFrame,
         use_scaler: str = None,
+        feature_engine: FeatureEngine = "auto"
         #refeaturize: bool = False,
     ):
         logger.info("Running Edge Featurization for DGL Graph")
 
         # res = _featurize_nodes(
         X_enc, y_enc, _ = self._featurize_or_get_edges_dataframe_if_X_is_None(
-            X=X, y=y, use_columns=use_columns, use_scaler=use_scaler, refeaturize=False
+            X=X, y=y, use_scaler=use_scaler, feature_engine=resolve_feature_engine(feature_engine)
         )
         
         edata = convert_to_torch(X_enc, y_enc)
@@ -336,12 +343,10 @@ class DGLGraphMixin(MIXIN_BASE):
         self,
         node_column: str = None,
         weight_column: str = None,
-        X_nodes: np.ndarray = None,
-        X_edges: np.ndarray = None,
-        y_nodes: np.ndarray = None,
-        y_edges: np.ndarray = None,
-        use_node_columns: List = None,
-        use_edge_columns: List = None,
+        X_nodes: XSymbolic = None,
+        X_edges: XSymbolic = None,
+        y_nodes: YSymbolic = None,
+        y_edges: YSymbolic = None,
         use_node_scaler: str = None,
         use_edge_scaler: str = None,
         inplace: bool = False,
@@ -354,18 +359,24 @@ class DGLGraphMixin(MIXIN_BASE):
 
         res.dgl_lazy_init()
 
+        m = res.materialize_nodes()
+        X_nodes_resolved = resolve_X(m._nodes, X_nodes)
+        y_nodes_resolved = resolve_y(m._nodes, y_nodes)
+        X_edges_resolved = resolve_X(res._edges, X_edges)
+        y_edges_resolved = resolve_y(res._edges, y_edges)
+
         if hasattr(res, "_MASK"):
-            if y_edges is not None:
-                y_edges = y_edges[res._MASK]  # automatically prune target using mask
+            if y_edges_resolved is not None:
+                y_edges_resolved = y_edges_resolved[res._MASK]  # automatically prune target using mask
                 # note, edf, ndf, should both have unique indices
 
         # here we make node and edge features and add them to the DGL graph instance
         res = res._convert_edgeDF_to_DGL(node_column, weight_column, inplace)
         res = res._featurize_nodes_to_dgl(
-            res, X_nodes, y_nodes, use_node_columns, use_node_scaler
+            res, X_nodes_resolved, y_nodes_resolved, use_node_scaler
         )
         res = res._featurize_edges_to_dgl(
-            res, X_edges, y_edges, use_edge_columns, use_edge_scaler
+            res, X_edges_resolved, y_edges_resolved, use_edge_scaler
         )
         if not inplace:
             return res

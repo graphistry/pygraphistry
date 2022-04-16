@@ -221,9 +221,10 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
         g3 = graphistry.edges(lambda g: g.edges(df2)._edges, source="s")
         assert g3._source == "s"
         g4 = graphistry.edges(
-            (lambda g, s: g.edges(df2)._edges.assign(**{s: 1})), None, None, "s2"
-        )
-        assert (g4._edges.columns == ["s", "d", "s2"]).all()
+            (lambda g, s: g.edges(df2)._edges.assign(**{s: 1})),
+            None, None, None,
+            's2')
+        assert (g4._edges.columns == ['s', 'd', 's2']).all()
 
     def test_nodes(self, mock_etl, mock_open):
         df = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0]})
@@ -586,6 +587,18 @@ class TestPlotterArrowConversions(NoAuthTestCase):
 
         arr3 = plotter._table_to_arrow(pd.DataFrame({"x": [1]}))
         assert arr1 is arr3
+
+    def test_api3_pdf_to_renamed_arrow_memoization(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1]})
+        arr1 = plotter._table_to_arrow(df)
+        arr2 = plotter._table_to_arrow(df)
+        assert isinstance(arr1, pa.Table)
+        assert arr1 is arr2
+
+        df2 = df.rename(columns={'x': 'y'})
+        arr3 = plotter._table_to_arrow(df2)
+        assert not (arr1 is arr3)
 
     def test_api3_pdf_to_arrow_memoization_forgets(self):
         plotter = graphistry.bind()

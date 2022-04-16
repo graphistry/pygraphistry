@@ -1,13 +1,15 @@
 # python -m unittest
 from typing import Any
-import copy, datetime as dt, graphistry, numpy as np, os, pandas as pd
-import pytest, unittest
+import copy, datetime as dt, graphistry, logging, numpy as np, os, pandas as pd
+import pytest, unittest, warnings
 
 from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_textual_or_other_dataframes,
     remove_internal_namespace_if_present,
+    resolve_feature_engine,
     has_min_dependancy,
+    has_dependancy_text
 )
 
 try:
@@ -17,9 +19,9 @@ except:
     dirty_cat = Any
     sklearn = Any
 
-import warnings
-
+logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
+logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
 
 model_avg_name = (
     "average_word_embeddings_komninos"  # fastest vectorizer in transformer models
@@ -159,31 +161,33 @@ class TestFeatureProcessors(unittest.TestCase):
             f"Data Target Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
         )
 
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_dependancy_text, reason="requires ai feature dependencies")
     def test_process_dirty_dataframes_scalers(self):
         # test different scalers
         for scaler in ["minmax", "quantile", "zscale", "robust", "kbins"]:
-            x, y, x_enc, y_enc, imputer, scaler = process_dirty_dataframes(
+            x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=scaler,
                 cardinality_threshold=40,
                 cardinality_threshold_target=40,
                 n_topics=20,
+                feature_engine=resolve_feature_engine('auto')
             )
             self.cases_tests(x, y, x_enc, y_enc, "scaler", scaler)
 
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_dependancy_text, reason="requires ai feature dependencies")
     def test_process_dirty_dataframes_data_cardinality(self):
         # test different cardinality
         for card in [4, 40, 400]:
-            x, y, x_enc, y_enc, imputer, scaler = process_dirty_dataframes(
+            x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
                 cardinality_threshold=card,
                 cardinality_threshold_target=40,
                 n_topics=20,
+                feature_engine=resolve_feature_engine('auto')
             )
             self.cases_tests(x, y, x_enc, y_enc, "cardinality", card)
 
@@ -191,21 +195,22 @@ class TestFeatureProcessors(unittest.TestCase):
     def test_process_dirty_dataframes_target_cardinality(self):
         # test different target cardinality
         for card in [4, 40, 400]:
-            x, y, x_enc, y_enc, imputer, scaler = process_dirty_dataframes(
+            x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
                 cardinality_threshold=40,
                 cardinality_threshold_target=card,
                 n_topics=20,
+                feature_engine=resolve_feature_engine('auto')
             )
             self.cases_tests(x, y, x_enc, y_enc, "target cardinality", card)
 
     @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_process_textual_or_other_dataframes_min_words(self):
         # test different target cardinality
-        with self.assertRaises(Exception) as context:
-            x, y, x_enc, y_enc, imputer, scaler = process_textual_or_other_dataframes(
+        with self.assertRaises(Exception) as context: #test that min words needs to be greater than 1
+            x, y, x_enc, y_enc, preproc = process_textual_or_other_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
@@ -215,6 +220,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 confidence=0.35,
                 min_words=1,
                 model_name=model_avg_name,
+                feature_engine=resolve_feature_engine('auto')
             )
         print("-" * 90)
         print(context.exception)
@@ -226,7 +232,7 @@ class TestFeatureProcessors(unittest.TestCase):
             2,
             4000,
         ]:  # last one should skip encoding, and throw all to dirty_cat
-            x, y, x_enc, y_enc, imputer, scaler = process_textual_or_other_dataframes(
+            x, y, x_enc, y_enc, preproc = process_textual_or_other_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
@@ -236,6 +242,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 confidence=0.35,
                 min_words=min_words,
                 model_name=model_avg_name,
+                feature_engine=resolve_feature_engine('auto')
             )
             self.cases_tests(x, y, x_enc, y_enc, "min_words", min_words)
 
@@ -298,8 +305,7 @@ class TestFeatureMethods(unittest.TestCase):
             "_node_target",
             "_node_target_encoder",
             "_node_encoder",
-            "_node_imputer",
-            "_node_scaler",
+            "_node_ordinal_pipeline"
         ]
         self._check_attributes(g, attributes)
 
@@ -309,8 +315,7 @@ class TestFeatureMethods(unittest.TestCase):
             "_edge_target",
             "_edge_target_encoder",
             "_edge_encoders",  # plural, since we have two
-            "_edge_imputer",
-            "_edge_scaler",
+            "_edge_ordinal_pipeline",
         ]
         self._check_attributes(g, attributes)
 
@@ -347,12 +352,12 @@ class TestFeatureMethods(unittest.TestCase):
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
         for use_col in use_cols:
             for target in targets:
-                print("*" * 90)
+                logger.debug("*" * 90)
                 value = [target, use_col]
-                print(f"{value}")
-                print("-" * 80)
+                logger.debug(f"{value}")
+                logger.debug("-" * 80)
                 g2 = g.featurize(
-                    kind=kind, y=target, use_columns=use_col, model_name=model_avg_name
+                    kind=kind, X=use_col, y=target, model_name=model_avg_name
                 )
 
                 self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)

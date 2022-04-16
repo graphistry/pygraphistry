@@ -1,6 +1,7 @@
 from collections import namedtuple
 from time import time
-from typing import List, Union, Dict, Callable, Any, Optional, Tuple, TYPE_CHECKING
+from typing import cast, List, Union, Dict, Any, Optional, Tuple, TYPE_CHECKING
+from typing_extensions import Literal  # Literal native to py3.8+
 
 import numpy as np
 import pandas as pd
@@ -21,8 +22,9 @@ import_text_exn = None
 
 try:
     from sentence_transformers import SentenceTransformer
+
     has_dependancy_text = True
-    
+
 except ModuleNotFoundError as e:
     import_text_exn = e
     has_dependancy_text = False
@@ -33,6 +35,7 @@ try:
         SuperVectorizer,
         GapEncoder,
     )
+    from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import (
         MinMaxScaler,
@@ -50,17 +53,115 @@ except ModuleNotFoundError as e:
     has_min_dependancy = False
     SuperVectorizer = Any
 
+
 def assert_imported_text():
     if not has_dependancy_text:
-        logger.error("AI Package sentence_transformers not found, trying running `pip install graphistry[ai]`")
+        logger.error(
+            "AI Package sentence_transformers not found, trying running `pip install graphistry[ai]`"
+        )
         raise import_text_exn
 
 
 def assert_imported():
     if not has_min_dependancy:
-        logger.error("AI Packages not found, trying running `pip install graphistry[ai]`")
+        logger.error(
+            "AI Packages not found, trying running `pip install graphistry[ai]`"
+        )
         raise import_min_exn
 
+
+# #################################################################################
+#
+#     Rough calltree
+#
+# #################################################################################
+
+# umap
+#     _featurize_or_get_nodes_dataframe_if_X_is_None
+#         _featurize_nodes
+#             _node_featurizer
+#                 process_textual_or_other_dataframes
+#                     encode_textual
+#                     process_dirty_dataframes
+#                     impute_and_scale_matrix
+#
+#    _featurize_or_get_edges_dataframe_if_X_is_None
+#      _featurize_edges
+#             _edge_featurizer
+#                 featurize_edges:
+#                 rest of df goes to equivalent of _node_featurizer
+#
+#      _featurize_or_get_edges_dataframe_if_X_is_None
+FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
+FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
+
+
+def resolve_feature_engine(feature_engine: FeatureEngine) -> FeatureEngineConcrete:
+
+    if "none" == feature_engine:
+        return "none"
+
+    if "pandas" == feature_engine:
+        return "pandas"
+
+    if "dirty_cat" == feature_engine:
+        return "dirty_cat"
+
+    if "torch" == feature_engine:
+        return "torch"
+
+    if feature_engine == "auto":
+        if has_dependancy_text:
+            return "torch"
+        if has_min_dependancy:
+            return "dirty_cat"
+        return "pandas"
+
+    raise ValueError(
+        f'feature_engine expected to be "none", "pandas", "dirty_cat", "torch", but received: {feature_engine} :: {type(feature_engine)}'
+    )
+
+
+YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
+
+
+def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
+
+    if isinstance(y, pd.DataFrame):
+        return y
+
+    if df is None:
+        raise ValueError("Missing data for featurization")
+
+    if y is None:
+        return df[[]]  # oh brills, basically index
+    elif isinstance(y, str):
+        return df[[y]]
+    elif isinstance(y, list):
+        return df[y]
+    else:
+        raise ValueError(f"Unexpected type for y: {type(y)}")
+
+
+XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
+
+
+def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic):
+
+    if isinstance(X, pd.DataFrame):
+        return X
+
+    if df is None:
+        raise ValueError("Missing data for featurization")
+
+    if X is None:
+        return df
+    elif isinstance(X, str):
+        return df[[X]]
+    elif isinstance(X, list):
+        return df[X]
+    else:
+        raise ValueError(f"Unexpected type for X: {type(X)}")
 
 
 # #################################################################################
@@ -77,8 +178,7 @@ def safe_divide(a, b):
 
 
 def features_without_target(
-    df: pd.DataFrame,
-    y: Optional[Union[pd.DataFrame, pd.Series, np.ndarray, List]] = None
+    df: pd.DataFrame, y: Optional[Union[List[str], str, pd.DataFrame]] = None
 ) -> pd.DataFrame:
     """
         Checks if y DataFrame column name is in df, and removes it from df if so
@@ -91,7 +191,9 @@ def features_without_target(
     if y is None:
         return df
     remove_cols = []
-    if isinstance(y, pd.DataFrame):
+    if y is None:
+        pass
+    elif isinstance(y, pd.DataFrame):
         yc = y.columns
         xc = df.columns
         for c in yc:
@@ -102,10 +204,12 @@ def features_without_target(
             remove_cols = [y.name]
     elif isinstance(y, List):
         remove_cols = y
+    elif isinstance(y, str):
+        remove_cols = [y]
     else:
         logger.warning("Target is not of type(DataFrame) and has no columns")
     if len(remove_cols):
-        logger.info(f"Removing {remove_cols} columns from DataFrame")
+        logger.debug(f"Removing {remove_cols} columns from DataFrame")
         tf = df.drop(columns=remove_cols, errors="ignore")
         return tf
     return df
@@ -122,7 +226,7 @@ def remove_node_column_from_ndf_and_return_ndf(g):
     if g._node is not None:
         node_label = g._node
         if node_label is not None and node_label in g._nodes.columns:
-            logger.info(
+            logger.debug(
                 f"removing node column `{node_label}` so we do not featurize it"
             )
             return g._nodes.drop(columns=[node_label], errors="ignore")
@@ -188,7 +292,7 @@ def group_columns_by_dtypes(df: pd.DataFrame, verbose: bool = True) -> Dict:
     gtypes = {k.name: list(v) for k, v in gtypes.items()}
     if verbose:
         for k, v in gtypes.items():
-            logger.info(f"{k} has {len(v)} members")
+            logger.debug(f"{k} has {len(v)} members")
     return gtypes
 
 
@@ -299,7 +403,7 @@ def check_if_textual_column(
         n_words = df[col].apply(lambda x: len(x.split()) if isinstance(x, str) else 0)
         mean_n_words = n_words.mean()
         if mean_n_words >= min_words:
-            logger.info(
+            logger.debug(
                 f"\n\tColumn `{col}` looks textual with mean number of words {mean_n_words:.2f}"
             )
             return True
@@ -324,7 +428,7 @@ def get_textual_columns(
         if check_if_textual_column(df, col, confidence=confidence, min_words=min_words):
             text_cols.append(col)
     if len(text_cols) == 0:
-        logger.info("No Textual Columns were found")
+        logger.debug("No Textual Columns were found")
     return text_cols
 
 
@@ -335,9 +439,8 @@ def get_textual_columns(
 # #########################################################################################
 
 
-def impute_and_scale_matrix(
-    X: np.ndarray,
-    use_scaler: str = "minmax",
+def get_ordinal_preprocessing_pipeline(
+    use_scaler: str = "robust",
     impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
@@ -345,32 +448,29 @@ def impute_and_scale_matrix(
     n_bins: int = 5,
     encode: str = "ordinal",
     strategy: str = "uniform",
-    keep_n_decimals: int = 5,
-):
+) -> Pipeline:
     """
         Helper function for imputing and scaling np.ndarray data using different scaling transformers.
     :param X: np.ndarray
     :param impute: whether to run imputing or not
-    :param use_scaler: string in ["minmax", "quantile", "zscale", "robust"], selects scaling transformer
+    :param use_scaler: string in ["minmax", "quantile", "zscale", "robust", "kbins"], selects scaling transformer,
+            default `robust`
     :param n_quantiles: if use_scaler = 'quantile', sets the quantile bin size.
     :param output_distribution: if use_scaler = 'quantile', can return distribution as ["normal", "uniform"]
     :param quantile_range: if use_scaler = 'robust', sets the quantile range.
-    :params TODO add kbins desc
+    :param n_bins: number of bins to use in kbins discretizer
     :return: scaled array, imputer instances or None, scaler instance or None
     """
     available_preprocessors = ["minmax", "quantile", "zscale", "robust", "kbins"]
     available_quantile_distributions = ["normal", "uniform"]
 
-    imputer = None
-    res = X
+    imputer = lambda x: x
     if impute:
-        logger.info("Imputing Values using mean strategy")
+        logger.debug("Imputing Values using mean strategy")
         # impute values
         imputer = SimpleImputer(missing_values=np.nan, strategy="mean")
-        imputer = imputer.fit(X)
-        res = imputer.transform(X)
 
-    scaler = None
+    scaler = lambda x: x
     if use_scaler == "minmax":
         # scale the resulting values column-wise between min and max column values and sets them between 0 and 1
         scaler = MinMaxScaler()
@@ -387,25 +487,39 @@ def impute_and_scale_matrix(
         scaler = RobustScaler(quantile_range=quantile_range)
     elif use_scaler == "kbins":
         scaler = KBinsDiscretizer(n_bins=n_bins, encode=encode, strategy=strategy)
-    elif use_scaler is None:
-        return res, imputer, scaler
     else:
         logger.error(
             f"`scaling` must be on of {available_preprocessors} or {None}, got {scaler}.\nData is not scaled"
         )
-        return res, imputer, scaler
+    logger.info(f"Using {use_scaler} scaling")
+    ordinal_transformer = Pipeline(steps=[("imputer", imputer), ("scaler", scaler)])
 
-    logger.info(f"Applying {use_scaler}-Scaling")
-    res = scaler.fit_transform(res)
-    res = np.round(
-        res, decimals=keep_n_decimals
-    )  # since zscale with have small negative residuals (-1e-17) and that kills Hellinger in umap..
-    return res, imputer, scaler
+    return ordinal_transformer
+
+
+def fit_pipeline(
+    X: pd.DataFrame, transformer: Pipeline, keep_n_decimals: int = 5
+) -> np.ndarray:
+    """
+     Helper to fit DataFrame over transformer pipeline.
+     Rounds resulting matrix X by keep_n_digits if not 0,
+     which helps for when transformer pipeline is scaling or imputer which sometime introduce small negative numbers,
+     and umap metrics like Hellinger need to be positive
+    :param X, DataFrame to transform.
+    :param transformer: Pipeline object to fit and transform
+    :param keep_n_decimals: Int of how many decimal places to keep in rounded transformed data
+    """
+    X = transformer.fit_transform(X)
+    if keep_n_decimals:
+        X = np.round(
+            X, decimals=keep_n_decimals
+        )  # since zscale with have small negative residuals (-1e-17) and that kills Hellinger in umap..
+    return X
 
 
 def impute_and_scale_df(
-    df,
-    use_scaler: str = "minmax",
+    df: pd.DataFrame,
+    use_scaler: str = "robust",
     impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
@@ -414,7 +528,8 @@ def impute_and_scale_df(
     encode: str = "ordinal",
     strategy: str = "uniform",
     keep_n_decimals: int = 5,
-):
+) -> Tuple[pd.DataFrame, Union[Pipeline, None]]:
+
     columns = df.columns
     index = df.index
 
@@ -422,11 +537,9 @@ def impute_and_scale_df(
         logger.warn(
             "Impute and Scaling can only happen on a Numeric DataFrame.\n -- Try featurizing the DataFrame first using graphistry.featurize(..)"
         )
-        return df
+        return df, None
 
-    X = df.values
-    res, imputer, scaler = impute_and_scale_matrix(
-        X,
+    transformer = get_ordinal_preprocessing_pipeline(
         impute=impute,
         use_scaler=use_scaler,
         n_quantiles=n_quantiles,
@@ -435,10 +548,10 @@ def impute_and_scale_df(
         n_bins=n_bins,
         encode=encode,
         strategy=strategy,
-        keep_n_decimals=keep_n_decimals,
     )
+    res = fit_pipeline(df, transformer, keep_n_decimals=keep_n_decimals)
 
-    return pd.DataFrame(res, columns=columns, index=index), imputer, scaler
+    return pd.DataFrame(res, columns=columns, index=index), transformer
 
 
 def encode_textual(
@@ -446,7 +559,7 @@ def encode_textual(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-):
+) -> Tuple[np.ndarray, List, List]:
     t = time()
     model = SentenceTransformer(model_name)
 
@@ -455,12 +568,15 @@ def encode_textual(
     columns = []
     if text_cols:
         for col in text_cols:
-            logger.info(f"-Calculating Embeddings for column `{col}`")
+            logger.debug(f"-Calculating Embeddings for column `{col}`")
             # coerce to string in case there are ints, floats, nans, etc mixed into column
             emb = model.encode(df[col].astype(str).values)
-            columns.extend([f'{col}_{k}' for k in range(emb.shape[1])])
+            columns.extend(
+                [f"{col}_{k}" for k in range(emb.shape[1])]
+            )  # so we can slice by original column name
+            # assuming they are unique across cols
             embeddings = np.c_[embeddings, emb]
-        logger.info(
+        logger.debug(
             f"Encoded Textual data at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per column minute"
         )
 
@@ -477,15 +593,9 @@ def process_textual_or_other_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
+    feature_engine: FeatureEngineConcrete = "pandas"
     # test_size: Optional[bool] = None,
-) -> Tuple[
-    pd.DataFrame,
-    Any,
-    SuperVectorizer,
-    SuperVectorizer,
-    Any,
-    Any
-]:
+) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Union[Pipeline, None]]:
     """
         Automatic Deep Learning Embedding of Textual Features,
         with the rest of the columns taken care of by dirty_cat
@@ -504,6 +614,9 @@ def process_textual_or_other_dataframes(
             https://www.sbert.net/docs/pretrained_models.html#sentence-embedding-models
     :return: X_enc, y_enc, data_encoder, label_encoder
     """
+
+    logger.info("process_textual_or_other_dataframes[%s]", feature_engine)
+
     t = time()
     if len(df) == 0 or df.empty:
         logger.warning("DataFrame seems to be Empty")
@@ -511,27 +624,26 @@ def process_textual_or_other_dataframes(
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
     text_cols = []
     columns_text = []
-    if has_dependancy_text:
+    if has_dependancy_text and feature_engine == "torch":
         embeddings, text_cols, columns_text = encode_textual(
             df, confidence=confidence, min_words=min_words, model_name=model_name
         )
     else:
-        logger.info(f'! Skipping encoding any textual features since dependency {import_text_exn} is not met')
+        logger.debug(
+            f"! Skipping encoding any textual features since dependency {import_text_exn} is not met"
+        )
 
     other_df = df.drop(columns=text_cols, errors="ignore")
 
-    X_enc, y_enc, data_encoder, label_encoder, _, _ = process_dirty_dataframes(
+    X_enc, y_enc, data_encoder, label_encoder, _ = process_dirty_dataframes(
         other_df,
         y,
         cardinality_threshold=cardinality_threshold,
         cardinality_threshold_target=cardinality_threshold_target,
         n_topics=n_topics,
         use_scaler=None,  # set to None so that it happens later
+        feature_engine=feature_engine,
     )
-
-    # faux_columns = list(
-    #     range(embeddings.shape[1] - 1)
-    # )  # minus 1 since the first column is just placeholder
 
     if data_encoder is not None:
         embeddings = np.c_[embeddings, X_enc.values]
@@ -542,17 +654,16 @@ def process_textual_or_other_dataframes(
 
     # now remove the leading zeros
     embeddings = embeddings[:, 1:]
-    imputer, scaler = None, None
-    if use_scaler:
-        embeddings, imputer, scaler = impute_and_scale_matrix(
-            embeddings, use_scaler=use_scaler
-        )
-
     X_enc = pd.DataFrame(embeddings, columns=columns)
-    logger.info(
+
+    ordinal_pipeline = None
+    if use_scaler:
+        embeddings, ordinal_pipeline = impute_and_scale_df(X_enc, use_scaler=use_scaler)
+
+    logger.debug(
         f"--The entire Textual and/or other encoding process took {(time()-t)/60:.2f} minutes"
     )
-    return X_enc, y_enc, data_encoder, label_encoder, imputer, scaler
+    return X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline
 
 
 def get_cardinality_ratio(df: pd.DataFrame):
@@ -575,18 +686,18 @@ def make_dense(X):
 
 def process_dirty_dataframes(
     ndf: pd.DataFrame,
-    y: pd.DataFrame,
+    y: Optional[pd.DataFrame],
     cardinality_threshold: int = 40,
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     use_scaler: Optional[str] = None,
+    feature_engine: FeatureEngineConcrete = "pandas",
 ) -> Tuple[
     pd.DataFrame,
-    Any,
+    Optional[pd.DataFrame],
     SuperVectorizer,
     SuperVectorizer,
-    Any,
-    Any
+    Union[Pipeline, None],
 ]:
     """
         Dirty_Cat encoder for record level data. Will automatically turn
@@ -601,6 +712,16 @@ def process_dirty_dataframes(
     :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
     :return: Encoded data matrix and target (if not None), the data encoder, and the label encoder.
     """
+
+    if feature_engine == "none" or feature_engine == "pandas":
+        return (
+            ndf.select_dtypes(include=[np.number]),
+            y.select_dtypes(include=[np.number]) if y is not None else None,
+            None,
+            None,
+            None,
+        )
+
     t = time()
     data_encoder = SuperVectorizer(
         auto_cast=True,
@@ -611,64 +732,60 @@ def process_dirty_dataframes(
         datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
     )
     label_encoder = None
-    y_enc = None
-    imputer = None
-    scaler = None
+    ordinal_pipeline = None
     if not ndf.empty:
         if not is_dataframe_all_numeric(ndf):
-            logger.info("Encoding DataFrame might take a few minutes --------")
+            logger.debug("Encoding DataFrame might take a few minutes --------")
             X_enc = data_encoder.fit_transform(ndf, y)
             X_enc = make_dense(X_enc)
             all_transformers = data_encoder.transformers
             features_transformed = data_encoder.get_feature_names_out()
-            logger.info(f"-Shape of data {X_enc.shape}\n")
-            logger.info(f"-Transformers: \n{all_transformers}\n")
-            logger.info(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
-            logger.info(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
+            logger.debug(f"-Shape of data {X_enc.shape}\n")
+            logger.debug(f"-Transformers: \n{all_transformers}\n")
+            logger.debug(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
+            logger.debug(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
             X_enc = pd.DataFrame(X_enc, columns=features_transformed)
             X_enc = X_enc.fillna(0)
         else:
             # if we pass only a numeric DF, data_encoder throws
             # RuntimeError: No transformers could be generated !
-            logger.info("-*-*-DataFrame is already completely numeric")
+            logger.debug("-*-*-DataFrame is already completely numeric")
             X_enc = ndf.astype(float)
             data_encoder = False  # DO NOT SET THIS TO NONE
             features_transformed = ndf.columns
-            logger.info(f"-Shape of data {X_enc.shape}\n")
-            logger.info(f"-Columns: {features_transformed[:20]}...\n")
+            logger.debug(f"-Shape of data {X_enc.shape}\n")
+            logger.debug(f"-Columns: {features_transformed[:20]}...\n")
 
         if use_scaler is not None:
-            X_enc, imputer, scaler = impute_and_scale_df(X_enc, use_scaler=use_scaler)
+            X_enc, ordinal_pipeline = impute_and_scale_df(X_enc, use_scaler=use_scaler)
     else:
         X_enc = ndf
         data_encoder = None
-        logger.info("*Given DataFrame seems to be empty")
+        logger.debug("*Given DataFrame seems to be empty")
 
-    if y is not None:
-        if not is_dataframe_all_numeric(y):
-            t2 = time()
-            logger.info("-Fitting Targets --\n")
-            label_encoder = SuperVectorizer(
-                auto_cast=True,
-                cardinality_threshold=cardinality_threshold_target,
-                datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
-            )
-            y_enc = label_encoder.fit_transform(y)
-            y_enc = make_dense(y_enc)
-            labels_transformed = label_encoder.get_feature_names_out()
-            y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed)
-            y_enc = y_enc.fillna(0)
+    if y is not None and len(y.columns) > 0:
+        t2 = time()
+        logger.debug("-Fitting Targets --\n%s", y.columns)
+        label_encoder = SuperVectorizer(
+            auto_cast=True,
+            cardinality_threshold=cardinality_threshold_target,
+            datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
+        )
+        y_enc = label_encoder.fit_transform(y)
+        y_enc = make_dense(y_enc)
+        labels_transformed = label_encoder.get_feature_names_out()
+        y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed)
+        y_enc = y_enc.fillna(0)
 
-            logger.info(f"-Shape of target {y_enc.shape}")
-            logger.info(f"-Target Transformers used: {label_encoder.transformers}\n")
-            logger.info(
-                f"--Fitting SuperVectorizer on TARGET took {(time()-t2)/60:.2f} minutes\n"
-            )
-        else:
-            logger.info("-*-*-Target DataFrame is already completely numeric")
-            y_enc = y
+        logger.debug(f"-Shape of target {y_enc.shape}")
+        logger.debug(f"-Target Transformers used: {label_encoder.transformers}\n")
+        logger.debug(
+            f"--Fitting SuperVectorizer on TARGET took {(time()-t2)/60:.2f} minutes\n"
+        )
+    else:
+        y_enc = y
 
-    return X_enc, y_enc, data_encoder, label_encoder, imputer, scaler
+    return X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline
 
 
 def process_edge_dataframes(
@@ -683,15 +800,8 @@ def process_edge_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-    featurize=True,
-) -> Tuple[
-    pd.DataFrame,
-    pd.DataFrame,
-    List[Any],
-    Any,
-    Any,
-    Any
-]:
+    feature_engine: FeatureEngineConcrete = "pandas",
+) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Union[Pipeline, None]]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
         and then process_textual_or_other_dataframes that encodes any other data present in edf,
@@ -705,22 +815,21 @@ def process_edge_dataframes(
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
 
-    # FIXME what to return?
-    if not featurize:
-        edf2 = edf.select_dtypes(include=np.number)
+    if feature_engine in ["none", "pandas"]:
+        edf2 = edf.select_dtypes(include=[np.number])
         return edf2, y, [None, None], None, None, None
 
     t = time()
     mlb_pairwise_edge_encoder = MultiLabelBinarizer()
     source = edf[src]
     destination = edf[dst]
-    logger.info("Encoding Edges using MultiLabelBinarizer")
+    logger.debug("Encoding Edges using MultiLabelBinarizer")
     T = mlb_pairwise_edge_encoder.fit_transform(zip(source, destination))
     T = 1.0 * T  # coerce to float
-    logger.info(f"-Shape of Edge-2-Edge encoder {T.shape}")
+    logger.debug(f"-Shape of Edge-2-Edge encoder {T.shape}")
 
     other_df = edf.drop(columns=[src, dst])
-    logger.info(
+    logger.debug(
         f"-Rest of DataFrame has columns: {other_df.columns} and is not empty"
         if not other_df.empty
         else f"-Rest of DataFrame has columns: {other_df.columns} and is empty"
@@ -730,7 +839,6 @@ def process_edge_dataframes(
         y_enc,
         data_encoder,
         label_encoder,
-        _,
         _,
     ) = process_textual_or_other_dataframes(
         other_df,
@@ -742,6 +850,7 @@ def process_edge_dataframes(
         confidence=confidence,
         min_words=min_words,
         model_name=model_name,
+        feature_engine=feature_engine,
     )
 
     if data_encoder is not None:
@@ -753,12 +862,14 @@ def process_edge_dataframes(
         T = np.c_[T, X_enc.values]
         columns = list(mlb_pairwise_edge_encoder.classes_) + list(other_df.columns)
     else:  # if other_df is empty
-        logger.info("-other_df is empty")
+        logger.debug("-other_df is empty")
         columns = list(mlb_pairwise_edge_encoder.classes_)
 
+    X_enc = pd.DataFrame(T, columns=columns)
+    ordinal_pipeline = None
     if use_scaler:
-        T, imputer, scaler = impute_and_scale_matrix(
-            T,
+        X_enc, ordinal_pipeline = impute_and_scale_df(
+            X_enc,
             use_scaler=use_scaler,
             impute=True,
             n_quantiles=100,
@@ -766,9 +877,8 @@ def process_edge_dataframes(
             output_distribution="normal",
         )
 
-    X_enc = pd.DataFrame(T, columns=columns)
-    logger.info(f"--Created an Edge feature matrix of size {T.shape}")
-    logger.info(f"**The entire Edge encoding process took {(time()-t)/60:.2f} minutes")
+    logger.debug(f"--Created an Edge feature matrix of size {T.shape}")
+    logger.debug(f"**The entire Edge encoding process took {(time()-t)/60:.2f} minutes")
     # get's us close to `process_nodes_dataframe
     # TODO how can I meld mlb and sup_vec??? Difficult as it is not a per column transformer...
     return (
@@ -776,8 +886,7 @@ def process_edge_dataframes(
         y_enc,
         [mlb_pairwise_edge_encoder, data_encoder],
         label_encoder,
-        imputer,
-        scaler,
+        ordinal_pipeline,
     )
 
 
@@ -853,36 +962,14 @@ class FeatureMixin(MIXIN_BASE):
 
     def __init__(self, *args, **kwargs):
         pass
-        # super().__init__()
-        # ComputeMixin.__init__(self, *args, **kwargs)
-        # FeatureMixin.__init__(self, *args, **kwargs)
-        # UMAPMixin.__init__(self, *args, **kwargs)
-        self.params = {}
-        self._params = namedtuple(
-            "parameters",
-            [
-                "kind",
-                "use_columns",
-                "use_scaler",
-                "cardinality_threshold",
-                "cardinality_threshold_target",
-                "n_topics",
-                "confidence",
-                "min_words",
-                "model_name",
-                "remove_node_column",
-                "featurize",
-            ],
-        )
 
     def _node_featurizer(self, *args, **kwargs):
         return process_textual_or_other_dataframes(*args, **kwargs)
 
-
     def _featurize_nodes(
         self,
-        y: Optional[Union[pd.DataFrame, pd.Series, np.ndarray, List]] = None,
-        use_columns: Optional[List] = None,
+        X: XSymbolic = None,
+        y: YSymbolic = "pandas",
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 120,
@@ -891,7 +978,7 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
-        featurize: bool = True,  # this has inconsistent meaning with featurize (now named refeaturize) elsewhere...
+        feature_engine: FeatureEngineConcrete = "pandas",
     ):
 
         res = self.copy()
@@ -900,28 +987,28 @@ class FeatureMixin(MIXIN_BASE):
                 "Expected nodes; try running nodes.materialize_nodes() first if you only have edges"
             )
 
-        ndf = res._nodes
+        X_resolved = resolve_X(res._nodes, X)
+        y_resolved = resolve_y(res._nodes, y)
+
+        ndf = X_resolved
         if remove_node_column:
             ndf = remove_node_column_from_ndf_and_return_ndf(res)
         # TODO move the columns select after the featurizer?
-        ndf = ndf[use_columns] if use_columns is not None else ndf
         ndf = features_without_target(ndf, y)
         ndf = remove_internal_namespace_if_present(ndf)
 
-        if not featurize:
+        if feature_engine == "none":
             X_enc = ndf.select_dtypes(include=np.number)
-            y_enc = y
+            y_enc = y_resolved
             data_vec = None
             label_vec = None
-            imputer = None
-            scaler = None
-
+            ordinal_pipeline = None
         else:
             assert_imported()
             # now vectorize it all
-            X_enc, y_enc, data_vec, label_vec, imputer, scaler = self._node_featurizer(
+            X_enc, y_enc, data_vec, label_vec, ordinal_pipeline = self._node_featurizer(
                 ndf,
-                y=y,
+                y=y_resolved,
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
@@ -929,35 +1016,21 @@ class FeatureMixin(MIXIN_BASE):
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
+                feature_engine=feature_engine,
             )
 
         res._node_features = X_enc
         res._node_target = y_enc
         res._node_encoder = data_vec
         res._node_target_encoder = label_vec
-        res._node_imputer = imputer
-        res._node_scaler = scaler
-
-        res.params["nodes"] = self._params(
-            "nodes",
-            use_columns,
-            use_scaler,
-            cardinality_threshold,
-            cardinality_threshold_target,
-            n_topics,
-            confidence,
-            min_words,
-            model_name,
-            remove_node_column,
-            featurize,
-        )
+        res._node_ordinal_pipeline = ordinal_pipeline
 
         return res
 
     def _featurize_edges(
         self,
-        y: Union[pd.DataFrame, np.ndarray],
-        use_columns: Optional[List] = None,
+        X: XSymbolic = None,
+        y: YSymbolic = None,
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 20,
@@ -965,47 +1038,55 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        featurize: bool = True,
+        feature_engine: FeatureEngineConcrete = "pandas",
     ):
         # TODO move the columns select after the featurizer
-        if use_columns is not None:
-            use_columns = list(
-                set(use_columns + list([self._source, self._destination]))
+        X_resolved = resolve_X(self._edges, X)
+        if self._source not in X_resolved:
+            logger.debug("adding g._source to edge features")
+            X_resolved = X_resolved.assign(**{self._source: self._edges[self._source]})
+        if self._destination not in X_resolved:
+            logger.debug("adding g._destination to edge features")
+            X_resolved = X_resolved.assign(
+                **{self._destination: self._edges[self._destination]}
             )
 
-        edf = self._edges[use_columns] if use_columns is not None else self._edges
-        edf = features_without_target(edf, y)
+        y_resolved = resolve_y(self._edges, y)
 
-        if not featurize:
+        edf = features_without_target(X_resolved, y)
+
+        res = self.bind()
+
+        if feature_engine == "none":
             X_enc = edf.select_dtypes(include=np.number)
-            y_enc = y
+            y_enc = y_resolved
             data_vec = None
             label_vec = None
-            imputer = None
-            scaler = None
+            ordinal_pipeline = None
             mlb = None
 
         else:
             assert_imported()
-            
-            res = self.bind()
 
             if self._source is None:
-                raise ValueError('Must have a source column to featurize edges, try g.bind(source="my_col") or g.edges(df, source="my_col")')
-            
+                raise ValueError(
+                    'Must have a source column to featurize edges, try g.bind(source="my_col") or g.edges(df, source="my_col")'
+                )
+
             if self._destination is None:
-                raise ValueError('Must have a destination column to featurize edges, try g.bind(destination="my_col") or g.edges(df, destination="my_col")')
+                raise ValueError(
+                    'Must have a destination column to featurize edges, try g.bind(destination="my_col") or g.edges(df, destination="my_col")'
+                )
 
             (
                 X_enc,
                 y_enc,
                 [mlb, data_vec],
                 label_vec,
-                imputer,
-                scaler,
+                ordinal_pipeline,
             ) = process_edge_dataframes(
                 edf=edf,
-                y=y,
+                y=y_resolved,
                 src=self._source,
                 dst=self._destination,
                 use_scaler=use_scaler,
@@ -1015,37 +1096,22 @@ class FeatureMixin(MIXIN_BASE):
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
-                featurize=featurize,
+                feature_engine=feature_engine,
             )
 
         res._edge_features = X_enc
         res._edge_target = y_enc
         res._edge_encoders = [mlb, data_vec]
         res._edge_target_encoder = label_vec
-        res._edge_imputer = imputer
-        res._edge_scaler = scaler
-
-        res.params["edges"] = self._params(
-            "edges",
-            use_columns,
-            use_scaler,
-            cardinality_threshold,
-            cardinality_threshold_target,
-            n_topics,
-            confidence,
-            min_words,
-            model_name,
-            "None",
-            featurize,
-        )
+        res._edge_ordinal_pipeline = ordinal_pipeline
 
         return res
 
     def featurize(
         self,
         kind: str = "nodes",
-        y: Optional[Union[pd.DataFrame, pd.Series, np.ndarray, List]] = None,
-        use_columns: Optional[List] = None,
+        X: XSymbolic = None,
+        y: YSymbolic = None,
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
@@ -1055,13 +1121,14 @@ class FeatureMixin(MIXIN_BASE):
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
         inplace: bool = False,
+        feature_engine: FeatureEngine = "auto",
     ):
         """
             Featurize Nodes or Edges of the Graph.
 
         :param kind: specify whether to featurize `nodes` or `edges`
+        :param X: Optional input, default None. If symbolic, evaluated against self data based on kind.
         :param y: Optional Target, default None. If .featurize came with a target, it will use that target.
-        :param use_columns: Specify which DataFrame columns to use for featurization, if any.
         :param remove_node_column:
         :param use_scaler:
         :param inplace: whether to not return new graphistry instance or not, default False
@@ -1074,10 +1141,12 @@ class FeatureMixin(MIXIN_BASE):
         else:
             res = self.bind()
 
+        feature_engine = resolve_feature_engine(feature_engine)
+
         if kind == "nodes":
             res = res._featurize_nodes(
-                y=y,
-                use_columns=use_columns,
+                X=X,
+                y=resolve_y(self._nodes, y),
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
@@ -1086,12 +1155,12 @@ class FeatureMixin(MIXIN_BASE):
                 min_words=min_words,
                 model_name=model_name,
                 remove_node_column=remove_node_column,
-                featurize=True,
+                feature_engine=feature_engine,
             )
         elif kind == "edges":
             res = res._featurize_edges(
-                y=y,
-                use_columns=use_columns,
+                X=X,
+                y=resolve_y(self._edges, y),
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
@@ -1099,7 +1168,7 @@ class FeatureMixin(MIXIN_BASE):
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
-                featurize=True,
+                feature_engine=feature_engine,
             )
         else:
             logger.warning(f"One may only featurize `nodes` or `edges`, got {kind}")
@@ -1107,11 +1176,11 @@ class FeatureMixin(MIXIN_BASE):
         if not inplace:
             return res
 
+    # FIXME unsafe, should be more of a checkable memoization
     def _featurize_or_get_nodes_dataframe_if_X_is_None(
         self,
-        X: np.ndarray = None,
-        y: np.ndarray = None,
-        use_columns: Optional[List] = None,
+        X: XSymbolic = None,
+        y: YSymbolic = None,
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
@@ -1120,67 +1189,53 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
-        refeaturize: bool = False,
-    ):
+        feature_engine: FeatureEngineConcrete = "pandas",
+        reuse_if_existing=False,
+    ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
         """
             helper method gets node feature and target matrix if X, y are not specified.
             if X, y are specified will set them as `_node_target` and `_node_target` attributes
         ---------------------------------------------------------------------------------------
         """
 
-        if refeaturize:
-            # remove node_features, forces re-featurization
-            if self._node_features is not None:
-                logger.info(
-                    "Found Node features in `self` but removing it to force re-featurization"
-                )
-                self._node_features = None
-
         res = self.bind()
 
-        if X is None:
-            if self._node_features is not None:
-                X = self._node_features
-                logger.info("Found Node features in `self`")
-            else:
-                logger.warning(
-                    "Calling `featurize` to create data matrix `X` over nodes DataFrame"
-                )
-                # this sets .node_* on res, but it is no longer passed through...
-                res = self._featurize_nodes(
-                    y=y,
-                    use_columns=use_columns,
-                    use_scaler=use_scaler,
-                    cardinality_threshold=cardinality_threshold,
-                    cardinality_threshold_target=cardinality_threshold_target,
-                    n_topics=n_topics,
-                    confidence=confidence,
-                    min_words=min_words,
-                    model_name=model_name,
-                    remove_node_column=remove_node_column,
-                    featurize=True,
-                )
-                return res._featurize_or_get_nodes_dataframe_if_X_is_None(
-                    res._node_features,
-                    res._node_target,
-                    use_columns,
-                    use_scaler,
-                    refeaturize=False,
-                )  # now we are guaranteed to have node feature and target matrices.
-        if y is None:
-            if self._node_target is not None:
-                y = self._node_target
-                logger.info(
-                    f"Fetching `_node_target` in `self`. Target is type {type(y)}"
-                )
-        # now on the return the X, y will be set
-        return X, y, res
+        if not reuse_if_existing:
+            res._node_features = None
+            res._node_target = None
 
+        if reuse_if_existing and res._node_features is not None:
+            return res._node_features, res._node_target, res
+
+        res = self._featurize_nodes(
+            X,
+            y=y,
+            use_scaler=use_scaler,
+            cardinality_threshold=cardinality_threshold,
+            cardinality_threshold_target=cardinality_threshold_target,
+            n_topics=n_topics,
+            confidence=confidence,
+            min_words=min_words,
+            model_name=model_name,
+            remove_node_column=remove_node_column,
+            feature_engine=feature_engine,
+        )
+
+        assert res._node_features is not None  # ensure no infinite loop
+
+        return res._featurize_or_get_nodes_dataframe_if_X_is_None(
+            res._node_features,
+            res._node_target,
+            use_scaler,
+            feature_engine=feature_engine,
+            reuse_if_existing=True,
+        )  # now we are guaranteed to have node feature and target matrices.
+
+    # FIXME unsafe, should be more of a checkable memoization
     def _featurize_or_get_edges_dataframe_if_X_is_None(
         self,
-        X: np.ndarray = None,
-        y: np.ndarray = None,
-        use_columns: Optional[List] = None,
+        X: XSymbolic = None,
+        y: YSymbolic = None,
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 20,
@@ -1188,47 +1243,44 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        refeaturize: bool = True,
-    ):
+        feature_engine: FeatureEngineConcrete = "pandas",
+        reuse_if_existing=False,
+    ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
         """
             helper method gets edge feature and target matrix if X, y are not specified
         --------------------------------------------------------------------------------
         :param X: ndArray Data Matrix
         :param y: target, default None
-        :param use_columns: which columns to featurize if X is None
         :return: data `X` and `y`
         """
 
-        if refeaturize:
-            # remove node_features, forces re-featurization
-            if self._edge_features is not None:
-                self._edge_features = None
-
         res = self.bind()
 
-        if X is None:
-            if self._edge_features is not None:
-                X = self._edge_features
-            else:
-                logger.info(
-                    "Calling `featurize` to create data matrix `X` over edges DataFrame"
-                )
-                res = self._featurize_edges(
-                    y=y,
-                    use_columns=use_columns,
-                    use_scaler=use_scaler,
-                    cardinality_threshold=cardinality_threshold,
-                    cardinality_threshold_target=cardinality_threshold_target,
-                    n_topics=n_topics,
-                    confidence=confidence,
-                    min_words=min_words,
-                    model_name=model_name,
-                    featurize=True,
-                )
-                return res._featurize_or_get_edges_dataframe_if_X_is_None(
-                    res._edge_features, res._edge_target, use_columns, use_scaler
-                )
-        return X, y, res
+        if not reuse_if_existing:
+            res._edge_features = None
+            res._edge_target = None
+
+        if reuse_if_existing and res._edge_features is not None:
+            return res._edge_features, res._edge_target, res
+
+        res = self._featurize_edges(
+            X=X,
+            y=y,
+            use_scaler=use_scaler,
+            cardinality_threshold=cardinality_threshold,
+            cardinality_threshold_target=cardinality_threshold_target,
+            n_topics=n_topics,
+            confidence=confidence,
+            min_words=min_words,
+            model_name=model_name,
+            feature_engine=feature_engine,
+        )
+
+        assert res._edge_features is not None  # ensure no infinite loop
+
+        return res._featurize_or_get_edges_dataframe_if_X_is_None(
+            res._edge_features, res._edge_target, use_scaler, reuse_if_existing=True
+        )
 
 
 __notes__ = """

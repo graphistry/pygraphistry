@@ -1,5 +1,5 @@
 from typing import Any
-import copy, datetime as dt, graphistry, numpy as np, os, pandas as pd
+import copy, datetime as dt, graphistry, logging, numpy as np, os, pandas as pd
 import pytest, unittest
 
 from graphistry.util import setup_logger
@@ -19,8 +19,7 @@ from graphistry.tests.test_feature_utils import (
     has_min_dependancy as has_featurize,
 )
 
-
-logger = setup_logger(name=__name__, verbose=False)
+logger = logging.getLogger(__name__)
 
 
 triangleEdges = pd.DataFrame(
@@ -89,9 +88,8 @@ class TestUMAPMethods(unittest.TestCase):
 
         ndf = remove_internal_namespace_if_present(ndf)
         cols = ndf.columns
-        if verbose:
-            print("g_nodes", g._nodes)
-            print("df", df)
+        logger.debug("g_nodes", g._nodes)
+        logger.debug("df", df)
         self.assertTrue(
             np.array_equal(ndf.reset_index(drop=True), df[cols].reset_index(drop=True)),
             f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
@@ -101,17 +99,17 @@ class TestUMAPMethods(unittest.TestCase):
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         for use_col in use_cols:
             for target in targets:
-                for featurize in [True, False]:
+                for feature_engine in ["none", "auto", "pandas"]:
                     logger.debug("*" * 90)
                     value = [target, use_col]
                     logger.debug(f"{kind} -- {name}")
-                    logger.debug(f"{value}: featurize umap {featurize}")
+                    logger.debug(f"{value}: featurize umap {feature_engine}")
                     logger.debug("-" * 80)
                     g2 = g.umap(
                         kind=kind,
                         y=target,
-                        use_columns=use_col,
-                        featurize=featurize,
+                        X=use_col,
+                        feature_engine=feature_engine,
                         n_neighbors=2,
                     )
 
@@ -148,16 +146,16 @@ class TestUMAPMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
-            g2 = g.umap(kind=kind, featurize=False)
+            g2 = g.umap(kind=kind, feature_engine="none")
             last_shape = 0
             for scale in np.linspace(0, 3, 8):  # six sigma in 8 steps
                 g3 = g2.filter_edges(scale=scale)
                 shape = g3._edges.shape
-                print("*" * 90)
-                print(
+                logger.debug("*" * 90)
+                logger.debug(
                     f"{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}"
                 )
-                print("-" * 80)
+                logger.debug("-" * 80)
                 self.assertGreaterEqual(shape[0], last_shape)  # should return more and more edges
                 last_shape = shape[0]
 
@@ -170,12 +168,12 @@ class TestUMAPAIMethods(TestUMAPMethods):
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         for use_col in use_cols:
             for target in targets:
-                print("*" * 90)
+                logger.debug("*" * 90)
                 value = [target, use_col]
-                print(f"{kind} -- {name}")
-                print(f"{value}")
-                print("-" * 80)
-                g2 = g.umap(kind=kind, y=target, use_columns=use_col)
+                logger.debug(f"{kind} -- {name}")
+                logger.debug(f"{value}")
+                logger.debug("-" * 80)
+                g2 = g.umap(kind=kind, y=target, X=use_col)
 
                 self.cases_test_graph(g2, kind=kind, df=df)
 
@@ -224,11 +222,11 @@ class TestUMAPAIMethods(TestUMAPMethods):
             for scale in np.linspace(0, 6, 8):  # six sigma in 8 steps
                 g3 = g2.filter_edges(scale=scale)
                 shape = g3._edges.shape
-                print("*" * 90)
-                print(
+                logger.debug("*" * 90)
+                logger.debug(
                     f"{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}"
                 )
-                print("-" * 80)
+                logger.debug("-" * 80)
                 self.assertGreaterEqual(shape[0], last_shape)
                 last_shape = shape[0]
 

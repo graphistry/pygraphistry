@@ -18,12 +18,16 @@ from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 
+logger = logging.getLogger(__name__)
+
 maybe_cudf = None
 try:
     import cudf
     maybe_cudf = cudf
 except ImportError:
     1
+except RuntimeError:
+    logger.warning('Runtime error import cudf: Available but failed to initialize', exc_info=True)
 
 maybe_dask_dataframe = None
 try:
@@ -38,6 +42,8 @@ try:
     maybe_dask_cudf = dask_cudf
 except ImportError:
     1
+except RuntimeError:
+    logger.warning('Runtime error import dask_cudf: Available but failed to initialize', exc_info=True)
 
 maybe_spark = None
 try:
@@ -45,8 +51,6 @@ try:
     maybe_spark = pyspark
 except ImportError:
     1
-
-logger = logging.getLogger('Plotter')
 
 CACHE_COERCION_SIZE = 100
 
@@ -97,6 +101,7 @@ class PlotterBase(Plottable):
         self._source : Optional[str] = None
         self._destination : Optional[str] = None
         self._node : Optional[str] = None
+        self._edge : Optional[str] = None
         self._edge_title : Optional[str] = None
         self._edge_label : Optional[str] = None
         self._edge_color : Optional[str] = None
@@ -287,6 +292,63 @@ class PlotterBase(Plottable):
         res = self.bind()
         res._style = style
         return res
+
+
+    def encode_axis(self, rows=[]):
+        """Render radial and linear axes with optional labels
+
+        :param rows: List of rows - {
+            label: Optional[str],
+            ?r: float,
+            ?x: float,
+            ?y: float,
+            ?internal: true,
+            ?external: true,
+            ?space: true
+        }
+
+        :returns: Plotter
+        :rtype: Plotter
+
+        **Example: Several radial axes**
+            ::
+
+                g.encode_axis([
+                  {'r': 14, 'external': True, 'label': 'outermost'},
+                  {'r': 12, 'external': True},
+                  {'r': 10, 'space': True},
+                  {'r': 8, 'space': True},
+                  {'r': 6, 'internal': True},
+                  {'r': 4, 'space': True},
+                  {'r': 2, 'space': True, 'label': 'innermost'}
+                ])
+
+        **Example: Several horizontal axes**
+            ::
+
+                g.encode_axis([
+                  {"label": "a",  "y": 2, "internal": True },
+                  {"label": "b",  "y": 40, "external": True, "width": 20, "bounds": {"min": 40, "max": 400}},
+                ])
+
+        """
+
+        complex_encodings = self._complex_encodings or {}
+        if 'current' not in complex_encodings:
+            complex_encodings['current'] = {}
+        if 'default' not in complex_encodings:
+            complex_encodings['default'] = {}
+        complex_encodings['default']["pointAxisEncoding"] = {
+            "graphType": "point",
+            "encodingType": "axis",
+            "variation": "categorical",
+            "attribute": "degree",
+            "rows": rows
+        }
+
+        out = self.bind()
+        out._complex_encodings = complex_encodings
+        return out
 
 
     def encode_point_color(self, column,
@@ -721,7 +783,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def bind(self, source=None, destination=None, node=None,
+    def bind(self, source=None, destination=None, node=None, edge=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
              edge_source_color=None, edge_destination_color=None,
              point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
@@ -739,6 +801,9 @@ class PlotterBase(Plottable):
 
         :param node: Attribute containing a node's ID
         :type node: str
+
+        :param edge: Attribute containing an edge's ID
+        :type edge: str
 
         :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
         :type edge_title: str
@@ -826,6 +891,7 @@ class PlotterBase(Plottable):
         res._source = source or self._source
         res._destination = destination or self._destination
         res._node = node or self._node
+        res._edge = edge or self._edge
 
         res._edge_title = edge_title or self._edge_title
         res._edge_label = edge_label or self._edge_label
@@ -941,7 +1007,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def edges(self, edges: Union[Callable, Any], source=None, destination=None, *args, **kwargs) -> Plottable:
+    def edges(self, edges: Union[Callable, Any], source=None, destination=None, edge=None, *args, **kwargs) -> Plottable:
         """Specify edge list data and associated edge attribute values.
         If a callable, will be called with current Plotter and whatever positional+named arguments
 
@@ -965,9 +1031,28 @@ class PlotterBase(Plottable):
             ::
 
                 import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0], 'id': [0, 1, 2]})
+                graphistry
+                    .bind(source='src', destination='dst', edge='id')
+                    .edges(df)
+                    .plot()
+
+        **Example**
+            ::
+
+                import graphistry
                 df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 graphistry
                     .edges(df, 'src', 'dst')
+                    .plot()
+
+        **Example**
+            ::
+
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0], 'id': [0, 1, 2]})
+                graphistry
+                    .edges(df, 'src', 'dst', 'id')
                     .plot()
 
         **Example**
@@ -982,7 +1067,7 @@ class PlotterBase(Plottable):
                 graphistry
                     .edges(df, 'src', 'dst')
                     .edges(sample_edges, n=2)
-                    .edges(sample_edges, None, None, 2)  # equivalent
+                    .edges(sample_edges, None, None, None, 2)  # equivalent
                     .plot()
 
         """
@@ -993,6 +1078,8 @@ class PlotterBase(Plottable):
             base = base.bind(source=source)
         if not (destination is None):
             base = base.bind(destination=destination)
+        if edge is not None:
+            base = base.bind(edge=edge)
 
         if callable(edges):
             edges2 = edges(base, *args, **kwargs)
@@ -1629,7 +1716,10 @@ class PlotterBase(Plottable):
                 
                 try:
                     #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
-                    hashed = hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
+                    hashed = (
+                        hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
+                        + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
+                    )
                 except TypeError:
                     logger.warn('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.'
                                 'This is fine, but for speedups around skipping re-uploads of previously seen tables, '
@@ -1660,7 +1750,10 @@ class PlotterBase(Plottable):
             hashed = None
             if memoize:
                 #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
-                hashed = hashlib.sha256(table.hash_columns().tobytes()).hexdigest()
+                hashed = (
+                    hashlib.sha256(table.hash_columns().tobytes()).hexdigest()
+                    + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
+                )
                 try:
                     if hashed in PlotterBase._cudf_hash_to_arrow:
                         logger.debug('cudf->arrow memoization hit: %s', hashed)
@@ -1746,8 +1839,16 @@ class PlotterBase(Plottable):
 
         from .pygraphistry import PyGraphistry
 
+        def flatten_categorical(df):
+            # Avoid cat_col.where(...)-related exceptions
+            df2 = df.copy()
+            for c in df:
+                if (df[c].dtype.name == 'category'):
+                    df2[c] = df[c].astype(df[c].cat.categories.dtype)
+            return df2
+
         (elist, nlist) = self._bind_attributes_v1(edges, nodes)
-        edict = elist.where((pd.notnull(elist)), None).to_dict(orient='records')
+        edict = flatten_categorical(elist).where(pd.notnull(elist), None).to_dict(orient='records')
 
         bindings = {'idField': self._node or PlotterBase._defaultNodeId,
                     'destinationField': self._destination, 'sourceField': self._source}
@@ -1755,7 +1856,7 @@ class PlotterBase(Plottable):
                    'bindings': bindings, 'type': 'edgelist', 'graph': edict}
 
         if nlist is not None:
-            ndict = nlist.where((pd.notnull(nlist)), None).to_dict(orient='records')
+            ndict = flatten_categorical(nlist).where(pd.notnull(nlist), None).to_dict(orient='records')
             dataset['labels'] = ndict
         return dataset
 

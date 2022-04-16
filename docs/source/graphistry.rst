@@ -1,8 +1,11 @@
 graphistry package
 ==================
+.. toctree::
+   :maxdepth: 3
 
-Submodules
-----------
+   graphistry.compute
+   graphistry.layout
+
 
 graphistry.plotter module
 -------------------------

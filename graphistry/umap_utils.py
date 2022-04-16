@@ -1,10 +1,16 @@
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
-from graphistry.Plottable import Plottable
 import numpy as np, pandas as pd
 from time import time
 from . import constants as config
 from .ai_utils import setup_logger
-from .feature_utils import prune_weighted_edges_df_and_relabel_nodes, FeatureMixin
+from .feature_utils import (
+    FeatureEngine,
+    FeatureMixin,
+    XSymbolic,
+    prune_weighted_edges_df_and_relabel_nodes,
+    resolve_feature_engine,
+    YSymbolic
+)
 
 logger = setup_logger(name=__name__, verbose=True)
 
@@ -20,9 +26,11 @@ else:
 
 import_exn = None
 try:
-    import umap
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore",category=ImportWarning)
+        import umap
     has_dependancy = True
-    
 except ModuleNotFoundError as e:
     import_exn = e
     has_dependancy = False
@@ -154,7 +162,7 @@ class UMAPMixin(MIXIN_BASE):
         return self
 
     # FIXME rename to umap_fit_transform
-    def fit_transform(self, X: np.ndarray, y: Union[np.ndarray, None] = None):
+    def fit_transform(self, X: Any, y: Union[Any, None] = None):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         self.fit(X, y)
@@ -163,13 +171,12 @@ class UMAPMixin(MIXIN_BASE):
     def umap(
         self,
         kind: str = "nodes",
-        use_columns: Optional[List] = None,
-        featurize: bool = False,
+        feature_engine: FeatureEngine = "auto",
         encode_position: bool = True,
         encode_weight: bool = True,
         inplace: bool = False,
-        X: np.ndarray = None,
-        y: Optional[Union[np.ndarray, List]] = None,
+        X: XSymbolic = None,
+        y: YSymbolic = None,
         scale: float = 0.1,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
@@ -190,8 +197,7 @@ class UMAPMixin(MIXIN_BASE):
         :param kind: `nodes` or `edges` or None. If None, expects explicit X, y (optional) matrices, and will Not
                 associate them to nodes or edges. If X, y (optional) is given, with kind = [nodes, edges],
                 it will associate new matrices to nodes or edges attributes.
-        :param use_columns: List of columns to use for featurization if featurization hasn't been applied.
-        :param featurize: Whether to re-featurize, or use previous features, and just slice into appropriate columns
+        :param feature_engine: How to encode data ("none", "auto", "pandas", "dirty_cat", "torch")
         :param encode_weight: if True, will set new edges_df from implicit UMAP, default True.
         :param encode_position: whether to set default plotting bindings -- positions x,y from umap for .plot()
         :param X: ndarray of features
@@ -234,6 +240,8 @@ class UMAPMixin(MIXIN_BASE):
 
         res._umap = umap.UMAP(**umap_kwargs)
 
+        resolved_feature_engine = resolve_feature_engine(feature_engine)
+
         if kind == "nodes":
 
             # FIXME not sure if this is preserving the intent
@@ -249,10 +257,16 @@ class UMAPMixin(MIXIN_BASE):
                 nodes = res._nodes[res._node].values
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
-            X, y, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(
-                X, y, use_columns, refeaturize=featurize
+            (
+                X_resolved,
+                y,
+                res
+            ) = res._featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
+                X,
+                y,
+                feature_engine=resolved_feature_engine
             )
-            xy = scale_xy * res.fit_transform(X, y)
+            xy = scale_xy * res.fit_transform(X_resolved, y)
             res._weighted_adjacency_nodes = res._weighted_adjacency
             res._node_embedding = xy
             # TODO add edge filter so graph doesn't have double edges
@@ -265,10 +279,16 @@ class UMAPMixin(MIXIN_BASE):
                 )
             )
         elif kind == "edges":
-            X, y, res = res._featurize_or_get_edges_dataframe_if_X_is_None(
-                X, y, use_columns, refeaturize=featurize
+            (
+                X_resolved,
+                y,
+                res
+            ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
+                X,
+                y,
+                feature_engine=resolved_feature_engine
             )
-            xy = scale_xy * res.fit_transform(X, y)
+            xy = scale_xy * res.fit_transform(X_resolved, y)
             res._weighted_adjacency_edges = res._weighted_adjacency
             res._edge_embedding = xy
             res._weighted_edges_df_from_edges = (
@@ -349,12 +369,15 @@ class UMAPMixin(MIXIN_BASE):
         return res
 
 
-    def filter_edges(
+    def filter_weighted_edges(
         self,
         scale: float = 0.1,
         index_to_nodes_dict: Optional[Dict] = None,
         inplace: bool = False,
     ):
+        """
+        Filter edges based on _weighted_edges_df (ex: from .umap())
+        """
         if inplace:
             res = self
         else:
@@ -369,7 +392,7 @@ class UMAPMixin(MIXIN_BASE):
                 )
             )
         else:
-            logger.error("UMAP has not been run, run g.featurize(...).umap(...) first")
+            raise RuntimeError("UMAP has not been run, run g.umap(...) first")
 
         # write new res._edges df
         res = self._bind_xy_from_umap(

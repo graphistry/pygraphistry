@@ -44,6 +44,8 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     PyGraphistry,
 )
 
+from graphistry.compute import ast
+
 from ._version import get_versions
 
 __version__ = get_versions()["version"]
