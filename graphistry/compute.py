@@ -1,6 +1,5 @@
-import logging
+import logging, copy
 from typing import Any, List, Optional, Union, TYPE_CHECKING
-
 import pandas as pd
 
 from .Plottable import Plottable
@@ -364,7 +363,6 @@ class ComputeMixin(MIXIN_BASE):
         column: UnionStrInt,
         self_edges: bool = False,
         unwrap: bool = False,
-        remove_collapse: bool = False,
     ):
         """
             Topology Aware collapse by given column attribute starting at `node`
@@ -381,8 +379,9 @@ class ComputeMixin(MIXIN_BASE):
         """
         from .collapse import collapse_by
 
-        # self.collapse.__doc__ = collapse_by.__doc__
-        g = self.bind()
+        #__doc__ += collapse_by.__doc__
+        res = copy.deepcopy(self.bind())
+        g = res
         # TODO FIXME CHECK SELF LOOPS?
         return collapse_by(
             g,
@@ -393,5 +392,4 @@ class ComputeMixin(MIXIN_BASE):
             seen={},
             self_edges=self_edges,
             unwrap=unwrap,
-            remove_collapse=remove_collapse,
         )

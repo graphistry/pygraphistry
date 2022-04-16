@@ -1,12 +1,33 @@
 from typing import Union, Optional, List
 import pandas as pd
 import numpy as np
+import logging
 
 from .PlotterBase import Plottable
+
+logger = logging.getLogger("collapse")
+logger.setLevel(logging.DEBUG)
+
+# create console handler and set level to debug
+# best for development or debugging
+consoleHandler = logging.StreamHandler()
+consoleHandler.setLevel(logging.DEBUG)
+
+# create formatter
+formatter = logging.Formatter(': %(message)s')
+
+# add formatter to ch
+consoleHandler.setFormatter(formatter)
+
+# add ch to logger
+logger.addHandler(consoleHandler)
 
 COLLAPSE_NODE = "collapse_node"
 COLLAPSE_SRC = "collapse_src"
 COLLAPSE_DST = "collapse_dst"
+FINAL_NODE = 'final_node'
+FINAL_SRC = 'final_src'
+FINAL_DST = 'final_dst'
 WRAP = "~"
 DEFAULT_VAL = "None"
 VERBOSE = True
@@ -73,7 +94,7 @@ def has_edge(
 
 
 def get_edges_of_node(
-    g: Plottable, node_id: UnionStrInt, directed: bool = True, hops: int = 1
+    g: Plottable, node_id: UnionStrInt, outgoing_edges: bool = True, hops: int = 1
 ):
     """
         Gets edges of node at k-hops from node
@@ -82,13 +103,13 @@ def get_edges_of_node(
 
     :param g: graphistry instance
     :param node_id: `node` to find edges from
-    :param directed: bool, if true, finds all outgoing edges of `node`, default True
+    :param outgoing_edges: bool, if true, finds all outgoing edges of `node`, default True
     :param hops: the number of hops from `node` to take, default = 1
     :returns DataFrame of edges
     """
     _, _, src, dst, _ = unpack(g)
     g2 = get_children(g, node_id, hops=hops)
-    if directed:
+    if outgoing_edges:
         edges = g2._edges[dst].drop_duplicates()
     else:
         edges = pd.concat([g2._edges[src], g2._edges[dst]]).drop_duplicates()
@@ -116,7 +137,7 @@ def get_edges_in_out_cluster(
     """
     g2 = get_children(g, node_id, hops=1)
     e = get_edges_of_node(
-        g, node_id, directed=directed
+        g, node_id, outgoing_edges=directed
     )  # False just includes the src node
     ndf, edf, src, dst, node = unpack(g2)
     tdf = ndf[ndf[column] == attribute]
@@ -127,12 +148,12 @@ def get_edges_in_out_cluster(
         incluster = set(tdf.node.values).intersection(set(e.values))
         if VERBOSE:
             if len(outcluster):
-                print(
+                logger.info(
                     f"{outcluster} are edges *not* in [[ {column}:{attribute} ]] for node {node_id}"
                 )
                 # get directionality
             if len(incluster):
-                print(
+                logger.info(
                     f"{incluster} are edges in [[ {column}:{attribute} ]] for node {node_id}"
                 )
         return outcluster, incluster, tdf
@@ -257,7 +278,7 @@ def get_new_node_name(
         new_parent_name = melt(ndf, parent)
         new_parent_name = f"{new_parent_name} {wrap_key(child)}"
     if VERBOSE:
-        print(
+        logger.info(
             f"Renaming (parent:{parent}:{pkey}, child:{child}:{ckey})  ->  {new_parent_name}"
         )
     return reduce_key(new_parent_name)
@@ -297,7 +318,7 @@ def collapse_nodes_and_edges(
 
     g._edges = edf
     g._nodes = ndf
-    return g
+    #return g
 
 
 def has_property(
@@ -331,19 +352,19 @@ def check_default_columns_present_and_coerce_to_string(g: Plottable):
     if COLLAPSE_NODE not in ndf.columns:
         ndf[COLLAPSE_NODE] = DEFAULT_VAL
         ndf[node] = ndf[node].astype(str)
-        print(f"Converted ndf to type({type(ndf[node].values[0])})")
+        logger.info(f"Converted ndf to type({type(ndf[node].values[0])})")
         g._nodes = ndf
     if COLLAPSE_SRC not in edf.columns:
         edf[COLLAPSE_SRC] = DEFAULT_VAL
         edf[COLLAPSE_DST] = DEFAULT_VAL
         edf[src] = edf[src].astype(str)
         edf[dst] = edf[dst].astype(str)
-        print(f"Converted edf to type({type(edf[src].values[0])})")
+        logger.info(f"Converted edf to type({type(edf[src].values[0])})")
         g._edges = edf
     return g
 
 
-def collapse(
+def _collapse(
     g: Plottable,
     child: UnionStrInt,
     parent: UnionStrInt,
@@ -378,7 +399,6 @@ def collapse(
     :param column: column in nodes dataframe to collapse over.
     :returns graphistry instance with collapsed nodes.
     """
-    g = check_default_columns_present_and_coerce_to_string(g)
 
     compute_key = f"{parent} {child}"
 
@@ -393,56 +413,58 @@ def collapse(
             tkey = f"{parent} {parent}"  # it will reduce this to `parent` but can add to `seen`
             if tkey not in compute_key:  # its love!
                 seen[tkey] = 1
-                g = collapse_nodes_and_edges(g, parent, parent)
+                collapse_nodes_and_edges(g, parent, parent)
             if has_property(g, child, attribute, column):  # if (T, T)
                 if VERBOSE:
-                    print("-" * 80)
-                    print(
+                    logger.info("-" * 80)
+                    logger.info(
                         f" ** [ parent: {parent}, child: {child} ] both have property"
                     )
-                g = collapse_nodes_and_edges(
+                collapse_nodes_and_edges(
                     g, parent, child
                 )  # will make a new parent off of parent, child names
                 # add to seen
                 seen[compute_key] = 1
                 for e in get_edges_of_node(
-                    g, parent, directed=True, hops=1
+                    g, parent, outgoing_edges=True, hops=1
                 ).values:  # False just includes the child node and goes into infinite loop when parent = child
-                    collapse(
+                    _collapse(
                         g, e, child, attribute, column, seen
                     )  # now child is the parent, and the edges are the start node
         # else do nothing collapse-y to parent, move on to child
         else:  # if (F, *)
             #  do nothing to child, parent is child, and child is edge and recurse
-            for e in get_edges_of_node(g, child, directed=True, hops=1).values:
+            for e in get_edges_of_node(g, child, outgoing_edges=True, hops=1).values:
                 if VERBOSE:
-                    print(
+                    logger.info(
                         f" -- Parent {parent} does not have property, looking at node <[ {e} from {child} ]>"
                     )
-                collapse(
+                if (e == child) and (parent == child):
+                    # get it unstuck
+                    return g
+                _collapse(
                     g, e, child, attribute, column, seen
                 )  # now child is the parent, and the edges are the start node
     return g
 
-
-def melt_remaining(g):
-    """Sometimes traversal leaves stragglers that weren't melted
-    :returns"""
-    ndf, edf, src, dst, node = unpack(g)
-    # get all COLLAPSE nodes
-    collapse_nodes = np.unique(
-        ndf[ndf[COLLAPSE_NODE] != DEFAULT_VAL][COLLAPSE_NODE].values
-    )
-    for supernode in collapse_nodes:
-        for node in supernode.split():
-            pass
+#
+# def melt_remaining(g):
+#     """Sometimes traversal leaves stragglers that weren't melted
+#     :returns"""
+#     ndf, edf, src, dst, node = unpack(g)
+#     # get all COLLAPSE nodes
+#     collapse_nodes = np.unique(
+#         ndf[ndf[COLLAPSE_NODE] != DEFAULT_VAL][COLLAPSE_NODE].values
+#     )
+#     for supernode in collapse_nodes:
+#         for node in supernode.split():
+#             pass
 
 
 def normalize_graph(
     g: Plottable,
     self_edges: bool = False,
     unwrap: bool = False,
-    remove_collapse: bool = False,
 ):
     """
         Final step after collapse traversals are done, removes duplicates and moves COLLAPSE columns into respective
@@ -453,40 +475,51 @@ def normalize_graph(
     :param g: graphistry instance
     :param self_edges: bool, whether to keep duplicates from ndf, edf, default False
     :param unwrap: bool, whether to unwrap node text with `~`, default True
-    :param remove_collapse: bool, whether to drop COLLAPSE columns from dataframe, default True
     :returns final graphistry instance
     """
 
     ndf, edf, src, dst, node = unpack(g)
 
-    # move the new node names fromo COLLAPSE COL to the node column
-    ndf.loc[ndf[COLLAPSE_NODE] != DEFAULT_VAL, node] = ndf.loc[
+    # we set src and COLLAPSE to FINAL so that we can run algo idempotently and in chain without having to know new node ids
+    # move the new node names from COLLAPSE COL to the FINAL COLS
+    ndf.loc[ndf[COLLAPSE_NODE] != DEFAULT_VAL, FINAL_NODE] = ndf.loc[
         ndf[COLLAPSE_NODE] != DEFAULT_VAL, COLLAPSE_NODE
+    ]
+    # set the untouched nodes to FINAL
+    ndf.loc[ndf[COLLAPSE_NODE] == DEFAULT_VAL, FINAL_NODE] = ndf.loc[
+        ndf[COLLAPSE_NODE] == DEFAULT_VAL, node
     ]
     ndf = ndf.drop_duplicates()
 
-    edf.loc[edf[COLLAPSE_SRC] != DEFAULT_VAL, src] = edf.loc[
+    # set the new data in FINAL edges
+    edf.loc[edf[COLLAPSE_SRC] != DEFAULT_VAL, FINAL_SRC] = edf.loc[
         edf[COLLAPSE_SRC] != DEFAULT_VAL, COLLAPSE_SRC
     ]
-    edf.loc[edf[COLLAPSE_DST] != DEFAULT_VAL, dst] = edf.loc[
+    edf.loc[edf[COLLAPSE_DST] != DEFAULT_VAL, FINAL_DST] = edf.loc[
         edf[COLLAPSE_DST] != DEFAULT_VAL, COLLAPSE_DST
     ]
+    # set the old data in FINAL edges
+    edf.loc[edf[COLLAPSE_SRC] == DEFAULT_VAL, FINAL_SRC] = edf.loc[
+        edf[COLLAPSE_SRC] == DEFAULT_VAL, src
+    ]
+    edf.loc[edf[COLLAPSE_DST] == DEFAULT_VAL, FINAL_DST] = edf.loc[
+        edf[COLLAPSE_DST] == DEFAULT_VAL, dst
+    ]
+    
     if not self_edges:
         edf = edf.drop_duplicates()
 
-    if unwrap:
-        ndf[node] = ndf[node].astype(str).apply(lambda x: unwrap_key(x))
-        edf[src] = edf[src].astype(str).apply(lambda x: unwrap_key(x))
-        edf[dst] = edf[dst].astype(str).apply(lambda x: unwrap_key(x))
+    if unwrap: # this is only to make things more readable.
+        ndf[FINAL_NODE] = ndf[FINAL_NODE].astype(str).apply(lambda x: unwrap_key(x))
+        edf[FINAL_SRC] = edf[FINAL_SRC].astype(str).apply(lambda x: unwrap_key(x))
+        edf[FINAL_DST] = edf[FINAL_DST].astype(str).apply(lambda x: unwrap_key(x))
 
-    if remove_collapse:
-        # remove collapse columns in ndf, edf
-        ndf = ndf.drop(columns=[COLLAPSE_NODE])
-        edf = edf.drop(columns=[COLLAPSE_SRC, COLLAPSE_DST])
-
-    # set the dataframes
+    # set the dataframes according to FINAL nodes
     g._nodes = ndf
     g._edges = edf
+    g._node = FINAL_NODE
+    g._source = FINAL_SRC
+    g._destination = FINAL_DST
     return g
 
 
@@ -499,7 +532,7 @@ def collapse_by(
     seen: dict,
     self_edges: bool = False,
     unwrap: bool = False,
-    remove_collapse: bool = False,
+    verbose: bool = True
 ):
     """
         Main call in collapse.py, collapses nodes and edges by attribute, and returns normalized graphistry object.
@@ -511,36 +544,42 @@ def collapse_by(
     :param parent: parent node to start traversal, in main call, this is set to child.
     :param attribute: attribute to collapse by
     :param column: column in nodes dataframe to collapse over.
+    :param seen: dict of previously collapsed pairs -- {n1, n2) is seen as different from (n2, n1)
+    :param verbose: bool, default True
     :returns graphistry instance with collapsed and normalized nodes.
     """
     from time import time
+    
+    g = check_default_columns_present_and_coerce_to_string(g)
 
     n_edges = len(g._edges)
-    complexity_min = int(2 * n_edges * np.log(n_edges))
-    complexity_max = int(2 * n_edges ** (3 / 2))
-    if VERBOSE:
-        print("-" * 100)
-        print(
-            f"This Algorithm runs approximately between 2*n_edges*log(n_edges) and 2*n_edges**(3/2) in un-normalized units"
+    complexity_min = int(n_edges * np.log(n_edges))
+    complexity_max = int(n_edges ** (3 / 2))
+    if VERBOSE or verbose:
+        logger.info("-" * 108)
+        logger.info(
+            f"This Algorithm runs approximately between n_edges*log(n_edges) and n_edges**(3/2) in un-normalized units"
         )
-        print(
+        logger.info(
             f"Hence, in this case, between O({complexity_min/n_edges:.2f} - {complexity_max/n_edges:.2f}) for "
             f"this graph normalized by {n_edges} edges"
         )
-        print(
+        logger.info(
             "It is not recommended for large graphs -- one can expect a modern laptop CPU to scan 1-6k edges per minute"
         )
-        print(f"Here we expect collapse to run in {n_edges/1000:.3f} minutes")
-        print("*" * 100)
+        logger.info(f"Here we expect collapse to run in under {n_edges/1000:.3f} minutes")
+        logger.info("*" * 100)
     t = time()
-    collapse(g, parent, start_node, attribute, column, seen)
+    
+    _collapse(g, parent, start_node, attribute, column, seen)
+    
     t2 = time()
     delta_mins = (t2 - t) / 60
-    if VERBOSE:
-        print("-" * 80)
-        print(
+    if VERBOSE or verbose:
+        logger.info("-" * 80)
+        logger.info(
             f"Total Collapse took {delta_mins:.2f} minutes or {n_edges/delta_mins:.2f} edges per minute"
         )
     return normalize_graph(
-        g, self_edges=self_edges, unwrap=unwrap, remove_collapse=remove_collapse
+        g, self_edges=self_edges, unwrap=unwrap
     )
