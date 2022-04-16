@@ -250,6 +250,15 @@ def melt(ndf: pd.DataFrame, node: UnionStrInt) -> str:
         topkey = reduce_key(topkey)
     return topkey
 
+def check_has_set(ndf, parent, child):
+
+    ckey = in_cluster_store_keys(ndf, child)
+    pkey = in_cluster_store_keys(ndf, parent)
+
+    if ckey and pkey:
+        return True
+    return False
+
 
 def get_new_node_name(
     ndf: pd.DataFrame, parent: UnionStrInt, child: UnionStrInt
@@ -274,7 +283,6 @@ def get_new_node_name(
         new_parent_name = f"{new_parent_name} {wrap_key(parent)}"
 
     else:  # if not, then append child to parent as the start of a new cluster group
-        # might have to escape parent and child if node names are dumb eg, 'this value key'
         new_parent_name = melt(ndf, parent)
         new_parent_name = f"{new_parent_name} {wrap_key(child)}"
     if VERBOSE:
@@ -282,6 +290,7 @@ def get_new_node_name(
             f"Renaming (parent:{parent}:{pkey}, child:{child}:{ckey})  ->  {new_parent_name}"
         )
     return reduce_key(new_parent_name)
+
 
 
 def collapse_nodes_and_edges(
@@ -304,7 +313,7 @@ def collapse_nodes_and_edges(
     """
 
     ndf, edf, src, dst, node = unpack(g)
-
+    
     new_parent_name = get_new_node_name(ndf, parent, child)
 
     ndf.loc[ndf[node] == parent, COLLAPSE_NODE] = new_parent_name
@@ -318,7 +327,6 @@ def collapse_nodes_and_edges(
 
     g._edges = edf
     g._nodes = ndf
-    #return g
 
 
 def has_property(
@@ -401,10 +409,7 @@ def _collapse(
     """
 
     compute_key = f"{parent} {child}"
-
-    # parent = str(parent)
-    # child = str(child)
-
+        
     if compute_key in seen:  # it has already traversed this path, skip
         return g
     else:
@@ -439,26 +444,15 @@ def _collapse(
                     logger.info(
                         f" -- Parent {parent} does not have property, looking at node <[ {e} from {child} ]>"
                     )
+
                 if (e == child) and (parent == child):
                     # get it unstuck
                     return g
+                
                 _collapse(
                     g, e, child, attribute, column, seen
                 )  # now child is the parent, and the edges are the start node
     return g
-
-#
-# def melt_remaining(g):
-#     """Sometimes traversal leaves stragglers that weren't melted
-#     :returns"""
-#     ndf, edf, src, dst, node = unpack(g)
-#     # get all COLLAPSE nodes
-#     collapse_nodes = np.unique(
-#         ndf[ndf[COLLAPSE_NODE] != DEFAULT_VAL][COLLAPSE_NODE].values
-#     )
-#     for supernode in collapse_nodes:
-#         for node in supernode.split():
-#             pass
 
 
 def normalize_graph(

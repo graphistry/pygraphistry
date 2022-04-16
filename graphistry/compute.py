@@ -363,11 +363,13 @@ class ComputeMixin(MIXIN_BASE):
         column: UnionStrInt,
         self_edges: bool = False,
         unwrap: bool = False,
+        verbose: bool = False
     ):
         """
             Topology Aware collapse by given column attribute starting at `node`
 
-            Traverses Directed Graph from start node `node` and collapses clusters of nodes that share the same property
+            Traverses Directed Graph from start node `node` and collapses clusters of nodes that share
+             the same property so that topology is preserved.
 
         ----------------------------------------------------------------------------------------------------------------
 
@@ -375,11 +377,12 @@ class ComputeMixin(MIXIN_BASE):
         :param attribute: the given `attribute` to collapse over within `column`
         :param column: the `column` of nodes DataFrame that contains `attribute` to collapse over
         :returns a new Graphistry instance with nodes and edges DataFrame containing collapsed
-                nodes and edges given by column attribute
+                nodes and edges given by column attribute -- nodes and edges DataFrames contain six new columns
+                `collapse_{node | edges}` and `final_{node | edges}`, while original (node, src, dst) columns
+                are left untouched
         """
         from .collapse import collapse_by
 
-        #__doc__ += collapse_by.__doc__
         res = copy.deepcopy(self.bind())
         g = res
         # TODO FIXME CHECK SELF LOOPS?
@@ -392,4 +395,5 @@ class ComputeMixin(MIXIN_BASE):
             seen={},
             self_edges=self_edges,
             unwrap=unwrap,
+            verbose=verbose
         )
