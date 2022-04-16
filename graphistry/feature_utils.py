@@ -953,26 +953,6 @@ class FeatureMixin(MIXIN_BASE):
 
     def __init__(self, *args, **kwargs):
         pass
-        # super().__init__()
-        # ComputeMixin.__init__(self, *args, **kwargs)
-        # FeatureMixin.__init__(self, *args, **kwargs)
-        # UMAPMixin.__init__(self, *args, **kwargs)
-        self.params = {}
-        self._params = namedtuple(
-            "parameters",
-            [
-                "kind",
-                "use_scaler",
-                "cardinality_threshold",
-                "cardinality_threshold_target",
-                "n_topics",
-                "confidence",
-                "min_words",
-                "model_name",
-                "remove_node_column",
-                "feature_engine",
-            ],
-        )
 
     def _node_featurizer(self, *args, **kwargs):
         return process_textual_or_other_dataframes(*args, **kwargs)
@@ -1039,19 +1019,6 @@ class FeatureMixin(MIXIN_BASE):
         res._node_target_encoder = label_vec
         res._node_imputer = imputer
         res._node_scaler = scaler
-
-        res.params["nodes"] = self._params(
-            "nodes",
-            use_scaler,
-            cardinality_threshold,
-            cardinality_threshold_target,
-            n_topics,
-            confidence,
-            min_words,
-            model_name,
-            remove_node_column,
-            feature_engine,
-        )
 
         return res
 
@@ -1122,19 +1089,6 @@ class FeatureMixin(MIXIN_BASE):
         res._edge_target_encoder = label_vec
         res._edge_imputer = imputer
         res._edge_scaler = scaler
-
-        res.params["edges"] = self._params(
-            "edges",
-            use_scaler,
-            cardinality_threshold,
-            cardinality_threshold_target,
-            n_topics,
-            confidence,
-            min_words,
-            model_name,
-            "None",
-            feature_engine,
-        )
 
         return res
 
