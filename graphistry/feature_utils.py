@@ -1037,6 +1037,13 @@ class FeatureMixin(MIXIN_BASE):
     ):
         # TODO move the columns select after the featurizer
         X_resolved = resolve_X(self._edges, X)
+        if self._source not in X_resolved:
+            logger.debug('adding g._source to edge features')
+            X_resolved = X_resolved.assign(**{self._source: self._edges[self._source]})
+        if self._destination not in X_resolved:
+            logger.debug('adding g._destination to edge features')
+            X_resolved = X_resolved.assign(**{self._destination: self._edges[self._destination]})
+
         y_resolved = resolve_y(self._edges, y)
 
         edf = features_without_target(X_resolved, y)
