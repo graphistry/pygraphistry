@@ -1144,6 +1144,7 @@ class FeatureMixin(MIXIN_BASE):
     def featurize(
         self,
         kind: str = "nodes",
+        X: XSymbolic = None,
         y: YSymbolic = None,
         use_scaler: Optional[str] = "robust",
         cardinality_threshold: int = 40,
@@ -1160,6 +1161,7 @@ class FeatureMixin(MIXIN_BASE):
             Featurize Nodes or Edges of the Graph.
 
         :param kind: specify whether to featurize `nodes` or `edges`
+        :param X: Optional input, default None. If symbolic, evaluated against self data based on kind.
         :param y: Optional Target, default None. If .featurize came with a target, it will use that target.
         :param remove_node_column:
         :param use_scaler:
@@ -1177,7 +1179,7 @@ class FeatureMixin(MIXIN_BASE):
 
         if kind == "nodes":
             res = res._featurize_nodes(
-                X=None,
+                X=X,
                 y=resolve_y(self._nodes, y),
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
@@ -1191,7 +1193,7 @@ class FeatureMixin(MIXIN_BASE):
             )
         elif kind == "edges":
             res = res._featurize_edges(
-                X=None,
+                X=X,
                 y=resolve_y(self._edges, y),
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,

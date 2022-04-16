@@ -358,7 +358,7 @@ class TestFeatureMethods(unittest.TestCase):
                 logger.debug(f"{value}")
                 logger.debug("-" * 80)
                 g2 = g.featurize(
-                    kind=kind, y=target, use_columns=use_col, model_name=model_avg_name
+                    kind=kind, X=use_col, y=target, model_name=model_avg_name
                 )
 
                 self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
