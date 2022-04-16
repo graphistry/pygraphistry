@@ -746,7 +746,7 @@ def process_dirty_dataframes(
         data_encoder = None
         logger.debug("*Given DataFrame seems to be empty")
 
-    if y is not None and feature_engine != "none":
+    if y is not None and len(y.columns) > 0:
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
         label_encoder = SuperVectorizer(
@@ -765,11 +765,8 @@ def process_dirty_dataframes(
         logger.debug(
             f"--Fitting SuperVectorizer on TARGET took {(time()-t2)/60:.2f} minutes\n"
         )
-    elif y is not None:
-        if not is_dataframe_all_numeric(y):
-            raise ValueError('Target most have all numeric columns or set feature_engine="auto"')
-        else:
-            y_enc = y
+    else:
+        y_enc = y
 
     return X_enc, y_enc, data_encoder, label_encoder, imputer, scaler
 
@@ -1077,6 +1074,8 @@ class FeatureMixin(MIXIN_BASE):
 
         edf = features_without_target(X_resolved, y)
 
+        res = self.bind()
+
         if feature_engine == "none":
             X_enc = edf.select_dtypes(include=np.number)
             y_enc = y_resolved
@@ -1089,8 +1088,6 @@ class FeatureMixin(MIXIN_BASE):
         else:
             assert_imported()
             
-            res = self.bind()
-
             if self._source is None:
                 raise ValueError('Must have a source column to featurize edges, try g.bind(source="my_col") or g.edges(df, source="my_col")')
             
@@ -1210,6 +1207,7 @@ class FeatureMixin(MIXIN_BASE):
         if not inplace:
             return res
 
+    #FIXME unsafe, should be more of a checkable memoization
     def _featurize_or_get_nodes_dataframe_if_X_is_None(
         self,
         X: XSymbolic = None,
@@ -1265,6 +1263,7 @@ class FeatureMixin(MIXIN_BASE):
         )  # now we are guaranteed to have node feature and target matrices.
 
 
+    #FIXME unsafe, should be more of a checkable memoization
     def _featurize_or_get_edges_dataframe_if_X_is_None(
         self,
         X: XSymbolic = None,
@@ -1292,6 +1291,9 @@ class FeatureMixin(MIXIN_BASE):
         if not reuse_if_existing:
             res._edge_features = None
             res._edge_target = None
+
+        if reuse_if_existing and res._edge_features is not None:
+            return res._edge_features, res._edge_target, res
 
         res = self._featurize_edges(
             X=X,
