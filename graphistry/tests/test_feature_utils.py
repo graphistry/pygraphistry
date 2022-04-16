@@ -17,9 +17,9 @@ except:
     dirty_cat = Any
     sklearn = Any
 
-import warnings
-
+logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
+logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
 
 model_avg_name = (
     "average_word_embeddings_komninos"  # fastest vectorizer in transformer models
@@ -347,10 +347,10 @@ class TestFeatureMethods(unittest.TestCase):
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
         for use_col in use_cols:
             for target in targets:
-                print("*" * 90)
+                logger.debug("*" * 90)
                 value = [target, use_col]
-                print(f"{value}")
-                print("-" * 80)
+                logger.debug(f"{value}")
+                logger.debug("-" * 80)
                 g2 = g.featurize(
                     kind=kind, y=target, use_columns=use_col, model_name=model_avg_name
                 )

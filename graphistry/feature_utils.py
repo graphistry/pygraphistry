@@ -191,7 +191,7 @@ def features_without_target(
     else:
         logger.warning("Target is not of type(DataFrame) and has no columns")
     if len(remove_cols):
-        logger.info(f"Removing {remove_cols} columns from DataFrame")
+        logger.debug(f"Removing {remove_cols} columns from DataFrame")
         tf = df.drop(columns=remove_cols, errors="ignore")
         return tf
     return df
@@ -208,7 +208,7 @@ def remove_node_column_from_ndf_and_return_ndf(g):
     if g._node is not None:
         node_label = g._node
         if node_label is not None and node_label in g._nodes.columns:
-            logger.info(
+            logger.debug(
                 f"removing node column `{node_label}` so we do not featurize it"
             )
             return g._nodes.drop(columns=[node_label], errors="ignore")
@@ -274,7 +274,7 @@ def group_columns_by_dtypes(df: pd.DataFrame, verbose: bool = True) -> Dict:
     gtypes = {k.name: list(v) for k, v in gtypes.items()}
     if verbose:
         for k, v in gtypes.items():
-            logger.info(f"{k} has {len(v)} members")
+            logger.debug(f"{k} has {len(v)} members")
     return gtypes
 
 
@@ -385,7 +385,7 @@ def check_if_textual_column(
         n_words = df[col].apply(lambda x: len(x.split()) if isinstance(x, str) else 0)
         mean_n_words = n_words.mean()
         if mean_n_words >= min_words:
-            logger.info(
+            logger.debug(
                 f"\n\tColumn `{col}` looks textual with mean number of words {mean_n_words:.2f}"
             )
             return True
@@ -410,7 +410,7 @@ def get_textual_columns(
         if check_if_textual_column(df, col, confidence=confidence, min_words=min_words):
             text_cols.append(col)
     if len(text_cols) == 0:
-        logger.info("No Textual Columns were found")
+        logger.debug("No Textual Columns were found")
     return text_cols
 
 
@@ -441,7 +441,7 @@ def impute_and_scale_matrix(
     :param n_quantiles: if use_scaler = 'quantile', sets the quantile bin size.
     :param output_distribution: if use_scaler = 'quantile', can return distribution as ["normal", "uniform"]
     :param quantile_range: if use_scaler = 'robust', sets the quantile range.
-    :params TODO add kbins desc
+    :param TODO add kbins desc
     :return: scaled array, imputer instances or None, scaler instance or None
     """
     available_preprocessors = ["minmax", "quantile", "zscale", "robust", "kbins"]
@@ -450,7 +450,7 @@ def impute_and_scale_matrix(
     imputer = None
     res = X
     if impute:
-        logger.info("Imputing Values using mean strategy")
+        logger.debug("Imputing Values using mean strategy")
         # impute values
         imputer = SimpleImputer(missing_values=np.nan, strategy="mean")
         imputer = imputer.fit(X)
@@ -481,7 +481,7 @@ def impute_and_scale_matrix(
         )
         return res, imputer, scaler
 
-    logger.info(f"Applying {use_scaler}-Scaling")
+    logger.debug(f"Applying {use_scaler}-Scaling")
     res = scaler.fit_transform(res)
     res = np.round(
         res, decimals=keep_n_decimals
@@ -540,12 +540,12 @@ def encode_textual(
     columns = []
     if text_cols:
         for col in text_cols:
-            logger.info(f"-Calculating Embeddings for column `{col}`")
+            logger.debug(f"-Calculating Embeddings for column `{col}`")
             # coerce to string in case there are ints, floats, nans, etc mixed into column
             emb = model.encode(df[col].astype(str).values)
             columns.extend([f'{col}_{k}' for k in range(emb.shape[1])])
             embeddings = np.c_[embeddings, emb]
-        logger.info(
+        logger.debug(
             f"Encoded Textual data at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per column minute"
         )
 
@@ -590,6 +590,9 @@ def process_textual_or_other_dataframes(
             https://www.sbert.net/docs/pretrained_models.html#sentence-embedding-models
     :return: X_enc, y_enc, data_encoder, label_encoder
     """
+
+    logger.info('process_textual_or_other_dataframes[%s]', feature_engine)
+
     t = time()
     if len(df) == 0 or df.empty:
         logger.warning("DataFrame seems to be Empty")
@@ -602,7 +605,7 @@ def process_textual_or_other_dataframes(
             df, confidence=confidence, min_words=min_words, model_name=model_name
         )
     else:
-        logger.info(f'! Skipping encoding any textual features since dependency {import_text_exn} is not met')
+        logger.debug(f'! Skipping encoding any textual features since dependency {import_text_exn} is not met')
 
     other_df = df.drop(columns=text_cols, errors="ignore")
 
@@ -744,7 +747,7 @@ def process_dirty_dataframes(
 
     if y is not None and feature_engine != "none":
         t2 = time()
-        logger.debug("-Fitting Targets --\n")
+        logger.debug("-Fitting Targets --\n%s", y.columns)
         label_encoder = SuperVectorizer(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold_target,
@@ -812,13 +815,13 @@ def process_edge_dataframes(
     mlb_pairwise_edge_encoder = MultiLabelBinarizer()
     source = edf[src]
     destination = edf[dst]
-    logger.info("Encoding Edges using MultiLabelBinarizer")
+    logger.debug("Encoding Edges using MultiLabelBinarizer")
     T = mlb_pairwise_edge_encoder.fit_transform(zip(source, destination))
     T = 1.0 * T  # coerce to float
-    logger.info(f"-Shape of Edge-2-Edge encoder {T.shape}")
+    logger.debug(f"-Shape of Edge-2-Edge encoder {T.shape}")
 
     other_df = edf.drop(columns=[src, dst])
-    logger.info(
+    logger.debug(
         f"-Rest of DataFrame has columns: {other_df.columns} and is not empty"
         if not other_df.empty
         else f"-Rest of DataFrame has columns: {other_df.columns} and is empty"
@@ -851,7 +854,7 @@ def process_edge_dataframes(
         T = np.c_[T, X_enc.values]
         columns = list(mlb_pairwise_edge_encoder.classes_) + list(other_df.columns)
     else:  # if other_df is empty
-        logger.info("-other_df is empty")
+        logger.debug("-other_df is empty")
         columns = list(mlb_pairwise_edge_encoder.classes_)
 
     if use_scaler:
@@ -861,12 +864,12 @@ def process_edge_dataframes(
             impute=True,
             n_quantiles=100,
             quantile_range=(25, 75),
-            output_distribution="normal",
+            output_distribution="normal"
         )
 
     X_enc = pd.DataFrame(T, columns=columns)
-    logger.info(f"--Created an Edge feature matrix of size {T.shape}")
-    logger.info(f"**The entire Edge encoding process took {(time()-t)/60:.2f} minutes")
+    logger.debug(f"--Created an Edge feature matrix of size {T.shape}")
+    logger.debug(f"**The entire Edge encoding process took {(time()-t)/60:.2f} minutes")
     # get's us close to `process_nodes_dataframe
     # TODO how can I meld mlb and sup_vec??? Difficult as it is not a per column transformer...
     return (
