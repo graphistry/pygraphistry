@@ -409,7 +409,7 @@ def _collapse(
     """
 
     compute_key = f"{parent} {child}"
-        
+    
     if compute_key in seen:  # it has already traversed this path, skip
         return g
     else:
