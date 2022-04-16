@@ -639,7 +639,7 @@ def process_textual_or_other_dataframes(
         )
 
     X_enc = pd.DataFrame(embeddings, columns=columns)
-    logger.info(
+    logger.debug(
         f"--The entire Textual and/or other encoding process took {(time()-t)/60:.2f} minutes"
     )
     return X_enc, y_enc, data_encoder, label_encoder, imputer, scaler

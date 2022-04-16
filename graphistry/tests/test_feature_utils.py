@@ -1,7 +1,7 @@
 # python -m unittest
 from typing import Any
-import copy, datetime as dt, graphistry, numpy as np, os, pandas as pd
-import pytest, unittest
+import copy, datetime as dt, graphistry, logging, numpy as np, os, pandas as pd
+import pytest, unittest, warnings
 
 from graphistry.feature_utils import (
     process_dirty_dataframes,
@@ -9,6 +9,7 @@ from graphistry.feature_utils import (
     remove_internal_namespace_if_present,
     resolve_feature_engine,
     has_min_dependancy,
+    has_dependancy_text
 )
 
 try:
@@ -160,7 +161,7 @@ class TestFeatureProcessors(unittest.TestCase):
             f"Data Target Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
         )
 
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_dependancy_text, reason="requires ai feature dependencies")
     def test_process_dirty_dataframes_scalers(self):
         # test different scalers
         for scaler in ["minmax", "quantile", "zscale", "robust", "kbins"]:
@@ -175,7 +176,7 @@ class TestFeatureProcessors(unittest.TestCase):
             )
             self.cases_tests(x, y, x_enc, y_enc, "scaler", scaler)
 
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_dependancy_text, reason="requires ai feature dependencies")
     def test_process_dirty_dataframes_data_cardinality(self):
         # test different cardinality
         for card in [4, 40, 400]:

@@ -1,5 +1,5 @@
 from typing import Any
-import copy, datetime as dt, graphistry, numpy as np, os, pandas as pd
+import copy, datetime as dt, graphistry, logging, numpy as np, os, pandas as pd
 import pytest, unittest
 
 from graphistry.util import setup_logger
