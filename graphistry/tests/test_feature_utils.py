@@ -165,7 +165,7 @@ class TestFeatureProcessors(unittest.TestCase):
     def test_process_dirty_dataframes_scalers(self):
         # test different scalers
         for scaler in ["minmax", "quantile", "zscale", "robust", "kbins"]:
-            x, y, x_enc, y_enc, imputer, scaler = process_dirty_dataframes(
+            x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=scaler,
@@ -180,7 +180,7 @@ class TestFeatureProcessors(unittest.TestCase):
     def test_process_dirty_dataframes_data_cardinality(self):
         # test different cardinality
         for card in [4, 40, 400]:
-            x, y, x_enc, y_enc, imputer, scaler = process_dirty_dataframes(
+            x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
@@ -195,7 +195,7 @@ class TestFeatureProcessors(unittest.TestCase):
     def test_process_dirty_dataframes_target_cardinality(self):
         # test different target cardinality
         for card in [4, 40, 400]:
-            x, y, x_enc, y_enc, imputer, scaler = process_dirty_dataframes(
+            x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
@@ -209,8 +209,8 @@ class TestFeatureProcessors(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_process_textual_or_other_dataframes_min_words(self):
         # test different target cardinality
-        with self.assertRaises(Exception) as context:
-            x, y, x_enc, y_enc, imputer, scaler = process_textual_or_other_dataframes(
+        with self.assertRaises(Exception) as context: #test that min words needs to be greater than 1
+            x, y, x_enc, y_enc, preproc = process_textual_or_other_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
@@ -232,7 +232,7 @@ class TestFeatureProcessors(unittest.TestCase):
             2,
             4000,
         ]:  # last one should skip encoding, and throw all to dirty_cat
-            x, y, x_enc, y_enc, imputer, scaler = process_textual_or_other_dataframes(
+            x, y, x_enc, y_enc, preproc = process_textual_or_other_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
@@ -305,8 +305,7 @@ class TestFeatureMethods(unittest.TestCase):
             "_node_target",
             "_node_target_encoder",
             "_node_encoder",
-            "_node_imputer",
-            "_node_scaler",
+            "_node_ordinal_pipeline"
         ]
         self._check_attributes(g, attributes)
 
@@ -316,8 +315,7 @@ class TestFeatureMethods(unittest.TestCase):
             "_edge_target",
             "_edge_target_encoder",
             "_edge_encoders",  # plural, since we have two
-            "_edge_imputer",
-            "_edge_scaler",
+            "_edge_ordinal_pipeline",
         ]
         self._check_attributes(g, attributes)
 
