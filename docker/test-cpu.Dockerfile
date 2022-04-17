@@ -5,6 +5,13 @@ FROM python:${PYTHON_VERSION}-slim
 ARG PIP_DEPS="-e .[dev]"
 SHELL ["/bin/bash", "-c"]
 
+RUN --mount=type=cache,target=/var/cache/apt --mount=type=cache,target=/var/lib/apt \
+    apt-get update \
+    && apt-get install -y \
+        unzip \
+        wget \
+        zip
+
 RUN mkdir /opt/pygraphistry
 WORKDIR /opt/pygraphistry
 
@@ -23,6 +30,17 @@ RUN --mount=type=cache,target=/root/.cache \
     && echo "PIP_DEPS: $PIP_DEPS" \
     && pip install $PIP_DEPS \
     && pip list
+
+ARG SENTENCE_TRANSFORMER=""
+RUN --mount=type=cache,target=/root/.cache \
+    source pygraphistry/bin/activate \
+    && mkdir -p /models \
+    && cd /models \
+    && if [[ ! -z "$SENTENCE_TRANSFORMER" ]]; then \
+        wget --no-check-certificate \
+            "https://public.ukp.informatik.tu-darmstadt.de/reimers/sentence-transformers/v0.2/paraphrase-MiniLM-L6-v2.zip" \
+        && unzip "paraphrase-MiniLM-L6-v2.zip" -d ./paraphrase-MiniLM-L6-v2 ; \
+    fi
 
 COPY docker/test-cpu-entrypoint.sh /entrypoint/test-cpu-entrypoint.sh
 COPY bin ./bin

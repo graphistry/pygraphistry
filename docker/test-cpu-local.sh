@@ -32,6 +32,7 @@ then
     docker-compose build \
         --build-arg PYTHON_VERSION=${PYTHON_VERSION} \
         --build-arg PIP_DEPS="${PIP_DEPS}" \
+        --build-arg SENTENCE_TRANSFORMER="paraphrase-MiniLM-L6-v2" \
         test-cpu
 fi
 
