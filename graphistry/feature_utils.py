@@ -563,11 +563,7 @@ def encode_textual(
     model_name: str = "paraphrase-MiniLM-L6-v2",
 ) -> Tuple[np.ndarray, List, List]:
     t = time()
-    try:
-        model = SentenceTransformer(model_name)
-    except:
-        logger.debug('model fetch fail, try local model', exc_info=True)
-        model = SentenceTransformer(f"/models/{model_name}")
+    model = SentenceTransformer(model_name)
 
     text_cols = get_textual_columns(df, confidence=confidence, min_words=min_words)
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_

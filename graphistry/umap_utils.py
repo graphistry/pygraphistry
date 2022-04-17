@@ -189,6 +189,7 @@ class UMAPMixin(MIXIN_BASE):
         scale_xy: float = 10,
         suffix: str = "",
         play: Optional[int] = 0,
+        model_name: str = "paraphrase-MiniLM-L6-v2",
         engine: str = "umap_learn",
     ):
         """
@@ -264,6 +265,7 @@ class UMAPMixin(MIXIN_BASE):
             ) = res._featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
                 X,
                 y,
+                model_name=model_name,
                 feature_engine=resolved_feature_engine
             )
             xy = scale_xy * res.fit_transform(X_resolved, y)
@@ -286,6 +288,7 @@ class UMAPMixin(MIXIN_BASE):
             ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
                 X,
                 y,
+                model_name=model_name,
                 feature_engine=resolved_feature_engine
             )
             xy = scale_xy * res.fit_transform(X_resolved, y)

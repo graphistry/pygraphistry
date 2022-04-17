@@ -38,9 +38,12 @@ RUN --mount=type=cache,target=/root/.cache \
     && cd /models \
     && if [[ ! -z "$SENTENCE_TRANSFORMER" ]]; then \
         wget --no-check-certificate \
-            "https://public.ukp.informatik.tu-darmstadt.de/reimers/sentence-transformers/v0.2/paraphrase-MiniLM-L6-v2.zip" \
-        && unzip "paraphrase-MiniLM-L6-v2.zip" -d ./paraphrase-MiniLM-L6-v2 ; \
+            "https://public.ukp.informatik.tu-darmstadt.de/reimers/sentence-transformers/v0.2/paraphrase-albert-small-v2.zip" \
+        && unzip "paraphrase-albert-small-v2.zip" -d ./paraphrase-albert-small-v2 ; \
     fi
+# paraphrase-albert-small-v2  : 40mb
+# paraphrase-MiniLM-L3-v2 (default): 60mb
+# average_word_embeddings_komninos: 300mb
 
 COPY docker/test-cpu-entrypoint.sh /entrypoint/test-cpu-entrypoint.sh
 COPY bin ./bin
