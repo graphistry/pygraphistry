@@ -36,10 +36,10 @@ RUN --mount=type=cache,target=/root/.cache \
     source pygraphistry/bin/activate \
     && mkdir -p /models \
     && cd /models \
-    && if [[ ! -z "$SENTENCE_TRANSFORMER" ]]; then \
+    && if [[ ! -z "${SENTENCE_TRANSFORMER}" ]]; then \
         wget --no-check-certificate \
-            "https://public.ukp.informatik.tu-darmstadt.de/reimers/sentence-transformers/v0.2/paraphrase-albert-small-v2.zip" \
-        && unzip "paraphrase-albert-small-v2.zip" -d ./paraphrase-albert-small-v2 ; \
+            "https://public.ukp.informatik.tu-darmstadt.de/reimers/sentence-transformers/v0.2/${SENTENCE_TRANSFORMER}.zip" \
+        && unzip "${SENTENCE_TRANSFORMER}.zip" -d "${SENTENCE_TRANSFORMER}" ; \
     fi
 # paraphrase-albert-small-v2  : 40mb
 # paraphrase-MiniLM-L3-v2 (default): 60mb
