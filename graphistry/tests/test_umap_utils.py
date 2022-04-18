@@ -15,6 +15,7 @@ from graphistry.tests.test_feature_utils import (
     single_target_edge,
     double_target_edge,
     good_edge_cols,
+    model_avg_name,
     remove_internal_namespace_if_present,
     has_min_dependancy as has_featurize,
 )
@@ -109,6 +110,7 @@ class TestUMAPMethods(unittest.TestCase):
                         kind=kind,
                         y=target,
                         X=use_col,
+                        model_name=model_avg_name,
                         feature_engine=feature_engine,
                         n_neighbors=2,
                     )
@@ -173,7 +175,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                 logger.debug(f"{kind} -- {name}")
                 logger.debug(f"{value}")
                 logger.debug("-" * 80)
-                g2 = g.umap(kind=kind, y=target, X=use_col)
+                g2 = g.umap(kind=kind, y=target, X=use_col, model_name=model_avg_name)
 
                 self.cases_test_graph(g2, kind=kind, df=df)
 
@@ -217,7 +219,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
     )
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(ndf_reddit))]:
-            g2 = g.umap(kind=kind)
+            g2 = g.umap(kind=kind, model_name=model_avg_name)
             last_shape = 0
             for scale in np.linspace(0, 6, 8):  # six sigma in 8 steps
                 g3 = g2.filter_edges(scale=scale)

@@ -417,7 +417,7 @@ def check_if_textual_column(
 
 def get_textual_columns(
     df: pd.DataFrame, confidence: float = 0.35, min_words: float = 2.5
-) -> List:
+) -> List[str]:
     """
         Collects columns from df that it deems are textual.
     _________________________________________________________________________
@@ -440,6 +440,8 @@ def get_textual_columns(
 #
 # #########################################################################################
 
+def identity(x):
+    return x
 
 def get_ordinal_preprocessing_pipeline(
     use_scaler: str = "robust",
@@ -466,13 +468,13 @@ def get_ordinal_preprocessing_pipeline(
     available_preprocessors = ["minmax", "quantile", "zscale", "robust", "kbins"]
     available_quantile_distributions = ["normal", "uniform"]
 
-    imputer = lambda x: x
+    imputer = identity
     if impute:
         logger.debug("Imputing Values using mean strategy")
         # impute values
         imputer = SimpleImputer(missing_values=np.nan, strategy="mean")
 
-    scaler = lambda x: x
+    scaler = identity
     if use_scaler == "minmax":
         # scale the resulting values column-wise between min and max column values and sets them between 0 and 1
         scaler = MinMaxScaler()
@@ -624,8 +626,8 @@ def process_textual_or_other_dataframes(
         logger.warning("DataFrame seems to be Empty")
 
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
-    text_cols = []
-    columns_text = []
+    text_cols : List[str] = []
+    columns_text : List[str] = []
     if has_dependancy_text and feature_engine == "torch":
         embeddings, text_cols, columns_text = encode_textual(
             df, confidence=confidence, min_words=min_words, model_name=model_name
@@ -819,7 +821,7 @@ def process_edge_dataframes(
 
     if feature_engine in ["none", "pandas"]:
         edf2 = edf.select_dtypes(include=[np.number])
-        return edf2, y, [None, None], None, None, None
+        return edf2, y, [None, None], None, None
 
     t = time()
     mlb_pairwise_edge_encoder = MultiLabelBinarizer()
@@ -1288,7 +1290,7 @@ class FeatureMixin(MIXIN_BASE):
 __notes__ = """
     Notes:
         ~1) Given nothing but a graphistry Plottable `g`, we may minimally generate the (N, N)
-        adjacency matrix as a node level feature set, ironically as an edge level feature set over N unique nodes.
+        adjacency matrix as a node l(conformance test from year n-evel feature set, ironically as an edge level feature set over N unique nodes.
         This is the structure/topology of the graph itself, gotten from encoding `g._edges` as an adjacency matrix
 
         ~2) with `node_df = g._nodes` one has row level data over many columns, we may featurize it appropriately,

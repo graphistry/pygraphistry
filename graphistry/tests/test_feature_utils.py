@@ -24,7 +24,9 @@ warnings.filterwarnings("ignore")
 logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
 
 model_avg_name = (
-    "average_word_embeddings_komninos"  # fastest vectorizer in transformer models
+    #"/models/average_word_embeddings_komninos"  # 250mb, fastest vectorizer in transformer models
+    "/models/paraphrase-albert-small-v2"  # 40mb
+    #"/models/paraphrase-MiniLM-L3-v2"  # 60mb
 )
 
 
@@ -209,7 +211,7 @@ class TestFeatureProcessors(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_process_textual_or_other_dataframes_min_words(self):
         # test different target cardinality
-        with self.assertRaises(Exception) as context: #test that min words needs to be greater than 1
+        with self.assertRaises(Exception) as context:  # test that min words needs to be greater than 1
             x, y, x_enc, y_enc, preproc = process_textual_or_other_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
