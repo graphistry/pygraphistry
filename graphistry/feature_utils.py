@@ -531,7 +531,7 @@ def impute_and_scale_df(
     encode: str = "ordinal",
     strategy: str = "uniform",
     keep_n_decimals: int = 5,
-) -> Tuple[pd.DataFrame, Union[Any, None]]:
+) -> Tuple[pd.DataFrame, Any]:
 
     columns = df.columns
     index = df.index
