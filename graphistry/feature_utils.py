@@ -96,7 +96,7 @@ def assert_imported():
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
-SKPipe = sklearn.pipeline.Pipeline
+SKPipe = Pipeline
 
 def resolve_feature_engine(feature_engine: FeatureEngine) -> FeatureEngineConcrete:
 
