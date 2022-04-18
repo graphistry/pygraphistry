@@ -502,7 +502,7 @@ def get_ordinal_preprocessing_pipeline(
 
 def fit_pipeline(
     X: pd.DataFrame, transformer, keep_n_decimals: int = 5
-) -> np.ndarray:
+):
     """
      Helper to fit DataFrame over transformer pipeline.
      Rounds resulting matrix X by keep_n_digits if not 0,
