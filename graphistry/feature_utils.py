@@ -35,6 +35,7 @@ try:
         SuperVectorizer,
         GapEncoder,
     )
+    import sklearn
     from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import (
@@ -94,7 +95,7 @@ def assert_imported():
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
-
+SKPipe = sklearn.pipeline.Pipeline
 
 def resolve_feature_engine(feature_engine: FeatureEngine) -> FeatureEngineConcrete:
 
@@ -448,7 +449,7 @@ def get_ordinal_preprocessing_pipeline(
     n_bins: int = 5,
     encode: str = "ordinal",
     strategy: str = "uniform",
-) -> Pipeline:
+) -> SKPipe:
     """
         Helper function for imputing and scaling np.ndarray data using different scaling transformers.
     :param X: np.ndarray
@@ -498,7 +499,7 @@ def get_ordinal_preprocessing_pipeline(
 
 
 def fit_pipeline(
-    X: pd.DataFrame, transformer: Pipeline, keep_n_decimals: int = 5
+    X: pd.DataFrame, transformer: SKPipe, keep_n_decimals: int = 5
 ) -> np.ndarray:
     """
      Helper to fit DataFrame over transformer pipeline.
@@ -595,7 +596,7 @@ def process_textual_or_other_dataframes(
     model_name: str = "paraphrase-MiniLM-L6-v2",
     feature_engine: FeatureEngineConcrete = "pandas"
     # test_size: Optional[bool] = None,
-) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Union[Pipeline, None]]:
+) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Union[SKPipe, None]]:
     """
         Automatic Deep Learning Embedding of Textual Features,
         with the rest of the columns taken care of by dirty_cat
@@ -697,7 +698,7 @@ def process_dirty_dataframes(
     Optional[pd.DataFrame],
     SuperVectorizer,
     SuperVectorizer,
-    Union[Pipeline, None],
+    Union[SKPipe, None],
 ]:
     """
         Dirty_Cat encoder for record level data. Will automatically turn
@@ -801,7 +802,7 @@ def process_edge_dataframes(
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     feature_engine: FeatureEngineConcrete = "pandas",
-) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Union[Pipeline, None]]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Union[SKPipe, None]]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
         and then process_textual_or_other_dataframes that encodes any other data present in edf,
