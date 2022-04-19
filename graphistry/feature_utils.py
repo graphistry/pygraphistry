@@ -650,7 +650,7 @@ def process_textual_or_other_dataframes(
         feature_engine=feature_engine,
     )
 
-    if data_encoder is not None:  # can be False! 
+    if data_encoder is not None:  # can be False!
         embeddings = np.c_[embeddings, X_enc.values]
         columns = columns_text + list(X_enc.columns.values)
     elif len(columns_text):
@@ -698,7 +698,7 @@ def process_dirty_dataframes(
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     use_scaler: Optional[str] = None,
-    feature_engine: FeatureEngineConcrete = "auto",
+    feature_engine: FeatureEngineConcrete = "pandas",
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
