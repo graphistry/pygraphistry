@@ -665,7 +665,7 @@ def process_textual_or_other_dataframes(
     X_enc = pd.DataFrame(embeddings, columns=columns)
     ordinal_pipeline = None
     if use_scaler and not X_enc.empty:
-        embeddings, ordinal_pipeline = impute_and_scale_df(X_enc, use_scaler=use_scaler)
+        X_enc, ordinal_pipeline = impute_and_scale_df(X_enc, use_scaler=use_scaler)
 
     logger.debug(
         f"--The entire Textual and/or other encoding process took {(time()-t)/60:.2f} minutes"
