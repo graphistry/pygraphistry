@@ -151,7 +151,7 @@ class TestUMAPMethods(unittest.TestCase):
             g2 = g.umap(kind=kind, feature_engine="none")
             last_shape = 0
             for scale in np.linspace(0, 3, 8):  # six sigma in 8 steps
-                g3 = g2.filter_edges(scale=scale)
+                g3 = g2.filter_weighted_edges(scale=scale)
                 shape = g3._edges.shape
                 logger.debug("*" * 90)
                 logger.debug(
@@ -221,8 +221,8 @@ class TestUMAPAIMethods(TestUMAPMethods):
         for kind, g in [("nodes", graphistry.nodes(ndf_reddit))]:
             g2 = g.umap(kind=kind, model_name=model_avg_name)
             last_shape = 0
-            for scale in np.linspace(0, 6, 8):  # six sigma in 8 steps
-                g3 = g2.filter_edges(scale=scale)
+            for scale in np.linspace(0, 1, 8):  # six sigma in 8 steps
+                g3 = g2.filter_weighted_edges(scale=scale)
                 shape = g3._edges.shape
                 logger.debug("*" * 90)
                 logger.debug(

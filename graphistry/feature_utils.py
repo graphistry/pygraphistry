@@ -253,7 +253,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.DST,
         config.WEIGHT,
         config.IMPLICIT_NODE_ID,
-        "index",  # in umap, we add
+        "index",  # in umap, we add as reindex
     ]
     df = df.drop(columns=reserved_namespace, errors="ignore")
     return df
@@ -563,8 +563,10 @@ def encode_textual(
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
 ) -> Tuple[np.ndarray, List, List]:
+    import os
     t = time()
-    model = SentenceTransformer(model_name)
+    model_name = os.path.split(model_name)[-1]
+    model = SentenceTransformer(f'{model_name}')
 
     text_cols = get_textual_columns(df, confidence=confidence, min_words=min_words)
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
@@ -627,7 +629,7 @@ def process_textual_or_other_dataframes(
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
     text_cols : List[str] = []
     columns_text : List[str] = []
-    if has_dependancy_text and feature_engine == "torch":
+    if has_dependancy_text and (feature_engine in ['torch', 'auto']):
         embeddings, text_cols, columns_text = encode_textual(
             df, confidence=confidence, min_words=min_words, model_name=model_name
         )
@@ -648,19 +650,21 @@ def process_textual_or_other_dataframes(
         feature_engine=feature_engine,
     )
 
-    if data_encoder is not None:
+    if data_encoder is not None:  # can be False! 
         embeddings = np.c_[embeddings, X_enc.values]
         columns = columns_text + list(X_enc.columns.values)
-    else:
-        logger.warning(f" Data Encoder is {data_encoder}")
+    elif len(columns_text):
         columns = columns_text  # just sentence-transformers
+    else:
+        logger.warning(f" WARNING: Data Encoder is {data_encoder} and textual_columns are {columns_text}")
+        columns = list(X_enc.columns.values) # try with this if nothing else
+
 
     # now remove the leading zeros
     embeddings = embeddings[:, 1:]
     X_enc = pd.DataFrame(embeddings, columns=columns)
-
     ordinal_pipeline = None
-    if use_scaler:
+    if use_scaler and not X_enc.empty:
         embeddings, ordinal_pipeline = impute_and_scale_df(X_enc, use_scaler=use_scaler)
 
     logger.debug(
@@ -694,7 +698,7 @@ def process_dirty_dataframes(
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     use_scaler: Optional[str] = None,
-    feature_engine: FeatureEngineConcrete = "pandas",
+    feature_engine: FeatureEngineConcrete = "auto",
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -717,12 +721,13 @@ def process_dirty_dataframes(
     """
 
     if feature_engine == "none" or feature_engine == "pandas":
+        logger.warn(f'Featurizer returning only numeric entries in DataFrame, if any exist. No real featurizations has taken place.')
         return (
             ndf.select_dtypes(include=[np.number]),
             y.select_dtypes(include=[np.number]) if y is not None else None,
-            None,
-            None,
-            None,
+            False,
+            False,
+            False,
         )
 
     t = time()
@@ -764,9 +769,9 @@ def process_dirty_dataframes(
     else:
         X_enc = ndf
         data_encoder = None
-        logger.debug("*Given DataFrame seems to be empty")
+        logger.debug("**Given DataFrame seems to be empty")
 
-    if y is not None and len(y.columns) > 0:
+    if y is not None and len(y.columns) > 0 and not is_dataframe_all_numeric(y):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
         label_encoder = SuperVectorizer(
@@ -820,7 +825,7 @@ def process_edge_dataframes(
 
     if feature_engine in ["none", "pandas"]:
         edf2 = edf.select_dtypes(include=[np.number])
-        return edf2, y, [None, None], None, None
+        return edf2, y, [False, False], False, False
 
     t = time()
     mlb_pairwise_edge_encoder = MultiLabelBinarizer()

@@ -1,5 +1,5 @@
 # ###############################################################
-VERBOSE = False  # set to true for debug
+VERBOSE = True  # set to true for debug
 # ###############################################################
 # source and destination labels for consistent pipeline-ing across files
 SRC = "_src_implicit"

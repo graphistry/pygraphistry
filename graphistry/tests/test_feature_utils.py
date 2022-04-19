@@ -24,8 +24,8 @@ warnings.filterwarnings("ignore")
 logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
 
 model_avg_name = (
-    #"/models/average_word_embeddings_komninos"  # 250mb, fastest vectorizer in transformer models
-    "/models/paraphrase-albert-small-v2"  # 40mb
+    "/models/average_word_embeddings_komninos"  # 250mb, fastest vectorizer in transformer models
+    #"/models/paraphrase-albert-small-v2"  # 40mb
     #"/models/paraphrase-MiniLM-L3-v2"  # 60mb
 )
 
