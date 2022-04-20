@@ -295,7 +295,7 @@ def get_new_node_name(
 
 def collapse_nodes_and_edges(
     g: Plottable, parent: UnionStrInt, child: UnionStrInt
-) -> Plottable:
+):
     """
         Asserts that parent and child node in ndf should be collapsed into super node.
         Sets new ndf with COLLAPSE nodes in graphistry instance g
@@ -330,7 +330,7 @@ def collapse_nodes_and_edges(
 
 
 def has_property(
-    g: Plottable, ref_node: str, attribute: UnionStrInt, column: UnionStrInt
+    g: Plottable, ref_node: str, attribute: str, column: str
 ) -> bool:
     """
         Checks if ref_node is in node dataframe in column with attribute
