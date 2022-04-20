@@ -197,7 +197,7 @@ def reduce_key(key: UnionStrInt) -> str:
     :param key: node name
     :returns new node name with duplicates removed
     """
-    uniques = " ".join(np.unique(key.split()))
+    uniques = " ".join(np.unique(str(key).split()))
     return uniques
 
 
