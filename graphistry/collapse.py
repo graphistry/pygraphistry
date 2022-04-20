@@ -330,7 +330,7 @@ def collapse_nodes_and_edges(
 
 
 def has_property(
-    g: Plottable, ref_node: str, attribute: str, column: str
+    g: Plottable, ref_node: UnionStrInt, attribute: UnionStrInt, column: UnionStrInt
 ) -> bool:
     """
         Checks if ref_node is in node dataframe in column with attribute
