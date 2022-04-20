@@ -22,15 +22,15 @@ consoleHandler.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(consoleHandler)
 
-COLLAPSE_NODE = "collapse_node"
-COLLAPSE_SRC = "collapse_src"
-COLLAPSE_DST = "collapse_dst"
-FINAL_NODE = 'final_node'
-FINAL_SRC = 'final_src'
-FINAL_DST = 'final_dst'
+COLLAPSE_NODE = "node_collapse"
+COLLAPSE_SRC = "src_collapse"
+COLLAPSE_DST = "dst_collapse"
+FINAL_NODE = 'node_final'
+FINAL_SRC = 'src_final'
+FINAL_DST = 'dst_final'
 WRAP = "~"
 DEFAULT_VAL = "None"
-VERBOSE = True
+VERBOSE = False
 
 UnionStrInt = Union[str, int]
 
@@ -372,7 +372,7 @@ def check_default_columns_present_and_coerce_to_string(g: Plottable):
     return g
 
 
-def _collapse(
+def collapse_algo(
     g: Plottable,
     child: UnionStrInt,
     parent: UnionStrInt,
@@ -433,7 +433,7 @@ def _collapse(
                 for e in get_edges_of_node(
                     g, parent, outgoing_edges=True, hops=1
                 ).values:  # False just includes the child node and goes into infinite loop when parent = child
-                    _collapse(
+                    collapse_algo(
                         g, e, child, attribute, column, seen
                     )  # now child is the parent, and the edges are the start node
         # else do nothing collapse-y to parent, move on to child
@@ -449,7 +449,7 @@ def _collapse(
                     # get it unstuck
                     return g
                 
-                _collapse(
+                collapse_algo(
                     g, e, child, attribute, column, seen
                 )  # now child is the parent, and the edges are the start node
     return g
@@ -459,7 +459,7 @@ def normalize_graph(
     g: Plottable,
     self_edges: bool = False,
     unwrap: bool = False,
-):
+)-> Plottable:
     """
         Final step after collapse traversals are done, removes duplicates and moves COLLAPSE columns into respective
         (node, src, dst) columns of node, edges dataframe from Graphistry instance g.
@@ -565,7 +565,7 @@ def collapse_by(
         logger.info("*" * 100)
     t = time()
     
-    _collapse(g, parent, start_node, attribute, column, seen)
+    collapse_algo(g, parent, start_node, attribute, column, seen)
     
     t2 = time()
     delta_mins = (t2 - t) / 60
