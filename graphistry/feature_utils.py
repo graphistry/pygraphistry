@@ -995,12 +995,14 @@ class FeatureMixin(MIXIN_BASE):
                 "Expected nodes; try running nodes.materialize_nodes() first if you only have edges"
             )
 
-        X_resolved = resolve_X(res._nodes, X)
-        y_resolved = resolve_y(res._nodes, y)
-
-        ndf = X_resolved
+        ndf = res._nodes
         if remove_node_column:
             ndf = remove_node_column_from_ndf_and_return_ndf(res)
+            
+        ndf = resolve_X(ndf, X)
+        y_resolved = resolve_y(ndf, y)
+
+        
         # TODO move the columns select after the featurizer?
         ndf = features_without_target(ndf, y)
         ndf = remove_internal_namespace_if_present(ndf)
