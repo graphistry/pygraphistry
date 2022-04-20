@@ -11,13 +11,59 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
 
+## [0.23.2 - 2022-04-11]
+
+### Fixed
+
+* Avoid runtime import exn when on GPU-less systems with cudf/dask_cudf installed
+
+## [0.23.1 - 2022-04-08]
+
+### Added
+
+* Docs: `readme.md` digest of compute methods
+
+### Fixed
+
+* Docs: `get_degree()` -> `get_degrees()` (https://github.com/graphistry/pygraphistry/issues/330)
+* Upload memoization handles column renames (https://github.com/graphistry/pygraphistry/issues/326)
+
+## [0.23.0 - 2022-04-08]
+
+### Breaking
+
+* `g.edges()` now takes an optional 4th named parameter `edge` ID
+
+Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like `g.edges(some_fn, None, None, None, some_arg)`
+
+* Similar new optional `edge` ID parameter in `g.bind()`
+
+### Changed
+
+* `g.hop()` now takes optional `return_as_wave_front=False`, primarily for internal use by `chain()`
+
+### Added
+
+* `g.chain([...])` with `graphistry.ast.{n, e_forward, e_reverse, e_undirected}`
+
+## [0.22.0 - 2022-04-06]
+
+### Added
+
+* Node dictionary-based filtering: `g.filter_nodes_by_dict({"some": "value", "another": 2})`
+* Edge dictionary-based filtering: `g.filter_edges_by_dict({"some": "value", "another": 2})`
+* Hops support edge filtering: `g.hop(hops=2, edge_match={"type": "transaction"})`
+* Hops support pre-node filtering: `g.hop(hops=2, source_node_match={"type": "account"})`
+* Hops support post-node filtering: `g.hop(hops=2, destination_node_match={"type": "wallet"})`
+* Hops defaults to full graph if no initial nodes specified: `g.hop(hops=2, edge_match={"type": "transaction"})`
+
 ## [0.21.4 - 2022-03-30]
 
 ### Added
 
 * Horizontal and radial axis using `.encode_axis(rows=[...])`
 
-#### Fixed
+### Fixed
 
 * Docs: Work around https://github.com/sphinx-doc/sphinx/issues/10291
 

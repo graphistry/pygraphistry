@@ -636,7 +636,7 @@ class TestComputeMixin(TestCase):
 
         g = hops_graph()
         g2 = g.hop(pd.DataFrame({g._node: ["d"]}), 0)
-        assert g2._nodes.shape == (1, 2)
+        assert g2._nodes.shape == (0, 2)
         assert g2._edges.shape == (0, 3)
 
     def test_hop_1_1_forwards(self):
@@ -704,7 +704,7 @@ class TestComputeMixin(TestCase):
     def test_chained_collapse(self):
         g = get_collapse_graph(as_string=True)  # order matters here
         g2 = g.collapse(node="0", attribute="1", column="level", unwrap=False)
-        g3 = g2.collapse(node="0", attribute="2", column="level", unwrap=False)  #
+        g3 = g2.collapse(node="0", attribute="2", column="level", unwrap=False)
         g4 = g3.collapse(node="0", attribute="0", column="level", unwrap=False)
         self._test_graph_chain_collapse(g, g4)
 

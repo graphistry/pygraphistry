@@ -11,9 +11,9 @@
 [![Uptime Robot status](https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com)](https://status.graphistry.com/) [<img src="https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
 [![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)](https://twitter.com/graphistry)
 
-PyGraphistry is a Python visual graph analytics library to extract, transform, and load big graphs into [Graphistry](https://www.graphistry.com) end-to-end GPU  visual graph analytics sessions.
+PyGraphistry is a Python visual graph AI library to extract, transform, analyze, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.
 
-Graphistry gets used on problems like visually mapping the behavior of devices and users and for analyzing machine learning results. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside GPU analytics engine supports even bigger graphs.
+Graphistry gets used on problems like visually mapping the behavior of devices and users, investigating fraud, analyzing machine learning results, and starting in graph AI. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 2MM elements. The serverside GPU analytics engine supports even bigger graphs. It smoothes graph workflows over the PyData ecosystem including Pandas/Spark/Dask dataframes, Nvidia RAPIDS GPU dataframes & GPU graphs, DGL/PyTorch graph neural networks, and various data connectors.
 
 The PyGraphistry Python client helps several kinds of usage modes:
 
@@ -698,19 +698,71 @@ g.addStyle(logo={
 
 ### Transforms
 
-You can quickly manipulate graphs as well:
+The below methods let you quickly manipulate graphs directly and with dataframe methods: Search, pattern mine, transform, and more:
 
-**Generate node table**:
+```python
+from graphistry.ast import n, e_forward, e_reverse, e_undirected
+g = (graphistry
+  .edges(pd.DataFrame({
+    's': ['a', 'b'],
+    'd': ['b', 'c'],
+    'k1': ['x', 'y']
+  }))
+  .nodes(pd.DataFrame({
+    'n': ['a', 'b', 'c'],
+    'k2': [0, 2, 4, 6]
+  })
+)
+
+g2 = graphistry.hypergraph(g._edges, ['s', 'd', 'k1'])['graph']
+g2.plot() # nodes are values from cols s, d, k1
+
+(g
+  .materialize_nodes()
+  .get_degrees()
+  .get_indegrees()
+  .get_outdegrees()
+  .pipe(lambda g2: g2.nodes(g2._nodes.assign(t=x))) # transform
+  .filter_edges_by_dict({"k1": "x"})
+  .filter_nodes_by_dict({"k2": 4})
+  .hop( # filter to subgraph
+    #almost all optional
+    direction='forward', # 'reverse', 'undirected'
+    hops=1, # number or None if to_fixed_point
+    to_fixed_point=False, 
+    source_node_match={"k2": 0},
+    edge_match={"k1": "x"},
+    destination_node_match={"k2": 2})
+  .chain([ # filter to subgraph
+    n(),
+    n({'k2': 0}),
+    n(name="start"), # add column 'start':bool
+    e_forward({'k1': 'x'}, hops=1), # same API as hop()
+    e_undirected(name='second_edge'),
+  ])
+```
+
+#### Table to graph
+
+```python
+df = pd.read_csv('events.csv')
+hg = graphistry.hypergraph(df, ['user', 'email', 'org'], direct=True)
+g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
+g.plot()
+```
+
+#### Generate node table
+
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
 g2 = g.materialize_nodes()
 g2._nodes  # pd.DataFrame({'id': ['a', 'b', 'c']})
 ```
 
-**Compute degrees**:
+#### Compute degrees
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
-g2 = g.get_degree()
+g2 = g.get_degrees()
 g2._nodes  # pd.DataFrame({
            #  'id': ['a', 'b', 'c'],
            #  'degree_in': [0, 1, 1],
@@ -719,19 +771,37 @@ g2._nodes  # pd.DataFrame({
            #})
 ```
 
-**Graph pattern matching**:
+See also `get_indegrees()` and `get_outdegrees()` 
+
+#### Graph pattern matching
 
 Traverse within a graph, or expand one graph against another
+
+Simple node and edge filtering via `filter_edges_by_dict()` and `filter_nodes_by_dict()`:
 
 ```python
 g = graphistry.edges(pd.read_csv('data.csv'), 's', 'd')
 g2 = g.materialize_nodes()
 
+g3 = g.filter_edges_by_dict({"v": 1, "b": True})
+g4 = g.filter_nodes_by_dict({"v2": 1, "b2": True})
+```
+
+Method `.hop()` enables slightly more complicated edge filters:
+
+```python
+
+# (a)-[{"v": 1, "type": "z"}]->(b) based on g
+g2b = g2.hop(
+  source_node_match={g2._node: "a"},
+  edge_match={"v": 1, "type": "z"},
+  destination_node_match={g2._node: "b"})
+
 # (a or b)-[1 to 8 hops]->(anynode), based on graph g2
-g3 = g2.hop(pd.DataFrame({g._node: ['a', 'b']}), hops=8)
+g3 = g2.hop(pd.DataFrame({g2._node: ['a', 'b']}), hops=8)
 
 # (c)<-[any number of hops]-(any node), based on graph g3
-g4 = g3.hop(pd.DataFrame({g._node: ['c']}), direction='reverse', to_fixed_point=True)
+g4 = g3.hop(source_node_match={"node": "c"}, direction='reverse', to_fixed_point=True)
 
 # (c)-[incoming or outgoing edge]-(any node),
 # for c in g4 with expansions against nodes/edges in g2
@@ -740,7 +810,26 @@ g5 = g2.hop(pd.DataFrame({g4._node: g4[g4._node]}), hops=1, direction='undirecte
 g5.plot()
 ```
 
-**Pipelining**:
+Rich compound patterns are enabled via `.chain()`:
+
+```python
+from graphistry.ast import n, e_forward, e_reverse, e_undirected
+
+g2.chain([ n() ])
+g2.chain([ n({"v": 1, "y": True}) ])
+g2.chain([ e_forward({"type": "x"}, hops=2) ]) # simple multi-hop
+g3 = g2.chain([
+  n(name="start"),  # tag node matches
+  e_forward(hops=3),
+  e_forward(name="final_edge"), # tag edge matches
+  n(name="end")
+])
+g2.chain(n(), e_forward(), n(), e_reverse(), n()])  # rich shapes
+print('# end nodes: ', len(g3._nodes[ g3._nodes.end ]))
+print('# end edges: ', len(g3._edges[ g3._edges.final_edge ]))
+```
+
+#### Pipelining
 
 ```python
 def capitalize(df, col):
@@ -755,16 +844,7 @@ g
   .pipe(lambda g: g.nodes(g._nodes.pipe(capitalize, 'nTitle')))
 ```
 
-**Table to graph**:
-
-```python
-df = pd.read_csv('events.csv')
-hg = graphistry.hypergraph(df, ['user', 'email', 'org'], direct=True)
-g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
-g.plot()
-```
-
-**Removing nodes**:
+#### Removing nodes
 
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']}))
@@ -787,6 +867,7 @@ g3c = g2a.layout_settings(locked_x=True)
 
 g4 = g2.tree_layout().rotate(90)
 ```
+
 ## Next Steps
 
 1. Create a free public data [Graphistry Hub](https://www.graphistry.com/get-started) account or [one-click launch a private Graphistry instance in AWS](https://www.graphistry.com/get-started)
