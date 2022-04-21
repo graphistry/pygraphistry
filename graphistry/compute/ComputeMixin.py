@@ -4,6 +4,7 @@ import pandas as pd
 
 from graphistry.Plottable import Plottable
 from .chain import chain as chain_base
+from .collapse import collapse_by
 from .hop import hop as hop_base
 from .filter_by_dict import (
     filter_edges_by_dict as filter_edges_by_dict_base,
@@ -263,13 +264,9 @@ class ComputeMixin(MIXIN_BASE):
                 `collapse_{node | edges}` and `final_{node | edges}`, while original (node, src, dst) columns
                 are left untouched
         """
-        from graphistry.collapse import collapse_by
-
-        res = copy.deepcopy(self.bind())
-        g = res
         # TODO FIXME CHECK SELF LOOPS?
         return collapse_by(
-            g,
+            self,
             start_node=node,
             parent=node,
             attribute=attribute,

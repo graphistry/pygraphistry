@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import logging
 
-from .PlotterBase import Plottable
+from graphistry.PlotterBase import Plottable
 
 logger = logging.getLogger("collapse")
 logger.setLevel(logging.DEBUG)
@@ -544,6 +544,8 @@ def collapse_by(
     """
     from time import time
     
+    
+    g = copy.deepcopy(self.bind())
     g = check_default_columns_present_and_coerce_to_string(g)
 
     n_edges = len(g._edges)
