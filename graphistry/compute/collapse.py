@@ -1,7 +1,5 @@
 from typing import Union, Optional, List
-import pandas as pd
-import numpy as np
-import logging
+import copy, logging, pandas as pd, numpy as np
 
 from graphistry.PlotterBase import Plottable
 
@@ -516,24 +514,23 @@ def normalize_graph(
 
 
 def collapse_by(
-    g: Plottable,
-    parent: UnionStrInt,
-    start_node: UnionStrInt,
-    attribute: UnionStrInt,
-    column: UnionStrInt,
+    self: Plottable,
+    parent: Union[str, int],
+    start_node: Union[str, int],
+    attribute: Union[str, int],
+    column: Union[str, int],
     seen: dict,
     self_edges: bool = False,
     unwrap: bool = False,
     verbose: bool = True
-):
+) -> Plottable:
     """
         Main call in collapse.py, collapses nodes and edges by attribute, and returns normalized graphistry object.
 
     --------------------------------------------------------------------------------------------------------------------
-    :param start_node:
-    :param seen:
-    :param g: graphistry instance
+    :param self: graphistry instance
     :param parent: parent node to start traversal, in main call, this is set to child.
+    :param start_node:
     :param attribute: attribute to collapse by
     :param column: column in nodes dataframe to collapse over.
     :param seen: dict of previously collapsed pairs -- {n1, n2) is seen as different from (n2, n1)
