@@ -18,8 +18,6 @@ if TYPE_CHECKING:
 else:
     MIXIN_BASE = object
 
-UnionStrInt = Union[str, int]
-
 
 class ComputeMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
@@ -241,9 +239,9 @@ class ComputeMixin(MIXIN_BASE):
 
     def collapse(
         self,
-        node: UnionStrInt,
-        attribute: UnionStrInt,
-        column: UnionStrInt,
+        node: Union[str, int],
+        attribute: Union[str, int],
+        column: Union[str, int],
         self_edges: bool = False,
         unwrap: bool = False,
         verbose: bool = False

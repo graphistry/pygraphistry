@@ -32,8 +32,6 @@ WRAP = "~"
 DEFAULT_VAL = "None"
 VERBOSE = False
 
-UnionStrInt = Union[str, int]
-
 
 def unpack(g: Plottable):
     """
@@ -54,7 +52,7 @@ def unpack(g: Plottable):
     return ndf, edf, src, dst, node
 
 
-def get_children(g: Plottable, node_id: UnionStrInt, hops: int = 1):
+def get_children(g: Plottable, node_id: Union[str, int], hops: int = 1):
     """
         Helper that gets children at k-hops from node `node_id`
 
@@ -67,7 +65,7 @@ def get_children(g: Plottable, node_id: UnionStrInt, hops: int = 1):
 
 
 def has_edge(
-    g: Plottable, n1: UnionStrInt, n2: UnionStrInt, directed: bool = True
+    g: Plottable, n1: Union[str, int], n2: Union[str, int], directed: bool = True
 ) -> bool:
     """
         Checks if `n1` and `n2` share an (directed or not) edge
@@ -94,7 +92,7 @@ def has_edge(
 
 
 def get_edges_of_node(
-    g: Plottable, node_id: UnionStrInt, outgoing_edges: bool = True, hops: int = 1
+    g: Plottable, node_id: Union[str, int], outgoing_edges: bool = True, hops: int = 1
 ):
     """
         Gets edges of node at k-hops from node
@@ -118,9 +116,9 @@ def get_edges_of_node(
 
 def get_edges_in_out_cluster(
     g: Plottable,
-    node_id: UnionStrInt,
-    attribute: UnionStrInt,
-    column: UnionStrInt,
+    node_id: Union[str, int],
+    attribute: Union[str, int],
+    column: Union[str, int],
     directed: bool = True,
 ):
     """
@@ -160,7 +158,7 @@ def get_edges_in_out_cluster(
     return None, None, None
 
 
-def get_cluster_store_keys(ndf: pd.DataFrame, node: UnionStrInt):
+def get_cluster_store_keys(ndf: pd.DataFrame, node: Union[str, int]):
     """
         Main innovation in finding and adding to super node.
         Checks if node is a segment in any collapse_node in COLLAPSE column of nodes DataFrame
@@ -175,7 +173,7 @@ def get_cluster_store_keys(ndf: pd.DataFrame, node: UnionStrInt):
     return ndf[COLLAPSE_NODE].astype(str).str.contains(node, na=False)
 
 
-def in_cluster_store_keys(ndf: pd.DataFrame, node: UnionStrInt) -> bool:
+def in_cluster_store_keys(ndf: pd.DataFrame, node: Union[str, int]) -> bool:
     """
         checks if node is in collapse_node in COLLAPSE column of nodes DataFrame
 
@@ -188,7 +186,7 @@ def in_cluster_store_keys(ndf: pd.DataFrame, node: UnionStrInt) -> bool:
     return any(get_cluster_store_keys(ndf, node))
 
 
-def reduce_key(key: UnionStrInt) -> str:
+def reduce_key(key: Union[str, int]) -> str:
     """
         Takes "1 1 2 1 2 3" -> "1 2 3
 
@@ -201,7 +199,7 @@ def reduce_key(key: UnionStrInt) -> str:
     return uniques
 
 
-def unwrap_key(name: UnionStrInt) -> str:
+def unwrap_key(name: Union[str, int]) -> str:
     """
         Unwraps node name: ~name~ -> name
 
@@ -213,7 +211,7 @@ def unwrap_key(name: UnionStrInt) -> str:
     return str(name).replace(WRAP, "")
 
 
-def wrap_key(name: UnionStrInt) -> str:
+def wrap_key(name: Union[str, int]) -> str:
     """
         Wraps node name -> ~name~
 
@@ -228,7 +226,7 @@ def wrap_key(name: UnionStrInt) -> str:
     return f"{WRAP}{name}{WRAP}"
 
 
-def melt(ndf: pd.DataFrame, node: UnionStrInt) -> str:
+def melt(ndf: pd.DataFrame, node: Union[str, int]) -> str:
     """
         Reduces node if in cluster store, otherwise passes it through.
     ex:
@@ -261,7 +259,7 @@ def check_has_set(ndf, parent, child):
 
 
 def get_new_node_name(
-    ndf: pd.DataFrame, parent: UnionStrInt, child: UnionStrInt
+    ndf: pd.DataFrame, parent: Union[str, int], child: Union[str, int]
 ) -> str:
     """
         If child in cluster group, melts name, else makes new parent_name from parent, child
@@ -294,7 +292,7 @@ def get_new_node_name(
 
 
 def collapse_nodes_and_edges(
-    g: Plottable, parent: UnionStrInt, child: UnionStrInt
+    g: Plottable, parent: Union[str, int], child: Union[str, int]
 ):
     """
         Asserts that parent and child node in ndf should be collapsed into super node.
@@ -330,7 +328,7 @@ def collapse_nodes_and_edges(
 
 
 def has_property(
-    g: Plottable, ref_node: UnionStrInt, attribute: UnionStrInt, column: UnionStrInt
+    g: Plottable, ref_node: Union[str, int], attribute: Union[str, int], column: Union[str, int]
 ) -> bool:
     """
         Checks if ref_node is in node dataframe in column with attribute
@@ -374,10 +372,10 @@ def check_default_columns_present_and_coerce_to_string(g: Plottable):
 
 def collapse_algo(
     g: Plottable,
-    child: UnionStrInt,
-    parent: UnionStrInt,
-    attribute: UnionStrInt,
-    column: UnionStrInt,
+    child: Union[str, int],
+    parent: Union[str, int],
+    attribute: Union[str, int],
+    column: Union[str, int],
     seen: dict,
 ):
     """
