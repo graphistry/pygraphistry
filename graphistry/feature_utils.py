@@ -98,21 +98,12 @@ def assert_imported():
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
-#SKPipe = Pipeline
+
 
 def resolve_feature_engine(feature_engine: FeatureEngine) -> FeatureEngineConcrete:
-
-    if "none" == feature_engine:
-        return "none"
-
-    if "pandas" == feature_engine:
-        return "pandas"
-
-    if "dirty_cat" == feature_engine:
-        return "dirty_cat"
-
-    if "torch" == feature_engine:
-        return "torch"
+    
+    if feature_engine in ['none', 'pandas', 'dirty_cat', 'torch']:
+        return feature_engine
 
     if feature_engine == "auto":
         if has_dependancy_text:
@@ -122,7 +113,7 @@ def resolve_feature_engine(feature_engine: FeatureEngine) -> FeatureEngineConcre
         return "pandas"
 
     raise ValueError(
-        f'feature_engine expected to be "none", "pandas", "dirty_cat", "torch", but received: {feature_engine} :: {type(feature_engine)}'
+        f'feature_engine expected to be "none", "pandas", "dirty_cat", "torch", or "auto" but received: {feature_engine} :: {type(feature_engine)}'
     )
 
 
@@ -601,7 +592,7 @@ def process_textual_or_other_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-    feature_engine: FeatureEngineConcrete = "pandas"
+    feature_engine: FeatureEngine = "auto"
     # test_size: Optional[bool] = None,
 ) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Union[Any, None]]:
     """
@@ -967,6 +958,7 @@ class FeatureMixin(MIXIN_BASE):
     TODO: add example usage doc
     """
     _feature_memoize: WeakValueDictionary = WeakValueDictionary()
+    _feature_params: dict = {}
 
     def __init__(self, *args, **kwargs):
         pass
@@ -986,16 +978,18 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
-        feature_engine: FeatureEngineConcrete = "pandas",
+        feature_engine: FeatureEngine = "auto",
     ):
         res = self.copy()
         ndf = res._nodes
         if remove_node_column:
             ndf = remove_node_column_from_ndf_and_return_ndf(res)
         
-        # resolve everything before setting dict so that `X = ndf[cols]` and `X = cols` resolve to same thingg
+        # resolve everything before setting dict so that `X = ndf[cols]` and `X = cols` resolve to same thing
         X = resolve_X(ndf, X)
         y = resolve_y(ndf, y)
+        
+        feature_engine = resolve_feature_engine(feature_engine)
     
         fkwargs = dict(X=X, y=y, use_scaler=use_scaler,
                        cardinality_threshold=cardinality_threshold,
@@ -1007,7 +1001,9 @@ class FeatureMixin(MIXIN_BASE):
                        remove_node_column=remove_node_column,
                        feature_engine=feature_engine,
                        kind='nodes')
-
+        
+        
+        res._feature_params['nodes'] = fkwargs
         
         old_res = reuse_featurization(res, fkwargs)
         if old_res:
@@ -1063,13 +1059,13 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        feature_engine: FeatureEngineConcrete = "pandas",
+        feature_engine: FeatureEngine = "auto",
     ):
 
         res = self.copy()
-        edf = res._edges
-        X = resolve_X(edf, X)
-        y = resolve_y(edf, y)
+        X = res._edges
+        X = resolve_X(X, X)
+        y = resolve_y(X, y)
 
         if res._source not in X:
             logger.debug("adding g._source to edge features")
@@ -1091,15 +1087,17 @@ class FeatureMixin(MIXIN_BASE):
                        feature_engine=feature_engine,
                        kind='edges')
         
+        res._feature_params['edges'] = fkwargs
+
         old_res = reuse_featurization(res, fkwargs)
         if old_res:
             logger.info(' --- RE-USING EDGE FEATURIZATION')
             return old_res
 
-        edf = features_without_target(X, y)
+        X = features_without_target(X, y)
 
         if feature_engine == "none":
-            X_enc = edf.select_dtypes(include=np.number)
+            X_enc = X.select_dtypes(include=np.number)
             y_enc = y
             data_vec = False
             label_vec = False
@@ -1126,7 +1124,7 @@ class FeatureMixin(MIXIN_BASE):
                 label_vec,
                 ordinal_pipeline,
             ) = process_edge_dataframes(
-                edf=edf,
+                edf=X,
                 y=y,
                 src=res._source,
                 dst=res._destination,
@@ -1230,7 +1228,7 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
-        feature_engine: FeatureEngineConcrete = "pandas",
+        feature_engine: FeatureEngine = "auto",
         reuse_if_existing=False,
     ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
         """
@@ -1283,7 +1281,7 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        feature_engine: FeatureEngineConcrete = "pandas",
+        feature_engine: FeatureEngine = "auto",
         reuse_if_existing=False,
     ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
         """

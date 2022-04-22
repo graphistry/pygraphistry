@@ -8,9 +8,11 @@ from .feature_utils import (
     FeatureEngine,
     FeatureMixin,
     XSymbolic,
+    YSymbolic,
     prune_weighted_edges_df_and_relabel_nodes,
     resolve_feature_engine,
-    YSymbolic, reuse_featurization
+    resolve_X,
+    resolve_y
 )
 from .PlotterBase import WeakValueDictionary, Plottable
 
@@ -195,6 +197,34 @@ class UMAPMixin(MIXIN_BASE):
         res._xy = xy
 
         return res
+    
+    def _set_features(self, res, X, y, kind, featurize_kwargs):
+        """
+           merges
+            :param
+        
+        """
+        kv = {}
+        # if we have featurized previously
+        if kind in res._feature_params:
+            # add in all the stuff that got stored in res._feature_params
+            kv.update(res._feature_params[kind])
+            kv.pop('kind') # pop off kind, as featurization doesn't use it (we have one for nodes, and one for edges explicitly)
+
+        if len(featurize_kwargs):
+            # overwrite with anything stated in featurize_kwargs
+            kv.update(featurize_kwargs)
+
+        # potentially overwrite with explicit mention here
+        if X is not None:
+            kv.update({'X': X})
+
+        if y is not None:
+            kv.update({'y': y})
+
+        # set the features fully, and if this in memoize, it will skip and just returns previous .featurize/umap
+        featurize_kwargs = kv
+        return featurize_kwargs
         
     def umap(
         self,
@@ -213,8 +243,6 @@ class UMAPMixin(MIXIN_BASE):
         scale_xy: float = 10,
         suffix: str = "",
         play: Optional[int] = 0,
-        model_name: str = "paraphrase-MiniLM-L6-v2",
-        feature_engine: FeatureEngine = "auto",
         encode_position: bool = True,
         encode_weight: bool = True,
         engine: str = "umap_learn",
@@ -268,7 +296,7 @@ class UMAPMixin(MIXIN_BASE):
         else:
             res = self.bind()
 
-        resolved_feature_engine = resolve_feature_engine(feature_engine)
+        featurize_kwargs = self._set_features(res, X, y, kind, featurize_kwargs)
 
         if kind == "nodes":
             index_to_nodes_dict = None
@@ -284,18 +312,14 @@ class UMAPMixin(MIXIN_BASE):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
                 
             (
-                X_resolved,
-                y,
-                res
-            ) = res._featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
                 X,
                 y,
-                model_name=model_name,
-                feature_engine=resolved_feature_engine,
+                res
+            ) = res._featurize_or_get_nodes_dataframe_if_X_is_None( # type: ignore
                 **featurize_kwargs
             )
             
-            res = self._process_umap(res, X_resolved, y, kind, **umap_kwargs)
+            res = self._process_umap(res, X, y, kind, **umap_kwargs)
             res._weighted_adjacency_nodes = res._weighted_adjacency
             res._node_embedding = scale_xy * res._xy
             # # TODO add edge filter so graph doesn't have double edges
@@ -309,17 +333,13 @@ class UMAPMixin(MIXIN_BASE):
             )
         elif kind == "edges":
             (
-                X_resolved,
+                X,
                 y,
                 res
             ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
-                X,
-                y,
-                model_name=model_name,
-                feature_engine=resolved_feature_engine,
                 **featurize_kwargs
             )
-            res = self._process_umap(res, X_resolved, y, kind, **umap_kwargs)
+            res = self._process_umap(res, X, y, kind, **umap_kwargs)
             res._weighted_adjacency_edges = res._weighted_adjacency
             res._edge_embedding = scale_xy * res._xy
             res._weighted_edges_df_from_edges = (
@@ -338,7 +358,8 @@ class UMAPMixin(MIXIN_BASE):
                 xy = res.umap_fit_transform(X, y)
                 res._xy = xy
                 res._weighted_edges_df = prune_weighted_edges_df_and_relabel_nodes(
-                    res._weighted_edges_df, scale=scale
+                    res._weighted_edges_df,
+                    scale=scale
                 )
                 logger.info(
                     "Reduced Coordinates are stored in `._xy` attribute and "
