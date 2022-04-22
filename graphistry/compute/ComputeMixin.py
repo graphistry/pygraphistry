@@ -247,10 +247,10 @@ class ComputeMixin(MIXIN_BASE):
         verbose: bool = False
     ):
         """
-            Topology Aware collapse by given column attribute starting at `node`
+        Topology Aware collapse by given column attribute starting at `node`
 
-            Traverses Directed Graph from start node `node` and collapses clusters of nodes that share
-             the same property so that topology is preserved.
+        Traverses Directed Graph from start node `node` and collapses clusters of nodes that share
+        the same property so that topology is preserved.
 
         ----------------------------------------------------------------------------------------------------------------
 
