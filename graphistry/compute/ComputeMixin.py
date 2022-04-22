@@ -257,7 +257,7 @@ class ComputeMixin(MIXIN_BASE):
         :param node: start `node` to begin traversal
         :param attribute: the given `attribute` to collapse over within `column`
         :param column: the `column` of nodes DataFrame that contains `attribute` to collapse over
-        :returns a new Graphistry instance with nodes and edges DataFrame containing collapsed
+        :return: a new Graphistry instance with nodes and edges DataFrame containing collapsed
                 nodes and edges given by column attribute -- nodes and edges DataFrames contain six new columns
                 `collapse_{node | edges}` and `final_{node | edges}`, while original (node, src, dst) columns
                 are left untouched
