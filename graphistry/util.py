@@ -1,7 +1,11 @@
 import hashlib, logging, os, platform as p, random, string, sys, uuid, warnings
 from distutils.version import LooseVersion, StrictVersion
+from functools import lru_cache
+
+from .constants import VERBOSE, CACHE_COERCION_SIZE
 
 
+# #####################################
 def setup_logger(name, verbose=True):
     if verbose:
         FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
@@ -11,6 +15,63 @@ def setup_logger(name, verbose=True):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG if verbose else logging.ERROR)
     return logger
+
+# #####################################
+# Caching utils
+_cache_coercion_val = None
+@lru_cache(maxsize=CACHE_COERCION_SIZE)
+def cache_coercion_helper(k):
+    return _cache_coercion_val
+
+def cache_coercion(k, v):
+    """
+        Holds references to last 100 used coercions
+        Use with weak key/value dictionaries for actual lookups
+    """
+    global _cache_coercion_val
+    _cache_coercion_val = v
+
+    return cache_coercion_helper(k)
+
+class WeakValueWrapper:
+    def __init__(self, v):
+        self.v = v
+
+def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = True):  # noqa: C901
+    """
+        Helper Memoize function that checks if metadata args have changed for object g -- which is unconstrained save
+        for the fact that it must have `attribute`. If they have not changed, will return memoized version,
+        if False, will continue with whatever pipeline it is in front.
+    """
+    
+    logger = setup_logger('memoization', verbose=VERBOSE)
+    
+    hashed = None
+    weakref = getattr(g, attribute)
+    try:
+        hashed = (
+            hashlib.sha256(str(metadata).encode('utf-8')).hexdigest()
+        )
+    except TypeError:
+        logger.warning(
+            f'! Failed {name} speedup attempt. Continuing without memoization speedups.'
+        )
+    try:
+        if hashed in weakref:
+            logger.debug(f'{name} memoization hit: %s', hashed)
+            return weakref[hashed].v
+        else:
+            logger.debug(f'{name} memoization miss for id (of %s): %s',
+                         len(weakref), hashed)
+    except:
+        logger.debug(f'Failed to hash {name} kwargs', exc_info=True)
+        pass
+    
+    if memoize and (hashed is not None):
+        w = WeakValueWrapper(g)
+        cache_coercion(hashed, w)
+        weakref[hashed] = w
+    return False
 
 
 def cmp(x, y):

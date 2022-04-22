@@ -108,7 +108,7 @@ single_target_edge = pd.DataFrame({"emoji": edge_df["emoji"].values})
 double_target_edge = pd.DataFrame(
     {"emoji": edge_df["emoji"].values, "num": edge_df["num"].values}
 )
-
+target_names_edge = [['emoji'], ['emoji', 'num']]
 
 # ###############################################
 # For NODE FEATURIZATION AND TESTS
@@ -119,9 +119,9 @@ text_cols_reddit = ["title", "document"]
 meta_cols_reddit = ["user", "type", "label"]
 good_cols_reddit = text_cols_reddit + meta_cols_reddit
 
-# ndf_reddit = ndf_reddit[good_cols_reddit]
-
-
+#test sending in names for target
+target_names_node = [['label'], ['label', 'type']]
+# test also sending in a dataframe for target
 double_target_reddit = pd.DataFrame(
     {"label": ndf_reddit.label.values, "type": ndf_reddit["type"].values}
 )
@@ -359,16 +359,17 @@ class TestFeatureMethods(unittest.TestCase):
                 logger.debug(f"{value}")
                 logger.debug("-" * 80)
                 g2 = g.featurize(
-                    kind=kind, X=use_col, y=target, model_name=model_avg_name
+                    kind=kind, X=use_col, y=target, model_name=model_avg_name, use_scaler='minmax'
                 )
 
                 self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
+                
 
     @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_node_featurizations(self):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, good_cols_reddit, meta_cols_reddit]
-        targets = [None, single_target_reddit, double_target_reddit]
+        targets = [None, single_target_reddit, double_target_reddit] + target_names_node
         self._test_featurizations(
             g,
             use_cols=use_cols,
@@ -377,11 +378,12 @@ class TestFeatureMethods(unittest.TestCase):
             kind="nodes",
             df=ndf_reddit,
         )
+        
 
     @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_edge_featurization(self):
         g = graphistry.edges(edge_df, "src", "dst")
-        targets = [None, single_target_edge, double_target_edge]
+        targets = [None, single_target_edge, double_target_edge] + target_names_edge
         use_cols = [None, good_edge_cols]
         self._test_featurizations(
             g,

@@ -2,13 +2,16 @@ from collections import namedtuple
 from time import time
 from typing import cast, List, Union, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from typing_extensions import Literal  # Literal native to py3.8+
+# from functools import lru_cache
+# from weakref import WeakValueDictionary
 
 import numpy as np
 import pandas as pd
 
 from . import constants as config
-from .util import setup_logger
+from .util import setup_logger, check_set_memoize
 from .compute import ComputeMixin
+from .PlotterBase import cache_coercion, WeakValueWrapper, WeakValueDictionary, Plottable
 
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
@@ -900,19 +903,6 @@ def process_edge_dataframes(
 
 # #################################################################################
 #
-#      Assemble Processors into useful options
-#
-# ###############################################################################
-
-# processors_node = {
-#     "highCardTarget": partial(
-#         process_textual_or_other_dataframes,
-#     )
-# }
-
-
-# #################################################################################
-#
 #      Vectorizer Class + Helpers
 #
 # ###############################################################################
@@ -959,6 +949,15 @@ def prune_weighted_edges_df_and_relabel_nodes(
         )
     return wdf2
 
+# #################################################################################
+#
+#      Fast Memoize
+#
+# ###############################################################################
+
+def reuse_featurization(g: Plottable, metadata: Any): # noqa: C901
+    return check_set_memoize(g, metadata, attribute='_feature_memoize', name='featurize', memoize=True)
+
 
 class FeatureMixin(MIXIN_BASE):
     """
@@ -967,6 +966,7 @@ class FeatureMixin(MIXIN_BASE):
 
     TODO: add example usage doc
     """
+    _feature_memoize: WeakValueDictionary = WeakValueDictionary()
 
     def __init__(self, *args, **kwargs):
         pass
@@ -988,37 +988,52 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         feature_engine: FeatureEngineConcrete = "pandas",
     ):
-
         res = self.copy()
+        ndf = res._nodes
+        if remove_node_column:
+            ndf = remove_node_column_from_ndf_and_return_ndf(res)
+        
+        # resolve everything before setting dict so that `X = ndf[cols]` and `X = cols` resolve to same thingg
+        X = resolve_X(ndf, X)
+        y = resolve_y(ndf, y)
+    
+        fkwargs = dict(X=X, y=y, use_scaler=use_scaler,
+                       cardinality_threshold=cardinality_threshold,
+                       cardinality_threshold_target=cardinality_threshold_target,
+                       n_topics=n_topics,
+                       confidence=confidence,
+                       min_words=min_words,
+                       model_name=model_name,
+                       remove_node_column=remove_node_column,
+                       feature_engine=feature_engine,
+                       kind='nodes')
+
+        
+        old_res = reuse_featurization(res, fkwargs)
+        if old_res:
+            logger.info(' --- RE-USING NODE FEATURIZATION')
+            return old_res
+
         if self._nodes is None:
             raise ValueError(
                 "Expected nodes; try running nodes.materialize_nodes() first if you only have edges"
             )
 
-        ndf = res._nodes
-        if remove_node_column:
-            ndf = remove_node_column_from_ndf_and_return_ndf(res)
-            
-        ndf = resolve_X(ndf, X)
-        y_resolved = resolve_y(ndf, y)
-
-        
-        # TODO move the columns select after the featurizer?
-        ndf = features_without_target(ndf, y)
-        ndf = remove_internal_namespace_if_present(ndf)
+        X = features_without_target(X, y)
+        X = remove_internal_namespace_if_present(X)
 
         if feature_engine == "none":
-            X_enc = ndf.select_dtypes(include=np.number)
-            y_enc = y_resolved
-            data_vec = None
-            label_vec = None
-            ordinal_pipeline = None
+            X_enc = X.select_dtypes(include=np.number)
+            y_enc = y
+            data_vec = False
+            label_vec = False
+            ordinal_pipeline = False
         else:
             assert_imported()
             # now vectorize it all
             X_enc, y_enc, data_vec, label_vec, ordinal_pipeline = self._node_featurizer(
-                ndf,
-                y=y_resolved,
+                X,
+                y=y,
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
@@ -1050,40 +1065,56 @@ class FeatureMixin(MIXIN_BASE):
         model_name: str = "paraphrase-MiniLM-L6-v2",
         feature_engine: FeatureEngineConcrete = "pandas",
     ):
-        # TODO move the columns select after the featurizer
-        X_resolved = resolve_X(self._edges, X)
-        if self._source not in X_resolved:
+
+        res = self.copy()
+        edf = res._edges
+        X = resolve_X(edf, X)
+        y = resolve_y(edf, y)
+
+        if res._source not in X:
             logger.debug("adding g._source to edge features")
-            X_resolved = X_resolved.assign(**{self._source: self._edges[self._source]})
-        if self._destination not in X_resolved:
+            X = X.assign(**{res._source: res._edges[res._source]})
+        if res._destination not in X:
             logger.debug("adding g._destination to edge features")
-            X_resolved = X_resolved.assign(
-                **{self._destination: self._edges[self._destination]}
+            X = X.assign(
+                **{res._destination: res._edges[res._destination]}
             )
+        
+        # now that everything is set
+        fkwargs = dict(X=X, y=y, use_scaler=use_scaler,
+                       cardinality_threshold=cardinality_threshold,
+                       cardinality_threshold_target=cardinality_threshold_target,
+                       n_topics=n_topics,
+                       confidence=confidence,
+                       min_words=min_words,
+                       model_name=model_name,
+                       feature_engine=feature_engine,
+                       kind='edges')
+        
+        old_res = reuse_featurization(res, fkwargs)
+        if old_res:
+            logger.info(' --- RE-USING EDGE FEATURIZATION')
+            return old_res
 
-        y_resolved = resolve_y(self._edges, y)
-
-        edf = features_without_target(X_resolved, y)
-
-        res = self.bind()
+        edf = features_without_target(X, y)
 
         if feature_engine == "none":
             X_enc = edf.select_dtypes(include=np.number)
-            y_enc = y_resolved
-            data_vec = None
-            label_vec = None
-            ordinal_pipeline = None
-            mlb = None
+            y_enc = y
+            data_vec = False
+            label_vec = False
+            ordinal_pipeline = False
+            mlb = False
 
         else:
             assert_imported()
 
-            if self._source is None:
+            if res._source is None:
                 raise ValueError(
                     'Must have a source column to featurize edges, try g.bind(source="my_col") or g.edges(df, source="my_col")'
                 )
 
-            if self._destination is None:
+            if res._destination is None:
                 raise ValueError(
                     'Must have a destination column to featurize edges, try g.bind(destination="my_col") or g.edges(df, destination="my_col")'
                 )
@@ -1096,9 +1127,9 @@ class FeatureMixin(MIXIN_BASE):
                 ordinal_pipeline,
             ) = process_edge_dataframes(
                 edf=edf,
-                y=y_resolved,
-                src=self._source,
-                dst=self._destination,
+                y=y,
+                src=res._source,
+                dst=res._destination,
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
@@ -1156,7 +1187,7 @@ class FeatureMixin(MIXIN_BASE):
         if kind == "nodes":
             res = res._featurize_nodes(
                 X=X,
-                y=resolve_y(self._nodes, y),
+                y=y,
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
@@ -1170,7 +1201,7 @@ class FeatureMixin(MIXIN_BASE):
         elif kind == "edges":
             res = res._featurize_edges(
                 X=X,
-                y=resolve_y(self._edges, y),
+                y=y,
                 use_scaler=use_scaler,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
@@ -1210,14 +1241,14 @@ class FeatureMixin(MIXIN_BASE):
 
         res = self.bind()
 
-        if not reuse_if_existing:
+        if not reuse_if_existing: # will cause re-featurization
             res._node_features = None
             res._node_target = None
 
         if reuse_if_existing and res._node_features is not None:
             return res._node_features, res._node_target, res
 
-        res = self._featurize_nodes(
+        res = res._featurize_nodes(
             X,
             y=y,
             use_scaler=use_scaler,
@@ -1241,7 +1272,6 @@ class FeatureMixin(MIXIN_BASE):
             reuse_if_existing=True,
         )  # now we are guaranteed to have node feature and target matrices.
 
-    # FIXME unsafe, should be more of a checkable memoization
     def _featurize_or_get_edges_dataframe_if_X_is_None(
         self,
         X: XSymbolic = None,
@@ -1273,7 +1303,7 @@ class FeatureMixin(MIXIN_BASE):
         if reuse_if_existing and res._edge_features is not None:
             return res._edge_features, res._edge_target, res
 
-        res = self._featurize_edges(
+        res = res._featurize_edges(
             X=X,
             y=y,
             use_scaler=use_scaler,
