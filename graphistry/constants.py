@@ -34,3 +34,8 @@ N_HASHERS_DEFAULT = 100
 
 # scikit-learn params
 SKLEARN = "sklearn"
+
+
+# #############################################################
+# Caching and other internals
+CACHE_COERCION_SIZE = 100
