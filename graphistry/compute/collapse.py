@@ -546,7 +546,7 @@ def collapse_by(
     n_edges = len(g._edges)
     complexity_min = int(n_edges * np.log(n_edges))
     complexity_max = int(n_edges ** (3 / 2))
-    if VERBOSE or verbose:
+    if (VERBOSE or verbose) and n_edges > 5000:
         logger.info("-" * 108)
         logger.info(
             f"This Algorithm runs approximately between n_edges*log(n_edges) and n_edges**(3/2) in un-normalized units"
