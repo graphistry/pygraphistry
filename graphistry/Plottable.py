@@ -56,11 +56,13 @@ class Plottable(object):
     _edge_target : Optional[pd.DataFrame]
     _edge_target_encoder : Optional[Any]
 
+    _weighted_adjacency: Optional[Any]
     _weighted_adjacency_nodes : Optional[Any]
     _weighted_adjacency_edges : Optional[Any]
     _weighted_edges_df : Optional[Any]
     _weighted_edges_df_from_nodes : Optional[Any]
     _weighted_edges_df_from_edges : Optional[Any]
+    _xy: Optional[Any]
 
     _umap : Optional[UMAP]
 
