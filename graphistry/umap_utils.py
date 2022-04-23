@@ -344,6 +344,8 @@ class UMAPMixin(MIXIN_BASE):
             )
             res = self._process_umap(res, X, y, kind, **umap_kwargs)
             res._weighted_adjacency_edges = res._weighted_adjacency
+            if res._xy is None:
+                raise RuntimeError('This should not happen')
             res._edge_embedding = scale_xy * res._xy
             res._weighted_edges_df_from_edges = (
                 prune_weighted_edges_df_and_relabel_nodes(

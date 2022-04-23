@@ -101,7 +101,7 @@ FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 def resolve_feature_engine(feature_engine: FeatureEngine) -> FeatureEngineConcrete:
 
     if feature_engine in ["none", "pandas", "dirty_cat", "torch"]:
-        return feature_engine
+        return feature_engine  # type: ignore
 
     if feature_engine == "auto":
         if has_dependancy_text:
