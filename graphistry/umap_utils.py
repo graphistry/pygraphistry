@@ -79,7 +79,7 @@ umap_kwargs_euclidean = {
 #
 # ###############################################################################
 
-def reuse_umap(g: Plottable, metadata: Any): # noqa: C901
+def reuse_umap(g: Plottable, metadata: Any):  # noqa: C901
     return check_set_memoize(g, metadata, attribute='_umap_memoize', name='umap', memoize=True)
 
 
@@ -303,7 +303,7 @@ class UMAPMixin(MIXIN_BASE):
         if kind == "nodes":
             index_to_nodes_dict = None
             if res._node is None:
-                logger.debug(f'Writing new node name')
+                logger.debug('Writing new node name')
                 res = res.nodes(  # type: ignore
                     res._nodes.reset_index(drop=True)
                     .reset_index()
@@ -317,13 +317,13 @@ class UMAPMixin(MIXIN_BASE):
                 X_,
                 y_,
                 res
-            ) = res._featurize_or_get_nodes_dataframe_if_X_is_None( # type: ignore
+            ) = res._featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
             res = res._process_umap(res, X_, y_, X, y, kind, **umap_kwargs)
             res._weighted_adjacency_nodes = res._weighted_adjacency
             if res._xy is None:
-                raise RuntimeError(f'This should not happen')
+                raise RuntimeError('This should not happen')
             res._node_embedding = scale_xy * res._xy
             # # TODO add edge filter so graph doesn't have double edges
             # TODO user-guidable edge merge policies like upsert?
@@ -344,6 +344,8 @@ class UMAPMixin(MIXIN_BASE):
             )
             res = self._process_umap(res, X, y, kind, **umap_kwargs)
             res._weighted_adjacency_edges = res._weighted_adjacency
+            if res._xy is None:
+                raise RuntimeError('This should not happen')
             res._edge_embedding = scale_xy * res._xy
             res._weighted_edges_df_from_edges = (
                 prune_weighted_edges_df_and_relabel_nodes(

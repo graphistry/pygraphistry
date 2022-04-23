@@ -11,6 +11,7 @@ WITH_TYPECHECK=${WITH_TYPECHECK:-1}
 WITH_TEST=${WITH_TEST:-1}
 WITH_BUILD=${WITH_BUILD:-1}
 TEST_CPU_VERSION=${TEST_CPU_VERSION:-latest}
+SENTENCE_TRANSFORMER=${SENTENCE_TRANSFORMER-average_word_embeddings_komninos}
 
 NETWORK=""
 if [ "$WITH_NEO4J" == "1" ]
@@ -26,13 +27,13 @@ fi
 
 if [ "$WITH_BUILD" == "1" ]
 then
-    echo "WITH_BUILD"
+    echo "WITH_BUILD (transformer: $SENTENCE_TRANSFORMER)"
     COMPOSE_DOCKER_CLI_BUILD=1 \
     DOCKER_BUILDKIT=1 \
     docker-compose build \
         --build-arg PYTHON_VERSION=${PYTHON_VERSION} \
         --build-arg PIP_DEPS="${PIP_DEPS}" \
-        --build-arg SENTENCE_TRANSFORMER="paraphrase-MiniLM-L6-v2" \
+        --build-arg SENTENCE_TRANSFORMER="${SENTENCE_TRANSFOMER}" \
         test-cpu
 fi
 

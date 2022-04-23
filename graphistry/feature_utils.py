@@ -36,7 +36,6 @@ try:
         GapEncoder,
     )
 
-    # import sklearn.pipeline.Pipeline as SKPipe
     from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import (
@@ -102,7 +101,7 @@ FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 def resolve_feature_engine(feature_engine: FeatureEngine) -> FeatureEngineConcrete:
 
     if feature_engine in ["none", "pandas", "dirty_cat", "torch"]:
-        return feature_engine
+        return feature_engine  # type: ignore
 
     if feature_engine == "auto":
         if has_dependancy_text:
@@ -446,7 +445,7 @@ def get_ordinal_preprocessing_pipeline(
     n_bins: int = 5,
     encode: str = "ordinal",
     strategy: str = "uniform",
-):
+) -> Pipeline:
     """
         Helper function for imputing and scaling np.ndarray data using different scaling transformers.
     :param X: np.ndarray
@@ -524,7 +523,7 @@ def impute_and_scale_df(
     encode: str = "ordinal",
     strategy: str = "uniform",
     keep_n_decimals: int = 5,
-) -> Tuple[pd.DataFrame, Any]:
+) -> Tuple[pd.DataFrame, Optional[Pipeline]]:
 
     columns = df.columns
     index = df.index
@@ -594,7 +593,7 @@ def process_textual_or_other_dataframes(
     model_name: str = "paraphrase-MiniLM-L6-v2",
     feature_engine: FeatureEngineConcrete = "pandas"
     # test_size: Optional[bool] = None,
-) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Union[Any, None]]:
+) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Optional[Pipeline]]:
     """
         Automatic Deep Learning Embedding of Textual Features,
         with the rest of the columns taken care of by dirty_cat
@@ -699,7 +698,7 @@ def process_dirty_dataframes(
     Optional[pd.DataFrame],
     SuperVectorizer,
     SuperVectorizer,
-    Union[Any, None],
+    Optional[Pipeline]
 ]:
     """
         Dirty_Cat encoder for record level data. Will automatically turn
@@ -717,14 +716,14 @@ def process_dirty_dataframes(
 
     if feature_engine == "none" or feature_engine == "pandas":
         logger.warning(
-            f"Featurizer returning only numeric entries in DataFrame, if any exist. No real featurizations has taken place."
+            "Featurizer returning only numeric entries in DataFrame, if any exist. No real featurizations has taken place."
         )
         return (
             ndf.select_dtypes(include=[np.number]),
             y.select_dtypes(include=[np.number]) if y is not None else None,
             False,
             False,
-            False,
+            False
         )
 
     t = time()
@@ -744,7 +743,12 @@ def process_dirty_dataframes(
             X_enc = data_encoder.fit_transform(ndf, y)
             X_enc = make_dense(X_enc)
             all_transformers = data_encoder.transformers
-            features_transformed = data_encoder.get_feature_names_out()
+
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                features_transformed = data_encoder.get_feature_names_out()
+
             logger.debug(f"-Shape of data {X_enc.shape}\n")
             logger.debug(f"-Transformers: \n{all_transformers}\n")
             logger.debug(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
@@ -778,7 +782,12 @@ def process_dirty_dataframes(
         )
         y_enc = label_encoder.fit_transform(y)
         y_enc = make_dense(y_enc)
-        labels_transformed = label_encoder.get_feature_names_out()
+
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            labels_transformed = label_encoder.get_feature_names_out()
+
         y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed)
         y_enc = y_enc.fillna(0)
 
@@ -805,8 +814,8 @@ def process_edge_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-    feature_engine: FeatureEngineConcrete = "pandas",
-) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Union[Any, None]]:
+    feature_engine: FeatureEngineConcrete = "pandas"
+) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Optional[Pipeline]]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
         and then process_textual_or_other_dataframes that encodes any other data present in edf,
@@ -855,7 +864,7 @@ def process_edge_dataframes(
         confidence=confidence,
         min_words=min_words,
         model_name=model_name,
-        feature_engine=feature_engine,
+        feature_engine=feature_engine
     )
 
     if data_encoder is not None:
@@ -879,7 +888,7 @@ def process_edge_dataframes(
             impute=True,
             n_quantiles=100,
             quantile_range=(25, 75),
-            output_distribution="normal",
+            output_distribution="normal"
         )
 
     logger.debug(f"--Created an Edge feature matrix of size {T.shape}")
@@ -891,7 +900,7 @@ def process_edge_dataframes(
         y_enc,
         [mlb_pairwise_edge_encoder, data_encoder],
         label_encoder,
-        ordinal_pipeline,
+        ordinal_pipeline
     )
 
 
@@ -1112,7 +1121,7 @@ class FeatureMixin(MIXIN_BASE):
             y_enc = y_resolved
             data_vec = False
             label_vec = False
-            ordinal_pipeline = False
+            ordinal_pipeline = None
             mlb = False
 
         else:
@@ -1133,7 +1142,7 @@ class FeatureMixin(MIXIN_BASE):
                 y_enc,
                 [mlb, data_vec],
                 label_vec,
-                ordinal_pipeline,
+                ordinal_pipeline
             ) = process_edge_dataframes(
                 X_resolved,
                 y=y_resolved,
@@ -1146,7 +1155,7 @@ class FeatureMixin(MIXIN_BASE):
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
-                feature_engine=feature_engine,
+                feature_engine=feature_engine
             )
 
         res._edge_features = X_enc
