@@ -247,20 +247,17 @@ class ComputeMixin(MIXIN_BASE):
         verbose: bool = False
     ):
         """
-        Topology Aware collapse by given column attribute starting at `node`
+        Topology-aware collapse by given column attribute starting at `node`
 
-        Traverses Directed Graph from start node `node` and collapses clusters of nodes that share
+        Traverses directed graph from start node `node` and collapses clusters of nodes that share
         the same property so that topology is preserved.
-
-        ----------------------------------------------------------------------------------------------------------------
 
         :param node: start `node` to begin traversal
         :param attribute: the given `attribute` to collapse over within `column`
         :param column: the `column` of nodes DataFrame that contains `attribute` to collapse over
-        :return: a new Graphistry instance with nodes and edges DataFrame containing collapsed
-                nodes and edges given by column attribute -- nodes and edges DataFrames contain six new columns
-                `collapse_{node | edges}` and `final_{node | edges}`, while original (node, src, dst) columns
-                are left untouched
+
+        :returns:A new Graphistry instance with nodes and edges DataFrame containing collapsed nodes and edges given by column attribute -- nodes and edges DataFrames contain six new columns `collapse_{node | edges}` and `final_{node | edges}`, while original (node, src, dst) columns are left untouched
+        :rtype: Plottable
         """
         # TODO FIXME CHECK SELF LOOPS?
         return collapse_by(
