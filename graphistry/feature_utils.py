@@ -1111,7 +1111,7 @@ class FeatureMixin(MIXIN_BASE):
             y_enc = y_resolved
             data_vec = False
             label_vec = False
-            ordinal_pipeline = False
+            ordinal_pipeline = None
             mlb = False
 
         else:
