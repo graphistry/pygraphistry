@@ -743,7 +743,12 @@ def process_dirty_dataframes(
             X_enc = data_encoder.fit_transform(ndf, y)
             X_enc = make_dense(X_enc)
             all_transformers = data_encoder.transformers
-            features_transformed = data_encoder.get_feature_names_out()
+
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                features_transformed = data_encoder.get_feature_names_out()
+
             logger.debug(f"-Shape of data {X_enc.shape}\n")
             logger.debug(f"-Transformers: \n{all_transformers}\n")
             logger.debug(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
@@ -777,7 +782,12 @@ def process_dirty_dataframes(
         )
         y_enc = label_encoder.fit_transform(y)
         y_enc = make_dense(y_enc)
-        labels_transformed = label_encoder.get_feature_names_out()
+
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            labels_transformed = label_encoder.get_feature_names_out()
+
         y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed)
         y_enc = y_enc.fillna(0)
 
