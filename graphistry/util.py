@@ -16,12 +16,15 @@ def setup_logger(name, verbose=True):
     logger.setLevel(logging.DEBUG if verbose else logging.ERROR)
     return logger
 
+
 # #####################################
 # Caching utils
+
 _cache_coercion_val = None
 @lru_cache(maxsize=CACHE_COERCION_SIZE)
 def cache_coercion_helper(k):
     return _cache_coercion_val
+
 
 def cache_coercion(k, v):
     """
@@ -33,9 +36,11 @@ def cache_coercion(k, v):
 
     return cache_coercion_helper(k)
 
+
 class WeakValueWrapper:
     def __init__(self, v):
         self.v = v
+
 
 def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = True):  # noqa: C901
     """

@@ -80,7 +80,7 @@ umap_kwargs_euclidean = {
 #
 # ###############################################################################
 
-def reuse_umap(g: Plottable, metadata: Any): # noqa: C901
+def reuse_umap(g: Plottable, metadata: Any):  # noqa: C901
     return check_set_memoize(g, metadata, attribute='_umap_memoize', name='umap', memoize=True)
 
 
@@ -209,7 +209,7 @@ class UMAPMixin(MIXIN_BASE):
         if kind in res._feature_params:
             # add in all the stuff that got stored in res._feature_params
             kv.update(res._feature_params[kind])
-            kv.pop('kind') # pop off kind, as featurization doesn't use it (we have one for nodes, and one for edges explicitly)
+            kv.pop('kind')  # pop off kind, as featurization doesn't use it (we have one for nodes, and one for edges explicitly)
 
         if len(featurize_kwargs):
             # overwrite with anything stated in featurize_kwargs
@@ -301,7 +301,7 @@ class UMAPMixin(MIXIN_BASE):
         if kind == "nodes":
             index_to_nodes_dict = None
             if res._node is None:
-                logger.debug(f'Writing new node name')
+                logger.debug('Writing new node name')
                 res = res.nodes(  # type: ignore
                     res._nodes.reset_index(drop=True)
                     .reset_index()
@@ -315,7 +315,7 @@ class UMAPMixin(MIXIN_BASE):
                 X,
                 y,
                 res
-            ) = res._featurize_or_get_nodes_dataframe_if_X_is_None( # type: ignore
+            ) = res._featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
             

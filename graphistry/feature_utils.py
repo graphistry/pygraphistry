@@ -651,7 +651,7 @@ def process_textual_or_other_dataframes(
         columns = columns_text  # just sentence-transformers
     else:
         logger.warning(f" WARNING: Data Encoder is {data_encoder} and textual_columns are {columns_text}")
-        columns = list(X_enc.columns.values) # try with this if nothing else
+        columns = list(X_enc.columns.values)  # try with this if nothing else
 
 
     # now remove the leading zeros
@@ -715,7 +715,7 @@ def process_dirty_dataframes(
     """
 
     if feature_engine == "none" or feature_engine == "pandas":
-        logger.warn(f'Featurizer returning only numeric entries in DataFrame, if any exist. No real featurizations has taken place.')
+        logger.warn('Featurizer returning only numeric entries in DataFrame, if any exist. No real featurizations has taken place.')
         return (
             ndf.select_dtypes(include=[np.number]),
             y.select_dtypes(include=[np.number]) if y is not None else None,
@@ -946,7 +946,7 @@ def prune_weighted_edges_df_and_relabel_nodes(
 #
 # ###############################################################################
 
-def reuse_featurization(g: Plottable, metadata: Any): # noqa: C901
+def reuse_featurization(g: Plottable, metadata: Any):  # noqa: C901
     return check_set_memoize(g, metadata, attribute='_feature_memoize', name='featurize', memoize=True)
 
 
@@ -1239,7 +1239,7 @@ class FeatureMixin(MIXIN_BASE):
 
         res = self.bind()
 
-        if not reuse_if_existing: # will cause re-featurization
+        if not reuse_if_existing:  # causes re-featurization
             res._node_features = None
             res._node_target = None
 
