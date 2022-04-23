@@ -1721,7 +1721,7 @@ class PlotterBase(Plottable):
                         + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
                     )
                 except TypeError:
-                    logger.warn('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.'
+                    logger.warning('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.'
                                 'This is fine, but for speedups around skipping re-uploads of previously seen tables, '
                                 'try identifying which columns have types that Pandas cannot hash, and convert them '
                                 'to hashable types like strings.')

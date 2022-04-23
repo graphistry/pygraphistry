@@ -1,5 +1,5 @@
 # ###############################################################
-VERBOSE = False  # set to true for debug
+VERBOSE = True  # set to true for debug
 # ###############################################################
 # source and destination labels for consistent pipeline-ing across files
 SRC = "_src_implicit"
@@ -34,3 +34,8 @@ N_HASHERS_DEFAULT = 100
 
 # scikit-learn params
 SKLEARN = "sklearn"
+
+
+# #############################################################
+# Caching and other internals
+CACHE_COERCION_SIZE = 100

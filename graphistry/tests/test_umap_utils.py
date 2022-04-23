@@ -151,7 +151,7 @@ class TestUMAPMethods(unittest.TestCase):
             g2 = g.umap(kind=kind, feature_engine="none")
             last_shape = 0
             for scale in np.linspace(0, 3, 8):  # six sigma in 8 steps
-                g3 = g2.filter_edges(scale=scale)
+                g3 = g2.filter_weighted_edges(scale=scale)
                 shape = g3._edges.shape
                 logger.debug("*" * 90)
                 logger.debug(
@@ -217,12 +217,37 @@ class TestUMAPAIMethods(TestUMAPMethods):
         not has_dependancy or not has_featurize,
         reason="requires ai+umap feature dependencies",
     )
+    def test_chaining_nodes(self):
+        g = graphistry.nodes(ndf_reddit)
+        g2 = g.umap()
+        g3 = g.featurize().umap()
+        assert all(g2._node_features == g3._node_features)
+        assert g2._feature_params['nodes'] == g3._feature_params['nodes']
+        assert g2._node_embedding.sum() == g3._node_embedding.sum()
+        
+    @pytest.mark.skipif(
+        not has_dependancy or not has_featurize,
+        reason="requires ai+umap feature dependencies",
+    )
+    def test_chaining_edges(self):
+        g = graphistry.edges(edge_df, "src", "dst")
+        g2 = g.umap(kind='edges')
+        g3 = g.featurize(kind='edges').umap(kind='edges')
+        assert all(g2._edge_features == g3._edge_features)
+        assert g2._feature_params['edges'] == g3._feature_params['edges']
+        assert g2._edge_embedding.sum() == g3._edge_embedding.sum()
+
+    
+    @pytest.mark.skipif(
+        not has_dependancy or not has_featurize,
+        reason="requires ai+umap feature dependencies",
+    )
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(ndf_reddit))]:
             g2 = g.umap(kind=kind, model_name=model_avg_name)
             last_shape = 0
-            for scale in np.linspace(0, 6, 8):  # six sigma in 8 steps
-                g3 = g2.filter_edges(scale=scale)
+            for scale in np.linspace(0, 1, 8):  # six sigma in 8 steps
+                g3 = g2.filter_weighted_edges(scale=scale)
                 shape = g3._edges.shape
                 logger.debug("*" * 90)
                 logger.debug(
