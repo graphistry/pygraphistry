@@ -723,7 +723,7 @@ def process_dirty_dataframes(
             y.select_dtypes(include=[np.number]) if y is not None else None,
             False,
             False,
-            False,
+            False
         )
 
     t = time()
@@ -854,7 +854,7 @@ def process_edge_dataframes(
         confidence=confidence,
         min_words=min_words,
         model_name=model_name,
-        feature_engine=feature_engine,
+        feature_engine=feature_engine
     )
 
     if data_encoder is not None:
@@ -878,7 +878,7 @@ def process_edge_dataframes(
             impute=True,
             n_quantiles=100,
             quantile_range=(25, 75),
-            output_distribution="normal",
+            output_distribution="normal"
         )
 
     logger.debug(f"--Created an Edge feature matrix of size {T.shape}")
@@ -890,7 +890,7 @@ def process_edge_dataframes(
         y_enc,
         [mlb_pairwise_edge_encoder, data_encoder],
         label_encoder,
-        ordinal_pipeline,
+        ordinal_pipeline
     )
 
 
@@ -1132,7 +1132,7 @@ class FeatureMixin(MIXIN_BASE):
                 y_enc,
                 [mlb, data_vec],
                 label_vec,
-                ordinal_pipeline,
+                ordinal_pipeline
             ) = process_edge_dataframes(
                 X_resolved,
                 y=y_resolved,
@@ -1145,7 +1145,7 @@ class FeatureMixin(MIXIN_BASE):
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
-                feature_engine=feature_engine,
+                feature_engine=feature_engine
             )
 
         res._edge_features = X_enc
