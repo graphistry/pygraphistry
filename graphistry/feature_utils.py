@@ -698,7 +698,7 @@ def process_dirty_dataframes(
     Optional[pd.DataFrame],
     SuperVectorizer,
     SuperVectorizer,
-    Union[Any, None],
+    Optional[Pipeline]
 ]:
     """
         Dirty_Cat encoder for record level data. Will automatically turn
