@@ -1,21 +1,20 @@
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
-import numpy as np, pandas as pd
 from time import time
+from typing import Any, Dict, Optional, Union, TYPE_CHECKING
+
+import numpy as np
+import pandas as pd
+
 from . import constants as config
+from .PlotterBase import WeakValueDictionary, Plottable
 from .constants import VERBOSE
-from .util import setup_logger, check_set_memoize
 from .feature_utils import (
-    FeatureEngine,
     FeatureMixin,
     XSymbolic,
     YSymbolic,
     prune_weighted_edges_df_and_relabel_nodes,
-    resolve_feature_engine,
-    resolve_X,
-    resolve_y
+    resolve_feature_engine, is_dataframe_all_numeric
 )
-from .PlotterBase import WeakValueDictionary, Plottable
-
+from .util import setup_logger, check_set_memoize
 
 logger = setup_logger(name=__name__, verbose=VERBOSE)
 
@@ -182,23 +181,23 @@ class UMAPMixin(MIXIN_BASE):
         self.umap_fit(X, y)
         return self._umap.transform(X)
 
-    def _process_umap(self, res, X, y, kind, **umap_kwargs):
+    def _process_umap(self, res, X_, y_, X, y, kind, **umap_kwargs):
         # need this function to use memoize
         res._umap = umap.UMAP(**umap_kwargs)
 
-        umap_kwargs.update({'kind': kind})
+        umap_kwargs.update({'kind': kind, 'X': X, 'y': y})
         
         old_res = reuse_umap(res, umap_kwargs)
         if old_res:
             logger.info(' --- RE-USING UMAP')
             return old_res
         
-        xy = res.umap_fit_transform(X, y)
+        xy = res.umap_fit_transform(X_, y_)
         res._xy = xy
 
         return res
     
-    def _set_features(self, res, X, y, kind, featurize_kwargs):
+    def _set_features(self, res, X, y, kind, feature_engine, featurize_kwargs):
         """
            merges
             :param
@@ -209,12 +208,14 @@ class UMAPMixin(MIXIN_BASE):
         if kind in res._feature_params:
             # add in all the stuff that got stored in res._feature_params
             kv.update(res._feature_params[kind])
-            kv.pop('kind') # pop off kind, as featurization doesn't use it (we have one for nodes, and one for edges explicitly)
+            #kv.pop('kind') # pop off kind, as featurization doesn't use it (we have one for nodes, and one for edges explicitly)
 
         if len(featurize_kwargs):
             # overwrite with anything stated in featurize_kwargs
             kv.update(featurize_kwargs)
-
+        
+        kv.update({'feature_engine': resolve_feature_engine(feature_engine)})
+        
         # potentially overwrite with explicit mention here
         if X is not None:
             kv.update({'X': X})
@@ -224,6 +225,7 @@ class UMAPMixin(MIXIN_BASE):
 
         # set the features fully, and if this in memoize, it will skip and just returns previous .featurize/umap
         featurize_kwargs = kv
+
         return featurize_kwargs
         
     def umap(
@@ -247,6 +249,7 @@ class UMAPMixin(MIXIN_BASE):
         encode_weight: bool = True,
         engine: str = "umap_learn",
         inplace: bool = False,
+        feature_engine: str = 'auto',
         **featurize_kwargs
     ):
         """
@@ -279,7 +282,6 @@ class UMAPMixin(MIXIN_BASE):
         self.umap_lazy_init()
 
         self.suffix = suffix
-        xy = None
         umap_kwargs = dict(
             n_components=n_components,
             metric=metric,
@@ -296,7 +298,7 @@ class UMAPMixin(MIXIN_BASE):
         else:
             res = self.bind()
 
-        featurize_kwargs = self._set_features(res, X, y, kind, featurize_kwargs)
+        featurize_kwargs = self._set_features(res, X, y, kind, feature_engine, featurize_kwargs)
 
         if kind == "nodes":
             index_to_nodes_dict = None
@@ -312,15 +314,16 @@ class UMAPMixin(MIXIN_BASE):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
                 
             (
-                X,
-                y,
+                X_,
+                y_,
                 res
             ) = res._featurize_or_get_nodes_dataframe_if_X_is_None( # type: ignore
                 **featurize_kwargs
             )
-            
-            res = self._process_umap(res, X, y, kind, **umap_kwargs)
+            res = res._process_umap(res, X_, y_, X, y, kind, **umap_kwargs)
             res._weighted_adjacency_nodes = res._weighted_adjacency
+            if res._xy is None:
+                raise RuntimeError(f'This should not happen')
             res._node_embedding = scale_xy * res._xy
             # # TODO add edge filter so graph doesn't have double edges
             # TODO user-guidable edge merge policies like upsert?
