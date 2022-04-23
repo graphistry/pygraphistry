@@ -1,17 +1,17 @@
-from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHECKING
-import logging
-
+import logging, copy
+from typing import Any, List, Optional, Union, TYPE_CHECKING
 import pandas as pd
 
 from graphistry.Plottable import Plottable
 from .chain import chain as chain_base
+from .collapse import collapse_by
 from .hop import hop as hop_base
 from .filter_by_dict import (
     filter_edges_by_dict as filter_edges_by_dict_base,
     filter_nodes_by_dict as filter_nodes_by_dict_base
 )
 
-logger = logging.getLogger('compute')
+logger = logging.getLogger("compute")
 
 if TYPE_CHECKING:
     MIXIN_BASE = Plottable
@@ -20,7 +20,6 @@ else:
 
 
 class ComputeMixin(MIXIN_BASE):
-
     def __init__(self, *args, **kwargs):
         pass
 
@@ -47,9 +46,11 @@ class ComputeMixin(MIXIN_BASE):
         """
         g = self
         if g._edges is None:
-            raise ValueError('Missing edges')
+            raise ValueError("Missing edges")
         if g._source is None or g._destination is None:
-            raise ValueError('Missing source/destination bindings; set via .bind() or .edges()')
+            raise ValueError(
+                "Missing source/destination bindings; set via .bind() or .edges()"
+            )
         if len(g._edges) == 0:
             return g
         # TODO use built-ins for igraph/nx/...
@@ -57,50 +58,52 @@ class ComputeMixin(MIXIN_BASE):
         if reuse:
             if g._nodes is not None and len(g._nodes) > 0:
                 if g._node is None:
-                    logger.warning('Must set node id binding, not just nodes; set via .bind() or .nodes()')
+                    logger.warning(
+                        "Must set node id binding, not just nodes; set via .bind() or .nodes()"
+                    )
                     # raise ValueError('Must set node id binding, not just nodes; set via .bind() or .nodes()')
                 else:
                     return g
 
-        node_id = g._node if g._node is not None else 'id'
+        node_id = g._node if g._node is not None else "id"
         concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame()
         return g.nodes(nodes_df, node_id)
 
-    def get_indegrees(self, col: str = 'degree_in'):
-        """See get_degrees
-        """
+    def get_indegrees(self, col: str = "degree_in"):
+        """See get_degrees"""
         g = self
         g_nodes = g.materialize_nodes()
-        in_degree_df = (g
-            ._edges[[g._source, g._destination]]
+        in_degree_df = (
+            g._edges[[g._source, g._destination]]
             .groupby(g._destination)
-            .agg({g._source: 'count'})
+            .agg({g._source: "count"})
             .reset_index()
-            .rename(columns = {
-                g._source: col,
-                g._destination: g_nodes._node
-            }))
-        nodes_df = (g_nodes._nodes
-                    [[c for c in g_nodes._nodes.columns if c != col]]
-                    .merge(in_degree_df, how = 'left', on = g._node))
-        nodes_df[col].fillna(0, inplace = True)
-        nodes_df[col] = nodes_df[col].astype('int32')
+            .rename(columns={g._source: col, g._destination: g_nodes._node})
+        )
+        nodes_df = g_nodes._nodes[
+            [c for c in g_nodes._nodes.columns if c != col]
+        ].merge(in_degree_df, how="left", on=g._node)
+        nodes_df[col].fillna(0, inplace=True)
+        nodes_df[col] = nodes_df[col].astype("int32")
         return g.nodes(nodes_df, g_nodes._node)
 
-    def get_outdegrees(self, col: str = 'degree_out'):
-        """See get_degrees
-        """
+    def get_outdegrees(self, col: str = "degree_out"):
+        """See get_degrees"""
         g = self
         g2 = g.edges(
             g._edges.rename(
-                columns = {
-                    g._source: g._destination,
-                    g._destination: g._source
-                })).get_indegrees(col)
+                columns={g._source: g._destination, g._destination: g._source}
+            )
+        ).get_indegrees(col)
         return g.nodes(g2._nodes, g2._node)
 
-    def get_degrees(self, col: str = 'degree', degree_in: str = 'degree_in', degree_out: str = 'degree_out'):
+    def get_degrees(
+        self,
+        col: str = "degree",
+        degree_in: str = "degree_in",
+        degree_out: str = "degree_out",
+    ):
         """Decorate nodes table with degree info
 
         Edges must be dataframe-like: pandas, cudf, ...
@@ -121,7 +124,7 @@ class ComputeMixin(MIXIN_BASE):
         """
         g = self
         g2 = g.get_indegrees(degree_in).get_outdegrees(degree_out)
-        g2._nodes[col] = g2._nodes['degree_in'] + g2._nodes['degree_out']
+        g2._nodes[col] = g2._nodes["degree_in"] + g2._nodes["degree_out"]
         return g2
 
     def drop_nodes(self, nodes):
@@ -152,11 +155,11 @@ class ComputeMixin(MIXIN_BASE):
         return g2
 
     def get_topological_levels(
-            self,
-            level_col: str = 'level',
-            allow_cycles: bool = True,
-            warn_cycles: bool = True,
-            remove_self_loops: bool = True
+        self,
+        level_col: str = "level",
+        allow_cycles: bool = True,
+        warn_cycles: bool = True,
+        remove_self_loops: bool = True,
     ) -> Plottable:
         """
         Label nodes on column level_col based on topological sort depth
@@ -192,19 +195,31 @@ class ComputeMixin(MIXIN_BASE):
                 break
             g2 = g2.get_degrees()
 
-            roots = g2._nodes[g2._nodes['degree_in'] == 0]
+            roots = g2._nodes[g2._nodes["degree_in"] == 0]
             if len(roots) == 0:
                 if not allow_cycles:
-                    raise ValueError('Cyclic graph in get_topological_levels(); remove cycles or set allow_cycles=True')
+                    raise ValueError(
+                        "Cyclic graph in get_topological_levels(); remove cycles or set allow_cycles=True"
+                    )
                 # tie break by picking biggest node
-                max_degree = g2._nodes['degree'].max()
-                roots = g2._nodes[g2._nodes['degree'] == max_degree][:1]
+                max_degree = g2._nodes["degree"].max()
+                roots = g2._nodes[g2._nodes["degree"] == max_degree][:1]
                 if warn_cycles:
-                    logger.warning('Cycle on computing level %s', len(nodes_with_levels))
+                    logger.warning(
+                        "Cycle on computing level %s", len(nodes_with_levels)
+                    )
 
             nodes_with_levels.append(
-                (roots[[c for c in roots if c not in ['degree_in', 'degree_out', 'degree']]]
-                 .assign(**{level_col: len(nodes_with_levels)})))
+                (
+                    roots[
+                        [
+                            c
+                            for c in roots
+                            if c not in ["degree_in", "degree_out", "degree"]
+                        ]
+                    ].assign(**{level_col: len(nodes_with_levels)})
+                )
+            )
 
             g2 = g2.drop_nodes(roots[g2._node])
         nodes_df0 = nodes_with_levels[0]
@@ -217,8 +232,46 @@ class ComputeMixin(MIXIN_BASE):
             return self.nodes(nodes_df)
         else:
             # use orig cols, esp. in case collisions like degree
-            out_df = g2_base._nodes.merge(nodes_df[[g2_base._node, level_col]], on = g2_base._node, how = 'left')
+            out_df = g2_base._nodes.merge(
+                nodes_df[[g2_base._node, level_col]], on=g2_base._node, how="left"
+            )
             return self.nodes(out_df)
+
+    def collapse(
+        self,
+        node: Union[str, int],
+        attribute: Union[str, int],
+        column: Union[str, int],
+        self_edges: bool = False,
+        unwrap: bool = False,
+        verbose: bool = False
+    ):
+        """
+        Topology-aware collapse by given column attribute starting at `node`
+
+        Traverses directed graph from start node `node` and collapses clusters of nodes that share
+        the same property so that topology is preserved.
+
+        :param node: start `node` to begin traversal
+        :param attribute: the given `attribute` to collapse over within `column`
+        :param column: the `column` of nodes DataFrame that contains `attribute` to collapse over
+
+        :returns:A new Graphistry instance with nodes and edges DataFrame containing collapsed nodes and edges given by column attribute -- nodes and edges DataFrames contain six new columns `collapse_{node | edges}` and `final_{node | edges}`, while original (node, src, dst) columns are left untouched
+        :rtype: Plottable
+        """
+        # TODO FIXME CHECK SELF LOOPS?
+        return collapse_by(
+            self,
+            start_node=node,
+            parent=node,
+            attribute=attribute,
+            column=column,
+            seen={},
+            self_edges=self_edges,
+            unwrap=unwrap,
+            verbose=verbose
+        )
+
 
     def hop(self, *args, **kwargs):
         return hop_base(self, *args, **kwargs)

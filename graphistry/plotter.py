@@ -1,5 +1,5 @@
 from .PlotterBase import PlotterBase
-from .compute import ComputeMixin
+from .compute.ComputeMixin import ComputeMixin 
 from .gremlin import GremlinMixin, CosmosMixin, NeptuneMixin
 from .layouts import LayoutsMixin
 
