@@ -65,7 +65,6 @@ class Plottable(object):
     _xy: Optional[Any]
 
     _umap : Optional[UMAP]
-    _xy : Optional[Any]
 
     _adjacency : Optional[Any]
     _entity_to_index : dict

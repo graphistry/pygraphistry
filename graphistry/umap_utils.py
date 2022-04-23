@@ -323,7 +323,7 @@ class UMAPMixin(MIXIN_BASE):
             res = res._process_umap(res, X_, y_, X, y, kind, **umap_kwargs)
             res._weighted_adjacency_nodes = res._weighted_adjacency
             if res._xy is None:
-                raise RuntimeError(f'This should not happen')
+                raise RuntimeError('This should not happen')
             res._node_embedding = scale_xy * res._xy
             # # TODO add edge filter so graph doesn't have double edges
             # TODO user-guidable edge merge policies like upsert?
