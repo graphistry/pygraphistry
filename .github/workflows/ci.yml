@@ -48,6 +48,16 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install -e .[test]
 
+    - name: Lint
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/lint.sh
+
+    - name: Type check
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/typecheck.sh
+
     - name: Minimal tests
       run: |
         source pygraphistry/bin/activate
