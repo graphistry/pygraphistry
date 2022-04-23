@@ -87,6 +87,18 @@ class Plottable(object):
         raise RuntimeError('should not happen')
         return self
 
+    def collapse(
+        self,
+        node: Union[str, int],
+        attribute: Union[str, int],
+        column: Union[str, int],
+        self_edges: bool = False,
+        unwrap: bool = False,
+        verbose: bool = False
+    ) -> 'Plottable':
+        raise RuntimeError('should not happen')
+        return self
+
     def hop(self,
         nodes: Optional[pd.DataFrame],
         hops: Optional[int] = 1,
