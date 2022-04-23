@@ -36,7 +36,6 @@ try:
         GapEncoder,
     )
 
-    # import sklearn.pipeline.Pipeline as SKPipe
     from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import (
@@ -446,7 +445,7 @@ def get_ordinal_preprocessing_pipeline(
     n_bins: int = 5,
     encode: str = "ordinal",
     strategy: str = "uniform",
-):
+) -> Pipeline:
     """
         Helper function for imputing and scaling np.ndarray data using different scaling transformers.
     :param X: np.ndarray
@@ -524,7 +523,7 @@ def impute_and_scale_df(
     encode: str = "ordinal",
     strategy: str = "uniform",
     keep_n_decimals: int = 5,
-) -> Tuple[pd.DataFrame, Any]:
+) -> Tuple[pd.DataFrame, Optional[Pipeline]]:
 
     columns = df.columns
     index = df.index
@@ -594,7 +593,7 @@ def process_textual_or_other_dataframes(
     model_name: str = "paraphrase-MiniLM-L6-v2",
     feature_engine: FeatureEngineConcrete = "pandas"
     # test_size: Optional[bool] = None,
-) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Union[Any, None]]:
+) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Optional[Pipeline]]:
     """
         Automatic Deep Learning Embedding of Textual Features,
         with the rest of the columns taken care of by dirty_cat
@@ -805,8 +804,8 @@ def process_edge_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-    feature_engine: FeatureEngineConcrete = "pandas",
-) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Union[Any, None]]:
+    feature_engine: FeatureEngineConcrete = "pandas"
+) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Optional[Pipeline]]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
         and then process_textual_or_other_dataframes that encodes any other data present in edf,
