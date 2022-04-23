@@ -83,7 +83,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
-        python -m pip install -e .[docs,test,build,igraph,networkx,gremlin,nodexl,jupyter]
+        python -m pip install -e .[docs,test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter]
 
     - name: Lint
       run: |
