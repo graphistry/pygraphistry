@@ -994,10 +994,8 @@ class FeatureMixin(MIXIN_BASE):
             ndf = remove_node_column_from_ndf_and_return_ndf(res)
 
         # resolve everything before setting dict so that `X = ndf[cols]` and `X = cols` resolve to same thing
-        print(f' _featurize_nodes:::: is dataframe empty: {ndf.empty}, COLUMNS: {ndf.columns}\n')
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
-        print(f'   --------- {X_resolved}')
 
         feature_engine = resolve_feature_engine(feature_engine)
 

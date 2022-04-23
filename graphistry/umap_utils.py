@@ -12,7 +12,7 @@ from .feature_utils import (
     XSymbolic,
     YSymbolic,
     prune_weighted_edges_df_and_relabel_nodes,
-    resolve_feature_engine
+    resolve_feature_engine, is_dataframe_all_numeric
 )
 from .util import setup_logger, check_set_memoize
 
@@ -181,18 +181,18 @@ class UMAPMixin(MIXIN_BASE):
         self.umap_fit(X, y)
         return self._umap.transform(X)
 
-    def _process_umap(self, res, X, y, kind, **umap_kwargs):
+    def _process_umap(self, res, X_, y_, X, y, kind, **umap_kwargs):
         # need this function to use memoize
         res._umap = umap.UMAP(**umap_kwargs)
 
-        umap_kwargs.update({'kind': kind})
+        umap_kwargs.update({'kind': kind, 'X': X, 'y': y})
         
         old_res = reuse_umap(res, umap_kwargs)
         if old_res:
             logger.info(' --- RE-USING UMAP')
             return old_res
         
-        xy = res.umap_fit_transform(X, y)
+        xy = res.umap_fit_transform(X_, y_)
         res._xy = xy
 
         return res
@@ -314,15 +314,13 @@ class UMAPMixin(MIXIN_BASE):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
                 
             (
-                X,
-                y,
+                X_,
+                y_,
                 res
             ) = res._featurize_or_get_nodes_dataframe_if_X_is_None( # type: ignore
                 **featurize_kwargs
             )
-            print(X, y)
-            print('*'*80)
-            res = res._process_umap(res, X, y, kind, **umap_kwargs)
+            res = res._process_umap(res, X_, y_, X, y, kind, **umap_kwargs)
             res._weighted_adjacency_nodes = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError(f'This should not happen')
