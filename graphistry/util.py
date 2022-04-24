@@ -1,4 +1,5 @@
-import hashlib, logging, os, platform as p, random, string, sys, uuid, warnings
+import hashlib, logging, os, pandas as pd, platform as p, random, string, sys, uuid, warnings
+from typing import Any, Dict
 from distutils.version import LooseVersion, StrictVersion
 from functools import lru_cache
 
@@ -34,7 +35,9 @@ def cache_coercion(k, v):
     global _cache_coercion_val
     _cache_coercion_val = v
 
-    return cache_coercion_helper(k)
+    out = cache_coercion_helper(k)
+    _cache_coercion_val = None
+    return out
 
 
 class WeakValueWrapper:

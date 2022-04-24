@@ -4,7 +4,10 @@ import copy, hashlib, logging, numpy as np, pandas as pd, pyarrow as pa, sys, uu
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
-from .util import (error, in_ipython, in_databricks, make_iframe, random_string, warn)
+from .util import (
+    error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
+    cache_coercion, cache_coercion_helper, WeakValueWrapper
+)
 
 from .bolt_util import (
     bolt_graph_to_edges_dataframe,
@@ -52,27 +55,6 @@ try:
 except ImportError:
     1
 
-CACHE_COERCION_SIZE = 100
-
-
-_cache_coercion_val = None
-@lru_cache(maxsize=CACHE_COERCION_SIZE)
-def cache_coercion_helper(k):
-    return _cache_coercion_val
-
-def cache_coercion(k, v):
-    """
-        Holds references to last 100 used coercions
-        Use with weak key/value dictionaries for actual lookups
-    """
-    global _cache_coercion_val
-    _cache_coercion_val = v
-
-    return cache_coercion_helper(k)
-
-class WeakValueWrapper:
-    def __init__(self, v):
-        self.v = v
 
 class PlotterBase(Plottable):
     """Graph plotting class.
@@ -1715,11 +1697,7 @@ class PlotterBase(Plottable):
             if memoize:
                 
                 try:
-                    #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
-                    hashed = (
-                        hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
-                        + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
-                    )
+                    hashed = hash_pdf(table)
                 except TypeError:
                     logger.warning('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.'
                                 'This is fine, but for speedups around skipping re-uploads of previously seen tables, '
