@@ -224,9 +224,9 @@ class TestFeatureProcessors(unittest.TestCase):
                 model_name=model_avg_name,
                 feature_engine=resolve_feature_engine('auto')
             )
-        print("-" * 90)
-        print(context.exception)
-        print("-" * 90)
+        logger.info("-" * 90)
+        logger.info(context.exception)
+        logger.info("-" * 90)
 
         self.assertTrue("best to have at least a word" in str(context.exception))
 
