@@ -292,6 +292,7 @@ class UMAPMixin(MIXIN_BASE):
             repulsion_strength=repulsion_strength,
             negative_sample_rate=negative_sample_rate,
         )
+        logger.debug('umap_kwargs: %s', umap_kwargs)
         
         if inplace:
             res = self
@@ -312,7 +313,8 @@ class UMAPMixin(MIXIN_BASE):
                 )
                 nodes = res._nodes[res._node].values
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-                
+
+            logger.debug('propagating with featurize_kwargs: %s', featurize_kwargs)
             (
                 X_,
                 y_,
@@ -320,6 +322,7 @@ class UMAPMixin(MIXIN_BASE):
             ) = res._featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
+
             res = res._process_umap(res, X_, y_, X, y, kind, **umap_kwargs)
             res._weighted_adjacency_nodes = res._weighted_adjacency
             if res._xy is None:
