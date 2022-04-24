@@ -208,7 +208,7 @@ class TestFeatureProcessors(unittest.TestCase):
             )
             self.cases_tests(x, y, x_enc, y_enc, "target cardinality", card)
 
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
     def test_process_textual_or_other_dataframes_min_words(self):
         # test different target cardinality
         with self.assertRaises(Exception) as context:  # test that min words needs to be greater than 1
