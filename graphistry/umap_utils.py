@@ -335,14 +335,16 @@ class UMAPMixin(MIXIN_BASE):
                 )
             )
         elif kind == "edges":
+
+            logger.debug('propagating with featurize_kwargs: %s', featurize_kwargs)
             (
-                X,
-                y,
+                X_,
+                y_,
                 res
             ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
-            res = self._process_umap(res, X, y, kind, **umap_kwargs)
+            res = self._process_umap(res, X_, y_, X, y, kind, **umap_kwargs)
             res._weighted_adjacency_edges = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError('This should not happen')
