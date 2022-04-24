@@ -73,6 +73,17 @@ class PlotterBase(Plottable):
     _defaultNodeId = '__nodeid__'
     _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
+    _umap_param_to_g : WeakValueDictionary = WeakValueDictionary()
+    _feat_param_to_g : WeakValueDictionary = WeakValueDictionary()
+
+    def reset_caches(self): 
+        """Reset memoization caches"""
+        self._pd_hash_to_arrow.clear()
+        self._cudf_hash_to_arrow.clear()
+        self._umap_param_to_g.clear()
+        self._feat_param_to_g.clear()
+        cache_coercion_helper.cache_clear()
+
 
     def __init__(self, *args, **kwargs):
         super(PlotterBase, self).__init__()

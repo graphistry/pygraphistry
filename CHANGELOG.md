@@ -7,12 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-### Changed
+### Added
 
 * Use buildkit with pip install caching for test dockerfiles
 * Graph AI branch: Autoencoding
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
+* `g.reset_caches()` to clear upload and compute caches (last 100)
 
 ## [0.23.3 - 2022-04-23]
 
