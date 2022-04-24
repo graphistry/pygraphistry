@@ -45,6 +45,51 @@ class WeakValueWrapper:
         self.v = v
 
 
+def hash_pdf(df: pd.DataFrame) -> str:
+    # can be 20% faster via to_parquet (see lmeyerov issue in pandas gh), but unclear if always available
+    return (
+        hashlib.sha256(pd.util.hash_pandas_object(df, index=True).values).hexdigest()
+        + hashlib.sha256(str(df.columns).encode('utf-8')).hexdigest()  # noqa: W503
+    )
+
+
+def hash_memoize_helper(v: Any) -> str:
+
+    if isinstance(v, dict):
+        rolling = '{'
+        for k2, v2 in v.items():
+            rolling += f'{k2}:{hash_memoize_helper(v2)},'
+        rolling += '}'
+    elif isinstance(v, list):
+        rolling = '['
+        for i in v:
+            rolling += f'{hash_memoize_helper(i)},'
+        rolling += ']'
+    elif isinstance(v, tuple):
+        rolling = '('
+        for i in v:
+            rolling += f'{hash_memoize_helper(i)},'
+        rolling += ')'
+    elif isinstance(v, bool):
+        rolling = 'T' if v else 'F'
+    elif isinstance(v, int):
+        rolling = str(v)
+    elif isinstance(v, float):
+        rolling = str(v)
+    elif isinstance(v, str):
+        rolling = v
+    elif v is None:
+        rolling = 'N'
+    elif isinstance(v, pd.DataFrame):
+        rolling = hash_pdf(v)
+    else:
+        raise TypeError(f'Unsupported memoization type: {type(v)}')
+
+    return rolling
+
+def hash_memoize(v: Any) -> str:
+    return hashlib.sha256(hash_memoize_helper(v).encode('utf-8')).hexdigest()
+
 def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = True):  # noqa: C901
     """
         Helper Memoize function that checks if metadata args have changed for object g -- which is unconstrained save
@@ -57,9 +102,7 @@ def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = Tr
     hashed = None
     weakref = getattr(g, attribute)
     try:
-        hashed = (
-            hashlib.sha256(str(metadata).encode('utf-8')).hexdigest()
-        )
+        hashed = hash_memoize(metadata)
     except TypeError:
         logger.warning(
             f'! Failed {name} speedup attempt. Continuing without memoization speedups.'

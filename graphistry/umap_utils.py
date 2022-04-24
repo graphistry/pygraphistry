@@ -80,9 +80,7 @@ umap_kwargs_euclidean = {
 # ###############################################################################
 
 def reuse_umap(g: Plottable, metadata: Any):  # noqa: C901
-    return check_set_memoize(g, metadata, attribute='_umap_memoize', name='umap', memoize=True)
-
-
+    return check_set_memoize(g, metadata, attribute='_umap_param_to_g', name='umap', memoize=True)
 
 
 def umap_graph_to_weighted_edges(umap_graph, cfg=config):

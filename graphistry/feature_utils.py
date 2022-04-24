@@ -960,7 +960,7 @@ def prune_weighted_edges_df_and_relabel_nodes(
 
 def reuse_featurization(g: Plottable, metadata: Any):  # noqa: C901
     return check_set_memoize(
-        g, metadata, attribute="_feature_memoize", name="featurize", memoize=True
+        g, metadata, attribute="_feat_param_to_g", name="featurize", memoize=True
     )
 
 
