@@ -1,13 +1,11 @@
+import numpy as np, pandas as pd
 from time import time
 from typing import List, Union, Dict, Any, Optional, Tuple, TYPE_CHECKING
-
-import numpy as np
-import pandas as pd
 from typing_extensions import Literal  # Literal native to py3.8+
 
+from graphistry.compute.ComputeMixin import ComputeMixin
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
-from .compute import ComputeMixin
 from .util import setup_logger, check_set_memoize
 
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)

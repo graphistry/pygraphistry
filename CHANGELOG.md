@@ -14,6 +14,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
 
+## [0.23.3 - 2022-04-23]
+
+### Added
+
+* `g.collapse(node='root_id', column='some_col', attribute='some_val')
+
 ## [0.23.2 - 2022-04-11]
 
 ### Fixed

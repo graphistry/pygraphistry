@@ -740,6 +740,7 @@ g2.plot() # nodes are values from cols s, d, k1
     e_forward({'k1': 'x'}, hops=1), # same API as hop()
     e_undirected(name='second_edge'),
   ])
+  .collapse(node='some_id', column='some_col', attribute='some val')
 ```
 
 #### Table to graph
@@ -849,6 +850,27 @@ g
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']}))
 g2 = g.drop_nodes(['c'])  # drops node c, edge c->a, edge b->c,
+```
+
+#### Collapsing adjacent nodes with specific k=v matches
+
+One col/val pair:
+
+```python
+g2 = g.collapse(
+  node='root_node_id',  # rooted traversal beginning
+  column='some_col',  # column to inspect
+  attribute='some val' # value match to collapse on if hit
+)
+assert len(g2._nodes) <= len(g._nodes)
+```
+
+Collapse for all possible vals in a column, and assuming a stable root node id:
+
+```python
+g3 = g
+for v in g._nodes['some_col'].unique():
+  g3 = g3.collapse(node='root_node_id', column='some_col', attribute=v)
 ```
 
 ### Control layouts

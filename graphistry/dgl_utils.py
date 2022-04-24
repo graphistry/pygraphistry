@@ -222,7 +222,9 @@ class DGLGraphMixin(MIXIN_BASE):
     def _remove_edges_not_in_nodes(self, node_column: str):
         # need to do this so we get the correct ndata size ...
         nodes = self._nodes[node_column]
-        edf = self._edges
+        if not isinstance(self._edges, pd.DataFrame):  # type: ignore
+            raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame, recieved: %s", type(self._edges))  # type: ignore
+        edf : pd.DataFrame = self._edges  # type: ignore
         n_initial = len(edf)
         logger.info(f"Length of edge DataFrame {n_initial}")
         mask = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)

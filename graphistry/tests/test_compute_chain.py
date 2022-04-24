@@ -1,7 +1,7 @@
 import pandas as pd
 from common import NoAuthTestCase
 
-from graphistry.tests.test_compute import hops_graph
+from graphistry.tests.test_compute_hops import hops_graph
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected
 
 
