@@ -1,2 +1,2 @@
 from .ComputeMixin import ComputeMixin
-import ast
+import .ast as ast
