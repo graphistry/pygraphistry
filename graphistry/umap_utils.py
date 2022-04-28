@@ -302,13 +302,16 @@ class UMAPMixin(MIXIN_BASE):
         if kind == "nodes":
             index_to_nodes_dict = None
             if res._node is None:
-                logger.debug('Writing new node name')
+                logger.debug('> Writing new node name')
                 res = res.nodes(  # type: ignore
                     res._nodes.reset_index(drop=True)
                     .reset_index()
                     .rename(columns={"index": config.IMPLICIT_NODE_ID}),
                     config.IMPLICIT_NODE_ID,
                 )
+                nodes = res._nodes[res._node].values
+                index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
+            else:
                 nodes = res._nodes[res._node].values
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 

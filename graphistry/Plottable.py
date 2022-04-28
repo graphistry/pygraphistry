@@ -75,6 +75,8 @@ class Plottable(object):
     _entity_to_index : dict
     _index_to_entity : dict
 
+    DGL_graph: Optional[Any]
+
 
     def __init__(self, *args, **kwargs):
         #raise RuntimeError('should not happen')

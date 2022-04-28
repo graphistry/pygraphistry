@@ -47,7 +47,7 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):
     :return: Dictionary of torch encoded arrays
     """
     import torch
-    if y_enc is not None:
+    if not y_enc.empty:
         data = {
             config.FEATURE: torch.tensor(X_enc.values),
             config.TARGET: torch.tensor(y_enc.values),
@@ -227,7 +227,9 @@ class DGLGraphMixin(MIXIN_BASE):
         edf : pd.DataFrame = self._edges  # type: ignore
         n_initial = len(edf)
         logger.info(f"Length of edge DataFrame {n_initial}")
+        
         mask = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)
+        assert sum(mask) > 2, f'mask slice is (practically) empty, will lead to bad graph, found {sum(mask)}'
         self._MASK = mask
         self._edges = edf[mask]
         self._prune_edge_target()
@@ -266,7 +268,7 @@ class DGLGraphMixin(MIXIN_BASE):
             )
 
 
-    def _convert_edgeDF_to_DGL(self, node_column: Optional[str] = None, weight_column: Optional[str] = None, inplace: bool = False):
+    def _convert_edge_dataframe_to_DGL(self, node_column: Optional[str] = None, weight_column: Optional[str] = None, inplace: bool = False):
         logger.info("converting edge DataFrame to DGL graph")
         
         if inplace:
@@ -276,8 +278,12 @@ class DGLGraphMixin(MIXIN_BASE):
 
         if node_column is None:
             node_column = config.IMPLICIT_NODE_ID
-
+            
+        if res._node is None:
+            res._node = config.IMPLICIT_NODE_ID
+        
         if not res._removed_edges_previously:
+            print(f'---------------- Node in convert dataframe to dgl: {node_column}')
             res._remove_edges_not_in_nodes(node_column)
 
         if res._source is None:
@@ -306,19 +312,21 @@ class DGLGraphMixin(MIXIN_BASE):
         y: pd.DataFrame,
         use_scaler: str = None,
         feature_engine: FeatureEngine = "auto"
-        #refeaturize: bool = False,
     ):
         logger.info("Running Node Featurization for DGL Graph")
+        print(f'=*=*=Input shapes are data: {X.shape}, target: {y.shape}')
 
         X_enc, y_enc, _ = res._featurize_or_get_nodes_dataframe_if_X_is_None(
             X=X, y=y, use_scaler=use_scaler, feature_engine=resolve_feature_engine(feature_engine)
         )
 
+        print(f'=*=*=Encoded shapes are data: {X_enc.shape}, target: {y_enc.shape}')
+
         ndata = convert_to_torch(X_enc, y_enc)
         # add ndata to the graph
         res.DGL_graph.ndata.update(ndata)
         res._mask_nodes()
-        return res  # have to return despite inplace flag
+        return res
 
     def _featurize_edges_to_dgl(
         self,
@@ -327,12 +335,10 @@ class DGLGraphMixin(MIXIN_BASE):
         y: pd.DataFrame,
         use_scaler: str = None,
         feature_engine: FeatureEngine = "auto"
-        #refeaturize: bool = False,
     ):
         logger.info("Running Edge Featurization for DGL Graph")
 
-        # res = _featurize_nodes(
-        X_enc, y_enc, _ = self._featurize_or_get_edges_dataframe_if_X_is_None(
+        X_enc, y_enc, _ = res._featurize_or_get_edges_dataframe_if_X_is_None(
             X=X, y=y, use_scaler=use_scaler, feature_engine=resolve_feature_engine(feature_engine)
         )
         
@@ -340,7 +346,7 @@ class DGLGraphMixin(MIXIN_BASE):
         # add edata to the graph
         res.DGL_graph.edata.update(edata)
         res._mask_edges()
-        return res  # have to return despite inplace flag
+        return res
 
     def build_dgl_graph(
         self,
@@ -365,8 +371,17 @@ class DGLGraphMixin(MIXIN_BASE):
         m = res.materialize_nodes()
         X_nodes_resolved = resolve_X(m._nodes, X_nodes)
         y_nodes_resolved = resolve_y(m._nodes, y_nodes)
+        
+        # here we check if edges are from UMAP, at which point X_edges should be none:
+        if list(res._edges.columns) == ['_src_implicit', '_dst_implicit', '_weight']:
+            print(f'>>>EDGES ARE FROM UMAP, discarding explicit mention of X_edges')
+            X_edges = None
+            #y_edges = None
         X_edges_resolved = resolve_X(res._edges, X_edges)
         y_edges_resolved = resolve_y(res._edges, y_edges)
+        
+        print(f' >>>>>>>>>>>>>>>  Nodes: X_resolved, y_resolved is empty? {X_nodes_resolved.empty}, {y_nodes_resolved.empty}')
+        print(f' >>>>>>>>>>>>>>>  edges: X_resolved, y_resolved is empty? {X_edges_resolved.empty}, {y_edges_resolved.empty}')
 
         if hasattr(res, "_MASK"):
             if y_edges_resolved is not None:
@@ -374,7 +389,7 @@ class DGLGraphMixin(MIXIN_BASE):
                 # note, edf, ndf, should both have unique indices
 
         # here we make node and edge features and add them to the DGL graph instance
-        res = res._convert_edgeDF_to_DGL(node_column, weight_column, inplace)
+        res = res._convert_edge_dataframe_to_DGL(node_column, weight_column, inplace)
         res = res._featurize_nodes_to_dgl(
             res, X_nodes_resolved, y_nodes_resolved, use_node_scaler
         )
