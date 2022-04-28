@@ -2,7 +2,6 @@ from typing import Any
 import copy, datetime as dt, graphistry, logging, numpy as np, os, pandas as pd
 import pytest, unittest
 
-from graphistry.util import setup_logger
 from graphistry.umap_utils import has_dependancy
 from graphistry.tests.test_feature_utils import (
     ndf_reddit,
@@ -21,6 +20,9 @@ from graphistry.tests.test_feature_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+import warnings
+warnings.filterwarnings('ignore')
 
 
 triangleEdges = pd.DataFrame(
@@ -145,21 +147,21 @@ class TestUMAPMethods(unittest.TestCase):
             df=triangleEdges,
         )
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
-    def test_filter_edges(self):
-        for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
-            g2 = g.umap(kind=kind, feature_engine="none")
-            last_shape = 0
-            for scale in np.linspace(0, 3, 8):  # six sigma in 8 steps
-                g3 = g2.filter_weighted_edges(scale=scale)
-                shape = g3._edges.shape
-                logger.debug("*" * 90)
-                logger.debug(
-                    f"{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}"
-                )
-                logger.debug("-" * 80)
-                self.assertGreaterEqual(shape[0], last_shape)  # should return more and more edges
-                last_shape = shape[0]
+    # @pytest.mark.skipif(not has_dependancy or not has_featurize, reason="requires umap feature dependencies")
+    # def test_filter_edges(self):
+    #     for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
+    #         g2 = g.umap(kind=kind, feature_engine="none")
+    #         last_shape = 0
+    #         for scale in np.linspace(0, 3, 8):  # six sigma in 8 steps
+    #             g3 = g2.filter_weighted_edges(scale=scale)
+    #             shape = g3._edges.shape
+    #             logger.debug("*" * 90)
+    #             logger.debug(
+    #                 f"{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}"
+    #             )
+    #             logger.debug("-" * 80)
+    #             self.assertGreaterEqual(shape[0], last_shape)  # should return more and more edges
+    #             last_shape = shape[0]
 
 
 class TestUMAPAIMethods(TestUMAPMethods):
