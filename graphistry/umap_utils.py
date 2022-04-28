@@ -165,6 +165,7 @@ class UMAPMixin(MIXIN_BASE):
         t = time()
         y = self._check_target_is_one_dimensional(y)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
+
         self._umap.fit(X, y)
         self._weighted_edges_df = umap_graph_to_weighted_edges(self._umap.graph_)
         self._weighted_adjacency = self._umap.graph_

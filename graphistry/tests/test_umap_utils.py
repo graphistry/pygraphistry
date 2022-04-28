@@ -1,6 +1,6 @@
 from typing import Any
 import copy, datetime as dt, graphistry, logging, numpy as np, os, pandas as pd
-import pytest, unittest
+import pytest, unittest, warnings
 
 from graphistry.util import setup_logger
 from graphistry.umap_utils import has_dependancy
@@ -187,14 +187,16 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, good_cols_reddit, meta_cols_reddit]
         targets = [None, single_target_reddit, double_target_reddit]
-        self._test_umap(
-            g,
-            use_cols=use_cols,
-            targets=targets,
-            name="Node UMAP with `(target, use_col)=`",
-            kind="nodes",
-            df=ndf_reddit,
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            self._test_umap(
+                g,
+                use_cols=use_cols,
+                targets=targets,
+                name="Node UMAP with `(target, use_col)=`",
+                kind="nodes",
+                df=ndf_reddit,
+            )
 
     @pytest.mark.skipif(
         not has_dependancy or not has_featurize,
