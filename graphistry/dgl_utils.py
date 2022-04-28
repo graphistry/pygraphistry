@@ -305,12 +305,13 @@ class DGLGraphMixin(MIXIN_BASE):
         X: pd.DataFrame,
         y: pd.DataFrame,
         use_scaler: str = None,
+        feature_engine: FeatureEngine = "auto"
         #refeaturize: bool = False,
     ):
         logger.info("Running Node Featurization for DGL Graph")
 
         X_enc, y_enc, _ = res._featurize_or_get_nodes_dataframe_if_X_is_None(
-            X=X, y=y, use_scaler=use_scaler, refeaturize=False
+            X=X, y=y, use_scaler=use_scaler, feature_engine=resolve_feature_engine(feature_engine)
         )
 
         ndata = convert_to_torch(X_enc, y_enc)
@@ -349,8 +350,8 @@ class DGLGraphMixin(MIXIN_BASE):
         X_edges: XSymbolic = None,
         y_nodes: YSymbolic = None,
         y_edges: YSymbolic = None,
-        use_node_scaler: str = None,
-        use_edge_scaler: str = None,
+        use_node_scaler: str = 'robust',
+        use_edge_scaler: str = 'robust',
         inplace: bool = False,
     ):
 

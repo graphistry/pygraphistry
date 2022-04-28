@@ -56,8 +56,11 @@ node_target = triangleNodes[["y"]]
 class TestUMAPMethods(unittest.TestCase):
     def _check_attributes(self, g, attributes):
         msg = "Graphistry instance after umap should have `{}` as attribute"
+        msg2 = "Graphistry instance after umap should have not None values for `{}`"
+
         for attribute in attributes:
             self.assertTrue(hasattr(g, attribute), msg.format(attribute))
+            self.assertTrue(getattr(g, attribute) is not None, msg2.format(attribute))
 
     def cases_check_node_attributes(self, g):
         attributes = [
