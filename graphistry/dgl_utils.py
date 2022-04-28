@@ -243,7 +243,8 @@ class DGLGraphMixin(MIXIN_BASE):
         self._removed_edges_previously = True
 
 
-    def _check_nodes_lineup_with_edges(self, node_column: str):
+    def _check_nodes_lineup_with_edges(self):
+        node_column = self._node
         nodes = self._nodes[node_column]
         unique_nodes = nodes.unique()
         logger.info(
@@ -275,16 +276,15 @@ class DGLGraphMixin(MIXIN_BASE):
             res = self
         else:
             res = self.bind()
-
-        if node_column is None:
-            node_column = config.IMPLICIT_NODE_ID
-            
+  
         if res._node is None:
             res._node = config.IMPLICIT_NODE_ID
-        
+            # if node_column is None:
+            #     node_column = config.IMPLICIT_NODE_ID
+            #
         if not res._removed_edges_previously:
-            print(f'---------------- Node in convert dataframe to dgl: {node_column}')
-            res._remove_edges_not_in_nodes(node_column)
+            print(f'---------------- Node in convert dataframe to dgl: {res._node}')
+            res._remove_edges_not_in_nodes(res._node)
 
         if res._source is None:
             raise ValueError('source column not set, try running g.bind(source="my_col") or g.edges(df, source="my_col")')
@@ -301,7 +301,7 @@ class DGLGraphMixin(MIXIN_BASE):
         )
         res._index_to_entity = {k: v for v, k in res._entity_to_index.items()}
         # this is a sanity check after _remove_edges_not_in_nodes
-        res._check_nodes_lineup_with_edges(node_column)
+        res._check_nodes_lineup_with_edges()
         return res
 
 
