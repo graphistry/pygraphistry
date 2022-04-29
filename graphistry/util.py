@@ -13,7 +13,7 @@ def setup_logger(name, verbose=VERBOSE):
     else:
         FORMAT = "   %(message)s\n"
     logging.basicConfig(format=FORMAT)
-    logger = logging.getLogger(name)
+    logger = logging.getLogger(f'graphistry.{name}')
     logger.setLevel(logging.DEBUG if verbose else logging.ERROR)
     return logger
 
