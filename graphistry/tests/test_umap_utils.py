@@ -177,7 +177,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                 logger.debug(f"{kind} -- {name}")
                 logger.debug(f"{value}")
                 logger.debug("-" * 80)
-                g2 = g.umap(kind=kind, y=target, X=use_col, model_name=model_avg_name)
+                g2 = g.umap(kind=kind, y=target, X=use_col, model_name=model_avg_name, n_neighbors=3)
 
                 self.cases_test_graph(g2, kind=kind, df=df)
 
@@ -208,14 +208,16 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g = graphistry.edges(edge_df, "src", "dst")
         targets = [None, single_target_edge, double_target_edge]
         use_cols = [None, good_edge_cols]
-        self._test_umap(
-            g,
-            use_cols=use_cols,
-            targets=targets,
-            name="Edge UMAP with `(target, use_col)=`",
-            kind="edges",
-            df=edge_df,
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            self._test_umap(
+                g,
+                use_cols=use_cols,
+                targets=targets,
+                name="Edge UMAP with `(target, use_col)=`",
+                kind="edges",
+                df=edge_df,
+            )
 
     @pytest.mark.skipif(
         not has_dependancy or not has_featurize,
@@ -230,7 +232,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g3 = g3a.umap()
         logger.debug('======= g3.umap() done ======')
         assert g2._node_features.shape == g3._node_features.shape
-        # since g3 has feature params with x and y. 
+        # since g3 has feature params with x and y.
         g3._feature_params['nodes']['X'].pop('x')
         g3._feature_params['nodes']['X'].pop('y')
         assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X'])
