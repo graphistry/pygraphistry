@@ -22,7 +22,7 @@ from .feature_utils import (
 )
 from .util import setup_logger
 
-logger = setup_logger(__name__, verbose=False)
+logger = setup_logger(__name__)
 
 
 if TYPE_CHECKING:

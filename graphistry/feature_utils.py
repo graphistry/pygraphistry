@@ -9,7 +9,7 @@ from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
 
-logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+logger = setup_logger(__name__)
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin

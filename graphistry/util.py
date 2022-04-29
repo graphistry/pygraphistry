@@ -7,7 +7,7 @@ from .constants import VERBOSE, CACHE_COERCION_SIZE
 
 
 # #####################################
-def setup_logger(name, verbose=True):
+def setup_logger(name, verbose=VERBOSE):
     if verbose:
         FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
     else:
@@ -97,7 +97,7 @@ def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = Tr
         if False, will continue with whatever pipeline it is in front.
     """
     
-    logger = setup_logger('memoization', verbose=VERBOSE)
+    logger = setup_logger(f'{__name__}.memoization')
     
     hashed = None
     weakref = getattr(g, attribute)
