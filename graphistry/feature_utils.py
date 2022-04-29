@@ -1265,7 +1265,7 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         feature_engine: FeatureEngineConcrete = "pandas",
         reuse_if_existing=False,
-    ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, MIXIN_BASE]:
         """
         helper method gets node feature and target matrix if X, y are not specified.
         if X, y are specified will set them as `_node_target` and `_node_target` attributes
@@ -1279,6 +1279,8 @@ class FeatureMixin(MIXIN_BASE):
             res._node_target = None
 
         if reuse_if_existing and res._node_features is not None:
+            if res._node_target is None:
+                raise ValueError('Invalid reused; must first set ._node_target')
             return res._node_features, res._node_target, res
 
         res = res._featurize_nodes(

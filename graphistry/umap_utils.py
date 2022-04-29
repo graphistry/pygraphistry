@@ -184,7 +184,7 @@ class UMAPMixin(MIXIN_BASE):
         self.umap_fit(X, y)
         return self._umap.transform(X)
 
-    def _process_umap(self, res, X_, y_, X, y, kind, **umap_kwargs):
+    def _process_umap(self, res, X_: pd.DataFrame, y_: pd.DataFrame, kind, **umap_kwargs):
         # need this function to use memoize
         res._umap = umap.UMAP(**umap_kwargs)
 
@@ -340,7 +340,10 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
 
-            res = res._process_umap(res, X_, y_, X, y, kind, **umap_kwargs)
+            logger.debug('umap X_: %s', X_)
+            logger.debug('umap y_: %s', y_)
+
+            res = res._process_umap(res, X_, y_, kind, **umap_kwargs)
             res._weighted_adjacency_nodes = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError('This should not happen')
@@ -364,7 +367,7 @@ class UMAPMixin(MIXIN_BASE):
             ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
-            res = self._process_umap(res, X_, y_, X, y, kind, **umap_kwargs)
+            res = self._process_umap(res, X_, y_, kind, **umap_kwargs)
             res._weighted_adjacency_edges = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError('This should not happen')
