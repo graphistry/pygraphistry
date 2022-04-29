@@ -972,9 +972,6 @@ class FeatureMixin(MIXIN_BASE):
     TODO: add example usage doc
     """
 
-    _feature_memoize: WeakValueDictionary = WeakValueDictionary()
-    _feature_params: dict = {}
-
     def __init__(self, *args, **kwargs):
         pass
 
@@ -1020,7 +1017,10 @@ class FeatureMixin(MIXIN_BASE):
             feature_engine=feature_engine,
         )
 
-        res._feature_params["nodes"] = fkwargs
+        res._feature_params = {
+            **getattr(res, '_feature_params', {}),
+            'nodes': fkwargs
+        }
 
         old_res = reuse_featurization(res, fkwargs)
         if old_res:
@@ -1105,7 +1105,10 @@ class FeatureMixin(MIXIN_BASE):
             feature_engine=feature_engine,
         )
 
-        res._feature_params["edges"] = fkwargs
+        res._feature_params = {
+            **getattr(res, '_feature_params', {}),
+            'edges': fkwargs
+        }
 
         old_res = reuse_featurization(res, fkwargs)
         if old_res:

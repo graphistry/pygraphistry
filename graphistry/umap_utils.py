@@ -203,6 +203,11 @@ class UMAPMixin(MIXIN_BASE):
         
         """
         kv = {}
+        if not hasattr(res, '_feature_params') or res._feature_params is None:
+            res._feature_params = {
+                'nodes': {},
+                'edges': {}
+            }
         # if we have featurized previously
         if kind in res._feature_params:
             # add in all the stuff that got stored in res._feature_params
