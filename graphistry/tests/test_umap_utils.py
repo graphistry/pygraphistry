@@ -230,6 +230,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g3 = g3a.umap()
         logger.debug('======= g3.umap() done ======')
         assert g2._node_features.shape == g3._node_features.shape
+        # since g3 has feature params with x and y. 
         g3._feature_params['nodes']['X'].pop('x')
         g3._feature_params['nodes']['X'].pop('y')
         assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X'])
