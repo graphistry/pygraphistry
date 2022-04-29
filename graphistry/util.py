@@ -1,7 +1,6 @@
 import hashlib, logging, os, pandas as pd, platform as p, random, string, sys, uuid, warnings
-from typing import Any, Dict
-from distutils.version import LooseVersion, StrictVersion
 from functools import lru_cache
+from typing import Any, Dict
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE
 
@@ -125,10 +124,6 @@ def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = Tr
     return False
 
 
-def cmp(x, y):
-    return (x > y) - (x < y)
-
-
 def make_iframe(url, height, extra_html="", override_html_style=None):
     id = uuid.uuid4()
 
@@ -194,13 +189,6 @@ def random_string(length):
         random.choice(string.ascii_uppercase + string.digits) for _ in range(length)
     ]
     return "".join(gibberish)
-
-
-def compare_versions(v1, v2):
-    try:
-        return cmp(StrictVersion(v1), StrictVersion(v2))
-    except ValueError:
-        return cmp(LooseVersion(v1), LooseVersion(v2))
 
 
 def in_ipython():

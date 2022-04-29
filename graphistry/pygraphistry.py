@@ -1932,17 +1932,20 @@ class PyGraphistry(object):
             ):
                 mver = jres["pygraphistry"]["minVersion"]
                 lver = jres["pygraphistry"]["latestVersion"]
-                if util.compare_versions(mver, cver) > 0:
-                    util.warn(
-                        "Your version of PyGraphistry is no longer supported (installed=%s latest=%s). Please upgrade!"
-                        % (cver, lver)
-                    )
-                elif util.compare_versions(lver, cver) > 0:
-                    print(
-                        "A new version of PyGraphistry is available (installed=%s latest=%s)."
-                        % (cver, lver)
-                    )
-
+                from packaging.version import parse
+                try:
+                    if parse(mver) > parse(cver):
+                        util.warn(
+                            "Your version of PyGraphistry is no longer supported (installed=%s latest=%s). Please upgrade!"
+                            % (cver, lver)
+                        )
+                    elif parse(lver) > parse(cver):
+                        print(
+                            "A new version of PyGraphistry is available (installed=%s latest=%s)."
+                            % (cver, lver)
+                        )
+                except:
+                    raise ValueError(f'Unexpected version value format when comparing {mver}, {cver}, and {lver}')
             if jres["success"] is not True:
                 util.warn(jres["error"])
         except Exception:

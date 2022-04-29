@@ -13,7 +13,8 @@ core_requires = [
   'protobuf >= 2.6.0',
   'pyarrow >= 0.15.0',
   'requests',
-  'typing-extensions'
+  'typing-extensions',
+  'packaging >= 20.1'
 ]
 
 stubs = [
