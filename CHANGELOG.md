@@ -14,6 +14,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: UMAP
 * Graph AI branch: GNNs
 * `g.reset_caches()` to clear upload and compute caches (last 100)
+* Central `setup_logger()`
+
+### Changed
+
+* Logging: Refactor to `setup_logger(__name__)`
+
+### Fixed
+
+* hypergraph: use default logger instead of DEBUG
 
 ## [0.23.3 - 2022-04-23]
 

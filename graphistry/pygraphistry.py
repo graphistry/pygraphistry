@@ -13,10 +13,8 @@ from .ArrowFileUploader import ArrowFileUploader
 from . import util
 from . import bolt_util
 from .plotter import Plotter
-
-import logging
-
-logger = logging.getLogger(__name__)
+from .util import setup_logger
+logger = setup_logger(__name__)
 
 
 ###############################################################################

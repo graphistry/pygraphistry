@@ -1,6 +1,6 @@
 from graphistry.Plottable import Plottable
 from typing import Any, Callable, List, Optional, Union, TYPE_CHECKING
-import copy, hashlib, logging, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
+import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
@@ -20,8 +20,8 @@ from .bolt_util import (
 from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
-
-logger = logging.getLogger(__name__)
+from .util import setup_logger
+logger = setup_logger(__name__)
 
 maybe_cudf = None
 try:
