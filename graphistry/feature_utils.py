@@ -1,3 +1,4 @@
+import copy
 import numpy as np, pandas as pd
 from time import time
 from typing import List, Union, Dict, Any, Optional, Tuple, TYPE_CHECKING
@@ -1025,7 +1026,13 @@ class FeatureMixin(MIXIN_BASE):
         old_res = reuse_featurization(res, fkwargs)
         if old_res:
             logger.info(" --- RE-USING NODE FEATURIZATION")
-            return old_res
+            fresh_res = copy.copy(res)
+            for attr in [
+                '_node_features', '_node_target', '_node_encoder', '_node_target_encoder', '_node_ordinal_pipeline'
+            ]:
+                setattr(fresh_res, attr, getattr(old_res, attr))
+
+            return fresh_res
 
         if self._nodes is None:
             raise ValueError(
@@ -1057,6 +1064,7 @@ class FeatureMixin(MIXIN_BASE):
                 feature_engine=feature_engine,
             )
 
+        #if changing, also update fresh_res
         res._node_features = X_enc
         res._node_target = y_enc
         res._node_encoder = data_vec
@@ -1113,7 +1121,13 @@ class FeatureMixin(MIXIN_BASE):
         old_res = reuse_featurization(res, fkwargs)
         if old_res:
             logger.info(" --- RE-USING EDGE FEATURIZATION")
-            return old_res
+            fresh_res = copy.copy(res)
+            for attr in [
+                '_edge_features', '_edge_target', '_edge_encoders', '_edge_target_encoder', '_edge_ordinal_pipeline'
+            ]:
+                setattr(fresh_res, attr, getattr(old_res, attr))
+
+            return fresh_res
 
         X_resolved = features_without_target(X_resolved, y_resolved)
 
@@ -1159,6 +1173,7 @@ class FeatureMixin(MIXIN_BASE):
                 feature_engine=feature_engine
             )
 
+        # if editing, should also update fresh_res
         res._edge_features = X_enc
         res._edge_target = y_enc
         res._edge_encoders = [mlb, data_vec]

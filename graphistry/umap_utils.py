@@ -1,3 +1,4 @@
+import copy
 from time import time
 from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 
@@ -167,8 +168,11 @@ class UMAPMixin(MIXIN_BASE):
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
 
         self._umap.fit(X, y)
+
+        #if changing, also update fresh_res
         self._weighted_edges_df = umap_graph_to_weighted_edges(self._umap.graph_)
         self._weighted_adjacency = self._umap.graph_
+
         mins = (time() - t) / 60
         logger.info(f"-UMAP-ing took {mins:.2f} minutes total")
         logger.info(f" - or {X.shape[0]/mins:.2f} rows per minute")
@@ -189,9 +193,18 @@ class UMAPMixin(MIXIN_BASE):
         old_res = reuse_umap(res, umap_kwargs)
         if old_res:
             logger.info(' --- RE-USING UMAP')
-            return old_res
-        
+            fresh_res = copy.copy(res)
+            for attr in [
+                '_xy', '_weighted_edges_df', '_weighted_adjacency'
+            ]:
+                setattr(fresh_res, attr, getattr(old_res, attr))
+
+            return fresh_res
+
+
         xy = res.umap_fit_transform(X_, y_)
+
+        #if changing, also update fresh_res
         res._xy = xy
 
         return res
