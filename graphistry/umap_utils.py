@@ -188,8 +188,10 @@ class UMAPMixin(MIXIN_BASE):
         # need this function to use memoize
         res._umap = umap.UMAP(**umap_kwargs)
 
-        umap_kwargs.update({'kind': kind, 'X': X, 'y': y})
-        
+        logger.debug('process_umap before kwargs: %s', umap_kwargs)
+        umap_kwargs.update({'kind': kind, 'X': X_, 'y': y_})
+        logger.debug('process_umap after kwargs: %s', umap_kwargs)
+
         old_res = reuse_umap(res, umap_kwargs)
         if old_res:
             logger.info(' --- RE-USING UMAP')
@@ -242,6 +244,8 @@ class UMAPMixin(MIXIN_BASE):
 
         # set the features fully, and if this in memoize, it will skip and just returns previous .featurize/umap
         featurize_kwargs = kv
+
+        logger.debug('_set_features updated kv: %s', kv)
 
         return featurize_kwargs
         
@@ -315,6 +319,9 @@ class UMAPMixin(MIXIN_BASE):
             res = self
         else:
             res = self.bind()
+
+        logger.debug('umap input X :: %s', X)
+        logger.debug('umap input y :: %s', y)
 
         featurize_kwargs = self._set_features(res, X, y, kind, feature_engine, featurize_kwargs)
 
@@ -425,6 +432,8 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._node_embedding
         else:
             emb = res._edge_embedding
+        logger.debug('df shape: %s', df.shape)
+        logger.debug('emb shape: %s', emb.shape)
         df[x_name] = emb.T[0]
         df[y_name] = emb.T[1]
 

@@ -222,10 +222,14 @@ class TestUMAPAIMethods(TestUMAPMethods):
     def test_chaining_nodes(self):
         g = graphistry.nodes(ndf_reddit)
         g2 = g.umap()
-        g3 = g.featurize().umap()
+        logger.debug('======= g.umap() done ======')
+        g3a = g.featurize()
+        logger.debug('======= g3a.featurize() done ======')
+        g3 = g3a.umap()
+        logger.debug('======= g3.umap() done ======')
         assert all(g2._node_features == g3._node_features)
-        assert (g2._feature_params['nodes'].X == g3._feature_params['nodes'].X).all()
-        assert g2._feature_params['nodes'].y == g3._feature_params['nodes'].y  # None
+        assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes'].X)
+        assert all(g2._feature_params['nodes']['y'] == g3._feature_params['nodes']['y'])  # None
         assert g2._node_embedding.sum() == g3._node_embedding.sum()
         
     @pytest.mark.skipif(
@@ -239,8 +243,8 @@ class TestUMAPAIMethods(TestUMAPMethods):
             g2 = g.umap(kind='edges')
             g3 = g.featurize(kind='edges').umap(kind='edges')
         assert all(g2._edge_features == g3._edge_features)
-        assert (g2._feature_params['edges'].X == g3._feature_params['edges'].X).all()
-        assert g2._feature_params['edges'].y == g3._feature_params['edges'].y  # None
+        assert all(g2._feature_params['edges']['X'] == g3._feature_params['edges']['X'])
+        assert all(g2._feature_params['edges']['y'] == g3._feature_params['edges']['y'])  # None
         assert g2._edge_embedding.sum() == g3._edge_embedding.sum()
 
     
