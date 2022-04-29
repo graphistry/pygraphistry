@@ -85,6 +85,7 @@ setup(
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
         'Topic :: Internet :: Log Analysis',
+        'Topic :: Database :: Front-Ends',
         'Topic :: Multimedia :: Graphics',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Topic :: Scientific/Engineering :: Bio-Informatics',

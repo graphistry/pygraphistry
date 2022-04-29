@@ -20,8 +20,6 @@ from graphistry.tests.test_feature_utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-import warnings
 warnings.filterwarnings('ignore')
 
 
