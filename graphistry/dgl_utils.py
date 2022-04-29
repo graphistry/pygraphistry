@@ -221,6 +221,7 @@ class DGLGraphMixin(MIXIN_BASE):
 
     def _remove_edges_not_in_nodes(self, node_column: str):
         # need to do this so we get the correct ndata size ...
+        
         nodes = self._nodes[node_column]
         if not isinstance(self._edges, pd.DataFrame):  # type: ignore
             raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame, recieved: %s", type(self._edges))  # type: ignore
@@ -279,9 +280,7 @@ class DGLGraphMixin(MIXIN_BASE):
   
         if res._node is None:
             res._node = config.IMPLICIT_NODE_ID
-            # if node_column is None:
-            #     node_column = config.IMPLICIT_NODE_ID
-            #
+
         if not res._removed_edges_previously:
             print(f'---------------- Node in convert dataframe to dgl: {res._node}')
             res._remove_edges_not_in_nodes(res._node)
