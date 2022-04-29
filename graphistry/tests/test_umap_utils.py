@@ -225,14 +225,16 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g = graphistry.nodes(ndf_reddit)
         g2 = g.umap()
         logger.debug('======= g.umap() done ======')
-        g3a = g.featurize()
+        g3a = g2.featurize()
         logger.debug('======= g3a.featurize() done ======')
         g3 = g3a.umap()
         logger.debug('======= g3.umap() done ======')
-        assert all(g2._node_features == g3._node_features)
-        assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes'].X)
-        assert all(g2._feature_params['nodes']['y'] == g3._feature_params['nodes']['y'])  # None
-        assert g2._node_embedding.sum() == g3._node_embedding.sum()
+        assert g2._node_features.shape == g3._node_features.shape
+        g3._feature_params['nodes']['X'].pop('x')
+        g3._feature_params['nodes']['X'].pop('y')
+        assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X'])
+        assert g2._feature_params['nodes']['y'].shape == g3._feature_params['nodes']['y'].shape  # None
+        assert g2._node_embedding.shape == g3._node_embedding.shape
         
     @pytest.mark.skipif(
         not has_dependancy or not has_featurize,
