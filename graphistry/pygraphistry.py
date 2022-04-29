@@ -5,7 +5,6 @@ from graphistry.Plottable import Plottable
 import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
 
 from datetime import datetime
-from distutils.util import strtobool
 
 from .arrow_uploader import ArrowUploader
 from .ArrowFileUploader import ArrowFileUploader
@@ -75,6 +74,15 @@ def _get_initial_config():
         requests.packages.urllib3.disable_warnings()
     return config
 
+
+def strtobool(val: Any) -> bool:
+    val = str(val).lower()
+    if val in ('y', 'yes', 't', 'true', 'on', '1'):
+        return True
+    elif val in ('n', 'no', 'f', 'false', 'off', '0'):
+        return False
+    else:
+        raise ValueError("invalid truth value %r" % (val,))
 
 class PyGraphistry(object):
     _config = _get_initial_config()
