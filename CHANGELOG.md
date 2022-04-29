@@ -15,7 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Graph AI branch: GNNs
 * `g.reset_caches()` to clear upload and compute caches (last 100)
 * Central `setup_logger()`
-* Tests for Python 3.10, 3.11
+* Official Python 3.10 support
 
 ### Changed
 
