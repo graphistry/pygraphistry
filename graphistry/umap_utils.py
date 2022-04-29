@@ -328,8 +328,8 @@ class UMAPMixin(MIXIN_BASE):
                     .rename(columns={"index": config.IMPLICIT_NODE_ID}),
                     config.IMPLICIT_NODE_ID,
                 )
-                nodes = res._nodes[res._node].values
-                index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
+            nodes = res._nodes[res._node].values
+            index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
             logger.debug('propagating with featurize_kwargs: %s', featurize_kwargs)
             (
