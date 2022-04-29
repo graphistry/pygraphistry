@@ -7,12 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.24.0 - 2022-04-29]
+
 ### Added
 
 * Use buildkit with pip install caching for test dockerfiles
-* Graph AI branch: Autoencoding
-* Graph AI branch: UMAP
-* Graph AI branch: GNNs
+* Graph AI branch: Autoencoding via dirty_cat and sentence_transformers (`g.featurize()`)
+* Graph AI branch: UMAP via umap_learn (`g.umap()`)
+* Graph AI branch: GNNs via DGL (`g.build_dgl_graph()`)
 * `g.reset_caches()` to clear upload and compute caches (last 100)
 * Central `setup_logger()`
 * Official Python 3.10 support
