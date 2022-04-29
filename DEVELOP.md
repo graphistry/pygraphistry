@@ -4,6 +4,23 @@ See also [CONTRIBUTE.md](contribute.md) and [ARCHITECTURE.md](architecture.md)
 
 Development is setup for local native and containerized Python coding & testing, and with automatic GitHub Actions for CI + CD. The server tests are like the local ones, except against a wider test matrix of environments.
 
+## LFS
+
+We are starting to use git lfs for data:
+
+```bash
+# install git lfs: os-specific commands below
+git lfs install
+git lfs checkout
+```
+
+### git lfs: ubuntu
+
+```bash
+curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash
+sudo apt-get install git-lfs
+```
+
 ## Docker
 
 ### Install

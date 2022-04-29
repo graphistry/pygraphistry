@@ -1,7 +1,7 @@
-import logging
 from typing import List, Optional
 from graphistry.hyper_dask import hypergraph as hypergraph_new
-logger = logging.getLogger(__name__)
+from .util import setup_logger
+logger = setup_logger(__name__)
 
 
 class Hypergraph(object):

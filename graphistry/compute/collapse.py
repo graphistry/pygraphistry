@@ -454,8 +454,8 @@ def collapse_algo(
 def normalize_graph(
     g: Plottable,
     self_edges: bool = False,
-    unwrap: bool = False,
-)-> Plottable:
+    unwrap: bool = False
+) -> Plottable:
     """
         Final step after collapse traversals are done, removes duplicates and moves COLLAPSE columns into respective
         (node, src, dst) columns of node, edges dataframe from Graphistry instance g.
@@ -499,7 +499,7 @@ def normalize_graph(
     if not self_edges:
         edf = edf.drop_duplicates()
 
-    if unwrap: # this is only to make things more readable.
+    if unwrap:  # this is only to make things more readable.
         ndf[FINAL_NODE] = ndf[FINAL_NODE].astype(str).apply(lambda x: unwrap_key(x))
         edf[FINAL_SRC] = edf[FINAL_SRC].astype(str).apply(lambda x: unwrap_key(x))
         edf[FINAL_DST] = edf[FINAL_DST].astype(str).apply(lambda x: unwrap_key(x))
@@ -549,7 +549,7 @@ def collapse_by(
     if (VERBOSE or verbose) and n_edges > 5000:
         logger.info("-" * 108)
         logger.info(
-            f"This Algorithm runs approximately between n_edges*log(n_edges) and n_edges**(3/2) in un-normalized units"
+            "This Algorithm runs approximately between n_edges*log(n_edges) and n_edges**(3/2) in un-normalized units"
         )
         logger.info(
             f"Hence, in this case, between O({complexity_min/n_edges:.2f} - {complexity_max/n_edges:.2f}) for "

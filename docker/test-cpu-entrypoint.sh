@@ -28,7 +28,9 @@ if [[ "$WITH_TYPECHECK" != "0" ]]; then
 fi
 
 echo "=== Testing ==="
-./bin/test.sh $@
+if [[ "$WITH_TEST" != "0" ]]; then
+    ./bin/test.sh $@
+fi
 
 echo "=== Building ==="
 if [[ "$WITH_BUILD" != "0" ]]; then
