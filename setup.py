@@ -7,7 +7,15 @@ import versioneer
 def unique_flatten_dict(d):
   return list(set(sum( d.values(), [] )))
 
-core_requires = ['numpy', 'pandas >= 0.17.0', 'pyarrow >= 0.15.0', 'requests', 'protobuf >= 2.6.0']
+core_requires = [
+  'numpy',
+  'pandas >= 0.17.0',
+  'protobuf >= 2.6.0',
+  'pyarrow >= 0.15.0',
+  'requests',
+  'typing-extensions',
+  'packaging >= 20.1'
+]
 
 stubs = [
   'pandas-stubs', 'types-requests'
@@ -25,7 +33,10 @@ base_extras = {
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl', 'xlrd'],
-    'jupyter': ['ipython']
+    'jupyter': ['ipython'],
+    'umap-learn': ['umap-learn', 'dirty-cat'],
+    'ai': ['scikit-learn', 'scipy', 'dirty-cat', 'umap-learn', 'dgl', 'torch',
+           'sentence-transformers']
 }
 
 extras_require = {
@@ -72,7 +83,9 @@ setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
         'Topic :: Internet :: Log Analysis',
+        'Topic :: Database :: Front-Ends',
         'Topic :: Multimedia :: Graphics',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Topic :: Scientific/Engineering :: Bio-Informatics',

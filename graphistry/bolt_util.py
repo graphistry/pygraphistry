@@ -1,8 +1,8 @@
-import logging, pandas as pd
+import pandas as pd
 from datetime import datetime
 from .pygraphistry import util
-
-logger = logging.getLogger(__name__)
+from .util import setup_logger
+logger = setup_logger(__name__)
 
 node_id_key = u'_bolt_node_id_key'
 node_type_key = u'type'

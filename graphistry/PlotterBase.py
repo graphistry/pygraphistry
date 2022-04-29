@@ -1,10 +1,13 @@
 from graphistry.Plottable import Plottable
 from typing import Any, Callable, List, Optional, Union, TYPE_CHECKING
-import copy, hashlib, logging, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
+import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
-from .util import (error, in_ipython, in_databricks, make_iframe, random_string, warn)
+from .util import (
+    error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
+    cache_coercion, cache_coercion_helper, WeakValueWrapper
+)
 
 from .bolt_util import (
     bolt_graph_to_edges_dataframe,
@@ -17,8 +20,8 @@ from .bolt_util import (
 from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
-
-logger = logging.getLogger(__name__)
+from .util import setup_logger
+logger = setup_logger(__name__)
 
 maybe_cudf = None
 try:
@@ -52,27 +55,6 @@ try:
 except ImportError:
     1
 
-CACHE_COERCION_SIZE = 100
-
-
-_cache_coercion_val = None
-@lru_cache(maxsize=CACHE_COERCION_SIZE)
-def cache_coercion_helper(k):
-    return _cache_coercion_val
-
-def cache_coercion(k, v):
-    """
-        Holds references to last 100 used coercions
-        Use with weak key/value dictionaries for actual lookups
-    """
-    global _cache_coercion_val
-    _cache_coercion_val = v
-
-    return cache_coercion_helper(k)
-
-class WeakValueWrapper:
-    def __init__(self, v):
-        self.v = v
 
 class PlotterBase(Plottable):
     """Graph plotting class.
@@ -91,6 +73,17 @@ class PlotterBase(Plottable):
     _defaultNodeId = '__nodeid__'
     _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
+    _umap_param_to_g : WeakValueDictionary = WeakValueDictionary()
+    _feat_param_to_g : WeakValueDictionary = WeakValueDictionary()
+
+    def reset_caches(self): 
+        """Reset memoization caches"""
+        self._pd_hash_to_arrow.clear()
+        self._cudf_hash_to_arrow.clear()
+        self._umap_param_to_g.clear()
+        self._feat_param_to_g.clear()
+        cache_coercion_helper.cache_clear()
+
 
     def __init__(self, *args, **kwargs):
         super(PlotterBase, self).__init__()
@@ -136,6 +129,34 @@ class PlotterBase(Plottable):
         # Integrations
         self._bolt_driver : any = None
         self._tigergraph : any = None
+
+        self._node_embedding = None
+        self._node_encoder = None
+        self._node_features = None
+        self._node_imputer = None
+        self._node_scaler = None
+        self._node_target = None
+        self._node_target_encoder = None
+
+        self._edge_embedding = None
+        self._edge_encoders = None
+        self._edge_features = None
+        self._edge_imputer = None
+        self._edge_scaler = None
+        self._edge_target = None
+        self._edge_target_encoder = None
+
+        self._weighted_adjacency_nodes = None
+        self._weighted_adjacency_edges = None
+        self._weighted_edges_df = None
+        self._weighted_edges_df_from_nodes = None
+        self._weighted_edges_df_from_edges = None
+
+        self._umap = None
+
+        self._adjacency = None
+        self._entity_to_index = None
+        self._index_to_entity = None
 
 
     def __repr__(self):
@@ -886,6 +907,9 @@ class PlotterBase(Plottable):
         res._point_y = point_y or self._point_y
         
         return res
+
+    def copy(self) -> Plottable:
+        return copy.copy(self)
 
 
     def nodes(self, nodes: Union[Callable, Any], node=None, *args, **kwargs) -> Plottable:
@@ -1684,13 +1708,9 @@ class PlotterBase(Plottable):
             if memoize:
                 
                 try:
-                    #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
-                    hashed = (
-                        hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
-                        + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()
-                    )
+                    hashed = hash_pdf(table)
                 except TypeError:
-                    logger.warn('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.'
+                    logger.warning('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.'
                                 'This is fine, but for speedups around skipping re-uploads of previously seen tables, '
                                 'try identifying which columns have types that Pandas cannot hash, and convert them '
                                 'to hashable types like strings.')
@@ -1721,7 +1741,7 @@ class PlotterBase(Plottable):
                 #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
                 hashed = (
                     hashlib.sha256(table.hash_columns().tobytes()).hexdigest()
-                    + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()
+                    + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
                 )
                 try:
                     if hashed in PlotterBase._cudf_hash_to_arrow:

@@ -1,12 +1,12 @@
 #Enable when we drop 3.6
 #from __future__ import annotations
 
-import logging, pyarrow as pa, requests, sys
+import pyarrow as pa, requests, sys
 from functools import lru_cache
 from typing import Any, Tuple
 from weakref import WeakKeyDictionary
-
-logger = logging.getLogger('ArrowFileUploader')
+from .util import setup_logger
+logger = setup_logger(__name__)
 
 
 # WrappedTable -> {'file_id': str, 'output': dict}

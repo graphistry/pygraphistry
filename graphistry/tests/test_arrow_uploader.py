@@ -5,7 +5,8 @@ import graphistry, mock, pandas as pd, pytest, unittest
 from graphistry import ArrowUploader
 from graphistry.pygraphistry import PyGraphistry
 
-#TODO mock requests for testing actual effectful code
+# TODO mock requests for testing actual effectful code
+
 
 class TestArrowUploader_Core(unittest.TestCase):
     def test_au_init_plain(self):
@@ -16,14 +17,14 @@ class TestArrowUploader_Core(unittest.TestCase):
             au.dataset_id
         assert au.edges is None
         assert au.nodes is None
-        assert au.node_encodings == {'bindings': {}}
-        assert au.edge_encodings == {'bindings': {}}
+        assert au.node_encodings == {"bindings": {}}
+        assert au.edge_encodings == {"bindings": {}}
         assert len(au.name) > 0
         assert not (au.metadata is None)
-    
+
     def test_au_init_args(self):
-        n = pd.DataFrame({'n': []})
-        e = pd.DataFrame({'e': []})
+        n = pd.DataFrame({"n": []})
+        e = pd.DataFrame({"e": []})
         sbp = "s"
         vbp = "v"
         name = "n"
@@ -34,14 +35,20 @@ class TestArrowUploader_Core(unittest.TestCase):
         ee = {"edge_color": "c"}
         m = {"n": "n"}
         ce = False
-        au = ArrowUploader(server_base_path=sbp, view_base_path=vbp,
-            name = name,
-            description = des,
-            edges = e, nodes = n,
-            node_encodings = ne, edge_encodings = ee,
-            token = t, dataset_id = d,
-            metadata = m,
-            certificate_validation = ce)
+        au = ArrowUploader(
+            server_base_path=sbp,
+            view_base_path=vbp,
+            name=name,
+            description=des,
+            edges=e,
+            nodes=n,
+            node_encodings=ne,
+            edge_encodings=ee,
+            token=t,
+            dataset_id=d,
+            metadata=m,
+            certificate_validation=ce,
+        )
         assert au.server_base_path == sbp
         assert au.view_base_path == vbp
         assert au.name == name
@@ -57,112 +64,127 @@ class TestArrowUploader_Core(unittest.TestCase):
     def test_au_n_enc_mt(self):
         g = graphistry.bind()
         au = ArrowUploader()
-        assert au.g_to_node_encodings(g) == {'bindings': {}}
+        assert au.g_to_node_encodings(g) == {"bindings": {}}
 
-    def test_au_n_enc_full(self):        
-        g = graphistry.bind(node='n',
-            point_color='c', point_size='s', point_title='t', point_label='l',
-            point_weight='w', point_opacity='o', point_icon='i', point_x='x', point_y='y')
-        g = g.encode_point_color('c', ["green"], as_categorical=True)
+    def test_au_n_enc_full(self):
+        g = graphistry.bind(
+            node="n",
+            point_color="c",
+            point_size="s",
+            point_title="t",
+            point_label="l",
+            point_weight="w",
+            point_opacity="o",
+            point_icon="i",
+            point_x="x",
+            point_y="y",
+        )
+        g = g.encode_point_color("c", ["green"], as_categorical=True)
         au = ArrowUploader()
         assert au.g_to_node_encodings(g) == {
-            'bindings': {
-                'node': 'n',
-                'node_color': 'c',
-                'node_size': 's',
-                'node_title': 't',
-                'node_label': 'l',
-                'node_weight': 'w',
-                'node_opacity': 'o',
-                'node_icon': 'i',
-                'node_x': 'x',
-                'node_y': 'y',
+            "bindings": {
+                "node": "n",
+                "node_color": "c",
+                "node_size": "s",
+                "node_title": "t",
+                "node_label": "l",
+                "node_weight": "w",
+                "node_opacity": "o",
+                "node_icon": "i",
+                "node_x": "x",
+                "node_y": "y",
             },
-            'complex': {
-                'default': {
-                    'pointColorEncoding': {
-                        'graphType': 'point',
-                        'encodingType': 'color',
-                        'attribute': 'c',
-                        'variation': 'categorical',
-                        'colors': ['green']
+            "complex": {
+                "default": {
+                    "pointColorEncoding": {
+                        "graphType": "point",
+                        "encodingType": "color",
+                        "attribute": "c",
+                        "variation": "categorical",
+                        "colors": ["green"],
                     }
                 }
-            }
+            },
         }
 
     def test_au_e_enc_mt(self):
         g = graphistry.bind()
         au = ArrowUploader()
-        assert au.g_to_edge_encodings(g) == {'bindings': {}}
+        assert au.g_to_edge_encodings(g) == {"bindings": {}}
 
-    def test_au_e_enc_full(self):        
-        g = graphistry.bind(source='s', destination='d',
-            edge_color='c', edge_title='t', edge_label='l', edge_weight='w',
-            edge_opacity='o', edge_icon='i', edge_size='s', edge_source_color='sc', edge_destination_color='dc')
-        g = g.encode_edge_color('c', ["green"], as_categorical=True)
+    def test_au_e_enc_full(self):
+        g = graphistry.bind(
+            source="s",
+            destination="d",
+            edge_color="c",
+            edge_title="t",
+            edge_label="l",
+            edge_weight="w",
+            edge_opacity="o",
+            edge_icon="i",
+            edge_size="s",
+            edge_source_color="sc",
+            edge_destination_color="dc",
+        )
+        g = g.encode_edge_color("c", ["green"], as_categorical=True)
         au = ArrowUploader()
         assert au.g_to_edge_encodings(g) == {
-            'bindings': {
-                'source': 's',
-                'destination': 'd',
-                'edge_color': 'c',
-                'edge_title': 't',
-                'edge_label': 'l',
-                'edge_weight': 'w',
-                'edge_opacity': 'o',
-                'edge_icon': 'i',
-                'edge_size': 's',
-                'edge_source_color': 'sc',
-                'edge_destination_color': 'dc'
+            "bindings": {
+                "source": "s",
+                "destination": "d",
+                "edge_color": "c",
+                "edge_title": "t",
+                "edge_label": "l",
+                "edge_weight": "w",
+                "edge_opacity": "o",
+                "edge_icon": "i",
+                "edge_size": "s",
+                "edge_source_color": "sc",
+                "edge_destination_color": "dc",
             },
-            'complex': {
-                'default': {
-                    'edgeColorEncoding': {
-                        'graphType': 'edge',
-                        'encodingType': 'color',
-                        'attribute': 'c',
-                        'variation': 'categorical',
-                        'colors': ['green']
+            "complex": {
+                "default": {
+                    "edgeColorEncoding": {
+                        "graphType": "edge",
+                        "encodingType": "color",
+                        "attribute": "c",
+                        "variation": "categorical",
+                        "colors": ["green"],
                     }
                 }
-            }
+            },
         }
 
     def test_cascade_privacy_settings_default_global(self):
-        PyGraphistry._config['privacy'] = None
+        PyGraphistry._config["privacy"] = None
         PyGraphistry.privacy()
         au = ArrowUploader()
-        assert au.cascade_privacy_settings() == ('private', False, [], '')
+        assert au.cascade_privacy_settings() == ("private", False, [], "")
 
     def test_cascade_privacy_settings_global_override(self):
-        PyGraphistry._config['privacy'] = None
-        PyGraphistry.privacy(mode='public', notify=True)
+        PyGraphistry._config["privacy"] = None
+        PyGraphistry.privacy(mode="public", notify=True)
         au = ArrowUploader()
-        assert au.cascade_privacy_settings() == ('public', True, [], '')
+        assert au.cascade_privacy_settings() == ("public", True, [], "")
 
     def test_cascade_privacy_settings_local_override(self):
-        PyGraphistry._config['privacy'] = None
-        g = graphistry.bind().privacy(mode='public', notify=True)
+        PyGraphistry._config["privacy"] = None
+        g = graphistry.bind().privacy(mode="public", notify=True)
         au = ArrowUploader()
-        assert au.cascade_privacy_settings(**g._privacy) == ('public', True, [], '')
+        assert au.cascade_privacy_settings(**g._privacy) == ("public", True, [], "")
 
     def test_cascade_privacy_settings_local_override_cascade(self):
-        PyGraphistry._config['privacy'] = None
+        PyGraphistry._config["privacy"] = None
         PyGraphistry.privacy()
-        g = graphistry.bind().privacy(mode='public', notify=True)
+        g = graphistry.bind().privacy(mode="public", notify=True)
         au = ArrowUploader()
-        assert au.cascade_privacy_settings(**g._privacy) == ('public', True, [], '')
+        assert au.cascade_privacy_settings(**g._privacy) == ("public", True, [], "")
 
 
 class TestArrowUploader_Comms(unittest.TestCase):
-
     def _mock_response(
-            self,
-            status=200,
-            content="CONTENT",
-            json_data=None,
-            raise_for_status=None):
+        self, status=200, content="CONTENT", json_data=None, raise_for_status=None
+    ):
 
         mock_resp = mock.Mock()
         # mock raise_for_status call w/optional error
@@ -176,11 +198,11 @@ class TestArrowUploader_Comms(unittest.TestCase):
         if json_data:
             mock_resp.json = mock.Mock(return_value=json_data)
         return mock_resp
-    
-    @mock.patch('requests.post')
+
+    @mock.patch("requests.post")
     def test_login(self, mock_post):
 
-        mock_resp = self._mock_response(json_data={'token': '123'})
+        mock_resp = self._mock_response(json_data={"token": "123"})
         mock_post.return_value = mock_resp
 
         au = ArrowUploader()

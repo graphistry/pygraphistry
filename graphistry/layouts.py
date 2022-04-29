@@ -1,11 +1,10 @@
 from typing import Any, Callable, cast, Iterable, List, Optional, Set, Union, TYPE_CHECKING
-import logging, math, pandas as pd
+import math, pandas as pd
 from .Plottable import Plottable
 from .layout import SugiyamaLayout
 from .layout.graph import Graph
-from .util import deprecated
-
-logger = logging.getLogger('layouts')
+from .util import deprecated, setup_logger
+logger = setup_logger(__name__)
 
 if TYPE_CHECKING:
     MIXIN_BASE = Plottable
