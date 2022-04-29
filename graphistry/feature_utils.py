@@ -1044,7 +1044,7 @@ class FeatureMixin(MIXIN_BASE):
 
         if feature_engine == "none":
             X_enc = X_resolved.select_dtypes(include=np.number)
-            y_enc = y_resolved
+            y_enc = y_resolved.select_dtypes(include=np.number)
             data_vec = False
             label_vec = False
             ordinal_pipeline = False
@@ -1133,7 +1133,7 @@ class FeatureMixin(MIXIN_BASE):
 
         if feature_engine == "none":
             X_enc = X_resolved.select_dtypes(include=np.number)
-            y_enc = y_resolved
+            y_enc = y_resolved.select_dtypes(include=np.number)
             data_vec = False
             label_vec = False
             ordinal_pipeline = None
