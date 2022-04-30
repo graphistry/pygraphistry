@@ -1,2 +1,4 @@
 from .ComputeMixin import ComputeMixin
-import ast
+from .ast import (
+    n, e_forward, e_reverse, e_undirected
+)
