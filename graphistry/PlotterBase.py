@@ -71,6 +71,9 @@ class PlotterBase(Plottable):
     """
 
     _defaultNodeId = '__nodeid__'
+    _defaultEdgeSourceId = '__src__'
+    _defaultEdgeDestinationId = '__dst__'
+    
     _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _umap_param_to_g : WeakValueDictionary = WeakValueDictionary()
