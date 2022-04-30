@@ -360,7 +360,8 @@ class TestPlotterConversions(NoAuthTestCase):
         ig = igraph.Graph.Tree(4, 2)
         ig.vs["vattrib"] = 0
         ig.es["eattrib"] = 1
-        (e, n) = graphistry.bind(source="src", destination="dst").igraph2pandas(ig)
+        with pytest.warns(DeprecationWarning):
+            (e, n) = graphistry.bind(source="src", destination="dst").igraph2pandas(ig)
 
         edges = pd.DataFrame(
             {
@@ -382,8 +383,10 @@ class TestPlotterConversions(NoAuthTestCase):
     @pytest.mark.xfail(raises=ModuleNotFoundError)
     def test_pandas2igraph(self):
         plotter = graphistry.bind(source="src", destination="dst", node="id")
-        ig = plotter.pandas2igraph(triangleEdges)
-        (e, n) = plotter.igraph2pandas(ig)
+        with pytest.warns(DeprecationWarning):
+            ig = plotter.pandas2igraph(triangleEdges)
+        with pytest.warns(DeprecationWarning):
+            (e, n) = plotter.igraph2pandas(ig)
         assertFrameEqual(e, triangleEdges[["src", "dst"]])
         assertFrameEqual(n, triangleNodes[["id"]])
 
@@ -563,8 +566,10 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     @pytest.mark.xfail(raises=ModuleNotFoundError)
     def test_api3_plot_from_igraph(self):
         g = graphistry.bind(source="src", destination="dst", node="id")
-        ig = g.pandas2igraph(triangleEdges)
-        (e, n) = g.igraph2pandas(ig)
+        with pytest.warns(DeprecationWarning):
+            ig = g.pandas2igraph(triangleEdges)
+        with pytest.warns(DeprecationWarning):
+            (e, n) = g.igraph2pandas(ig)
         g = g.edges(e).nodes(n)
         ds = g.plot(skip_upload=True)
         assert isinstance(ds.edges, pa.Table)
