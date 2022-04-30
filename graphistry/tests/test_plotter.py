@@ -4,6 +4,7 @@ import copy, datetime as dt, graphistry, os, pandas as pd, pyarrow as pa, pytest
 
 from common import NoAuthTestCase
 from mock import patch
+from graphistry.constants import NODE
 from graphistry.tests.test_hyper_dask import assertFrameEqualDask
 
 maybe_cudf = None
@@ -372,7 +373,7 @@ class TestPlotterConversions(NoAuthTestCase):
         )
         nodes = pd.DataFrame(
             {
-                "__nodeid__": {0: 0, 1: 1, 2: 2, 3: 3},
+                NODE: {0: 0, 1: 1, 2: 2, 3: 3},
                 "vattrib": {0: 0, 1: 0, 2: 0, 3: 0},
             }
         )
@@ -414,7 +415,7 @@ class TestPlotterConversions(NoAuthTestCase):
             }
         )
         nodes = pd.DataFrame(
-            {"__nodeid__": {0: 0, 1: 1, 2: 2}, "vattrib": {0: 0, 1: 0, 2: 0}}
+            {NODE: {0: 0, 1: 1, 2: 2}, "vattrib": {0: 0, 1: 0, 2: 0}}
         )
 
         assertFrameEqual(e, edges)

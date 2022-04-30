@@ -17,6 +17,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Deprecation warnings for old igraph methods: ...
 * Internal igraph handlers upgraded to new igraph methods 
 
+### Breaking
+
+* `network2igraph` and `igraph2pandas` renamed output node ID column to `_n_implicit` (`constants.NODE`)
+
 ## [0.24.1 - 2022-04-29]
 
 ### Fixed

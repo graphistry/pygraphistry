@@ -134,8 +134,8 @@ class Test_to_igraph(NoAuthTestCase):
         assert g2._edge is None
         logger.debug('g2._nodes: %s', g2._nodes)
         assert g2._nodes.equals(pd.DataFrame({
-                NODE: nodes,
-                'name': nodes
+            NODE: nodes,
+            'name': nodes
         }))
         assert g2._node == NODE
     
@@ -156,8 +156,8 @@ class Test_to_igraph(NoAuthTestCase):
         logger.debug('g2._nodes: %s', g2._nodes)
         logger.debug('g2._nodes dtypes: %s', g2._nodes.dtypes)
         assert g2._nodes.equals(pd.DataFrame({
-                NODE: nodes,
-                'name': pd.Series(nodes).astype(str)
+            NODE: nodes,
+            'name': pd.Series(nodes).astype(str)
         }))
         assert g2._node == NODE
 
