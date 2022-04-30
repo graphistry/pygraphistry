@@ -14,8 +14,8 @@ def from_igraph(self,
     ig,
     node_attributes: Optional[List[str]] = None,
     edge_attributes: Optional[List[str]] = None,
-    load_nodes = True, load_edges = True,
-    merge_if_existing = True
+    load_nodes: bool = True, load_edges: bool = True,
+    merge_if_existing: bool = True
 ):
     """
     Convert igraph object into Plotter
