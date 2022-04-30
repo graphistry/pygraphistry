@@ -1432,6 +1432,8 @@ class PlotterBase(Plottable):
                 g.bind(point_color='community').plot(ig)
         """
 
+        import warnings
+        warnings.warn("pandas2igraph deprecated; switch to to_igraph", DeprecationWarning, stacklevel=2)
 
         import igraph
         self._check_mandatory_bindings(False)
