@@ -1,5 +1,5 @@
 graphistry.plugins package
-=========================
+==========================
 
 Subpackages
 -----------
