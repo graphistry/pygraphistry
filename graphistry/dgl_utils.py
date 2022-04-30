@@ -315,7 +315,7 @@ class DGLGraphMixin(MIXIN_BASE):
         logger.info("Running Node Featurization for DGL Graph")
         print(f'=*=*=Input shapes are data: {X.shape}, target: {y.shape}')
 
-        X_enc, y_enc, _ = res._featurize_or_get_nodes_dataframe_if_X_is_None(
+        X_enc, y_enc, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(
             X=X, y=y, use_scaler=use_scaler, feature_engine=resolve_feature_engine(feature_engine)
         )
 
@@ -337,17 +337,18 @@ class DGLGraphMixin(MIXIN_BASE):
     ):
         logger.info("Running Edge Featurization for DGL Graph")
 
-        X_enc, y_enc, _ = res._featurize_or_get_edges_dataframe_if_X_is_None(
+        X_enc, y_enc, res = res._featurize_or_get_edges_dataframe_if_X_is_None(
             X=X, y=y, use_scaler=use_scaler, feature_engine=resolve_feature_engine(feature_engine)
         )
         
         edata = convert_to_torch(X_enc, y_enc)
+        print(f'---- Data Edge Shape: {edata["feature"].shape}')
         # add edata to the graph
         res.DGL_graph.edata.update(edata)
         res._mask_edges()
         return res
 
-    def build_dgl_graph(
+    def build_gnn(
         self,
         node_column: str = None,
         weight_column: str = None,
@@ -379,8 +380,8 @@ class DGLGraphMixin(MIXIN_BASE):
         X_edges_resolved = resolve_X(res._edges, X_edges)
         y_edges_resolved = resolve_y(res._edges, y_edges)
         
-        print(f' >>>>>>>>>>>>>>>  Nodes: X_resolved, y_resolved is empty? {X_nodes_resolved.empty}, {y_nodes_resolved.empty}')
-        print(f' >>>>>>>>>>>>>>>  edges: X_resolved, y_resolved is empty? {X_edges_resolved.empty}, {y_edges_resolved.empty}')
+        print(f' >>>>>>>>>>>>>>>  Nodes: X_nodes_resolved, y_nodes_resolved is empty? {X_nodes_resolved.empty}, {y_nodes_resolved.empty}')
+        print(f' >>>>>>>>>>>>>>>  edges: X_edges_resolved, y_edges_resolved is empty? {X_edges_resolved.empty}, {y_edges_resolved.empty}')
 
         if hasattr(res, "_MASK"):
             if y_edges_resolved is not None:
