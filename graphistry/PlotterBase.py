@@ -1,9 +1,10 @@
 from graphistry.Plottable import Plottable
-from typing import Any, Callable, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Callable, List, Optional, Union
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
-from functools import lru_cache
 from weakref import WeakValueDictionary
 
+from .constants import SRC, DST, NODE
+from .plugins.igraph import to_igraph as to_igraph_base, from_igraph as from_igraph_base
 from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
     cache_coercion, cache_coercion_helper, WeakValueWrapper
@@ -70,9 +71,9 @@ class PlotterBase(Plottable):
     The class supports convenience methods for mixing calls across Pandas, NetworkX, and IGraph.
     """
 
-    _defaultNodeId = '__nodeid__'
-    _defaultEdgeSourceId = '__src__'
-    _defaultEdgeDestinationId = '__dst__'
+    _defaultNodeId = NODE
+    _defaultEdgeSourceId = SRC
+    _defaultEdgeDestinationId = DST
     
     _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
@@ -1117,6 +1118,14 @@ class PlotterBase(Plottable):
         :rtype: Plotter
         """
 
+        try:
+            import igraph
+            if isinstance(ig, igraph.Graph):
+                logger.warning('.graph(ig) deprecated, use .from_igraph()')
+                return self.from_igraph(ig)
+        except ImportError:
+            pass
+
         res = copy.copy(self)
         res._edges = ig
         res._nodes = None
@@ -1372,6 +1381,37 @@ class PlotterBase(Plottable):
             webbrowser.open(full_url)
             return full_url
 
+    def from_igraph(self,
+        ig,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes = True, load_edges = True,
+        merge_if_existing = True
+    ):
+        return from_igraph_base(
+            self,
+            ig,
+            node_attributes,
+            edge_attributes,
+            load_nodes, load_edges,
+            merge_if_existing
+        )
+    from_igraph.__doc__ = from_igraph_base.__doc__
+
+
+    def to_igraph(self, 
+        directed=True, include_nodes=True,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None
+    ):
+        return to_igraph_base(
+            self,
+            directed, include_nodes,
+            node_attributes,
+            edge_attributes
+        )
+    to_igraph.__doc__ = to_igraph_base.__doc__
+
 
     def pandas2igraph(self, edges, directed=True):
         """Convert a pandas edge dataframe to an IGraph graph.
@@ -1410,6 +1450,8 @@ class PlotterBase(Plottable):
     def igraph2pandas(self, ig):
         """Under current bindings, transform an IGraph into a pandas edges dataframe and a nodes dataframe.
 
+        Deprecated in favor of `.from_igraph()`
+
         **Example**
             ::
 
@@ -1425,6 +1467,9 @@ class PlotterBase(Plottable):
                 (es2, vs2) = g.igraph2pandas(ig)
                 g.nodes(vs2).bind(point_color='community').plot()
         """
+
+        import warnings
+        warnings.warn("igraph2pandas deprecated; switch to from_igraph", DeprecationWarning, stacklevel=2)
 
         def get_edgelist(ig):
             idmap = dict(enumerate(ig.vs[self._node]))
@@ -1516,8 +1561,8 @@ class PlotterBase(Plottable):
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
-                (e, n) = g.igraph2pandas(graph)
-                return g._make_dataset(e, n, name, description, mode, metadata, memoize)
+                g2 = g.from_igraph(graph)
+                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize)
         except ImportError:
             pass
 

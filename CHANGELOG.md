@@ -7,6 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+
+* igraph handlers: `graphistry.from_igraph`, `g.from_igraph`, `g.to_igraph`
+* docs: README.md examples of using new igraph methods
+
+### Changed
+
+* Deprecation warnings for old igraph methods: ...
+* Internal igraph handlers upgraded to new igraph methods 
+
 ## [0.24.1 - 2022-04-29]
 
 ### Fixed
