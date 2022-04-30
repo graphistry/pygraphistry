@@ -701,7 +701,7 @@ g.addStyle(logo={
 The below methods let you quickly manipulate graphs directly and with dataframe methods: Search, pattern mine, transform, and more:
 
 ```python
-from graphistry.ast import n, e_forward, e_reverse, e_undirected
+from graphistry import n, e_forward, e_reverse, e_undirected
 g = (graphistry
   .edges(pd.DataFrame({
     's': ['a', 'b'],
@@ -814,7 +814,7 @@ g5.plot()
 Rich compound patterns are enabled via `.chain()`:
 
 ```python
-from graphistry.ast import n, e_forward, e_reverse, e_undirected
+from graphistry import n, e_forward, e_reverse, e_undirected
 
 g2.chain([ n() ])
 g2.chain([ n({"v": 1, "y": True}) ])

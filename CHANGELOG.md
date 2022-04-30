@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.24.1 - 2022-04-29]
+
+### Fixed
+
+* Expose symbols for `.chain()` predicates as top-level: previous `ast` export was incorrect
+
 ## [0.24.0 - 2022-04-29]
 
 ### Added
