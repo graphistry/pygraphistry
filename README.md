@@ -53,7 +53,10 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
   # pip install --user graphistry[bolt,gremlin,nodexl,igraph,networkx]  # optional
   import graphistry
   graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com
-  #graphistry.register(..., protocol='http', host='my.site.ngo')  # Private
+
+  #graphistry.register(..., org_name='my-org') # Specify an organization you are in
+  #graphistry.register(..., protocol='http', server='my.site.ngo')  # Use with a self-hosted server
+  
   ```
 
 * **Notebook-friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:
@@ -351,13 +354,15 @@ You need to install the PyGraphistry Python client and connect it to a Graphistr
 
 ### Configure
 
-Most users connect to a Graphistry GPU server account via `graphistry.register(api=3, username='abc', password='xyz')` (hub.graphistry.com) or  `graphistry.register(api=3, username='abc', password='xyz', protocol='http', server='my.private_server.org')`
+Most users connect to a Graphistry GPU server account via `graphistry.register(api=3, username='abc', password='xyz', org_name='optional_org')` (hub.graphistry.com) or  `graphistry.register(api=3, username='abc', password='xyz', protocol='http', server='my.private_server.org')`
 
 For more advanced configuration, read on for:
 
 * Version: Use protocol `api=3`, which will soon become the default, or a legacy version
 
 * Tokens: Connect to a GPU server by providing a `username='abc'`/`password='xyz'`, or for advanced long-running service account software, a refresh loop using 1-hour-only JWT tokens
+
+* Organizations: Optionally use `org_name` to set a specific organization
 
 * Private servers: PyGraphistry defaults to using the free [Graphistry Hub](https://hub.graphistry.com) public API
 
@@ -431,7 +436,13 @@ By default, visualizations are publicly viewable by anyone with the URL (that is
 * Private-only: You can globally default uploads to private:
 
 ```python
-graphistry.privacy()
+graphistry.privacy()  # graphistry.privacy(mode='private')
+```
+
+* Organizations: You can login with an organization and share only within it
+```python
+graphistry.register(api=3, username='...', password='...', org_name='my-org123')
+graphistry.privacy(mode='organization')
 ```
 
 * Invitees: You can share access to specify users, and optionally, even email them invites

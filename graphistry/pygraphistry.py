@@ -119,13 +119,13 @@ class PyGraphistry(object):
     relogin = lambda: PyGraphistry.not_implemented_thunk()  # noqa: E731
 
     @staticmethod
-    def login(username, password, fail_silent=False):
+    def login(username, password, org_name=None, fail_silent=False):
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
         By default, must be reinvoked within 24hr."""
 
-        if PyGraphistry._config["store_token_creds_in_memory"]:
+        if PyGraphistry._config['store_token_creds_in_memory']:
             PyGraphistry.relogin = lambda: PyGraphistry.login(
-                username, password, fail_silent
+                username, password, org_name, fail_silent
             )
 
         PyGraphistry._is_authenticated = False
@@ -136,7 +136,7 @@ class PyGraphistry(object):
                 + PyGraphistry.server(),    # noqa: W503
                 certificate_validation=PyGraphistry.certificate_validation(),
             )
-            .login(username, password)
+            .login(username, password, org_name)
             .token
         )
         PyGraphistry.api_token(token)
@@ -329,6 +329,7 @@ class PyGraphistry(object):
         token_refresh_ms=10 * 60 * 1000,
         store_token_creds_in_memory=None,
         client_protocol_hostname=None,
+        org_name=None
     ):
         """API key registration and server selection
 
@@ -358,10 +359,18 @@ class PyGraphistry(object):
         :type store_token_creds_in_memory: Optional[bool]
         :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
         :type client_protocol_hostname: Optional[str]
+        :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
+        :type org_name: Optional[str]
         :returns: None.
         :rtype: None
 
-        **Example: Standard (2.0 api by username/password)**
+        **Example: Standard (2.0 api by username/password with org_name)**
+                ::
+
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', username='person', password='pwd', org_name="org-name")
+
+        **Example: Standard (2.0 api by username/password) without org_name**
                 ::
 
                     import graphistry
@@ -395,27 +404,30 @@ class PyGraphistry(object):
         PyGraphistry.certificate_validation(certificate_validation)
         PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
         if not (username is None) and not (password is None):
-            PyGraphistry.login(username, password)
-        PyGraphistry.api_token(token or PyGraphistry._config["api_token"])
+            PyGraphistry.login(username, password, org_name)
+        PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         PyGraphistry.authenticate()
 
         PyGraphistry.set_bolt_driver(bolt)
 
     @staticmethod
     def privacy(
-        mode: Optional[str] = None,
-        notify: Optional[bool] = None,
-        invited_users: Optional[List] = None,
-        message: Optional[str] = None,
-    ):
+            mode: Optional[str] = None,
+            notify: Optional[bool] = None,
+            invited_users: Optional[List] = None,
+            mode_action: Optional[str] = None,
+            message: Optional[str] = None
+        ):
         """Set global default sharing mode
 
-        :param mode: Either "private" or "public"
+        :param mode: Either "private" or "public" or "organization"
         :type mode: str
         :param notify: Whether to email the recipient(s) upon upload
         :type notify: bool
         :param invited_users: List of recipients, where each is {"email": str, "action": str} and action is "10" (view) or "20" (edit)
         :type invited_users: List
+        :param mode_action: Only used when mode="organization", action for sharing within organization, "10" (view) or "20" (edit), default is "20"
+        :type mode_action: str
 
         Requires an account with sharing capabilities.
 
@@ -497,11 +509,12 @@ class PyGraphistry(object):
                 g.plot()
         """
 
-        PyGraphistry._config["privacy"] = {
-            "mode": mode,
-            "notify": notify,
-            "invited_users": invited_users,
-            "message": message,
+        PyGraphistry._config['privacy'] = {
+            'mode': mode,
+            'notify': notify,
+            'invited_users': invited_users,
+            'mode_action': mode_action,
+            'message': message
         }
 
     @staticmethod
@@ -2011,6 +2024,20 @@ class PyGraphistry(object):
             scaling_ratio,
         )
 
+    @staticmethod
+    def org_name(value=None):
+        """Set or get the org_name when register/login.
+        """
+
+        if value is None:
+            if 'org_name' in PyGraphistry._config:
+                return PyGraphistry._config['org_name']
+            return None
+
+        # setter
+        if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
+            PyGraphistry._config['org_name'] = value.strip()
+
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
@@ -2053,6 +2080,7 @@ drop_graph = PyGraphistry.drop_graph
 gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
 layout_settings = PyGraphistry.layout_settings
+org_name = PyGraphistry.org_name
 
 
 class NumpyJSONEncoder(json.JSONEncoder):

@@ -159,26 +159,26 @@ class TestArrowUploader_Core(unittest.TestCase):
         PyGraphistry._config["privacy"] = None
         PyGraphistry.privacy()
         au = ArrowUploader()
-        assert au.cascade_privacy_settings() == ("private", False, [], "")
+        assert au.cascade_privacy_settings() == ('private', False, [], '20', '')
 
     def test_cascade_privacy_settings_global_override(self):
         PyGraphistry._config["privacy"] = None
         PyGraphistry.privacy(mode="public", notify=True)
         au = ArrowUploader()
-        assert au.cascade_privacy_settings() == ("public", True, [], "")
+        assert au.cascade_privacy_settings() == ('public', True, [], '10', '')
 
     def test_cascade_privacy_settings_local_override(self):
         PyGraphistry._config["privacy"] = None
         g = graphistry.bind().privacy(mode="public", notify=True)
         au = ArrowUploader()
-        assert au.cascade_privacy_settings(**g._privacy) == ("public", True, [], "")
+        assert au.cascade_privacy_settings(**g._privacy) == ('public', True, [], '10', '')
 
     def test_cascade_privacy_settings_local_override_cascade(self):
         PyGraphistry._config["privacy"] = None
         PyGraphistry.privacy()
         g = graphistry.bind().privacy(mode="public", notify=True)
         au = ArrowUploader()
-        assert au.cascade_privacy_settings(**g._privacy) == ("public", True, [], "")
+        assert au.cascade_privacy_settings(**g._privacy) == ('public', True, [], '10', '')
 
 
 class TestArrowUploader_Comms(unittest.TestCase):
@@ -209,3 +209,83 @@ class TestArrowUploader_Comms(unittest.TestCase):
         tok = au.login(username="u", password="p").token
 
         assert tok == "123"
+
+
+    @mock.patch('requests.post')
+    def test_login_with_org_success(self, mock_post):
+
+        mock_resp = self._mock_response(
+            json_data={
+                'token': '123',
+                'active_organization': {
+                    "slug": "mock-org",
+                    'is_found': True,
+                    'is_member': True
+                }
+        })
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+        response = au.login(username="u", password="p", org_name="mock-org")
+        tok = response.token
+        assert tok == "123"
+        assert PyGraphistry.org_name() == "mock-org"
+
+
+    @mock.patch('requests.post')
+    def test_login_with_org_old_server(self, mock_post):
+
+        mock_resp = self._mock_response(json_data={'token': '123'})
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+
+        with pytest.raises(Exception):
+            au.login(username="u", password="p", org_name="mock-org")
+
+        with pytest.raises(Exception):
+            au.token
+
+    @mock.patch('requests.post')
+    def test_login_with_org_invalid_org_name(self, mock_post):
+
+        mock_resp = self._mock_response(
+            json_data={
+                'token': '123',
+                'active_organization': {
+                    "slug": "default-org",
+                    'is_found': False,
+                    'is_member': False
+                }
+        })
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+
+        with pytest.raises(Exception) as execinfo:
+            au.login(username="u", password="p", org_name="mock-org")
+
+        with pytest.raises(Exception):
+            au.token
+
+    @mock.patch('requests.post')
+    def test_login_with_org_valid_org_name_not_member(self, mock_post):
+
+        mock_resp = self._mock_response(
+            json_data={
+                'token': '123',
+                'active_organization': {
+                    "slug": "mock-org",
+                    'is_found': True,
+                    'is_member': False
+                }
+        })
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+
+        with pytest.raises(Exception) as execinfo:
+            au.login(username="u", password="p", org_name="mock-org")
+
+        with pytest.raises(Exception):
+            au.token

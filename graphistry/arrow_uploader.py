@@ -2,7 +2,8 @@
 #from __future__ import annotations
 from typing import List, Optional
 
-import io, pyarrow as pa, requests, sys
+import io, logging, pyarrow as pa, requests, sys
+
 from .ArrowFileUploader import ArrowFileUploader
 from .util import setup_logger
 logger = setup_logger(__name__)
@@ -18,6 +19,14 @@ class ArrowUploader:
     @token.setter
     def token(self, token: str):
         self.__token = token
+
+    @property
+    def org_name(self) -> str:
+        return self.__org_name
+
+    @org_name.setter
+    def org_name(self, org_name: str):
+        self.__org_name = org_name
 
     @property
     def dataset_id(self) -> str:
@@ -138,7 +147,8 @@ class ArrowUploader:
             node_encodings = None, edge_encodings = None,
             token = None, dataset_id = None,
             metadata = None,
-            certificate_validation = True):
+            certificate_validation = True, 
+            org_name = None):
         self.__name = name
         self.__description = description
         self.__server_base_path = server_base_path
@@ -151,23 +161,51 @@ class ArrowUploader:
         self.__edge_encodings = edge_encodings
         self.__metadata = metadata
         self.__certificate_validation = certificate_validation
+        self.__org_name = org_name
     
-    def login(self, username, password):
+    def login(self, username, password, org_name=None):
+        from .pygraphistry import PyGraphistry
+
         base_path = self.server_base_path
         out = requests.post(
             f'{base_path}/api-token-auth/',
             verify=self.certificate_validation,
-            json={'username': username, 'password': password})
+            json={'username': username, 'password': password, "org_name": org_name})
         json_response = None
         try:
             json_response = out.json()
+            
             if not ('token' in json_response):
                 raise Exception(out.text)
+
+            org = json_response.get('active_organization',{})
+            logged_in_org_name = org.get('slug', None)
+
+            if org_name: # caller pass in org_name
+                if not logged_in_org_name:  # no active_organization in JWT payload
+                    raise Exception("Server does not support organization, please omit org_name")
+                else:
+                    # if JWT response with org_name different than the pass in org_name
+                    # => org_name not found and return default organization (currently is personal org)
+                    if logged_in_org_name != org_name:
+                        raise Exception("Login Organization is not found in your organization")
+
+                is_found = org.get('is_found', None)
+                is_member = org.get('is_member', None)
+
+                if is_found == False:
+                    raise Exception("Organization {} is not found".format(org_name))
+                
+                if not is_member: 
+                    raise Exception("You are not a member of {}".format(org_name))
+
+            PyGraphistry.org_name(logged_in_org_name)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
-            raise Exception(out.text)
+            raise
             
-        self.token = out.json()['token']        
+        self.token = out.json()['token']
+
         return self
 
     def refresh(self, token=None):
@@ -203,15 +241,18 @@ class ArrowUploader:
         return out.status_code == requests.codes.ok
 
     def create_dataset(self, json):  # noqa: F811
-        tok = self.token 
-        
+        tok = self.token
+
+        if self.org_name(): 
+            json['org_name'] = self.org_name()
+
         res = requests.post(
             self.server_base_path + '/api/v2/upload/datasets/',
             verify=self.certificate_validation,
             headers={'Authorization': f'Bearer {tok}'},
             json=json)
              
-        try:            
+        try: 
             out = res.json()
             if not out['success']:
                 raise Exception(out)
@@ -315,11 +356,12 @@ class ArrowUploader:
         if as_files:
 
             file_uploader = ArrowFileUploader(self)
+            file_opts={'name': self.name + ' edges', 'org_name': self.org_name()}
 
-            e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts={'name': self.name + ' edges'})
+            e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts)
 
             if not (self.nodes is None):
-                n_file_id, _ = file_uploader.create_and_post_file(self.nodes, file_opts={'name': self.name + ' nodes'})
+                n_file_id, _ = file_uploader.create_and_post_file(self.nodes, file_opts=file_opts)
 
             self.create_dataset({
                 "node_encodings": self.node_encodings,
@@ -357,6 +399,7 @@ class ArrowUploader:
         mode: Optional[str] = None,
         notify: Optional[bool] = None,
         invited_users: Optional[List] = None,
+        mode_action: Optional[str] = None,
         message: Optional[str] = None
     ):
         """
@@ -375,6 +418,8 @@ class ArrowUploader:
                 notify = global_privacy['notify']
             if invited_users is None:
                 invited_users = global_privacy['invited_users']
+            if mode_action is None:
+                mode_action = global_privacy['mode_action']
             if message is None:
                 message = global_privacy['message']
 
@@ -384,10 +429,15 @@ class ArrowUploader:
             notify = False
         if invited_users is None:
             invited_users = []
+        if mode_action is None:
+            if mode == 'private':
+                mode_action = '20'  # send default as 'edit'
+            else:
+                mode_action = '10'
         if message is None:
             message = ''
 
-        return mode, notify, invited_users, message
+        return mode, notify, invited_users, mode_action, message
 
 
     def post_share_link(
@@ -400,7 +450,7 @@ class ArrowUploader:
         Set sharing settings. Any settings not passed here will cascade from PyGraphistry or defaults
         """
 
-        mode, notify, invited_users, message = self.cascade_privacy_settings(**(privacy or {}))
+        mode, notify, invited_users, mode_action, message = self.cascade_privacy_settings(**(privacy or {}))
 
         path = self.server_base_path + '/api/v2/share/link/'
         tok = self.token
@@ -414,6 +464,7 @@ class ArrowUploader:
                 'mode': mode,
                 'notify': notify,
                 'invited_users': invited_users,
+                'mode_action': mode_action,
                 'message': message
             })
 
@@ -435,7 +486,7 @@ class ArrowUploader:
             logger.error('Unexpected error setting sharing settings: %s', res.text, exc_info=True)
             raise e
 
-        logger.debug('Set privacy: mode %s, notify %s, users %s, message: %s', mode, notify, invited_users, message)
+        logger.debug('Set privacy: mode %s, notify %s, users %s, mode_action %s, message: %s', mode, notify, invited_users, mode_action, message)
         
         return out
 
@@ -454,7 +505,6 @@ class ArrowUploader:
         return self.post_arrow(arr, 'nodes', opts) 
 
     def post_arrow(self, arr: pa.Table, graph_type: str, opts: str = ''):
-
         dataset_id = self.dataset_id
         tok = self.token
         sub_path = f'api/v2/upload/datasets/{dataset_id}/{graph_type}/arrow'
@@ -542,7 +592,7 @@ class ArrowUploader:
         dataset_id = self.dataset_id
         tok = self.token
         base_path = self.server_base_path
-
+        
         with open(file_path, 'rb') as file:        
             out = requests.post(
                 f'{base_path}/api/v2/upload/datasets/{dataset_id}/{graph_type}/{file_type}',
