@@ -110,7 +110,6 @@ class TestDGL(unittest.TestCase):
         g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
 
         g2 = g.build_gnn(
-            node_column="ip",
             y_edges="Label",
             y_nodes="Dur",
             X_edges=good_cols_without_label,
@@ -124,7 +123,6 @@ class TestDGL(unittest.TestCase):
         g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
 
         g2 = g.build_gnn(
-            node_column="ip",
             y_edges=y_edges,
             y_nodes=y_nodes,
             X_edges=X_edges,
@@ -135,24 +133,10 @@ class TestDGL(unittest.TestCase):
         self._test_cases_dgl(g2)
 
     def test_build_dgl_graph_from_umap(self):
-        # explicitly set node in .nodes() and in .build_gnn()
+        # explicitly set node in .nodes() and not in .build_gnn()
         g = graphistry.nodes(ndf, "ip")
         g.reset_caches()  # so that we redo calcs
-        g = g.umap()
-        # g = g.umap(X=X_nodes, y=y_edges)
-
-        g2 = g.build_gnn(
-            node_column="ip",
-            use_node_scaler="robust",
-            use_edge_scaler="robust",
-        )
-        self._test_cases_dgl(g2)
-
-    def test_build_dgl_graph_from_umap2(self):
-        # test naming node in nodes(), but not in .build_gnn()
-        g = graphistry.nodes(ndf, "ip")
-        g.reset_caches()  # so that we redo calcs
-        g = g.umap()
+        g = g.umap(scale=1) #keep all edges with scale = 100
 
         g2 = g.build_gnn(
             use_node_scaler="robust",
@@ -163,8 +147,7 @@ class TestDGL(unittest.TestCase):
     def test_build_dgl_graph_from_umap_no_node_column(self):
         g = graphistry.nodes(ndf)
         g.reset_caches()  # so that we redo calcs
-        # g = g.umap(y=y_edges, X=X_nodes)
-        g = g.umap()
+        g = g.umap(scale=1) #keep all edges with scale = 100
 
         g2 = g.build_gnn(
             use_node_scaler="robust",

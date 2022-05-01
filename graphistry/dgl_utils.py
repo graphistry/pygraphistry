@@ -270,7 +270,7 @@ class DGLGraphMixin(MIXIN_BASE):
             )
 
 
-    def _convert_edge_dataframe_to_DGL(self, node_column: Optional[str] = None, weight_column: Optional[str] = None, inplace: bool = False):
+    def _convert_edge_dataframe_to_DGL(self, weight_column: Optional[str] = None, inplace: bool = False):
         logger.info("converting edge DataFrame to DGL graph")
         
         if inplace:
@@ -282,7 +282,7 @@ class DGLGraphMixin(MIXIN_BASE):
             res._node = config.IMPLICIT_NODE_ID
 
         if not res._removed_edges_previously:
-            print(f'---------------- Node in convert dataframe to dgl: {res._node}')
+            logger.info(f'---------------- Node in convert dataframe to dgl: {res._node}')
             res._remove_edges_not_in_nodes(res._node)
 
         if res._source is None:
@@ -342,7 +342,6 @@ class DGLGraphMixin(MIXIN_BASE):
         )
         
         edata = convert_to_torch(X_enc, y_enc)
-        print(f'---- Data Edge Shape: {edata["feature"].shape}')
         # add edata to the graph
         res.DGL_graph.edata.update(edata)
         res._mask_edges()
@@ -350,7 +349,6 @@ class DGLGraphMixin(MIXIN_BASE):
 
     def build_gnn(
         self,
-        node_column: str = None,
         weight_column: str = None,
         X_nodes: XSymbolic = None,
         X_edges: XSymbolic = None,
@@ -374,14 +372,14 @@ class DGLGraphMixin(MIXIN_BASE):
         
         # here we check if edges are from UMAP, at which point X_edges should be none:
         if list(res._edges.columns) == ['_src_implicit', '_dst_implicit', '_weight']:
-            print(f'>>>EDGES ARE FROM UMAP, discarding explicit mention of X_edges')
+            logger.info(f'>>>EDGES ARE FROM UMAP, discarding explicit mention of X_edges')
             X_edges = None
-            #y_edges = None
+            
         X_edges_resolved = resolve_X(res._edges, X_edges)
         y_edges_resolved = resolve_y(res._edges, y_edges)
         
-        print(f' >>>>>>>>>>>>>>>  Nodes: X_nodes_resolved, y_nodes_resolved is empty? {X_nodes_resolved.empty}, {y_nodes_resolved.empty}')
-        print(f' >>>>>>>>>>>>>>>  edges: X_edges_resolved, y_edges_resolved is empty? {X_edges_resolved.empty}, {y_edges_resolved.empty}')
+        logger.info(f' >>>>>>>>>>>>>>>  Nodes: X_nodes_resolved, y_nodes_resolved is empty? {X_nodes_resolved.empty}, {y_nodes_resolved.empty}')
+        logger.info(f' >>>>>>>>>>>>>>>  Edges: X_edges_resolved, y_edges_resolved is empty? {X_edges_resolved.empty}, {y_edges_resolved.empty}')
 
         if hasattr(res, "_MASK"):
             if y_edges_resolved is not None:
@@ -389,7 +387,7 @@ class DGLGraphMixin(MIXIN_BASE):
                 # note, edf, ndf, should both have unique indices
 
         # here we make node and edge features and add them to the DGL graph instance
-        res = res._convert_edge_dataframe_to_DGL(node_column, weight_column, inplace)
+        res = res._convert_edge_dataframe_to_DGL(weight_column, inplace)
         res = res._featurize_nodes_to_dgl(
             res, X_nodes_resolved, y_nodes_resolved, use_node_scaler
         )
@@ -424,159 +422,3 @@ class DGLGraphMixin(MIXIN_BASE):
     def __len__(self):
         # number of data examples
         return 1
-
-
-# if __name__ == "__main__":
-    # import graphistry
-    # from graphistry.networks import LinkPredModelMultiOutput
-    # from graphistry.ai_utils import setup_logger
-    # from data import get_botnet_dataframe
-    #
-    # import torch
-    # import torch.nn.functional as F
-    #
-    # logger = setup_logger("Main in DGL_utils", verbose=False)
-    #
-    # edf = get_botnet_dataframe(15000)
-    # edf = edf.drop_duplicates()
-    # src, dst = "to_node", "from_node"
-    # edf["to_node"] = edf.SrcAddr
-    # edf["from_node"] = edf.DstAddr
-    #
-    # good_cols_without_label = [
-    #     "Dur",
-    #     "Proto",
-    #     "Sport",
-    #     "Dport",
-    #     "State",
-    #     "TotPkts",
-    #     "TotBytes",
-    #     "SrcBytes",
-    #     "to_node",
-    #     "from_node",
-    # ]
-    #
-    # good_cols_without_label_or_edges = [
-    #     "Dur",
-    #     "Proto",
-    #     "Sport",
-    #     "Dport",
-    #     "State",
-    #     "TotPkts",
-    #     "TotBytes",
-    #     "SrcBytes",
-    # ]
-    #
-    # node_cols = ["Dur", "TotPkts", "TotBytes", "SrcBytes", "ip"]
-    #
-    # use_cols = ["Dur", "TotPkts", "TotBytes", "SrcBytes"]
-    #
-    # T = edf.Label.apply(
-    #     lambda x: 1 if "Botnet" in x else 0
-    # )  # simple indicator, useful for slicing later df.loc[T==1]
-    #
-    # y_edges = pd.DataFrame(
-    #     {"Label": edf.Label.values}, index=edf.index
-    # )  # must include index or g._MASK will through error
-    #
-    # # we can make an effective node_df using edf
-    # tdf = edf.groupby(["to_node"], as_index=False).mean().assign(ip=lambda x: x.to_node)
-    # fdf = (
-    #     edf.groupby(["from_node"], as_index=False)
-    #     .mean()
-    #     .assign(ip=lambda x: x.from_node)
-    # )
-    # ndf = pd.concat([tdf, fdf], axis=0)
-    # ndf = ndf.fillna(0)
-    #
-    # ndf = ndf[node_cols]
-    # ndf = ndf.drop_duplicates(subset=["ip"])
-    #
-    # src, dst = "from_node", "to_node"
-    # g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
-    #
-    # g2 = g.build_dgl_graph(
-    #     "ip",
-    #     y_edges=y_edges,
-    #     use_edge_columns=good_cols_without_label,
-    #     use_node_columns=use_cols,
-    #     use_node_scaler="robust",
-    #     use_edge_scaler="robust",
-    # )
-    # # the DGL graph
-    # G = g2.DGL_graph
-    #
-    # # to get a sense of the different parts in training loop above
-    # # labels = torch.tensor(T.values, dtype=torch.float)
-    # train_mask = G.edata["train_mask"]
-    # test_mask = G.edata["test_mask"]
-    #
-    # # define the model
-    # n_feat = G.ndata["feature"].shape[1]
-    # latent_dim = 32
-    # n_output_feats = (
-    #     16  # this is equal to the latent dim output of the SAGE net, not n_targets
-    # )
-    #
-    # node_features = G.ndata["feature"].float()
-    # edge_label = G.edata["target"]
-    # n_targets = edge_label.shape[1]
-    # labels = edge_label.argmax(1)
-    # train_mask = G.edata["train_mask"]
-    #
-    # # instantiate model
-    # model = LinkPredModelMultiOutput(
-    #     n_feat, latent_dim, n_output_feats, n_targets
-    # )  # 1) #LinkPredModel(n_feat, latent_dim, n_output_feats)
-    #
-    # pred = model(G, node_features)  # the untrained graph
-    #
-    # print(
-    #     f"output of model should have same length as the number of edges: {pred.shape[0]}"
-    # )
-    # print(f"number of edges: {G.num_edges()}")
-    # assert G.num_edges() == pred.shape[0], "something went wrong"
-    #
-    # # the optimizer does all the backprop
-    # opt = torch.optim.Adam(model.parameters())
-    #
-    # def evaluate(model, graph, features, labels, mask):
-    #     model.eval()
-    #     with torch.no_grad():
-    #         logits = model(graph, features)
-    #         logits = logits[mask]
-    #         labels = labels[mask]
-    #         _, indices = torch.max(logits, dim=1)
-    #         correct = torch.sum(indices == labels.argmax(1))
-    #         return correct.item() * 1.0 / len(labels)
-    #
-    # use_cross_entropy_loss = True
-    # # train the model
-    # for epoch in range(2000):
-    #     logits = model(G, node_features)
-    #
-    #     if use_cross_entropy_loss:
-    #         loss = F.cross_entropy(logits[train_mask], edge_label[train_mask])
-    #     else:
-    #         loss = ((logits[train_mask] - edge_label[train_mask]) ** 2).mean()
-    #
-    #     pred = logits.argmax(1)
-    #     acc = sum(pred[test_mask] == labels[test_mask]) / len(pred[test_mask])
-    #
-    #     opt.zero_grad()
-    #     loss.backward()
-    #     opt.step()
-    #     if epoch % 100 == 0:
-    #         print(
-    #             f"epoch: {epoch} --------\nloss: {loss.item():.4f}\n\taccuracy: {acc:.4f}"
-    #         )
-    #
-    # # trained comparison
-    # logits = model(G, node_features)
-    # pred = logits.argmax(1)
-    #
-    # accuracy = sum(pred[test_mask] == labels[test_mask]) / len(
-    #     pred[test_mask]
-    # )  # does pretty well!
-    # print("-" * 60)
-    # print(f"Final Accuracy: {100 * accuracy:.2f}%")
