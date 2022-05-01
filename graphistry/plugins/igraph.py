@@ -105,6 +105,9 @@ def from_igraph(self,
                 g_edges_trimmed = g_indexed._edges[[x for x in g_indexed._edges if x not in edges_df or x == g_indexed._edge]]
                 edges_df = edges_df.merge(g_edges_trimmed, how='left', on=g_indexed._edge)
 
+            if g._edge is None:
+                edges_df = edges_df[[x for x in edges_df if x != g_indexed._edge]]
+
         g = g.edges(edges_df, src_col, dst_col)
 
     return g
