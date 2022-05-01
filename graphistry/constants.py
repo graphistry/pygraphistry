@@ -4,6 +4,7 @@ VERBOSE = False  # set to true for debug
 # source and destination labels for consistent pipeline-ing across files
 SRC = "_src_implicit"
 DST = "_dst_implicit"
+NODE = '_n_implicit'
 WEIGHT = "_weight"
 # for UMAP reserved namespace
 X = "x"
