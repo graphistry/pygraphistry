@@ -138,7 +138,28 @@ class Test_to_igraph(NoAuthTestCase):
             'name': nodes
         }))
         assert g2._node == NODE
-    
+
+    def test_minimal_edges_renamed(self):
+        g = (graphistry
+            .edges(pd.DataFrame({
+                's': [x[0] for x in edges],
+                'd': [x[1] for x in edges],
+            }), 's', 'd')
+        )
+        ig = g.to_igraph()
+        logger.debug('ig: %s', ig)
+        g2 = g.from_igraph(ig)
+        assert g2._edges.shape == g._edges.shape
+        assert g2._source == 's'
+        assert g2._destination == 'd'
+        assert g2._edge is None
+        logger.debug('g2._nodes: %s', g2._nodes)
+        assert g2._nodes.equals(pd.DataFrame({
+            NODE: nodes,
+            'name': nodes
+        }))
+        assert g2._node == NODE
+
     def test_minimal_edges_str(self):
         g = (graphistry
             .edges(pd.DataFrame({
@@ -161,6 +182,83 @@ class Test_to_igraph(NoAuthTestCase):
         }))
         assert g2._node == NODE
 
+    def test_nodes(self):
+        g = (graphistry
+            .edges(pd.DataFrame({
+                's': [x[0] for x in edges],
+                'd': [x[1] for x in edges],
+            }), 's', 'd')
+            .nodes(pd.DataFrame({
+                'n': nodes,
+                'names': names_v
+            }), 'n')
+        )
+        ig = g.to_igraph()
+        logger.debug('ig: %s', ig)
+        g2 = graphistry.from_igraph(ig)
+        assert g2._edges.shape == g._edges.shape
+        assert g2._source == SRC_IGRAPH
+        assert g2._destination == DST_IGRAPH
+        assert g2._edge is None
+        logger.debug('g2._nodes: %s', g2._nodes)
+        assert g2._nodes.equals(pd.DataFrame({
+            NODE: nodes,
+            'name': nodes,
+            'names': names_v
+        }))
+        assert g2._node == NODE
+
+    def test_nodes_renamed(self):
+        g = (graphistry
+            .edges(pd.DataFrame({
+                's': [x[0] for x in edges],
+                'd': [x[1] for x in edges],
+            }), 's', 'd')
+            .nodes(pd.DataFrame({
+                'n': nodes,
+                'names': names_v
+            }), 'n')
+        )
+        ig = g.to_igraph()
+        logger.debug('ig: %s', ig)
+        g2 = g.from_igraph(ig)
+        logger.debug('g2 edges: %s', g2._edges)
+        assert g2._edges.shape == g._edges.shape
+        assert g2._source == 's'
+        assert g2._destination == 'd'
+        assert g2._edge is None
+        logger.debug('g2._nodes: %s', g2._nodes)
+        assert g2._nodes.equals(pd.DataFrame({
+            'n': nodes,
+            'name': nodes,
+            'names': names_v
+        }))
+        assert g2._node == 'n'
+
+    def test_drop_nodes(self):
+        g = (graphistry
+            .edges(pd.DataFrame({
+                's': [x[0] for x in edges],
+                'd': [x[1] for x in edges],
+            }), 's', 'd')
+            .nodes(pd.DataFrame({
+                'n': nodes,
+                'names': names_v
+            }))
+        )
+        ig = g.to_igraph(include_nodes=False)
+        logger.debug('ig: %s', ig)
+        g2 = graphistry.from_igraph(ig)
+        assert g2._edges.shape == g._edges.shape
+        assert g2._source == SRC_IGRAPH
+        assert g2._destination == DST_IGRAPH
+        assert g2._edge is None
+        logger.debug('g2._nodes: %s', g2._nodes)
+        assert g2._nodes.equals(pd.DataFrame({
+            NODE: nodes,
+            'name': nodes
+        }))
+        assert g2._node == NODE
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_usage(NoAuthTestCase):
