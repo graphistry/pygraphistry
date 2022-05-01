@@ -74,6 +74,26 @@ class Test_from_igraph(NoAuthTestCase):
 
     def test_merge_existing_nodes(self):
         ig = igraph.Graph(edges)
+        ig.vs["idx"] = ['a', 'b', 'c', 'd', 'e']
+        g = (graphistry
+            .nodes(pd.DataFrame({
+                'i': nodes,
+                'v1': [f'1_{x}' for x in names_v]
+            }), 'i')
+            .edges(pd.DataFrame({
+                's': [x[0] for x in edges],
+                'd': [x[1] for x in edges],
+                'i': ['aaa','bbb','ccc','ddd','eee']
+            }), 's', 'd', 'i')
+        )
+        g2 = g.from_igraph(ig)
+        assert len(g._nodes) == len(g2._nodes)
+        assert len(g._edges) == len(g2._edges)
+        assert sorted(g2._nodes.columns) == sorted(['idx', 'i', 'v1'])
+        assert sorted(g2._edges.columns) == sorted(g._edges.columns)
+
+    def test_merge_existing_nodes_attributed(self):
+        ig = igraph.Graph(edges)
         ig.vs["name"] = names_v
         ig.vs["idx"] = ['a', 'b', 'c', 'd', 'e']
         g = (graphistry
@@ -255,7 +275,6 @@ class Test_to_igraph(NoAuthTestCase):
         logger.debug('g2._nodes: %s', g2._nodes)
         assert g2._nodes.equals(pd.DataFrame({
             'n': nodes,
-            'name': nodes,
             'names': names_v
         }))
         assert g2._node == 'n'
@@ -284,6 +303,32 @@ class Test_to_igraph(NoAuthTestCase):
             'name': nodes
         }))
         assert g2._node == NODE
+
+    def test_nodes_undirected(self):
+        g = (graphistry
+            .edges(pd.DataFrame({
+                's': [x[0] for x in edges],
+                'd': [x[1] for x in edges],
+            }), 's', 'd')
+            .nodes(pd.DataFrame({
+                'n': nodes,
+                'names': names_v
+            }), 'n')
+        )
+        ig = g.to_igraph(directed=False)
+        logger.debug('ig: %s', ig)
+        g2 = g.from_igraph(ig)
+        assert g2._edges.shape == g._edges.shape
+        assert g2._source == g._source
+        assert g2._destination == g._destination
+        assert g2._edge is None
+        logger.debug('g2._nodes: %s', g2._nodes)
+        assert g2._nodes.equals(pd.DataFrame({
+            'n': nodes,
+            'names': names_v
+        }))
+        assert g2._node == 'n'
+
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_usage(NoAuthTestCase):

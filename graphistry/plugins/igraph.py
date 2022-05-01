@@ -3,6 +3,9 @@ from graphistry.constants import NODE
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
+#import logging
+#logger.setLevel(logging.DEBUG)
+
 
 # preferring igraph naming convetions over graphistry.constants
 SRC_IGRAPH = 'source'
@@ -52,7 +55,17 @@ def from_igraph(self,
         node_col = g._node or NODE
         
         nodes_df = ig.get_vertex_dataframe()
-        nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
+        
+        if node_col not in nodes_df:
+            #TODO if no g._nodes but 'name' in nodes_df, still use?
+            if (
+                ('name' in nodes_df) and
+                (g._nodes is not None and g._node is not None) and
+                (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
+            ):
+                nodes_df = nodes_df.rename(columns={'name': node_col})
+            else:
+                nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
         
         if node_attributes is not None:
             nodes_df = nodes_df[ node_attributes ]
@@ -62,18 +75,6 @@ def from_igraph(self,
                 logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
 
             g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
-
-            if (
-                (g._node in nodes_df) and  # noqa: W504
-                (nodes_df[g._node].dtype != g._nodes[g._node].dtype) and  # noqa: W504
-                (nodes_df[g._node].dtype.name == 'int64') and  # noqa: W504
-                ('name' in nodes_df)
-            ):
-                if 'name' in g._nodes:
-                    logger.warning('Node column "name" reserved when using igraph, may break conversion')
-                nodes_df[g._node] = nodes_df['name']
-                nodes_df = nodes_df[[x for x in nodes_df if x != 'name']]
-
             nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
 
         g = g.nodes(nodes_df, node_col)
