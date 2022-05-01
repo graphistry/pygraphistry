@@ -136,8 +136,13 @@ def to_igraph(self,
     """
     import igraph
 
+    g = self.bind()
+    if not include_nodes and self._nodes is not None:
+        g._node = None
+        g._nodes = None
+
     #otherwise, if no nodes, ig adds extra column 'name' to vertices
-    g = self.materialize_nodes()
+    g = g.materialize_nodes()
 
     #igraph expects src/dst first
     edge_attrs = g._edges.columns if edge_attributes is None else edge_attributes
