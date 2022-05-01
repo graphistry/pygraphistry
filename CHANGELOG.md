@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.25.0 - 2022-05-01]
+
+Major version bump due to breaking igraph change
+
 ### Added
 
 * igraph handlers: `graphistry.from_igraph`, `g.from_igraph`, `g.to_igraph`
@@ -14,8 +18,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-* Deprecation warnings for old igraph methods: ...
-* Internal igraph handlers upgraded to new igraph methods 
+* Deprecation warnings in old igraph methods: `g.graph(ig)`, `igraph2pandas`, `pandas2igraph`
+* Internal igraph handlers upgraded to use new igraph methods 
 
 ### Breaking
 
@@ -28,6 +32,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Expose symbols for `.chain()` predicates as top-level: previous `ast` export was incorrect
 
 ## [0.24.0 - 2022-04-29]
+
+Major version bump due to large dependency increases for kitchen-sink installs and overall sizeable new feature
 
 ### Added
 
