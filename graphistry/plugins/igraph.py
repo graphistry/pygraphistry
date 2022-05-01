@@ -2,8 +2,7 @@ from typing import List, Optional
 from graphistry.constants import NODE
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
-import logging
-logger.setLevel(logging.DEBUG)
+
 
 # preferring igraph naming convetions over graphistry.constants
 SRC_IGRAPH = 'source'
@@ -53,22 +52,17 @@ def from_igraph(self,
         node_col = g._node or NODE
         
         nodes_df = ig.get_vertex_dataframe()
-        logger.debug('nodes_df ig cols (id: %s): %s', node_col, nodes_df.columns)
         nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
-        logger.debug('nodes_df ig reindexed: %s', nodes_df)
         
         if node_attributes is not None:
             nodes_df = nodes_df[ node_attributes ]
-            logger.debug('nodes_df trimmed cols: %s', nodes_df.columns)
 
         if g._nodes is not None and merge_if_existing:
             if len(g._nodes) != len(nodes_df):
                 logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
 
             g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
-            logger.debug('g_nodes_trimmed trimmed cols: %s', g_nodes_trimmed.columns)
             nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
-            logger.debug('=> node cols: %s', nodes_df.columns)
 
         g = g.nodes(nodes_df, node_col)
 
@@ -80,12 +74,9 @@ def from_igraph(self,
             'source': src_col,
             'target': dst_col
         })
-        logger.debug('edges_df: %s', edges_df)
-        logger.debug('edges_df cols: %s', edges_df.columns)
 
         if edge_attributes is not None:
             edges_df = edges_df[ edge_attributes ]
-            logger.debug('edges_df trimmed cols: %s', edges_df.columns)
 
         if g._edges is not None and merge_if_existing:
 
@@ -97,12 +88,10 @@ def from_igraph(self,
                     g._source, g._destination, '__edge_index__'
                 )
                 logger.warning('edge index g._edge not set so using edge index as ID; set g._edge via g.edges(), or change merge_if_existing to False')
-            logger.debug('g_indexed as %s: cols %s', g_indexed._edge, g_indexed._edges.columns)
 
             if g_indexed._edge not in edges_df:
                 logger.warning('edge index g._edge %s missing as attribute in ig; using ig edge order for IDs', g_indexed._edge)
                 edges_df = edges_df.reset_index().rename(columns={edges_df.index.name: g_indexed._edge})
-                logger.debug('indexed ig df cols: %s', edges_df.columns)
 
             if len(g_indexed._edges.columns) == 3 and (len(g_indexed._edges) == len(edges_df)):
                 #opt: skip merge: no old columns
@@ -114,9 +103,7 @@ def from_igraph(self,
                 if len(g._edges) != len(edges_df):
                     logger.warning('edge tables do not match in length; switch merge_if_existing to False or load_edges to False or add missing edges')
                 g_edges_trimmed = g_indexed._edges[[x for x in g_indexed._edges if x not in edges_df or x == g_indexed._edge]]
-                logger.debug('g_edges trimmed cols: %s', g_edges_trimmed.columns)
                 edges_df = edges_df.merge(g_edges_trimmed, how='left', on=g_indexed._edge)
-                logger.debug('out edges cols: %s', edges_df.columns)
 
         g = g.edges(edges_df, src_col, dst_col)
 
@@ -152,11 +139,7 @@ def to_igraph(self,
     #igraph expects src/dst first
     edge_attrs = g._edges.columns if edge_attributes is None else edge_attributes
     edge_attrs = [x for x in edge_attrs if x not in [g._source, g._destination]]
-    logger.debug('edge_attrs: %s', edge_attrs)
-    logger.debug('edge cols: %s', g._edges.columns)
-    logger.debug('src %s, dst %s', g._source, g._destination)
     edges_df = g._edges[[g._source, g._destination] + edge_attrs]
-    logger.debug('=> edge_df cols: %s', edges_df.columns)
 
     #igraph expects node first
     node_attrs = g._nodes if node_attributes is None else node_attributes
