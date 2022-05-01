@@ -329,6 +329,61 @@ class Test_to_igraph(NoAuthTestCase):
         }))
         assert g2._node == 'n'
 
+    def test_nodes_undirected_str(self):
+        g = (graphistry
+            .edges(pd.DataFrame({
+                's': ['a', 'b', 'c'],
+                'd': ['b', 'c', 'a'],
+            }), 's', 'd')
+            .nodes(pd.DataFrame({
+                'n': ['a', 'b', 'c'],
+                'names': ['x', 'y', 'z']
+            }), 'n')
+        )
+        ig = g.to_igraph(directed=False)
+        logger.debug('ig: %s', ig)
+        ig.vs['cluster'] = ig.community_infomap().membership
+        g2 = g.from_igraph(ig)
+        assert g2._edges.shape == g._edges.shape
+        assert g2._source == g._source
+        assert g2._destination == g._destination
+        assert g2._edge is None
+        logger.debug('g2._nodes: %s', g2._nodes)
+        assert g2._nodes.equals(pd.DataFrame({
+            'n': ['a', 'b', 'c'],
+            'names': ['x', 'y', 'z'],
+            'cluster': [0, 0, 0]
+        }))
+        assert g2._node == 'n'
+
+    def test_nodes_undirected_str_attributed(self):
+        g = (graphistry
+            .edges(pd.DataFrame({
+                's': ['a', 'b', 'c'],
+                'd': ['b', 'c', 'a'],
+                'v': ['x', 'y', 'z']
+            }), 's', 'd')
+            .nodes(pd.DataFrame({
+                'n': ['a', 'b', 'c'],
+                'names': ['x', 'y', 'z']
+            }), 'n')
+        )
+        ig = g.to_igraph(directed=False)
+        logger.debug('ig: %s', ig)
+        ig.vs['cluster'] = ig.community_infomap().membership
+        g2 = g.from_igraph(ig)
+        assert g2._edges.shape == g._edges.shape
+        assert g2._source == g._source
+        assert g2._destination == g._destination
+        assert g2._edge is None
+        logger.debug('g2._nodes: %s', g2._nodes)
+        assert g2._nodes.equals(pd.DataFrame({
+            'n': ['a', 'b', 'c'],
+            'names': ['x', 'y', 'z'],
+            'cluster': [0, 0, 0]
+        }))
+        assert g2._node == 'n'
+
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_usage(NoAuthTestCase):

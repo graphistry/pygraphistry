@@ -97,14 +97,14 @@ def from_igraph(self,
 
             if g._edge is None:
                 g_indexed = g.edges(
-                    g._edges.reset_index().rename(columns={g._edges.index.name: '__edge_index__'}),
+                    g._edges.reset_index().rename(columns={g._edges.index.name or 'index': '__edge_index__'}),
                     g._source, g._destination, '__edge_index__'
                 )
                 logger.warning('edge index g._edge not set so using edge index as ID; set g._edge via g.edges(), or change merge_if_existing to False')
 
             if g_indexed._edge not in edges_df:
                 logger.warning('edge index g._edge %s missing as attribute in ig; using ig edge order for IDs', g_indexed._edge)
-                edges_df = edges_df.reset_index().rename(columns={edges_df.index.name: g_indexed._edge})
+                edges_df = edges_df.reset_index().rename(columns={edges_df.index.name or 'index': g_indexed._edge})
 
             if len(g_indexed._edges.columns) == 3 and (len(g_indexed._edges) == len(edges_df)):
                 #opt: skip merge: no old columns
