@@ -113,7 +113,32 @@ class Test_from_igraph(NoAuthTestCase):
         assert len(g._edges) == len(g2._edges)
         assert sorted(g2._nodes.columns) == sorted(g._nodes.columns)
         assert sorted(g2._edges.columns) == sorted(['s', 'd', 'i', 'idx', 'name'])
-        
+
+    def test_nodes_str_ids(self):
+        g = (graphistry
+            .nodes(
+                pd.DataFrame({
+                    'n': ['a', 'b', 'c']
+                }), 'n')
+            .edges(
+                pd.DataFrame({
+                    's': ['a', 'b', 'c'],
+                    'd': ['b', 'c', 'a']
+                }), 's', 'd')
+        )
+        ig = g.to_igraph()
+        ig.vs['spinglass'] = ig.community_spinglass(spins=3).membership
+        g2 = g.from_igraph(ig)
+
+        assert len(g2._nodes) == len(g._nodes)
+        assert g2._node == g._node
+        assert sorted(g2._nodes.columns) == sorted(['n', 'spinglass'])
+
+        assert len(g2._edges) == len(g._edges)
+        assert g2._source == g._source
+        assert g2._destination == g._destination
+        assert sorted(g2._edges.columns) == sorted(['s', 'd'])
+
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_to_igraph(NoAuthTestCase):
