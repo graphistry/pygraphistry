@@ -231,12 +231,13 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
     ```python
     ig = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
-    g = graphistry.from_igraph(ig)
+    g = graphistry.from_igraph(ig)  # full conversion
     g.plot()
 
     ig2 = g.to_igraph()
     ig2.vs['spinglass'] = ig2.community_spinglass(spins=3).membership
-    g2 = g.from_igraph(ig2)
+    # selective column updates: preserve g._edges; merge 1 attribute from ig into g._nodes
+    g2 = g.from_igraph(ig2, load_edges=False, node_attributes=[g._node, 'spinglass'])
     ```
 
 * [NetworkX](https://networkx.github.io) ([notebook demo](demos/demos_databases_apis/networkx/networkx.ipynb))
@@ -526,8 +527,10 @@ We start by converting our edge dateframe into an IGraph. The plotter can do the
 ig = g.to_igraph()
 ig.vs['pagerank'] = ig.pagerank()
 ig.vs['community'] = ig.community_infomap().membership
-g = g.from_igraph(ig)
-# or graphistry.from_igraph(ig)
+
+#add just the new columns: preserve edges, and just add 2 node columns (+ node id) from ig
+g = g.from_igraph(ig, load_edges=False, node_attributes=[g._node, 'pagerank', 'community'])
+# or everything: graphistry.from_igraph(ig)
 ```
 
 #### Bind node data to visual node attributes
