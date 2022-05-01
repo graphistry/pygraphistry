@@ -230,8 +230,14 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 * [IGraph](http://igraph.org)
 
     ```python
-    graph = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
-    graphistry.bind(source='src', destination='dst').plot(graph)
+    ig = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
+    g = graphistry.from_igraph(ig)  # full conversion
+    g.plot()
+
+    ig2 = g.to_igraph()
+    ig2.vs['spinglass'] = ig2.community_spinglass(spins=3).membership
+    # selective column updates: preserve g._edges; merge 1 attribute from ig into g._nodes
+    g2 = g.from_igraph(ig2, load_edges=False, node_attributes=[g._node, 'spinglass'])
     ```
 
 * [NetworkX](https://networkx.github.io) ([notebook demo](demos/demos_databases_apis/networkx/networkx.ipynb))
@@ -518,9 +524,13 @@ Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank
 We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
 
 ```python
-ig = graphistry.pandas2igraph(links)
+ig = g.to_igraph()
 ig.vs['pagerank'] = ig.pagerank()
 ig.vs['community'] = ig.community_infomap().membership
+
+#add just the new columns: preserve edges, and just add 2 node columns (+ node id) from ig
+g = g.from_igraph(ig, load_edges=False, node_attributes=[g._node, 'pagerank', 'community'])
+# or everything: graphistry.from_igraph(ig)
 ```
 
 #### Bind node data to visual node attributes
@@ -528,7 +538,7 @@ ig.vs['community'] = ig.community_infomap().membership
 We can then bind the node `community` and `pagerank` columns to visualization attributes:
 
 ```python
-g.bind(point_color='community', point_size='pagerank').plot(ig)
+g.bind(point_color='community', point_size='pagerank').plot()
 ```
 
 See the [color palette documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2) for specifying color values by using built-in ColorBrewer palettes (`int32`) or custom RGB values (`int64`).

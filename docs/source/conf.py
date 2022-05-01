@@ -55,6 +55,7 @@ nitpick_ignore = [
     ('py:class', 'graphistry.umap_utils.UMAPMixin'),
     ('py:class', 'graphistry.PlotterBase.PlotterBase'),
     ('py:class', 'IGraph graph'),
+    ('py:class', 'igraph'),
     ('py:class', 'dgl'),
     ('py:class', 'matplotlib'),
     ('py:class', 'torch'),
