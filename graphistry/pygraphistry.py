@@ -329,7 +329,8 @@ class PyGraphistry(object):
         token_refresh_ms=10 * 60 * 1000,
         store_token_creds_in_memory=None,
         client_protocol_hostname=None,
-        org_name=None
+        org_name=None,
+        idp_name=None
     ):
         """API key registration and server selection
 
@@ -361,6 +362,8 @@ class PyGraphistry(object):
         :type client_protocol_hostname: Optional[str]
         :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
         :type org_name: Optional[str]
+        :param idp_name: Set sso login idp name. Default as None, for site-wide SSO / for the only idp record.
+        :type idp_name: Optional[str]
         :returns: None.
         :rtype: None
 
@@ -403,12 +406,32 @@ class PyGraphistry(object):
         PyGraphistry.client_protocol_hostname(client_protocol_hostname)
         PyGraphistry.certificate_validation(certificate_validation)
         PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
+        PyGraphistry.set_bolt_driver(bolt)
+
         if not (username is None) and not (password is None):
             PyGraphistry.login(username, password, org_name)
-        PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
-        PyGraphistry.authenticate()
+            PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
+            PyGraphistry.authenticate()
+        else: # Go to SSO login
+            if org_name:
+                if idp_name:
+                    # if idp_name exists, call API with idp_name 
+                    pass
+                else: # site-wide 
+                    pass
+            else:
+                raise Exception("Please provide username/password or at least org_name for SSO login")
 
-        PyGraphistry.set_bolt_driver(bolt)
+    @staticmethod
+    def sso_token():
+        token = None
+        # get token from API using state
+        state = PyGraphistry.sso_state()
+
+        PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
+        # PyGraphistry.authenticate()
+
+        # PyGraphistry.set_bolt_driver(bolt)
 
     @staticmethod
     def privacy(
@@ -2039,6 +2062,36 @@ class PyGraphistry(object):
             PyGraphistry._config['org_name'] = value.strip()
 
 
+    @staticmethod
+    def idp_name(value=None):
+        """Set or get the idp_name when register/login.
+        """
+
+        if value is None:
+            if 'idp_name' in PyGraphistry._config:
+                return PyGraphistry._config['idp_name']
+            return None
+
+        # setter
+        if 'idp_name' not in PyGraphistry._config or value is not PyGraphistry._config['idp_name']:
+            PyGraphistry._config['idp_name'] = value.strip()
+
+
+    @staticmethod
+    def sso_state(value=None):
+        """Set or get the sso_state when register/sso login.
+        """
+
+        if value is None:
+            if 'sso_state' in PyGraphistry._config:
+                return PyGraphistry._config['sso_state']
+            return None
+
+        # setter
+        if 'sso_state' not in PyGraphistry._config or value is not PyGraphistry._config['sso_state']:
+            PyGraphistry._config['sso_state'] = value.strip()
+
+
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
 server = PyGraphistry.server
@@ -2081,6 +2134,9 @@ gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
 layout_settings = PyGraphistry.layout_settings
 org_name = PyGraphistry.org_name
+idp_name = PyGraphistry.idp_name
+sso_state = PyGraphistry.sso_state
+
 
 
 class NumpyJSONEncoder(json.JSONEncoder):

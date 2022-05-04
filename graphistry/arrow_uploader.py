@@ -208,6 +208,69 @@ class ArrowUploader:
 
         return self
 
+    def sso_login(self, org_name=None, idp_name=None):
+        """
+        Koa, 04 May 2022    Get SSO login auth_url or token
+        """
+        from .pygraphistry import PyGraphistry
+
+        base_path = self.server_base_path
+        out = requests.get(
+            f'{base_path}/o/{org_name}/sso/oidc/login/{idp_name}',
+            verify=self.certificate_validation
+        )
+        json_response = None
+        try:
+            json_response = out.json()
+            
+            if not ('status' in json_response):
+                raise Exception(out.text)
+            else:
+                if json_response['status'] == 'OK':
+                    if 'state' in json_response['data']:
+                        self.sso_state = json_response['data']['state']
+                        self.sso_auth_url = json_response['data']['auth_url']
+                    else:
+                        self.token = json_response['data']['token']
+
+        except Exception:
+            logger.error('Error: %s', out, exc_info=True)
+            raise
+            
+        return self
+
+    def sso_login_complete(self, state):
+        """
+        Koa, 04 May 2022    Use state to get token
+        """
+
+        from .pygraphistry import PyGraphistry
+
+        base_path = self.server_base_path
+        out = requests.get(
+            f'{base_path}/o/sso/oidc/jwt/{state}/',
+            verify=self.certificate_validation
+        )
+        json_response = None
+        try:
+            json_response = out.json()
+            
+            if not ('status' in json_response):
+                raise Exception(out.text)
+            else:
+                if json_response['status'] == 'OK':
+                    if 'token' in json_response['data']:
+                        self.token = json_response['data']['token']
+                else:
+                    return Exception("Error getting token")
+
+        except Exception:
+            logger.error('Error: %s', out, exc_info=True)
+            raise
+            
+        return self
+
+
     def refresh(self, token=None):
         if token is None:
             token = self.token
