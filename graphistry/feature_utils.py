@@ -1173,23 +1173,57 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
-        confidence: float = 0.35,
         min_words: float = 2.5,
+        confidence: float = 0.35,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
         inplace: bool = False,
         feature_engine: FeatureEngine = "auto",
     ):
         """
-            Featurize Nodes or Edges of the Graph.
+            Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
 
-        :param kind: specify whether to featurize `nodes` or `edges`
+        :param kind: specify whether to featurize `nodes` or `edges`. Edge featurization includes a pairwise
+                src-to-dst feature block using a MultiLabelBinarizer.
         :param X: Optional input, default None. If symbolic, evaluated against self data based on kind.
-        :param y: Optional Target, default None. If .featurize came with a target, it will use that target.
-        :param remove_node_column:
-        :param use_scaler:
-        :param inplace: whether to not return new graphistry instance or not, default False
-        :return: self, with new attributes set by the featurization process
+                If None, will featurize all columns of DataFrame
+        :param y: Optional Target(s) columns or explicit DataFrame, default None. An important caveat is that
+                featurization in the presence of targets TAKES INTO account the target during featurization. In many
+                cases, we wish to generate features independent of the targets, and then fit models that use these
+                features to predict the target in question. Generating X and y separately are possible under the
+                functional paradigm.
+        :param use_scaler: selects which scaler (and automatically imputes missing values using mean strategy)
+                to scale the data. Options are; "minmax", "quantile", "zscale", "robust", "kbins" , default "robust".
+                Please see scikits-learn documentation https://scikit-learn.org/stable/modules/preprocessing.html
+                Here 'zscale' corresponds to 'StandardScaler' in scikits.
+        :param cardinality_threshold: dirty_cat threshold on cardinality of categorical labels across columns.
+                If value is greater than threshold, will run GapEncoder (a topic model) on column.
+                If below, will one-hot_encode. Default 40.
+        :param cardinality_threshold_target: similar to cardinality_threshold, but for target features. Default is set
+                high (400), as targets generally want to be one-hot encoded, but sometimes it can be useful to use
+                GapEncoder (ie, set threshold lower) to create regressive targets, especially when those targets are
+                textual/softly categorical and have semantic meaning across different labels.
+                Eg, suppose a column has fields like
+                ['Application Fraud', 'Other Statuses', 'Lost/Stolen Fraud', 'Investigation Fraud', ...]
+                the GapEncoder will concentrate the 'Fraud' labels together.
+        :param n_topics: the number of topics to use in the GapEncoder if cardinality_thresholds are saturated.
+                Default is 42, but good rule of thumb is to consult the Johnson-Lindenstrauss Lemma
+                https://en.wikipedia.org/wiki/Johnson%E2%80%93Lindenstrauss_lemma or use the simplified
+                `random walk` estimate => n_topics_lower_bound ~ (\pi/2) * (N-documents)**(1/4)
+        :param min_words: sets threshold on how many words to consider in a textual column if it is to be considered in
+                the text processing pipeline. Set this very high if you want any textual columns to bypass the
+                transformer, in favor of GapEncoder (topic modeling).
+        :param confidence: sets the threshold on whether to treat a column as textual or not. Default is 0.35,
+                which means that 35% of the entries should be string like. This is a weak rule (and might be deprecated)
+                and better to use `min_words` for decisions on whether to encode text using sentence_transformers
+                or GapEncoder.
+        :param model_name: Sentence Transformer model to use. Default Paraphrase model makes useful vectors,
+                but at cost of encoding time. If faster encoding is needed, `average_word_embeddings_komninos` is useful
+                and produces less semantically relevant vectors. Please see www.huggingface.co or sentence_transformer
+                (https://www.sbert.net/) library for all available models.
+        :param remove_node_column: whether to remove node column so it is not featurized, default True.
+        :param inplace: whether to not return new graphistry instance or not, default False.
+        :return: self, with new attributes set by the featurization process.
 
         """
         assert_imported()
