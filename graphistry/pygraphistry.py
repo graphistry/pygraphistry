@@ -1735,6 +1735,16 @@ class PyGraphistry(object):
         return Plotter().graph(ig)
 
     @staticmethod
+    def from_igraph(ig,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes = True, load_edges = True
+    ):
+        return Plotter().from_igraph(ig, node_attributes, edge_attributes, load_nodes, load_edges)
+    from_igraph.__doc__ = Plotter.from_igraph.__doc__
+
+
+    @staticmethod
     def settings(height=None, url_params={}, render=None):
 
         return Plotter().settings(height, url_params, render)
@@ -2053,6 +2063,7 @@ drop_graph = PyGraphistry.drop_graph
 gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
 layout_settings = PyGraphistry.layout_settings
+from_igraph = PyGraphistry.from_igraph
 
 
 class NumpyJSONEncoder(json.JSONEncoder):

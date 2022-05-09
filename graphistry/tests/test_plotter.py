@@ -4,6 +4,7 @@ import copy, datetime as dt, graphistry, os, pandas as pd, pyarrow as pa, pytest
 
 from common import NoAuthTestCase
 from mock import patch
+from graphistry.constants import NODE
 from graphistry.tests.test_hyper_dask import assertFrameEqualDask
 
 maybe_cudf = None
@@ -360,7 +361,8 @@ class TestPlotterConversions(NoAuthTestCase):
         ig = igraph.Graph.Tree(4, 2)
         ig.vs["vattrib"] = 0
         ig.es["eattrib"] = 1
-        (e, n) = graphistry.bind(source="src", destination="dst").igraph2pandas(ig)
+        with pytest.warns(DeprecationWarning):
+            (e, n) = graphistry.bind(source="src", destination="dst").igraph2pandas(ig)
 
         edges = pd.DataFrame(
             {
@@ -371,7 +373,7 @@ class TestPlotterConversions(NoAuthTestCase):
         )
         nodes = pd.DataFrame(
             {
-                "__nodeid__": {0: 0, 1: 1, 2: 2, 3: 3},
+                NODE: {0: 0, 1: 1, 2: 2, 3: 3},
                 "vattrib": {0: 0, 1: 0, 2: 0, 3: 0},
             }
         )
@@ -382,8 +384,10 @@ class TestPlotterConversions(NoAuthTestCase):
     @pytest.mark.xfail(raises=ModuleNotFoundError)
     def test_pandas2igraph(self):
         plotter = graphistry.bind(source="src", destination="dst", node="id")
-        ig = plotter.pandas2igraph(triangleEdges)
-        (e, n) = plotter.igraph2pandas(ig)
+        with pytest.warns(DeprecationWarning):
+            ig = plotter.pandas2igraph(triangleEdges)
+        with pytest.warns(DeprecationWarning):
+            (e, n) = plotter.igraph2pandas(ig)
         assertFrameEqual(e, triangleEdges[["src", "dst"]])
         assertFrameEqual(n, triangleNodes[["id"]])
 
@@ -411,7 +415,7 @@ class TestPlotterConversions(NoAuthTestCase):
             }
         )
         nodes = pd.DataFrame(
-            {"__nodeid__": {0: 0, 1: 1, 2: 2}, "vattrib": {0: 0, 1: 0, 2: 0}}
+            {NODE: {0: 0, 1: 1, 2: 2}, "vattrib": {0: 0, 1: 0, 2: 0}}
         )
 
         assertFrameEqual(e, edges)
@@ -563,8 +567,10 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     @pytest.mark.xfail(raises=ModuleNotFoundError)
     def test_api3_plot_from_igraph(self):
         g = graphistry.bind(source="src", destination="dst", node="id")
-        ig = g.pandas2igraph(triangleEdges)
-        (e, n) = g.igraph2pandas(ig)
+        with pytest.warns(DeprecationWarning):
+            ig = g.pandas2igraph(triangleEdges)
+        with pytest.warns(DeprecationWarning):
+            (e, n) = g.igraph2pandas(ig)
         g = g.edges(e).nodes(n)
         ds = g.plot(skip_upload=True)
         assert isinstance(ds.edges, pa.Table)
