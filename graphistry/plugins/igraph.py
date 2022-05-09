@@ -50,40 +50,75 @@ def from_igraph(self,
 
     g = self.bind()
 
+    #Compute nodes: need indexing for edges
+
+    node_col = g._node or NODE
+    
+    nodes_df = ig.get_vertex_dataframe()
+
+    if len(nodes_df.columns) == 0:
+        node_id_col = None
+    elif node_col in nodes_df:
+        node_id_col = node_col
+    elif g._node is not None and g._nodes[g._node].dtype.name == nodes_df.reset_index()['vertex ID'].dtype.name:
+        node_id_col = None
+    elif 'name' in nodes_df:
+        node_id_col = 'name'
+    else:
+        raise ValueError('Could not determine graphistry node ID column to match igraph nodes on')
+
+    if node_id_col is None:
+        ig_index_to_node_id_df = None
+    else:
+        ig_index_to_node_id_df = nodes_df[[node_id_col]].reset_index().rename(columns={'vertex ID': 'ig_index'})
+    
+    if node_col not in nodes_df:
+        #TODO if no g._nodes but 'name' in nodes_df, still use?
+        if (
+            ('name' in nodes_df) and  # noqa: W504
+            (g._nodes is not None and g._node is not None) and  # noqa: W504
+            (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
+        ):
+            nodes_df = nodes_df.rename(columns={'name': node_col})
+        else:
+            nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
+    
+    if node_attributes is not None:
+        nodes_df = nodes_df[ node_attributes ]
+
+    if g._nodes is not None and merge_if_existing:
+        if len(g._nodes) != len(nodes_df):
+            logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
+
+        g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
+        nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
+
+    # #####
+
     if load_nodes:
-
-        node_col = g._node or NODE
-        
-        nodes_df = ig.get_vertex_dataframe()
-        
-        if node_col not in nodes_df:
-            #TODO if no g._nodes but 'name' in nodes_df, still use?
-            if (
-                ('name' in nodes_df) and
-                (g._nodes is not None and g._node is not None) and
-                (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
-            ):
-                nodes_df = nodes_df.rename(columns={'name': node_col})
-            else:
-                nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
-        
-        if node_attributes is not None:
-            nodes_df = nodes_df[ node_attributes ]
-
-        if g._nodes is not None and merge_if_existing:
-            if len(g._nodes) != len(nodes_df):
-                logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
-
-            g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
-            nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
-
         g = g.nodes(nodes_df, node_col)
+
+    # #####
 
     if load_edges:
 
         src_col = g._source or SRC_IGRAPH
         dst_col = g._destination or DST_IGRAPH
-        edges_df = ig.get_edge_dataframe().rename(columns={
+        edges_df = ig.get_edge_dataframe()
+
+        if ig_index_to_node_id_df is not None:
+            edges_df['source'] = edges_df[['source']].merge(
+                ig_index_to_node_id_df.rename(columns={'ig_index': 'source'}),
+                how='left',
+                on='source'
+            )[node_id_col]
+            edges_df['target'] = edges_df[['target']].merge(
+                ig_index_to_node_id_df.rename(columns={'ig_index': 'target'}),
+                how='left',
+                on='target'
+            )[node_id_col]
+
+        edges_df = edges_df.rename(columns={
             'source': src_col,
             'target': dst_col
         })
