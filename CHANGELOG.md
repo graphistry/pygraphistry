@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.25.1 - 2022-05-08]
+
+### Fixed
+
+* `g.from_igraph(ig)` will use IDs (ex: strings) for src/dst values instead of igraph indexes
+
 ## [0.25.0 - 2022-05-01]
 
 Major version bump due to breaking igraph change
