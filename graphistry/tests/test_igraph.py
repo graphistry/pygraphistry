@@ -22,6 +22,17 @@ names = ["my", "list", "of", "five", "edges"]
 nodes = [0, 1, 2, 3, 4]
 names_v = ["eggs", "spam", "ham", "bacon", "yello"]
 
+edges2_df = pd.DataFrame({
+    'a': ['c', 'd', 'a', 'b', 'b'],
+    'b': ['d', 'a', 'b', 'c', 'c'],
+    'v1': ['cc', 'dd', 'aa', 'bb', 'bb2'],
+    'i': [2, 4, 6, 8, 10]
+})
+nodes2_df = pd.DataFrame({
+    'n': ['a', 'c', 'b', 'd'],
+    'v': ['aa', 'cc', 'bb', 'dd'],
+    'i': [2, 4, 6, 8]
+})
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_from_igraph(NoAuthTestCase):
@@ -158,6 +169,19 @@ class Test_from_igraph(NoAuthTestCase):
         assert g2._source == g._source
         assert g2._destination == g._destination
         assert sorted(g2._edges.columns) == sorted(['s', 'd'])
+
+    def test_edges_named(self):
+        g = graphistry.edges(edges2_df, 'a', 'b').nodes(nodes2_df, 'n')
+        ig = g.to_igraph()
+        g2 = g.from_igraph(ig)
+        assert len(g2._nodes) == len(g._nodes)
+        assert len(g2._edges) == len(g._edges)
+        g2n = g2._nodes.sort_values(by='n').reset_index(drop=True)
+        assert g2n.equals(pd.DataFrame({
+            'n': ['a', 'b', 'c', 'd'],
+            'v': ['aa', 'bb', 'cc', 'dd'],
+            'i': [2, 6, 4, 8]
+        }))
 
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
