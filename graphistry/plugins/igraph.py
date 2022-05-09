@@ -54,53 +54,60 @@ def from_igraph(self,
 
     node_col = g._node or NODE
     
-    nodes_df = ig.get_vertex_dataframe()
+    ig_vs_df = ig.get_vertex_dataframe()
+    nodes_df = ig_vs_df
 
-    if len(nodes_df.columns) == 0:
-        node_id_col = None
-    elif node_col in nodes_df:
-        node_id_col = node_col
-    elif g._node is not None and g._nodes[g._node].dtype.name == nodes_df.reset_index()['vertex ID'].dtype.name:
-        node_id_col = None
-    elif 'name' in nodes_df:
-        node_id_col = 'name'
-    else:
-        raise ValueError('Could not determine graphistry node ID column to match igraph nodes on')
-
-    if node_id_col is None:
-        ig_index_to_node_id_df = None
-    else:
-        ig_index_to_node_id_df = nodes_df[[node_id_col]].reset_index().rename(columns={'vertex ID': 'ig_index'})
-    
-    if node_col not in nodes_df:
-        #TODO if no g._nodes but 'name' in nodes_df, still use?
-        if (
-            ('name' in nodes_df) and  # noqa: W504
-            (g._nodes is not None and g._node is not None) and  # noqa: W504
-            (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
-        ):
-            nodes_df = nodes_df.rename(columns={'name': node_col})
-        else:
-            nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
-    
-    if node_attributes is not None:
-        nodes_df = nodes_df[ node_attributes ]
-
-    if g._nodes is not None and merge_if_existing:
-        if len(g._nodes) != len(nodes_df):
-            logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
-
-        g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
-        nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
-
-    # #####
 
     if load_nodes:
+
+        if node_col not in nodes_df:
+            #TODO if no g._nodes but 'name' in nodes_df, still use?
+            if (
+                ('name' in nodes_df) and  # noqa: W504
+                (g._nodes is not None and g._node is not None) and  # noqa: W504
+                (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
+            ):
+                nodes_df = nodes_df.rename(columns={'name': node_col})
+            else:
+                nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
+        
+        if node_attributes is not None:
+            nodes_df = nodes_df[ node_attributes ]
+
+        if g._nodes is not None and merge_if_existing:
+            if len(g._nodes) != len(nodes_df):
+                logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
+
+            g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
+            nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
+
         g = g.nodes(nodes_df, node_col)
 
     # #####
 
     if load_edges:
+
+        # #####
+
+        #TODO: Reuse for g.nodes(nodes_df) as well?
+
+        if len(ig_vs_df.columns) == 0:
+            node_id_col = None
+        elif node_col in ig_vs_df:
+            node_id_col = node_col
+        elif g._node is not None and g._nodes[g._node].dtype.name == ig_vs_df.reset_index()['vertex ID'].dtype.name:
+            node_id_col = None
+        elif 'name' in ig_vs_df:
+            node_id_col = 'name'
+        else:
+            raise ValueError('Could not determine graphistry node ID column to match igraph nodes on')
+
+        if node_id_col is None:
+            ig_index_to_node_id_df = None
+        else:
+            ig_index_to_node_id_df = ig_vs_df[[node_id_col]].reset_index().rename(columns={'vertex ID': 'ig_index'})
+
+        # #####
 
         src_col = g._source or SRC_IGRAPH
         dst_col = g._destination or DST_IGRAPH
