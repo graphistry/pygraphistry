@@ -6,7 +6,6 @@ import pytest, unittest, warnings
 from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_textual_or_other_dataframes,
-    remove_internal_namespace_if_present,
     resolve_feature_engine,
     has_min_dependancy,
     has_dependancy_text
