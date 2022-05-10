@@ -133,16 +133,14 @@ class PlotterBase(Plottable):
         self._node_embedding = None
         self._node_encoder = None
         self._node_features = None
-        self._node_imputer = None
-        self._node_scaler = None
+        self._node_ordinal_pipeline = None
         self._node_target = None
         self._node_target_encoder = None
 
         self._edge_embedding = None
         self._edge_encoders = None
         self._edge_features = None
-        self._edge_imputer = None
-        self._edge_scaler = None
+        self._edge_ordinal_pipeline = None
         self._edge_target = None
         self._edge_target_encoder = None
 
