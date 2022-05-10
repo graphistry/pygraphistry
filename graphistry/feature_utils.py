@@ -585,6 +585,7 @@ def process_textual_or_other_dataframes(
     cardinality_threshold: int = 40,
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
+    n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = "robust",
     confidence: float = 0.35,
     min_words: float = 2.5,
@@ -637,6 +638,7 @@ def process_textual_or_other_dataframes(
         cardinality_threshold=cardinality_threshold,
         cardinality_threshold_target=cardinality_threshold_target,
         n_topics=n_topics,
+        n_topics_target=n_topics_target,
         use_scaler=None,  # set to None so that it happens later
         feature_engine=feature_engine,
     )
@@ -689,6 +691,7 @@ def process_dirty_dataframes(
     cardinality_threshold: int = 40,
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
+    n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
     feature_engine: FeatureEngineConcrete = "pandas",
 ) -> Tuple[
@@ -776,6 +779,7 @@ def process_dirty_dataframes(
         label_encoder = SuperVectorizer(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold_target,
+            high_card_cat_transformer=GapEncoder(n_topics_target),
             datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
         )
         y_enc = label_encoder.fit_transform(y)
@@ -806,8 +810,9 @@ def process_edge_dataframes(
     src: str,
     dst: str,
     cardinality_threshold: int = 40,
-    cardinality_threshold_target: int = 400,
+    cardinality_threshold_target: int = 100,
     n_topics: int = config.N_TOPICS_DEFAULT,
+    n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
     confidence: float = 0.35,
     min_words: float = 2.5,
@@ -858,6 +863,7 @@ def process_edge_dataframes(
         cardinality_threshold=cardinality_threshold,
         cardinality_threshold_target=cardinality_threshold_target,
         n_topics=n_topics,
+        n_topics_target=n_topics_target,
         use_scaler=None,
         confidence=confidence,
         min_words=min_words,
@@ -989,6 +995,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 120,
         n_topics: int = config.N_TOPICS_DEFAULT,
+        n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -1013,6 +1020,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold=cardinality_threshold,
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
+            n_topics_target=n_topics_target,
             confidence=confidence,
             min_words=min_words,
             model_name=model_name,
@@ -1051,6 +1059,7 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
+                n_topics_target=n_topics_target,
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
@@ -1073,6 +1082,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 20,
         n_topics: int = config.N_TOPICS_DEFAULT,
+        n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -1099,6 +1109,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold=cardinality_threshold,
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
+            n_topics_target=n_topics_target,
             confidence=confidence,
             min_words=min_words,
             model_name=model_name,
@@ -1150,6 +1161,7 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
+                n_topics_target=n_topics_target,
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
@@ -1173,6 +1185,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
+        n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         min_words: float = 2.5,
         confidence: float = 0.35,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -1182,16 +1195,12 @@ class FeatureMixin(MIXIN_BASE):
     ):
         """
             Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
-
+        ________________________________________________________________________________________________________________
         :param kind: specify whether to featurize `nodes` or `edges`. Edge featurization includes a pairwise
                 src-to-dst feature block using a MultiLabelBinarizer.
         :param X: Optional input, default None. If symbolic, evaluated against self data based on kind.
                 If None, will featurize all columns of DataFrame
-        :param y: Optional Target(s) columns or explicit DataFrame, default None. An important caveat is that
-                featurization in the presence of targets TAKES INTO account the target during featurization. In many
-                cases, we wish to generate features independent of the targets, and then fit models that use these
-                features to predict the target in question. Generating X and y separately are possible under the
-                functional paradigm.
+        :param y: Optional Target(s) columns or explicit DataFrame, default None.
         :param use_scaler: selects which scaler (and automatically imputes missing values using mean strategy)
                 to scale the data. Options are; "minmax", "quantile", "zscale", "robust", "kbins" , default "robust".
                 Please see scikits-learn documentation https://scikit-learn.org/stable/modules/preprocessing.html
@@ -1206,10 +1215,12 @@ class FeatureMixin(MIXIN_BASE):
                 Eg, suppose a column has fields like
                 ['Application Fraud', 'Other Statuses', 'Lost/Stolen Fraud', 'Investigation Fraud', ...]
                 the GapEncoder will concentrate the 'Fraud' labels together.
-        :param n_topics: the number of topics to use in the GapEncoder if cardinality_thresholds are saturated.
+        :param n_topics: the number of topics to use in the GapEncoder if cardinality_thresholds is saturated.
                 Default is 42, but good rule of thumb is to consult the Johnson-Lindenstrauss Lemma
                 https://en.wikipedia.org/wiki/Johnson%E2%80%93Lindenstrauss_lemma or use the simplified
                 `random walk` estimate => n_topics_lower_bound ~ (\pi/2) * (N-documents)**(1/4)
+        :param n_topics_target: the number of topics to use in the GapEncoder if cardinality_thresholds_target is
+                saturated for the target(s).
         :param min_words: sets threshold on how many words to consider in a textual column if it is to be considered in
                 the text processing pipeline. Set this very high if you want any textual columns to bypass the
                 transformer, in favor of GapEncoder (topic modeling).
@@ -1242,6 +1253,7 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
+                n_topics_target=n_topics_target,
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
@@ -1256,6 +1268,7 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
+                n_topics_target=n_topics_target,
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
@@ -1275,6 +1288,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
+        n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -1304,6 +1318,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold=cardinality_threshold,
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
+            n_topics_target=n_topics_target,
             confidence=confidence,
             min_words=min_words,
             model_name=model_name,
@@ -1329,6 +1344,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 20,
         n_topics: int = config.N_TOPICS_DEFAULT,
+        n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -1359,6 +1375,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold=cardinality_threshold,
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
+            n_topics_target=n_topics_target,
             confidence=confidence,
             min_words=min_words,
             model_name=model_name,
