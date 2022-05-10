@@ -1,11 +1,14 @@
 import unittest
+import pytest
 import graphistry
 import pandas as pd
 from graphistry.util import setup_logger
 import torch
 import torch.nn.functional as F
 
-logger = setup_logger("DGL_utils", verbose=True)
+from graphistry.dgl_utils import has_dependancy
+
+logger = setup_logger("test_DGL_utils", verbose=True)
 
 edf = pd.read_csv(
     "graphistry/tests/data/malware_capture_bot.csv", index_col=0, nrows=50
@@ -106,6 +109,7 @@ class TestDGL(unittest.TestCase):
                     G.ndata[k].sum(), torch.Tensor
                 ), f"Node {G.ndata[k]} for {k} is not a Tensor"
 
+    @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
     def test_build_dgl_graph_from_column_names(self):
         g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
 
@@ -119,6 +123,7 @@ class TestDGL(unittest.TestCase):
         )
         self._test_cases_dgl(g2)
 
+    @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
     def test_build_dgl_graph_from_dataframes(self):
         g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
 
@@ -132,6 +137,7 @@ class TestDGL(unittest.TestCase):
         )
         self._test_cases_dgl(g2)
 
+    @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
     def test_build_dgl_graph_from_umap(self):
         # explicitly set node in .nodes() and not in .build_gnn()
         g = graphistry.nodes(ndf, "ip")
@@ -144,6 +150,7 @@ class TestDGL(unittest.TestCase):
         )
         self._test_cases_dgl(g2)
 
+    @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
     def test_build_dgl_graph_from_umap_no_node_column(self):
         g = graphistry.nodes(ndf)
         g.reset_caches()  # so that we redo calcs
