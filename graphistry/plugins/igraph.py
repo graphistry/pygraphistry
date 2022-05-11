@@ -1,5 +1,7 @@
-from typing import List, Optional
+import igraph, pandas as pd
+from typing import Any, List, Optional
 from graphistry.constants import NODE
+from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
@@ -18,7 +20,7 @@ def from_igraph(self,
     edge_attributes: Optional[List[str]] = None,
     load_nodes: bool = True, load_edges: bool = True,
     merge_if_existing: bool = True
-):
+) -> Plottable:
     """
     Convert igraph object into Plotter
 
@@ -171,7 +173,7 @@ def from_igraph(self,
     return g
 
 
-def to_igraph(self, 
+def to_igraph(self: Plottable, 
     directed: bool = True,
     include_nodes: bool = True,
     node_attributes: Optional[List[str]] = None,

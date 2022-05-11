@@ -178,3 +178,24 @@ class Plottable(object):
         """
         raise RuntimeError('should not happen')
         return self
+
+    def to_igraph(self, 
+        directed: bool = True,
+        include_nodes: bool = True,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None
+    ) -> Any:
+        if 1 + 1:
+            raise RecursionError('should not happen')
+        return self
+
+    def from_igraph(self,
+        ig,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes: bool = True, load_edges: bool = True,
+        merge_if_existing: bool = True
+    ):
+        if 1 + 1:
+            raise RecursionError('should not happen')
+        return self
