@@ -13,7 +13,8 @@ core_requires = [
   'protobuf >= 2.6.0',
   'pyarrow >= 0.15.0',
   'requests',
-  'typing-extensions'
+  'typing-extensions',
+  'packaging >= 20.1'
 ]
 
 stubs = [
@@ -82,7 +83,9 @@ setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
         'Topic :: Internet :: Log Analysis',
+        'Topic :: Database :: Front-Ends',
         'Topic :: Multimedia :: Graphics',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Topic :: Scientific/Engineering :: Bio-Informatics',

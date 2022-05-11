@@ -5,7 +5,6 @@ from graphistry.Plottable import Plottable
 import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
 
 from datetime import datetime
-from distutils.util import strtobool
 
 from .arrow_uploader import ArrowUploader
 from .ArrowFileUploader import ArrowFileUploader
@@ -13,10 +12,13 @@ from .ArrowFileUploader import ArrowFileUploader
 from . import util
 from . import bolt_util
 from .plotter import Plotter
+from .util import setup_logger
+logger = setup_logger(__name__)
 
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 
 ###############################################################################
@@ -77,6 +79,15 @@ def _get_initial_config():
         requests.packages.urllib3.disable_warnings()
     return config
 
+
+def strtobool(val: Any) -> bool:
+    val = str(val).lower()
+    if val in ('y', 'yes', 't', 'true', 'on', '1'):
+        return True
+    elif val in ('n', 'no', 'f', 'false', 'off', '0'):
+        return False
+    else:
+        raise ValueError("invalid truth value %r" % (val,))
 
 class PyGraphistry(object):
     _config = _get_initial_config()
@@ -1566,6 +1577,7 @@ class PyGraphistry(object):
                      tg = graphistry.tigergraph()
                      tg.gsql(\"\"\"
                      INTERPRET QUERY () FOR GRAPH Storage {
+<<<<<<< HEAD
 
                          OrAccum<BOOL> @@stop;
                          ListAccum<EDGE> @@edgeList;
@@ -1573,6 +1585,15 @@ class PyGraphistry(object):
 
                          @@set += to_vertex("61921", "Pool");
 
+=======
+
+                         OrAccum<BOOL> @@stop;
+                         ListAccum<EDGE> @@edgeList;
+                         SetAccum<vertex> @@set;
+
+                         @@set += to_vertex("61921", "Pool");
+
+>>>>>>> master
                          Start = @@set;
 
                          while Start.size() > 0 and @@stop == false do
@@ -1727,6 +1748,16 @@ class PyGraphistry(object):
     def graph(ig):
 
         return Plotter().graph(ig)
+
+    @staticmethod
+    def from_igraph(ig,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes = True, load_edges = True
+    ):
+        return Plotter().from_igraph(ig, node_attributes, edge_attributes, load_nodes, load_edges)
+    from_igraph.__doc__ = Plotter.from_igraph.__doc__
+
 
     @staticmethod
     def settings(height=None, url_params={}, render=None):
@@ -1926,17 +1957,21 @@ class PyGraphistry(object):
             ):
                 mver = jres["pygraphistry"]["minVersion"]
                 lver = jres["pygraphistry"]["latestVersion"]
-                if util.compare_versions(mver, cver) > 0:
-                    util.warn(
-                        "Your version of PyGraphistry is no longer supported (installed=%s latest=%s). Please upgrade!"
-                        % (cver, lver)
-                    )
-                elif util.compare_versions(lver, cver) > 0:
-                    print(
-                        "A new version of PyGraphistry is available (installed=%s latest=%s)."
-                        % (cver, lver)
-                    )
 
+                from packaging.version import parse
+                try:
+                    if parse(mver) > parse(cver):
+                        util.warn(
+                            "Your version of PyGraphistry is no longer supported (installed=%s latest=%s). Please upgrade!"
+                            % (cver, lver)
+                        )
+                    elif parse(lver) > parse(cver):
+                        print(
+                            "A new version of PyGraphistry is available (installed=%s latest=%s)."
+                            % (cver, lver)
+                        )
+                except:
+                    raise ValueError(f'Unexpected version value format when comparing {mver}, {cver}, and {lver}')
             if jres["success"] is not True:
                 util.warn(jres["error"])
         except Exception:
@@ -2044,6 +2079,7 @@ drop_graph = PyGraphistry.drop_graph
 gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
 layout_settings = PyGraphistry.layout_settings
+from_igraph = PyGraphistry.from_igraph
 
 
 class NumpyJSONEncoder(json.JSONEncoder):

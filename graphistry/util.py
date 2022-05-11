@@ -5,6 +5,8 @@ from functools import lru_cache
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE
 
+from .constants import VERBOSE, CACHE_COERCION_SIZE
+
 
 # #####################################
 def setup_logger(name, verbose=True):
@@ -125,8 +127,123 @@ def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = Tr
     return False
 
 
-def cmp(x, y):
-    return (x > y) - (x < y)
+# #####################################
+def setup_logger(name, verbose=VERBOSE):
+    if verbose:
+        FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
+    else:
+        FORMAT = "   %(message)s\n"
+    logging.basicConfig(format=FORMAT)
+    logger = logging.getLogger(f'graphistry.{name}')
+    logger.setLevel(logging.DEBUG if verbose else logging.ERROR)
+    return logger
+
+
+# #####################################
+# Caching utils
+
+_cache_coercion_val = None
+@lru_cache(maxsize=CACHE_COERCION_SIZE)
+def cache_coercion_helper(k):
+    return _cache_coercion_val
+
+
+def cache_coercion(k, v):
+    """
+        Holds references to last 100 used coercions
+        Use with weak key/value dictionaries for actual lookups
+    """
+    global _cache_coercion_val
+    _cache_coercion_val = v
+
+    out = cache_coercion_helper(k)
+    _cache_coercion_val = None
+    return out
+
+
+class WeakValueWrapper:
+    def __init__(self, v):
+        self.v = v
+
+
+def hash_pdf(df: pd.DataFrame) -> str:
+    # can be 20% faster via to_parquet (see lmeyerov issue in pandas gh), but unclear if always available
+    return (
+        hashlib.sha256(pd.util.hash_pandas_object(df, index=True).values).hexdigest()
+        + hashlib.sha256(str(df.columns).encode('utf-8')).hexdigest()  # noqa: W503
+    )
+
+
+def hash_memoize_helper(v: Any) -> str:
+
+    if isinstance(v, dict):
+        rolling = '{'
+        for k2, v2 in v.items():
+            rolling += f'{k2}:{hash_memoize_helper(v2)},'
+        rolling += '}'
+    elif isinstance(v, list):
+        rolling = '['
+        for i in v:
+            rolling += f'{hash_memoize_helper(i)},'
+        rolling += ']'
+    elif isinstance(v, tuple):
+        rolling = '('
+        for i in v:
+            rolling += f'{hash_memoize_helper(i)},'
+        rolling += ')'
+    elif isinstance(v, bool):
+        rolling = 'T' if v else 'F'
+    elif isinstance(v, int):
+        rolling = str(v)
+    elif isinstance(v, float):
+        rolling = str(v)
+    elif isinstance(v, str):
+        rolling = v
+    elif v is None:
+        rolling = 'N'
+    elif isinstance(v, pd.DataFrame):
+        rolling = hash_pdf(v)
+    else:
+        raise TypeError(f'Unsupported memoization type: {type(v)}')
+
+    return rolling
+
+def hash_memoize(v: Any) -> str:
+    return hashlib.sha256(hash_memoize_helper(v).encode('utf-8')).hexdigest()
+
+def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = True):  # noqa: C901
+    """
+        Helper Memoize function that checks if metadata args have changed for object g -- which is unconstrained save
+        for the fact that it must have `attribute`. If they have not changed, will return memoized version,
+        if False, will continue with whatever pipeline it is in front.
+    """
+    
+    logger = setup_logger(f'{__name__}.memoization')
+    
+    hashed = None
+    weakref = getattr(g, attribute)
+    try:
+        hashed = hash_memoize(metadata)
+    except TypeError:
+        logger.warning(
+            f'! Failed {name} speedup attempt. Continuing without memoization speedups.'
+        )
+    try:
+        if hashed in weakref:
+            logger.debug(f'{name} memoization hit: %s', hashed)
+            return weakref[hashed].v
+        else:
+            logger.debug(f'{name} memoization miss for id (of %s): %s',
+                         len(weakref), hashed)
+    except:
+        logger.debug(f'Failed to hash {name} kwargs', exc_info=True)
+        pass
+    
+    if memoize and (hashed is not None):
+        w = WeakValueWrapper(g)
+        cache_coercion(hashed, w)
+        weakref[hashed] = w
+    return False
 
 
 def make_iframe(url, height, extra_html="", override_html_style=None):
@@ -194,13 +311,6 @@ def random_string(length):
         random.choice(string.ascii_uppercase + string.digits) for _ in range(length)
     ]
     return "".join(gibberish)
-
-
-def compare_versions(v1, v2):
-    try:
-        return cmp(StrictVersion(v1), StrictVersion(v2))
-    except ValueError:
-        return cmp(LooseVersion(v1), LooseVersion(v2))
 
 
 def in_ipython():

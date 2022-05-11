@@ -1,3 +1,4 @@
+import copy
 from time import time
 from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 
@@ -12,7 +13,7 @@ from .feature_utils import (
     XSymbolic,
     YSymbolic,
     prune_weighted_edges_df_and_relabel_nodes,
-    resolve_feature_engine, is_dataframe_all_numeric
+    resolve_feature_engine
 )
 from .util import setup_logger, check_set_memoize
 
@@ -165,9 +166,13 @@ class UMAPMixin(MIXIN_BASE):
         t = time()
         y = self._check_target_is_one_dimensional(y)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
+
         self._umap.fit(X, y)
+
+        #if changing, also update fresh_res
         self._weighted_edges_df = umap_graph_to_weighted_edges(self._umap.graph_)
         self._weighted_adjacency = self._umap.graph_
+
         mins = (time() - t) / 60
         logger.info(f"-UMAP-ing took {mins:.2f} minutes total")
         logger.info(f" - or {X.shape[0]/mins:.2f} rows per minute")
@@ -179,18 +184,29 @@ class UMAPMixin(MIXIN_BASE):
         self.umap_fit(X, y)
         return self._umap.transform(X)
 
-    def _process_umap(self, res, X_, y_, X, y, kind, **umap_kwargs):
+    def _process_umap(self, res, X_: pd.DataFrame, y_: pd.DataFrame, kind, **umap_kwargs):
         # need this function to use memoize
         res._umap = umap.UMAP(**umap_kwargs)
 
-        umap_kwargs.update({'kind': kind, 'X': X, 'y': y})
-        
+        logger.debug('process_umap before kwargs: %s', umap_kwargs)
+        umap_kwargs.update({'kind': kind, 'X': X_, 'y': y_})
+        logger.debug('process_umap after kwargs: %s', umap_kwargs)
+
         old_res = reuse_umap(res, umap_kwargs)
         if old_res:
             logger.info(' --- RE-USING UMAP')
-            return old_res
-        
+            fresh_res = copy.copy(res)
+            for attr in [
+                '_xy', '_weighted_edges_df', '_weighted_adjacency'
+            ]:
+                setattr(fresh_res, attr, getattr(old_res, attr))
+
+            return fresh_res
+
+
         xy = res.umap_fit_transform(X_, y_)
+
+        #if changing, also update fresh_res
         res._xy = xy
 
         return res
@@ -202,6 +218,12 @@ class UMAPMixin(MIXIN_BASE):
         
         """
         kv = {}
+
+        if not hasattr(res, '_feature_params') or res._feature_params is None:
+            res._feature_params = {
+                'nodes': {},
+                'edges': {}
+            }
         # if we have featurized previously
         if kind in res._feature_params:
             # add in all the stuff that got stored in res._feature_params
@@ -297,23 +319,24 @@ class UMAPMixin(MIXIN_BASE):
         else:
             res = self.bind()
 
+        logger.debug('umap input X :: %s', X)
+        logger.debug('umap input y :: %s', y)
+
         featurize_kwargs = self._set_features(res, X, y, kind, feature_engine, featurize_kwargs)
 
         if kind == "nodes":
-            index_to_nodes_dict = None
             if res._node is None:
-                logger.debug('> Writing new node name')
+
+                logger.debug('Writing new node name')
                 res = res.nodes(  # type: ignore
                     res._nodes.reset_index(drop=True)
                     .reset_index()
                     .rename(columns={"index": config.IMPLICIT_NODE_ID}),
                     config.IMPLICIT_NODE_ID,
                 )
-                nodes = res._nodes[res._node].values
-                index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-            else:
-                nodes = res._nodes[res._node].values
-                index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
+                
+            nodes = res._nodes[res._node].values
+            index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
             logger.debug('propagating with featurize_kwargs: %s', featurize_kwargs)
             (
@@ -324,7 +347,11 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
 
-            res = res._process_umap(res, X_, y_, X, y, kind, **umap_kwargs)
+            logger.debug('umap X_: %s', X_)
+            logger.debug('umap y_: %s', y_)
+
+            res = res._process_umap(res, X_, y_, kind, **umap_kwargs)
+            
             res._weighted_adjacency_nodes = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError('This should not happen')
@@ -348,7 +375,8 @@ class UMAPMixin(MIXIN_BASE):
             ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
-            res = self._process_umap(res, X_, y_, X, y, kind, **umap_kwargs)
+
+            res = self._process_umap(res, X_, y_, kind, **umap_kwargs)
             res._weighted_adjacency_edges = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError('This should not happen')
@@ -406,6 +434,9 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._node_embedding
         else:
             emb = res._edge_embedding
+
+        logger.debug('df shape: %s', df.shape)
+        logger.debug('emb shape: %s', emb.shape)
         df[x_name] = emb.T[0]
         df[y_name] = emb.T[1]
 

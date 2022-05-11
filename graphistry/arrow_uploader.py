@@ -2,10 +2,10 @@
 #from __future__ import annotations
 from typing import List, Optional
 
-import io, logging, pyarrow as pa, requests, sys
+import io, pyarrow as pa, requests, sys
 from .ArrowFileUploader import ArrowFileUploader
-
-logger = logging.getLogger('ArrowUploader')
+from .util import setup_logger
+logger = setup_logger(__name__)
 
 class ArrowUploader:
     

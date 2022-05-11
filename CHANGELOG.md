@@ -7,13 +7,58 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+
+## [0.25.1 - 2022-05-08]
+
+### Fixed
+
+* `g.from_igraph(ig)` will use IDs (ex: strings) for src/dst values instead of igraph indexes
+
+## [0.25.0 - 2022-05-01]
+
+Major version bump due to breaking igraph change
+
+### Added
+
+* igraph handlers: `graphistry.from_igraph`, `g.from_igraph`, `g.to_igraph`
+* docs: README.md examples of using new igraph methods
+
+### Changed
+
+* Deprecation warnings in old igraph methods: `g.graph(ig)`, `igraph2pandas`, `pandas2igraph`
+* Internal igraph handlers upgraded to use new igraph methods 
+
+### Breaking
+
+* `network2igraph` and `igraph2pandas` renamed output node ID column to `_n_implicit` (`constants.NODE`)
+
+## [0.24.1 - 2022-04-29]
+
+### Fixed
+
+* Expose symbols for `.chain()` predicates as top-level: previous `ast` export was incorrect
+
+## [0.24.0 - 2022-04-29]
+
+Major version bump due to large dependency increases for kitchen-sink installs and overall sizeable new feature
+
 ### Added
 
 * Use buildkit with pip install caching for test dockerfiles
-* Graph AI branch: Autoencoding
-* Graph AI branch: UMAP
-* Graph AI branch: GNNs
+* Graph AI branch: Autoencoding via dirty_cat and sentence_transformers (`g.featurize()`)
+* Graph AI branch: UMAP via umap_learn (`g.umap()`)
+* Graph AI branch: GNNs via DGL (`g.build_dgl_graph()`)
 * `g.reset_caches()` to clear upload and compute caches (last 100)
+* Central `setup_logger()`
+* Official Python 3.10 support
+
+### Changed
+
+* Logging: Refactor to `setup_logger(__name__)`
+
+### Fixed
+
+* hypergraph: use default logger instead of DEBUG
 
 ## [0.23.3 - 2022-04-23]
 

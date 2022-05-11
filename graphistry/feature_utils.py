@@ -1,3 +1,4 @@
+import copy
 import numpy as np, pandas as pd
 from time import time
 from typing import List, Union, Dict, Any, Optional, Tuple, TYPE_CHECKING
@@ -8,7 +9,7 @@ from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
 
-logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+logger = setup_logger(__name__)
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
@@ -975,7 +976,18 @@ class FeatureMixin(MIXIN_BASE):
     FeatureMixin for automatic featurization of nodes and edges DataFrames.
     Subclasses UMAPMixin for umap-ing of automatic features.
 
-    TODO: add example usage doc
+    Usage:
+        g = graphistry.nodes(df, 'node_column')
+        g2 = g.featurize()
+        
+    or for edges,
+        g = graphistry.edges(df, 'src_column', 'dst_column')
+        g2 = g.featurize(kind='edges')
+       
+    or chain them,
+        g = graphistry.edges(edf, 'src_column', 'dst_column').nodes(ndf, 'node_column')
+        g2 = g.featurize().featurize(kind='edges')
+      
     """
 
     _feature_memoize: WeakValueDictionary = WeakValueDictionary()
@@ -1028,12 +1040,22 @@ class FeatureMixin(MIXIN_BASE):
             feature_engine=feature_engine,
         )
 
-        res._feature_params["nodes"] = fkwargs
+
+        res._feature_params = {
+            **getattr(res, '_feature_params', {}),
+            'nodes': fkwargs
+        }
 
         old_res = reuse_featurization(res, fkwargs)
         if old_res:
             logger.info(" --- RE-USING NODE FEATURIZATION")
-            return old_res
+            fresh_res = copy.copy(res)
+            for attr in [
+                '_node_features', '_node_target', '_node_encoder', '_node_target_encoder', '_node_ordinal_pipeline'
+            ]:
+                setattr(fresh_res, attr, getattr(old_res, attr))
+
+            return fresh_res
 
         if self._nodes is None:
             raise ValueError(
@@ -1045,7 +1067,7 @@ class FeatureMixin(MIXIN_BASE):
 
         if feature_engine == "none":
             X_enc = X_resolved.select_dtypes(include=np.number)
-            y_enc = y_resolved
+            y_enc = y_resolved.select_dtypes(include=np.number)
             data_vec = False
             label_vec = False
             ordinal_pipeline = False
@@ -1066,6 +1088,7 @@ class FeatureMixin(MIXIN_BASE):
                 feature_engine=feature_engine,
             )
 
+        #if changing, also update fresh_res
         res._node_features = X_enc
         res._node_target = y_enc
         res._node_encoder = data_vec
@@ -1116,18 +1139,27 @@ class FeatureMixin(MIXIN_BASE):
             feature_engine=feature_engine,
         )
 
-        res._feature_params["edges"] = fkwargs
+        res._feature_params = {
+            **getattr(res, '_feature_params', {}),
+            'edges': fkwargs
+        }
 
         old_res = reuse_featurization(res, fkwargs)
         if old_res:
             logger.info(" --- RE-USING EDGE FEATURIZATION")
-            return old_res
+            fresh_res = copy.copy(res)
+            for attr in [
+                '_edge_features', '_edge_target', '_edge_encoders', '_edge_target_encoder', '_edge_ordinal_pipeline'
+            ]:
+                setattr(fresh_res, attr, getattr(old_res, attr))
+
+            return fresh_res
 
         X_resolved = features_without_target(X_resolved, y_resolved)
 
         if feature_engine == "none":
             X_enc = X_resolved.select_dtypes(include=np.number)
-            y_enc = y_resolved
+            y_enc = y_resolved.select_dtypes(include=np.number)
             data_vec = False
             label_vec = False
             ordinal_pipeline = None
@@ -1168,6 +1200,7 @@ class FeatureMixin(MIXIN_BASE):
                 feature_engine=feature_engine
             )
 
+        # if editing, should also update fresh_res
         res._edge_features = X_enc
         res._edge_target = y_enc
         res._edge_encoders = [mlb, data_vec]
@@ -1194,13 +1227,19 @@ class FeatureMixin(MIXIN_BASE):
         feature_engine: FeatureEngine = "auto",
     ):
         """
-            Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
-        ________________________________________________________________________________________________________________
+
+            Featurize Nodes or Edges of the underlying nodes/edges DataFrames. 
+
         :param kind: specify whether to featurize `nodes` or `edges`. Edge featurization includes a pairwise
-                src-to-dst feature block using a MultiLabelBinarizer.
+                src-to-dst feature block using a MultiLabelBinarizer, with any other columns being treated the
+                same way as with `nodes` featurization.
         :param X: Optional input, default None. If symbolic, evaluated against self data based on kind.
                 If None, will featurize all columns of DataFrame
-        :param y: Optional Target(s) columns or explicit DataFrame, default None.
+        :param y: Optional Target(s) columns or explicit DataFrame, default None. An important caveat is that
+                featurization in the presence of targets TAKES INTO account the target during featurization. In many
+                cases, we wish to generate features independent of the targets, and then fit models that use these
+                features to predict the target in question. Generating X and y separately are possible under the
+                functional paradigm.
         :param use_scaler: selects which scaler (and automatically imputes missing values using mean strategy)
                 to scale the data. Options are; "minmax", "quantile", "zscale", "robust", "kbins" , default "robust".
                 Please see scikits-learn documentation https://scikit-learn.org/stable/modules/preprocessing.html
@@ -1295,7 +1334,7 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         feature_engine: FeatureEngineConcrete = "pandas",
         reuse_if_existing=False,
-    ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, MIXIN_BASE]:
         """
         helper method gets node feature and target matrix if X, y are not specified.
         if X, y are specified will set them as `_node_target` and `_node_target` attributes
@@ -1309,6 +1348,8 @@ class FeatureMixin(MIXIN_BASE):
             res._node_target = None
 
         if reuse_if_existing and res._node_features is not None:
+            if res._node_target is None:
+                raise ValueError('Invalid reused; must first set ._node_target')
             return res._node_features, res._node_target, res
 
         res = res._featurize_nodes(

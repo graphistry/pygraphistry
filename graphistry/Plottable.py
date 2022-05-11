@@ -77,7 +77,6 @@ class Plottable(object):
 
     DGL_graph: Optional[Any]
 
-
     def __init__(self, *args, **kwargs):
         #raise RuntimeError('should not happen')
         None
