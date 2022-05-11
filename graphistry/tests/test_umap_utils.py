@@ -264,9 +264,26 @@ class TestUMAPAIMethods(TestUMAPMethods):
         assert all(g2._edge_features == g3._edge_features)
         assert all(g2._feature_params['edges']['X'] == g3._feature_params['edges']['X'])
         assert all(g2._feature_params['edges']['y'] == g3._feature_params['edges']['y'])  # None
-        assert g2._edge_embedding.sum() == g3._edge_embedding.sum()
+        assert g2._edge_embedding.shape == g3._edge_embedding.shape
 
+    @pytest.mark.skipif(
+        not has_dependancy or not has_featurize,
+        reason="requires ai+umap feature dependencies",
+    )
+    def test_feature_kwargs_yield_different_values_using_umap_api(self):
+        g = graphistry.nodes(ndf_reddit)
+        n_topics_target = 6
     
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            g2 = g.umap(X="type", y="label", cardinality_threshold_target=3, n_topics_target=n_topics_target)  # makes a GapEncoded Target
+            g3 = g.umap(X="type", y="label", cardinality_threshold_target=30000)  # makes a one-hot-encoded target
+
+        assert g2._node_target.shape[1] != g3._node_target.shape[1], 'Targets should be different'
+        assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X']), "features should be the same"
+        assert all(g2._feature_params['nodes']['y'] != g3._feature_params['nodes']['y']), "targets in memoize should be different"  # None
+        assert g2._node_target.shape[1] == n_topics_target
+
     @pytest.mark.skipif(
         not has_dependancy or not has_featurize,
         reason="requires ai+umap feature dependencies",
