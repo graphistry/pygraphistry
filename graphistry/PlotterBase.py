@@ -4,7 +4,11 @@ import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from weakref import WeakValueDictionary
 
 from .constants import SRC, DST, NODE
-from .plugins.igraph import to_igraph as to_igraph_base, from_igraph as from_igraph_base
+from .plugins.igraph import (
+    to_igraph as to_igraph_base, from_igraph as from_igraph_base,
+    compute_igraph as compute_igraph_base,
+    layout_igraph as layout_igraph_base
+)
 from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
     cache_coercion, cache_coercion_helper, WeakValueWrapper
@@ -1411,6 +1415,26 @@ class PlotterBase(Plottable):
             edge_attributes
         )
     to_igraph.__doc__ = to_igraph_base.__doc__
+
+
+    def compute_igraph(self,
+        alg: str, alg_as: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
+    ):
+        return compute_igraph_base(self, alg, alg_as, directed, params)
+    compute_igraph.__doc__ = compute_igraph_base.__doc__
+
+
+    def layout_igraph(self,
+        layout: str,
+        directed: Optional[bool] = None,
+        bind_position: bool = True,
+        x_as: str = 'x',
+        y_as: str = 'y',
+        play: Optional[int] = 0,
+        params: dict = {}
+    ):
+        return layout_igraph_base(self, layout, directed, bind_position, x_as, y_as, play, params)
+    layout_igraph.__doc__ = layout_igraph_base.__doc__
 
 
     def pandas2igraph(self, edges, directed=True):
