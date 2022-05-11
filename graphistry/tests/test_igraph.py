@@ -482,11 +482,14 @@ class Test_igraph_compute(NoAuthTestCase):
         }
     }
 
+    skiplist = [ 'eigenvector_centrality' ]
+
     g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
-    for alg in compute_algs:
-        opts = overrides[alg] if alg in overrides else {}
-        #logger.debug('alg "%s", opts=(%s)', alg, opts)
-        assert compute_igraph(g, alg, **opts) is not None
+    for alg in [x for x in compute_algs]:
+        if alg not in skiplist:
+            opts = overrides[alg] if alg in overrides else {}
+            #logger.debug('alg "%s", opts=(%s)', alg, opts)
+            assert compute_igraph(g, alg, **opts) is not None
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_layouts(NoAuthTestCase):
