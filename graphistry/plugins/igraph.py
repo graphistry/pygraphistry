@@ -214,3 +214,100 @@ def to_igraph(self: Plottable,
     node_attrs = [x for x in node_attrs if x != g._node]
     nodes_df = g._nodes[[g._node] + node_attrs]
     return igraph.Graph.DataFrame(edges_df, directed=directed, vertices=nodes_df)
+
+
+compute_algs = [
+    #'bipartite_projection',
+    'clusters',
+    'community_edge_betweenness',
+    'community_fastgreedy',
+    'community_infomap',
+    'community_label_propagation',
+    #'community_leading_eigenvector_naive',  # in docs but not in code?
+    'community_leading_eigenvector',
+    'community_leiden',
+    'community_multilevel',
+    'community_spinglass',
+    'community_walktrap',
+    'gomory_hu_tree',
+    'k_core',
+    #'modularity',
+    'pagerank',
+    'spanning_tree'
+]
+
+def compute_igraph(self: Plottable, alg: str, alg_as: str = 'out', directed: Optional[bool] = None, params: dict = {}) -> Plottable:
+
+    if alg not in compute_algs:
+        raise ValueError(f'Unexpected parameter alg "{alg}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
+
+    try:
+        ig = self.to_igraph(directed=directed or False)        
+        out = getattr(ig, alg)(**params)
+    except NotImplementedError:
+        if directed is None:
+            ig = self.to_igraph(directed=True)        
+            out = out = getattr(ig, alg)(**params)
+
+    if isinstance(out, igraph.clustering.VertexClustering):
+        clustering = out.membership
+    elif isinstance(out, igraph.clustering.VertexDendrogram):
+        clustering = out.as_clustering().membership
+    elif isinstance(out, igraph.Graph):
+        return from_igraph(self, out)
+    elif isinstance(out, list) and self._nodes is None:
+        raise ValueError("No g._nodes table found; use .bind(), .nodes(), .materialize_nodes()")
+    elif len(out) == len(self._nodes):
+        clustering = out
+    else:
+        raise RuntimeError(f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')    
+
+    ig.vs[alg_as] = clustering
+
+    return self.from_igraph(ig)
+
+
+layout_algs = [
+    'auto', 'automatic',
+    'bipartite',
+    'circle', 'circular',
+    'dh', 'davidson_harel',
+    'drl',
+    'drl_3d',
+    'fr', 'fruchterman_reingold',
+    'fr_3d', 'fr3d', 'fruchterman_reingold_3d',
+    'grid',
+    'grid_3d',
+    'graphopt',
+    'kk', 'kamada_kawai',
+    'kk_3d', 'kk3d', 'kamada_kawai_3d',
+    'lgl', 'large', 'large_graph',
+    'mds',
+    'random', 'random_3d',
+    'rt', 'tree', 'reingold_tilford',
+    'rt_circular', 'reingold_tilford_circular',
+    'sphere', 'spherical', 'circle_3d', 'circular_3d',
+    'star',
+    'sugiyama'
+]
+
+def layout_igraph(
+    self: Plottable,
+    layout: str,
+    bind_position: bool = True,
+    x_as: str = 'x',
+    y_as: str = 'y',
+    play: Optional[int] = 0,
+    params: dict = {}
+) -> Plottable:
+
+    ig = self.to_igraph()
+    layout_df = pd.DataFrame([x for x in ig.layout(layout, **params)])
+
+    g2 = self.from_igraph(ig)
+    g2 = g2.nodes(g2._nodes.assign(**{x_as: layout_df[0], y_as: layout_df[1]}))
+    if bind_position:
+        g2 = g2.bind(point_x=x_as, point_y=y_as)
+    if play is not None:
+        g2 = g2.settings(url_params={'play': play})
+    return g2

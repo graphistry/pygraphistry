@@ -1,7 +1,7 @@
 import graphistry, logging, pandas as pd, pytest
 from common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
-from graphistry.plugins.igraph import SRC_IGRAPH, DST_IGRAPH
+from graphistry.plugins.igraph import SRC_IGRAPH, DST_IGRAPH, compute_algs, compute_igraph, layout_algs, layout_igraph
 
 try:
     import igraph
@@ -32,6 +32,17 @@ nodes2_df = pd.DataFrame({
     'n': ['a', 'c', 'b', 'd'],
     'v': ['aa', 'cc', 'bb', 'dd'],
     'i': [2, 4, 6, 8]
+})
+
+edges3_df = pd.DataFrame({
+    'a': ['c', 'd', 'a'],
+    'b': ['d', 'a', 'b'],
+    'v1': ['cc', 'dd', 'aa'],
+    'i': [2, 4, 6]
+})
+nodes3_df = pd.DataFrame({
+    'n': ['a', 'b', 'c', 'd'],
+    't': [0, 1, 0, 1]
 })
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
@@ -448,3 +459,38 @@ class Test_igraph_usage(NoAuthTestCase):
         assert g2._edges.shape == g2._edges.shape
         assert len(g2._nodes) == len(nodes)
         assert sorted(g2._nodes.columns) == sorted([g2._node, 'spinglass'])
+
+
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+class Test_igraph_compute(NoAuthTestCase):
+
+    overrides = {
+        'bipartite_projection': {
+            'which': 0
+        }
+    }
+
+    g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
+    for alg in compute_algs:
+        params = overrides[alg] if alg in overrides else {}
+        #logger.debug('alg "%s", params=(%s)', alg, params)
+        assert compute_igraph(g, alg, params=params) is not None
+
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+class Test_igraph_layouts(NoAuthTestCase):
+
+    overrides = {
+        'bipartite': {
+            'types': 't'
+        }
+    }
+
+    g = graphistry.edges(edges3_df, 'a', 'b').nodes(nodes3_df, 'n')
+    for alg in layout_algs:
+        params = overrides[alg] if alg in overrides else {}
+        #logger.debug('alg "%s", params=(%s)', alg, params)
+        g2 = layout_igraph(g, alg, params=params)
+        #logger.debug('g._edges: %s', g._edges)
+        #logger.debug('2._edges: %s', g2._edges)
+        assert len(g2._nodes) == len(g._nodes)
+        assert g2._edges.equals(g._edges)
