@@ -74,10 +74,10 @@ class Test_from_igraph(NoAuthTestCase):
         ig.vs["name"] = names_v
         g = graphistry.from_igraph(ig)
         assert g._node is not None and g._nodes is not None
+        assert g._node == NODE
         assert len(g._nodes) == len(nodes)
-        assert (g._nodes[g._node].sort_values() == pd.Series(nodes)).all()
-        assert (g._nodes['name'] == pd.Series(names_v)).all()
-        assert sorted(g._nodes.columns) == sorted([ g._node, 'name' ])
+        assert sorted(g._nodes.columns) == sorted([ NODE ])
+        assert (g._nodes[g._node].sort_values() == pd.Series(names_v, name=NODE).sort_values()).all()
         assert len(g._edges) == len(edges)
         assert g._source is not None and g._destination is not None
         assert len(g._edges[g._source].dropna()) == len(edges)
@@ -183,6 +183,16 @@ class Test_from_igraph(NoAuthTestCase):
             'i': [2, 6, 4, 8]
         }))
 
+    def test_edges_named_without_nodes(self):
+        g = graphistry.edges(edges2_df, 'a', 'b')
+        ig = g.to_igraph()
+        g2 = g.from_igraph(ig)
+        assert len(g2._nodes) == len(nodes2_df)
+        assert len(g2._edges) == len(g._edges)
+        g2n = g2._nodes.sort_values(by=g2._node).reset_index(drop=True)
+        assert g2n.equals(pd.DataFrame({
+            g2._node: ['a', 'b', 'c', 'd'],
+        }))
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_to_igraph(NoAuthTestCase):
@@ -203,8 +213,7 @@ class Test_to_igraph(NoAuthTestCase):
         assert g2._edge is None
         logger.debug('g2._nodes: %s', g2._nodes)
         assert g2._nodes.equals(pd.DataFrame({
-            NODE: nodes,
-            'name': nodes
+            NODE: nodes
         }))
         assert g2._node == NODE
 
@@ -222,10 +231,10 @@ class Test_to_igraph(NoAuthTestCase):
         assert g2._source == 's'
         assert g2._destination == 'd'
         assert g2._edge is None
+        assert g2._edges.equals(g._edges)
         logger.debug('g2._nodes: %s', g2._nodes)
         assert g2._nodes.equals(pd.DataFrame({
-            NODE: nodes,
-            'name': nodes
+            NODE: nodes
         }))
         assert g2._node == NODE
 
@@ -240,14 +249,14 @@ class Test_to_igraph(NoAuthTestCase):
         logger.debug('ig: %s', ig)
         g2 = graphistry.from_igraph(ig)
         assert g2._edges.shape == g._edges.shape
-        assert g2._source == SRC_IGRAPH
-        assert g2._destination == DST_IGRAPH
+        assert g2._source == 'source'
+        assert g2._destination == 'target'
         assert g2._edge is None
+        assert g2._edges.rename(columns={'source': 's', 'target': 'd'}).equals(g._edges)
         logger.debug('g2._nodes: %s', g2._nodes)
         logger.debug('g2._nodes dtypes: %s', g2._nodes.dtypes)
         assert g2._nodes.equals(pd.DataFrame({
-            NODE: nodes,
-            'name': pd.Series(nodes).astype(str)
+            NODE: pd.Series(nodes).astype(str)
         }))
         assert g2._node == NODE
 
@@ -272,7 +281,6 @@ class Test_to_igraph(NoAuthTestCase):
         logger.debug('g2._nodes: %s', g2._nodes)
         assert g2._nodes.equals(pd.DataFrame({
             NODE: nodes,
-            'name': nodes,
             'names': names_v
         }))
         assert g2._node == NODE
@@ -312,7 +320,7 @@ class Test_to_igraph(NoAuthTestCase):
             .nodes(pd.DataFrame({
                 'n': nodes,
                 'names': names_v
-            }))
+            }), 'n')
         )
         ig = g.to_igraph(include_nodes=False)
         logger.debug('ig: %s', ig)
@@ -322,10 +330,7 @@ class Test_to_igraph(NoAuthTestCase):
         assert g2._destination == DST_IGRAPH
         assert g2._edge is None
         logger.debug('g2._nodes: %s', g2._nodes)
-        assert g2._nodes.equals(pd.DataFrame({
-            NODE: nodes,
-            'name': nodes
-        }))
+        assert g2._nodes.equals(pd.DataFrame({NODE: nodes}))
         assert g2._node == NODE
 
     def test_nodes_undirected(self):
@@ -424,7 +429,7 @@ class Test_igraph_usage(NoAuthTestCase):
         logger.debug('g2 edges: %s', g2._edges)
         assert g2._edges.shape == g2._edges.shape
         assert len(g2._nodes) == len(nodes)
-        assert sorted(g2._nodes.columns) == sorted([g2._node, 'name', 'spinglass'])
+        assert sorted(g2._nodes.columns) == sorted([g2._node, 'spinglass'])
 
     def test_enrich_with_stat_direct(self):
         g = (

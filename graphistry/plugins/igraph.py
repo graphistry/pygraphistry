@@ -68,6 +68,8 @@ def from_igraph(self,
                 (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
             ):
                 nodes_df = nodes_df.rename(columns={'name': node_col})
+            elif ('name' in nodes_df) and (g._nodes is None):
+                nodes_df = nodes_df.rename(columns={'name': node_col})
             else:
                 nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
         
@@ -81,6 +83,7 @@ def from_igraph(self,
             g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
             nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
 
+        nodes_df = nodes_df.reset_index(drop=True)
         g = g.nodes(nodes_df, node_col)
 
     # #####
