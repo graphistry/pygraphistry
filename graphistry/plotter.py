@@ -2,9 +2,9 @@ from .PlotterBase import PlotterBase
 from .compute.ComputeMixin import ComputeMixin 
 from .gremlin import GremlinMixin, CosmosMixin, NeptuneMixin
 from .layouts import LayoutsMixin
-from .feature_utils import FeatureMixin, has_min_dependancy as has_featurize
-from .dgl_utils import DGLGraphMixin, has_dependancy as has_dgl
-from .umap_utils import UMAPMixin, has_dependancy as has_umap
+from .feature_utils import FeatureMixin, has_min_dependancy as has_featurize # type: ignore
+from .dgl_utils import DGLGraphMixin, has_dependancy as has_dgl # type: ignore
+from .umap_utils import UMAPMixin, has_dependancy as has_umap # type: ignore
 
 mixins = (
     [CosmosMixin, NeptuneMixin, GremlinMixin, LayoutsMixin]
