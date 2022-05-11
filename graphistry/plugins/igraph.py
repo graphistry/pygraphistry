@@ -361,5 +361,5 @@ def layout_igraph(
     if bind_position:
         g2 = g2.bind(point_x=x_as, point_y=y_as)
     if play is not None:
-        g2 = g2.settings(url_params={'play': play})
+        g2 = g2.layout_settings(play=play)
     return g2
