@@ -2397,3 +2397,52 @@ class PlotterBase(Plottable):
             return self.settings(url_params={**self._url_params, **settings})
         else:
             return self
+
+
+    def scene_settings(
+        self,
+        menu: Optional[bool] = None,
+        info: Optional[bool] = None,
+        show_arrows: Optional[bool] = None,
+        point_size: Optional[float] = None,
+        edge_curvature: Optional[float] = None,
+        edge_opacity: Optional[float] = None,
+        point_opacity: Optional[float] = None
+    ):
+        """Set scene options. Additive over previous settings.
+
+        Corresponds to options at https://hub.graphistry.com/docs/api/1/rest/url/#urloptions
+
+        **Example: Hide arrows and straighten edges**
+
+            ::
+
+                import graphistry, pandas as pd
+                edges = pd.DataFrame({'s': ['a','b','c','d'], 'boss': ['c','c','e','e']})
+                nodes = pd.DataFrame({
+                    'n': ['a', 'b', 'c', 'd', 'e'],
+                    'y': [1,   1,   2,   3,   4],
+                    'x': [1,   1,   0,   0,   0],
+                })
+                g = (graphistry
+                    .edges(edges, 's', 'd')
+                    .nodes(nodes, 'n')
+                    .scene_settings(show_arrows=False, edge_curvature=0.0)
+                g.plot()
+        """
+
+        settings : dict = {
+            **({} if menu is None else {'menu': menu}),
+            **({} if info is None else {'info': info}),
+            **({} if show_arrows is None else {'showArrows': show_arrows}),
+
+            **({} if point_size is None else {'pointSize': point_size}),
+            **({} if edge_curvature is None else {'edgeCurvature': edge_curvature}),
+            **({} if edge_opacity is None else {'edgeOpacity': edge_opacity}),
+            **({} if point_opacity is None else {'pointOpacity': point_opacity})
+        }
+
+        if len(settings.keys()) > 0:
+            return self.settings(url_params={**self._url_params, **settings})
+        else:
+            return self

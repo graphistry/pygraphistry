@@ -908,6 +908,31 @@ g.layout_igraph('sugiyama').plot()
 g.layout_igraph('sugiyama', directed=True, params={}).plot()
 ```
 
+### Control render settings
+
+```python
+g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'b'], 'd': ['b', 'c', 'd']}))
+g2 = g.scene_settings(
+  #hide menus
+  menu=False,
+  info=False,
+  #tweak graph
+  show_arrows=False,
+  point_size=1.0,
+  edge_curvature=0.0,
+  edge_opacity=0.5,
+  point_opacity=0.9
+).plot()
+
+```
+
+With `pip install graphistry[igraph]`, you can also use [`igraph` layouts](https://igraph.org/python/doc/api/igraph.Graph.html#layout):
+
+```python
+g.layout_igraph('sugiyama').plot()
+g.layout_igraph('sugiyama', directed=True, params={}).plot()
+```
+
 ## Next Steps
 
 1. Create a free public data [Graphistry Hub](https://www.graphistry.com/get-started) account or [one-click launch a private Graphistry instance in AWS](https://www.graphistry.com/get-started)
