@@ -1,8 +1,9 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
-from typing import List, Any, Optional, TYPE_CHECKING, Union
-import pandas as pd
 from collections import Counter
+from typing import Optional, TYPE_CHECKING
+
 import numpy as np
+import pandas as pd
 
 try:
     import dgl
@@ -37,7 +38,7 @@ else:
 # #########################################################################################
 
 
-def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):
+def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]): # type: ignore
     """
         Converts X, y to torch tensors compatible with ndata/edata of DGL graph
     _________________________________________________________________________
@@ -47,10 +48,10 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):
     """
     import torch
 
-    if not y_enc.empty:
+    if not y_enc.empty: # type: ignore
         data = {
             config.FEATURE: torch.tensor(X_enc.values),
-            config.TARGET: torch.tensor(y_enc.values),
+            config.TARGET: torch.tensor(y_enc.values), # type: ignore
         }
     else:
         data = {config.FEATURE: torch.tensor(X_enc.values)}
@@ -230,16 +231,6 @@ class DGLGraphMixin(MIXIN_BASE):
         assert (
             sum(mask) > 2
         ), f"mask slice is (practically) empty, will lead to bad graph, found {sum(mask)}"
-
-    def _remove_edges_not_in_nodes(self, node_column: str):
-        # need to do this so we get the correct ndata size ...
-        nodes = self._nodes[node_column]
-        if not isinstance(self._edges, pd.DataFrame):  # type: ignore
-            raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame, recieved: %s", type(self._edges))  # type: ignore
-        edf : pd.DataFrame = self._edges  # type: ignore
-        n_initial = len(edf)
-        logger.info(f"Length of edge DataFrame {n_initial}")
-        mask = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)
         self._MASK = mask
         self._edges = edf[mask]
         self._prune_edge_target()
