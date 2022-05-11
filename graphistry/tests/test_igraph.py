@@ -466,31 +466,43 @@ class Test_igraph_compute(NoAuthTestCase):
 
     overrides = {
         'bipartite_projection': {
-            'which': 0
+            'params': {'which': 0}
+        },
+        'community_leading_eigenvector': {
+            'directed': False
+        },
+        'community_leiden': {
+            'directed': False
+        },
+        'community_multilevel': {
+            'directed': False
+        },
+        'gomory_hu_tree': {
+            'directed': False
         }
     }
 
     g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
     for alg in compute_algs:
-        params = overrides[alg] if alg in overrides else {}
-        #logger.debug('alg "%s", params=(%s)', alg, params)
-        assert compute_igraph(g, alg, params=params) is not None
+        opts = overrides[alg] if alg in overrides else {}
+        #logger.debug('alg "%s", opts=(%s)', alg, opts)
+        assert compute_igraph(g, alg, **opts) is not None
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_layouts(NoAuthTestCase):
 
     overrides = {
         'bipartite': {
-            'types': 't'
+            'params': {'types': 't'}
         }
     }
 
     g = graphistry.edges(edges3_df, 'a', 'b').nodes(nodes3_df, 'n')
     for alg in layout_algs:
-        params = overrides[alg] if alg in overrides else {}
-        #logger.debug('alg "%s", params=(%s)', alg, params)
-        g2 = layout_igraph(g, alg, params=params)
-        #logger.debug('g._edges: %s', g._edges)
-        #logger.debug('2._edges: %s', g2._edges)
+        opts = overrides[alg] if alg in overrides else {}
+        logger.debug('alg "%s", opts=(%s)', alg, opts)
+        g2 = layout_igraph(g, alg, **opts)
+        logger.debug('g._edges: %s', g._edges)
+        logger.debug('2._edges: %s', g2._edges)
         assert len(g2._nodes) == len(g._nodes)
         assert g2._edges.equals(g._edges)

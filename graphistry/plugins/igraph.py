@@ -247,7 +247,7 @@ def compute_igraph(
     :param alg_as: For algorithms that compute values for nodes, which attribute to write to. If None, use the algorithm's name. (default None)
     :type alg_as: Optional[str]
 
-    :param directed: During the to_igraph conversion, whether to be directed. If None, try undirected and then directed. (default None)
+    :param directed: During the to_igraph conversion, whether to be directed. If None, try directed and then undirected. (default None)
     :type directed: Optional[bool]
 
     :param params: Any named parameters to pass to the underlying igraph method
@@ -261,11 +261,11 @@ def compute_igraph(
         alg_as = alg
 
     try:
-        ig = self.to_igraph(directed=directed or False)        
+        ig = self.to_igraph(directed=True if directed is None else directed)        
         out = getattr(ig, alg)(**params)
     except NotImplementedError as e:
         if directed is None:
-            ig = self.to_igraph(directed=True)        
+            ig = self.to_igraph(directed=False)        
             out = out = getattr(ig, alg)(**params)
         else:
             raise e
@@ -327,7 +327,7 @@ def layout_igraph(
     :param layout: Name of an igraph.Graph.layout method like `sugiyama`
     :type layout: str
 
-    :param directed: During the to_igraph conversion, whether to be directed. If None, try undirected and then directed. (default None)
+    :param directed: During the to_igraph conversion, whether to be directed. If None, try directed and then undirected. (default None)
     :type directed: Optional[bool]
 
     :param bind_position: Whether to call bind(point_x=, point_y=) (default True)
@@ -347,11 +347,11 @@ def layout_igraph(
     """
 
     try:
-        ig = self.to_igraph(directed=directed or False)
+        ig = self.to_igraph(directed=True if directed is None else directed)
         layout_df = pd.DataFrame([x for x in ig.layout(layout, **params)])
     except NotImplementedError as e:
         if directed is None:
-            ig = self.to_igraph(directed=True)
+            ig = self.to_igraph(directed=False)
             layout_df = pd.DataFrame([x for x in ig.layout(layout, **params)])
         else:
             raise e

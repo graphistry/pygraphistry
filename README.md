@@ -232,8 +232,8 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     ```python
     edges = pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
     g_a = graphistry.edges(edges, 'src', 'dst')
-    g_b = g_a.layout_igraph('sugiyama')
-    g_b.compute_igraph('pagerank').plot()
+    g_b = g_a.layout_igraph('sugiyama', directed=True)  # directed: for to_igraph
+    g_b.compute_igraph('pagerank', params={'damping': 0.85}).plot()  #params: for layout
 
     ig = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
     g = graphistry.from_igraph(ig)  # full conversion
@@ -529,7 +529,7 @@ Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank
 We start by converting our edge dateframe into an igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
 
 ```python
-g = g.compute_igraph('pagerank', params={'damping': 0.85}).compute_igraph('community_infomap')
+g = g.compute_igraph('pagerank', directed=True, params={'damping': 0.85}).compute_igraph('community_infomap')
 ```
 
 The algorithm names `'pagerank'` and `'community_infomap'` correspond to method names of [igraph.Graph](https://igraph.org/python/api/latest/igraph.Graph.html). Likewise, optional `params={...}` allow specifying additional parameters.
@@ -905,6 +905,7 @@ With `pip install graphistry[igraph]`, you can also use [`igraph` layouts](https
 
 ```python
 g.layout_igraph('sugiyama').plot()
+g.layout_igraph('sugiyama', directed=True, params={}).plot()
 ```
 
 ## Next Steps
