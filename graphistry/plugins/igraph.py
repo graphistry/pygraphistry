@@ -1,4 +1,4 @@
-import igraph, pandas as pd
+import pandas as pd
 from typing import Any, List, Optional
 from graphistry.constants import NODE
 from graphistry.Plottable import Plottable
@@ -263,6 +263,8 @@ def compute_igraph(
     :param params: Any named parameters to pass to the underlying igraph method
     :type params: dict
     """
+
+    import igraph
 
     if alg not in compute_algs:
         raise ValueError(f'Unexpected parameter alg "{alg}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
