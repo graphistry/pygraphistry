@@ -1418,9 +1418,9 @@ class PlotterBase(Plottable):
 
 
     def compute_igraph(self,
-        alg: str, alg_as: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
+        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
     ):
-        return compute_igraph_base(self, alg, alg_as, directed, params)
+        return compute_igraph_base(self, alg, out_col, directed, params)
     compute_igraph.__doc__ = compute_igraph_base.__doc__
 
 
@@ -1428,12 +1428,12 @@ class PlotterBase(Plottable):
         layout: str,
         directed: Optional[bool] = None,
         bind_position: bool = True,
-        x_as: str = 'x',
-        y_as: str = 'y',
+        x_out_col: str = 'x',
+        y_out_col: str = 'y',
         play: Optional[int] = 0,
         params: dict = {}
     ):
-        return layout_igraph_base(self, layout, directed, bind_position, x_as, y_as, play, params)
+        return layout_igraph_base(self, layout, directed, bind_position, x_out_col, y_out_col, play, params)
     layout_igraph.__doc__ = layout_igraph_base.__doc__
 
 

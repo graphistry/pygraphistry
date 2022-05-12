@@ -247,15 +247,15 @@ compute_algs = [
 ]
 
 def compute_igraph(
-    self: Plottable, alg: str, alg_as: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
+    self: Plottable, alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
 ) -> Plottable:
     """Enrich or replace graph using igraph methods
 
     :param alg: Name of an igraph.Graph method like `pagerank`
     :type alg: str
 
-    :param alg_as: For algorithms that compute values for nodes, which attribute to write to. If None, use the algorithm's name. (default None)
-    :type alg_as: Optional[str]
+    :param out_col: For algorithms that generate a node attribute column, `out_col` is the desired output column name. When `None`, use the algorithm's name. (default None)
+    :type out_col: Optional[str]
 
     :param directed: During the to_igraph conversion, whether to be directed. If None, try directed and then undirected. (default None)
     :type directed: Optional[bool]
@@ -269,8 +269,8 @@ def compute_igraph(
     if alg not in compute_algs:
         raise ValueError(f'Unexpected parameter alg "{alg}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
 
-    if alg_as is None:
-        alg_as = alg
+    if out_col is None:
+        out_col = alg
 
     try:
         ig = self.to_igraph(directed=True if directed is None else directed)        
@@ -278,7 +278,7 @@ def compute_igraph(
     except NotImplementedError as e:
         if directed is None:
             ig = self.to_igraph(directed=False)        
-            out = out = getattr(ig, alg)(**params)
+            out = getattr(ig, alg)(**params)
         else:
             raise e
 
@@ -295,7 +295,7 @@ def compute_igraph(
     else:
         raise RuntimeError(f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')    
 
-    ig.vs[alg_as] = clustering
+    ig.vs[out_col] = clustering
 
     return self.from_igraph(ig)
 
@@ -329,8 +329,8 @@ def layout_igraph(
     layout: str,
     directed: Optional[bool] = None,
     bind_position: bool = True,
-    x_as: str = 'x',
-    y_as: str = 'y',
+    x_out_col: str = 'x',
+    y_out_col: str = 'y',
     play: Optional[int] = 0,
     params: dict = {}
 ) -> Plottable:
@@ -345,11 +345,11 @@ def layout_igraph(
     :param bind_position: Whether to call bind(point_x=, point_y=) (default True)
     :type bind_position: bool
 
-    :param x_as: Attribute to write x position to. (default 'x')
-    :type x_as: str
+    :param x_out_col: Attribute to write x position to. (default 'x')
+    :type x_out_col: str
 
-    :param y_as: Attribute to write x position to. (default 'y')
-    :type y_as: str
+    :param y_out_col: Attribute to write x position to. (default 'y')
+    :type y_out_col: str
 
     :param play: If defined, set settings(url_params={'play': play}). (default 0)
     :type play: Optional[str]
@@ -369,9 +369,9 @@ def layout_igraph(
             raise e
 
     g2 = self.from_igraph(ig)
-    g2 = g2.nodes(g2._nodes.assign(**{x_as: layout_df[0], y_as: layout_df[1]}))
+    g2 = g2.nodes(g2._nodes.assign(**{x_out_col: layout_df[0], y_out_col: layout_df[1]}))
     if bind_position:
-        g2 = g2.bind(point_x=x_as, point_y=y_as)
+        g2 = g2.bind(point_x=x_out_col, point_y=y_out_col)
     if play is not None:
         g2 = g2.layout_settings(play=play)
     return g2
