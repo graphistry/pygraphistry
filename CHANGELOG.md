@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.25.2 - 2022-05-11]
+
+### Added
+
+* `compute_igraph()`
+* `layout_igraph()`
+* `scene_settings()`
+
+### Fixed
+
+* `from_igraph` uses `g._node` instead of `'name'` in more cases 
+
 ## [0.25.1 - 2022-05-08]
 
 ### Fixed
