@@ -464,48 +464,51 @@ class Test_igraph_usage(NoAuthTestCase):
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_compute(NoAuthTestCase):
 
-    overrides = {
-        'bipartite_projection': {
-            'params': {'which': 0}
-        },
-        'community_leading_eigenvector': {
-            'directed': False
-        },
-        'community_leiden': {
-            'directed': False
-        },
-        'community_multilevel': {
-            'directed': False
-        },
-        'gomory_hu_tree': {
-            'directed': False
+    def test_all_calls(self):
+        overrides = {
+            'bipartite_projection': {
+                'params': {'which': 0}
+            },
+            'community_leading_eigenvector': {
+                'directed': False
+            },
+            'community_leiden': {
+                'directed': False
+            },
+            'community_multilevel': {
+                'directed': False
+            },
+            'gomory_hu_tree': {
+                'directed': False
+            }
         }
-    }
 
-    skiplist = [ 'eigenvector_centrality' ]
+        skiplist = [ 'eigenvector_centrality' ]
 
-    g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
-    for alg in [x for x in compute_algs]:
-        if alg not in skiplist:
-            opts = overrides[alg] if alg in overrides else {}
-            #logger.debug('alg "%s", opts=(%s)', alg, opts)
-            assert compute_igraph(g, alg, **opts) is not None
+        g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
+        for alg in [x for x in compute_algs]:
+            if alg not in skiplist:
+                opts = overrides[alg] if alg in overrides else {}
+                #logger.debug('alg "%s", opts=(%s)', alg, opts)
+                assert compute_igraph(g, alg, **opts) is not None
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_layouts(NoAuthTestCase):
 
-    overrides = {
-        'bipartite': {
-            'params': {'types': 't'}
-        }
-    }
+    def test_all_calls(self):
 
-    g = graphistry.edges(edges3_df, 'a', 'b').nodes(nodes3_df, 'n')
-    for alg in layout_algs:
-        opts = overrides[alg] if alg in overrides else {}
-        logger.debug('alg "%s", opts=(%s)', alg, opts)
-        g2 = layout_igraph(g, alg, **opts)
-        logger.debug('g._edges: %s', g._edges)
-        logger.debug('2._edges: %s', g2._edges)
-        assert len(g2._nodes) == len(g._nodes)
-        assert g2._edges.equals(g._edges)
+        overrides = {
+            'bipartite': {
+                'params': {'types': 't'}
+            }
+        }
+
+        g = graphistry.edges(edges3_df, 'a', 'b').nodes(nodes3_df, 'n')
+        for alg in layout_algs:
+            opts = overrides[alg] if alg in overrides else {}
+            logger.debug('alg "%s", opts=(%s)', alg, opts)
+            g2 = layout_igraph(g, alg, **opts)
+            logger.debug('g._edges: %s', g._edges)
+            logger.debug('2._edges: %s', g2._edges)
+            assert len(g2._nodes) == len(g._nodes)
+            assert g2._edges.equals(g._edges)
