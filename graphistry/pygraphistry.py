@@ -2,7 +2,7 @@ from typing import Any, Callable, Iterable, List, Optional, Union
 from graphistry.Plottable import Plottable
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
+import calendar, gzip, io, json, os, time, webbrowser, numpy as np, pandas as pd, requests, sys, time, warnings
 
 from datetime import datetime
 
@@ -18,6 +18,7 @@ logger = setup_logger(__name__)
 
 ###############################################################################
 
+SSO_GET_TOKEN_ELAPSE_SECONDS = 180
 
 EnvVarNames = {
     "api_key": "GRAPHISTRY_API_KEY",
@@ -143,6 +144,87 @@ class PyGraphistry(object):
         PyGraphistry._is_authenticated = True
 
         return PyGraphistry.api_token()
+
+
+    @staticmethod
+    def sso_login(org_name=None, idp_name=None, sso_wait_for_token=True):
+        """Authenticate with SSO and set token for reuse (api=3). """
+
+        if PyGraphistry._config['store_token_creds_in_memory']:
+            PyGraphistry.sso_relogin = lambda: PyGraphistry.sso_login(
+                org_name, idp_name
+            )
+
+        PyGraphistry._is_authenticated = False
+        arrow_uploader = ArrowUploader(
+            server_base_path=PyGraphistry.protocol()
+            + "://"                     # noqa: W503
+            + PyGraphistry.server(),    # noqa: W503
+            certificate_validation=PyGraphistry.certificate_validation(),
+        ).sso_login(org_name, idp_name)
+
+        try:
+            if arrow_uploader.token:
+                PyGraphistry.api_token(arrow_uploader.token)
+                PyGraphistry._is_authenticated = True
+
+                return PyGraphistry.api_token()
+        except: # required to log on
+            # print("required to log on")
+            PyGraphistry.sso_state(arrow_uploader.sso_state)
+
+            auth_url = arrow_uploader.sso_auth_url
+            # print("auth_url : {}".format(auth_url))
+            if auth_url and not PyGraphistry.api_token():
+                print("Please Enter to open browser to do SSO login")
+                if not sso_wait_for_token:
+                    print("Please run graphistry.sso_get_token() after log in successfully in browser.")
+                # open browser to auth_url
+                PyGraphistry._open_browser_sso_login(auth_url)
+
+                if sso_wait_for_token:
+                    time.sleep(2)
+                    elapsed_time = 0
+                    while not PyGraphistry._sso_get_token():
+                        if elapsed_time % 10 == 0:
+                            print("Waiting for token : {} ...".format(elapsed_time))
+
+                        time.sleep(1)
+                        elapsed_time = elapsed_time + 1
+                        if elapsed_time > SSO_GET_TOKEN_ELAPSE_SECONDS:
+                            raise Exception("[SSO] Get token timeout")
+
+    @staticmethod
+    def _open_browser_sso_login(auth_url):
+        # open browser
+        webbrowser.open(auth_url)
+
+    @staticmethod
+    def sso_get_token():
+        return PyGraphistry._sso_get_token()
+    
+    @staticmethod
+    def _sso_get_token():
+        token = None
+        # get token from API using state
+        state = PyGraphistry.sso_state()
+        # print("_sso_get_token : {}".format(state))
+        arrow_uploader = ArrowUploader(
+            server_base_path=PyGraphistry.protocol()
+            + "://"                     # noqa: W503
+            + PyGraphistry.server(),    # noqa: W503
+            certificate_validation=PyGraphistry.certificate_validation(),
+        ).sso_get_token(state)
+
+        try:
+            token = arrow_uploader.token
+            PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
+            PyGraphistry._is_authenticated = True
+
+            return PyGraphistry.api_token()
+        except:
+            pass
+        return None
 
     @staticmethod
     def refresh(token=None, fail_silent=False):
@@ -414,24 +496,10 @@ class PyGraphistry(object):
             PyGraphistry.authenticate()
         else: # Go to SSO login
             if org_name:
-                if idp_name:
-                    # if idp_name exists, call API with idp_name 
-                    pass
-                else: # site-wide 
-                    pass
+                PyGraphistry.sso_login(org_name, idp_name)
             else:
                 raise Exception("Please provide username/password or at least org_name for SSO login")
 
-    @staticmethod
-    def sso_token():
-        token = None
-        # get token from API using state
-        state = PyGraphistry.sso_state()
-
-        PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
-        # PyGraphistry.authenticate()
-
-        # PyGraphistry.set_bolt_driver(bolt)
 
     @staticmethod
     def privacy(

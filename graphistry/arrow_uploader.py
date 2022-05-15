@@ -139,6 +139,19 @@ class ArrowUploader:
 
     ########################################################################3
 
+    # @property
+    # def sso_state(self) -> str:
+    #     return getattr(self, '__sso_state', "")
+
+    ########################################################################3
+
+    # @property
+    # def sso_auth_url(self) -> str:
+    #     return getattr(self, '__sso_auth_url')
+
+    ########################################################################3
+
+
     def __init__(self, 
             server_base_path='http://nginx', view_base_path='http://localhost',
             name = None,
@@ -212,22 +225,26 @@ class ArrowUploader:
         """
         Koa, 04 May 2022    Get SSO login auth_url or token
         """
-        from .pygraphistry import PyGraphistry
+        # from .pygraphistry import PyGraphistry
 
+        if idp_name is None:
+            idp_name = ""  # if idp_name is None 
         base_path = self.server_base_path
         out = requests.get(
-            f'{base_path}/o/{org_name}/sso/oidc/login/{idp_name}',
+            f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/{idp_name}',
             verify=self.certificate_validation
         )
         json_response = None
         try:
             json_response = out.json()
-            
+            self.token = None
             if not ('status' in json_response):
                 raise Exception(out.text)
             else:
                 if json_response['status'] == 'OK':
+                    print("[ArrowUploader] json_data : {}".format(json_response['data']))
                     if 'state' in json_response['data']:
+                        print("[ArrowUploader] state in")
                         self.sso_state = json_response['data']['state']
                         self.sso_auth_url = json_response['data']['auth_url']
                     else:
@@ -239,22 +256,23 @@ class ArrowUploader:
             
         return self
 
-    def sso_login_complete(self, state):
+    def sso_get_token(self, state):
         """
         Koa, 04 May 2022    Use state to get token
         """
 
-        from .pygraphistry import PyGraphistry
+        # from .pygraphistry import PyGraphistry
 
         base_path = self.server_base_path
         out = requests.get(
-            f'{base_path}/o/sso/oidc/jwt/{state}/',
+            f'{base_path}/api/v1/o/sso/oidc/jwt/{state}/',
             verify=self.certificate_validation
         )
         json_response = None
         try:
             json_response = out.json()
-            
+            # print("get_jwt : {}".format(json_response))
+            self.token = None
             if not ('status' in json_response):
                 raise Exception(out.text)
             else:
