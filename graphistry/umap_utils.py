@@ -37,7 +37,7 @@ try:
     has_dependancy: bool = True
 except ModuleNotFoundError as e:
     import_exn = e
-    has_dependancy: bool = False
+    has_dependancy = False
 
 
 def assert_imported():

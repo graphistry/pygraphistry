@@ -26,7 +26,7 @@ try:
 
 except ModuleNotFoundError as e:
     import_text_exn = e
-    has_dependancy_text: bool = False
+    has_dependancy_text = False
 
 try:
     import scipy, scipy.sparse

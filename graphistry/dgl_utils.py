@@ -9,7 +9,7 @@ try:
     import dgl
     has_dependancy: bool = True
 except:
-    has_dependancy: bool = False
+    has_dependancy = False
 
 from . import constants as config
 from .feature_utils import (
