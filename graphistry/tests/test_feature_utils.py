@@ -172,47 +172,53 @@ class TestFeatureProcessors(unittest.TestCase):
     @pytest.mark.skipif(not has_dependancy_text, reason="requires ai feature dependencies")
     def test_process_dirty_dataframes_scalers(self):
         # test different scalers
-        for scaler in ["minmax", "quantile", "zscale", "robust", "kbins"]:
-            x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
-                ndf_reddit,
-                y=double_target_reddit,
-                use_scaler=scaler,
-                cardinality_threshold=40,
-                cardinality_threshold_target=40,
-                n_topics=20,
-                feature_engine=resolve_feature_engine('auto')
-            )
-            self.cases_tests(x, y, x_enc, y_enc, "scaler", scaler)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            for scaler in ["minmax", "quantile", "zscale", "robust", "kbins"]:
+                x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
+                    ndf_reddit,
+                    y=double_target_reddit,
+                    use_scaler=scaler,
+                    cardinality_threshold=40,
+                    cardinality_threshold_target=40,
+                    n_topics=20,
+                    feature_engine=resolve_feature_engine('auto')
+                )
+                self.cases_tests(x, y, x_enc, y_enc, "scaler", scaler)
 
     @pytest.mark.skipif(not has_dependancy_text, reason="requires ai feature dependencies")
     def test_process_dirty_dataframes_data_cardinality(self):
         # test different cardinality
-        for card in [4, 40, 400]:
-            x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
-                ndf_reddit,
-                y=double_target_reddit,
-                use_scaler=None,
-                cardinality_threshold=card,
-                cardinality_threshold_target=40,
-                n_topics=20,
-                feature_engine=resolve_feature_engine('auto')
-            )
-            self.cases_tests(x, y, x_enc, y_enc, "cardinality", card)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            for card in [4, 40, 400]:
+                x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
+                    ndf_reddit,
+                    y=double_target_reddit,
+                    use_scaler=None,
+                    cardinality_threshold=card,
+                    cardinality_threshold_target=40,
+                    n_topics=20,
+                    feature_engine=resolve_feature_engine('auto')
+                )
+                self.cases_tests(x, y, x_enc, y_enc, "cardinality", card)
 
     @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_process_dirty_dataframes_target_cardinality(self):
         # test different target cardinality
-        for card in [4, 40, 400]:
-            x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
-                ndf_reddit,
-                y=double_target_reddit,
-                use_scaler=None,
-                cardinality_threshold=40,
-                cardinality_threshold_target=card,
-                n_topics=20,
-                feature_engine=resolve_feature_engine('auto')
-            )
-            self.cases_tests(x, y, x_enc, y_enc, "target cardinality", card)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            for card in [4, 40, 400]:
+                x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
+                    ndf_reddit,
+                    y=double_target_reddit,
+                    use_scaler=None,
+                    cardinality_threshold=40,
+                    cardinality_threshold_target=card,
+                    n_topics=20,
+                    feature_engine=resolve_feature_engine('auto')
+                )
+                self.cases_tests(x, y, x_enc, y_enc, "target cardinality", card)
 
     @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
     def test_process_textual_or_other_dataframes_min_words(self):
@@ -236,24 +242,26 @@ class TestFeatureProcessors(unittest.TestCase):
 
         self.assertTrue("best to have at least a word" in str(context.exception))
 
-        for min_words in [
-            2,
-            4000,
-        ]:  # last one should skip encoding, and throw all to dirty_cat
-            x, y, x_enc, y_enc, preproc = process_textual_or_other_dataframes(
-                ndf_reddit,
-                y=double_target_reddit,
-                use_scaler=None,
-                cardinality_threshold=40,
-                cardinality_threshold_target=40,
-                n_topics=20,
-                confidence=0.35,
-                min_words=min_words,
-                model_name=model_avg_name,
-                feature_engine=resolve_feature_engine('auto')
-            )
-            self.cases_tests(x, y, x_enc, y_enc, "min_words", min_words)
-
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            for min_words in [
+                2,
+                4000,
+            ]:  # last one should skip encoding, and throw all to dirty_cat
+                x, y, x_enc, y_enc, preproc = process_textual_or_other_dataframes(
+                    ndf_reddit,
+                    y=double_target_reddit,
+                    use_scaler=None,
+                    cardinality_threshold=40,
+                    cardinality_threshold_target=40,
+                    n_topics=20,
+                    confidence=0.35,
+                    min_words=min_words,
+                    model_name=model_avg_name,
+                    feature_engine=resolve_feature_engine('auto')
+                )
+                self.cases_tests(x, y, x_enc, y_enc, "min_words", min_words)
+    
 
 class TestFeatureMethods(unittest.TestCase):
     def cases_with_no_target(self, x, x_enc, name, value, kind):
@@ -360,17 +368,19 @@ class TestFeatureMethods(unittest.TestCase):
             self.cases_with_no_target(x, x_enc, name, value, kind)
 
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
-        for use_col in use_cols:
-            for target in targets:
-                logger.debug("*" * 90)
-                value = [target, use_col]
-                logger.debug(f"{value}")
-                logger.debug("-" * 80)
-                g2 = g.featurize(
-                    kind=kind, X=use_col, y=target, model_name=model_avg_name, use_scaler='minmax'
-                )
-
-                self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            for use_col in use_cols:
+                for target in targets:
+                    logger.debug("*" * 90)
+                    value = [target, use_col]
+                    logger.debug(f"{value}")
+                    logger.debug("-" * 80)
+                    g2 = g.featurize(
+                        kind=kind, X=use_col, y=target, model_name=model_avg_name, use_scaler='minmax'
+                    )
+    
+                    self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
                 
 
     @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
@@ -408,16 +418,18 @@ class TestFeatureMethods(unittest.TestCase):
         from sentence_transformers import SentenceTransformer
         from dirty_cat import SuperVectorizer
 
-        g = graphistry.nodes(ndf_reddit)
-        for use_ngrams in [True, False]:
-            g2 = g.featurize(X='document', use_ngrams=use_ngrams, model_name=model_avg_name)
-            if use_ngrams:
-                assert isinstance(g2._node_text_model, Pipeline)
-            else:
-                assert isinstance(g2._node_text_model, SentenceTransformer)
-        # now check gapEncoder
-        g2 = g.featurize(X='title', use_ngrams=False, min_words=50000, model_name=model_avg_name) # forces textual columns to go to gapEncoder
-        assert isinstance(g2._node_encoder, SuperVectorizer)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            g = graphistry.nodes(ndf_reddit)
+            for use_ngrams in [True, False]:
+                g2 = g.featurize(X='document', use_ngrams=use_ngrams, model_name=model_avg_name)
+                if use_ngrams:
+                    assert isinstance(g2._node_text_model, Pipeline)
+                else:
+                    assert isinstance(g2._node_text_model, SentenceTransformer)
+            # now check gapEncoder
+            g2 = g.featurize(X='title', use_ngrams=False, min_words=50000, model_name=model_avg_name) # forces textual columns to go to gapEncoder
+            assert isinstance(g2._node_encoder, SuperVectorizer)
 
 if __name__ == "__main__":
     unittest.main()
