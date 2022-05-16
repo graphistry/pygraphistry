@@ -3,10 +3,11 @@ import pytest
 import graphistry
 import pandas as pd
 from graphistry.util import setup_logger
-import torch
-import torch.nn.functional as F
 
 from graphistry.dgl_utils import has_dependancy
+
+if has_dependancy:
+    import torch
 
 logger = setup_logger("test_DGL_utils", verbose=True)
 
