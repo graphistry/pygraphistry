@@ -50,7 +50,7 @@ try:
 
 except ModuleNotFoundError as e:
     import_min_exn = e
-    has_min_dependancy: bool = False
+    has_min_dependancy = False
     SuperVectorizer = Any
     Pipeline = Any
 
