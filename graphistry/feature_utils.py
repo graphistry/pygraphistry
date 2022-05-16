@@ -1315,10 +1315,10 @@ class FeatureMixin(MIXIN_BASE):
         inplace: bool = False,
         feature_engine: FeatureEngine = "auto",
     ):
-        """
-
-            Featurize Nodes or Edges of the underlying nodes/edges DataFrames. 
-
+        r"""
+            Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
+        _______________________________________________________________________________________________________________
+        
         :param kind: specify whether to featurize `nodes` or `edges`. Edge featurization includes a pairwise
                 src-to-dst feature block using a MultiLabelBinarizer, with any other columns being treated the
                 same way as with `nodes` featurization.
@@ -1363,7 +1363,6 @@ class FeatureMixin(MIXIN_BASE):
         :param remove_node_column: whether to remove node column so it is not featurized, default True.
         :param inplace: whether to not return new graphistry instance or not, default False.
         :return: self, with new attributes set by the featurization process.
-
         """
         assert_imported()
         if inplace:
