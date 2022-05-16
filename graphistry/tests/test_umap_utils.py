@@ -248,7 +248,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g3._feature_params['nodes']['X'].pop('y')
         assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X'])
         assert g2._feature_params['nodes']['y'].shape == g3._feature_params['nodes']['y'].shape  # None
-        assert g2._node_embedding.shape == g3._node_embedding.shape
+        assert g2._node_embedding.shape == g3._node_embedding.shape # kinda weak sauce
         
     @pytest.mark.skipif(
         not has_dependancy or not has_featurize,
@@ -264,7 +264,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         assert all(g2._edge_features == g3._edge_features)
         assert all(g2._feature_params['edges']['X'] == g3._feature_params['edges']['X'])
         assert all(g2._feature_params['edges']['y'] == g3._feature_params['edges']['y'])  # None
-        assert g2._edge_embedding.shape == g3._edge_embedding.shape
+        assert g2._edge_embedding.shape == g3._edge_embedding.shape # kinda weak sauce
 
     @pytest.mark.skipif(
         not has_dependancy or not has_featurize,

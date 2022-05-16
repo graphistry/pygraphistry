@@ -313,7 +313,8 @@ class TestFeatureMethods(unittest.TestCase):
             "_node_target",
             "_node_target_encoder",
             "_node_encoder",
-            "_node_ordinal_pipeline"
+            "_node_ordinal_pipeline",
+            "_node_text_model"
         ]
         self._check_attributes(g, attributes)
 
@@ -324,6 +325,7 @@ class TestFeatureMethods(unittest.TestCase):
             "_edge_target_encoder",
             "_edge_encoders",  # plural, since we have two
             "_edge_ordinal_pipeline",
+            "_edge_text_model"
         ]
         self._check_attributes(g, attributes)
 
@@ -400,6 +402,22 @@ class TestFeatureMethods(unittest.TestCase):
             df=edge_df,
         )
 
+    @pytest.mark.skipif(not has_dependancy_text, reason="requires ai feature dependencies")
+    def test_text_processing(self):
+        from sklearn.pipeline import Pipeline
+        from sentence_transformers import SentenceTransformer
+        from dirty_cat import SuperVectorizer
+
+        g = graphistry.nodes(ndf_reddit)
+        for use_ngrams in [True, False]:
+            g2 = g.featurize(X='document', use_ngrams=use_ngrams, model_name=model_avg_name)
+            if use_ngrams:
+                assert isinstance(g2._node_text_model, Pipeline)
+            else:
+                assert isinstance(g2._node_text_model, SentenceTransformer)
+        # now check gapEncoder
+        g2 = g.featurize(X='title', use_ngrams=False, min_words=50000, model_name=model_avg_name) # forces textual columns to go to gapEncoder
+        assert isinstance(g2._node_encoder, SuperVectorizer)
 
 if __name__ == "__main__":
     unittest.main()

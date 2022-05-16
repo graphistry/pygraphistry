@@ -135,12 +135,14 @@ class PlotterBase(Plottable):
         self._bolt_driver : any = None
         self._tigergraph : any = None
 
+
         self._node_embedding = None
         self._node_encoder = None
         self._node_features = None
         self._node_ordinal_pipeline = None
         self._node_target = None
         self._node_target_encoder = None
+        self._node_text_model = None
 
         self._edge_embedding = None
         self._edge_encoders = None
@@ -148,6 +150,8 @@ class PlotterBase(Plottable):
         self._edge_ordinal_pipeline = None
         self._edge_target = None
         self._edge_target_encoder = None
+        self._edge_text_model = None
+
 
         self._weighted_adjacency_nodes = None
         self._weighted_adjacency_edges = None

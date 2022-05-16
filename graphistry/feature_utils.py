@@ -9,7 +9,7 @@ from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
 
-logger = setup_logger(__name__)
+logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
@@ -22,11 +22,11 @@ import_text_exn = None
 try:
     from sentence_transformers import SentenceTransformer
 
-    has_dependancy_text = True
+    has_dependancy_text: bool = True
 
 except ModuleNotFoundError as e:
     import_text_exn = e
-    has_dependancy_text = False
+    has_dependancy_text: bool = False
 
 try:
     import scipy, scipy.sparse
@@ -46,11 +46,11 @@ try:
         KBinsDiscretizer,
     )
 
-    has_min_dependancy = True
+    has_min_dependancy: bool = True
 
 except ModuleNotFoundError as e:
     import_min_exn = e
-    has_min_dependancy = False
+    has_min_dependancy: bool = False
     SuperVectorizer = Any
     Pipeline = Any
 
@@ -548,36 +548,76 @@ def impute_and_scale_df(
     return pd.DataFrame(res, columns=columns, index=index), transformer
 
 
+def get_text_preprocessor(ngram_range=(1, 3), max_df=0.2, min_df=3):
+    from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+    cvect = CountVectorizer(ngram_range=ngram_range, max_df=max_df, min_df=min_df)
+    text_clf = lambda cvect: Pipeline(
+        [
+            ("vect", cvect),
+            ("tfidf", TfidfTransformer()),
+        ]
+    )
+    return text_clf(cvect)
+
+
 def encode_textual(
     df: pd.DataFrame,
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-) -> Tuple[np.ndarray, List, List]:
+    use_ngrams: bool = False,
+    ngram_range: tuple = (1, 3),
+    max_df: float = 0.2,
+    min_df: int = 3
+) -> Tuple[np.ndarray, List, List, Any]:
     import os
-
     t = time()
-    model_name = os.path.split(model_name)[-1]
-    model = SentenceTransformer(f"{model_name}")
-
     text_cols = get_textual_columns(df, confidence=confidence, min_words=min_words)
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
     columns = []
+    model = None
     if text_cols:
-        for col in text_cols:
-            logger.debug(f"-Calculating Embeddings for column `{col}`")
-            # coerce to string in case there are ints, floats, nans, etc mixed into column
-            emb = model.encode(df[col].astype(str).values)
-            columns.extend(
-                [f"{col}_{k}" for k in range(emb.shape[1])]
-            )  # so we can slice by original column name
-            # assuming they are unique across cols
-            embeddings = np.c_[embeddings, emb]
-        logger.debug(
-            f"Encoded Textual data at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per column minute"
-        )
+        res = df[text_cols[0]].astype(str)
+        if len(text_cols) > 1:
+            for col in text_cols[1:]:
+                res += ' ' + df[col].astype(str)
+        print(res)
+        print(type(res))
+        if use_ngrams:
+            model = get_text_preprocessor(ngram_range, max_df, min_df)
+            logger.debug(f"-Calculating Tfidf Vectorizer with {ngram_range}-ngrams for column(s) `{text_cols}`")
 
-    return embeddings, text_cols, columns
+            emb = model.fit_transform(res)
+            columns = list(model[0].vocabulary_.keys())
+            if scipy.sparse.issparse(emb):
+                emb = emb.toarray()
+            embeddings = np.c_[embeddings, emb]
+            logger.debug(
+                f"Encoded Textual using Ngrams {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per minute"
+            )
+        else:
+            model_name = os.path.split(model_name)[-1]
+            model = SentenceTransformer(f"{model_name}")
+            emb = model.encode(res.values)
+            embeddings = np.c_[embeddings, emb]
+            logger.debug(
+                f"Encoded Textual using Embedding {model_name}  at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per minute"
+            )
+            columns.extend([f"{'_'.join(text_cols)}_{k}" for k in range(emb.shape[1])])
+            # for col in text_cols:
+            #     logger.debug(f"-Calculating Embeddings for column `{col}`")
+            #     # coerce to string in case there are ints, floats, nans, etc mixed into column
+            #     emb = model.encode(df[col].astype(str).values)
+            #     columns.extend(
+            #         [f"{col}_{k}" for k in range(emb.shape[1])]
+            #     )  # so we can slice by original column name
+            #     # assuming they are unique across cols
+            #     embeddings = np.c_[embeddings, emb]
+            # logger.debug(
+            #     f"Encoded Textual data at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per column minute"
+            # )
+
+    return embeddings, text_cols, columns, model
 
 
 def process_textual_or_other_dataframes(
@@ -588,12 +628,16 @@ def process_textual_or_other_dataframes(
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = "robust",
+    use_ngrams: bool = False,
+    ngram_range: tuple = (1, 3),
+    max_df: float = 0.2,
+    min_df: int = 3,
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     feature_engine: FeatureEngineConcrete = "pandas"
     # test_size: Optional[bool] = None,
-) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Optional[Pipeline]]:
+) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Optional[Pipeline], Any]:
     """
         Automatic Deep Learning Embedding of Textual Features,
         with the rest of the columns taken care of by dirty_cat
@@ -622,9 +666,11 @@ def process_textual_or_other_dataframes(
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
     text_cols: List[str] = []
     columns_text: List[str] = []
+    model: Any = None
     if has_dependancy_text and (feature_engine in ["torch", "auto"]):
-        embeddings, text_cols, columns_text = encode_textual(
-            df, confidence=confidence, min_words=min_words, model_name=model_name
+        embeddings, text_cols, columns_text, model = encode_textual(
+            df, confidence=confidence, min_words=min_words, model_name=model_name,
+            use_ngrams=use_ngrams, ngram_range=ngram_range, max_df=max_df, min_df=min_df
         )
     else:
         logger.debug(
@@ -665,7 +711,7 @@ def process_textual_or_other_dataframes(
     logger.debug(
         f"--The entire Textual and/or other encoding process took {(time()-t)/60:.2f} minutes"
     )
-    return X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline
+    return X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, model
 
 
 def get_cardinality_ratio(df: pd.DataFrame):
@@ -682,7 +728,7 @@ def get_cardinality_ratio(df: pd.DataFrame):
 
 def make_dense(X):
     if scipy.sparse.issparse(X):
-        return X.todense()
+        return X.toarray()
     return X
 
 
@@ -725,7 +771,7 @@ def process_dirty_dataframes(
             y.select_dtypes(include=[np.number]) if y is not None else None,
             False,
             False,
-            False
+            False,
         )
 
     t = time()
@@ -815,11 +861,15 @@ def process_edge_dataframes(
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
+    use_ngrams: bool = False,
+    ngram_range: tuple = (1, 3),
+    max_df: float = 0.2,
+    min_df: int = 3,
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     feature_engine: FeatureEngineConcrete = "pandas"
-) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Optional[Pipeline]]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Optional[Pipeline], Any]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
         and then process_textual_or_other_dataframes that encodes any other data present in edf,
@@ -835,7 +885,7 @@ def process_edge_dataframes(
 
     if feature_engine in ["none", "pandas"]:
         edf2 = edf.select_dtypes(include=[np.number])
-        return edf2, y, [False, False], False, False
+        return edf2, y, [False, False], False, False, False
 
     t = time()
     mlb_pairwise_edge_encoder = MultiLabelBinarizer()
@@ -858,6 +908,7 @@ def process_edge_dataframes(
         data_encoder,
         label_encoder,
         _,
+        model
     ) = process_textual_or_other_dataframes(
         other_df,
         y,
@@ -866,6 +917,10 @@ def process_edge_dataframes(
         n_topics=n_topics,
         n_topics_target=n_topics_target,
         use_scaler=None,
+        use_ngrams=use_ngrams,
+        ngram_range=ngram_range,
+        max_df=max_df,
+        min_df=min_df,
         confidence=confidence,
         min_words=min_words,
         model_name=model_name,
@@ -905,7 +960,8 @@ def process_edge_dataframes(
         y_enc,
         [mlb_pairwise_edge_encoder, data_encoder],
         label_encoder,
-        ordinal_pipeline
+        ordinal_pipeline,
+        model
     )
 
 
@@ -1008,6 +1064,10 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 120,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        use_ngrams: bool = False,
+        ngram_range: tuple = (1, 3),
+        max_df: float = 0.2,
+        min_df: int = 3,
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -1033,6 +1093,10 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            use_ngrams=use_ngrams,
+            ngram_range=ngram_range,
+            max_df=max_df,
+            min_df=min_df,
             confidence=confidence,
             min_words=min_words,
             model_name=model_name,
@@ -1071,10 +1135,11 @@ class FeatureMixin(MIXIN_BASE):
             data_vec = False
             label_vec = False
             ordinal_pipeline = False
+            model = None
         else:
             assert_imported()
             # now vectorize it all
-            X_enc, y_enc, data_vec, label_vec, ordinal_pipeline = self._node_featurizer(
+            X_enc, y_enc, data_vec, label_vec, ordinal_pipeline, model = self._node_featurizer(
                 X_resolved,
                 y=y_resolved,
                 use_scaler=use_scaler,
@@ -1082,6 +1147,10 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                use_ngrams=use_ngrams,
+                ngram_range=ngram_range,
+                max_df=max_df,
+                min_df=min_df,
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
@@ -1094,6 +1163,7 @@ class FeatureMixin(MIXIN_BASE):
         res._node_encoder = data_vec
         res._node_target_encoder = label_vec
         res._node_ordinal_pipeline = ordinal_pipeline
+        res._node_text_model = model
 
         return res
 
@@ -1106,6 +1176,10 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 20,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        use_ngrams: bool = False,
+        ngram_range: tuple = (1, 3),
+        max_df: float = 0.2,
+        min_df: int = 3,
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -1133,6 +1207,10 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            use_ngrams=use_ngrams,
+            ngram_range=ngram_range,
+            max_df=max_df,
+            min_df=min_df,
             confidence=confidence,
             min_words=min_words,
             model_name=model_name,
@@ -1164,6 +1242,7 @@ class FeatureMixin(MIXIN_BASE):
             label_vec = False
             ordinal_pipeline = None
             mlb = False
+            model = None
 
         else:
             assert_imported()
@@ -1183,7 +1262,8 @@ class FeatureMixin(MIXIN_BASE):
                 y_enc,
                 [mlb, data_vec],
                 label_vec,
-                ordinal_pipeline
+                ordinal_pipeline,
+                model
             ) = process_edge_dataframes(
                 X_resolved,
                 y=y_resolved,
@@ -1194,6 +1274,10 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                use_ngrams=use_ngrams,
+                ngram_range=ngram_range,
+                max_df=max_df,
+                min_df=min_df,
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
@@ -1206,7 +1290,8 @@ class FeatureMixin(MIXIN_BASE):
         res._edge_encoders = [mlb, data_vec]
         res._edge_target_encoder = label_vec
         res._edge_ordinal_pipeline = ordinal_pipeline
-
+        res._edge_text_model = model
+        
         return res
 
     def featurize(
@@ -1219,6 +1304,10 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        use_ngrams: bool = False,
+        ngram_range: tuple = (1, 3),
+        max_df: float = 0.2,
+        min_df: int = 3,
         min_words: float = 2.5,
         confidence: float = 0.35,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -1293,6 +1382,10 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                use_ngrams=use_ngrams,
+                ngram_range=ngram_range,
+                max_df=max_df,
+                min_df=min_df,
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
@@ -1308,6 +1401,10 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                use_ngrams=use_ngrams,
+                ngram_range=ngram_range,
+                max_df=max_df,
+                min_df=min_df,
                 confidence=confidence,
                 min_words=min_words,
                 model_name=model_name,
@@ -1328,6 +1425,10 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        use_ngrams: bool = False,
+        ngram_range: tuple = (1, 3),
+        max_df: float = 0.2,
+        min_df: int = 3,
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -1360,6 +1461,10 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            use_ngrams=use_ngrams,
+            ngram_range=ngram_range,
+            max_df=max_df,
+            min_df=min_df,
             confidence=confidence,
             min_words=min_words,
             model_name=model_name,
@@ -1372,8 +1477,6 @@ class FeatureMixin(MIXIN_BASE):
         return res._featurize_or_get_nodes_dataframe_if_X_is_None(
             res._node_features,
             res._node_target,
-            use_scaler,
-            feature_engine=feature_engine,
             reuse_if_existing=True,
         )  # now we are guaranteed to have node feature and target matrices.
 
@@ -1386,6 +1489,10 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 20,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        use_ngrams: bool = False,
+        ngram_range: tuple = (1, 3),
+        max_df: float = 0.2,
+        min_df: int = 3,
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -1417,6 +1524,10 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            use_ngrams=use_ngrams,
+            ngram_range=ngram_range,
+            max_df=max_df,
+            min_df=min_df,
             confidence=confidence,
             min_words=min_words,
             model_name=model_name,
@@ -1426,7 +1537,7 @@ class FeatureMixin(MIXIN_BASE):
         assert res._edge_features is not None  # ensure no infinite loop
 
         return res._featurize_or_get_edges_dataframe_if_X_is_None(
-            res._edge_features, res._edge_target, use_scaler, reuse_if_existing=True
+            res._edge_features, res._edge_target, reuse_if_existing=True
         )
 
 

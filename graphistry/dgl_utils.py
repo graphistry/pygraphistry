@@ -7,9 +7,9 @@ import pandas as pd
 
 try:
     import dgl
-    has_dependancy = True
+    has_dependancy: bool = True
 except:
-    has_dependancy = False
+    has_dependancy: bool = False
 
 from . import constants as config
 from .feature_utils import (
@@ -23,7 +23,7 @@ from .feature_utils import (
 )
 from .util import setup_logger
 
-logger = setup_logger(__name__)
+logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
 
 if TYPE_CHECKING:
@@ -408,7 +408,13 @@ class DGLGraphMixin(MIXIN_BASE):
 
         res.dgl_lazy_init(train_split=train_split, device=device)
 
-        m = res.materialize_nodes()
+        try:
+            m = res.materialize_nodes()
+        except Exception as e:
+            logger.debug(e)
+            logger.info(f'No edges found, please call g.umap(scale=10, ...) to generate implicit edges')
+            raise
+        
         X_nodes_resolved = resolve_X(m._nodes, X_nodes)
         y_nodes_resolved = resolve_y(m._nodes, y_nodes)
 

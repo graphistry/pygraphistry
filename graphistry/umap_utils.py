@@ -7,7 +7,6 @@ import pandas as pd
 
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
-from .constants import VERBOSE
 from .feature_utils import (
     FeatureMixin,
     XSymbolic,
@@ -35,10 +34,10 @@ try:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=ImportWarning)
         import umap
-    has_dependancy = True
+    has_dependancy: bool = True
 except ModuleNotFoundError as e:
     import_exn = e
-    has_dependancy = False
+    has_dependancy: bool = False
 
 
 def assert_imported():
