@@ -242,9 +242,8 @@ class ArrowUploader:
                 raise Exception(out.text)
             else:
                 if json_response['status'] == 'OK':
-                    print("[ArrowUploader] json_data : {}".format(json_response['data']))
+                    # print("[ArrowUploader] json_data : {}".format(json_response['data']))
                     if 'state' in json_response['data']:
-                        print("[ArrowUploader] state in")
                         self.sso_state = json_response['data']['state']
                         self.sso_auth_url = json_response['data']['auth_url']
                     else:
@@ -284,7 +283,7 @@ class ArrowUploader:
 
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
-            raise
+            # raise
             
         return self
 

@@ -176,9 +176,11 @@ class PyGraphistry(object):
             auth_url = arrow_uploader.sso_auth_url
             # print("auth_url : {}".format(auth_url))
             if auth_url and not PyGraphistry.api_token():
-                print("Please Enter to open browser to do SSO login")
+                print("Please minimize browser after SSO login to back to pygraphistry")
+                
                 if not sso_wait_for_token:
                     print("Please run graphistry.sso_get_token() after log in successfully in browser.")
+                input("Press Enter to open browser ...")
                 # open browser to auth_url
                 PyGraphistry._open_browser_sso_login(auth_url)
 
@@ -193,6 +195,8 @@ class PyGraphistry(object):
                         elapsed_time = elapsed_time + 1
                         if elapsed_time > SSO_GET_TOKEN_ELAPSE_SECONDS:
                             raise Exception("[SSO] Get token timeout")
+                    
+                    return PyGraphistry.api_token()
 
     @staticmethod
     def _open_browser_sso_login(auth_url):
@@ -218,9 +222,10 @@ class PyGraphistry(object):
 
         try:
             token = arrow_uploader.token
+            logger.debug("jwt token :{}".format(token))
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
             PyGraphistry._is_authenticated = True
-
+            PyGraphistry.authenticate()
             return PyGraphistry.api_token()
         except:
             pass
