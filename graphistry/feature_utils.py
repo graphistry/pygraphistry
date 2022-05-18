@@ -441,9 +441,9 @@ def get_ordinal_preprocessing_pipeline(
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
-    n_bins: int = 5,
+    n_bins: int = 10,
     encode: str = "ordinal",
-    strategy: str = "uniform",
+    strategy: str = "quantile",
 ) -> Pipeline:
     """
         Helper function for imputing and scaling np.ndarray data using different scaling transformers.
@@ -455,6 +455,8 @@ def get_ordinal_preprocessing_pipeline(
     :param output_distribution: if use_scaler = 'quantile', can return distribution as ["normal", "uniform"]
     :param quantile_range: if use_scaler = 'robust', sets the quantile range.
     :param n_bins: number of bins to use in kbins discretizer
+    :param encode: encoding for KBinsDiscretizer, can be one of ‘onehot’, ‘onehot-dense’, ‘ordinal’, default 'ordinal'
+    :param strategy: strategy for KBinsDiscretizer, can be one of ‘uniform’, ‘quantile’, ‘kmeans’, default 'quantile'
     :return: scaled array, imputer instances or None, scaler instance or None
     """
     available_preprocessors = ["minmax", "quantile", "zscale", "robust", "kbins"]
@@ -462,9 +464,9 @@ def get_ordinal_preprocessing_pipeline(
 
     imputer = identity
     if impute:
-        logger.debug("Imputing Values using mean strategy")
+        logger.debug("Imputing Values using “median” strategy")
         # impute values
-        imputer = SimpleImputer(missing_values=np.nan, strategy="mean")
+        imputer = SimpleImputer(missing_values=np.nan, strategy="median")
 
     scaler = identity
     if use_scaler == "minmax":
@@ -518,7 +520,7 @@ def impute_and_scale_df(
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
-    n_bins: int = 5,
+    n_bins: int = 10,
     encode: str = "ordinal",
     strategy: str = "uniform",
     keep_n_decimals: int = 5,
@@ -526,12 +528,12 @@ def impute_and_scale_df(
 
     columns = df.columns
     index = df.index
-
-    if not is_dataframe_all_numeric(df):
-        logger.warning(
-            "Impute and Scaling can only happen on a Numeric DataFrame.\n -- Try featurizing the DataFrame first using graphistry.featurize(..)"
-        )
-        return df, None
+    
+    # if not is_dataframe_all_numeric(df):
+    #     logger.warning(
+    #         "Impute and Scaling can only happen on a Numeric DataFrame.\n -- Try featurizing the DataFrame first using graphistry.featurize(..)"
+    #     )
+    #     return df, None
 
     transformer = get_ordinal_preprocessing_pipeline(
         impute=impute,
@@ -560,6 +562,15 @@ def get_text_preprocessor(ngram_range=(1, 3), max_df=0.2, min_df=3):
     return text_clf(cvect)
 
 
+def concat_text(df, text_cols):
+    res = df[text_cols[0]].astype(str)
+    if len(text_cols) > 1:
+        logger.debug(f'Concactinating columns {text_cols} into one text-column for encoding')
+        for col in text_cols[1:]:
+            res += ' . ' + df[col].astype(str)
+    return res
+
+
 def encode_textual(
     df: pd.DataFrame,
     confidence: float = 0.35,
@@ -574,19 +585,16 @@ def encode_textual(
     t = time()
     text_cols = get_textual_columns(df, confidence=confidence, min_words=min_words)
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
-    columns = []
+    transformed_columns = []
     model = None
     if text_cols:
-        res = df[text_cols[0]].astype(str)
-        if len(text_cols) > 1:
-            for col in text_cols[1:]:
-                res += ' . ' + df[col].astype(str)
+        res = concat_text(df, text_cols)
         if use_ngrams:
             model = get_text_preprocessor(ngram_range, max_df, min_df)
             logger.debug(f"-Calculating Tfidf Vectorizer with {ngram_range}-ngrams for column(s) `{text_cols}`")
 
             emb = model.fit_transform(res)
-            columns = list(model[0].vocabulary_.keys())
+            transformed_columns = list(model[0].vocabulary_.keys())
             if scipy.sparse.issparse(emb):
                 emb = emb.toarray()
             embeddings = np.c_[embeddings, emb]
@@ -601,24 +609,181 @@ def encode_textual(
             logger.debug(
                 f"Encoded Textual using Embedding {model_name}  at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per minute"
             )
-            columns.extend([f"{'_'.join(text_cols)}_{k}" for k in range(emb.shape[1])])
-            # for col in text_cols:
-            #     logger.debug(f"-Calculating Embeddings for column `{col}`")
-            #     # coerce to string in case there are ints, floats, nans, etc mixed into column
-            #     emb = model.encode(df[col].astype(str).values)
-            #     columns.extend(
-            #         [f"{col}_{k}" for k in range(emb.shape[1])]
-            #     )  # so we can slice by original column name
-            #     # assuming they are unique across cols
-            #     embeddings = np.c_[embeddings, emb]
-            # logger.debug(
-            #     f"Encoded Textual data at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per column minute"
-            # )
-
-    return embeddings, text_cols, columns, model
+            transformed_columns.extend([f"{'_'.join(text_cols)}_{k}" for k in range(emb.shape[1])])
+         
+    return embeddings, text_cols, transformed_columns, model
 
 
-def process_textual_or_other_dataframes(
+def smart_scaler(X_enc, y_enc, use_scaler, use_scaler_target):
+    ordinal_pipeline = None
+    ordinal_pipeline_target = None
+    if use_scaler and not X_enc.empty:
+        logger.debug(f"- Feature scaling using {use_scaler}")
+        
+        X_enc, ordinal_pipeline = impute_and_scale_df(
+            X_enc,
+            use_scaler=use_scaler,
+            impute=True,
+            n_quantiles=100,
+            quantile_range=(25, 75),
+            output_distribution="normal"
+        )
+    
+    if use_scaler_target and not y_enc.empty:
+        logger.debug(f"-Target scaling using {use_scaler_target}")
+        
+        y_enc, ordinal_pipeline_target = impute_and_scale_df(
+            y_enc,
+            use_scaler=use_scaler_target,
+            impute=True,
+            n_quantiles=100,
+            quantile_range=(25, 75),
+            output_distribution="normal"
+        )
+    return X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target
+
+
+def get_cardinality_ratio(df: pd.DataFrame):
+    """Calculates ratio of unique values to total number of rows of DataFrame
+    --------------------------------------------------------------------------
+    :param df: DataFrame
+    """
+    ratios = {}
+    for col in df.columns:
+        ratio = df[col].nunique() / len(df)
+        ratios[col] = ratio
+    return ratios
+
+
+def make_dense(X):
+    if scipy.sparse.issparse(X):
+        return X.toarray()
+    return X
+
+
+def get_numeric(ndf, y):
+    ndf = ndf.select_dtypes(include=[np.number])
+    y = y.select_dtypes(include=[np.number]) if y is not None else None
+    label_encoder = False
+    data_encoder = False
+    return ndf, y, data_encoder, label_encoder
+
+
+def process_dirty_dataframes(
+        ndf: pd.DataFrame,
+        y: Optional[pd.DataFrame],
+        cardinality_threshold: int = 40,
+        cardinality_threshold_target: int = 400,
+        n_topics: int = config.N_TOPICS_DEFAULT,
+        n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
+        feature_engine: FeatureEngineConcrete = "pandas",
+) -> Tuple[
+    pd.DataFrame,
+    Optional[pd.DataFrame],
+    SuperVectorizer,
+    SuperVectorizer,
+    Optional[Pipeline],
+    Optional[Pipeline]
+]:
+    """
+        Dirty_Cat encoder for record level data. Will automatically turn
+        inhomogeneous dataframe into matrix using smart conversion tricks.
+    _________________________________________________________________________
+
+    :param ndf: node DataFrame
+    :param y: target DataFrame or series
+    :param cardinality_threshold: For ndf columns, below this threshold, encoder is OneHot, above, it is GapEncoder
+    :param cardinality_threshold_target: For target columns, below this threshold, encoder is OneHot, above, it is GapEncoder
+    :param n_topics: number of topics for GapEncoder, default 42
+    :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
+    :return: Encoded data matrix and target (if not None), the data encoder, and the label encoder.
+    """
+    t = time()
+    data_encoder = SuperVectorizer(
+        auto_cast=True,
+        cardinality_threshold=cardinality_threshold,
+        high_card_cat_transformer=GapEncoder(n_topics),
+        # numerical_transformer=StandardScaler(), This breaks since -- AttributeError: Transformer numeric (type StandardScaler)
+        #  does not provide get_feature_names.
+        datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
+    )
+    label_encoder = None
+    
+    if feature_engine == "none" or feature_engine == "pandas":
+        logger.warning(
+            "Featurizer returning only numeric entries in DataFrame, if any exist. No real featurizations has taken place."
+        )
+        ndf, y, data_encoder, label_encoder = get_numeric(ndf, y)
+        
+    if not ndf.empty:
+        if not is_dataframe_all_numeric(ndf):
+            logger.debug(":: Encoding DataFrame might take a few minutes --------")
+            X_enc = data_encoder.fit_transform(ndf, y)
+            X_enc = make_dense(X_enc)
+            all_transformers = data_encoder.transformers
+            
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                features_transformed = data_encoder.get_feature_names_out()
+            
+            logger.debug(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}\n")
+            logger.debug(f"-Transformers: \n{all_transformers}\n")
+            logger.debug(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
+            logger.debug(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
+            X_enc = pd.DataFrame(X_enc, columns=features_transformed)
+            X_enc = X_enc.fillna(0)
+        else:
+            # if we pass only a numeric DF, data_encoder throws
+            # RuntimeError: No transformers could be generated !
+            logger.debug(" -*-*- DataFrame is already completely numeric")
+            X_enc = ndf.astype(float)
+            data_encoder = False  # DO NOT SET THIS TO NONE
+            features_transformed = ndf.columns
+            logger.debug(f"-Shape of data {X_enc.shape}\n")
+            logger.debug(f"-Columns: {features_transformed[:20]}...\n")
+    else:
+        X_enc = ndf
+        data_encoder = None
+        logger.debug(" ** Given DataFrame seems to be empty")
+    
+    if y is not None and len(y.columns) > 0 and not is_dataframe_all_numeric(y):
+        t2 = time()
+        logger.debug("-Fitting Targets --\n%s", y.columns)
+        label_encoder = SuperVectorizer(
+            auto_cast=True,
+            cardinality_threshold=cardinality_threshold_target,
+            high_card_cat_transformer=GapEncoder(n_topics_target),
+            datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
+        )
+        y_enc = label_encoder.fit_transform(y)
+        y_enc = make_dense(y_enc)
+        
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            labels_transformed = label_encoder.get_feature_names_out()
+        
+        y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed)
+        y_enc = y_enc.fillna(0)
+        
+        logger.debug(f"-Shape of target {y_enc.shape}")
+        logger.debug(f"-Target Transformers used: {label_encoder.transformers}\n")
+        logger.debug(
+            f"--Fitting SuperVectorizer on TARGET took {(time() - t2) / 60:.2f} minutes\n"
+        )
+    else:
+        print(f'None target {y}')
+        y_enc = y  # .select_dtypes(include=[np.number]) if y is not None else None
+    
+    X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(X_enc, y_enc, use_scaler, use_scaler_target)
+    
+    return X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target
+
+
+def process_nodes_dataframes(
     df: pd.DataFrame,
     y: pd.DataFrame,
     cardinality_threshold: int = 40,
@@ -626,6 +791,7 @@ def process_textual_or_other_dataframes(
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = "robust",
+    use_scaler_target: Optional[str] = "kbins",
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
@@ -635,7 +801,7 @@ def process_textual_or_other_dataframes(
     model_name: str = "paraphrase-MiniLM-L6-v2",
     feature_engine: FeatureEngineConcrete = "pandas"
     # test_size: Optional[bool] = None,
-) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Optional[Pipeline], Any]:
+) -> Tuple[pd.DataFrame, Any, SuperVectorizer, SuperVectorizer, Optional[Pipeline], Optional[Pipeline], Any, List[str]]:
     """
         Automatic Deep Learning Embedding of Textual Features,
         with the rest of the columns taken care of by dirty_cat
@@ -663,10 +829,10 @@ def process_textual_or_other_dataframes(
 
     embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
     text_cols: List[str] = []
-    columns_text: List[str] = []
-    model: Any = None
+    transformed_columns: List[str] = []
+    text_model: Any = None
     if has_dependancy_text and (feature_engine in ["torch", "auto"]):
-        embeddings, text_cols, columns_text, model = encode_textual(
+        embeddings, text_cols, transformed_columns, text_model = encode_textual(
             df, confidence=confidence, min_words=min_words, model_name=model_name,
             use_ngrams=use_ngrams, ngram_range=ngram_range, max_df=max_df, min_df=min_df
         )
@@ -677,7 +843,7 @@ def process_textual_or_other_dataframes(
 
     other_df = df.drop(columns=text_cols, errors="ignore")
 
-    X_enc, y_enc, data_encoder, label_encoder, _ = process_dirty_dataframes(
+    X_enc, y_enc, data_encoder, label_encoder, _, _ = process_dirty_dataframes(
         other_df,
         y,
         cardinality_threshold=cardinality_threshold,
@@ -685,168 +851,31 @@ def process_textual_or_other_dataframes(
         n_topics=n_topics,
         n_topics_target=n_topics_target,
         use_scaler=None,  # set to None so that it happens later
+        use_scaler_target=None,
         feature_engine=feature_engine,
     )
 
     if data_encoder is not None:  # can be False!
         embeddings = np.c_[embeddings, X_enc.values]
-        columns = columns_text + list(X_enc.columns.values)
-    elif len(columns_text):
-        columns = columns_text  # just sentence-transformers
+        columns = transformed_columns + list(X_enc.columns.values)
+    elif len(transformed_columns):
+        columns = transformed_columns  # just sentence-transformers/ngrams
     else:
         logger.warning(
-            f" WARNING: Data Encoder is {data_encoder} and textual_columns are {columns_text}"
+            f" WARNING: Data Encoder is {data_encoder} and textual_columns are {transformed_columns}"
         )
         columns = list(X_enc.columns.values)  # try with this if nothing else
 
     # now remove the leading zeros
     embeddings = embeddings[:, 1:]
     X_enc = pd.DataFrame(embeddings, columns=columns)
-    ordinal_pipeline = None
-    if use_scaler and not X_enc.empty:
-        X_enc, ordinal_pipeline = impute_and_scale_df(X_enc, use_scaler=use_scaler)
-
+    
+    X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(X_enc, y_enc, use_scaler, use_scaler_target)
+    
     logger.debug(
         f"--The entire Textual and/or other encoding process took {(time()-t)/60:.2f} minutes"
     )
-    return X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, model
-
-
-def get_cardinality_ratio(df: pd.DataFrame):
-    """Calculates ratio of unique values to total number of rows of DataFrame
-    --------------------------------------------------------------------------
-    :param df: DataFrame
-    """
-    ratios = {}
-    for col in df.columns:
-        ratio = df[col].nunique() / len(df)
-        ratios[col] = ratio
-    return ratios
-
-
-def make_dense(X):
-    if scipy.sparse.issparse(X):
-        return X.toarray()
-    return X
-
-
-def process_dirty_dataframes(
-    ndf: pd.DataFrame,
-    y: Optional[pd.DataFrame],
-    cardinality_threshold: int = 40,
-    cardinality_threshold_target: int = 400,
-    n_topics: int = config.N_TOPICS_DEFAULT,
-    n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
-    use_scaler: Optional[str] = None,
-    feature_engine: FeatureEngineConcrete = "pandas",
-) -> Tuple[
-    pd.DataFrame,
-    Optional[pd.DataFrame],
-    SuperVectorizer,
-    SuperVectorizer,
-    Optional[Pipeline]
-]:
-    """
-        Dirty_Cat encoder for record level data. Will automatically turn
-        inhomogeneous dataframe into matrix using smart conversion tricks.
-    _________________________________________________________________________
-
-    :param ndf: node DataFrame
-    :param y: target DataFrame or series
-    :param cardinality_threshold: For ndf columns, below this threshold, encoder is OneHot, above, it is GapEncoder
-    :param cardinality_threshold_target: For target columns, below this threshold, encoder is OneHot, above, it is GapEncoder
-    :param n_topics: number of topics for GapEncoder, default 42
-    :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
-    :return: Encoded data matrix and target (if not None), the data encoder, and the label encoder.
-    """
-
-    if feature_engine == "none" or feature_engine == "pandas":
-        logger.warning(
-            "Featurizer returning only numeric entries in DataFrame, if any exist. No real featurizations has taken place."
-        )
-        return (
-            ndf.select_dtypes(include=[np.number]),
-            y.select_dtypes(include=[np.number]) if y is not None else None,
-            False,
-            False,
-            False,
-        )
-
-    t = time()
-    data_encoder = SuperVectorizer(
-        auto_cast=True,
-        cardinality_threshold=cardinality_threshold,
-        high_card_cat_transformer=GapEncoder(n_topics),
-        # numerical_transformer=StandardScaler(), This breaks since -- AttributeError: Transformer numeric (type StandardScaler)
-        #  does not provide get_feature_names.
-        datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
-    )
-    label_encoder = None
-    ordinal_pipeline = None
-    if not ndf.empty:
-        if not is_dataframe_all_numeric(ndf):
-            logger.debug("Encoding DataFrame might take a few minutes --------")
-            X_enc = data_encoder.fit_transform(ndf, y)
-            X_enc = make_dense(X_enc)
-            all_transformers = data_encoder.transformers
-
-            import warnings
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=FutureWarning)
-                features_transformed = data_encoder.get_feature_names_out()
-
-            logger.debug(f"-Shape of data {X_enc.shape}\n")
-            logger.debug(f"-Transformers: \n{all_transformers}\n")
-            logger.debug(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
-            logger.debug(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
-            X_enc = pd.DataFrame(X_enc, columns=features_transformed)
-            X_enc = X_enc.fillna(0)
-        else:
-            # if we pass only a numeric DF, data_encoder throws
-            # RuntimeError: No transformers could be generated !
-            logger.debug("-*-*-DataFrame is already completely numeric")
-            X_enc = ndf.astype(float)
-            data_encoder = False  # DO NOT SET THIS TO NONE
-            features_transformed = ndf.columns
-            logger.debug(f"-Shape of data {X_enc.shape}\n")
-            logger.debug(f"-Columns: {features_transformed[:20]}...\n")
-
-        if use_scaler is not None:
-            X_enc, ordinal_pipeline = impute_and_scale_df(X_enc, use_scaler=use_scaler)
-    else:
-        X_enc = ndf
-        data_encoder = None
-        logger.debug("**Given DataFrame seems to be empty")
-
-    if y is not None and len(y.columns) > 0 and not is_dataframe_all_numeric(y):
-        t2 = time()
-        logger.debug("-Fitting Targets --\n%s", y.columns)
-        label_encoder = SuperVectorizer(
-            auto_cast=True,
-            cardinality_threshold=cardinality_threshold_target,
-            high_card_cat_transformer=GapEncoder(n_topics_target),
-            datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
-        )
-        y_enc = label_encoder.fit_transform(y)
-        y_enc = make_dense(y_enc)
-
-        import warnings
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            labels_transformed = label_encoder.get_feature_names_out()
-
-        y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed)
-        y_enc = y_enc.fillna(0)
-
-        logger.debug(f"-Shape of target {y_enc.shape}")
-        logger.debug(f"-Target Transformers used: {label_encoder.transformers}\n")
-        logger.debug(
-            f"--Fitting SuperVectorizer on TARGET took {(time()-t2)/60:.2f} minutes\n"
-        )
-    else:
-        y_enc = y
-
-    return X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline
+    return X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols
 
 
 def process_edge_dataframes(
@@ -859,6 +888,7 @@ def process_edge_dataframes(
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
+    use_scaler_target: Optional[str] = None,
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
@@ -867,7 +897,7 @@ def process_edge_dataframes(
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     feature_engine: FeatureEngineConcrete = "pandas"
-) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Optional[Pipeline], Any]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, List[Any], Any, Optional[Pipeline], Optional[Pipeline], Any, List[str]]:
     """
         Custom Edge-record encoder. Uses a MultiLabelBinarizer to generate a src/dst vector
         and then process_textual_or_other_dataframes that encodes any other data present in edf,
@@ -906,8 +936,10 @@ def process_edge_dataframes(
         data_encoder,
         label_encoder,
         _,
-        model
-    ) = process_textual_or_other_dataframes(
+        _,
+        text_model,
+        text_cols
+    ) = process_nodes_dataframes(
         other_df,
         y,
         cardinality_threshold=cardinality_threshold,
@@ -915,6 +947,7 @@ def process_edge_dataframes(
         n_topics=n_topics,
         n_topics_target=n_topics_target,
         use_scaler=None,
+        use_scaler_target=None,
         use_ngrams=use_ngrams,
         ngram_range=ngram_range,
         max_df=max_df,
@@ -938,28 +971,22 @@ def process_edge_dataframes(
         columns = list(mlb_pairwise_edge_encoder.classes_)
 
     X_enc = pd.DataFrame(T, columns=columns)
-    ordinal_pipeline = None
-    if use_scaler:
-        X_enc, ordinal_pipeline = impute_and_scale_df(
-            X_enc,
-            use_scaler=use_scaler,
-            impute=True,
-            n_quantiles=100,
-            quantile_range=(25, 75),
-            output_distribution="normal"
-        )
+    
+    X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(X_enc, y_enc, use_scaler, use_scaler_target)
 
     logger.debug(f"--Created an Edge feature matrix of size {T.shape}")
     logger.debug(f"**The entire Edge encoding process took {(time()-t)/60:.2f} minutes")
     # get's us close to `process_nodes_dataframe
-    # TODO how can I meld mlb and sup_vec??? Difficult as it is not a per column transformer...
+    # TODO how can I meld mlb and sup_vec??? Difficult as it is not a per column transformer...need to know src, dst
     return (
         X_enc,
         y_enc,
         [mlb_pairwise_edge_encoder, data_encoder],
         label_encoder,
         ordinal_pipeline,
-        model
+        ordinal_pipeline_target,
+        text_model,
+        text_cols
     )
 
 
@@ -968,6 +995,106 @@ def process_edge_dataframes(
 #      Vectorizer Class + Helpers
 #
 # ###############################################################################
+
+
+class FastEncoder():
+    
+    def __init__(self, df, y, feature_engine='auto'):
+        self.df = df
+        self.ydf = pd.DataFrame([]) if y is None else y
+        self.feature_engine = feature_engine
+        
+    def _encode(self, df, y, kind, src, dst, **kwargs):
+        if kind =='nodes':
+            res = process_nodes_dataframes(df.fillna(0), y.fillna(0), feature_engine=self.feature_engine, **kwargs)
+        elif kind =='edges':
+            res = process_edge_dataframes(df.fillna(0), y.fillna(0), src=src, dst=dst, feature_engine=self.feature_engine, **kwargs)
+        else:
+            raise ValueError(f'`kind` should be one of "nodes" or "edges", found {kind}')
+        return res
+    
+    def _set_result(self, res):
+        print('Setting '*10)
+        X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = res
+        print(X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols)
+        self.feature_columns = X_enc.columns
+        self.feature_columns_target =y_enc.columns
+        self.X = X_enc
+        self.y = y_enc
+        self.data_encoder = data_encoder
+        self.label_encoder = label_encoder
+        self.ordinal_pipeline = ordinal_pipeline
+        self.ordinal_pipeline_target = ordinal_pipeline_target
+        self.text_model = text_model
+        self.text_cols = text_cols
+        
+        
+    def fit(self, kind='nodes', src=None, dst=None, **kwargs):
+        self.kind = kind
+        self.src = src
+        self.dst = dst
+        res = self._encode(self.df, self.ydf, kind, src, dst, **kwargs)
+        self._set_result(res)
+    
+    def transform(self, df, ydf):
+        X = pd.DataFrame([])
+        y = pd.DataFrame([])
+        if self.data_encoder and self.kind=='nodes':
+            print('DATAENCODER -- '*4)
+            print(self.data_encoder)
+            tdf = df.drop(self.text_cols)
+            X = self.data_encoder.transform(tdf)
+            X = pd.DataFrame(X, self.data_encoder.)
+            print(f'Is empty features? : {X.empty}')
+        if self.data_encoder == False:
+            tdf = df.select_dtypes(np.number)
+            X = tdf
+        if self.label_encoder:
+            print(self.label_encoder)
+            y = self.label_encoder.transform(ydf)
+            print(f'Is empty target? : {y.empty}')
+
+        
+        tX = pd.DataFrame([])
+        if self.text_cols:
+            print('textual columns found:')
+            print(self.text_cols)
+            res = concat_text(df, self.text_cols)
+            if self.text_model:
+                from sklearn.pipeline import Pipeline
+                if isinstance(self.text_model, Pipeline):
+                    tX = self.text_model.transform(res)
+                elif isinstance(self.text_model, SentenceTransformer):
+                    tX = self.text_model.encode(res.values)
+                print(f'Is empty text features? : {tX.sum()}')
+
+        if not tX.empty and not X.empty:
+            X = pd.concat([tX, X], axis=1)
+            print('--Combining both')
+        elif not tX.empty and X.empty:
+            X = tX
+            print('--Just textual')
+        elif not X.empty:
+            print('--Dirty_cat transformer')
+            X = X
+        else:
+            print(f'**ITS ALL EMPTY NOTHINGNESS {X}')
+            
+        if self.ordinal_pipeline and not X.empty:
+            print(f'Raw: {X}')
+            X = self.ordinal_pipeline.transform(X)
+            print(f'Scaled: {X}')
+        if self.ordinal_pipeline_target and not y.empty:
+            print(f'Raw target: {y}')
+            y = self.ordinal_pipeline_target.transform(y)
+            print(f'Scaling target: {y}')
+
+        return X, y
+        
+        
+    
+    
+
 
 
 def prune_weighted_edges_df_and_relabel_nodes(
@@ -1051,13 +1178,14 @@ class FeatureMixin(MIXIN_BASE):
         pass
 
     def _node_featurizer(self, *args, **kwargs):
-        return process_textual_or_other_dataframes(*args, **kwargs)
+        return process_nodes_dataframes(*args, **kwargs)
 
     def _featurize_nodes(
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
         use_scaler: Optional[str] = "robust",
+        use_scaler_target: Optional[str] = "kbins",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 120,
         n_topics: int = config.N_TOPICS_DEFAULT,
@@ -1087,6 +1215,8 @@ class FeatureMixin(MIXIN_BASE):
             X=X_resolved,
             y=y_resolved,
             use_scaler=use_scaler,
+            use_scaler_target=use_scaler_target,
+    
             cardinality_threshold=cardinality_threshold,
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
@@ -1127,17 +1257,20 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = features_without_target(X_resolved, y_resolved)
         X_resolved = remove_internal_namespace_if_present(X_resolved)
 
+        data_vec = False
+        label_vec = False
+        text_model = None
+        text_cols = []
+        
         if feature_engine == "none":
             X_enc = X_resolved.select_dtypes(include=np.number)
             y_enc = y_resolved.select_dtypes(include=np.number)
-            data_vec = False
-            label_vec = False
-            ordinal_pipeline = False
-            model = None
+
+            X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(X_enc, y_enc, use_scaler, use_scaler_target)
         else:
             assert_imported()
             # now vectorize it all
-            X_enc, y_enc, data_vec, label_vec, ordinal_pipeline, model = self._node_featurizer(
+            X_enc, y_enc, data_vec, label_vec, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = self._node_featurizer(
                 X_resolved,
                 y=y_resolved,
                 use_scaler=use_scaler,
@@ -1161,7 +1294,9 @@ class FeatureMixin(MIXIN_BASE):
         res._node_encoder = data_vec
         res._node_target_encoder = label_vec
         res._node_ordinal_pipeline = ordinal_pipeline
-        res._node_text_model = model
+        res._node_ordinal_pipeline_target = ordinal_pipeline_target
+        res._node_text_model = text_model
+        res._node_text_cols = text_cols
 
         return res
 
@@ -1170,6 +1305,7 @@ class FeatureMixin(MIXIN_BASE):
         X: XSymbolic = None,
         y: YSymbolic = None,
         use_scaler: Optional[str] = "robust",
+        use_scaler_target: Optional[str] = "kbins",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 20,
         n_topics: int = config.N_TOPICS_DEFAULT,
@@ -1201,6 +1337,7 @@ class FeatureMixin(MIXIN_BASE):
             X=X_resolved,
             y=y_resolved,
             use_scaler=use_scaler,
+            use_scaler_target=use_scaler_target,
             cardinality_threshold=cardinality_threshold,
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
@@ -1233,15 +1370,16 @@ class FeatureMixin(MIXIN_BASE):
 
         X_resolved = features_without_target(X_resolved, y_resolved)
 
+        data_vec = False
+        label_vec = False
+        mlb = False
+        text_model = None
+        text_cols = []
+        
         if feature_engine == "none":
             X_enc = X_resolved.select_dtypes(include=np.number)
             y_enc = y_resolved.select_dtypes(include=np.number)
-            data_vec = False
-            label_vec = False
-            ordinal_pipeline = None
-            mlb = False
-            model = None
-
+            X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(X_enc, y_enc, use_scaler, use_scaler_target)
         else:
             assert_imported()
 
@@ -1261,13 +1399,16 @@ class FeatureMixin(MIXIN_BASE):
                 [mlb, data_vec],
                 label_vec,
                 ordinal_pipeline,
-                model
+                ordinal_pipeline_target,
+                text_model,
+                text_cols
             ) = process_edge_dataframes(
                 X_resolved,
                 y=y_resolved,
                 src=res._source,
                 dst=res._destination,
                 use_scaler=use_scaler,
+                use_scaler_target=use_scaler_target,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
@@ -1288,7 +1429,9 @@ class FeatureMixin(MIXIN_BASE):
         res._edge_encoders = [mlb, data_vec]
         res._edge_target_encoder = label_vec
         res._edge_ordinal_pipeline = ordinal_pipeline
-        res._edge_text_model = model
+        res._edge_ordinal_pipeline_target = ordinal_pipeline_target
+        res._edge_text_model = text_model
+        res._edges_text_cols = text_cols
         
         return res
 
@@ -1298,6 +1441,7 @@ class FeatureMixin(MIXIN_BASE):
         X: XSymbolic = None,
         y: YSymbolic = None,
         use_scaler: Optional[str] = "robust",
+        use_scaler_target: Optional[str] = "kbins",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
@@ -1375,6 +1519,7 @@ class FeatureMixin(MIXIN_BASE):
                 X=X,
                 y=y,
                 use_scaler=use_scaler,
+                use_scaler_target=use_scaler_target,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
@@ -1394,6 +1539,7 @@ class FeatureMixin(MIXIN_BASE):
                 X=X,
                 y=y,
                 use_scaler=use_scaler,
+                use_scaler_target=use_scaler_target,
                 cardinality_threshold=cardinality_threshold,
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
@@ -1418,6 +1564,7 @@ class FeatureMixin(MIXIN_BASE):
         X: XSymbolic = None,
         y: YSymbolic = None,
         use_scaler: Optional[str] = "robust",
+        use_scaler_target: Optional[str] = "kbins",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
@@ -1454,6 +1601,7 @@ class FeatureMixin(MIXIN_BASE):
             X=X,
             y=y,
             use_scaler=use_scaler,
+            use_scaler_target=use_scaler_target,
             cardinality_threshold=cardinality_threshold,
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
@@ -1482,6 +1630,7 @@ class FeatureMixin(MIXIN_BASE):
         X: XSymbolic = None,
         y: YSymbolic = None,
         use_scaler: Optional[str] = "robust",
+        use_scaler_target: Optional[str] = "kbins",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 20,
         n_topics: int = config.N_TOPICS_DEFAULT,
@@ -1517,6 +1666,7 @@ class FeatureMixin(MIXIN_BASE):
             X=X,
             y=y,
             use_scaler=use_scaler,
+            use_scaler_target=use_scaler_target,
             cardinality_threshold=cardinality_threshold,
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
