@@ -570,6 +570,8 @@ def concat_text(df, text_cols):
             res += ' . ' + df[col].astype(str)
     return res
 
+def _get_sentence_transformer_headers(emb, text_cols):
+    return [f"{'_'.join(text_cols)}_{k}" for k in range(emb.shape[1])]
 
 def encode_textual(
     df: pd.DataFrame,
@@ -580,11 +582,11 @@ def encode_textual(
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
     min_df: int = 3
-) -> Tuple[np.ndarray, List, List, Any]:
+) -> Tuple[pd.DataFrame, List, Any]:
     import os
     t = time()
     text_cols = get_textual_columns(df, confidence=confidence, min_words=min_words)
-    embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
+    embeddings = [] #np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
     transformed_columns = []
     model = None
     if text_cols:
@@ -597,7 +599,7 @@ def encode_textual(
             transformed_columns = list(model[0].vocabulary_.keys())
             if scipy.sparse.issparse(emb):
                 emb = emb.toarray()
-            embeddings = np.c_[embeddings, emb]
+            embeddings = emb #np.c_[embeddings, emb]
             logger.debug(
                 f"Encoded Textual using Ngrams {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per minute"
             )
@@ -605,13 +607,15 @@ def encode_textual(
             model_name = os.path.split(model_name)[-1]
             model = SentenceTransformer(f"{model_name}")
             emb = model.encode(res.values)
-            embeddings = np.c_[embeddings, emb]
+            embeddings = emb #np.c_[embeddings, emb]
             logger.debug(
                 f"Encoded Textual using Embedding {model_name}  at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per minute"
             )
-            transformed_columns.extend([f"{'_'.join(text_cols)}_{k}" for k in range(emb.shape[1])])
-         
-    return embeddings, text_cols, transformed_columns, model
+            transformed_columns.extend(_get_sentence_transformer_headers(emb, text_cols))
+    
+    res = pd.DataFrame(embeddings, columns=transformed_columns)
+    
+    return res, text_cols, model
 
 
 def smart_scaler(X_enc, y_enc, use_scaler, use_scaler_target):
@@ -821,18 +825,18 @@ def process_nodes_dataframes(
     :return: X_enc, y_enc, data_encoder, label_encoder
     """
 
-    logger.info("process_textual_or_other_dataframes[%s]", feature_engine)
+    logger.info("process_nodes_dataframes[%s]", feature_engine)
 
     t = time()
     if len(df) == 0 or df.empty:
         logger.warning("DataFrame seems to be Empty")
 
-    embeddings = np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
+    #embeddings = None #np.zeros((len(df), 1))  # just a placeholder so we can use np.c_
     text_cols: List[str] = []
-    transformed_columns: List[str] = []
+    #transformed_columns: List[str] = []
     text_model: Any = None
     if has_dependancy_text and (feature_engine in ["torch", "auto"]):
-        embeddings, text_cols, transformed_columns, text_model = encode_textual(
+        text_df, text_cols, text_model = encode_textual(
             df, confidence=confidence, min_words=min_words, model_name=model_name,
             use_ngrams=use_ngrams, ngram_range=ngram_range, max_df=max_df, min_df=min_df
         )
@@ -855,20 +859,25 @@ def process_nodes_dataframes(
         feature_engine=feature_engine,
     )
 
-    if data_encoder is not None:  # can be False!
-        embeddings = np.c_[embeddings, X_enc.values]
-        columns = transformed_columns + list(X_enc.columns.values)
-    elif len(transformed_columns):
-        columns = transformed_columns  # just sentence-transformers/ngrams
-    else:
-        logger.warning(
-            f" WARNING: Data Encoder is {data_encoder} and textual_columns are {transformed_columns}"
-        )
-        columns = list(X_enc.columns.values)  # try with this if nothing else
+    if not text_df.empty and not X_enc.empty:#data_encoder is not None:  # can be False!
+        print('Found both a textual embedding + dirty_cat')
+
+        X_enc = pd.concat([text_df, X_enc], axis=1)#np.c_[embeddings, X_enc.values]
+    elif not text_df.empty and X_enc.empty:
+        print('Only found a textual embedding')
+        X_enc = text_df
+        #columns = transformed_columns + list(X_enc.columns.values)
+    #elif len(transformed_columns):
+    #    columns = transformed_columns  # just sentence-transformers/ngrams
+    #else:
+        #logger.warning(
+        #    f" WARNING: Data Encoder is {data_encoder} and textual_columns are {X_enc.columns}"
+        #)
+        #columns = list(X_enc.columns.values)  # try with this if nothing else
 
     # now remove the leading zeros
-    embeddings = embeddings[:, 1:]
-    X_enc = pd.DataFrame(embeddings, columns=columns)
+    #embeddings = embeddings[:, 1:]
+    #X_enc = pd.DataFrame(embeddings, columns=columns)
     
     X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(X_enc, y_enc, use_scaler, use_scaler_target)
     
@@ -877,6 +886,18 @@ def process_nodes_dataframes(
     )
     return X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols
 
+def encode_edges(edf, src, dst, mlb, fit=False):
+    source = edf[src]
+    destination = edf[dst]
+    logger.debug("Encoding Edges using MultiLabelBinarizer")
+    if fit:
+        T = mlb.fit_transform(zip(source, destination))
+    else:
+        T = mlb.transform(zip(source, destination))
+    T = 1.0 * T  # coerce to float
+    columns = mlb.classes_
+    T = pd.DataFrame(T, columns=columns)
+    return T, mlb
 
 def process_edge_dataframes(
     edf: pd.DataFrame,
@@ -917,13 +938,8 @@ def process_edge_dataframes(
 
     t = time()
     mlb_pairwise_edge_encoder = MultiLabelBinarizer()
-    source = edf[src]
-    destination = edf[dst]
-    logger.debug("Encoding Edges using MultiLabelBinarizer")
-    T = mlb_pairwise_edge_encoder.fit_transform(zip(source, destination))
-    T = 1.0 * T  # coerce to float
-    logger.debug(f"-Shape of Edge-2-Edge encoder {T.shape}")
-
+    T, mlb_pairwise_edge_encoder = encode_edges(edf, src, dst, mlb_pairwise_edge_encoder, fit=True)
+    
     other_df = edf.drop(columns=[src, dst])
     logger.debug(
         f"-Rest of DataFrame has columns: {other_df.columns} and is not empty"
@@ -938,7 +954,7 @@ def process_edge_dataframes(
         _,
         _,
         text_model,
-        text_cols
+        text_cols,
     ) = process_nodes_dataframes(
         other_df,
         y,
@@ -958,19 +974,24 @@ def process_edge_dataframes(
         feature_engine=feature_engine
     )
 
-    if data_encoder is not None:
-        columns = list(mlb_pairwise_edge_encoder.classes_) + list(X_enc.columns)
-        T = np.c_[T, X_enc.values]
-    elif (
-        data_encoder is False and not X_enc.empty
-    ):  # means other_df was all numeric, data_encoder is False, and we can't get feature names
-        T = np.c_[T, X_enc.values]
-        columns = list(mlb_pairwise_edge_encoder.classes_) + list(other_df.columns)
-    else:  # if other_df is empty
-        logger.debug("-other_df is empty")
-        columns = list(mlb_pairwise_edge_encoder.classes_)
+    if not X_enc.empty and not T.empty:
+        #columns = list(mlb_pairwise_edge_encoder.classes_) + list(X_enc.columns)
+        #T = np.c_[T, X_enc.values]
+        print(f'=Found Edges and Dirty_cat encoding')
+        X_enc = pd.concat([T, X_enc], axis=1)
+    elif not T.empty and X_enc.empty:
+        print(f'=Found only Edges')
+        X_enc = T
+    # elif (
+    #     data_encoder is False and not X_enc.empty
+    # ):  # means other_df was all numeric, data_encoder is False, and we can't get feature names
+    #     T = np.c_[T, X_enc.values]
+    #     columns = list(mlb_pairwise_edge_encoder.classes_) + list(other_df.columns)
+    # else:  # if other_df is empty
+    #     logger.debug("-other_df is empty")
+    #     columns = list(mlb_pairwise_edge_encoder.classes_)
 
-    X_enc = pd.DataFrame(T, columns=columns)
+    #X_enc = pd.DataFrame(T, columns=columns)
     
     X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(X_enc, y_enc, use_scaler, use_scaler_target)
 
@@ -1006,9 +1027,9 @@ class FastEncoder():
         
     def _encode(self, df, y, kind, src, dst, **kwargs):
         if kind =='nodes':
-            res = process_nodes_dataframes(df.fillna(0), y.fillna(0), feature_engine=self.feature_engine, **kwargs)
+            res = process_nodes_dataframes(df, y, feature_engine=self.feature_engine, **kwargs)
         elif kind =='edges':
-            res = process_edge_dataframes(df.fillna(0), y.fillna(0), src=src, dst=dst, feature_engine=self.feature_engine, **kwargs)
+            res = process_edge_dataframes(df, y, src=src, dst=dst, feature_engine=self.feature_engine, **kwargs)
         else:
             raise ValueError(f'`kind` should be one of "nodes" or "edges", found {kind}')
         return res
@@ -1016,9 +1037,14 @@ class FastEncoder():
     def _set_result(self, res):
         print('Setting '*10)
         X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = res
-        print(X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols)
+        for name, value in zip("X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols".split(', '), res):
+            print('-'*60)
+            print(f'{name}: {value}\n')
+            if name in ['data_encoder', 'label_encoder'] and value:
+                print(f'{name.upper()} Transformers: {value.transformers}')
+                
         self.feature_columns = X_enc.columns
-        self.feature_columns_target =y_enc.columns
+        self.feature_columns_target = y_enc.columns
         self.X = X_enc
         self.y = y_enc
         self.data_encoder = data_encoder
@@ -1037,24 +1063,46 @@ class FastEncoder():
         self._set_result(res)
     
     def transform(self, df, ydf):
+        import warnings
+    
         X = pd.DataFrame([])
         y = pd.DataFrame([])
-        if self.data_encoder and self.kind=='nodes':
-            print('DATAENCODER -- '*4)
-            print(self.data_encoder)
-            tdf = df.drop(self.text_cols)
-            X = self.data_encoder.transform(tdf)
-            X = pd.DataFrame(X, self.data_encoder.)
-            print(f'Is empty features? : {X.empty}')
-        if self.data_encoder == False:
-            tdf = df.select_dtypes(np.number)
-            X = tdf
-        if self.label_encoder:
-            print(self.label_encoder)
-            y = self.label_encoder.transform(ydf)
-            print(f'Is empty target? : {y.empty}')
-
         
+        # encode nodes
+        if self.data_encoder and self.kind=='nodes':
+            print('-- Data-encoder --'*4)
+            print(f'\n{self.data_encoder}')
+            X = self.data_encoder.transform(df)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                X = pd.DataFrame(X, columns=self.data_encoder.get_feature_names_out())
+        # encode edges
+        elif isinstance(self.data_encoder, list) and self.kind=='edges':
+            print(f'Transforming Edges!')
+            mlb, data_encoder = self.data_encoder
+            T, mlb = encode_edges(df, self.src, self.dst, mlb, fit=False)
+            X = data_encoder.transform(df)
+            fc = [k for k in self.feature_columns if k not in (list(T.columns) + self.text_cols)]
+            X = pd.DataFrame(X, columns=fc)
+            X = pd.concat([T, X], axis=1)
+        else: # return just numeric
+            X = df.select_dtypes(np.number)
+            print(f'--No data-encoder, returning only numeric columns, if any, with columns {X.columns}')
+        
+        if self.label_encoder and ydf is not None:
+            print(f'-- Label-encoder --'*4)
+            print(f'{self.label_encoder}')
+            y = self.label_encoder.transform(ydf)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                y = pd.DataFrame(y, columns=self.label_encoder.get_feature_names_out())
+        elif ydf is not None:
+            y = ydf.select_dtypes(np.number)
+            print(f'--No target-encoder, returning only numeric columns, if any, with columns {y.columns}')
+            
+        print(f'Is features matrix empty? : {X.empty}')
+        print(f'Is target matrix empty? : {y.empty}')
+
         tX = pd.DataFrame([])
         if self.text_cols:
             print('textual columns found:')
@@ -1064,9 +1112,13 @@ class FastEncoder():
                 from sklearn.pipeline import Pipeline
                 if isinstance(self.text_model, Pipeline):
                     tX = self.text_model.transform(res)
+                    if scipy.sparse.issparse(tX):
+                        tX = tX.toarray()
+                    tX = pd.DataFrame(tX, columns=list(self.text_model[0].vocabulary_.keys()))
                 elif isinstance(self.text_model, SentenceTransformer):
                     tX = self.text_model.encode(res.values)
-                print(f'Is empty text features? : {tX.sum()}')
+                    tX = pd.DataFrame(tX, columns=_get_sentence_transformer_headers(tX, self.text_model))
+                print(f'Are text features empty? : {tX.empty}')
 
         if not tX.empty and not X.empty:
             X = pd.concat([tX, X], axis=1)
@@ -1075,18 +1127,23 @@ class FastEncoder():
             X = tX
             print('--Just textual')
         elif not X.empty:
-            print('--Dirty_cat transformer')
+            print('--Just Dirty_Cat transformer')
             X = X
         else:
             print(f'**ITS ALL EMPTY NOTHINGNESS {X}')
             
+        a, b = set(list(X.columns)), set(list(self.feature_columns))
+        c, d = set(list(y.columns)), set(list(self.feature_columns_target))
+        assert a==b, f'\n--found {a} \n\nand \n{b}\n\n difference \n {a.difference(b)}'
+        assert c==d, f'\n--found targets {c} \n\nand \n {d}\n\n difference \n {c.difference(d)}'
+            
         if self.ordinal_pipeline and not X.empty:
             print(f'Raw: {X}')
-            X = self.ordinal_pipeline.transform(X)
+            X = pd.DataFrame(self.ordinal_pipeline.transform(X), columns=X.columns)
             print(f'Scaled: {X}')
         if self.ordinal_pipeline_target and not y.empty:
             print(f'Raw target: {y}')
-            y = self.ordinal_pipeline_target.transform(y)
+            y = pd.DataFrame(self.ordinal_pipeline_target.transform(y), columns=y.columns)
             print(f'Scaling target: {y}')
 
         return X, y
