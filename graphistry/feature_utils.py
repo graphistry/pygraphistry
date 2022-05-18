@@ -580,9 +580,7 @@ def encode_textual(
         res = df[text_cols[0]].astype(str)
         if len(text_cols) > 1:
             for col in text_cols[1:]:
-                res += ' ' + df[col].astype(str)
-        print(res)
-        print(type(res))
+                res += ' . ' + df[col].astype(str)
         if use_ngrams:
             model = get_text_preprocessor(ngram_range, max_df, min_df)
             logger.debug(f"-Calculating Tfidf Vectorizer with {ngram_range}-ngrams for column(s) `{text_cols}`")
