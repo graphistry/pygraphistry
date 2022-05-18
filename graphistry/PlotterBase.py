@@ -140,6 +140,7 @@ class PlotterBase(Plottable):
         self._node_encoder = None
         self._node_features = None
         self._node_ordinal_pipeline = None
+        self._node_ordinal_pipeline_target = None,
         self._node_target = None
         self._node_target_encoder = None
         self._node_text_model = None
@@ -148,16 +149,17 @@ class PlotterBase(Plottable):
         self._edge_encoders = None
         self._edge_features = None
         self._edge_ordinal_pipeline = None
+        self._edge_ordinal_pipeline_target = None
         self._edge_target = None
         self._edge_target_encoder = None
         self._edge_text_model = None
-
 
         self._weighted_adjacency_nodes = None
         self._weighted_adjacency_edges = None
         self._weighted_edges_df = None
         self._weighted_edges_df_from_nodes = None
         self._weighted_edges_df_from_edges = None
+        self._xy = None
 
         self._umap = None
 

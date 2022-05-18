@@ -12,7 +12,7 @@ import warnings
 
 from graphistry.feature_utils import (
     process_dirty_dataframes,
-    process_textual_or_other_dataframes,
+    process_nodes_dataframes,
     resolve_feature_engine,
     has_min_dependancy,
     has_dependancy_text
@@ -224,7 +224,7 @@ class TestFeatureProcessors(unittest.TestCase):
     def test_process_textual_or_other_dataframes_min_words(self):
         # test different target cardinality
         with self.assertRaises(Exception) as context:  # test that min words needs to be greater than 1
-            x, y, x_enc, y_enc, preproc = process_textual_or_other_dataframes(
+            x, y, x_enc, y_enc, preproc = process_nodes_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
@@ -248,7 +248,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 2,
                 4000,
             ]:  # last one should skip encoding, and throw all to dirty_cat
-                x, y, x_enc, y_enc, preproc = process_textual_or_other_dataframes(
+                x, y, x_enc, y_enc, preproc = process_nodes_dataframes(
                     ndf_reddit,
                     y=double_target_reddit,
                     use_scaler=None,
