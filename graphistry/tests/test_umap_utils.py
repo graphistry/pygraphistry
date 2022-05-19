@@ -64,6 +64,10 @@ class TestUMAPMethods(unittest.TestCase):
         for attribute in attributes:
             self.assertTrue(hasattr(g, attribute), msg.format(attribute))
             self.assertTrue(getattr(g, attribute) is not None, msg2.format(attribute))
+            if 'df' in attribute:
+                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
+            if 'node_' in attribute:
+                self.assertIsInstance(getattr(g, attribute), np.ndarray, msg.format(attribute))
 
 
     def cases_check_node_attributes(self, g):
@@ -177,17 +181,32 @@ class TestUMAPAIMethods(TestUMAPMethods):
         reason="requires ai+umap feature dependencies",
     )
     def _test_umap(self, g, use_cols, targets, name, kind, df):
-        for use_col in use_cols:
-            for target in targets:
-                logger.debug("*" * 90)
-                value = [target, use_col]
-                logger.debug(f"{kind} -- {name}")
-                logger.debug(f"{value}")
-                logger.debug("-" * 80)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            for scaler in ['kbins', 'robust']:
+                for cardinality in [2, 200]:
+                    for use_ngram in [True, False]:
+                        for use_col in use_cols:
+                            for target in targets:
+                                logger.debug("*" * 90)
+                                value = [scaler, cardinality, use_ngram, target, use_col]
+                                logger.debug(f"{value}")
+                                logger.debug("-" * 80)
+                                g2 = g.featurize(
+                                )
+                            
+                                g2 = g.umap(kind=kind,
+                                    X=use_col,
+                                    y=target,
+                                    model_name=model_avg_name,
+                                    use_scaler=scaler,
+                                    use_scaler_target=scaler,
+                                    use_ngrams=use_ngram,
+                                    cardinality_threshold=cardinality,
+                                    cardinality_threshold_target=cardinality,
+                                    n_neighbors=3)
 
-                g2 = g.umap(kind=kind, y=target, X=use_col, model_name=model_avg_name, n_neighbors=3)
-
-                self.cases_test_graph(g2, kind=kind, df=df)
+                                self.cases_test_graph(g2, kind=kind, df=df)
 
     @pytest.mark.skipif(
         not has_dependancy or not has_featurize,
