@@ -50,6 +50,30 @@ class TestComputeMixin(NoAuthTestCase):
         ]
         assert g._node == "id"
 
+
+    @pytest.mark.skipif(
+        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+        reason="cudf tests need TEST_CUDF=1",
+    )
+    def test_materialize_nodes_cudf(self):
+
+        import cudf
+
+        cg = CGFull()
+        g = cg.edges(
+            cudf.from_pandas(pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "a", "d"]})),
+            "s", "d"
+        )
+        g = g.materialize_nodes()
+        assert g._nodes.to_pandas().to_dict(orient="records") == [
+            {"id": "a"},
+            {"id": "b"},
+            {"id": "c"},
+            {"id": "d"},
+        ]
+        assert g._node == "id"
+
+
     def test_degrees_in(self):
         cg = CGFull()
         g = cg.edges(

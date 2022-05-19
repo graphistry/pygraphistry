@@ -1,6 +1,6 @@
-import logging, copy
-from typing import Any, List, Optional, Union, TYPE_CHECKING
-import pandas as pd
+import logging, pandas as pd
+from typing import Any, List, Union, TYPE_CHECKING
+from typing_extensions import Literal
 
 from graphistry.Plottable import Plottable
 from .chain import chain as chain_base
@@ -23,7 +23,7 @@ class ComputeMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         pass
 
-    def materialize_nodes(self, reuse: bool = True):
+    def materialize_nodes(self, reuse: bool = True, engine: Literal['cudf', 'pandas'] = "pandas"):
         """
         Generate g._nodes based on g._edges
 
@@ -66,7 +66,11 @@ class ComputeMixin(MIXIN_BASE):
                     return g
 
         node_id = g._node if g._node is not None else "id"
-        concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
+        if engine == "pandas":
+            concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
+        elif engine == "cudf":
+            import cudf
+            concat_df = cudf.concat([g._edges[g._source], g._edges[g._destination]])
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame()
         return g.nodes(nodes_df, node_id)
 
