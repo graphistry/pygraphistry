@@ -138,38 +138,42 @@ single_target_reddit = pd.DataFrame({"label": ndf_reddit.label.values})
 # data to test textual and numeric DataFrame
 # ndf_stocks, price_df_stocks = get_stocks_dataframe()
 
-def fastallclose(X, x, tol,  name):
+def allclose(X, x, tol, name):
     if not np.allclose(X.mean(), x.mean(), tol):
         print(f'{name}.means() are not aligned at {tol} tolerance...!')
 
     if not np.allclose(X, x, tol):
         print(f'{name}s are not aligned at {tol} tolerance...!')
 
+def test_allclose_fit_transform_on_same_data(X, x, Y, y):
+    tols = [12000, 1200, 100, 10, 0.1, 1e-4, 1e-5]
+    for name, tol in zip(['Features', 'Target'], [tols, tols]):
+        print()
+        for value in tol:
+            if name =='Features':
+                allclose(X, x, value, name)
+            if name == 'Target':
+                allclose(Y, y, value, name)
+
+
 class TestFastEncoder(unittest.TestCase):
-    
+    # we test how far off the fit returned values different from the transformed
     def setUp(self):
         fenc = FastEncoder(ndf_reddit, y=double_target_reddit)
-        fenc.fit(use_ngrams=True, ngram_range=(1,1), use_scaler='robust', cardinality_threshold=100)
+        fenc.fit(use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
         self.X, self.Y = fenc.X, fenc.y
         self.x, self.y = fenc.transform(ndf_reddit, ydf=double_target_reddit)
         
     def test_allclose_fit_transform_on_same_data(self):
-        tols = [12000, 1200, 100, 10, 0.1, 1e-4, 1e-5]
-        for name, tol in zip(['Features', 'Target'], [tols, tols]):
-            print()
-            for value in tol:
-                if name =='Features':
-                    fastallclose(self.X, self.x, value, name)
-                if name == 'Target':
-                    fastallclose(self.Y, self.y, value, name)
-
+        test_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
+        
     def test_columns_match(self):
         assert all(self.X.columns == self.x.columns), f'Feature Columns do not match'
         assert all(self.Y.columns == self.y.columns), f'Target Columns do not match'
 
 
 class TestFeatureProcessors(unittest.TestCase):
-    def cases_tests(self, x, y, x_enc, y_enc, name, value):
+    def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
         self.assertIsInstance(
             x,
             pd.DataFrame,
@@ -189,72 +193,21 @@ class TestFeatureProcessors(unittest.TestCase):
             f"Pandas Target DataFrame should not be empty for {name} {value}",
         )
         self.assertIsInstance(
-            x_enc,
+            data_encoder,
             dirty_cat.super_vectorizer.SuperVectorizer,
             f"Data Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
         )
         self.assertIsInstance(
-            y_enc,
+            target_encoder,
             dirty_cat.super_vectorizer.SuperVectorizer,
             f"Data Target Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
         )
 
-    @pytest.mark.skipif(not has_dependancy_text, reason="requires ai feature dependencies")
-    def test_process_dirty_dataframes_scalers(self):
-        # test different scalers
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            for scaler in ["minmax", "quantile", "zscale", "robust", "kbins"]:
-                x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
-                    ndf_reddit,
-                    y=double_target_reddit,
-                    use_scaler=scaler,
-                    cardinality_threshold=40,
-                    cardinality_threshold_target=40,
-                    n_topics=20,
-                    feature_engine=resolve_feature_engine('auto')
-                )
-                self.cases_tests(x, y, x_enc, y_enc, "scaler", scaler)
-
-    @pytest.mark.skipif(not has_dependancy_text, reason="requires ai feature dependencies")
-    def test_process_dirty_dataframes_data_cardinality(self):
-        # test different cardinality
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            for card in [4, 40, 400]:
-                x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
-                    ndf_reddit,
-                    y=double_target_reddit,
-                    use_scaler=None,
-                    cardinality_threshold=card,
-                    cardinality_threshold_target=40,
-                    n_topics=20,
-                    feature_engine=resolve_feature_engine('auto')
-                )
-                self.cases_tests(x, y, x_enc, y_enc, "cardinality", card)
-
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
-    def test_process_dirty_dataframes_target_cardinality(self):
-        # test different target cardinality
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            for card in [4, 40, 400]:
-                x, y, x_enc, y_enc, preproc = process_dirty_dataframes(
-                    ndf_reddit,
-                    y=double_target_reddit,
-                    use_scaler=None,
-                    cardinality_threshold=40,
-                    cardinality_threshold_target=card,
-                    n_topics=20,
-                    feature_engine=resolve_feature_engine('auto')
-                )
-                self.cases_tests(x, y, x_enc, y_enc, "target cardinality", card)
-
     @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
-    def test_process_textual_or_other_dataframes_min_words(self):
+    def test_process_node_dataframes_min_words(self):
         # test different target cardinality
         with self.assertRaises(Exception) as context:  # test that min words needs to be greater than 1
-            x, y, x_enc, y_enc, preproc = process_nodes_dataframes(
+            X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
@@ -278,7 +231,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 2,
                 4000,
             ]:  # last one should skip encoding, and throw all to dirty_cat
-                x, y, x_enc, y_enc, preproc = process_nodes_dataframes(
+                X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
                     ndf_reddit,
                     y=double_target_reddit,
                     use_scaler=None,
@@ -290,69 +243,27 @@ class TestFeatureProcessors(unittest.TestCase):
                     model_name=model_avg_name,
                     feature_engine=resolve_feature_engine('auto')
                 )
-                self.cases_tests(x, y, x_enc, y_enc, "min_words", min_words)
+                self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
 
 class TestFeatureMethods(unittest.TestCase):
-    def cases_with_no_target(self, x, x_enc, name, value, kind):
-        self.assertIsInstance(
-            x,
-            pd.DataFrame,
-            f"Returned {kind} data matrix is not Pandas DataFrame for {name} {value}",
-        )
-        self.assertFalse(
-            x.empty,
-            f"{kind} Pandas DataFrame should not be empty for {name} {value}",
-        )
-        if kind == "nodes" and x_enc is not None:
-            self.assertIsInstance(
-                x_enc,
-                dirty_cat.super_vectorizer.SuperVectorizer,
-                f"{kind} Data Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
-            )
-        elif kind == "edges":  # edge encoder is made up of two parts
-            mlb, x_enc = x_enc
-            self.assertIsInstance(
-                x_enc,
-                dirty_cat.super_vectorizer.SuperVectorizer,
-                f"{kind} Data Encoder is not a `dirty_cat.super_vectorizer.SuperVectorizer` instance for {name} {value}",
-            )
-            self.assertIsInstance(
-                mlb,
-                sklearn.preprocessing._label.MultiLabelBinarizer,
-                f"{kind} Data Encoder is not a `sklearn.preprocessing._label.MultiLabelBinarizer` instance for {name} {value}",
-            )
-
-    def cases_with_target(self, x, y, x_enc, y_enc, name, value, kind):
-        self.cases_with_no_target(x, x_enc, name, value, kind)
-        self.assertIsInstance(
-            y,
-            pd.DataFrame,
-            f"Returned Target is not a Pandas DataFrame for {name} {value}",
-        )
-        self.assertFalse(
-            y.empty,
-            f"Pandas Target DataFrame should not be empty for {name} {value}",
-        )
-        self.assertIsInstance(
-            y_enc,
-            dirty_cat.super_vectorizer.SuperVectorizer,
-            f"Data Target Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
-        )
 
     def _check_attributes(self, g, attributes):
         msg = "Graphistry instance after featurization should have `{}` as attribute"
         for attribute in attributes:
             self.assertTrue(hasattr(g, attribute), msg.format(attribute))
+            if 'features' in attribute:
+                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
+            if 'target' in attribute:
+                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
+            if 'encoder' in attribute:
+                self.assertIsInstance(getattr(g, attribute), FastEncoder, msg.format(attribute))
 
     def cases_check_node_attributes(self, g):
         attributes = [
             "_node_features",
             "_node_target",
-            "_node_target_encoder",
             "_node_encoder",
-            "_node_ordinal_pipeline",
-            "_node_text_model"
         ]
         self._check_attributes(g, attributes)
 
@@ -360,57 +271,51 @@ class TestFeatureMethods(unittest.TestCase):
         attributes = [
             "_edge_features",
             "_edge_target",
-            "_edge_target_encoder",
-            "_edge_encoders",  # plural, since we have two
-            "_edge_ordinal_pipeline",
-            "_edge_text_model"
+            "_edge_encoder"
         ]
         self._check_attributes(g, attributes)
 
     def cases_test_graph(self, g, name, value, kind="nodes", df=ndf_reddit):
+        print(f'<{name} test graph: {value}>')
         if kind == "nodes":
             ndf = g._nodes
             self.cases_check_node_attributes(g)
-            x, y, x_enc, y_enc = (
-                g._node_features,
-                g._node_target,
-                g._node_encoder,
-                g._node_target_encoder,
-            )
         else:
             ndf = g._edges
             self.cases_check_edge_attributes(g)
-            x, y, x_enc, y_enc = (
-                g._edge_features,
-                g._edge_target,
-                g._edge_encoders,
-                g._edge_target_encoder,
-            )
 
         cols = ndf.columns
         self.assertTrue(
             np.all(ndf == df[cols]),
             f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
         )
-        if y_enc is not None:
-            self.cases_with_target(x, y, x_enc, y_enc, name, value, kind)
-        else:
-            self.cases_with_no_target(x, x_enc, name, value, kind)
 
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
-            for use_col in use_cols:
-                for target in targets:
-                    logger.debug("*" * 90)
-                    value = [target, use_col]
-                    logger.debug(f"{value}")
-                    logger.debug("-" * 80)
-                    g2 = g.featurize(
-                        kind=kind, X=use_col, y=target, model_name=model_avg_name, use_scaler='minmax'
-                    )
-    
-                    self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
+            for scaler in ['kbins', 'robust']:
+                for cardinality in [2, 200]:
+                    for use_ngram in [True, False]:
+                        for use_col in use_cols:
+                            for target in targets:
+                                logger.debug("*" * 90)
+                                value = [scaler, cardinality, use_ngram, target, use_col]
+                                logger.debug(f"{value}")
+                                logger.debug("-" * 80)
+                                g2 = g.featurize(
+                                    kind=kind,
+                                    X=use_col,
+                                    y=target,
+                                    model_name=model_avg_name,
+                                    use_scaler=scaler,
+                                    use_scaler_target=scaler,
+                                    use_ngrams=use_ngram,
+                                    cardinality_threshold=cardinality,
+                                    cardinality_threshold_target=cardinality
+                                )
+                
+                                self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
+                                
                 
 
     @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
@@ -442,24 +347,6 @@ class TestFeatureMethods(unittest.TestCase):
             df=edge_df,
         )
 
-    @pytest.mark.skipif(not has_dependancy_text, reason="requires ai feature dependencies")
-    def test_text_processing(self):
-        from sklearn.pipeline import Pipeline
-        from sentence_transformers import SentenceTransformer
-        from dirty_cat import SuperVectorizer
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            g = graphistry.nodes(ndf_reddit)
-            for use_ngrams in [True, False]:
-                g2 = g.featurize(X='document', use_ngrams=use_ngrams, model_name=model_avg_name)
-                if use_ngrams:
-                    assert isinstance(g2._node_text_model, Pipeline)
-                else:
-                    assert isinstance(g2._node_text_model, SentenceTransformer)
-            # now check gapEncoder
-            g2 = g.featurize(X='title', use_ngrams=False, min_words=50000, model_name=model_avg_name) # forces textual columns to go to gapEncoder
-            assert isinstance(g2._node_encoder, SuperVectorizer)
 
 if __name__ == "__main__":
     unittest.main()
