@@ -15,7 +15,8 @@ from graphistry.feature_utils import (
     process_nodes_dataframes,
     resolve_feature_engine,
     has_min_dependancy,
-    has_dependancy_text
+    has_dependancy_text,
+    FastEncoder
 )
 
 try:
@@ -136,6 +137,35 @@ single_target_reddit = pd.DataFrame({"label": ndf_reddit.label.values})
 # ################################################
 # data to test textual and numeric DataFrame
 # ndf_stocks, price_df_stocks = get_stocks_dataframe()
+
+def fastallclose(X, x, tol,  name):
+    if not np.allclose(X.mean(), x.mean(), tol):
+        print(f'{name}.means() are not aligned at {tol} tolerance...!')
+
+    if not np.allclose(X, x, tol):
+        print(f'{name}s are not aligned at {tol} tolerance...!')
+
+class TestFastEncoder(unittest.TestCase):
+    
+    def setUp(self):
+        fenc = FastEncoder(ndf_reddit, y=double_target_reddit)
+        fenc.fit(use_ngrams=True, ngram_range=(1,1), use_scaler='robust', cardinality_threshold=100)
+        self.X, self.Y = fenc.X, fenc.y
+        self.x, self.y = fenc.transform(ndf_reddit, ydf=double_target_reddit)
+        
+    def test_allclose_fit_transform_on_same_data(self):
+        tols = [12000, 1200, 100, 10, 0.1, 1e-4, 1e-5]
+        for name, tol in zip(['Features', 'Target'], [tols, tols]):
+            print()
+            for value in tol:
+                if name =='Features':
+                    fastallclose(self.X, self.x, value, name)
+                if name == 'Target':
+                    fastallclose(self.Y, self.y, value, name)
+
+    def test_columns_match(self):
+        assert all(self.X.columns == self.x.columns), f'Feature Columns do not match'
+        assert all(self.Y.columns == self.y.columns), f'Target Columns do not match'
 
 
 class TestFeatureProcessors(unittest.TestCase):
