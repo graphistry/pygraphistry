@@ -191,7 +191,7 @@ class Plottable(object):
         edge_attributes: Optional[List[str]] = None
     ) -> Any:
         if 1 + 1:
-            raise RecursionError('should not happen')
+            raise RuntimeError('should not happen')
         return self
 
     def from_igraph(self,
@@ -202,5 +202,6 @@ class Plottable(object):
         merge_if_existing: bool = True
     ):
         if 1 + 1:
-            raise RecursionError('should not happen')
+            raise RuntimeError('should not happen')
+        return self
         return self
