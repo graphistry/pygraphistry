@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import pandas as pd, pytest, unittest
+import os, pandas as pd, pytest, unittest
 from common import NoAuthTestCase
 
 from graphistry.compute import ComputeMixin
