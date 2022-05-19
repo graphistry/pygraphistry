@@ -1017,14 +1017,119 @@ def process_edge_dataframes(
 #
 # ###############################################################################
 
+def transform_text(res:pd.DataFrame, text_model: Union[SentenceTransformer, Pipeline], text_cols:Union[List, str]) -> pd.DataFrame:
+    from sklearn.pipeline import Pipeline
+    if isinstance(text_model, Pipeline):
+        tX = text_model.transform(res)
+        if scipy.sparse.issparse(tX):
+            tX = tX.toarray()
+        tX = pd.DataFrame(tX, columns=list(text_model[0].vocabulary_.keys()))
+    elif isinstance(text_model, SentenceTransformer):
+        tX = text_model.encode(res.values)
+        tX = pd.DataFrame(tX, columns=_get_sentence_transformer_headers(tX, text_cols))
+    else:
+        raise ValueError(f'`text_model` should be instance of sklearn.pipeline.Pipeline or SentenceTransformer, got {text_model}')
+    return tX
+
+def transform_dirty(df:pd.DataFrame, data_encoder: SuperVectorizer, name: str='') -> pd.DataFrame:
+    import warnings
+    print(f'-- SuperVect: {name} Encoder --')
+    print(f'\n{data_encoder}')
+    X = data_encoder.transform(df)
+    if scipy.sparse.issparse(X):
+        X = X.toarray()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        X = pd.DataFrame(X, columns=data_encoder.get_feature_names_out())
+    return X
+
+def transform(df, ydf, res, kind, src, dst):
+    # here res is the featurization result
+    X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = res
+    feature_columns = X_enc.columns
+    feature_columns_target = y_enc.columns
+    
+    y = pd.DataFrame([])
+    T = pd.DataFrame([])
+    # encode nodes
+    if data_encoder and kind == 'nodes':
+        X = transform_dirty(df, data_encoder, name='Dirty Node Features')
+    # encode edges
+    elif isinstance(data_encoder, list) and kind == 'edges':
+        print(f'Transforming Edges!')
+        mlb, data_encoder = data_encoder
+        T, mlb = encode_edges(df, src, dst, mlb, fit=False)
+        X = transform_dirty(df, data_encoder, 'Dirty Edge-Features')
+    else:  # return just numeric
+        X = df.select_dtypes(np.number)
+        print(f'--No data-encoder, returning only numeric columns, if any, with columns {X.columns}')
+
+    if label_encoder and ydf is not None:
+        y = transform_dirty(ydf, label_encoder, name=f'{kind.title()}-Label')
+    elif ydf is not None:
+        y = ydf.select_dtypes(np.number)
+        print(f'--No target-encoder, returning only numeric columns, if any, with columns {y.columns}')
+
+    # Concat in the Textual features, if any
+    tX = pd.DataFrame([])
+    if text_cols:
+        print('textual columns found:')
+        print(text_cols)
+        res = concat_text(df, text_cols)
+        if text_model:
+            tX = transform_text(res, text_model, text_cols)
+            print(f'Are text features empty? : {tX.empty}')
+
+    # ravel text to dirty_cat, with text in front.
+    if not tX.empty and not X.empty:
+        X = pd.concat([tX, X], axis=1)
+        print('--Combining both Textual and Dirty_Cat')
+    elif not tX.empty and X.empty:
+        X = tX # textual
+        print('--Just textual')
+    elif not X.empty:
+        print('--Just Dirty_Cat transformer')
+        X = X # dirty
+    else:
+        print(f'**ITS ALL EMPTY NOTHINGNESS {X}')
+
+    # now if edges, add T at front
+    if kind == 'edges':
+        X = pd.concat([T, X], axis=1)  # edges, text, dirty_cat
+        print(f'Combining MultiLabelBinerizer with previous features')
+
+    print(f'--Features matrix shape: {X.shape}')
+    print(f'--Target matrix shape: {y.shape}')
+
+    a, b = set(list(X.columns)), set(list(feature_columns))
+    c, d = set(list(y.columns)), set(list(feature_columns_target))
+    assert a == b, f'\n--found {a} \n\nand \n{b}\n\n difference \n {a.difference(b)}'
+    assert c == d, f'\n--found targets {c} \n\nand \n {d}\n\n difference \n {c.difference(d)}'
+
+    if ordinal_pipeline and not X.empty:
+        print(f'Raw: {X}')
+        X = pd.DataFrame(ordinal_pipeline.transform(X), columns=X.columns)
+        print(f'Scaled: {X}')
+    if ordinal_pipeline_target and not y.empty:
+        print(f'Raw target: {y}')
+        y = pd.DataFrame(ordinal_pipeline_target.transform(y), columns=y.columns)
+        print(f'Scaling target: {y}')
+
+    return X, y
 
 class FastEncoder():
     
     def __init__(self, df, y, feature_engine='auto'):
         self.df = df
-        self.ydf = pd.DataFrame([]) if y is None else y
+        self._y = pd.DataFrame([]) if y is None else y
+        self._assertions()
         self.feature_engine = feature_engine
-        
+    
+    def _assertions(self):
+        # add smart checks here
+        if not self._y.empty:
+            assert self.df.shape[0] == self._y.shape[0], f'Data and Targets must have same number of rows, found {self.df.shape[0], self._y.shape[0]}, resp'
+       
     def _encode(self, df, y, kind, src, dst, **kwargs):
         if kind =='nodes':
             res = process_nodes_dataframes(df, y, feature_engine=self.feature_engine, **kwargs)
@@ -1047,7 +1152,7 @@ class FastEncoder():
         self.feature_columns_target = y_enc.columns
         self.X = X_enc
         self.y = y_enc
-        self.data_encoder = data_encoder
+        self.data_encoder = data_encoder # is list for
         self.label_encoder = label_encoder
         self.ordinal_pipeline = ordinal_pipeline
         self.ordinal_pipeline_target = ordinal_pipeline_target
@@ -1059,70 +1164,46 @@ class FastEncoder():
         self.kind = kind
         self.src = src
         self.dst = dst
-        res = self._encode(self.df, self.ydf, kind, src, dst, **kwargs)
+        res = self._encode(self.df, self._y, kind, src, dst, **kwargs)
         self._set_result(res)
     
     def transform(self, df, ydf):
-        import warnings
     
-        X = pd.DataFrame([])
         y = pd.DataFrame([])
-        
+        T = pd.DataFrame([])
         # encode nodes
         if self.data_encoder and self.kind=='nodes':
-            print('-- Data-encoder --'*4)
-            print(f'\n{self.data_encoder}')
-            X = self.data_encoder.transform(df)
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=FutureWarning)
-                X = pd.DataFrame(X, columns=self.data_encoder.get_feature_names_out())
+            X = transform_dirty(df, self.data_encoder, name='Node-Features')
         # encode edges
         elif isinstance(self.data_encoder, list) and self.kind=='edges':
             print(f'Transforming Edges!')
             mlb, data_encoder = self.data_encoder
             T, mlb = encode_edges(df, self.src, self.dst, mlb, fit=False)
-            X = data_encoder.transform(df)
-            fc = [k for k in self.feature_columns if k not in (list(T.columns) + self.text_cols)]
-            X = pd.DataFrame(X, columns=fc)
-            X = pd.concat([T, X], axis=1)
+            X = transform_dirty(df, data_encoder, 'Edge-Features')
         else: # return just numeric
             X = df.select_dtypes(np.number)
             print(f'--No data-encoder, returning only numeric columns, if any, with columns {X.columns}')
         
         if self.label_encoder and ydf is not None:
-            print(f'-- Label-encoder --'*4)
-            print(f'{self.label_encoder}')
-            y = self.label_encoder.transform(ydf)
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=FutureWarning)
-                y = pd.DataFrame(y, columns=self.label_encoder.get_feature_names_out())
+            y = transform_dirty(ydf, self.label_encoder, name=f'{self.kind}-Label')
         elif ydf is not None:
             y = ydf.select_dtypes(np.number)
             print(f'--No target-encoder, returning only numeric columns, if any, with columns {y.columns}')
             
-        print(f'Is features matrix empty? : {X.empty}')
-        print(f'Is target matrix empty? : {y.empty}')
-
+        # Concat in the Textual features, if any
         tX = pd.DataFrame([])
         if self.text_cols:
             print('textual columns found:')
             print(self.text_cols)
             res = concat_text(df, self.text_cols)
             if self.text_model:
-                from sklearn.pipeline import Pipeline
-                if isinstance(self.text_model, Pipeline):
-                    tX = self.text_model.transform(res)
-                    if scipy.sparse.issparse(tX):
-                        tX = tX.toarray()
-                    tX = pd.DataFrame(tX, columns=list(self.text_model[0].vocabulary_.keys()))
-                elif isinstance(self.text_model, SentenceTransformer):
-                    tX = self.text_model.encode(res.values)
-                    tX = pd.DataFrame(tX, columns=_get_sentence_transformer_headers(tX, self.text_model))
+                tX = transform_text(res, self.text_model, self.text_cols)
                 print(f'Are text features empty? : {tX.empty}')
-
+                
+        # ravel text to dirty_cat, with text in front.
         if not tX.empty and not X.empty:
             X = pd.concat([tX, X], axis=1)
-            print('--Combining both')
+            print('--Combining both Textual and Dirty_Cat')
         elif not tX.empty and X.empty:
             X = tX
             print('--Just textual')
@@ -1131,7 +1212,14 @@ class FastEncoder():
             X = X
         else:
             print(f'**ITS ALL EMPTY NOTHINGNESS {X}')
+        
+        # now if edges, add T at front
+        if self.kind=='edges':
+            X = pd.concat([T, X], axis=1)
             
+        print(f'Is features matrix empty? : {X.empty}')
+        print(f'Is target matrix empty? : {y.empty}')
+
         a, b = set(list(X.columns)), set(list(self.feature_columns))
         c, d = set(list(y.columns)), set(list(self.feature_columns_target))
         assert a==b, f'\n--found {a} \n\nand \n{b}\n\n difference \n {a.difference(b)}'
