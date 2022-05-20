@@ -246,6 +246,10 @@ class UMAPMixin(MIXIN_BASE):
         featurize_kwargs = kv
 
         return featurize_kwargs
+    
+    def transform_umap(self, df:pd.DataFrame, ydf:pd.DataFrame, kind:str='nodes'):
+        x, y = self.transform(df, ydf, kind=kind)
+        return self._umap.transform(x), y
         
     def umap(
         self,

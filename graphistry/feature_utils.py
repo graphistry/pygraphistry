@@ -856,6 +856,24 @@ def process_nodes_dataframes(
     """
 
     logger.info("process_nodes_dataframes[%s]", feature_engine)
+    
+    if feature_engine in ["none", "pandas"]:
+        X_enc = df.select_dtypes(include=[np.number])
+        y_enc = y.select_dtypes(include=[np.number])
+        X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(
+            X_enc, y_enc, use_scaler, use_scaler_target
+        )
+        logger.debug(f'Feature Engine {feature_engine}, returning only Numeric Data, if any')
+        return (
+            X_enc,
+            y_enc,
+            False,
+            False,
+            ordinal_pipeline,
+            ordinal_pipeline_target,
+            False,
+            [],
+        )
 
     t = time()
     if len(df) == 0 or df.empty:
@@ -910,7 +928,7 @@ def process_nodes_dataframes(
     logger.debug(
         f"--The entire Textual and/or other encoding process took {(time()-t)/60:.2f} minutes"
     )
-    return (
+    res = (
         X_enc,
         y_enc,
         data_encoder,
@@ -921,8 +939,11 @@ def process_nodes_dataframes(
         text_cols,
     )
 
+    return res
+
 
 def encode_edges(edf, src, dst, mlb, fit=False):
+    # uses mlb with fit=T/F so we can use it in transform mode to recreate edge feature concat definition
     source = edf[src]
     destination = edf[dst]
     logger.debug("Encoding Edges using MultiLabelBinarizer")
@@ -977,8 +998,18 @@ def process_edge_dataframes(
     :param use_scaler: None or string in ['minmax', 'zscale', 'robust', 'quantile']
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
+    logger.info("process_edges_dataframes[%s]", feature_engine)
 
+
+
+    t = time()
+    mlb_pairwise_edge_encoder = MultiLabelBinarizer()
+    T, mlb_pairwise_edge_encoder = encode_edges(
+        edf, src, dst, mlb_pairwise_edge_encoder, fit=True
+    )
+    
     if feature_engine in ["none", "pandas"]:
+        edf = T
         X_enc = edf.select_dtypes(include=[np.number])
         y_enc = y.select_dtypes(include=[np.number])
         X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(
@@ -987,19 +1018,14 @@ def process_edge_dataframes(
 
         return (
             X_enc,
-            y_enc[False, False],
+            y_enc,
+            [False, False],
             False,
             ordinal_pipeline,
             ordinal_pipeline_target,
             False,
             [],
         )
-
-    t = time()
-    mlb_pairwise_edge_encoder = MultiLabelBinarizer()
-    T, mlb_pairwise_edge_encoder = encode_edges(
-        edf, src, dst, mlb_pairwise_edge_encoder, fit=True
-    )
 
     other_df = edf.drop(columns=[src, dst])
     logger.debug(
@@ -1048,9 +1074,8 @@ def process_edge_dataframes(
 
     logger.debug(f"--Created an Edge feature matrix of size {T.shape}")
     logger.debug(f"**The entire Edge encoding process took {(time()-t)/60:.2f} minutes")
-    # get's us close to `process_nodes_dataframe
-    # TODO how can I meld mlb and sup_vec??? Difficult as it is not a per column transformer...need to know src, dst
-    return (
+    
+    res =  (
         X_enc,
         y_enc,
         [mlb_pairwise_edge_encoder, data_encoder],
@@ -1060,6 +1085,8 @@ def process_edge_dataframes(
         text_model,
         text_cols,
     )
+    
+    return res
 
 
 # #################################################################################
@@ -1108,7 +1135,9 @@ def transform_dirty(
 def transform(
     df: pd.DataFrame, ydf: pd.DataFrame, res: List, kind: str, src, dst
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    # here res is the featurization result
+    # here res is the featurization result,
+    # this function aligns with what is computed during processing nodes or edges.
+    #
     (
         X_enc,
         y_enc,
@@ -1128,13 +1157,13 @@ def transform(
     T = pd.DataFrame([])
     # encode nodes
     if data_encoder and kind == "nodes":
-        X = transform_dirty(df, data_encoder, name="Dirty Node Features")
+        X = transform_dirty(df, data_encoder, name="Numeric and/or Dirty Node Features")
     # encode edges
     elif isinstance(data_encoder, list) and kind == "edges":
         print(f"Transforming Edges!")
         mlb, data_encoder = data_encoder
         T, mlb = encode_edges(df, src, dst, mlb, fit=False)
-        X = transform_dirty(df, data_encoder, "Dirty Edge-Features")
+        X = transform_dirty(df, data_encoder, "Numeric and/or Dirty Edge-Features")
     else:  # return just numeric
         X = df.select_dtypes(np.number)
         print(
@@ -1162,12 +1191,12 @@ def transform(
     # concat text to dirty_cat, with text in front.
     if not tX.empty and not X.empty:
         X = pd.concat([tX, X], axis=1)
-        print("--Combining both Textual and Dirty_Cat")
+        print("--Combining both Textual and Numeric/Dirty_Cat")
     elif not tX.empty and X.empty:
         X = tX  # textual
         print("--Just textual")
     elif not X.empty:
-        print("--Just Dirty_Cat transformer")
+        print("--Just Numeric/Dirty_Cat transformer")
         X = X  # dirty
     else:
         print(f"**ITS ALL EMPTY NOTHINGNESS {X}")
@@ -1190,27 +1219,27 @@ def transform(
         )
 
     if ordinal_pipeline and not X.empty:
-        print(f"Raw: {X}")
+        #print(f"Raw: {X}")
         X = pd.DataFrame(ordinal_pipeline.transform(X), columns=X.columns)
-        print(f"Scaled: {X}")
+        #print(f"Scaled: {X}")
     if ordinal_pipeline_target and not y.empty:
-        print(f"Raw target: {y}")
+        #print(f"Raw target: {y}")
         y = pd.DataFrame(ordinal_pipeline_target.transform(y), columns=y.columns)
-        print(f"Scaling target: {y}")
+        #print(f"Scaling target: {y}")
 
     return X, y
 
 
 class FastEncoder:
-    def __init__(self, df, y=None):
+    def __init__(self, df, y=None, kind='nodes'):
         self._df = df
         self._y = pd.DataFrame([]) if y is None else y
+        self.kind = kind
         self._assertions()
         # these are the parts we can use to reconstruct transform.
         self.res_names = "X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols".split(
             ", "
         )
-        # self.feature_engine = feature_engine
 
     def _assertions(self):
         # add smart checks here
@@ -1229,9 +1258,15 @@ class FastEncoder:
                 f'`kind` should be one of "nodes" or "edges", found {kind}'
             )
         return res
+    
+    def _hecho(self, res):
+        for name, value in zip(self.res_names, res):
+            if name not in ['X_enc', 'y_enc']:
+                print("-" * 90)
+                print(f"[[ {name} ]]:  {value}\n")
 
     def _set_result(self, res):
-        print("\n--  Setting  ::")
+        print("\n--  Setting Encoder Parts ::")
         self.res = res
         (
             X_enc,
@@ -1243,10 +1278,8 @@ class FastEncoder:
             text_model,
             text_cols,
         ) = res
-        for name, value in zip(self.res_names, res):
-            print()
-            print("-" * 60)
-            print(f"{name}: {value}\n")
+        
+        self._hecho(res)
 
         self.feature_columns = X_enc.columns
         self.feature_columns_target = y_enc.columns
@@ -1425,7 +1458,7 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = features_without_target(X_resolved, y_resolved)
         X_resolved = remove_internal_namespace_if_present(X_resolved)
 
-        fenc = FastEncoder(X_resolved, y_resolved)
+        fenc = FastEncoder(X_resolved, y_resolved, kind='nodes')
 
         keys_to_remove = ["X", "y", "remove_node_column"]
         for key in keys_to_remove:
@@ -1509,7 +1542,7 @@ class FeatureMixin(MIXIN_BASE):
 
         X_resolved = features_without_target(X_resolved, y_resolved)
 
-        fenc = FastEncoder(X_resolved, y_resolved)
+        fenc = FastEncoder(X_resolved, y_resolved, kind='edges')
         keys_to_remove = [
             "X",
             "y",
@@ -1525,13 +1558,22 @@ class FeatureMixin(MIXIN_BASE):
         res._edge_encoder = fenc
 
         return res
-    
-    def transform(self, df, ydf,):
-        if getattr(self, '_node_encoder') is not None:
-           return self._node_encoder.transform(df, ydf)
+
+    def _transform(self, encoder: str, df: pd.DataFrame, ydf: pd.DataFrame):
+        if getattr(self, encoder) is not None:
+           return getattr(self, encoder).transform(df, ydf)
         else:
             logger.debug(f'Fit on data (g.featurize(...)) before being able to transform data')
 
+    
+    def transform(self, df, ydf, kind):
+        if kind == 'nodes':
+            return self._transform('_node_encoder', df, ydf)
+        elif kind == 'edges':
+            return self._transform('_edge_encoder', df, ydf)
+        else:
+            logger.debug(f'kind must be one of `nodes`, `edges`, found {kind}')
+            
     def featurize(
         self,
         kind: str = "nodes",
