@@ -1864,6 +1864,16 @@ class PyGraphistry(object):
         return Plotter().graph(ig)
 
     @staticmethod
+    def from_igraph(ig,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes = True, load_edges = True
+    ):
+        return Plotter().from_igraph(ig, node_attributes, edge_attributes, load_nodes, load_edges)
+    from_igraph.__doc__ = Plotter.from_igraph.__doc__
+
+
+    @staticmethod
     def settings(height=None, url_params={}, render=None):
 
         return Plotter().settings(height, url_params, render)
@@ -2184,6 +2194,26 @@ class PyGraphistry(object):
         if 'sso_state' not in PyGraphistry._config or value is not PyGraphistry._config['sso_state']:
             PyGraphistry._config['sso_state'] = value.strip()
 
+    def scene_settings(
+        menu: Optional[bool] = None,
+        info: Optional[bool] = None,
+        show_arrows: Optional[bool] = None,
+        point_size: Optional[float] = None,
+        edge_curvature: Optional[float] = None,
+        edge_opacity: Optional[float] = None,
+        point_opacity: Optional[float] = None,        
+    ):
+        return Plotter().scene_settings(
+            menu,
+            info,
+            show_arrows,
+            point_size,
+            edge_curvature,
+            edge_opacity,
+            point_opacity
+        )
+    scene_settings.__doc__ = Plotter().scene_settings.__doc__
+
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
@@ -2229,7 +2259,8 @@ layout_settings = PyGraphistry.layout_settings
 org_name = PyGraphistry.org_name
 idp_name = PyGraphistry.idp_name
 sso_state = PyGraphistry.sso_state
-
+scene_settings = PyGraphistry.scene_settings
+from_igraph = PyGraphistry.from_igraph
 
 
 class NumpyJSONEncoder(json.JSONEncoder):

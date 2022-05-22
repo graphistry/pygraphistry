@@ -230,11 +230,22 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g.endpoint('my_fn', {'arg': 'val'}, {'edges': '@@eList'}).plot()
     ```
 
-* [IGraph](http://igraph.org)
+* [igraph](http://igraph.org)
 
     ```python
-    graph = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
-    graphistry.bind(source='src', destination='dst').plot(graph)
+    edges = pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
+    g_a = graphistry.edges(edges, 'src', 'dst')
+    g_b = g_a.layout_igraph('sugiyama', directed=True)  # directed: for to_igraph
+    g_b.compute_igraph('pagerank', params={'damping': 0.85}).plot()  #params: for layout
+
+    ig = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
+    g = graphistry.from_igraph(ig)  # full conversion
+    g.plot()
+
+    ig2 = g.to_igraph()
+    ig2.vs['spinglass'] = ig2.community_spinglass(spins=3).membership
+    # selective column updates: preserve g._edges; merge 1 attribute from ig into g._nodes
+    g2 = g.from_igraph(ig2, load_edges=False, node_attributes=[g._node, 'spinglass'])
     ```
 
 * [NetworkX](https://networkx.github.io) ([notebook demo](demos/demos_databases_apis/networkx/networkx.ipynb))
@@ -472,7 +483,7 @@ See additional examples in the [sharing tutorial](https://github.com/graphistry/
 ## Tutorial: Les Misérables
 
 Let's visualize relationships between the characters in [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
-For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [IGraph](http://igraph.org) to run a community detection algorithm. You can [view](demos/more_examples/simple/MarvelTutorial.ipynb) the Jupyter notebook containing this example.
+For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [igraph](http://igraph.org) to run a community detection algorithm. You can [view](demos/more_examples/simple/MarvelTutorial.ipynb) the Jupyter notebook containing this example.
 
 Our [dataset is a CSV file](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/lesmiserables.csv) that looks like this:
 
@@ -493,7 +504,7 @@ links = pandas.read_csv('./lesmiserables.csv')
 
 If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](demos/demos_by_use_case/logs/malware-hypergraph/Malware%20Hypergraph.ipynb) for creating graphs from rows of data (logs, samples, records, ...).
 
-PyGraphistry can plot graphs directly from Pandas data frames, Arrow tables, cuGraph GPU data frames, IGraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
+PyGraphistry can plot graphs directly from Pandas data frames, Arrow tables, cuGraph GPU data frames, igraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
 
 To define the graph, we `bind` *source* and *destination* to the columns indicating the start and end nodes of each edges:
 
@@ -522,24 +533,24 @@ g.edges(links).plot()
 
 Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure).
 
-#### Warmup: IGraph for computing statistics
+#### Warmup: igraph for computing statistics
 
-[IGraph](http://igraph.org/python/) already has these algorithms implemented for us for small graphs. (See our cuGraph examples for big graphs.) If IGraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
+[igraph](http://igraph.org/python/) already has these algorithms implemented for us for small graphs. (See our cuGraph examples for big graphs.) If igraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
 
-We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
+We start by converting our edge dateframe into an igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
 
 ```python
-ig = graphistry.pandas2igraph(links)
-ig.vs['pagerank'] = ig.pagerank()
-ig.vs['community'] = ig.community_infomap().membership
+g = g.compute_igraph('pagerank', directed=True, params={'damping': 0.85}).compute_igraph('community_infomap')
 ```
+
+The algorithm names `'pagerank'` and `'community_infomap'` correspond to method names of [igraph.Graph](https://igraph.org/python/api/latest/igraph.Graph.html). Likewise, optional `params={...}` allow specifying additional parameters.
 
 #### Bind node data to visual node attributes
 
 We can then bind the node `community` and `pagerank` columns to visualization attributes:
 
 ```python
-g.bind(point_color='community', point_size='pagerank').plot(ig)
+g.bind(point_color='community', point_size='pagerank').plot()
 ```
 
 See the [color palette documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2) for specifying color values by using built-in ColorBrewer palettes (`int32`) or custom RGB values (`int64`).
@@ -899,6 +910,38 @@ g3b = g2a.layout_settings(locked_y=True, play=0)
 g3c = g2a.layout_settings(locked_x=True)
 
 g4 = g2.tree_layout().rotate(90)
+```
+
+With `pip install graphistry[igraph]`, you can also use [`igraph` layouts](https://igraph.org/python/doc/api/igraph.Graph.html#layout):
+
+```python
+g.layout_igraph('sugiyama').plot()
+g.layout_igraph('sugiyama', directed=True, params={}).plot()
+```
+
+### Control render settings
+
+```python
+g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'b'], 'd': ['b', 'c', 'd']}))
+g2 = g.scene_settings(
+  #hide menus
+  menu=False,
+  info=False,
+  #tweak graph
+  show_arrows=False,
+  point_size=1.0,
+  edge_curvature=0.0,
+  edge_opacity=0.5,
+  point_opacity=0.9
+).plot()
+
+```
+
+With `pip install graphistry[igraph]`, you can also use [`igraph` layouts](https://igraph.org/python/doc/api/igraph.Graph.html#layout):
+
+```python
+g.layout_igraph('sugiyama').plot()
+g.layout_igraph('sugiyama', directed=True, params={}).plot()
 ```
 
 ## Next Steps

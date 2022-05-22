@@ -1,9 +1,14 @@
 from graphistry.Plottable import Plottable
-from typing import Any, Callable, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Callable, List, Optional, Union
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
-from functools import lru_cache
 from weakref import WeakValueDictionary
 
+from .constants import SRC, DST, NODE
+from .plugins.igraph import (
+    to_igraph as to_igraph_base, from_igraph as from_igraph_base,
+    compute_igraph as compute_igraph_base,
+    layout_igraph as layout_igraph_base
+)
 from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
     cache_coercion, cache_coercion_helper, WeakValueWrapper
@@ -70,7 +75,10 @@ class PlotterBase(Plottable):
     The class supports convenience methods for mixing calls across Pandas, NetworkX, and IGraph.
     """
 
-    _defaultNodeId = '__nodeid__'
+    _defaultNodeId = NODE
+    _defaultEdgeSourceId = SRC
+    _defaultEdgeDestinationId = DST
+    
     _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _umap_param_to_g : WeakValueDictionary = WeakValueDictionary()
@@ -1114,6 +1122,14 @@ class PlotterBase(Plottable):
         :rtype: Plotter
         """
 
+        try:
+            import igraph
+            if isinstance(ig, igraph.Graph):
+                logger.warning('.graph(ig) deprecated, use .from_igraph()')
+                return self.from_igraph(ig)
+        except ImportError:
+            pass
+
         res = copy.copy(self)
         res._edges = ig
         res._nodes = None
@@ -1369,6 +1385,57 @@ class PlotterBase(Plottable):
             webbrowser.open(full_url)
             return full_url
 
+    def from_igraph(self,
+        ig,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes = True, load_edges = True,
+        merge_if_existing = True
+    ):
+        return from_igraph_base(
+            self,
+            ig,
+            node_attributes,
+            edge_attributes,
+            load_nodes, load_edges,
+            merge_if_existing
+        )
+    from_igraph.__doc__ = from_igraph_base.__doc__
+
+
+    def to_igraph(self, 
+        directed=True, include_nodes=True,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None
+    ):
+        return to_igraph_base(
+            self,
+            directed, include_nodes,
+            node_attributes,
+            edge_attributes
+        )
+    to_igraph.__doc__ = to_igraph_base.__doc__
+
+
+    def compute_igraph(self,
+        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
+    ):
+        return compute_igraph_base(self, alg, out_col, directed, params)
+    compute_igraph.__doc__ = compute_igraph_base.__doc__
+
+
+    def layout_igraph(self,
+        layout: str,
+        directed: Optional[bool] = None,
+        bind_position: bool = True,
+        x_out_col: str = 'x',
+        y_out_col: str = 'y',
+        play: Optional[int] = 0,
+        params: dict = {}
+    ):
+        return layout_igraph_base(self, layout, directed, bind_position, x_out_col, y_out_col, play, params)
+    layout_igraph.__doc__ = layout_igraph_base.__doc__
+
 
     def pandas2igraph(self, edges, directed=True):
         """Convert a pandas edge dataframe to an IGraph graph.
@@ -1389,6 +1456,8 @@ class PlotterBase(Plottable):
                 g.bind(point_color='community').plot(ig)
         """
 
+        import warnings
+        warnings.warn("pandas2igraph deprecated; switch to to_igraph", DeprecationWarning, stacklevel=2)
 
         import igraph
         self._check_mandatory_bindings(False)
@@ -1407,6 +1476,8 @@ class PlotterBase(Plottable):
     def igraph2pandas(self, ig):
         """Under current bindings, transform an IGraph into a pandas edges dataframe and a nodes dataframe.
 
+        Deprecated in favor of `.from_igraph()`
+
         **Example**
             ::
 
@@ -1422,6 +1493,9 @@ class PlotterBase(Plottable):
                 (es2, vs2) = g.igraph2pandas(ig)
                 g.nodes(vs2).bind(point_color='community').plot()
         """
+
+        import warnings
+        warnings.warn("igraph2pandas deprecated; switch to from_igraph", DeprecationWarning, stacklevel=2)
 
         def get_edgelist(ig):
             idmap = dict(enumerate(ig.vs[self._node]))
@@ -1513,8 +1587,8 @@ class PlotterBase(Plottable):
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
-                (e, n) = g.igraph2pandas(graph)
-                return g._make_dataset(e, n, name, description, mode, metadata, memoize)
+                g2 = g.from_igraph(graph)
+                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize)
         except ImportError:
             pass
 
@@ -2319,6 +2393,55 @@ class PlotterBase(Plottable):
             **({} if precision_vs_speed is None else {'precisionVsSpeed': precision_vs_speed}),
             **({} if gravity is None else {'gravity': gravity}),
             **({} if scaling_ratio is None else {'scalingRatio': scaling_ratio}),
+        }
+
+        if len(settings.keys()) > 0:
+            return self.settings(url_params={**self._url_params, **settings})
+        else:
+            return self
+
+
+    def scene_settings(
+        self,
+        menu: Optional[bool] = None,
+        info: Optional[bool] = None,
+        show_arrows: Optional[bool] = None,
+        point_size: Optional[float] = None,
+        edge_curvature: Optional[float] = None,
+        edge_opacity: Optional[float] = None,
+        point_opacity: Optional[float] = None
+    ):
+        """Set scene options. Additive over previous settings.
+
+        Corresponds to options at https://hub.graphistry.com/docs/api/1/rest/url/#urloptions
+
+        **Example: Hide arrows and straighten edges**
+
+            ::
+
+                import graphistry, pandas as pd
+                edges = pd.DataFrame({'s': ['a','b','c','d'], 'boss': ['c','c','e','e']})
+                nodes = pd.DataFrame({
+                    'n': ['a', 'b', 'c', 'd', 'e'],
+                    'y': [1,   1,   2,   3,   4],
+                    'x': [1,   1,   0,   0,   0],
+                })
+                g = (graphistry
+                    .edges(edges, 's', 'd')
+                    .nodes(nodes, 'n')
+                    .scene_settings(show_arrows=False, edge_curvature=0.0)
+                g.plot()
+        """
+
+        settings : dict = {
+            **({} if menu is None else {'menu': menu}),
+            **({} if info is None else {'info': info}),
+            **({} if show_arrows is None else {'showArrows': show_arrows}),
+
+            **({} if point_size is None else {'pointSize': point_size}),
+            **({} if edge_curvature is None else {'edgeCurvature': edge_curvature}),
+            **({} if edge_opacity is None else {'edgeOpacity': edge_opacity}),
+            **({} if point_opacity is None else {'pointOpacity': point_opacity})
         }
 
         if len(settings.keys()) > 0:
