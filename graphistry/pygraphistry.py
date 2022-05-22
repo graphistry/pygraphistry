@@ -147,7 +147,7 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def sso_login(org_name=None, idp_name=None, sso_wait_for_token=True):
+    def sso_login(org_name=None, idp_name=None, sso_wait_for_token=True, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS):
         """Authenticate with SSO and set token for reuse (api=3). """
 
         if PyGraphistry._config['store_token_creds_in_memory']:
@@ -178,22 +178,22 @@ class PyGraphistry(object):
             if auth_url and not PyGraphistry.api_token():
                 print("Please minimize browser after SSO login to back to pygraphistry")
                 
-                if not sso_wait_for_token:
+                if sso_timeout is not None: # Block mode do not wait
                     print("Please run graphistry.sso_get_token() after log in successfully in browser.")
                 input("Press Enter to open browser ...")
                 # open browser to auth_url
                 PyGraphistry._open_browser_sso_login(auth_url)
 
-                if sso_wait_for_token:
-                    time.sleep(2)
-                    elapsed_time = 0
+                if sso_timeout is not None:
+                    time.sleep(1)
+                    elapsed_time = 11
                     while not PyGraphistry._sso_get_token():
-                        if elapsed_time % 10 == 0:
+                        if elapsed_time % 10 == 1:
                             print("Waiting for token : {} ...".format(elapsed_time))
 
                         time.sleep(1)
                         elapsed_time = elapsed_time + 1
-                        if elapsed_time > SSO_GET_TOKEN_ELAPSE_SECONDS:
+                        if elapsed_time > sso_timeout:
                             raise Exception("[SSO] Get token timeout")
                     
                     return PyGraphistry.api_token()
@@ -202,6 +202,18 @@ class PyGraphistry(object):
     def _open_browser_sso_login(auth_url):
         # open browser
         webbrowser.open(auth_url)
+        # if (render is False) or ((render is None) and not self._render):
+        #     return full_url
+        # elif (render is True) or in_ipython():
+        #     from IPython.core.display import HTML
+        #     return HTML(make_iframe(full_url, self._height, extra_html=extra_html, override_html_style=override_html_style))
+        # elif in_databricks():
+        #     return make_iframe(full_url, self._height, extra_html=extra_html, override_html_style=override_html_style)
+        # else:
+        #     import webbrowser
+        #     webbrowser.open(full_url)
+        #     return full_url
+
 
     @staticmethod
     def sso_get_token():
@@ -221,13 +233,21 @@ class PyGraphistry(object):
         ).sso_get_token(state)
 
         try:
-            token = arrow_uploader.token
+            try:
+                token = arrow_uploader.token
+            except Exception:
+                pass
             logger.debug("jwt token :{}".format(token))
+            # print("jwt token :{}".format(token))
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
+            # print("api_token() : {}".format(PyGraphistry.api_token()))
             PyGraphistry._is_authenticated = True
-            PyGraphistry.authenticate()
-            return PyGraphistry.api_token()
+            token = PyGraphistry.api_token()
+            # print("api_token() : {}".format(token))
+            print("Got the token")
+            return token
         except:
+            # raise
             pass
         return None
 

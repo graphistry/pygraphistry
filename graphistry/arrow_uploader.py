@@ -230,8 +230,8 @@ class ArrowUploader:
         if idp_name is None:
             idp_name = ""  # if idp_name is None 
         base_path = self.server_base_path
-        out = requests.get(
-            f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/{idp_name}',
+        out = requests.post(
+            f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/{idp_name}', data={'client-type': 'pygraphistry'},
             verify=self.certificate_validation
         )
         json_response = None
