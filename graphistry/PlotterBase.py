@@ -1814,7 +1814,7 @@ class PlotterBase(Plottable):
             if memoize:
                 #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
                 hashed = (
-                    hashlib.sha256(table.hash_columns().tobytes()).hexdigest()
+                    hashlib.sha256(table.hash_values().to_numpy().tobytes()).hexdigest()
                     + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
                 )
                 try:
