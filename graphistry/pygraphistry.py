@@ -149,7 +149,20 @@ class PyGraphistry(object):
 
     @staticmethod
     def sso_login(org_name=None, idp_name=None, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS):
-        """Authenticate with SSO and set token for reuse (api=3). """
+        """Authenticate with SSO and set token for reuse (api=3).
+
+        :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
+        :type org_name: Optional[str]
+        :param idp_name: Set sso login idp name. Default as None (for site-wide SSO / for the only idp record).
+        :type idp_name: Optional[str]
+        :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
+        :type sso_timeout: Optional[int|None]
+        :returns: None.
+        :rtype: None
+
+        SSO Login logic.
+
+        """
 
         if PyGraphistry._config['store_token_creds_in_memory']:
             PyGraphistry.sso_relogin = lambda: PyGraphistry.sso_login(
@@ -182,6 +195,20 @@ class PyGraphistry(object):
 
     @staticmethod
     def _handle_auth_url(auth_url, sso_timeout):
+        """Internal function to handle what to do with the auth_url 
+           based on the client mode python/ipython console or notebook.
+
+        :param auth_url: SSO auth url retrieved via API
+        :type auth_url: str
+        :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
+        :type sso_timeout: Optional[int|None]
+        :returns: None.
+        :rtype: None
+
+        SSO Login logic.
+
+        """
+
         if in_ipython(): # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
@@ -213,6 +240,7 @@ class PyGraphistry(object):
 
     @staticmethod
     def sso_get_token():
+        """ Get authentication token in SSO non-blocking mode"""
         return PyGraphistry._sso_get_token()
     
     @staticmethod
