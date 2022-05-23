@@ -4,6 +4,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     protocol,
     server,
     register,
+    sso_get_token,
     privacy,
     login,
     refresh,
