@@ -1,5 +1,6 @@
 from typing import Any, Callable, Iterable, List, Optional, Union
 from graphistry.Plottable import Plottable
+from graphistry.validations import API_Version
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
@@ -293,10 +294,21 @@ class PyGraphistry(object):
     def api_version(value=None):
         """Set or get the API version: 1 or 2 for 1.0 (deprecated), 3 for 2.0
         Also set via environment variable GRAPHISTRY_API_VERSION."""
-        if value is None:
+        
+        env_api_version = PyGraphistry._config["api_version"]
+        
+        # Prioritize the env variable 
+        if env_api_version:
+            API_Version.validate(env_api_version, is_env_var=True)
             return PyGraphistry._config["api_version"]
+
+        if value == None:
+            return None
+
+        API_Version.validate(value)
         # setter
         PyGraphistry._config["api_version"] = value
+        return value
 
     @staticmethod
     def certificate_validation(value=None):
