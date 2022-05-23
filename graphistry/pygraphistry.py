@@ -153,7 +153,7 @@ class PyGraphistry(object):
 
         if PyGraphistry._config['store_token_creds_in_memory']:
             PyGraphistry.sso_relogin = lambda: PyGraphistry.sso_login(
-                org_name, idp_name
+                org_name, idp_name, sso_timeout
             )
 
         PyGraphistry._is_authenticated = False
@@ -179,32 +179,10 @@ class PyGraphistry(object):
             if auth_url and not PyGraphistry.api_token():
                 PyGraphistry._handle_auth_url(auth_url, sso_timeout)
 
-                # print("Please minimize browser after SSO login to back to pygraphistry")
-                
-                # if sso_timeout is not None: # Block mode do not wait
-                #     print("Please run graphistry.sso_get_token() after log in successfully in browser.")
-                # input("Press Enter to open browser ...")
-                # # open browser to auth_url
-                # PyGraphistry._open_browser_sso_login(auth_url)
-
-                # if sso_timeout is not None:
-                #     time.sleep(1)
-                #     elapsed_time = 11
-                #     while not PyGraphistry._sso_get_token():
-                #         if elapsed_time % 10 == 1:
-                #             print("Waiting for token : {} ...".format(elapsed_time))
-
-                #         time.sleep(1)
-                #         elapsed_time = elapsed_time + 1
-                #         if elapsed_time > sso_timeout:
-                #             raise Exception("[SSO] Get token timeout")
-                    
-                #     return PyGraphistry.api_token()
-
 
     @staticmethod
     def _handle_auth_url(auth_url, sso_timeout):
-        if in_ipython():
+        if in_ipython(): # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
             display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
@@ -262,7 +240,6 @@ class PyGraphistry(object):
             PyGraphistry._is_authenticated = True
             token = PyGraphistry.api_token()
             # print("api_token() : {}".format(token))
-            print("Got the token")
             return token
         except:
             # raise
@@ -491,9 +468,21 @@ class PyGraphistry(object):
         :param idp_name: Set sso login idp name. Default as None (for site-wide SSO / for the only idp record).
         :type idp_name: Optional[str]
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
-        :type timeout: Optional[int|None]
+        :type sso_timeout: Optional[int|None]
         :returns: None.
         :rtype: None
+
+        **Example: Standard (2.0 api by org_name via SSO configured for site or for organization with only 1 IdP)**
+                ::
+
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name", idp_name="idp-name")
+
+        **Example: Standard (2.0 api by org_name via SSO IdP configured for an organization)**
+                ::
+
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name")
 
         **Example: Standard (2.0 api by username/password with org_name)**
                 ::
