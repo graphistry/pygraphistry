@@ -113,11 +113,11 @@ def format_entities_from_col(
         except:
             unique_vals = df_with_col_pre.astype(str).drop_duplicates()
             logger.warning('Coerced col %s to string type for entity names', col_name)
-        unique_safe_val_strs = unique_vals.astype(str).fillna(defs.null_val)
+        unique_safe_val_strs = unique_vals.astype(str).fillna(defs.null_val).astype(str)
     except NotImplementedError:
         logger.warning('Dropped col %s from entity list due to errors')
         unique_vals = mt_series(engine)
-        unique_safe_val_strs = unique_vals.astype(str).fillna(defs.null_val)
+        unique_safe_val_strs = unique_vals.astype(str).fillna(defs.null_val).astype(str)
 
     if debug and engine in [ Engine.DASK, Engine.DASK_CUDF ]:
         unique_vals = unique_vals.persist()
@@ -410,7 +410,7 @@ def format_hyperedges(
         else:
             raw[defs.edge_type] = col
         try:
-            raw[defs.attrib_id] = (col2cat(cat_lookup, col) + defs.delim) + raw[col].astype(str).fillna(defs.null_val)
+            raw[defs.attrib_id] = (col2cat(cat_lookup, col) + defs.delim) + raw[col].astype(str).fillna(defs.null_val).astype(str)
         except NotImplementedError:
             logger.warning('Did not create hyperedges for column %s as does not support astype(str)', col)
             continue

@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Fixed
+
+* `hypergraph()` in dask handles failing metadata type inference
+
 ## [0.25.2 - 2022-05-11]
 
 ### Added
