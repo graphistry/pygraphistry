@@ -1,6 +1,6 @@
 import copy
 from time import time
-from typing import Any, Dict, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, Optional, Union, TYPE_CHECKING, Tuple
 
 import numpy as np
 import pandas as pd
@@ -247,9 +247,13 @@ class UMAPMixin(MIXIN_BASE):
 
         return featurize_kwargs
     
-    def transform_umap(self, df:pd.DataFrame, ydf:pd.DataFrame, kind:str='nodes'):
+    def transform_umap(self, df:pd.DataFrame, ydf:pd.DataFrame, kind:str='nodes') -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         x, y = self.transform(df, ydf, kind=kind)
-        return self._umap.transform(x), y
+        emb = self._umap.transform(x)
+        src = self._source
+        dst = self._destination
+        emb = pd.DataFrame(emb, columns=[src, dst], index=x.index)
+        return emb, x, y
         
     def umap(
         self,

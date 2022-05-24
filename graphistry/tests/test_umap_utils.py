@@ -20,6 +20,7 @@ from graphistry.tests.test_feature_utils import (
     good_edge_cols,
     model_avg_name,
     has_min_dependancy as has_featurize,
+    test_allclose_fit_transform_on_same_data
 )
 from graphistry.umap_utils import has_dependancy
 
@@ -54,6 +55,24 @@ node_ints = ["int"]
 node_floats = ["flt"]
 node_numeric = node_ints + node_floats
 node_target = triangleNodes[["y"]]
+
+
+class TestUMAPFitTransform(unittest.TestCase):
+    # check to see that .fit and transform gives similar embeddings on same data
+    def setUp(self):
+        g = graphistry.nodes(ndf_reddit, y=double_target_reddit)
+        g2 = g.umap(use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
+        fenc = g2._node_encoder
+        self.X, self.Y = fenc.X, fenc.y
+        self.EMB = g2._node_embedding
+        self.emb, self.y = g2.transform_umap(ndf_reddit, ydf=double_target_reddit)
+
+    def test_allclose_fit_transform_on_same_data(self):
+        test_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
+
+    def test_columns_match(self):
+        assert all(self.X.columns == self.x.columns), f'Feature Columns do not match'
+        assert all(self.Y.columns == self.y.columns), f'Target Columns do not match'
 
 
 class TestUMAPMethods(unittest.TestCase):
@@ -115,7 +134,12 @@ class TestUMAPMethods(unittest.TestCase):
             for target in targets:
                 for feature_engine in ["none", "auto", "pandas"]:
                     logger.debug("*" * 90)
+                    print("*" * 90)
                     value = [target, use_col]
+                    print(f"{kind} -- {name}")
+                    print(f"{value}: featurize umap {feature_engine}")
+                    print("-" * 80)
+
                     logger.debug(f"{kind} -- {name}")
                     logger.debug(f"{value}: featurize umap {feature_engine}")
                     logger.debug("-" * 80)
@@ -275,7 +299,6 @@ class TestUMAPAIMethods(TestUMAPMethods):
     )
     def test_chaining_edges(self):
         g = graphistry.edges(edge_df, "src", "dst")
-
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             g2 = g.umap(kind='edges')

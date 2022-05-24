@@ -265,3 +265,32 @@ def deprecated(message):
         return deprecated_func
 
     return deprecated_decorator
+
+
+#
+# def inspect_decorator(func, args, kwargs):
+#     import inspect
+#     frame = inspect.currentframe()
+#     args, _, _, values = inspect.getargvalues(frame)
+#     func_name = inspect.getframeinfo(frame)[2]
+#     print(f'function name "{func_name}"')
+#     for i in args:
+#         print("    %s = %s" % (i, values[i]))
+#     return [(i, values[i]) for i in args]
+#
+#
+# # custom decorator
+# def showargs_decorator(func):
+#     import functools
+#     # updates special attributes e.g. __name__, __doc__
+#     @functools.wraps(func)
+#     def wrapper(*args, **kwargs):
+#
+#       # call custom inspection logic
+#       inspect_decorator(func, args, kwargs)
+#
+#       # calls original function
+#       func(*args, **kwargs)
+#
+#     # matches name of inner function
+#     return wrapper

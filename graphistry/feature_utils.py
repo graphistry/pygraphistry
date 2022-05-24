@@ -435,7 +435,7 @@ def identity(x):
     return x
 
 
-def get_ordinal_preprocessing_pipeline(
+def get_preprocessing_pipeline(
     use_scaler: str = "robust",
     impute: bool = True,
     n_quantiles: int = 10,
@@ -469,6 +469,7 @@ def get_ordinal_preprocessing_pipeline(
         imputer = SimpleImputer(missing_values=np.nan, strategy="median")
 
     scaler = identity
+
     if use_scaler == "minmax":
         # scale the resulting values column-wise between min and max column values and sets them between 0 and 1
         scaler = MinMaxScaler()
@@ -479,6 +480,7 @@ def get_ordinal_preprocessing_pipeline(
         scaler = QuantileTransformer(
             n_quantiles=n_quantiles, output_distribution=output_distribution
         )
+        print(f'{use_scaler} '*40)
     elif use_scaler == "zscale":
         scaler = StandardScaler()
     elif use_scaler == "robust":
@@ -535,7 +537,7 @@ def impute_and_scale_df(
     #     )
     #     return df, None
 
-    transformer = get_ordinal_preprocessing_pipeline(
+    transformer = get_preprocessing_pipeline(
         impute=impute,
         use_scaler=use_scaler,
         n_quantiles=n_quantiles,
@@ -643,7 +645,7 @@ def smart_scaler(X_enc,
                  ):
     ordinal_pipeline = None
     ordinal_pipeline_target = None
-    encoder = lambda X: impute_and_scale_df(
+    encoder = lambda X, use_scaler: impute_and_scale_df(
             X,
             use_scaler=use_scaler,
             impute=impute,
@@ -655,13 +657,14 @@ def smart_scaler(X_enc,
             strategy=strategy,
             keep_n_decimals=keep_n_decimals
         )
+
     if use_scaler and not X_enc.empty:
         logger.debug(f"- Feature scaling using {use_scaler}")
-        X_enc, ordinal_pipeline = encoder(X_enc)
+        X_enc, ordinal_pipeline = encoder(X_enc, use_scaler)
 
     if use_scaler_target and not y_enc.empty:
         logger.debug(f"-Target scaling using {use_scaler_target}")
-        y_enc, ordinal_pipeline_target = encoder(y_enc)
+        y_enc, ordinal_pipeline_target = encoder(y_enc, use_scaler_target)
         
     return X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target
 
