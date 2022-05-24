@@ -256,7 +256,7 @@ class UMAPMixin(MIXIN_BASE):
         kind: str = "nodes",
         X: XSymbolic = None,
         y: YSymbolic = None,
-        scale: float = 0.1,
+        scale: float = 1.0,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
         spread: float = 0.5,
@@ -468,7 +468,7 @@ class UMAPMixin(MIXIN_BASE):
 
     def filter_weighted_edges(
         self,
-        scale: float = 0.1,
+        scale: float = 1.0,
         index_to_nodes_dict: Optional[Dict] = None,
         inplace: bool = False,
     ):

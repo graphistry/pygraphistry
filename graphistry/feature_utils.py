@@ -628,32 +628,41 @@ def encode_textual(
     return res, text_cols, model
 
 
-def smart_scaler(X_enc, y_enc, use_scaler, use_scaler_target):
+def smart_scaler(X_enc,
+                 y_enc,
+                 use_scaler,
+                 use_scaler_target,
+                 impute: bool = True,
+                 n_quantiles: int = 10,
+                 output_distribution: str = "normal",
+                 quantile_range=(25, 75),
+                 n_bins: int = 10,
+                 encode: str = "ordinal",
+                 strategy: str = "uniform",
+                 keep_n_decimals: int = 5,
+                 ):
     ordinal_pipeline = None
     ordinal_pipeline_target = None
+    encoder = lambda X: impute_and_scale_df(
+            X,
+            use_scaler=use_scaler,
+            impute=impute,
+            n_quantiles=n_quantiles,
+            quantile_range=quantile_range,
+            output_distribution=output_distribution,
+            n_bins=n_bins,
+            encode=encode,
+            strategy=strategy,
+            keep_n_decimals=keep_n_decimals
+        )
     if use_scaler and not X_enc.empty:
         logger.debug(f"- Feature scaling using {use_scaler}")
-
-        X_enc, ordinal_pipeline = impute_and_scale_df(
-            X_enc,
-            use_scaler=use_scaler,
-            impute=True,
-            n_quantiles=100,
-            quantile_range=(25, 75),
-            output_distribution="normal",
-        )
+        X_enc, ordinal_pipeline = encoder(X_enc)
 
     if use_scaler_target and not y_enc.empty:
         logger.debug(f"-Target scaling using {use_scaler_target}")
-
-        y_enc, ordinal_pipeline_target = impute_and_scale_df(
-            y_enc,
-            use_scaler=use_scaler_target,
-            impute=True,
-            n_quantiles=100,
-            quantile_range=(25, 75),
-            output_distribution="normal",
-        )
+        y_enc, ordinal_pipeline_target = encoder(y_enc)
+        
     return X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target
 
 
@@ -692,6 +701,14 @@ def process_dirty_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
     use_scaler_target: Optional[str] = None,
+    impute: bool = True,
+    n_quantiles: int = 10,
+    output_distribution: str = "normal",
+    quantile_range=(25, 75),
+    n_bins: int = 10,
+    encode: str = "ordinal",
+    strategy: str = "uniform",
+    keep_n_decimals: int = 5,
     feature_engine: FeatureEngineConcrete = "pandas",
 ) -> Tuple[
     pd.DataFrame,
@@ -795,7 +812,18 @@ def process_dirty_dataframes(
         y_enc = y  # .select_dtypes(include=[np.number]) if y is not None else None
 
     X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(
-        X_enc, y_enc, use_scaler, use_scaler_target
+        X_enc,
+        y_enc,
+        use_scaler,
+        use_scaler_target,
+        impute=impute,
+        n_quantiles=n_quantiles,
+        quantile_range=quantile_range,
+        output_distribution=output_distribution,
+        n_bins=n_bins,
+        encode=encode,
+        strategy=strategy,
+        keep_n_decimals=keep_n_decimals
     )
 
     return (
@@ -824,6 +852,14 @@ def process_nodes_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
+    impute: bool = True,
+    n_quantiles: int = 10,
+    output_distribution: str = "normal",
+    quantile_range=(25, 75),
+    n_bins: int = 10,
+    encode: str = "ordinal",
+    strategy: str = "uniform",
+    keep_n_decimals: int = 5,
     feature_engine: FeatureEngineConcrete = "pandas"
     # test_size: Optional[bool] = None,
 ) -> Tuple[
@@ -877,7 +913,7 @@ def process_nodes_dataframes(
 
     t = time()
     if len(df) == 0 or df.empty:
-        logger.warning("DataFrame seems to be Empty")
+        logger.warning("DataFrame **seems** to be Empty")
 
     text_cols: List[str] = []
     text_model: Any = None
@@ -915,14 +951,25 @@ def process_nodes_dataframes(
     if (
         not text_enc.empty and not X_enc.empty
     ):  # data_encoder is not None:  # can be False!
-        print("Found both a textual embedding + dirty_cat")
+        print("--Found both a textual embedding + dirty_cat")
         X_enc = pd.concat([text_enc, X_enc], axis=1)  # np.c_[embeddings, X_enc.values]
     elif not text_enc.empty and X_enc.empty:
-        print("Only found a textual embedding")
+        print("--Only found a textual embedding")
         X_enc = text_enc
 
     X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(
-        X_enc, y_enc, use_scaler, use_scaler_target
+        X_enc,
+        y_enc,
+        use_scaler,
+        use_scaler_target,
+        impute=impute,
+        n_quantiles=n_quantiles,
+        quantile_range=quantile_range,
+        output_distribution=output_distribution,
+        n_bins=n_bins,
+        encode=encode,
+        strategy=strategy,
+        keep_n_decimals=keep_n_decimals
     )
 
     logger.debug(
@@ -975,6 +1022,14 @@ def process_edge_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
+    impute: bool = True,
+    n_quantiles: int = 10,
+    output_distribution: str = "normal",
+    quantile_range=(25, 75),
+    n_bins: int = 10,
+    encode: str = "ordinal",
+    strategy: str = "uniform",
+    keep_n_decimals: int = 5,
     feature_engine: FeatureEngineConcrete = "pandas",
 ) -> Tuple[
     pd.DataFrame,
@@ -1000,8 +1055,6 @@ def process_edge_dataframes(
     """
     logger.info("process_edges_dataframes[%s]", feature_engine)
 
-
-
     t = time()
     mlb_pairwise_edge_encoder = MultiLabelBinarizer()
     T, mlb_pairwise_edge_encoder = encode_edges(
@@ -1015,7 +1068,7 @@ def process_edge_dataframes(
         X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(
             X_enc, y_enc, use_scaler, use_scaler_target
         )
-
+        logger.debug(f'Returning only Edge MLB feature')
         return (
             X_enc,
             y_enc,
@@ -1065,11 +1118,22 @@ def process_edge_dataframes(
         print(f"=Found Edges and Dirty_cat encoding")
         X_enc = pd.concat([T, X_enc], axis=1)
     elif not T.empty and X_enc.empty:
-        print(f"=Found only Edges")
+        print(f" A<=>B Found only Edges")
         X_enc = T
 
     X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(
-        X_enc, y_enc, use_scaler, use_scaler_target
+        X_enc,
+        y_enc,
+        use_scaler,
+        use_scaler_target,
+        impute=impute,
+        n_quantiles=n_quantiles,
+        quantile_range=quantile_range,
+        output_distribution=output_distribution,
+        n_bins=n_bins,
+        encode=encode,
+        strategy=strategy,
+        keep_n_decimals=keep_n_decimals
     )
 
     logger.debug(f"--Created an Edge feature matrix of size {T.shape}")
@@ -1102,12 +1166,14 @@ def transform_text(
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
-
+    print('Transforming text using: ')
     if isinstance(text_model, Pipeline):
+        print(f"-- Ngram tfidf")
         tX = text_model.transform(res)
         tX = make_dense(tX)
         tX = pd.DataFrame(tX, columns=list(text_model[0].vocabulary_.keys()))
     elif isinstance(text_model, SentenceTransformer):
+        print(f"-- HuggingFace")
         tX = text_model.encode(res.values)
         tX = pd.DataFrame(tX, columns=_get_sentence_transformer_headers(tX, text_cols))
     else:
@@ -1285,7 +1351,7 @@ class FastEncoder:
         self.feature_columns_target = y_enc.columns
         self.X = X_enc
         self.y = y_enc
-        self.data_encoder = data_encoder  # is list for
+        self.data_encoder = data_encoder  # is list for edges
         self.label_encoder = label_encoder
         self.ordinal_pipeline = ordinal_pipeline
         self.ordinal_pipeline_target = ordinal_pipeline_target
@@ -1299,9 +1365,15 @@ class FastEncoder:
         res = self._encode(self._df, self._y, kind, src, dst, *args, **kwargs)
         self._set_result(res)
 
-    def transform(self, df, ydf):
+    def transform(self, df, ydf=None):
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
         return X, y
+
+# ######################################################################################################################
+#
+#
+#
+# ######################################################################################################################
 
 
 def prune_weighted_edges_df_and_relabel_nodes(

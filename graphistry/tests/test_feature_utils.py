@@ -138,22 +138,25 @@ single_target_reddit = pd.DataFrame({"label": ndf_reddit.label.values})
 # data to test textual and numeric DataFrame
 # ndf_stocks, price_df_stocks = get_stocks_dataframe()
 
-def allclose(X, x, tol, name):
+def allclose_stats(X, x, tol, name):
+    if not np.allclose(X.std(), x.std(), tol):
+        print(f'{name}.std() are not aligned at {tol} tolerance...!')
+
     if not np.allclose(X.mean(), x.mean(), tol):
         print(f'{name}.means() are not aligned at {tol} tolerance...!')
 
     if not np.allclose(X, x, tol):
         print(f'{name}s are not aligned at {tol} tolerance...!')
 
-def test_allclose_fit_transform_on_same_data(X, x, Y, y):
+def test_allclose_fit_transform_on_same_data(X, x, Y=None, y=None): # so we can use on any two fields, not just x, y
     tols = [12000, 1200, 100, 10, 0.1, 1e-4, 1e-5]
     for name, tol in zip(['Features', 'Target'], [tols, tols]):
         print()
         for value in tol:
             if name =='Features':
-                allclose(X, x, value, name)
-            if name == 'Target':
-                allclose(Y, y, value, name)
+                allclose_stats(X, x, value, name)
+            if name == 'Target' and Y is not None:
+                allclose_stats(Y, y, value, name)
 
 
 class TestFastEncoder(unittest.TestCase):
