@@ -93,7 +93,7 @@ bad_df = pd.DataFrame(
         ],
         "textual": [
             "here we have a sentence. And here is another sentence. Graphistry is an amazing tool!"
-        ] * 4,
+        ] * 2 + ['And now for something completely different so we dont mess up the tests with a repeat document'] + ['I love my wife'],
     }
 )
 
@@ -173,6 +173,29 @@ class TestFastEncoder(unittest.TestCase):
     def test_columns_match(self):
         assert all(self.X.columns == self.x.columns), f'Feature Columns do not match'
         assert all(self.Y.columns == self.y.columns), f'Target Columns do not match'
+    
+    # def check_methods_match(self, fenc, data):
+    #     scaler, card, ngrams = data
+    #
+    #     if scaler is not None:
+    #         scaler_type = str(type(fenc.ordinal_pipeline[-1])).split('.')[-1]
+    #         scaler_type2 = str(type(fenc.ordinal_pipeline_target[-1])).split('.')[-1]
+    #         if scaler == 'zscale':
+    #             assert 'StandardScaler' in scaler_type
+    #             assert 'StandardScaler' in scaler_type2
+    #         else:
+    #             assert scaler in scaler_type.lower()
+    #             assert scaler in scaler_type2.lower()
+    #     ## add rest here
+    #
+    # def test_encoder_options(self):
+    #     fenc = FastEncoder(ndf_reddit, y=double_target_reddit)
+    #     for scaler in ["minmax", "quantile", "zscale", "robust", "kbins"]:
+    #         for card in [2, 100]: # topic model or not
+    #             for ngrams in [True, False]:
+    #                 fenc.fit(use_ngrams=ngrams, ngram_range=(1, 1), use_scaler=scaler, use_scaler_target=scaler, cardinality_threshold=card)
+    #                 data =[scaler, card, ngrams]
+    #                 self.check_methods_match(fenc, data)
 
 
 class TestFeatureProcessors(unittest.TestCase):
@@ -303,8 +326,13 @@ class TestFeatureMethods(unittest.TestCase):
                             for target in targets:
                                 logger.debug("*" * 90)
                                 value = [scaler, cardinality, use_ngram, target, use_col]
+                                names = "scaler, cardinality, use_ngram, target, use_col".split(', ')
                                 logger.debug(f"{value}")
+                                print(f"{[k for k in zip(names, value)]}")
                                 logger.debug("-" * 80)
+                                if kind=='edges' and cardinality == 2:
+                                    # GapEncoder is set to fail on small documents like our edge_df..., so we skip
+                                    continue
                                 g2 = g.featurize(
                                     kind=kind,
                                     X=use_col,
@@ -313,6 +341,8 @@ class TestFeatureMethods(unittest.TestCase):
                                     use_scaler=scaler,
                                     use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
+                                    min_df=0,
+                                    max_df=1.,
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality
                                 )
