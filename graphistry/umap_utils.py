@@ -250,9 +250,7 @@ class UMAPMixin(MIXIN_BASE):
     def transform_umap(self, df:pd.DataFrame, ydf:pd.DataFrame, kind:str='nodes') -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         x, y = self.transform(df, ydf, kind=kind)
         emb = self._umap.transform(x)
-        src = self._source
-        dst = self._destination
-        emb = pd.DataFrame(emb, columns=[src, dst], index=x.index)
+        emb = pd.DataFrame(emb, columns=['x', 'y'], index=x.index)
         return emb, x, y
         
     def umap(
