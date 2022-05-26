@@ -2,7 +2,7 @@ from typing import Any, Callable, Iterable, List, Optional, Union
 from graphistry.Plottable import Plottable
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, gzip, io, json, os, time, webbrowser, numpy as np, pandas as pd, requests, sys, time, warnings
+import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
 
 from datetime import datetime
 
@@ -12,7 +12,7 @@ from .ArrowFileUploader import ArrowFileUploader
 from . import util
 from . import bolt_util
 from .plotter import Plotter
-from .util import setup_logger, in_ipython, make_iframe
+from .util import in_databricks, setup_logger, in_ipython, make_iframe
 
 logger = setup_logger(__name__)
 
@@ -183,7 +183,7 @@ class PyGraphistry(object):
                 PyGraphistry._is_authenticated = True
 
                 return PyGraphistry.api_token()
-        except: # required to log on
+        except:  # required to log on
             # print("required to log on")
             PyGraphistry.sso_state(arrow_uploader.sso_state)
 
@@ -209,7 +209,7 @@ class PyGraphistry(object):
 
         """
 
-        if in_ipython(): # If run in notebook, just display the HTML
+        if in_ipython() or in_databricks():  # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
             display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
@@ -217,25 +217,29 @@ class PyGraphistry(object):
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
         else:
-            import webbrowser
             print("Please minimize browser after SSO login to back to pygraphistry")
+
+            import webbrowser
             input("Press Enter to open browser ...")
             # open browser to auth_url
             webbrowser.open(auth_url)
 
-            if sso_timeout is not None:
-                time.sleep(1)
-                elapsed_time = 11
-                while not PyGraphistry._sso_get_token():
-                    if elapsed_time % 10 == 1:
-                        print("Waiting for token : {} ...".format(elapsed_time - 1))
+        if sso_timeout is not None:
+            time.sleep(1)
+            elapsed_time = 11
+            while not PyGraphistry._sso_get_token():
+                if elapsed_time % 10 == 1:
+                    print("Waiting for token : {} ...".format(elapsed_time - 1))
 
-                    time.sleep(1)
-                    elapsed_time = elapsed_time + 1
-                    if elapsed_time > sso_timeout:
-                        raise Exception("[SSO] Get token timeout")
-                
-                return PyGraphistry.api_token()
+                time.sleep(1)
+                elapsed_time = elapsed_time + 1
+                if elapsed_time > sso_timeout:
+                    raise Exception("[SSO] Get token timeout")
+
+            print("Successfully get a token")
+            return PyGraphistry.api_token()
+        else:
+            print("Please run graphistry.sso_get_token() to complete the authentication")
 
 
     @staticmethod
@@ -557,7 +561,7 @@ class PyGraphistry(object):
             PyGraphistry.login(username, password, org_name)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
             PyGraphistry.authenticate()
-        else: # Go to SSO login
+        else:  # enter SSO login logic
             if org_name:
                 PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
             else:
@@ -2232,6 +2236,7 @@ class PyGraphistry(object):
         if 'sso_state' not in PyGraphistry._config or value is not PyGraphistry._config['sso_state']:
             PyGraphistry._config['sso_state'] = value.strip()
 
+    @staticmethod
     def scene_settings(
         menu: Optional[bool] = None,
         info: Optional[bool] = None,
