@@ -565,7 +565,7 @@ class PyGraphistry(object):
             if org_name:
                 PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
             else:
-                raise Exception("Please provide username/password or at least org_name for SSO login")
+                print("Please provide username/password or at least org_name for SSO login")
 
 
     @staticmethod
