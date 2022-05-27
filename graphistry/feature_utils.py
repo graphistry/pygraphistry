@@ -1,6 +1,9 @@
 import copy
 import numpy as np, pandas as pd
 from time import time
+import warnings
+from functools import partial
+
 from typing import List, Union, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from typing_extensions import Literal  # Literal native to py3.8+
 
@@ -30,11 +33,7 @@ except ModuleNotFoundError as e:
 
 try:
     import scipy, scipy.sparse
-    from dirty_cat import (
-        SuperVectorizer,
-        GapEncoder,
-        SimilarityEncoder
-    )
+    from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
 
     from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
@@ -45,6 +44,7 @@ try:
         RobustScaler,
         MultiLabelBinarizer,
         KBinsDiscretizer,
+        FunctionTransformer
     )
 
     has_min_dependancy: bool = True
@@ -53,9 +53,10 @@ except ModuleNotFoundError as e:
     import_min_exn = e
     has_min_dependancy = False
     SuperVectorizer = Any
-    SimilarityEncoder: Any = None,
-    GapEncoder: Any = None,
+    SimilarityEncoder: Any = (None,)
+    GapEncoder: Any = (None,)
     Pipeline = Any
+    FunctionTransformer = Any
 
 
 def assert_imported_text():
@@ -96,6 +97,7 @@ def assert_imported():
 #                 rest of df goes to equivalent of _node_featurizer
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
+
 FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
@@ -382,10 +384,10 @@ def check_if_textual_column(
 
     :param df: DataFrame
     :param col: column name
-    :param confidence: threshold float value between 0 and 1. If column `col` has `confidence` more elements as `str`
+    :param confidence: threshold float value between 0 and 1. If column `col` has `confidence` more elements as type `str`
             it will pass it onto next stage of evaluation. Default 0.35
     :param min_words: mean minimum words threshold. If mean words across `col` is greater than this, it is deemed textual.
-            Default 3.5
+            Default 2.5
     :return: bool, whether column is textual or not
     """
     isstring = df[col].apply(lambda x: isinstance(x, str))
@@ -533,12 +535,6 @@ def impute_and_scale_df(
     columns = df.columns
     index = df.index
 
-    # if not is_dataframe_all_numeric(df):
-    #     logger.warning(
-    #         "Impute and Scaling can only happen on a Numeric DataFrame.\n -- Try featurizing the DataFrame first using graphistry.featurize(..)"
-    #     )
-    #     return df, None
-
     transformer = get_preprocessing_pipeline(
         impute=impute,
         use_scaler=use_scaler,
@@ -619,41 +615,43 @@ def encode_textual(
             logger.debug(
                 f"Encoded Textual using Embedding {model_name}  at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per minute"
             )
-            transformed_columns = _get_sentence_transformer_headers(embeddings, text_cols)
-            
+            transformed_columns = _get_sentence_transformer_headers(
+                embeddings, text_cols
+            )
 
     res = pd.DataFrame(embeddings, columns=transformed_columns, index=df.index)
 
     return res, text_cols, model
 
 
-def smart_scaler(X_enc,
-                 y_enc,
-                 use_scaler,
-                 use_scaler_target,
-                 impute: bool = True,
-                 n_quantiles: int = 10,
-                 output_distribution: str = "normal",
-                 quantile_range=(25, 75),
-                 n_bins: int = 10,
-                 encode: str = "ordinal",
-                 strategy: str = "uniform",
-                 keep_n_decimals: int = 5,
-                 ):
+def smart_scaler(
+    X_enc,
+    y_enc,
+    use_scaler,
+    use_scaler_target,
+    impute: bool = True,
+    n_quantiles: int = 10,
+    output_distribution: str = "normal",
+    quantile_range=(25, 75),
+    n_bins: int = 10,
+    encode: str = "ordinal",
+    strategy: str = "uniform",
+    keep_n_decimals: int = 5,
+):
     pipeline = None
     pipeline_target = None
     encoder = lambda X, use_scaler: impute_and_scale_df(
-            X,
-            use_scaler=use_scaler,
-            impute=impute,
-            n_quantiles=n_quantiles,
-            quantile_range=quantile_range,
-            output_distribution=output_distribution,
-            n_bins=n_bins,
-            encode=encode,
-            strategy=strategy,
-            keep_n_decimals=keep_n_decimals
-        )
+        X,
+        use_scaler=use_scaler,
+        impute=impute,
+        n_quantiles=n_quantiles,
+        quantile_range=quantile_range,
+        output_distribution=output_distribution,
+        n_bins=n_bins,
+        encode=encode,
+        strategy=strategy,
+        keep_n_decimals=keep_n_decimals,
+    )
 
     if use_scaler and not X_enc.empty:
         logger.debug(f"- Feature scaling using {use_scaler}")
@@ -662,7 +660,7 @@ def smart_scaler(X_enc,
     if use_scaler_target and not y_enc.empty:
         logger.debug(f"-Target scaling using {use_scaler_target}")
         y_enc, pipeline_target = encoder(y_enc, use_scaler_target)
-        
+
     return X_enc, y_enc, pipeline, pipeline_target
 
 
@@ -684,11 +682,32 @@ def make_array(X):
     return X
 
 
-def get_numeric(ndf, y):
-    ndf = ndf.select_dtypes(include=[np.number])
-    y = y.select_dtypes(include=[np.number]) if y is not None else None
+def passthrough_with_cols(df, columns): #if lambdas, won't pickle in FunctionTransformer
+    return df[columns]
+
+
+class callThrough():
+    
+    def __init__(self, x):
+        self.x = x
+    
+    def __call__(self, *args, **kwargs):
+        return self.x
+
+
+def get_numeric_transformers(ndf, y=None):
+    # numeric selector needs to embody memorization of columns for later .transform consistency.
+    # from sklearn.preprocessing import FunctionTransformer
+    # from functools import partial
     label_encoder = False
-    data_encoder = False
+    if y is not None:
+        y = y.select_dtypes(include=[np.number])
+        label_encoder = FunctionTransformer(partial(passthrough_with_cols, columns=y.columns)) # takes dataframe and memorizes which cols to use.
+        label_encoder.get_feature_names_out = callThrough(y.columns)
+
+    ndf = ndf.select_dtypes(include=[np.number])
+    data_encoder = FunctionTransformer(partial(passthrough_with_cols, columns=ndf.columns))
+    data_encoder.get_feature_names_out = callThrough(ndf.columns)
     return ndf, y, data_encoder, label_encoder
 
 
@@ -701,8 +720,8 @@ def process_dirty_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
     use_scaler_target: Optional[str] = None,
-    similarity: Optional[str] = 'ngram',
-    categories: Optional[str] = 'auto',
+    similarity: Optional[str] = "ngram",
+    categories: Optional[str] = "auto",
     impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
@@ -715,7 +734,7 @@ def process_dirty_dataframes(
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
-    SuperVectorizer,
+    Union[SuperVectorizer, FunctionTransformer],
     SuperVectorizer,
     Optional[Pipeline],
     Optional[Pipeline],
@@ -736,66 +755,59 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None), the data encoder, and the label encoder.
     """
     t = time()
-    data_encoder = SuperVectorizer(
-        auto_cast=True,
-        cardinality_threshold=cardinality_threshold,
-        high_card_cat_transformer=GapEncoder(n_topics),
-        # numerical_transformer=StandardScaler(), This breaks since -- AttributeError: Transformer numeric (type StandardScaler)
-        #  does not provide get_feature_names.
-        datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
-    )
-    label_encoder = None
 
-    if feature_engine == "none" or feature_engine == "pandas":
+    if not is_dataframe_all_numeric(ndf):
+        data_encoder = SuperVectorizer(
+            auto_cast=True,
+            cardinality_threshold=cardinality_threshold,
+            high_card_cat_transformer=GapEncoder(n_topics),
+            # numerical_transformer=StandardScaler(), This breaks since -- AttributeError: Transformer numeric (type StandardScaler)
+            #  does not provide get_feature_names.
+            datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
+        )
+
+        logger.info(":: Encoding DataFrame might take a few minutes --------")
+        X_enc = data_encoder.fit_transform(ndf, y)
+        X_enc = make_array(X_enc)
+
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            features_transformed = data_encoder.get_feature_names_out()
+
+        all_transformers = data_encoder.transformers
+        logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}\n")
+        logger.debug(f"-Transformers: \n{all_transformers}\n")
+        logger.debug(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
+        logger.debug(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
+        
+        X_enc = pd.DataFrame(X_enc, columns=features_transformed)
+        X_enc = X_enc.fillna(0.0)
+    else:
         logger.warning(
             "Featurizer returning only numeric entries in DataFrame, if any exist. No real featurizations has taken place."
         )
-        ndf, y, data_encoder, label_encoder = get_numeric(ndf, y)
+        logger.info(" -*-*- DataFrame is already completely numeric")
+        
+        X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
 
-    if not ndf.empty:
-        if not is_dataframe_all_numeric(ndf):
-            logger.debug(":: Encoding DataFrame might take a few minutes --------")
-            X_enc = data_encoder.fit_transform(ndf, y)
-            X_enc = make_array(X_enc)
-            all_transformers = data_encoder.transformers
-
-            import warnings
-
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=FutureWarning)
-                features_transformed = data_encoder.get_feature_names_out()
-
-            logger.debug(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}\n")
-            logger.debug(f"-Transformers: \n{all_transformers}\n")
-            logger.debug(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
-            logger.debug(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
-            X_enc = pd.DataFrame(X_enc, columns=features_transformed)
-            X_enc = X_enc.fillna(0)
-        else:
-            # if we pass only a numeric DF, data_encoder throws
-            # RuntimeError: No transformers could be generated !
-            logger.debug(" -*-*- DataFrame is already completely numeric")
-            X_enc = ndf.astype(float)
-            data_encoder = False  # DO NOT SET THIS TO NONE
-            features_transformed = ndf.columns
-            logger.debug(f"-Shape of data {X_enc.shape}\n")
-            logger.debug(f"-Columns: {features_transformed[:20]}...\n")
-    else:
-        X_enc = ndf
-        data_encoder = None
-        logger.debug(" ** Given DataFrame seems to be empty")
 
     if y is not None and len(y.columns) > 0 and not is_dataframe_all_numeric(y):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
-        
-        label_encoder = SuperVectorizer(
-            auto_cast=True,
-            cardinality_threshold=cardinality_threshold_target,
-            high_card_cat_transformer=GapEncoder(n_topics_target), #Similarity
-            datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
-        ) if not similarity else SimilarityEncoder(similarity=similarity, categories=categories)
-        
+
+        label_encoder = (
+            SuperVectorizer(
+                auto_cast=True,
+                cardinality_threshold=cardinality_threshold_target,
+                high_card_cat_transformer=GapEncoder(n_topics_target),  # Similarity
+                datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
+            )
+            if not similarity  #TODO move into high card cat
+            else SimilarityEncoder(similarity=similarity, categories=categories)
+        )
+
         y_enc = label_encoder.fit_transform(y)
         y_enc = make_array(y_enc)
 
@@ -814,9 +826,15 @@ def process_dirty_dataframes(
             f"--Fitting SuperVectorizer on TARGET took {(time() - t2) / 60:.2f} minutes\n"
         )
     else:
-        y_enc = y
+        y_enc, _, label_encoder, _ = get_numeric_transformers(y, None)
 
-    X_enc, y_enc, pipeline, pipeline_target = smart_scaler( # not that smart, but close enough
+
+    (
+        X_enc,
+        y_enc,
+        scaling_pipeline,
+        scaling_pipeline_target,
+    ) = smart_scaler(  # not that smart, but close enough
         X_enc,
         y_enc,
         use_scaler,
@@ -828,17 +846,10 @@ def process_dirty_dataframes(
         n_bins=n_bins,
         encode=encode,
         strategy=strategy,
-        keep_n_decimals=keep_n_decimals
+        keep_n_decimals=keep_n_decimals,
     )
 
-    return (
-        X_enc,
-        y_enc,
-        data_encoder,
-        label_encoder,
-        pipeline,
-        pipeline_target
-    )
+    return (X_enc, y_enc, data_encoder, label_encoder, scaling_pipeline, scaling_pipeline_target)
 
 
 def process_nodes_dataframes(
@@ -857,8 +868,8 @@ def process_nodes_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-    similarity: Optional[str] = 'ngram',
-    categories: Optional[str] = 'auto',
+    similarity: Optional[str] = "ngram",
+    categories: Optional[str] = "auto",
     impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
@@ -899,21 +910,22 @@ def process_nodes_dataframes(
     """
 
     logger.info("process_nodes_dataframes[%s]", feature_engine)
-    
+
     if feature_engine in ["none", "pandas"]:
-        X_enc = df.select_dtypes(include=[np.number])
-        y_enc = y.select_dtypes(include=[np.number])
-        X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(
+        X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(df, y)
+        X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(
             X_enc, y_enc, use_scaler, use_scaler_target
         )
-        logger.debug(f'Feature Engine {feature_engine}, returning only Numeric Data, if any')
+        logger.debug(
+            f"Feature Engine {feature_engine}, returning only Numeric Data, if any"
+        )
         return (
             X_enc,
             y_enc,
-            False,
-            False,
-            ordinal_pipeline,
-            ordinal_pipeline_target,
+            data_encoder,
+            label_encoder,
+            scaling_pipeline,
+            scaling_pipeline_target,
             False,
             [],
         )
@@ -966,7 +978,7 @@ def process_nodes_dataframes(
         print("--Only found a textual embedding")
         X_enc = text_enc
 
-    X_enc, y_enc, pipeline, pipeline_target = smart_scaler(
+    X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(
         X_enc,
         y_enc,
         use_scaler,
@@ -978,19 +990,19 @@ def process_nodes_dataframes(
         n_bins=n_bins,
         encode=encode,
         strategy=strategy,
-        keep_n_decimals=keep_n_decimals
+        keep_n_decimals=keep_n_decimals,
     )
 
     logger.debug(
-        f"--The entire Textual and/or other encoding process took {(time()-t)/60:.2f} minutes"
+        f"--The entire Encoding process took {(time()-t)/60:.2f} minutes"
     )
     res = (
         X_enc,
         y_enc,
         data_encoder,
         label_encoder,
-        pipeline,
-        pipeline_target,
+        scaling_pipeline,
+        scaling_pipeline_target,
         text_model,
         text_cols,
     )
@@ -1009,7 +1021,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
         T = mlb.transform(zip(source, destination))
     T = 1.0 * T  # coerce to float
     columns = mlb.classes_
-    T = pd.DataFrame(T, columns=columns)
+    T = pd.DataFrame(T, columns=columns, index=edf.index)
     return T, mlb
 
 
@@ -1031,8 +1043,8 @@ def process_edge_dataframes(
     confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-    similarity: Optional[str] = 'ngram',
-    categories: Optional[str] = 'auto',
+    similarity: Optional[str] = "ngram",
+    categories: Optional[str] = "auto",
     impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
@@ -1071,22 +1083,20 @@ def process_edge_dataframes(
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
     )
-    
+
     if feature_engine in ["none", "pandas"]:
-        edf = T
-        X_enc = edf.select_dtypes(include=[np.number])
-        y_enc = y.select_dtypes(include=[np.number])
-        X_enc, y_enc, ordinal_pipeline, ordinal_pipeline_target = smart_scaler(
+        X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(T, y)
+        X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(
             X_enc, y_enc, use_scaler, use_scaler_target
         )
-        logger.debug(f'Returning only Edge MLB feature')
+        logger.debug(f"Returning only Edge MLB feature")
         return (
             X_enc,
             y_enc,
-            [False, False],
-            False,
-            ordinal_pipeline,
-            ordinal_pipeline_target,
+            [mlb_pairwise_edge_encoder, data_encoder],
+            label_encoder,
+            scaling_pipeline,
+            scaling_pipeline_target,
             False,
             [],
         )
@@ -1128,13 +1138,13 @@ def process_edge_dataframes(
     )
 
     if not X_enc.empty and not T.empty:
-        print(f"=Found Edges and Dirty_cat encoding")
+        print(f" = Found Edges and Dirty_cat encoding")
         X_enc = pd.concat([T, X_enc], axis=1)
     elif not T.empty and X_enc.empty:
         print(f" A<=>B Found only Edges")
         X_enc = T
 
-    X_enc, y_enc, pipeline, pipeline_target = smart_scaler(
+    X_enc, y_enc, scaling_pipeline, scalingg_pipeline_target = smart_scaler(
         X_enc,
         y_enc,
         use_scaler,
@@ -1146,23 +1156,23 @@ def process_edge_dataframes(
         n_bins=n_bins,
         encode=encode,
         strategy=strategy,
-        keep_n_decimals=keep_n_decimals
+        keep_n_decimals=keep_n_decimals,
     )
 
     logger.debug(f"--Created an Edge feature matrix of size {T.shape}")
     logger.debug(f"**The entire Edge encoding process took {(time()-t)/60:.2f} minutes")
-    
-    res =  (
+
+    res = (
         X_enc,
         y_enc,
         [mlb_pairwise_edge_encoder, data_encoder],
         label_encoder,
-        pipeline,
-        pipeline_target,
+        scaling_pipeline,
+        scalingg_pipeline_target,
         text_model,
         text_cols,
     )
-    
+
     return res
 
 
@@ -1179,7 +1189,8 @@ def transform_text(
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
-    print('Transforming text using:')
+
+    print("Transforming text using:")
     if isinstance(text_model, Pipeline):
         print(f"-- Ngram tfidf")
         tX = text_model.transform(res)
@@ -1199,7 +1210,6 @@ def transform_text(
 def transform_dirty(
     df: pd.DataFrame, data_encoder: SuperVectorizer, name: str = ""
 ) -> pd.DataFrame:
-    import warnings
 
     print(f"-- {name} Encoder:")
     print(f"\t{data_encoder}\n")
@@ -1229,33 +1239,22 @@ def transform(
     ) = res
     feature_columns = X_enc.columns
     feature_columns_target = y_enc.columns
-    expected_shape = X_enc.shape[1]
-    expected_shape_target = y_enc.shape[1]
+
 
     y = pd.DataFrame([])
     T = pd.DataFrame([])
     # encode nodes
-    if data_encoder and kind == "nodes":
+    if kind == "nodes":
         X = transform_dirty(df, data_encoder, name="Numeric and/or Dirty Node Features")
     # encode edges
-    elif isinstance(data_encoder, list) and kind == "edges":
+    elif kind == "edges":
         print(f"Transforming Edges!")
         mlb, data_encoder = data_encoder
         T, mlb = encode_edges(df, src, dst, mlb, fit=False)
         X = transform_dirty(df, data_encoder, "Numeric and/or Dirty Edge-Features")
-    else:  # return just numeric
-        X = df.select_dtypes(np.number)
-        print(
-            f"--No data-encoder, returning only numeric columns, if any, with columns {X.columns}"
-        )
 
-    if label_encoder and ydf is not None:
+    if ydf is not None:
         y = transform_dirty(ydf, label_encoder, name=f"{kind.title()}-Label")
-    elif ydf is not None:
-        y = ydf.select_dtypes([np.number])
-        print(
-            f"--No target-encoder, returning only numeric columns, if any, with columns {y.columns}"
-        )
 
     # Concat in the Textual features, if any
     tX = pd.DataFrame([])
@@ -1265,7 +1264,7 @@ def transform(
         res = concat_text(df, text_cols)
         if text_model:
             tX = transform_text(res, text_model, text_cols)
-            print(f"Are text features empty? : {tX.empty}")
+        print(f"Are text features empty? : {tX.empty}")
 
     # concat text to dirty_cat, with text in front.
     if not tX.empty and not X.empty:
@@ -1276,7 +1275,7 @@ def transform(
         print("--Just textual")
     elif not X.empty:
         print("--Just Numeric/Dirty_Cat transformer")
-        X = X  # dirty
+        X = X  # dirty/Numeric
     else:
         print(f"**ITS ALL EMPTY NOTHINGNESS {X}")
 
@@ -1291,12 +1290,13 @@ def transform(
     a, b = set(list(X.columns)), set(list(feature_columns))
     c, d = set(list(y.columns)), set(list(feature_columns_target))
     if a != b:
-        print(f"\n--found {a} \n\nand \n{b}\n\n difference \n {a.difference(b)} \nand {b.difference(a)}")
+        print(
+            f"Features \n--{a.difference(b)} \nand {b.difference(a)}"
+        )
     if c != d:
         print(
-            f"\n--found targets {c} \n\nand \n {d}\n\n difference \n {c.difference(d)} \nand {d.difference(c)}"
+            f"Target \n--{c.difference(d)} \nand {d.difference(c)}"
         )
-        
 
     if scaling_pipeline and not X.empty:
         X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns)
@@ -1307,7 +1307,7 @@ def transform(
 
 
 class FastEncoder:
-    def __init__(self, df, y=None, kind='nodes'):
+    def __init__(self, df, y=None, kind="nodes"):
         self._df = df
         self._y = pd.DataFrame([]) if y is None else y
         self.kind = kind
@@ -1334,11 +1334,11 @@ class FastEncoder:
                 f'`kind` should be one of "nodes" or "edges", found {kind}'
             )
         return res
-    
+
     def _hecho(self, res):
         print("\n--  Setting Encoder Parts from Fit ::")
         for name, value in zip(self.res_names, res):
-            if name not in ['X_enc', 'y_enc']:
+            if name not in ["X_enc", "y_enc"]:
                 print("-" * 90)
                 print(f"[[ {name} ]]:  {value}\n")
 
@@ -1354,7 +1354,7 @@ class FastEncoder:
             text_model,
             text_cols,
         ) = res
-        
+
         self._hecho(res)
 
         self.feature_columns = X_enc.columns
@@ -1378,6 +1378,7 @@ class FastEncoder:
     def transform(self, df, ydf=None):
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
         return X, y
+
 
 # ######################################################################################################################
 #
@@ -1483,8 +1484,8 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = 'ngram',
-        categories: Optional[str] = 'auto',
+        similarity: Optional[str] = "ngram",
+        categories: Optional[str] = "auto",
         remove_node_column: bool = True,
         feature_engine: FeatureEngineConcrete = "pandas",
     ):
@@ -1527,11 +1528,7 @@ class FeatureMixin(MIXIN_BASE):
         if old_res:
             logger.info(" --- RE-USING NODE FEATURIZATION")
             fresh_res = copy.copy(res)
-            for attr in [
-                "_node_features",
-                "_node_target",
-                '_node_encoder'
-            ]:
+            for attr in ["_node_features", "_node_target", "_node_encoder"]:
                 setattr(fresh_res, attr, getattr(old_res, attr))
 
             return fresh_res
@@ -1544,12 +1541,12 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = features_without_target(X_resolved, y_resolved)
         X_resolved = remove_internal_namespace_if_present(X_resolved)
 
-        fenc = FastEncoder(X_resolved, y_resolved, kind='nodes')
+        fenc = FastEncoder(X_resolved, y_resolved, kind="nodes")
 
         keys_to_remove = ["X", "y", "remove_node_column"]
         for key in keys_to_remove:
             del fkwargs[key]
-            
+
         fenc.fit(kind="nodes", **fkwargs)
 
         # if changing, also update fresh_res
@@ -1578,8 +1575,8 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = 'ngram',
-        categories: Optional[str] = 'auto',
+        similarity: Optional[str] = "ngram",
+        categories: Optional[str] = "auto",
         feature_engine: FeatureEngineConcrete = "pandas",
     ):
 
@@ -1632,15 +1629,15 @@ class FeatureMixin(MIXIN_BASE):
 
         X_resolved = features_without_target(X_resolved, y_resolved)
 
-        fenc = FastEncoder(X_resolved, y_resolved, kind='edges')
-        
+        fenc = FastEncoder(X_resolved, y_resolved, kind="edges")
+
         keys_to_remove = [
             "X",
             "y",
         ]
         for key in keys_to_remove:
             del fkwargs[key]
-            
+
         fenc.fit(kind="edges", src=res._source, dst=res._destination, **fkwargs)
 
         # if editing, should also update fresh_res
@@ -1652,19 +1649,20 @@ class FeatureMixin(MIXIN_BASE):
 
     def _transform(self, encoder: str, df: pd.DataFrame, ydf: pd.DataFrame):
         if getattr(self, encoder) is not None:
-           return getattr(self, encoder).transform(df, ydf)
+            return getattr(self, encoder).transform(df, ydf)
         else:
-            logger.debug(f'Fit on data (g.featurize(kind="..", ...)) before being able to transform data')
+            logger.debug(
+                f'Fit on data (g.featurize(kind="..", ...)) before being able to transform data'
+            )
 
-    
     def transform(self, df, ydf, kind):
-        if kind == 'nodes':
-            return self._transform('_node_encoder', df, ydf)
-        elif kind == 'edges':
-            return self._transform('_edge_encoder', df, ydf)
+        if kind == "nodes":
+            return self._transform("_node_encoder", df, ydf)
+        elif kind == "edges":
+            return self._transform("_edge_encoder", df, ydf)
         else:
-            logger.debug(f'kind must be one of `nodes`, `edges`, found {kind}')
-            
+            logger.debug(f"kind must be one of `nodes`, `edges`, found {kind}")
+
     def featurize(
         self,
         kind: str = "nodes",
@@ -1683,8 +1681,8 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         confidence: float = 0.35,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = 'ngram',
-        categories: Optional[str] = 'auto',
+        similarity: Optional[str] = "ngram",
+        categories: Optional[str] = "auto",
         remove_node_column: bool = True,
         inplace: bool = False,
         feature_engine: FeatureEngine = "auto",
@@ -1812,8 +1810,8 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = 'ngram',
-        categories: Optional[str] = 'auto',
+        similarity: Optional[str] = "ngram",
+        categories: Optional[str] = "auto",
         remove_node_column: bool = True,
         feature_engine: FeatureEngineConcrete = "pandas",
         reuse_if_existing=False,
@@ -1882,8 +1880,8 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = 'ngram', # or none
-        categories: Optional[str] = 'auto',
+        similarity: Optional[str] = "ngram",  # or none
+        categories: Optional[str] = "auto",
         feature_engine: FeatureEngineConcrete = "pandas",
         reuse_if_existing=False,
     ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
