@@ -134,6 +134,11 @@ double_target_reddit = pd.DataFrame(
 )
 single_target_reddit = pd.DataFrame({"label": ndf_reddit.label.values})
 
+edge_df2 = ndf_reddit[['title', 'label']]
+edge_df2['src'] = np.random.random_integers(0, 120, size=len(edge_df2))
+edge_df2['dst'] = np.random.random_integers(0, 120, size=len(edge_df2))
+edge2_target_df = pd.DataFrame({'label': edge_df2.label})
+
 # ################################################
 # data to test textual and numeric DataFrame
 # ndf_stocks, price_df_stocks = get_stocks_dataframe()
@@ -162,41 +167,33 @@ def test_allclose_fit_transform_on_same_data(X, x, Y=None, y=None): # so we can 
 class TestFastEncoder(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
     def setUp(self):
-        fenc = FastEncoder(ndf_reddit, y=double_target_reddit)
-        fenc.fit(use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
+        fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
+        fenc.fit(feature_engine=resolve_feature_engine('auto'),
+                 use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
         self.X, self.Y = fenc.X, fenc.y
         self.x, self.y = fenc.transform(ndf_reddit, ydf=double_target_reddit)
+
+        fenc = FastEncoder(edge_df2, y=edge2_target_df, kind='edges')
+        fenc.fit(src='src', dst='dst', feature_engine=resolve_feature_engine('auto'),
+                 use_ngrams=True, ngram_range=(1, 1),
+                 use_scaler=None,
+                 use_scaler_target=None,
+                 cardinality_threshold=2, n_topics=4)
         
+        self.Xe, self.Ye = fenc.X, fenc.y
+        self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
+
     def test_allclose_fit_transform_on_same_data(self):
         test_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
-        
-    def test_columns_match(self):
-        assert all(self.X.columns == self.x.columns), f'Feature Columns do not match'
-        assert all(self.Y.columns == self.y.columns), f'Target Columns do not match'
-    
-    # def check_methods_match(self, fenc, data):
-    #     scaler, card, ngrams = data
-    #
-    #     if scaler is not None:
-    #         scaler_type = str(type(fenc.ordinal_pipeline[-1])).split('.')[-1]
-    #         scaler_type2 = str(type(fenc.ordinal_pipeline_target[-1])).split('.')[-1]
-    #         if scaler == 'zscale':
-    #             assert 'StandardScaler' in scaler_type
-    #             assert 'StandardScaler' in scaler_type2
-    #         else:
-    #             assert scaler in scaler_type.lower()
-    #             assert scaler in scaler_type2.lower()
-    #     ## add rest here
-    #
-    # def test_encoder_options(self):
-    #     fenc = FastEncoder(ndf_reddit, y=double_target_reddit)
-    #     for scaler in ["minmax", "quantile", "zscale", "robust", "kbins"]:
-    #         for card in [2, 100]: # topic model or not
-    #             for ngrams in [True, False]:
-    #                 fenc.fit(use_ngrams=ngrams, ngram_range=(1, 1), use_scaler=scaler, use_scaler_target=scaler, cardinality_threshold=card)
-    #                 data =[scaler, card, ngrams]
-    #                 self.check_methods_match(fenc, data)
+        test_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
 
+    def test_columns_match(self):
+        assert all(self.X.columns == self.x.columns), f'Node Feature Columns do not match'
+        assert all(self.Y.columns == self.y.columns), f'Node Target Columns do not match'
+        assert all(self.Xe.columns == self.xe.columns), f'Edge Feature Columns do not match'
+        assert all(self.Ye.columns == self.ye.columns), f'Edge Target Columns do not match'
+        
+        
 
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
@@ -233,7 +230,7 @@ class TestFeatureProcessors(unittest.TestCase):
     def test_process_node_dataframes_min_words(self):
         # test different target cardinality
         with self.assertRaises(Exception) as context:  # test that min words needs to be greater than 1
-            X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
+            X_enc, y_enc, data_encoder, label_encoder, scaling_pipeline, scaling_pipeline_target, text_model, text_cols = process_nodes_dataframes(
                 ndf_reddit,
                 y=double_target_reddit,
                 use_scaler=None,
@@ -350,11 +347,10 @@ class TestFeatureMethods(unittest.TestCase):
                                 self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
                                 
                 
-
     @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_node_featurizations(self):
         g = graphistry.nodes(ndf_reddit)
-        use_cols = [None, text_cols_reddit, good_cols_reddit, meta_cols_reddit]
+        use_cols = [None, text_cols_reddit, meta_cols_reddit]
         targets = [None, single_target_reddit, double_target_reddit] + target_names_node
         self._test_featurizations(
             g,
@@ -379,6 +375,25 @@ class TestFeatureMethods(unittest.TestCase):
             kind="edges",
             df=edge_df,
         )
+        
+    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    def test_node_scaling(self):
+        g = graphistry.nodes(ndf_reddit)
+        g2 = g.featurize(X="title", y=single_target_edge, use_scaler=None, use_scaler_target=None)
+        scalers = ['quantile', 'zscale', 'kbins', 'robust', 'minmax']
+        for scaler in scalers:
+            a, b, c, d = g2.scale(ndf_reddit, single_target_edge, kind='nodes', use_scaler=scaler, use_scaler_target=np.random.choice(scalers))
+
+        
+
+    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    def test_edge_scaling(self):
+        g = graphistry.edges(edge_df2, "src", "dst")
+        g2 = g.featurize(y='label', kind='edges', use_scaler=None, use_scaler_target=None)
+        scalers = ['quantile', 'zscale', 'kbins', 'robust', 'minmax']
+        for scaler in scalers:
+            a, b, c, d = g2.scale(edge_df2, edge2_target_df, kind='edges', use_scaler=scaler, use_scaler_target=np.random.choice(scalers))
+
 
 
 if __name__ == "__main__":

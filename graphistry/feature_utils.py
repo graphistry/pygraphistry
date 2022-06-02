@@ -570,7 +570,7 @@ def concat_text(df, text_cols):
             f"Concactinating columns {text_cols} into one text-column for encoding"
         )
         for col in text_cols[1:]:
-            res += " . " + df[col].astype(str)
+            res += " " + df[col].astype(str)
     return res
 
 
@@ -771,7 +771,7 @@ def process_dirty_dataframes(
         logger.debug(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
         logger.debug(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
         
-        X_enc = pd.DataFrame(X_enc, columns=features_transformed)
+        X_enc = pd.DataFrame(X_enc, columns=features_transformed, index=ndf.index)
         X_enc = X_enc.fillna(0.0)
     else:
         logger.info(" -*-*- DataFrame is already completely numeric")
@@ -806,7 +806,7 @@ def process_dirty_dataframes(
             else: # Similarity Encoding uses categories_
                 labels_transformed = label_encoder.categories_
             
-        y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed)
+        y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed, index=y.index)
         #y_enc = y_enc.fillna(0)
 
         logger.debug(f"-Shape of target {y_enc.shape}")
@@ -859,7 +859,7 @@ def process_nodes_dataframes(
     List[str],
 ]:
     """
-        Automatic Deep Learning Embedding of Textual Features,
+        Automatic Deep Learning Embedding/ngrams of Textual Features,
         with the rest of the columns taken care of by dirty_cat
     _________________________________________________________________________
 
@@ -988,6 +988,10 @@ def process_nodes_dataframes(
 
 
 def encode_edges(edf, src, dst, mlb, fit=False):
+    """
+    Edge encoding
+    :param
+    """
     # uses mlb with fit=T/F so we can use it in transform mode to recreate edge feature concat definition
     source = edf[src]
     destination = edf[dst]
@@ -1170,7 +1174,7 @@ def process_edge_dataframes(
 
 
 def transform_text(
-    res: pd.DataFrame,
+    df: pd.DataFrame,
     text_model: Union[SentenceTransformer, Pipeline],
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
@@ -1179,13 +1183,13 @@ def transform_text(
     print("Transforming text using:")
     if isinstance(text_model, Pipeline):
         print(f"-- Ngram tfidf")
-        tX = text_model.transform(res)
+        tX = text_model.transform(df)
         tX = make_array(tX)
-        tX = pd.DataFrame(tX, columns=list(text_model[0].vocabulary_.keys()))
+        tX = pd.DataFrame(tX, columns=list(text_model[0].vocabulary_.keys()), index=df.index)
     elif isinstance(text_model, SentenceTransformer):
         print(f"-- HuggingFace")
-        tX = text_model.encode(res.values)
-        tX = pd.DataFrame(tX, columns=_get_sentence_transformer_headers(tX, text_cols))
+        tX = text_model.encode(df.values)
+        tX = pd.DataFrame(tX, columns=_get_sentence_transformer_headers(tX, text_cols), index=df.index)
     else:
         raise ValueError(
             f"`text_model` should be instance of sklearn.pipeline.Pipeline or SentenceTransformer, got {text_model}"
@@ -1194,7 +1198,7 @@ def transform_text(
 
 
 def transform_dirty(
-    df: pd.DataFrame, data_encoder: SuperVectorizer, name: str = ""
+    df: pd.DataFrame, data_encoder: Union[SuperVectorizer, FunctionTransformer], name: str = ""
 ) -> pd.DataFrame:
 
     print(f"-- {name} Encoder:")
@@ -1203,7 +1207,7 @@ def transform_dirty(
     X = make_array(X)
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning)
-        X = pd.DataFrame(X, columns=data_encoder.get_feature_names_out())
+        X = pd.DataFrame(X, columns=data_encoder.get_feature_names_out(), index=df.index)
     return X
 
 
@@ -1230,26 +1234,27 @@ def transform(
     T = pd.DataFrame([])
     # encode nodes
     if kind == "nodes":
+        print(f"-Transforming Nodes!")
         X = transform_dirty(df, data_encoder, name="Numeric or Dirty Node-Features")
     # encode edges
     elif kind == "edges":
-        print(f"Transforming Edges!")
+        print(f"-Transforming Edges!")
         mlb, data_encoder = data_encoder
         T, mlb = encode_edges(df, src, dst, mlb, fit=False)
         X = transform_dirty(df, data_encoder, "Numeric or Dirty Edge-Features")
 
     if ydf is not None:
+        print(f"-Transforming Target!")
         y = transform_dirty(ydf, label_encoder, name=f"{kind.title()}-Label")
 
     # Concat in the Textual features, if any
     tX = pd.DataFrame([])
     if text_cols:
-        print("textual columns found:")
-        print(text_cols)
-        res = concat_text(df, text_cols)
+        print(f"-textual columns found: {text_cols}")
+        res_df = concat_text(df, text_cols)
         if text_model:
-            tX = transform_text(res, text_model, text_cols)
-        print(f"text features are empty") if tX.empty else None
+            tX = transform_text(res_df, text_model, text_cols)
+        print(f"** text features are empty") if tX.empty else None
 
     # concat text to dirty_cat, with text in front.
     if not tX.empty and not X.empty:
@@ -1263,14 +1268,14 @@ def transform(
         X = X  # dirty/Numeric
     else:
         print('-'*60)
-        print(f"**ITS ALL EMPTY NOTHINGNESS [[ {X} ]]")
+        print(f"** IT'S ALL EMPTY NOTHINGNESS [[ {X} ]]")
         print('-'*60)
 
 
     # now if edges, add T at front
     if kind == "edges":
         X = pd.concat([T, X], axis=1)  # edges, text, dirty_cat
-        print(f"Combining MultiLabelBinerizer with previous features")
+        print(f"-Combining MultiLabelBinarizer with previous features")
 
     print(f"--Features matrix shape: {X.shape}")
     print(f"--Target matrix shape: {y.shape}")
@@ -1280,17 +1285,19 @@ def transform(
     if a != b:
         print('-'*80)
         print(
-            f"Features \n--{a.difference(b)} \n\nand\n {b.difference(a)}"
+            f"**Different Features Columns!\n--{a.difference(b)} \n\nand\n {b.difference(a)}"
         )
     if c != d:
         print('-'*80)
         print(
-            f"Target \n--{c.difference(d)} \n\nand\n {d.difference(c)}"
+            f"**Different Target Columns!\n--{c.difference(d)} \n\nand\n {d.difference(c)}"
         )
     
     if scaling_pipeline and not X.empty:
+        print('Scaling Features')
         X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns)
     if scaling_pipeline_target and not y.empty:
+        print('Scaling Target')
         y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns)
     
     return X, y
@@ -1359,19 +1366,18 @@ class FastEncoder:
         self.text_model = text_model
         self.text_cols = text_cols
 
-    def fit(self, kind="nodes", src=None, dst=None, *args, **kwargs):
-        self.kind = kind
+    def fit(self, src=None, dst=None, *args, **kwargs):
         self.src = src
         self.dst = dst
-        res = self._encode(self._df, self._y, kind, src, dst, *args, **kwargs)
+        res = self._encode(self._df, self._y, self.kind, src, dst, *args, **kwargs)
         self._set_result(res)
 
     def transform(self, df, ydf=None):
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
         return X, y
     
-    def fit_transform(self,  kind="nodes", src=None, dst=None, *args, **kwargs):
-        self.fit(kind=kind, src=src, dst=dst, *args, **kwargs)
+    def fit_transform(self, src=None, dst=None, *args, **kwargs):
+        self.fit(src=src, dst=dst, *args, **kwargs)
         return self.X, self.y
     
     def scale(self, df, ydf=None, set_scaler=False, *args, **kwargs):
@@ -1582,7 +1588,7 @@ class FeatureMixin(MIXIN_BASE):
         for key in keys_to_remove:
             del fkwargs[key]
 
-        fenc.fit(kind="nodes", **fkwargs)
+        fenc.fit(**fkwargs)
 
         # if changing, also update fresh_res
         res._node_features = fenc.X
@@ -1689,7 +1695,7 @@ class FeatureMixin(MIXIN_BASE):
         for key in keys_to_remove:
             del fkwargs[key]
 
-        fenc.fit(kind="edges", src=res._source, dst=res._destination, **fkwargs)
+        fenc.fit(src=res._source, dst=res._destination, **fkwargs)
 
         # if editing, should also update fresh_res
         res._edge_features = fenc.X
