@@ -1175,7 +1175,7 @@ def process_edge_dataframes(
 
 def transform_text(
     df: pd.DataFrame,
-    text_model: Union[SentenceTransformer, Pipeline],
+    text_model: Union[SentenceTransformer, Pipeline], # type: ignore
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
@@ -1198,7 +1198,9 @@ def transform_text(
 
 
 def transform_dirty(
-    df: pd.DataFrame, data_encoder: Union[SuperVectorizer, FunctionTransformer], name: str = ""
+    df: pd.DataFrame,
+        data_encoder: Union[SuperVectorizer, FunctionTransformer], # type: ignore
+        name: str = ""
 ) -> pd.DataFrame:
 
     print(f"-- {name} Encoder:")
@@ -1307,7 +1309,7 @@ def transform(
 class FastEncoder:
     def __init__(self, df, y=None, kind="nodes"):
         self._df = df
-        self._y = pd.DataFrame([]) if y is None else y
+        self._y = pd.DataFrame([], index=df.index) if y is None else y
         self.kind = kind
         self._assertions()
         # these are the parts we can use to reconstruct transform.
