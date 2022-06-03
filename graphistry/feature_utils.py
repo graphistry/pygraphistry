@@ -52,12 +52,11 @@ try:
 except ModuleNotFoundError as e:
     import_min_exn = e
     has_min_dependancy = False
-    SuperVectorizer = (None,)
-    SimilarityEncoder = (None,)
-    GapEncoder = (None,)
-    Pipeline  = (None,)
-    FunctionTransformer = (None,)
-
+    SuperVectorizer = None
+    SimilarityEncoder = None
+    GapEncoder = None
+    Pipeline = None
+    FunctionTransformer = None
 
 def assert_imported_text():
     if not has_dependancy_text:
@@ -530,7 +529,7 @@ def impute_and_scale_df(
     encode: str = "ordinal",
     strategy: str = "uniform",
     keep_n_decimals: int = 5,
-) -> Tuple[pd.DataFrame, Optional[Pipeline]]:
+) -> Tuple[pd.DataFrame, Pipeline]:
 
     columns = df.columns
     index = df.index
