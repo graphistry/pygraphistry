@@ -30,6 +30,7 @@ try:
 except ModuleNotFoundError as e:
     import_text_exn = e
     has_dependancy_text = False
+    SentenceTransformer = None
 
 try:
     import scipy, scipy.sparse
