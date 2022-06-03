@@ -34,8 +34,8 @@ try:
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=ImportWarning)
-        import umap
-    has_dependancy: bool = True
+        import umap.umap_ as umap # changed as per https://stackoverflow.com/questions/57242208/how-to-resolve-the-error-module-umap-has-no-attribute-umap-i-tried-installi
+        has_dependancy: bool = True
 except ModuleNotFoundError as e:
     import_exn = e
     has_dependancy = False
@@ -109,7 +109,6 @@ class UMAPMixin(MIXIN_BASE):
 
     def __init__(self, *args, **kwargs):
         self.umap_initialized = False
-        pass
 
     def umap_lazy_init(
         self,
@@ -162,7 +161,7 @@ class UMAPMixin(MIXIN_BASE):
             )
             return None
 
-    def umap_fit(self, X: np.ndarray, y: Union[np.ndarray, None] = None):
+    def umap_fit(self, X: pd.DataFrame, y: Union[pd.DataFrame, None] = None):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
 
@@ -181,11 +180,25 @@ class UMAPMixin(MIXIN_BASE):
         logger.info(f" - or {X.shape[0]/mins:.2f} rows per minute")
         return self
 
-    def umap_fit_transform(self, X: Any, y: Union[Any, None] = None):
+    def umap_fit_transform(self, X: pd.DataFrame, y: Union[pd.DataFrame, None] = None):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         self.umap_fit(X, y)
         return self._umap.transform(X)
+
+    def _bundle_embedding(self, emb, res, kind):
+        if kind == 'nodes':
+            index = res._nodes.index
+        else:
+            index = res._edges.index
+    
+        if emb.shape[1] == 2:
+            res._xy = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
+        else:
+            columns = [f'umap_{k}' for k in range(emb.shape[1])]
+            res._xy = pd.DataFrame(emb, columns=columns, index=index)
+            
+        return res
 
     def _process_umap(
         self,
@@ -208,19 +221,19 @@ class UMAPMixin(MIXIN_BASE):
             res, {**umap_kwargs, "featurize_kwargs": featurize_kwargs or {}}
         )
         if old_res:
-            logger.info(" --- RE-USING UMAP")
+            logger.info(" --- [[ RE-USING UMAP ]]")
             fresh_res = copy.copy(res)
             for attr in ["_xy", "_weighted_edges_df", "_weighted_adjacency"]:
                 setattr(fresh_res, attr, getattr(old_res, attr))
+            ## have to set _raw_data attribute on umap?
+            fresh_res._umap = old_res._umap  # this saves the day!
 
             return fresh_res
 
-        xy = res.umap_fit_transform(X_, y_)
+        emb = res.umap_fit_transform(X_, y_)
 
-        # if changing, also update fresh_res
-        res._xy = xy
-
-        return res
+        return self._bundle_embedding(emb, res, kind)  # this returns res and sets
+        
 
     def _set_features(self, res, X, y, kind, feature_engine, featurize_kwargs):
         """
@@ -259,7 +272,8 @@ class UMAPMixin(MIXIN_BASE):
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         x, y = self.transform(df, ydf, kind=kind)
         emb = self._umap.transform(x)
-        emb = pd.DataFrame(emb, columns=["x", "y"], index=x.index)
+        res = self._bundle_embedding(emb, self, kind)
+        emb = res._xy
         return emb, x, y
 
     def umap(
@@ -276,7 +290,6 @@ class UMAPMixin(MIXIN_BASE):
         negative_sample_rate: int = 5,
         n_components: int = 2,
         metric: str = "euclidean",
-        scale_xy: float = 10,
         suffix: str = "",
         play: Optional[int] = 0,
         encode_position: bool = True,
@@ -344,7 +357,7 @@ class UMAPMixin(MIXIN_BASE):
         if kind == "nodes":
             if res._node is None:
 
-                logger.debug("Writing new node name")
+                logger.debug("-Writing new node name")
                 res = res.nodes(  # type: ignore
                     res._nodes.reset_index(drop=True)
                     .reset_index()
@@ -355,7 +368,7 @@ class UMAPMixin(MIXIN_BASE):
             nodes = res._nodes[res._node].values
             index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
-            logger.debug("propagating with featurize_kwargs: %s", featurize_kwargs)
+            #logger.debug("propagating with featurize_kwargs: %s", featurize_kwargs)
             (
                 X_,
                 y_,
@@ -364,15 +377,15 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
 
-            logger.debug("umap X_: %s", X_)
-            logger.debug("umap y_: %s", y_)
+            #logger.debug("umap X_: %s", X_)
+            #logger.debug("umap y_: %s", y_)
 
             res = res._process_umap(res, X_, y_, kind, featurize_kwargs, **umap_kwargs)
 
             res._weighted_adjacency_nodes = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError("This should not happen")
-            res._node_embedding = scale_xy * res._xy
+            res._node_embedding = res._xy
             # # TODO add edge filter so graph doesn't have double edges
             # TODO user-guidable edge merge policies like upsert?
             res._weighted_edges_df_from_nodes = (
@@ -384,7 +397,7 @@ class UMAPMixin(MIXIN_BASE):
             )
         elif kind == "edges":
 
-            logger.debug("propagating with featurize_kwargs: %s", featurize_kwargs)
+            #logger.debug("propagating with featurize_kwargs: %s", featurize_kwargs)
             (
                 X_,
                 y_,
@@ -396,7 +409,7 @@ class UMAPMixin(MIXIN_BASE):
             res._weighted_adjacency_edges = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError("This should not happen")
-            res._edge_embedding = scale_xy * res._xy
+            res._edge_embedding = res._xy
             res._weighted_edges_df_from_edges = (
                 prune_weighted_edges_df_and_relabel_nodes(
                     res._weighted_edges_df,  # type: ignore
@@ -439,7 +452,6 @@ class UMAPMixin(MIXIN_BASE):
         encode_weight: bool,
         play: Optional[int],
     ):
-        # todo make sure xy is two dim, might be 3 or more....
         df = res._nodes if kind == "nodes" else res._edges
 
         df = df.copy(deep=False)
@@ -449,19 +461,18 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._node_embedding
         else:
             emb = res._edge_embedding
-
-        logger.debug("df shape: %s", df.shape)
-        logger.debug("emb shape: %s", emb.shape)
-        df[x_name] = emb.T[0]
-        df[y_name] = emb.T[1]
-
+    
+        df[x_name] = emb.values.T[0]  # if embedding is greater than two dimensions will only take first two coordinates
+        df[y_name] = emb.values.T[1]
+        #
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 
         if encode_weight and kind == "nodes":
+            # adds the implicit edge dataframe and binds it to graphistry instance
             w_name = config.WEIGHT + self.suffix
-            umap_df = res._weighted_edges_df_from_nodes.copy(deep=False)
-            umap_df = umap_df.rename({config.WEIGHT: w_name})
-            res = res.edges(umap_df, config.SRC, config.DST)
+            umap_edges_df = res._weighted_edges_df_from_nodes.copy(deep=False)
+            umap_edges_df = umap_edges_df.rename({config.WEIGHT: w_name})
+            res = res.edges(umap_edges_df, config.SRC, config.DST)
             logger.info(
                 f"Wrote new edges_dataframe from UMAP embedding of shape {res._edges.shape}"
             )

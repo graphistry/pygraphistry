@@ -52,11 +52,11 @@ try:
 except ModuleNotFoundError as e:
     import_min_exn = e
     has_min_dependancy = False
-    SuperVectorizer:Any = (None,)
-    SimilarityEncoder: Any = (None,)
-    GapEncoder: Any = (None,)
-    Pipeline: Any = (None,)
-    FunctionTransformer: Any = (None,)
+    SuperVectorizer = (None,)
+    SimilarityEncoder = (None,)
+    GapEncoder = (None,)
+    Pipeline  = (None,)
+    FunctionTransformer = (None,)
 
 
 def assert_imported_text():
@@ -1740,8 +1740,8 @@ class FeatureMixin(MIXIN_BASE):
                 strategy: str = "uniform",
                 keep_n_decimals: int = 5,):
         
-        if kind=='nodes':
-            X, y, sp, spt = self._node_encoder.scale(df, ydf, set_scaler=set_scaler,
+        if kind == 'nodes' and hasattr(self, '_node_encoder'):
+            X, y, scaling_pipeline, scaling_pipeline_target = self._node_encoder.scale(df, ydf, set_scaler=set_scaler,
                                     use_scaler=use_scaler,
                                     use_scaler_target=use_scaler_target,
                                     impute=impute,
@@ -1753,8 +1753,8 @@ class FeatureMixin(MIXIN_BASE):
                                     strategy=strategy,
                                     keep_n_decimals=keep_n_decimals
                                      )
-        elif kind == 'edges':
-            X, y, sp, spt = self._edge_encoder.scale(df, ydf, set_scaler=set_scaler,
+        elif kind == 'edges' and hasattr(self, '_edge_encoder'):
+            X, y, scaling_pipeline, scaling_pipeline_target = self._edge_encoder.scale(df, ydf, set_scaler=set_scaler,
                                          use_scaler=use_scaler,
                                          use_scaler_target=use_scaler_target,
                                          impute=impute,
@@ -1766,7 +1766,10 @@ class FeatureMixin(MIXIN_BASE):
                                          strategy=strategy,
                                          keep_n_decimals=keep_n_decimals
                                          )
-        return X, y, sp, spt
+        else:
+            raise AttributeError('Please run g.featurize(*args, **kwargs) first before scaling matrices and targets is possible.')
+    
+        return X, y, scaling_pipeline, scaling_pipeline_target
     
 
     def featurize(
