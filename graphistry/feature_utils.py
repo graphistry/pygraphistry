@@ -1003,6 +1003,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     T = 1.0 * T  # coerce to float
     columns = mlb.classes_
     T = pd.DataFrame(T, columns=columns, index=edf.index)
+    logger.info(f'Shape of Edge Encoding: {T.shape}')
     return T, mlb
 
 
@@ -1182,12 +1183,12 @@ def transform_text(
 
     print("Transforming text using:")
     if isinstance(text_model, Pipeline):
-        print(f"-- Ngram tfidf")
+        print(f"--Ngram tfidf {text_model}")
         tX = text_model.transform(df)
         tX = make_array(tX)
         tX = pd.DataFrame(tX, columns=list(text_model[0].vocabulary_.keys()), index=df.index)
     elif isinstance(text_model, SentenceTransformer):
-        print(f"-- HuggingFace")
+        print(f"--HuggingFace Transformer {text_model}")
         tX = text_model.encode(df.values)
         tX = pd.DataFrame(tX, columns=_get_sentence_transformer_headers(tX, text_cols), index=df.index)
     else:
@@ -1294,10 +1295,10 @@ def transform(
         )
     
     if scaling_pipeline and not X.empty:
-        print('Scaling Features')
+        print('-Scaling Features')
         X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns)
     if scaling_pipeline_target and not y.empty:
-        print('Scaling Target')
+        print('-Scaling Target')
         y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns)
     
     return X, y
@@ -1585,10 +1586,13 @@ class FeatureMixin(MIXIN_BASE):
         fenc = FastEncoder(X_resolved, y_resolved, kind="nodes")
 
         keys_to_remove = ["X", "y", "remove_node_column"]
-        for key in keys_to_remove:
-            del fkwargs[key]
+        
+        nfkwargs = {}
+        for key, value in fkwargs.items():
+            if key not in keys_to_remove:
+                nfkwargs[key] = value
 
-        fenc.fit(**fkwargs)
+        fenc.fit(**nfkwargs)
 
         # if changing, also update fresh_res
         res._node_features = fenc.X
@@ -1692,10 +1696,13 @@ class FeatureMixin(MIXIN_BASE):
             "X",
             "y",
         ]
-        for key in keys_to_remove:
-            del fkwargs[key]
+        
+        nfkwargs = {}
+        for key, value in fkwargs.items():
+            if key not in keys_to_remove:
+                nfkwargs[key] = value
 
-        fenc.fit(src=res._source, dst=res._destination, **fkwargs)
+        fenc.fit(src=res._source, dst=res._destination, **nfkwargs)
 
         # if editing, should also update fresh_res
         res._edge_features = fenc.X
