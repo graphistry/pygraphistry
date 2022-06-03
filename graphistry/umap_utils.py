@@ -148,7 +148,7 @@ class UMAPMixin(MIXIN_BASE):
             self._umap = umap.UMAP(**umap_kwargs)
             self.umap_initialized = True
 
-    def _check_target_is_one_dimensional(self, y: Union[np.ndarray, None]):
+    def _check_target_is_one_dimensional(self, y: Union[pd.DataFrame, None]):
         if y is None:
             return None
         if y.ndim == 1:
@@ -232,12 +232,12 @@ class UMAPMixin(MIXIN_BASE):
 
         emb = res.umap_fit_transform(X_, y_)
 
-        return self._bundle_embedding(emb, res, kind)  # this returns res and sets
+        return self._bundle_embedding(emb, res, kind)  # this returns res and sets _xy
         
 
     def _set_features(self, res, X, y, kind, feature_engine, featurize_kwargs):
         """
-
+            Helper for setting features for memoize
         """
         kv = {}
 
@@ -271,7 +271,7 @@ class UMAPMixin(MIXIN_BASE):
         self, df: pd.DataFrame, ydf: pd.DataFrame, kind: str = "nodes"
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         x, y = self.transform(df, ydf, kind=kind)
-        emb = self._umap.transform(x)
+        emb = self._umap.transform(x) # type: ignore
         res = self._bundle_embedding(emb, self, kind)
         emb = res._xy
         return emb, x, y

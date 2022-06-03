@@ -1740,7 +1740,7 @@ class FeatureMixin(MIXIN_BASE):
                 strategy: str = "uniform",
                 keep_n_decimals: int = 5,):
         
-        if kind == 'nodes' and hasattr(self, '_node_encoder'):
+        if kind == 'nodes' and hasattr(self, '_node_encoder'): # type: ignore
             X, y, scaling_pipeline, scaling_pipeline_target = self._node_encoder.scale(df, ydf, set_scaler=set_scaler,
                                     use_scaler=use_scaler,
                                     use_scaler_target=use_scaler_target,
@@ -1752,8 +1752,8 @@ class FeatureMixin(MIXIN_BASE):
                                     encode=encode,
                                     strategy=strategy,
                                     keep_n_decimals=keep_n_decimals
-                                     )
-        elif kind == 'edges' and hasattr(self, '_edge_encoder'):
+                                     ) # type: ignore
+        elif kind == 'edges' and hasattr(self, '_edge_encoder'): # type: ignore
             X, y, scaling_pipeline, scaling_pipeline_target = self._edge_encoder.scale(df, ydf, set_scaler=set_scaler,
                                          use_scaler=use_scaler,
                                          use_scaler_target=use_scaler_target,
@@ -1765,7 +1765,7 @@ class FeatureMixin(MIXIN_BASE):
                                          encode=encode,
                                          strategy=strategy,
                                          keep_n_decimals=keep_n_decimals
-                                         )
+                                         ) # type: ignore
         else:
             raise AttributeError('Please run g.featurize(*args, **kwargs) first before scaling matrices and targets is possible.')
     
