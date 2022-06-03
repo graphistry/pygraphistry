@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.26.0 - 2022-06-03]
+
+### Breaking 🔥
+
+* Final deprecation of `register(api=2)` protobuf/vgraph mode - also works around need for protobuf test upgrades
+
 ## [0.25.2 - 2022-05-11]
 
 ### Added
@@ -39,7 +45,7 @@ Major version bump due to breaking igraph change
 * Deprecation warnings in old igraph methods: `g.graph(ig)`, `igraph2pandas`, `pandas2igraph`
 * Internal igraph handlers upgraded to use new igraph methods 
 
-### Breaking
+### Breaking 🔥
 
 * `network2igraph` and `igraph2pandas` renamed output node ID column to `_n_implicit` (`constants.NODE`)
 
@@ -96,7 +102,7 @@ Major version bump due to large dependency increases for kitchen-sink installs a
 
 ## [0.23.0 - 2022-04-08]
 
-### Breaking
+### Breaking 🔥
 
 * `g.edges()` now takes an optional 4th named parameter `edge` ID
 
@@ -319,7 +325,7 @@ Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like
 * Docker: Downgrade local dev 3.7 -> 3.6 to more quickly catch minimum version errors
 * CI: Now tests building docs (fail on warnings), pypi wheels distro, and neo4j connector
 
-### Breaking
+### Breaking 🔥
 
 * Changes in setup.py extras_require: 'all' installs more
 
@@ -358,7 +364,7 @@ Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like
 * Infrastructure: Upgraded Versioneer to 0.19
 * Infrastructure: Fewer warnings and enforce flake8 CI checks
 
-### Breaking
+### Breaking 🔥
 
 * None known; many small changes to fix warnings so version bump out of caution
 
@@ -382,7 +388,7 @@ Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like
 
 ## [0.14.0] - 2020-10-12
 
-### Breaking
+### Breaking 🔥
 * Warnings: Standardizing on Python's warnings.warn
 
 ### Fixed

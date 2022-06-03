@@ -105,7 +105,7 @@ class PyGraphistry(object):
             # Mocks may set to True, so bypass in that case
             if (key is None) and (PyGraphistry._is_authenticated is False):
                 util.error(
-                    "In api=1 / api=2 mode, API key not set explicitly in `register()` or available at "
+                    "In api=1 mode, API key not set explicitly in `register()` or available at "
                     + EnvVarNames["api_key"]  # noqa: W503
                 )
             if not PyGraphistry._is_authenticated:
@@ -1806,10 +1806,6 @@ class PyGraphistry(object):
                     f.write(json_dataset)
                 else:
                     f.write(json_dataset.encode("utf8"))
-        elif mode == "vgraph":
-            bin_dataset = dataset.SerializeToString()
-            with gzip.GzipFile(fileobj=out_file, mode="w", compresslevel=9) as f:
-                f.write(bin_dataset)
         else:
             raise ValueError("Unknown mode:", mode)
 
@@ -1857,69 +1853,6 @@ class PyGraphistry(object):
                 "type": "vgraph",
             }
 
-    @staticmethod
-    def _etl2(dataset):
-        PyGraphistry.authenticate()
-
-        vg = dataset["vgraph"]
-        encodings = dataset["encodings"]
-        attributes = dataset["attributes"]
-        metadata = {
-            "name": dataset["name"],
-            "datasources": [{"type": "vgraph", "url": "data0"}],
-            "nodes": [
-                {
-                    "count": vg.vertexCount,
-                    "encodings": encodings["nodes"],
-                    "attributes": attributes["nodes"],
-                }
-            ],
-            "edges": [
-                {
-                    "count": vg.edgeCount,
-                    "encodings": encodings["edges"],
-                    "attributes": attributes["edges"],
-                }
-            ],
-        }
-
-        out_file = PyGraphistry._get_data_file(vg, "vgraph")
-        metadata_json = json.dumps(metadata, ensure_ascii=False, cls=NumpyJSONEncoder)
-        parts = {
-            "metadata": ("metadata", metadata_json, "application/json"),
-            "data0": ("data0", out_file.getvalue(), "application/octet-stream"),
-        }
-
-        params = {
-            "usertag": PyGraphistry._tag,
-            "agent": "pygraphistry",
-            "apiversion": "2",
-            "agentversion": sys.modules["graphistry"].__version__,
-            "key": PyGraphistry.api_key(),
-        }
-        response = requests.post(
-            PyGraphistry._etl_url(),
-            files=parts,
-            params=params,
-            verify=PyGraphistry._config["certificate_validation"],
-        )
-        response.raise_for_status()
-
-        try:
-            jres = response.json()
-        except:
-            raise ValueError("Unexpected server response", response)
-
-        if jres["success"] is not True:
-            raise ValueError(
-                "Server reported error:", jres["msg"] if "msg" in jres else "No Message"
-            )
-        else:
-            return {
-                "name": jres["dataset"],
-                "viztoken": jres["viztoken"],
-                "type": "jsonMeta",
-            }
 
     @staticmethod
     def _check_key_and_version():
