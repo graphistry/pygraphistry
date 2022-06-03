@@ -160,7 +160,7 @@ def test_allclose_fit_transform_on_same_data(X, x, Y=None, y=None): # so we can 
         for value in tol:
             if name =='Features':
                 allclose_stats(X, x, value, name)
-            if name == 'Target' and Y is not None:
+            if name == 'Target' and Y is not None and y is not None:
                 allclose_stats(Y, y, value, name)
 
 

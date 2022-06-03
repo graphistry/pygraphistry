@@ -15,9 +15,8 @@ from graphistry.tests.test_feature_utils import (
     single_target_reddit,
     double_target_reddit,
     edge_df,
-    single_target_edge,
-    double_target_edge,
-    good_edge_cols,
+    edge_df2,
+    edge2_target_df,
     model_avg_name,
     has_min_dependancy as has_featurize,
     test_allclose_fit_transform_on_same_data
@@ -65,20 +64,38 @@ class TestUMAPFitTransform(unittest.TestCase):
         fenc = g2._node_encoder
         self.X, self.Y = fenc.X, fenc.y
         self.EMB = g2._node_embedding
-        self.emb, self.y = g2.transform_umap(ndf_reddit, ydf=double_target_reddit)
+        self.emb, self.x, self.y = g2.transform_umap(ndf_reddit, ydf=double_target_reddit)
+
+        g = graphistry.edges(edge_df2, 'src', 'dst')
+        g2 = g.umap(y=edge2_target_df, kind='edges',
+                 use_ngrams=True, ngram_range=(1, 1),
+                 use_scaler=None,
+                 use_scaler_target=None,
+                 cardinality_threshold=2, n_topics=4)
+        
+        fenc = g2._edge_encoder
+        self.Xe, self.Ye = fenc.X, fenc.y
+        self.EMBe = g2._edge_embedding
+        self.embe, self.xe, self.ye = g2.transform_umap(edge_df2, ydf=edge2_target_df, kind='edges')
 
     def test_allclose_fit_transform_on_same_data(self):
         test_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
+        test_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
+
+        test_allclose_fit_transform_on_same_data(self.EMB, self.emb, None, None)
+        test_allclose_fit_transform_on_same_data(self.EMBe, self.embe, None, None)
 
     def test_columns_match(self):
-        assert all(self.X.columns == self.x.columns), f'Feature Columns do not match'
-        assert all(self.Y.columns == self.y.columns), f'Target Columns do not match'
+        assert all(self.X.columns == self.x.columns), f'Node Feature Columns do not match'
+        assert all(self.Y.columns == self.y.columns), f'Node Target Columns do not match'
+        assert all(self.Xe.columns == self.xe.columns), f'Edge Feature Columns do not match'
+        assert all(self.Ye.columns == self.ye.columns), f'Edge Target Columns do not match'
 
 
 class TestUMAPMethods(unittest.TestCase):
     def _check_attributes(self, g, attributes):
         msg = "Graphistry instance after umap should have `{}` as attribute"
-        msg2 = "Graphistry instance after umap should have not None values for `{}`"
+        msg2 = "Graphistry instance after umap should not have None values for `{}`"
 
         for attribute in attributes:
             self.assertTrue(hasattr(g, attribute), msg.format(attribute))
@@ -86,7 +103,9 @@ class TestUMAPMethods(unittest.TestCase):
             if 'df' in attribute:
                 self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
             if 'node_' in attribute:
-                self.assertIsInstance(getattr(g, attribute), np.ndarray, msg.format(attribute))
+                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
+            if 'edge_' in attribute:
+                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
 
 
     def cases_check_node_attributes(self, g):
@@ -182,21 +201,21 @@ class TestUMAPMethods(unittest.TestCase):
             df=triangleEdges,
         )
 
-    # @pytest.mark.skipif(not has_dependancy or not has_featurize, reason="requires umap feature dependencies")
-    # def test_filter_edges(self):
-    #     for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
-    #         g2 = g.umap(kind=kind, feature_engine="none")
-    #         last_shape = 0
-    #         for scale in np.linspace(0, 3, 8):  # six sigma in 8 steps
-    #             g3 = g2.filter_weighted_edges(scale=scale)
-    #             shape = g3._edges.shape
-    #             logger.debug("*" * 90)
-    #             logger.debug(
-    #                 f"{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}"
-    #             )
-    #             logger.debug("-" * 80)
-    #             self.assertGreaterEqual(shape[0], last_shape)  # should return more and more edges
-    #             last_shape = shape[0]
+    @pytest.mark.skipif(not has_dependancy or not has_featurize, reason="requires umap feature dependencies")
+    def test_filter_edges(self):
+        for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
+            g2 = g.umap(kind=kind, feature_engine="none")
+            last_shape = 0
+            for scale in np.linspace(0, 1, 8):
+                g3 = g2.filter_weighted_edges(scale=scale)
+                shape = g3._edges.shape
+                logger.debug("*" * 90)
+                logger.debug(
+                    f"{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}"
+                )
+                logger.debug("-" * 80)
+                self.assertGreaterEqual(shape[0], last_shape)  # should return more and more edges
+                last_shape = shape[0]
 
 
 class TestUMAPAIMethods(TestUMAPMethods):
@@ -216,8 +235,6 @@ class TestUMAPAIMethods(TestUMAPMethods):
                                 value = [scaler, cardinality, use_ngram, target, use_col]
                                 logger.debug(f"{value}")
                                 logger.debug("-" * 80)
-                                g2 = g.featurize(
-                                )
                             
                                 g2 = g.umap(kind=kind,
                                     X=use_col,
@@ -257,10 +274,9 @@ class TestUMAPAIMethods(TestUMAPMethods):
         reason="requires ai+umap feature dependencies",
     )
     def test_edge_umap(self):
-        g = graphistry.edges(edge_df, "src", "dst")
-        targets = [None, single_target_edge, double_target_edge]
-        use_cols = [None, good_edge_cols]
-
+        g = graphistry.edges(edge_df2, "src", "dst")
+        targets = [None, 'label']
+        use_cols = [None, 'title']
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             self._test_umap(
@@ -269,7 +285,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                 targets=targets,
                 name="Edge UMAP with `(target, use_col)=`",
                 kind="edges",
-                df=edge_df,
+                df=edge_df2,
             )
 
     @pytest.mark.skipif(
@@ -303,10 +319,10 @@ class TestUMAPAIMethods(TestUMAPMethods):
             warnings.filterwarnings("ignore", category=UserWarning)
             g2 = g.umap(kind='edges')
             g3 = g.featurize(kind='edges').umap(kind='edges')
-        assert all(g2._edge_features == g3._edge_features)
+            
         assert all(g2._feature_params['edges']['X'] == g3._feature_params['edges']['X'])
         assert all(g2._feature_params['edges']['y'] == g3._feature_params['edges']['y'])  # None
-        assert g2._edge_embedding.shape == g3._edge_embedding.shape # kinda weak sauce
+        assert all(g2._edge_features == g3._edge_features)
 
     @pytest.mark.skipif(
         not has_dependancy or not has_featurize,
@@ -320,11 +336,11 @@ class TestUMAPAIMethods(TestUMAPMethods):
             warnings.filterwarnings("ignore", category=UserWarning)
             g2 = g.umap(X="type", y="label", cardinality_threshold_target=3, n_topics_target=n_topics_target)  # makes a GapEncoded Target
             g3 = g.umap(X="type", y="label", cardinality_threshold_target=30000)  # makes a one-hot-encoded target
-
-        assert g2._node_target.shape[1] != g3._node_target.shape[1], 'Targets should be different'
+            
         assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X']), "features should be the same"
         assert all(g2._feature_params['nodes']['y'] != g3._feature_params['nodes']['y']), "targets in memoize should be different"  # None
-        assert g2._node_target.shape[1] == n_topics_target
+        assert g2._node_target.shape[1] != g3._node_target.shape[1], 'Targets should be different'
+        assert g2._node_target.shape[1] == n_topics_target, 'Targets '
 
     @pytest.mark.skipif(
         not has_dependancy or not has_featurize,
