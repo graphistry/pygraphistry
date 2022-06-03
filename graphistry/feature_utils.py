@@ -1741,20 +1741,26 @@ class FeatureMixin(MIXIN_BASE):
                 keep_n_decimals: int = 5,):
         
         if kind == 'nodes' and hasattr(self, '_node_encoder'): # type: ignore
-            X, y, scaling_pipeline, scaling_pipeline_target = self._node_encoder.scale(df, ydf, set_scaler=set_scaler,
-                                    use_scaler=use_scaler,
-                                    use_scaler_target=use_scaler_target,
-                                    impute=impute,
-                                    n_quantiles=n_quantiles,
-                                    quantile_range=quantile_range,
-                                    output_distribution=output_distribution,
-                                    n_bins=n_bins,
-                                    encode=encode,
-                                    strategy=strategy,
-                                    keep_n_decimals=keep_n_decimals
-                                     ) # type: ignore
+            if self._node_encoder is not None: # type: ignore
+                X, y, scaling_pipeline, scaling_pipeline_target = self._node_encoder.scale(df, ydf, set_scaler=set_scaler,
+                                        use_scaler=use_scaler,
+                                        use_scaler_target=use_scaler_target,
+                                        impute=impute,
+                                        n_quantiles=n_quantiles,
+                                        quantile_range=quantile_range,
+                                        output_distribution=output_distribution,
+                                        n_bins=n_bins,
+                                        encode=encode,
+                                        strategy=strategy,
+                                        keep_n_decimals=keep_n_decimals
+                                         ) # type: ignore
+            else:
+                raise AttributeError(
+                    'Please run g.featurize(*args, **kwargs) first before scaling matrices and targets is possible.')
+
         elif kind == 'edges' and hasattr(self, '_edge_encoder'): # type: ignore
-            X, y, scaling_pipeline, scaling_pipeline_target = self._edge_encoder.scale(df, ydf, set_scaler=set_scaler,
+            if self._edge_encoder is not None: # type: ignore
+                X, y, scaling_pipeline, scaling_pipeline_target = self._edge_encoder.scale(df, ydf, set_scaler=set_scaler,
                                          use_scaler=use_scaler,
                                          use_scaler_target=use_scaler_target,
                                          impute=impute,
@@ -1766,8 +1772,8 @@ class FeatureMixin(MIXIN_BASE):
                                          strategy=strategy,
                                          keep_n_decimals=keep_n_decimals
                                          ) # type: ignore
-        else:
-            raise AttributeError('Please run g.featurize(*args, **kwargs) first before scaling matrices and targets is possible.')
+            else:
+                raise AttributeError('Please run g.featurize(*args, **kwargs) first before scaling matrices and targets is possible.')
     
         return X, y, scaling_pipeline, scaling_pipeline_target
     
