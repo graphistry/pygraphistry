@@ -800,6 +800,7 @@ def process_dirty_dataframes(
         import warnings
 
         with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
             if isinstance(label_encoder, SuperVectorizer) or isinstance(label_encoder, FunctionTransformer):
                 labels_transformed = label_encoder.get_feature_names_out()

@@ -144,7 +144,8 @@ class Plottable(object):
         unwrap: bool = False,
         verbose: bool = False
     ) -> 'Plottable':
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self
 
     def hop(self,
@@ -157,15 +158,18 @@ class Plottable(object):
         destination_node_match: Optional[dict] = None,
         return_as_wave_front: bool = False
     ) -> 'Plottable':
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self
 
     def filter_nodes_by_dict(self, filter_dict: Optional[dict] = None) -> 'Plottable':
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self
 
     def filter_edges_by_dict(self, filter_dict: Optional[dict] = None) -> 'Plottable':
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
         return self
 
     # FIXME python recursive typing issues
@@ -173,5 +177,27 @@ class Plottable(object):
         """
         ops is List[ASTObject]
         """
-        raise RuntimeError('should not happen')
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def to_igraph(self, 
+        directed: bool = True,
+        include_nodes: bool = True,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None
+    ) -> Any:
+        if 1 + 1:
+            raise RecursionError('should not happen')
+        return self
+
+    def from_igraph(self,
+        ig,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes: bool = True, load_edges: bool = True,
+        merge_if_existing: bool = True
+    ):
+        if 1 + 1:
+            raise RecursionError('should not happen')
         return self

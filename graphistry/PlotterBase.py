@@ -5,7 +5,11 @@ from weakref import WeakValueDictionary
 
 
 from .constants import SRC, DST, NODE
-from .plugins.igraph import to_igraph as to_igraph_base, from_igraph as from_igraph_base
+from .plugins.igraph import (
+    to_igraph as to_igraph_base, from_igraph as from_igraph_base,
+    compute_igraph as compute_igraph_base,
+    layout_igraph as layout_igraph_base
+)
 from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
     cache_coercion, cache_coercion_helper, WeakValueWrapper
@@ -1351,11 +1355,6 @@ class PlotterBase(Plottable):
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl1(dataset)
-        elif api_version == 2:
-            dataset = self._plot_dispatch(g, n, name, description, 'vgraph', self._style, memoize)
-            if skip_upload:
-                return dataset
-            info = PyGraphistry._etl2(dataset)
         elif api_version == 3:
             PyGraphistry.refresh()
             dataset = self._plot_dispatch(g, n, name, description, 'arrow', self._style, memoize)
@@ -1416,6 +1415,26 @@ class PlotterBase(Plottable):
             edge_attributes
         )
     to_igraph.__doc__ = to_igraph_base.__doc__
+
+
+    def compute_igraph(self,
+        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
+    ):
+        return compute_igraph_base(self, alg, out_col, directed, params)
+    compute_igraph.__doc__ = compute_igraph_base.__doc__
+
+
+    def layout_igraph(self,
+        layout: str,
+        directed: Optional[bool] = None,
+        bind_position: bool = True,
+        x_out_col: str = 'x',
+        y_out_col: str = 'y',
+        play: Optional[int] = 0,
+        params: dict = {}
+    ):
+        return layout_igraph_base(self, layout, directed, bind_position, x_out_col, y_out_col, play, params)
+    layout_igraph.__doc__ = layout_igraph_base.__doc__
 
 
     def pandas2igraph(self, edges, directed=True):
@@ -1668,55 +1687,6 @@ class PlotterBase(Plottable):
         bind(nlist, 'pointY', '_point_y')
         return (elist, nlist)
 
-    # Bind attributes for ETL2 by an encodings map storing the visual semantic of
-    # each bound column.
-    def _bind_attributes_v2(self, edges, nodes):
-        def bind(enc, df, pbname, attrib, default=None):
-            bound = getattr(self, attrib)
-            if bound:
-                if bound in df.columns.tolist():
-                    enc[pbname] = {'attributes' : [bound]}
-                else:
-                    warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
-            elif default:
-                enc[pbname] = {'attributes': [default]}
-
-        nodeid = self._node or PlotterBase._defaultNodeId
-        (elist, nlist) = self._sanitize_dataset(edges, nodes, nodeid)
-        self._check_dataset_size(elist, nlist)
-
-        edge_encodings = {
-            'source': {'attributes' : [self._source]},
-            'destination': {'attributes': [self._destination]},
-        }
-        node_encodings = {
-            'nodeId': {'attributes': [nodeid]}
-        }
-        bind(edge_encodings, elist, 'edgeColor', '_edge_color')
-        bind(edge_encodings, elist, 'edgeSourceColor', '_edge_source_color')
-        bind(edge_encodings, elist, 'edgeDestinationColor', '_edge_destination_color')
-        bind(edge_encodings, elist, 'edgeLabel', '_edge_label')
-        bind(edge_encodings, elist, 'edgeTitle', '_edge_title')
-        bind(edge_encodings, elist, 'edgeSize', '_edge_size')
-        bind(edge_encodings, elist, 'edgeWeight', '_edge_weight')
-        bind(edge_encodings, elist, 'edgeOpacity', '_edge_opacity')
-        bind(edge_encodings, elist, 'edgeIcon', '_edge_icon')
-        bind(node_encodings, nlist, 'pointColor', '_point_color')
-        bind(node_encodings, nlist, 'pointLabel', '_point_label')
-        bind(node_encodings, nlist, 'pointTitle', '_point_title', nodeid)
-        bind(node_encodings, nlist, 'pointSize', '_point_size')
-        bind(node_encodings, nlist, 'pointWeight', '_point_weight')
-        bind(node_encodings, nlist, 'pointOpacity', '_point_opacity')
-        bind(node_encodings, nlist, 'pointIcon', '_point_icon')
-        bind(node_encodings, nlist, 'pointX', '_point_x')
-        bind(node_encodings, nlist, 'pointY', '_point_y')
-
-        encodings = {
-            'nodes': node_encodings,
-            'edges': edge_encodings
-        }
-        return (elist, nlist, encodings)
-
     def _table_to_pandas(self, table) -> Optional[pd.DataFrame]:
         """
             pandas | arrow | dask | cudf | dask_cudf => pandas
@@ -1851,24 +1821,20 @@ class PlotterBase(Plottable):
             1
 
         #compatibility checks
-        if (mode == 'json') or (mode == 'vgraph'):
+        if mode == 'json':
             if not (metadata is None):
                 if ('bg' in metadata) or ('fg' in metadata) or ('logo' in metadata) or ('page' in metadata):
-                    raise ValueError('Cannot set bg/fg/logo/page in api=1, api=2; try using api=3')
+                    raise ValueError('Cannot set bg/fg/logo/page in api=1; try using api=3')
             if not (self._complex_encodings is None
                 or self._complex_encodings == {  # noqa: W503
                     'node_encodings': {'current': {}, 'default': {} },
                     'edge_encodings': {'current': {}, 'default': {} }}):
-                raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1, api=2; try using api=3 or .bind()')
+                raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1; try using api=3 or .bind()')
 
         if mode == 'json':
             edges_df = self._table_to_pandas(edges)
             nodes_df = self._table_to_pandas(nodes)
             return self._make_json_dataset(edges_df, nodes_df, name)
-        elif mode == 'vgraph':
-            edges_df = self._table_to_pandas(edges)
-            nodes_df = self._table_to_pandas(nodes)
-            return self._make_vgraph_dataset(edges_df, nodes_df, name)
         elif mode == 'arrow':
             edges_arr = self._table_to_arrow(edges, memoize)
             nodes_arr = self._table_to_arrow(nodes, memoize)
@@ -1904,30 +1870,6 @@ class PlotterBase(Plottable):
             dataset['labels'] = ndict
         return dataset
 
-
-    # Main helper for creating ETL2 payload
-    def _make_vgraph_dataset(self, edges, nodes, name):
-        from . import vgraph
-
-        (elist, nlist, encodings) = self._bind_attributes_v2(edges, nodes)
-        nodeid = self._node or PlotterBase._defaultNodeId
-
-        sources = elist[self._source]
-        dests = elist[self._destination]
-        elist.drop([self._source, self._destination], axis=1, inplace=True)
-
-        # Filter out nodes which have no edges
-        lnodes = pd.concat([sources, dests], ignore_index=True).unique()
-        lnodes_df = pd.DataFrame(lnodes, columns=[nodeid])
-        filtered_nlist = pd.merge(lnodes_df, nlist, on=nodeid, how='left')
-
-        # Create a map from nodeId to a continuous range of integer [0, #nodes-1].
-        # The vgraph protobuf format uses the continous integer ranger as internal nodeIds.
-        node_map = dict([(v, i) for i, v in enumerate(lnodes.tolist())])
-
-        dataset = vgraph.create(elist, filtered_nlist, sources, dests, nodeid, node_map, name)
-        dataset['encodings'] = encodings
-        return dataset
 
     def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata) -> ArrowUploader:
 
@@ -2372,6 +2314,55 @@ class PlotterBase(Plottable):
             **({} if precision_vs_speed is None else {'precisionVsSpeed': precision_vs_speed}),
             **({} if gravity is None else {'gravity': gravity}),
             **({} if scaling_ratio is None else {'scalingRatio': scaling_ratio}),
+        }
+
+        if len(settings.keys()) > 0:
+            return self.settings(url_params={**self._url_params, **settings})
+        else:
+            return self
+
+
+    def scene_settings(
+        self,
+        menu: Optional[bool] = None,
+        info: Optional[bool] = None,
+        show_arrows: Optional[bool] = None,
+        point_size: Optional[float] = None,
+        edge_curvature: Optional[float] = None,
+        edge_opacity: Optional[float] = None,
+        point_opacity: Optional[float] = None
+    ):
+        """Set scene options. Additive over previous settings.
+
+        Corresponds to options at https://hub.graphistry.com/docs/api/1/rest/url/#urloptions
+
+        **Example: Hide arrows and straighten edges**
+
+            ::
+
+                import graphistry, pandas as pd
+                edges = pd.DataFrame({'s': ['a','b','c','d'], 'boss': ['c','c','e','e']})
+                nodes = pd.DataFrame({
+                    'n': ['a', 'b', 'c', 'd', 'e'],
+                    'y': [1,   1,   2,   3,   4],
+                    'x': [1,   1,   0,   0,   0],
+                })
+                g = (graphistry
+                    .edges(edges, 's', 'd')
+                    .nodes(nodes, 'n')
+                    .scene_settings(show_arrows=False, edge_curvature=0.0)
+                g.plot()
+        """
+
+        settings : dict = {
+            **({} if menu is None else {'menu': menu}),
+            **({} if info is None else {'info': info}),
+            **({} if show_arrows is None else {'showArrows': show_arrows}),
+
+            **({} if point_size is None else {'pointSize': point_size}),
+            **({} if edge_curvature is None else {'edgeCurvature': edge_curvature}),
+            **({} if edge_opacity is None else {'edgeOpacity': edge_opacity}),
+            **({} if point_opacity is None else {'pointOpacity': point_opacity})
         }
 
         if len(settings.keys()) > 0:
