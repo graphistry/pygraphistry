@@ -61,14 +61,24 @@ class TestUMAPFitTransform(unittest.TestCase):
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def setUp(self):
         g = graphistry.nodes(ndf_reddit, y=double_target_reddit)
-        g2 = g.umap(use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
+        
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g2 = g.umap(use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
+            
         fenc = g2._node_encoder
         self.X, self.Y = fenc.X, fenc.y
         self.EMB = g2._node_embedding
         self.emb, self.x, self.y = g2.transform_umap(ndf_reddit, ydf=double_target_reddit)
 
         g = graphistry.edges(edge_df2, 'src', 'dst')
-        g2 = g.umap(y=edge2_target_df, kind='edges',
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g2 = g.umap(y=edge2_target_df, kind='edges',
                  use_ngrams=True, ngram_range=(1, 1),
                  use_scaler=None,
                  use_scaler_target=None,
@@ -263,6 +273,9 @@ class TestUMAPAIMethods(TestUMAPMethods):
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.filterwarnings("ignore", category=FutureWarning)
+
             self._test_umap(
                 g,
                 use_cols=use_cols,
@@ -282,6 +295,9 @@ class TestUMAPAIMethods(TestUMAPMethods):
         use_cols = [None, 'title']
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.filterwarnings("ignore", category=FutureWarning)
+
             self._test_umap(
                 g,
                 use_cols=use_cols,
@@ -320,6 +336,8 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g = graphistry.edges(edge_df, "src", "dst")
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.filterwarnings("ignore", category=FutureWarning)
             g2 = g.umap(kind='edges')
             g3 = g.featurize(kind='edges').umap(kind='edges')
             
@@ -337,6 +355,9 @@ class TestUMAPAIMethods(TestUMAPMethods):
     
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.filterwarnings("ignore", category=FutureWarning)
+
             g2 = g.umap(X="type", y="label", cardinality_threshold_target=3, n_topics_target=n_topics_target)  # makes a GapEncoded Target
             g3 = g.umap(X="type", y="label", cardinality_threshold_target=30000)  # makes a one-hot-encoded target
             
