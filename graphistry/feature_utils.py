@@ -745,7 +745,7 @@ def process_dirty_dataframes(
 
             import warnings
             with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=FutureWarning)
+                warnings.filterwarnings("ignore", category=DeprecationWarning)
                 features_transformed = data_encoder.get_feature_names_out()
 
             logger.debug(f"-Shape of data {X_enc.shape}\n")
