@@ -773,7 +773,7 @@ def process_dirty_dataframes(
         logger.debug(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
         
         X_enc = pd.DataFrame(X_enc, columns=features_transformed, index=ndf.index)
-        #X_enc = X_enc.fillna(0.0)
+        X_enc = X_enc.fillna(0.0)
     else:
         logger.info(" -*-*- DataFrame is already completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
