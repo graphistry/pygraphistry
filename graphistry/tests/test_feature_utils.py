@@ -102,13 +102,13 @@ bad_df = pd.DataFrame(
 edge_df = bad_df.astype(str)
 good_edge_cols = [
     "textual",
-    "delta",
-    "time",
+    #"delta",
+    #"time",
     "colors",
     "list_str",
     "bool",
     "char",
-    "list_date",
+    #"list_date",
 ]
 
 single_target_edge = pd.DataFrame({"emoji": edge_df["emoji"].values})
