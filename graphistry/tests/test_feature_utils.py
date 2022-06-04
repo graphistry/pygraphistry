@@ -72,25 +72,25 @@ bad_df = pd.DataFrame(
             "2018-01-05 00:00:00",
         ],
         # API 1 BUG: Try with https://github.com/graphistry/pygraphistry/pull/126
-        "date": [
-            dt.datetime(2018, 1, 1),
-            dt.datetime(2018, 1, 1),
-            dt.datetime(2018, 1, 1),
-            dt.datetime(2018, 1, 1),
-        ],
-        "time": [
-            pd.Timestamp("2018-01-05"),
-            pd.Timestamp("2018-01-05"),
-            pd.Timestamp("2018-01-05"),
-            pd.Timestamp("2018-01-05"),
-        ],
-        # API 2 BUG: Need timedelta in https://github.com/graphistry/pygraphistry/blob/master/graphistry/vgraph.py#L108
-        "delta": [
-            pd.Timedelta("1 day"),
-            pd.Timedelta("1 day"),
-            pd.Timedelta("1 day"),
-            pd.Timedelta("1 day"),
-        ],
+        # "date": [
+        #     dt.datetime(2018, 1, 1),
+        #     dt.datetime(2018, 1, 1),
+        #     dt.datetime(2018, 1, 1),
+        #     dt.datetime(2018, 1, 1),
+        # ],
+        # "time": [
+        #     pd.Timestamp("2018-01-05"),
+        #     pd.Timestamp("2018-01-05"),
+        #     pd.Timestamp("2018-01-05"),
+        #     pd.Timestamp("2018-01-05"),
+        # ],
+        # # API 2 BUG: Need timedelta in https://github.com/graphistry/pygraphistry/blob/master/graphistry/vgraph.py#L108
+        # "delta": [
+        #     pd.Timedelta("1 day"),
+        #     pd.Timedelta("1 day"),
+        #     pd.Timedelta("1 day"),
+        #     pd.Timedelta("1 day"),
+        # ],
         "textual": [
             "here we have a sentence. And here is another sentence. Graphistry is an amazing tool!"
         ] * 2 + ['And now for something completely different so we dont mess up the tests with a repeat document'] + ['I love my wife'],
@@ -351,7 +351,7 @@ class TestFeatureMethods(unittest.TestCase):
                                 self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
                                 
                 
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
     def test_node_featurizations(self):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, meta_cols_reddit]
@@ -366,7 +366,7 @@ class TestFeatureMethods(unittest.TestCase):
         )
         
 
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_featurization(self):
         g = graphistry.edges(edge_df, "src", "dst")
         targets = [None, single_target_edge, double_target_edge] + target_names_edge
@@ -380,7 +380,7 @@ class TestFeatureMethods(unittest.TestCase):
             df=edge_df,
         )
         
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
     def test_node_scaling(self):
         g = graphistry.nodes(ndf_reddit)
         g2 = g.featurize(X="title", y='label', use_scaler=None, use_scaler_target=None)
@@ -390,7 +390,7 @@ class TestFeatureMethods(unittest.TestCase):
 
         
 
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_scaling(self):
         g = graphistry.edges(edge_df2, "src", "dst")
         g2 = g.featurize(y='label', kind='edges', use_scaler=None, use_scaler_target=None)
