@@ -293,7 +293,7 @@ class PyGraphistry(object):
     @staticmethod
     def api_version(value=None):
         """Set or get the API version: 1 for 1.0 (deprecated), 3 for 2.0.
-        Setting api=2 (protobuf) fully deprecated from the PyGraphsitry client.
+        Setting api=2 (protobuf) fully deprecated from the PyGraphistry client.
         Also set via environment variable GRAPHISTRY_API_VERSION."""
         
         import re
@@ -341,7 +341,7 @@ class PyGraphistry(object):
         token: Optional[str] = None,
         server: Optional[str] = None,
         protocol: Optional[str] = None,
-        api: Optional[Literal[1,3]] = None,
+        api: Optional[Literal[1, 3]] = None,
         certificate_validation: Optional[bool] = None,
         bolt: Optional[Union[Dict, Any]] = None,
         token_refresh_ms: int = 10 * 60 * 1000,
