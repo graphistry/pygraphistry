@@ -34,7 +34,8 @@ try:
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=ImportWarning)
-        import umap.umap_ as umap # changed as per https://stackoverflow.com/questions/57242208/how-to-resolve-the-error-module-umap-has-no-attribute-umap-i-tried-installi
+        #import umap.umap_ as umap # changed as per https://stackoverflow.com/questions/57242208/how-to-resolve-the-error-module-umap-has-no-attribute-umap-i-tried-installi
+        import umap 
         has_dependancy: bool = True
 except ModuleNotFoundError as e:
     import_exn = e
