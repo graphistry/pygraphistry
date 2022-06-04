@@ -383,10 +383,10 @@ class TestFeatureMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy, reason="requires ai feature dependencies")
     def test_node_scaling(self):
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.featurize(X="title", y=single_target_edge, use_scaler=None, use_scaler_target=None)
+        g2 = g.featurize(X="title", y='label', use_scaler=None, use_scaler_target=None)
         scalers = ['quantile', 'zscale', 'kbins', 'robust', 'minmax']
         for scaler in scalers:
-            a, b, c, d = g2.scale(ndf_reddit, single_target_edge, kind='nodes', use_scaler=scaler, use_scaler_target=np.random.choice(scalers))
+            a, b, c, d = g2.scale(ndf_reddit, single_target_reddit, kind='nodes', use_scaler=scaler, use_scaler_target=np.random.choice(scalers))
 
         
 

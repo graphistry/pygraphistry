@@ -1311,7 +1311,7 @@ def transform(
 class FastEncoder:
     def __init__(self, df, y=None, kind="nodes"):
         self._df = df
-        self._y = pd.DataFrame([], index=df.index) if y is None else y
+        self._y = pd.DataFrame([]) if y is None else y
         self.kind = kind
         self._assertions()
         # these are the parts we can use to reconstruct transform.
