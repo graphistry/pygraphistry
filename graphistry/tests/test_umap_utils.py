@@ -19,7 +19,7 @@ from graphistry.tests.test_feature_utils import (
     edge2_target_df,
     model_avg_name,
     has_min_dependancy as has_featurize,
-    test_allclose_fit_transform_on_same_data
+    check_allclose_fit_transform_on_same_data
 )
 from graphistry.umap_utils import has_dependancy
 
@@ -58,6 +58,7 @@ node_target = triangleNodes[["y"]]
 
 class TestUMAPFitTransform(unittest.TestCase):
     # check to see that .fit and transform gives similar embeddings on same data
+    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def setUp(self):
         g = graphistry.nodes(ndf_reddit, y=double_target_reddit)
         g2 = g.umap(use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
@@ -78,13 +79,15 @@ class TestUMAPFitTransform(unittest.TestCase):
         self.EMBe = g2._edge_embedding
         self.embe, self.xe, self.ye = g2.transform_umap(edge_df2, ydf=edge2_target_df, kind='edges')
 
+    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def test_allclose_fit_transform_on_same_data(self):
-        test_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
-        test_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
+        check_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
+        check_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
 
-        test_allclose_fit_transform_on_same_data(self.EMB, self.emb, None, None)
-        test_allclose_fit_transform_on_same_data(self.EMBe, self.embe, None, None)
+        check_allclose_fit_transform_on_same_data(self.EMB, self.emb, None, None)
+        check_allclose_fit_transform_on_same_data(self.EMBe, self.embe, None, None)
 
+    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def test_columns_match(self):
         assert all(self.X.columns == self.x.columns), f'Node Feature Columns do not match'
         assert all(self.Y.columns == self.y.columns), f'Node Target Columns do not match'

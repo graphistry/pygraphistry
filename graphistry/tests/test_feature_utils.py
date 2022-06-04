@@ -153,7 +153,7 @@ def allclose_stats(X, x, tol, name):
     if not np.allclose(X, x, tol):
         print(f'{name}s are not aligned at {tol} tolerance...!')
 
-def test_allclose_fit_transform_on_same_data(X, x, Y=None, y=None): # so we can use on any two fields, not just x, y
+def check_allclose_fit_transform_on_same_data(X, x, Y=None, y=None): # so we can use on any two fields, not just x, y
     tols = [12000, 1200, 100, 10, 0.1, 1e-4, 1e-5]
     for name, tol in zip(['Features', 'Target'], [tols, tols]):
         print()
@@ -166,6 +166,8 @@ def test_allclose_fit_transform_on_same_data(X, x, Y=None, y=None): # so we can 
 
 class TestFastEncoder(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
+    
+    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self):
         fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
         fenc.fit(feature_engine=resolve_feature_engine('auto'),
@@ -182,11 +184,13 @@ class TestFastEncoder(unittest.TestCase):
         
         self.Xe, self.Ye = fenc.X, fenc.y
         self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
-
+        
+    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
     def test_allclose_fit_transform_on_same_data(self):
-        test_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
-        test_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
-
+        check_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
+        check_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
+        
+    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
     def test_columns_match(self):
         assert all(self.X.columns == self.x.columns), f'Node Feature Columns do not match'
         assert all(self.Y.columns == self.y.columns), f'Node Target Columns do not match'
