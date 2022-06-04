@@ -515,7 +515,7 @@ def fit_pipeline(X: pd.DataFrame, transformer, keep_n_decimals: int = 5):
     if keep_n_decimals:
         X = np.round(
             X, decimals=keep_n_decimals
-        )  # since zscale with have small negative residuals (-1e-17) and that kills Hellinger in umap..
+        )
     return X
 
 
