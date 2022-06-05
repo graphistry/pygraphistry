@@ -400,7 +400,7 @@ def check_if_textual_column(
         n_words = df[col].apply(lambda x: len(x.split()) if isinstance(x, str) else 0)
         mean_n_words = n_words.mean()
         if mean_n_words >= min_words:
-            logger.debug(
+            logger.info(
                 f"\n\tColumn `{col}` looks textual with mean number of words {mean_n_words:.2f}"
             )
             return True
@@ -495,7 +495,7 @@ def get_preprocessing_pipeline(
         logger.error(
             f"`scaling` must be on of {available_preprocessors} or {None}, got {scaler}.\nData is not scaled"
         )
-    logger.info(f"Using {use_scaler} scaling")
+    logger.debug(f"Using {use_scaler} scaling")
     transformer = Pipeline(steps=[("imputer", imputer), ("scaler", scaler)])
 
     return transformer
@@ -602,23 +602,18 @@ def encode_textual(
             logger.debug(
                 f"-Calculating Tfidf Vectorizer with {ngram_range}-ngrams for column(s) `{text_cols}`"
             )
-
             embeddings = make_array(model.fit_transform(res))
             transformed_columns = list(model[0].vocabulary_.keys())
-            logger.debug(
-                f"Encoded Textual using Ngrams {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per minute"
-            )
         else:
             model_name = os.path.split(model_name)[-1]
             model = SentenceTransformer(f"{model_name}")
             embeddings = model.encode(res.values)
-            logger.debug(
-                f"Encoded Textual using Embedding {model_name}  at {len(df)/(len(text_cols)*(time()-t)/60):.2f} rows per minute"
-            )
             transformed_columns = _get_sentence_transformer_headers(
                 embeddings, text_cols
             )
-
+        logger.info(
+            f"Encoded Textual Data using {model} at {len(df) / ((time() - t) / 60):.2f} rows per minute"
+        )
     res = pd.DataFrame(embeddings, columns=transformed_columns, index=df.index)
 
     return res, text_cols, model
@@ -654,11 +649,11 @@ def smart_scaler(
     )
 
     if use_scaler and not X_enc.empty:
-        logger.debug(f"- Feature scaling using {use_scaler}")
+        logger.info(f"-Feature scaling using {use_scaler}")
         X_enc, pipeline = encoder(X_enc, use_scaler)
 
     if use_scaler_target and not y_enc.empty:
-        logger.debug(f"-Target scaling using {use_scaler_target}")
+        logger.info(f"-Target scaling using {use_scaler_target}")
         y_enc, pipeline_target = encoder(y_enc, use_scaler_target)
 
     return X_enc, y_enc, pipeline, pipeline_target
@@ -701,15 +696,16 @@ def get_numeric_transformers(ndf, y=None):
     # from functools import partial
     label_encoder = False
     
+    y_ = y
     if y is not None:
-        y = y.select_dtypes(include=[np.number])
-        label_encoder = FunctionTransformer(partial(passthrough_df_cols, columns=y.columns)) # takes dataframe and memorizes which cols to use.
-        label_encoder.get_feature_names_out = callThrough(y.columns)
+        y_ = y.select_dtypes(include=[np.number])
+        label_encoder = FunctionTransformer(partial(passthrough_df_cols, columns=y_.columns)) # takes dataframe and memorizes which cols to use.
+        label_encoder.get_feature_names_out = callThrough(y_.columns)
 
-    ndf = ndf.select_dtypes(include=[np.number])
-    data_encoder = FunctionTransformer(partial(passthrough_df_cols, columns=ndf.columns))
-    data_encoder.get_feature_names_out = callThrough(ndf.columns)
-    return ndf, y, data_encoder, label_encoder
+    ndf_ = ndf.select_dtypes(include=[np.number])
+    data_encoder = FunctionTransformer(partial(passthrough_df_cols, columns=ndf_.columns))
+    data_encoder.get_feature_names_out = callThrough(ndf_.columns)
+    return ndf_, y_, data_encoder, label_encoder
 
 
 def process_dirty_dataframes(
@@ -767,7 +763,7 @@ def process_dirty_dataframes(
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
-        logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}\n")
+        logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
         logger.debug(f"-Transformers: \n{all_transformers}\n")
         logger.debug(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
         logger.debug(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
@@ -775,7 +771,7 @@ def process_dirty_dataframes(
         X_enc = pd.DataFrame(X_enc, columns=features_transformed, index=ndf.index)
         X_enc = X_enc.fillna(0.0)
     else:
-        logger.info(" -*-*- DataFrame is already completely numeric")
+        logger.info("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
 
 
@@ -788,11 +784,9 @@ def process_dirty_dataframes(
                 auto_cast=True,
                 cardinality_threshold=cardinality_threshold_target,
                 high_card_cat_transformer=GapEncoder(n_topics_target) if not similarity  #TODO move into high card cat
-            else SimilarityEncoder(similarity=similarity, categories=categories, n_prototypes=1),  # Similarity
+            else SimilarityEncoder(similarity=similarity, categories=categories, n_prototypes=2),  # Similarity
                 datetime_transformer=None,  # TODO add a smart datetime -> histogram transformer
             )
-            # if not similarity  #TODO move into high card cat
-            # else SimilarityEncoder(similarity=similarity, categories=categories, n_prototypes=1)
         )
 
         y_enc = label_encoder.fit_transform(y)
@@ -808,7 +802,7 @@ def process_dirty_dataframes(
             else: # Similarity Encoding uses categories_
                 labels_transformed = label_encoder.categories_
             
-        y_enc = pd.DataFrame(np.array(y_enc), columns=labels_transformed, index=y.index)
+        y_enc = pd.DataFrame(y_enc, columns=labels_transformed, index=y.index)
         #y_enc = y_enc.fillna(0)
 
         logger.debug(f"-Shape of target {y_enc.shape}")
@@ -1082,7 +1076,7 @@ def process_edge_dataframes(
             strategy=strategy,
             keep_n_decimals=keep_n_decimals
             )
-        logger.debug(f"Returning only Edge MLB feature")
+        logger.info(f"Returning only Edge MLB feature")
         
         return (
             X_enc,
@@ -1117,6 +1111,8 @@ def process_edge_dataframes(
         cardinality_threshold_target=cardinality_threshold_target,
         n_topics=n_topics,
         n_topics_target=n_topics_target,
+        use_scaler=None,
+        use_scaler_target=None,
         use_ngrams=use_ngrams,
         ngram_range=ngram_range,
         max_df=max_df,
@@ -1130,16 +1126,15 @@ def process_edge_dataframes(
     )
 
     if not X_enc.empty and not T.empty:
-        print('-'*60)
-        print(f"<= Found Edges and Dirty_cat encoding =>")
+        logger.debug('-'*60)
+        logger.debug(f"<= Found Edges and Dirty_cat encoding =>")
         X_enc = pd.concat([T, X_enc], axis=1)
     elif not T.empty and X_enc.empty:
-        print('-'*60)
-        print(f"<= Found only Edges =>")
+        logger.debug('-'*60)
+        logger.debug(f"<= Found only Edges =>")
         X_enc = T
 
-    logger.debug(f"--Created an Edge feature matrix of size {T.shape}")
-    logger.debug(f"**The entire Edge encoding process took {(time()-t)/60:.2f} minutes")
+    logger.info(f"**The entire Edge encoding process took {(time()-t)/60:.2f} minutes")
    
     X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(
         X_enc,
@@ -1183,14 +1178,14 @@ def transform_text(
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
 
-    print("Transforming text using:")
+    logger.debug("Transforming text using:")
     if isinstance(text_model, Pipeline):
-        print(f"--Ngram tfidf {text_model}")
+        logger.debug(f"--Ngram tfidf {text_model}")
         tX = text_model.transform(df)
         tX = make_array(tX)
         tX = pd.DataFrame(tX, columns=list(text_model[0].vocabulary_.keys()), index=df.index)
     elif isinstance(text_model, SentenceTransformer):
-        print(f"--HuggingFace Transformer {text_model}")
+        logger.debug(f"--HuggingFace Transformer {text_model}")
         tX = text_model.encode(df.values)
         tX = pd.DataFrame(tX, columns=_get_sentence_transformer_headers(tX, text_cols), index=df.index)
     else:
@@ -1206,12 +1201,14 @@ def transform_dirty(
         name: str = ""
 ) -> pd.DataFrame:
 
-    print(f"-- {name} Encoder:")
-    print(f"\t{data_encoder}\n")
+    logger.debug(f"-{name} Encoder:")
+    logger.debug(f"\t{data_encoder}\n")
     X = data_encoder.transform(df)
     X = make_array(X)
     with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
         warnings.filterwarnings("ignore", category=FutureWarning)
+        warnings.filterwarnings("ignore", category=UserWarning)
         X = pd.DataFrame(X, columns=data_encoder.get_feature_names_out(), index=df.index)
     return X
 
@@ -1234,75 +1231,77 @@ def transform(
     
     feature_columns = X_enc.columns
     feature_columns_target = y_enc.columns
+    logger.info('-' * 90)
 
     y = pd.DataFrame([])
     T = pd.DataFrame([])
     # encode nodes
     if kind == "nodes":
-        print(f"-Transforming Nodes!")
+        logger.info(f"-Transforming Nodes--")
         X = transform_dirty(df, data_encoder, name="Numeric or Dirty Node-Features")
     # encode edges
     elif kind == "edges":
-        print(f"-Transforming Edges!")
+        logger.info(f"-Transforming Edges--")
         mlb, data_encoder = data_encoder
         T, mlb = encode_edges(df, src, dst, mlb, fit=False)
         X = transform_dirty(df, data_encoder, "Numeric or Dirty Edge-Features")
 
     if ydf is not None:
-        print(f"-Transforming Target!")
+        logger.info(f"-Transforming Target--")
         y = transform_dirty(ydf, label_encoder, name=f"{kind.title()}-Label")
 
     # Concat in the Textual features, if any
     tX = pd.DataFrame([])
     if text_cols:
-        print(f"-textual columns found: {text_cols}")
+        logger.info(f"-textual columns found: {text_cols}")
         res_df = concat_text(df, text_cols)
         if text_model:
             tX = transform_text(res_df, text_model, text_cols)
-        print(f"** text features are empty") if tX.empty else None
+        logger.info(f"** text features are empty") if tX.empty else None
 
     # concat text to dirty_cat, with text in front.
     if not tX.empty and not X.empty:
         X = pd.concat([tX, X], axis=1)
-        print("--Combining both Textual and Numeric/Dirty_Cat")
+        logger.info("--Combining both Textual and Numeric/Dirty_Cat")
     elif not tX.empty and X.empty:
         X = tX  # textual
-        print("--Just textual")
+        logger.info("--Just textual")
     elif not X.empty:
-        print("--Just Numeric/Dirty_Cat transformer")
+        logger.info("--Just Numeric/Dirty_Cat transformer")
         X = X  # dirty/Numeric
     else:
-        print('-'*60)
-        print(f"** IT'S ALL EMPTY NOTHINGNESS [[ {X} ]]")
-        print('-'*60)
+        logger.info('-'*60)
+        logger.info(f"** IT'S ALL EMPTY NOTHINGNESS [[ {X} ]]")
+        logger.info('-'*60)
 
 
     # now if edges, add T at front
     if kind == "edges":
         X = pd.concat([T, X], axis=1)  # edges, text, dirty_cat
-        print(f"-Combining MultiLabelBinarizer with previous features")
+        logger.info(f"-Combining MultiLabelBinarizer with previous features")
 
-    print(f"--Features matrix shape: {X.shape}")
-    print(f"--Target matrix shape: {y.shape}")
+    logger.info('-' *40)
+    logger.info(f"--Features matrix shape: {X.shape}")
+    logger.info(f"--Target matrix shape: {y.shape}")
 
     a, b = set(list(X.columns)), set(list(feature_columns))
     c, d = set(list(y.columns)), set(list(feature_columns_target))
     if a != b:
-        print('-'*80)
-        print(
+        logger.info('-'*80)
+        logger.info(
             f"**Different Features Columns!\n--{a.difference(b)} \n\nand\n {b.difference(a)}"
         )
     if c != d:
-        print('-'*80)
-        print(
+        logger.info('-'*80)
+        logger.info(
             f"**Different Target Columns!\n--{c.difference(d)} \n\nand\n {d.difference(c)}"
         )
     
     if scaling_pipeline and not X.empty:
-        print('-Scaling Features')
+        logger.info('--Scaling Features')
         X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns)
     if scaling_pipeline_target and not y.empty:
-        print('-Scaling Target')
+        logger.info(f'--Scaling Target {scaling_pipeline_target}')
         y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns)
     
     return X, y
@@ -1340,11 +1339,12 @@ class FastEncoder:
         return res
 
     def _hecho(self, res):
-        print("\n--  Setting Encoder Parts from Fit ::")
+        logger.info('-'*40)
+        logger.info("\n-- Setting Encoder Parts from Fit ::")
         for name, value in zip(self.res_names, res):
             if name not in ["X_enc", "y_enc"]:
-                print("-" * 90)
-                print(f"[[ {name} ]]:  {value}\n")
+                logger.info("-" * 90)
+                logger.info(f"[[ {name} ]]:  {value}\n")
 
     def _set_result(self, res):
         self.res = list(res)
@@ -1393,11 +1393,11 @@ class FastEncoder:
         self.res[5] = None
 
         X, y = self.transform(df, ydf) # these are the raw transforms,
-        logger.info('- Fitting new scaler on raw features')
+        logger.info('-Fitting new scaler on raw features')
         X, y, scaling_pipeline, scaling_pipeline_target = smart_scaler(X_enc=X, y_enc=y, *args, **kwargs)
         
         if set_scaler:
-            logger.info(f'-- Setting fit scaler to self')
+            logger.info(f'--Setting fit scaler to self')
             self.res[4] = scaling_pipeline
             self.res[5] = scaling_pipeline_target
             self.scaling_pipeline = scaling_pipeline
@@ -1441,13 +1441,13 @@ def prune_weighted_edges_df_and_relabel_nodes(
     )  # if std =0 we add eps so we still have scale in the equation
 
     logger.info(
-        f"edge weights: mean({mean:.2f}), std({std:.2f}), max({max_val}), min({min_val:.2f}), thresh({thresh:.2f})"
+        f" -- edge weights: mean({mean:.2f}), std({std:.2f}), max({max_val}), min({min_val:.2f}), thresh({thresh:.2f})"
     )
     wdf2 = wdf[
         wdf[config.WEIGHT] >= thresh
     ]  # adds eps so if scale = 0, we have small window/wiggle room
     logger.info(
-        f"Pruning weighted edge DataFrame from {len(wdf):,} to {len(wdf2):,} edges."
+        f" -- Pruning weighted edge DataFrame from {len(wdf):,} to {len(wdf2):,} edges."
     )
     if index_to_nodes_dict is not None:
         wdf2 = wdf2.replace(
@@ -1572,7 +1572,7 @@ class FeatureMixin(MIXIN_BASE):
 
         old_res = reuse_featurization(res, fkwargs)
         if old_res:
-            logger.info(" --- RE-USING NODE FEATURIZATION")
+            logger.info("--- [[ RE-USING NODE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
             for attr in ["_node_features", "_node_target", "_node_encoder"]:
                 setattr(fresh_res, attr, getattr(old_res, attr))
@@ -1602,7 +1602,7 @@ class FeatureMixin(MIXIN_BASE):
         res._node_features = fenc.X
         res._node_target = fenc.y
         res._node_encoder = (
-            fenc  # now this does all the work `._node_encoder.transform(df, y)
+            fenc  # now this does all the work `._node_encoder.transform(df, y)` etc
         )
 
         return res
@@ -1685,7 +1685,7 @@ class FeatureMixin(MIXIN_BASE):
 
         old_res = reuse_featurization(res, fkwargs)
         if old_res:
-            logger.info(" --- RE-USING EDGE FEATURIZATION")
+            logger.info("--- [[ RE-USING EDGE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
             for attr in ["_edge_encoder", "_edge_features", "_edge_target"]:
                 setattr(fresh_res, attr, getattr(old_res, attr))
@@ -1724,6 +1724,7 @@ class FeatureMixin(MIXIN_BASE):
             )
 
     def transform(self, df, ydf, kind):
+        """Transform new data"""
         if kind == "nodes":
             return self._transform("_node_encoder", df, ydf)
         elif kind == "edges":
@@ -1759,8 +1760,7 @@ class FeatureMixin(MIXIN_BASE):
                                         keep_n_decimals=keep_n_decimals
                                          ) # type: ignore
             else:
-                raise AttributeError(
-                    'Please run g.featurize(*args, **kwargs) first before scaling matrices and targets is possible.')
+                raise AttributeError('Please run g.featurize(kind="nodes", *args, **kwargs) first before scaling matrices and targets is possible.')
 
         elif kind == 'edges' and hasattr(self, '_edge_encoder'): # type: ignore
             if self._edge_encoder is not None: # type: ignore
@@ -1777,7 +1777,7 @@ class FeatureMixin(MIXIN_BASE):
                                          keep_n_decimals=keep_n_decimals
                                          ) # type: ignore
             else:
-                raise AttributeError('Please run g.featurize(*args, **kwargs) first before scaling matrices and targets is possible.')
+                raise AttributeError('Please run g.featurize(kind="edges", *args, **kwargs) first before scaling matrices and targets is possible.')
     
         return X, y, scaling_pipeline, scaling_pipeline_target
     
@@ -1787,7 +1787,7 @@ class FeatureMixin(MIXIN_BASE):
         kind: str = "nodes",
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "robust",
+        use_scaler: Optional[str] = "minmax",
         use_scaler_target: Optional[str] = "kbins",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
@@ -1840,7 +1840,7 @@ class FeatureMixin(MIXIN_BASE):
                 GapEncoder (ie, set threshold lower) to create regressive targets, especially when those targets are
                 textual/softly categorical and have semantic meaning across different labels.
                 Eg, suppose a column has fields like
-                ['Application Fraud', 'Other Statuses', 'Lost/Stolen Fraud', 'Investigation Fraud', ...]
+                ['Application Fraud', 'Other Statuses', 'Lost-Target scaling using/Stolen Fraud', 'Investigation Fraud', ...]
                 the GapEncoder will concentrate the 'Fraud' labels together.
         :param n_topics: the number of topics to use in the GapEncoder if cardinality_thresholds is saturated.
                 Default is 42, but good rule of thumb is to consult the Johnson-Lindenstrauss Lemma
@@ -2104,31 +2104,3 @@ class FeatureMixin(MIXIN_BASE):
             res._edge_features, res._edge_target, reuse_if_existing=True
         )
 
-
-__notes__ = """
-    Notes:
-        ~1) Given nothing but a graphistry Plottable `g`, we may minimally generate the (N, N)
-        adjacency matrix as a node l(conformance test from year n-evel feature set, ironically as an edge level feature set over N unique nodes.
-        This is the structure/topology of the graph itself, gotten from encoding `g._edges` as an adjacency matrix
-
-        ~2) with `node_df = g._nodes` one has row level data over many columns, we may featurize it appropriately,
-        generating another node level set. The advantage here is that we are not constrained as we would be in
-        a node level adjacency matrix, given M records or rows from `node_df`, with M >= N
-
-        ~3) with `edge_df = g._edges` one may also generate a row level encoding, but here we face immediate problems.
-            A given edge list is minimally of the form `(src, relationship, dst)`, and so we may form many different
-            graphs graded by the cardinality in the `relationships`. Or we may form one single one.
-            There is also no notion of how to associate the features produced, unless we use the LineGraph of `g`
-
-    Encoding Strategies:
-        1) compute the (N, N) adjacency matrix and associate with implicit node level features
-        2) feature encode `node_df` as explicit node level features, with M >= N
-        3) feature encode `edge_df` as explicit edge level features and associate it with the LineGraph of `g`
-    Next:
-        A) use UMAP or Louvian, Spectral, etc Embedding to encode 1-3 above, and reduce feature vectors to
-        lower dimensional embedding
-            a) UMAP projects vectors of length `n` down to, say, 2-dimensions but also generates a
-            weighted adjacency matrix under projection, giving another node level feature set (though not distinct,
-            or with other
-
-    """
