@@ -205,12 +205,10 @@ class DGLGraphMixin(MIXIN_BASE):
         """
 
         if not self.dgl_initialized:
-
             self.train_split = train_split
             self.device = device
             self._removed_edges_previously = False
             self.DGL_graph = None
-
             self.dgl_initialized = True
 
     def _prune_edge_target(self):
@@ -235,7 +233,7 @@ class DGLGraphMixin(MIXIN_BASE):
         self._edges = edf[mask]
         self._prune_edge_target()
         n_final = len(self._edges)
-        logger.info(f"Length of edge DataFrame {n_final} after pruning")
+        logger.info(f"-Length of edge DataFrame {n_final} after pruning")
         n_final = len(self._edges)
         if n_final != n_initial:
             logger.warn(
@@ -283,7 +281,7 @@ class DGLGraphMixin(MIXIN_BASE):
 
         if not res._removed_edges_previously:
             logger.info(
-                f"---------------- Node in convert dataframe to dgl: {res._node}"
+                f"--Node in convert dataframe to dgl: {res._node}"
             )
             res._remove_edges_not_in_nodes(res._node)
 
@@ -312,19 +310,22 @@ class DGLGraphMixin(MIXIN_BASE):
     def _featurize_nodes_to_dgl(
         self,
         res,
-        X: pd.DataFrame,
-        y: pd.DataFrame,
-        use_scaler: str = None,
-        feature_engine: FeatureEngine = "auto",
+        *args,
+        **kwargs,
+        # X: pd.DataFrame,
+        # y: pd.DataFrame,
+        # use_scaler: str = None,
+        # feature_engine: FeatureEngine = "auto",
     ):
         logger.info("Running Node Featurization for DGL Graph")
-        logger.debug(f"=*=*=Input shapes are data: {X.shape}, target: {y.shape}")
+        # logger.debug(f"=*=*=Input shapes are data: {X.shape}, target: {y.shape}")
 
-        X_enc, y_enc, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(
-            X=X,
-            y=y,
-            use_scaler=use_scaler,
-            feature_engine=resolve_feature_engine(feature_engine),
+        X_enc, y_enc, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(*args,
+            **kwargs
+            # X=X,
+            # y=y,
+            # use_scaler=use_scaler,
+            # feature_engine=resolve_feature_engine(feature_engine),
         )
 
         logger.debug(
@@ -342,18 +343,21 @@ class DGLGraphMixin(MIXIN_BASE):
     def _featurize_edges_to_dgl(
         self,
         res,
-        X: pd.DataFrame,
-        y: pd.DataFrame,
-        use_scaler: str = None,
-        feature_engine: FeatureEngine = "auto",
+        *args,
+        **kwargs
+        # X: pd.DataFrame,
+        # y: pd.DataFrame,
+        # use_scaler: str = None,
+        # feature_engine: FeatureEngine = "auto",
     ):
         logger.info("Running Edge Featurization for DGL Graph")
 
-        X_enc, y_enc, res = res._featurize_or_get_edges_dataframe_if_X_is_None(
-            X=X,
-            y=y,
-            use_scaler=use_scaler,
-            feature_engine=resolve_feature_engine(feature_engine),
+        X_enc, y_enc, res = res._featurize_or_get_edges_dataframe_if_X_is_None(*args,
+            **kwargs
+            # X=X,
+            # y=y,
+            # use_scaler=use_scaler,
+            # feature_engine=resolve_feature_engine(feature_engine),
         )
         
         logger.debug(
@@ -366,6 +370,9 @@ class DGLGraphMixin(MIXIN_BASE):
         res._mask_edges()
         return res
 
+    def convert_kwargs(self, *args, **kwargs):
+        return dict(*args, **kwargs)
+        
     def build_gnn(
         self,
         X_nodes: XSymbolic = None,
@@ -373,11 +380,16 @@ class DGLGraphMixin(MIXIN_BASE):
         y_nodes: YSymbolic = None,
         y_edges: YSymbolic = None,
         weight_column: str = None,
+        reuse_if_existing=True,
+        use_node_scaler: str = "zscale",
+        use_node_scaler_target: str = None,
+        use_edge_scaler: str = "zscale",
+        use_edge_scaler_target: str = None,
         train_split: float = 0.8,
-        use_node_scaler: str = "robust",
-        use_edge_scaler: str = "robust",
         device: str = "cpu",
         inplace: bool = False,
+        *args,
+        **kwargs
     ):
         """
         Builds GNN model using (DGL)[https://www.dgl.ai/]
@@ -412,7 +424,7 @@ class DGLGraphMixin(MIXIN_BASE):
             m = res.materialize_nodes()
         except Exception as e:
             logger.debug(e)
-            logger.info(f'No edges found, please call g.umap(scale=10, ...) to generate implicit edges')
+            logger.info(f'No edges found, please call g.umap(...) to generate implicit edges')
             raise
         
         X_nodes_resolved = resolve_X(m._nodes, X_nodes)
@@ -421,7 +433,7 @@ class DGLGraphMixin(MIXIN_BASE):
         # here we check if edges are from UMAP, at which point X_edges should be none:
         if list(res._edges.columns) == ["_src_implicit", "_dst_implicit", "_weight"]:
             logger.debug(
-                f">>>EDGES ARE FROM UMAP, discarding explicit mention of X_edges"
+                f">>> EDGES ARE FROM UMAP, discarding explicit mention of X_edges"
             )
             X_edges = None
 
@@ -437,11 +449,27 @@ class DGLGraphMixin(MIXIN_BASE):
 
         # here we make node and edge features and add them to the DGL graph instance
         res = res._convert_edge_dataframe_to_DGL(weight_column, inplace)
+        
+        kwargs_nodes = self.convert_kwargs(X=X_nodes_resolved, y=y_nodes_resolved,
+                                           use_scaler=use_node_scaler, use_scaler_target=use_node_scaler_target,
+                                           reuse_if_existing=reuse_if_existing,
+                                           *args, **kwargs)
+        
         res = res._featurize_nodes_to_dgl(
-            res, X_nodes_resolved, y_nodes_resolved, use_node_scaler
+            res,
+            **kwargs_nodes
+            #X_nodes_resolved, y_nodes_resolved, use_node_scaler
         )
+        
+        kwargs_edges = self.convert_kwargs(X=X_edges_resolved, y=y_edges_resolved,
+                                           use_scaler=use_edge_scaler, use_scaler_target=use_edge_scaler_target,
+                                           reuse_if_existing=reuse_if_existing,
+                                           *args, **kwargs)
+
         res = res._featurize_edges_to_dgl(
-            res, X_edges_resolved, y_edges_resolved, use_edge_scaler
+            res,
+            **kwargs_edges
+            #X_edges_resolved, y_edges_resolved, use_edge_scaler
         )
         if not inplace:
             return res

@@ -14,14 +14,14 @@ from .constants import VERBOSE, CACHE_COERCION_SIZE
 
 
 # #####################################
-def setup_logger(name, verbose=VERBOSE):
-    if verbose:
+def setup_logger(name, verbose=VERBOSE, fullpath=False):
+    if fullpath:
         FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
     else:
-        FORMAT = "   %(message)s\n"
+        FORMAT = " %(message)s\n"
     logging.basicConfig(format=FORMAT)
     logger = logging.getLogger(f'graphistry.{name}')
-    logger.setLevel(logging.DEBUG if verbose else logging.ERROR)
+    logger.setLevel(logging.INFO if verbose else logging.DEBUG)
     return logger
 
 
