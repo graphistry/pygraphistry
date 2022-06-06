@@ -23,7 +23,7 @@ class ComputeMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         pass
 
-    def materialize_nodes(self, reuse: bool = True, engine: Literal['cudf', 'pandas'] = "pandas"):
+    def materialize_nodes(self, reuse: bool = True, engine: Literal['cudf', 'pandas', 'auto'] = "auto"):
         """
         Generate g._nodes based on g._edges
 
@@ -66,6 +66,18 @@ class ComputeMixin(MIXIN_BASE):
                     return g
 
         node_id = g._node if g._node is not None else "id"
+        if engine == 'auto':
+            if isinstance(g._edges, pd.DataFrame):
+                engine = 'pandas'
+            else:
+                try:
+                    import cudf
+                    if isinstance(g._edges, cudf.DataFrame):
+                        engine = 'cudf'
+                except ImportError:
+                    pass
+            if engine == 'auto':
+                raise ValueError('Could not determine engine for edges, expected pandas or cudf dataframe, got: {}'.format(type(g._edges)))
         if engine == "pandas":
             concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
         elif engine == "cudf":
