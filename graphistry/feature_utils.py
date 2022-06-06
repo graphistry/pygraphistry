@@ -554,13 +554,12 @@ def get_text_preprocessor(ngram_range=(1, 3), max_df=0.2, min_df=3):
     from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 
     cvect = CountVectorizer(ngram_range=ngram_range, max_df=max_df, min_df=min_df)
-    text_transformer = lambda cvect: Pipeline(
+    return Pipeline(
         [
             ("vect", cvect),
             ("tfidf", TfidfTransformer()),
         ]
     )
-    return text_transformer(cvect)
 
 
 def concat_text(df, text_cols):
@@ -635,7 +634,7 @@ def smart_scaler(
 ):
     pipeline = None
     pipeline_target = None
-    encoder = lambda X, use_scaler: impute_and_scale_df(
+    encoder = lambda X, use_scaler: impute_and_scale_df(  # noqa: E731
         X,
         use_scaler=use_scaler,
         impute=impute,
@@ -677,7 +676,7 @@ def make_array(X):
     return X
 
 
-def passthrough_df_cols(df, columns): #if lambdas, won't pickle in FunctionTransformer
+def passthrough_df_cols(df, columns):  #if lambdas, won't pickle in FunctionTransformer
     return df[columns]
 
 

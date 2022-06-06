@@ -16,11 +16,6 @@ from .plotter import Plotter
 from .util import setup_logger
 logger = setup_logger(__name__)
 
-import logging
-
-logger = logging.getLogger(__name__)
-
-
 
 ###############################################################################
 

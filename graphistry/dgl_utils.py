@@ -38,7 +38,7 @@ else:
 # #########################################################################################
 
 
-def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]): # type: ignore
+def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):  # type: ignore
     """
         Converts X, y to torch tensors compatible with ndata/edata of DGL graph
     _________________________________________________________________________
@@ -48,10 +48,10 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]): # type
     """
     import torch
 
-    if not y_enc.empty: # type: ignore
+    if not y_enc.empty:  # type: ignore
         data = {
             config.FEATURE: torch.tensor(X_enc.values),
-            config.TARGET: torch.tensor(y_enc.values), # type: ignore
+            config.TARGET: torch.tensor(y_enc.values),  # type: ignore
         }
     else:
         data = {config.FEATURE: torch.tensor(X_enc.values)}
@@ -412,7 +412,7 @@ class DGLGraphMixin(MIXIN_BASE):
             m = res.materialize_nodes()
         except Exception as e:
             logger.debug(e)
-            logger.info(f'No edges found, please call g.umap(scale=10, ...) to generate implicit edges')
+            logger.info('No edges found, please call g.umap(scale=10, ...) to generate implicit edges')
             raise
         
         X_nodes_resolved = resolve_X(m._nodes, X_nodes)
@@ -420,9 +420,7 @@ class DGLGraphMixin(MIXIN_BASE):
 
         # here we check if edges are from UMAP, at which point X_edges should be none:
         if list(res._edges.columns) == ["_src_implicit", "_dst_implicit", "_weight"]:
-            logger.debug(
-                f">>>EDGES ARE FROM UMAP, discarding explicit mention of X_edges"
-            )
+            logger.debug(">>>EDGES ARE FROM UMAP, discarding explicit mention of X_edges")
             X_edges = None
 
         X_edges_resolved = resolve_X(res._edges, X_edges)
