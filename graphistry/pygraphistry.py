@@ -1743,6 +1743,16 @@ class PyGraphistry(object):
         return Plotter().from_igraph(ig, node_attributes, edge_attributes, load_nodes, load_edges)
     from_igraph.__doc__ = Plotter.from_igraph.__doc__
 
+    @staticmethod
+    def from_cugraph(
+        G,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes: bool = True, load_edges: bool = True,
+        merge_if_existing: bool = True
+    ):
+        return Plotter().from_cugraph(G, node_attributes, edge_attributes, load_nodes, load_edges, merge_if_existing)
+    from_cugraph.__doc__ = Plotter.from_cugraph.__doc__
 
     @staticmethod
     def settings(height=None, url_params={}, render=None):
@@ -2086,6 +2096,7 @@ gsql = PyGraphistry.gsql
 layout_settings = PyGraphistry.layout_settings
 scene_settings = PyGraphistry.scene_settings
 from_igraph = PyGraphistry.from_igraph
+from_cugraph = PyGraphistry.from_cugraph
 
 
 class NumpyJSONEncoder(json.JSONEncoder):

@@ -4,10 +4,16 @@ import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from weakref import WeakValueDictionary
 
 from .constants import SRC, DST, NODE
+from .plugins_types import CuGraphKind
 from .plugins.igraph import (
     to_igraph as to_igraph_base, from_igraph as from_igraph_base,
     compute_igraph as compute_igraph_base,
     layout_igraph as layout_igraph_base
+)
+from .plugins.cugraph import (
+    to_cugraph as to_cugraph_base, from_cugraph as from_cugraph_base,
+    compute_cugraph as compute_cugraph_base,
+    layout_cugraph as layout_cugraph_base
 )
 from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
@@ -1551,6 +1557,51 @@ class PlotterBase(Plottable):
         edges = pd.DataFrame(get_edgelist(g))
         return (edges, nodes)
 
+
+    def from_cugraph(self,
+        G,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes: bool = True, load_edges: bool = True,
+        merge_if_existing: bool = True
+    ):
+        return from_cugraph_base(
+            self, G,
+            node_attributes, edge_attributes, load_nodes, merge_if_existing)
+    from_cugraph.__doc__ = from_cugraph_base.__doc__
+
+    def to_cugraph(self, 
+        directed: bool = True,
+        include_nodes: bool = True,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        kind : CuGraphKind = 'Graph'
+    ):
+        return to_cugraph_base(
+            self, directed, include_nodes, node_attributes, edge_attributes, kind
+        )
+    to_cugraph.__doc__ = to_cugraph_base.__doc__
+
+    def compute_cugraph(self,
+        alg: str, out_col: Optional[str] = None, params: dict = {},
+        kind : CuGraphKind = 'Graph', directed = True,
+        G: Optional[Any] = None
+    ):
+        return compute_cugraph_base(
+            self, alg, out_col, params, kind, directed, G
+        )
+    compute_cugraph.__doc__ = compute_cugraph_base.__doc__
+
+    def layout_cugraph(self,
+        layout: str, params: dict = {},
+        kind : CuGraphKind = 'Graph', directed = True,
+        G: Optional[Any] = None
+    ):
+        return layout_cugraph_base(
+            self, layout, params, kind, directed, G
+        )
+    layout_cugraph.__doc__ = layout_cugraph_base.__doc__
+    
 
     def _check_mandatory_bindings(self, node_required):
         if self._source is None or self._destination is None:

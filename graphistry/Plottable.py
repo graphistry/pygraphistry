@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Any, Callable, List, Optional, Union
 from typing_extensions import Literal
 import pandas as pd
 
+from graphistry.plugins_types.cugraph_types import CuGraphKind
+
 try:
     from umap import UMAP
 except:
@@ -123,7 +125,7 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
-    def materialize_nodes(self, reuse: bool = True) -> 'Plottable':
+    def materialize_nodes(self, reuse: bool = True, engine: Literal['pandas', 'cudf', 'auto'] = 'auto') -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
@@ -205,4 +207,43 @@ class Plottable(object):
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
+    
+    def from_cugraph(self,
+        G,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes: bool = True, load_edges: bool = True,
+        merge_if_existing: bool = True
+    ):
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def to_cugraph(self, 
+        directed: bool = True,
+        include_nodes: bool = True,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        kind : CuGraphKind = 'Graph'
+    ) -> Any:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def compute_cugraph(self,
+        alg: str, out_col: Optional[str] = None, params: dict = {},
+        kind : CuGraphKind = 'Graph', directed = True,
+        G: Optional[Any] = None
+    ):
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def layout_cugraph(self,
+        layout: str, params: dict = {},
+        kind : CuGraphKind = 'Graph', directed = True,
+        G: Optional[Any] = None
+    ):
+        if 1 + 1:
+            return RuntimeError('should not happen')
         return self
