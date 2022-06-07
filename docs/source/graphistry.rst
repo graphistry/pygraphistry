@@ -1,8 +1,12 @@
 graphistry package
 ==================
+.. toctree::
+   :maxdepth: 3
 
-Submodules
-----------
+   graphistry.compute
+   graphistry.layout
+   graphistry.plugins
+
 
 graphistry.plotter module
 -------------------------
@@ -35,4 +39,3 @@ graphistry.ArrowFileUploader module
     :members:
     :undoc-members:
     :show-inheritance:
-

@@ -34,7 +34,7 @@ docker run \
 2. Install deps in a sandbox:
 
 ```python
-cp -r /doc /pygraphistry && ( cd /pygraphistry && python -m pip install -e .[dev] )
+cp -r /doc /pygraphistry && ( cd /pygraphistry && python -m pip install -e .[docs] )
 ```
 
 This prevents your host env from getting littered

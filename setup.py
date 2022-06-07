@@ -7,14 +7,22 @@ import versioneer
 def unique_flatten_dict(d):
   return list(set(sum( d.values(), [] )))
 
-core_requires = ['numpy', 'pandas >= 0.17.0', 'pyarrow >= 0.15.0', 'requests', 'protobuf >= 2.6.0']
+core_requires = [
+  'numpy',
+  'pandas >= 0.17.0',
+  'protobuf >= 2.6.0',
+  'pyarrow >= 0.15.0',
+  'requests',
+  'typing-extensions',
+  'packaging >= 20.1'
+]
 
 stubs = [
   'pandas-stubs', 'types-requests'
 ]
 
 dev_extras = {
-    'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1'],
+    'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1', 'Jinja2<3.1'],
     'test': ['flake8', 'mock', 'mypy', 'pytest'] + stubs,
     'build': ['build']
 }
@@ -25,7 +33,10 @@ base_extras = {
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl', 'xlrd'],
-    'jupyter': ['ipython']
+    'jupyter': ['ipython'],
+    'umap-learn': ['umap-learn', 'dirty-cat'],
+    'ai': ['scikit-learn', 'scipy', 'dirty-cat', 'umap-learn', 'dgl', 'torch',
+           'sentence-transformers']
 }
 
 extras_require = {
@@ -45,7 +56,7 @@ setup(
     name='graphistry',
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
-    packages = ['graphistry'],
+    packages = find_packages(),
     platforms='any',
     description = 'A visual graph analytics library for extracting, transforming, displaying, and sharing big graphs with end-to-end GPU acceleration',
     long_description=open("./README.md").read(),
@@ -72,7 +83,9 @@ setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
         'Topic :: Internet :: Log Analysis',
+        'Topic :: Database :: Front-Ends',
         'Topic :: Multimedia :: Graphics',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Topic :: Scientific/Engineering :: Bio-Informatics',

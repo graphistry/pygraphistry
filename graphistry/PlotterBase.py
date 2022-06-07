@@ -1,10 +1,18 @@
 from graphistry.Plottable import Plottable
-from typing import Any, Callable, List, Optional, Union, TYPE_CHECKING
-import copy, hashlib, logging, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
-from functools import lru_cache
+from typing import Any, Callable, List, Optional, Union
+import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from weakref import WeakValueDictionary
 
-from .util import (error, in_ipython, in_databricks, make_iframe, random_string, warn)
+from .constants import SRC, DST, NODE
+from .plugins.igraph import (
+    to_igraph as to_igraph_base, from_igraph as from_igraph_base,
+    compute_igraph as compute_igraph_base,
+    layout_igraph as layout_igraph_base
+)
+from .util import (
+    error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
+    cache_coercion, cache_coercion_helper, WeakValueWrapper
+)
 
 from .bolt_util import (
     bolt_graph_to_edges_dataframe,
@@ -17,6 +25,8 @@ from .bolt_util import (
 from .arrow_uploader import ArrowUploader
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
+from .util import setup_logger
+logger = setup_logger(__name__)
 
 maybe_cudf = None
 try:
@@ -24,6 +34,8 @@ try:
     maybe_cudf = cudf
 except ImportError:
     1
+except RuntimeError:
+    logger.warning('Runtime error import cudf: Available but failed to initialize', exc_info=True)
 
 maybe_dask_dataframe = None
 try:
@@ -38,6 +50,8 @@ try:
     maybe_dask_cudf = dask_cudf
 except ImportError:
     1
+except RuntimeError:
+    logger.warning('Runtime error import dask_cudf: Available but failed to initialize', exc_info=True)
 
 maybe_spark = None
 try:
@@ -46,29 +60,6 @@ try:
 except ImportError:
     1
 
-logger = logging.getLogger('Plotter')
-
-CACHE_COERCION_SIZE = 100
-
-
-_cache_coercion_val = None
-@lru_cache(maxsize=CACHE_COERCION_SIZE)
-def cache_coercion_helper(k):
-    return _cache_coercion_val
-
-def cache_coercion(k, v):
-    """
-        Holds references to last 100 used coercions
-        Use with weak key/value dictionaries for actual lookups
-    """
-    global _cache_coercion_val
-    _cache_coercion_val = v
-
-    return cache_coercion_helper(k)
-
-class WeakValueWrapper:
-    def __init__(self, v):
-        self.v = v
 
 class PlotterBase(Plottable):
     """Graph plotting class.
@@ -84,9 +75,23 @@ class PlotterBase(Plottable):
     The class supports convenience methods for mixing calls across Pandas, NetworkX, and IGraph.
     """
 
-    _defaultNodeId = '__nodeid__'
+    _defaultNodeId = NODE
+    _defaultEdgeSourceId = SRC
+    _defaultEdgeDestinationId = DST
+    
     _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
+    _umap_param_to_g : WeakValueDictionary = WeakValueDictionary()
+    _feat_param_to_g : WeakValueDictionary = WeakValueDictionary()
+
+    def reset_caches(self): 
+        """Reset memoization caches"""
+        self._pd_hash_to_arrow.clear()
+        self._cudf_hash_to_arrow.clear()
+        self._umap_param_to_g.clear()
+        self._feat_param_to_g.clear()
+        cache_coercion_helper.cache_clear()
+
 
     def __init__(self, *args, **kwargs):
         super(PlotterBase, self).__init__()
@@ -97,6 +102,7 @@ class PlotterBase(Plottable):
         self._source : Optional[str] = None
         self._destination : Optional[str] = None
         self._node : Optional[str] = None
+        self._edge : Optional[str] = None
         self._edge_title : Optional[str] = None
         self._edge_label : Optional[str] = None
         self._edge_color : Optional[str] = None
@@ -131,6 +137,34 @@ class PlotterBase(Plottable):
         # Integrations
         self._bolt_driver : any = None
         self._tigergraph : any = None
+
+        self._node_embedding = None
+        self._node_encoder = None
+        self._node_features = None
+        self._node_imputer = None
+        self._node_scaler = None
+        self._node_target = None
+        self._node_target_encoder = None
+
+        self._edge_embedding = None
+        self._edge_encoders = None
+        self._edge_features = None
+        self._edge_imputer = None
+        self._edge_scaler = None
+        self._edge_target = None
+        self._edge_target_encoder = None
+
+        self._weighted_adjacency_nodes = None
+        self._weighted_adjacency_edges = None
+        self._weighted_edges_df = None
+        self._weighted_edges_df_from_nodes = None
+        self._weighted_edges_df_from_edges = None
+
+        self._umap = None
+
+        self._adjacency = None
+        self._entity_to_index = None
+        self._index_to_entity = None
 
 
     def __repr__(self):
@@ -259,6 +293,63 @@ class PlotterBase(Plottable):
         res = self.bind()
         res._style = style
         return res
+
+
+    def encode_axis(self, rows=[]):
+        """Render radial and linear axes with optional labels
+
+        :param rows: List of rows - {
+            label: Optional[str],
+            ?r: float,
+            ?x: float,
+            ?y: float,
+            ?internal: true,
+            ?external: true,
+            ?space: true
+        }
+
+        :returns: Plotter
+        :rtype: Plotter
+
+        **Example: Several radial axes**
+            ::
+
+                g.encode_axis([
+                  {'r': 14, 'external': True, 'label': 'outermost'},
+                  {'r': 12, 'external': True},
+                  {'r': 10, 'space': True},
+                  {'r': 8, 'space': True},
+                  {'r': 6, 'internal': True},
+                  {'r': 4, 'space': True},
+                  {'r': 2, 'space': True, 'label': 'innermost'}
+                ])
+
+        **Example: Several horizontal axes**
+            ::
+
+                g.encode_axis([
+                  {"label": "a",  "y": 2, "internal": True },
+                  {"label": "b",  "y": 40, "external": True, "width": 20, "bounds": {"min": 40, "max": 400}},
+                ])
+
+        """
+
+        complex_encodings = self._complex_encodings or {}
+        if 'current' not in complex_encodings:
+            complex_encodings['current'] = {}
+        if 'default' not in complex_encodings:
+            complex_encodings['default'] = {}
+        complex_encodings['default']["pointAxisEncoding"] = {
+            "graphType": "point",
+            "encodingType": "axis",
+            "variation": "categorical",
+            "attribute": "degree",
+            "rows": rows
+        }
+
+        out = self.bind()
+        out._complex_encodings = complex_encodings
+        return out
 
 
     def encode_point_color(self, column,
@@ -693,7 +784,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def bind(self, source=None, destination=None, node=None,
+    def bind(self, source=None, destination=None, node=None, edge=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
              edge_source_color=None, edge_destination_color=None,
              point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
@@ -711,6 +802,9 @@ class PlotterBase(Plottable):
 
         :param node: Attribute containing a node's ID
         :type node: str
+
+        :param edge: Attribute containing an edge's ID
+        :type edge: str
 
         :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
         :type edge_title: str
@@ -798,6 +892,7 @@ class PlotterBase(Plottable):
         res._source = source or self._source
         res._destination = destination or self._destination
         res._node = node or self._node
+        res._edge = edge or self._edge
 
         res._edge_title = edge_title or self._edge_title
         res._edge_label = edge_label or self._edge_label
@@ -820,6 +915,9 @@ class PlotterBase(Plottable):
         res._point_y = point_y or self._point_y
         
         return res
+
+    def copy(self) -> Plottable:
+        return copy.copy(self)
 
 
     def nodes(self, nodes: Union[Callable, Any], node=None, *args, **kwargs) -> Plottable:
@@ -910,7 +1008,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def edges(self, edges: Union[Callable, Any], source=None, destination=None, *args, **kwargs) -> Plottable:
+    def edges(self, edges: Union[Callable, Any], source=None, destination=None, edge=None, *args, **kwargs) -> Plottable:
         """Specify edge list data and associated edge attribute values.
         If a callable, will be called with current Plotter and whatever positional+named arguments
 
@@ -934,9 +1032,28 @@ class PlotterBase(Plottable):
             ::
 
                 import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0], 'id': [0, 1, 2]})
+                graphistry
+                    .bind(source='src', destination='dst', edge='id')
+                    .edges(df)
+                    .plot()
+
+        **Example**
+            ::
+
+                import graphistry
                 df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0]})
                 graphistry
                     .edges(df, 'src', 'dst')
+                    .plot()
+
+        **Example**
+            ::
+
+                import graphistry
+                df = pandas.DataFrame({'src': [0,1,2], 'dst': [1,2,0], 'id': [0, 1, 2]})
+                graphistry
+                    .edges(df, 'src', 'dst', 'id')
                     .plot()
 
         **Example**
@@ -951,7 +1068,7 @@ class PlotterBase(Plottable):
                 graphistry
                     .edges(df, 'src', 'dst')
                     .edges(sample_edges, n=2)
-                    .edges(sample_edges, None, None, 2)  # equivalent
+                    .edges(sample_edges, None, None, None, 2)  # equivalent
                     .plot()
 
         """
@@ -962,6 +1079,8 @@ class PlotterBase(Plottable):
             base = base.bind(source=source)
         if not (destination is None):
             base = base.bind(destination=destination)
+        if edge is not None:
+            base = base.bind(edge=edge)
 
         if callable(edges):
             edges2 = edges(base, *args, **kwargs)
@@ -1002,6 +1121,14 @@ class PlotterBase(Plottable):
         :returns: Plotter
         :rtype: Plotter
         """
+
+        try:
+            import igraph
+            if isinstance(ig, igraph.Graph):
+                logger.warning('.graph(ig) deprecated, use .from_igraph()')
+                return self.from_igraph(ig)
+        except ImportError:
+            pass
 
         res = copy.copy(self)
         res._edges = ig
@@ -1258,6 +1385,57 @@ class PlotterBase(Plottable):
             webbrowser.open(full_url)
             return full_url
 
+    def from_igraph(self,
+        ig,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes = True, load_edges = True,
+        merge_if_existing = True
+    ):
+        return from_igraph_base(
+            self,
+            ig,
+            node_attributes,
+            edge_attributes,
+            load_nodes, load_edges,
+            merge_if_existing
+        )
+    from_igraph.__doc__ = from_igraph_base.__doc__
+
+
+    def to_igraph(self, 
+        directed=True, include_nodes=True,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None
+    ):
+        return to_igraph_base(
+            self,
+            directed, include_nodes,
+            node_attributes,
+            edge_attributes
+        )
+    to_igraph.__doc__ = to_igraph_base.__doc__
+
+
+    def compute_igraph(self,
+        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
+    ):
+        return compute_igraph_base(self, alg, out_col, directed, params)
+    compute_igraph.__doc__ = compute_igraph_base.__doc__
+
+
+    def layout_igraph(self,
+        layout: str,
+        directed: Optional[bool] = None,
+        bind_position: bool = True,
+        x_out_col: str = 'x',
+        y_out_col: str = 'y',
+        play: Optional[int] = 0,
+        params: dict = {}
+    ):
+        return layout_igraph_base(self, layout, directed, bind_position, x_out_col, y_out_col, play, params)
+    layout_igraph.__doc__ = layout_igraph_base.__doc__
+
 
     def pandas2igraph(self, edges, directed=True):
         """Convert a pandas edge dataframe to an IGraph graph.
@@ -1278,6 +1456,8 @@ class PlotterBase(Plottable):
                 g.bind(point_color='community').plot(ig)
         """
 
+        import warnings
+        warnings.warn("pandas2igraph deprecated; switch to to_igraph", DeprecationWarning, stacklevel=2)
 
         import igraph
         self._check_mandatory_bindings(False)
@@ -1296,6 +1476,8 @@ class PlotterBase(Plottable):
     def igraph2pandas(self, ig):
         """Under current bindings, transform an IGraph into a pandas edges dataframe and a nodes dataframe.
 
+        Deprecated in favor of `.from_igraph()`
+
         **Example**
             ::
 
@@ -1311,6 +1493,9 @@ class PlotterBase(Plottable):
                 (es2, vs2) = g.igraph2pandas(ig)
                 g.nodes(vs2).bind(point_color='community').plot()
         """
+
+        import warnings
+        warnings.warn("igraph2pandas deprecated; switch to from_igraph", DeprecationWarning, stacklevel=2)
 
         def get_edgelist(ig):
             idmap = dict(enumerate(ig.vs[self._node]))
@@ -1402,8 +1587,8 @@ class PlotterBase(Plottable):
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
-                (e, n) = g.igraph2pandas(graph)
-                return g._make_dataset(e, n, name, description, mode, metadata, memoize)
+                g2 = g.from_igraph(graph)
+                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize)
         except ImportError:
             pass
 
@@ -1597,10 +1782,9 @@ class PlotterBase(Plottable):
             if memoize:
                 
                 try:
-                    #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
-                    hashed = hashlib.sha256(pd.util.hash_pandas_object(table, index=True).values).hexdigest()
+                    hashed = hash_pdf(table)
                 except TypeError:
-                    logger.warn('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.'
+                    logger.warning('Failed memoization speedup attempt due to Pandas internal hash function failing. Continuing without memoization speedups.'
                                 'This is fine, but for speedups around skipping re-uploads of previously seen tables, '
                                 'try identifying which columns have types that Pandas cannot hash, and convert them '
                                 'to hashable types like strings.')
@@ -1629,7 +1813,10 @@ class PlotterBase(Plottable):
             hashed = None
             if memoize:
                 #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
-                hashed = hashlib.sha256(table.hash_columns().tobytes()).hexdigest()
+                hashed = (
+                    hashlib.sha256(table.hash_columns().tobytes()).hexdigest()
+                    + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
+                )
                 try:
                     if hashed in PlotterBase._cudf_hash_to_arrow:
                         logger.debug('cudf->arrow memoization hit: %s', hashed)
@@ -1715,8 +1902,16 @@ class PlotterBase(Plottable):
 
         from .pygraphistry import PyGraphistry
 
+        def flatten_categorical(df):
+            # Avoid cat_col.where(...)-related exceptions
+            df2 = df.copy()
+            for c in df:
+                if (df[c].dtype.name == 'category'):
+                    df2[c] = df[c].astype(df[c].cat.categories.dtype)
+            return df2
+
         (elist, nlist) = self._bind_attributes_v1(edges, nodes)
-        edict = elist.where((pd.notnull(elist)), None).to_dict(orient='records')
+        edict = flatten_categorical(elist).where(pd.notnull(elist), None).to_dict(orient='records')
 
         bindings = {'idField': self._node or PlotterBase._defaultNodeId,
                     'destinationField': self._destination, 'sourceField': self._source}
@@ -1724,7 +1919,7 @@ class PlotterBase(Plottable):
                    'bindings': bindings, 'type': 'edgelist', 'graph': edict}
 
         if nlist is not None:
-            ndict = nlist.where((pd.notnull(nlist)), None).to_dict(orient='records')
+            ndict = flatten_categorical(nlist).where(pd.notnull(nlist), None).to_dict(orient='records')
             dataset['labels'] = ndict
         return dataset
 
@@ -2198,6 +2393,55 @@ class PlotterBase(Plottable):
             **({} if precision_vs_speed is None else {'precisionVsSpeed': precision_vs_speed}),
             **({} if gravity is None else {'gravity': gravity}),
             **({} if scaling_ratio is None else {'scalingRatio': scaling_ratio}),
+        }
+
+        if len(settings.keys()) > 0:
+            return self.settings(url_params={**self._url_params, **settings})
+        else:
+            return self
+
+
+    def scene_settings(
+        self,
+        menu: Optional[bool] = None,
+        info: Optional[bool] = None,
+        show_arrows: Optional[bool] = None,
+        point_size: Optional[float] = None,
+        edge_curvature: Optional[float] = None,
+        edge_opacity: Optional[float] = None,
+        point_opacity: Optional[float] = None
+    ):
+        """Set scene options. Additive over previous settings.
+
+        Corresponds to options at https://hub.graphistry.com/docs/api/1/rest/url/#urloptions
+
+        **Example: Hide arrows and straighten edges**
+
+            ::
+
+                import graphistry, pandas as pd
+                edges = pd.DataFrame({'s': ['a','b','c','d'], 'boss': ['c','c','e','e']})
+                nodes = pd.DataFrame({
+                    'n': ['a', 'b', 'c', 'd', 'e'],
+                    'y': [1,   1,   2,   3,   4],
+                    'x': [1,   1,   0,   0,   0],
+                })
+                g = (graphistry
+                    .edges(edges, 's', 'd')
+                    .nodes(nodes, 'n')
+                    .scene_settings(show_arrows=False, edge_curvature=0.0)
+                g.plot()
+        """
+
+        settings : dict = {
+            **({} if menu is None else {'menu': menu}),
+            **({} if info is None else {'info': info}),
+            **({} if show_arrows is None else {'showArrows': show_arrows}),
+
+            **({} if point_size is None else {'pointSize': point_size}),
+            **({} if edge_curvature is None else {'edgeCurvature': edge_curvature}),
+            **({} if edge_opacity is None else {'edgeOpacity': edge_opacity}),
+            **({} if point_opacity is None else {'pointOpacity': point_opacity})
         }
 
         if len(settings.keys()) > 0:

@@ -6,14 +6,14 @@
 [![Latest Version](https://img.shields.io/pypi/v/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
 [![Latest Version](https://img.shields.io/pypi/pyversions/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
 [![License](https://img.shields.io/pypi/l/graphistry.svg)](https://pypi.python.org/pypi/graphistry)
-[![Downloads](https://pepy.tech/badge/graphistry/month)](https://pepy.tech/project/graphistry/month)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/graphistry)
 
 [![Uptime Robot status](https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com)](https://status.graphistry.com/) [<img src="https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
 [![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)](https://twitter.com/graphistry)
 
-PyGraphistry is a Python visual graph analytics library to extract, transform, and load big graphs into [Graphistry](https://www.graphistry.com) end-to-end GPU  visual graph analytics sessions.
+PyGraphistry is a Python visual graph AI library to extract, transform, analyze, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.
 
-Graphistry gets used on problems like visually mapping the behavior of devices and users and for analyzing machine learning results. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 1MM elements. The serverside GPU analytics engine supports even bigger graphs.
+Graphistry gets used on problems like visually mapping the behavior of devices and users, investigating fraud, analyzing machine learning results, and starting in graph AI. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 2MM elements. The serverside GPU analytics engine supports even bigger graphs. It smoothes graph workflows over the PyData ecosystem including Pandas/Spark/Dask dataframes, Nvidia RAPIDS GPU dataframes & GPU graphs, DGL/PyTorch graph neural networks, and various data connectors.
 
 The PyGraphistry Python client helps several kinds of usage modes:
 
@@ -230,11 +230,22 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g.endpoint('my_fn', {'arg': 'val'}, {'edges': '@@eList'}).plot()
     ```
 
-* [IGraph](http://igraph.org)
+* [igraph](http://igraph.org)
 
     ```python
-    graph = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
-    graphistry.bind(source='src', destination='dst').plot(graph)
+    edges = pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
+    g_a = graphistry.edges(edges, 'src', 'dst')
+    g_b = g_a.layout_igraph('sugiyama', directed=True)  # directed: for to_igraph
+    g_b.compute_igraph('pagerank', params={'damping': 0.85}).plot()  #params: for layout
+
+    ig = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
+    g = graphistry.from_igraph(ig)  # full conversion
+    g.plot()
+
+    ig2 = g.to_igraph()
+    ig2.vs['spinglass'] = ig2.community_spinglass(spins=3).membership
+    # selective column updates: preserve g._edges; merge 1 attribute from ig into g._nodes
+    g2 = g.from_igraph(ig2, load_edges=False, node_attributes=[g._node, 'spinglass'])
     ```
 
 * [NetworkX](https://networkx.github.io) ([notebook demo](demos/demos_databases_apis/networkx/networkx.ipynb))
@@ -292,30 +303,31 @@ Set visual attributes through [quick data bindings](https://hub.graphistry.com/d
       .bind(source='col_a', destination='col_b', node='col_c')
       .bind(
         point_color='col_a',
-      point_size='col_b',
-      point_title='col_c',
-      point_x='col_d',
-      point_y='col_e')
+        point_size='col_b',
+        point_title='col_c',
+        point_x='col_d',
+        point_y='col_e')
       .bind(
         edge_color='col_m',
-      edge_weight='col_n',
-      edge_title='col_o')
+        edge_weight='col_n',
+        edge_title='col_o')
       .encode_edge_color('timestamp', ["blue", "yellow", "red"], as_continuous=True)
       .encode_point_icon('device_type', categorical_mapping={'macbook': 'laptop', ...})
       .encode_point_badge('passport', 'TopRight', categorical_mapping={'Canada': 'flag-icon-ca', ...})
+      .encode_point_color('score', ['black', 'white'])
       .addStyle(bg={'color': 'red'}, fg={}, page={'title': 'My Graph'}, logo={})
       .settings(url_params={
         'play': 2000,
-      'menu': True, 'info': True,
-      'showArrows': True,
-      'pointSize': 2.0, 'edgeCurvature': 0.5,
-      'edgeOpacity': 1.0, 'pointOpacity': 1.0,
-      'lockedX': False, 'lockedY': False, 'lockedR': False,
-      'linLog': False, 'strongGravity': False, 'dissuadeHubs': False,
-      'edgeInfluence': 1.0, 'precisionVsSpeed': 1.0, 'gravity': 1.0, 'scalingRatio': 1.0,
-      'showLabels': True, 'showLabelOnHover': True,
-      'showPointsOfInterest': True, 'showPointsOfInterestLabel': True, 'showLabelPropertiesOnHover': True,
-      'pointsOfInterestMax': 5
+        'menu': True, 'info': True,
+        'showArrows': True,
+        'pointSize': 2.0, 'edgeCurvature': 0.5,
+        'edgeOpacity': 1.0, 'pointOpacity': 1.0,
+        'lockedX': False, 'lockedY': False, 'lockedR': False,
+        'linLog': False, 'strongGravity': False, 'dissuadeHubs': False,
+        'edgeInfluence': 1.0, 'precisionVsSpeed': 1.0, 'gravity': 1.0, 'scalingRatio': 1.0,
+        'showLabels': True, 'showLabelOnHover': True,
+        'showPointsOfInterest': True, 'showPointsOfInterestLabel': True, 'showLabelPropertiesOnHover': True,
+        'pointsOfInterestMax': 5
       })
       .plot()
   ```
@@ -471,7 +483,7 @@ See additional examples in the [sharing tutorial](https://github.com/graphistry/
 ## Tutorial: Les Misérables
 
 Let's visualize relationships between the characters in [Les Misérables](http://en.wikipedia.org/wiki/Les_Misérables).
-For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [IGraph](http://igraph.org) to run a community detection algorithm. You can [view](demos/more_examples/simple/MarvelTutorial.ipynb) the Jupyter notebook containing this example.
+For this example, we'll choose [Pandas](http://pandas.pydata.org) to wrangle data and [igraph](http://igraph.org) to run a community detection algorithm. You can [view](demos/more_examples/simple/MarvelTutorial.ipynb) the Jupyter notebook containing this example.
 
 Our [dataset is a CSV file](https://raw.githubusercontent.com/graphistry/pygraphistry/master/demos/data/lesmiserables.csv) that looks like this:
 
@@ -492,7 +504,7 @@ links = pandas.read_csv('./lesmiserables.csv')
 
 If you already have graph-like data, use this step. Otherwise, try the [Hypergraph Transform](demos/demos_by_use_case/logs/malware-hypergraph/Malware%20Hypergraph.ipynb) for creating graphs from rows of data (logs, samples, records, ...).
 
-PyGraphistry can plot graphs directly from Pandas data frames, Arrow tables, cuGraph GPU data frames, IGraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
+PyGraphistry can plot graphs directly from Pandas data frames, Arrow tables, cuGraph GPU data frames, igraph graphs, or NetworkX graphs. Calling *plot* uploads the data to our visualization servers and return an URL to an embeddable webpage containing the visualization.
 
 To define the graph, we `bind` *source* and *destination* to the columns indicating the start and end nodes of each edges:
 
@@ -521,24 +533,24 @@ g.edges(links).plot()
 
 Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank) score and color them using their [community](https://en.wikipedia.org/wiki/Community_structure).
 
-#### Warmup: IGraph for computing statistics
+#### Warmup: igraph for computing statistics
 
-[IGraph](http://igraph.org/python/) already has these algorithms implemented for us for small graphs. (See our cuGraph examples for big graphs.) If IGraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
+[igraph](http://igraph.org/python/) already has these algorithms implemented for us for small graphs. (See our cuGraph examples for big graphs.) If igraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
 
-We start by converting our edge dateframe into an IGraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
+We start by converting our edge dateframe into an igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
 
 ```python
-ig = graphistry.pandas2igraph(links)
-ig.vs['pagerank'] = ig.pagerank()
-ig.vs['community'] = ig.community_infomap().membership
+g = g.compute_igraph('pagerank', directed=True, params={'damping': 0.85}).compute_igraph('community_infomap')
 ```
+
+The algorithm names `'pagerank'` and `'community_infomap'` correspond to method names of [igraph.Graph](https://igraph.org/python/api/latest/igraph.Graph.html). Likewise, optional `params={...}` allow specifying additional parameters.
 
 #### Bind node data to visual node attributes
 
 We can then bind the node `community` and `pagerank` columns to visualization attributes:
 
 ```python
-g.bind(point_color='community', point_size='pagerank').plot(ig)
+g.bind(point_color='community', point_size='pagerank').plot()
 ```
 
 See the [color palette documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2) for specifying color values by using built-in ColorBrewer palettes (`int32`) or custom RGB values (`int64`).
@@ -564,14 +576,21 @@ For more in-depth examples, check out the tutorials on [colors](demos/more_examp
 You may want more controls like using gradients or maping specific values:
 
 ```python
+g.encode_edge_color('int_col')  # int32 or int64
 g.encode_edge_color('time_col', ["blue", "red"], as_continuous=True)
-g.encode_edge_color('type_col', ["#000", "#F00", "#F0F", "#0FF"], as_categorical=True)
+g.encode_edge_color('type', as_categorical=True,
+  categorical_mapping={"cat": "red", "sheep": "blue"}, default_mapping='#CCC') 
 g.encode_edge_color('brand',
   categorical_mapping={'toyota': 'red', 'ford': 'blue'},
   default_mapping='#CCC')
+g.encode_point_size('numeric_col')
 g.encode_point_size('criticality',
   categorical_mapping={'critical': 200, 'ok': 100},
   default_mapping=50)
+g.encode_point_color('int_col')  # int32 or int64
+g.encode_point_color('time_col', ["blue", "red"], as_continuous=True)
+g.encode_point_color('type', as_categorical=True,
+  categorical_mapping={"cat": "red", "sheep": "blue"}, default_mapping='#CCC') 
 ```
 
 For more in-depth examples, check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb).
@@ -628,6 +647,54 @@ g.encode_point_badge('another_column', 'TopRight', categorical_mapping=...,
 
 For more in-depth examples, check out the tutorials on [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb).
 
+#### Axes
+
+Radial axes support three coloring types (`'external'`, `'internal'`, and `'space'`) and optional labels:
+
+```python
+ g.encode_axis([
+  {'r': 14, 'external': True, "label": "outermost"},
+  {'r': 12, 'external': True},
+  {'r': 10, 'space': True},
+  {'r': 8, 'space': True},
+  {'r': 6, 'internal': True},
+  {'r': 4, 'space': True},
+  {'r': 2, 'space': True, "label": "innermost"}
+])
+```
+
+Horizontal axis support optional labels and ranges:
+
+```python
+g.encode_axis([
+  {"label": "a",  "y": 2, "internal": True },
+  {"label": "b",  "y": 40, "external": True,
+   "width": 20, "bounds": {"min": 40, "max": 400}},
+])
+```
+
+Radial axis are generally used with radial positioning:
+
+```python
+g2 = (g
+  .nodes(
+    g._nodes.assign(
+      x = 1 + (g._nodes['ring']) * g._nodes['n'].apply(math.cos),
+      y = 1 + (g._nodes['ring']) * g._nodes['n'].apply(math.sin)
+  )).settings(url_params={'lockedR': 'true', 'play': 1000})
+```
+
+Horizontal axis are often used with pinned y and free x positions:
+
+```python
+g2 = (g
+  .nodes(
+    g._nodes.assign(
+      y = 50 * g._nodes['level'])
+  )).settings(url_params={'lockedY': 'true', 'play': 1000})
+```
+
+
 ### Theming
 
 You can customize several style options to match your theme:
@@ -653,19 +720,72 @@ g.addStyle(logo={
 
 ### Transforms
 
-You can quickly manipulate graphs as well:
+The below methods let you quickly manipulate graphs directly and with dataframe methods: Search, pattern mine, transform, and more:
 
-**Generate node table**:
+```python
+from graphistry import n, e_forward, e_reverse, e_undirected
+g = (graphistry
+  .edges(pd.DataFrame({
+    's': ['a', 'b'],
+    'd': ['b', 'c'],
+    'k1': ['x', 'y']
+  }))
+  .nodes(pd.DataFrame({
+    'n': ['a', 'b', 'c'],
+    'k2': [0, 2, 4, 6]
+  })
+)
+
+g2 = graphistry.hypergraph(g._edges, ['s', 'd', 'k1'])['graph']
+g2.plot() # nodes are values from cols s, d, k1
+
+(g
+  .materialize_nodes()
+  .get_degrees()
+  .get_indegrees()
+  .get_outdegrees()
+  .pipe(lambda g2: g2.nodes(g2._nodes.assign(t=x))) # transform
+  .filter_edges_by_dict({"k1": "x"})
+  .filter_nodes_by_dict({"k2": 4})
+  .hop( # filter to subgraph
+    #almost all optional
+    direction='forward', # 'reverse', 'undirected'
+    hops=1, # number or None if to_fixed_point
+    to_fixed_point=False, 
+    source_node_match={"k2": 0},
+    edge_match={"k1": "x"},
+    destination_node_match={"k2": 2})
+  .chain([ # filter to subgraph
+    n(),
+    n({'k2': 0}),
+    n(name="start"), # add column 'start':bool
+    e_forward({'k1': 'x'}, hops=1), # same API as hop()
+    e_undirected(name='second_edge'),
+  ])
+  .collapse(node='some_id', column='some_col', attribute='some val')
+```
+
+#### Table to graph
+
+```python
+df = pd.read_csv('events.csv')
+hg = graphistry.hypergraph(df, ['user', 'email', 'org'], direct=True)
+g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
+g.plot()
+```
+
+#### Generate node table
+
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
 g2 = g.materialize_nodes()
 g2._nodes  # pd.DataFrame({'id': ['a', 'b', 'c']})
 ```
 
-***Compute degrees**
+#### Compute degrees
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
-g2 = g.get_degree()
+g2 = g.get_degrees()
 g2._nodes  # pd.DataFrame({
            #  'id': ['a', 'b', 'c'],
            #  'degree_in': [0, 1, 1],
@@ -674,7 +794,65 @@ g2._nodes  # pd.DataFrame({
            #})
 ```
 
-**Pipelining**:
+See also `get_indegrees()` and `get_outdegrees()` 
+
+#### Graph pattern matching
+
+Traverse within a graph, or expand one graph against another
+
+Simple node and edge filtering via `filter_edges_by_dict()` and `filter_nodes_by_dict()`:
+
+```python
+g = graphistry.edges(pd.read_csv('data.csv'), 's', 'd')
+g2 = g.materialize_nodes()
+
+g3 = g.filter_edges_by_dict({"v": 1, "b": True})
+g4 = g.filter_nodes_by_dict({"v2": 1, "b2": True})
+```
+
+Method `.hop()` enables slightly more complicated edge filters:
+
+```python
+
+# (a)-[{"v": 1, "type": "z"}]->(b) based on g
+g2b = g2.hop(
+  source_node_match={g2._node: "a"},
+  edge_match={"v": 1, "type": "z"},
+  destination_node_match={g2._node: "b"})
+
+# (a or b)-[1 to 8 hops]->(anynode), based on graph g2
+g3 = g2.hop(pd.DataFrame({g2._node: ['a', 'b']}), hops=8)
+
+# (c)<-[any number of hops]-(any node), based on graph g3
+g4 = g3.hop(source_node_match={"node": "c"}, direction='reverse', to_fixed_point=True)
+
+# (c)-[incoming or outgoing edge]-(any node),
+# for c in g4 with expansions against nodes/edges in g2
+g5 = g2.hop(pd.DataFrame({g4._node: g4[g4._node]}), hops=1, direction='undirected')
+
+g5.plot()
+```
+
+Rich compound patterns are enabled via `.chain()`:
+
+```python
+from graphistry import n, e_forward, e_reverse, e_undirected
+
+g2.chain([ n() ])
+g2.chain([ n({"v": 1, "y": True}) ])
+g2.chain([ e_forward({"type": "x"}, hops=2) ]) # simple multi-hop
+g3 = g2.chain([
+  n(name="start"),  # tag node matches
+  e_forward(hops=3),
+  e_forward(name="final_edge"), # tag edge matches
+  n(name="end")
+])
+g2.chain(n(), e_forward(), n(), e_reverse(), n()])  # rich shapes
+print('# end nodes: ', len(g3._nodes[ g3._nodes.end ]))
+print('# end edges: ', len(g3._edges[ g3._edges.final_edge ]))
+```
+
+#### Pipelining
 
 ```python
 def capitalize(df, col):
@@ -689,20 +867,32 @@ g
   .pipe(lambda g: g.nodes(g._nodes.pipe(capitalize, 'nTitle')))
 ```
 
-**Table to graph**:
-
-```python
-df = pd.read_csv('events.csv')
-hg = graphistry.hypergraph(df, ['user', 'email', 'org'], direct=True)
-g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
-g.plot()
-```
-
-**Removing nodes**
+#### Removing nodes
 
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']}))
 g2 = g.drop_nodes(['c'])  # drops node c, edge c->a, edge b->c,
+```
+
+#### Collapsing adjacent nodes with specific k=v matches
+
+One col/val pair:
+
+```python
+g2 = g.collapse(
+  node='root_node_id',  # rooted traversal beginning
+  column='some_col',  # column to inspect
+  attribute='some val' # value match to collapse on if hit
+)
+assert len(g2._nodes) <= len(g._nodes)
+```
+
+Collapse for all possible vals in a column, and assuming a stable root node id:
+
+```python
+g3 = g
+for v in g._nodes['some_col'].unique():
+  g3 = g3.collapse(node='root_node_id', column='some_col', attribute=v)
 ```
 
 ### Control layouts
@@ -718,7 +908,42 @@ g2d = g2.tree_layout(level_sort_values_by=['type', 'degree'], level_sort_values_
 g3a = g2a.layout_settings(locked_r=True, play=1000)
 g3b = g2a.layout_settings(locked_y=True, play=0)
 g3c = g2a.layout_settings(locked_x=True)
+
+g4 = g2.tree_layout().rotate(90)
 ```
+
+With `pip install graphistry[igraph]`, you can also use [`igraph` layouts](https://igraph.org/python/doc/api/igraph.Graph.html#layout):
+
+```python
+g.layout_igraph('sugiyama').plot()
+g.layout_igraph('sugiyama', directed=True, params={}).plot()
+```
+
+### Control render settings
+
+```python
+g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'b'], 'd': ['b', 'c', 'd']}))
+g2 = g.scene_settings(
+  #hide menus
+  menu=False,
+  info=False,
+  #tweak graph
+  show_arrows=False,
+  point_size=1.0,
+  edge_curvature=0.0,
+  edge_opacity=0.5,
+  point_opacity=0.9
+).plot()
+
+```
+
+With `pip install graphistry[igraph]`, you can also use [`igraph` layouts](https://igraph.org/python/doc/api/igraph.Graph.html#layout):
+
+```python
+g.layout_igraph('sugiyama').plot()
+g.layout_igraph('sugiyama', directed=True, params={}).plot()
+```
+
 ## Next Steps
 
 1. Create a free public data [Graphistry Hub](https://www.graphistry.com/get-started) account or [one-click launch a private Graphistry instance in AWS](https://www.graphistry.com/get-started)

@@ -18,6 +18,7 @@ x-build-kwargs:
     - BUILDKIT_INLINE_CACHE=1
     - JUPYTER_IMAGE_TAG=python-3.9.5
     - BASE_VERSION=v2.37.1
+    - SENTENCE_TRANSFORMER=""
 
 
 ############################################################

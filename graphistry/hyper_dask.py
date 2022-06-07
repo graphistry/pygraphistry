@@ -4,9 +4,9 @@
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from .Engine import Engine, DataframeLike, DataframeLocalLike
-import logging, numpy as np, pandas as pd, pyarrow as pa, sys
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+import numpy as np, pandas as pd, pyarrow as pa, sys
+from .util import setup_logger
+logger = setup_logger(__name__)
 
 # TODO: When Python 3.8+, switch to TypedDict
 class HyperBindings():

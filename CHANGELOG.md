@@ -7,6 +7,150 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.25.2 - 2022-05-11]
+
+### Added
+
+* `compute_igraph()`
+* `layout_igraph()`
+* `scene_settings()`
+
+### Fixed
+
+* `from_igraph` uses `g._node` instead of `'name'` in more cases 
+
+## [0.25.1 - 2022-05-08]
+
+### Fixed
+
+* `g.from_igraph(ig)` will use IDs (ex: strings) for src/dst values instead of igraph indexes
+
+## [0.25.0 - 2022-05-01]
+
+Major version bump due to breaking igraph change
+
+### Added
+
+* igraph handlers: `graphistry.from_igraph`, `g.from_igraph`, `g.to_igraph`
+* docs: README.md examples of using new igraph methods
+
+### Changed
+
+* Deprecation warnings in old igraph methods: `g.graph(ig)`, `igraph2pandas`, `pandas2igraph`
+* Internal igraph handlers upgraded to use new igraph methods 
+
+### Breaking
+
+* `network2igraph` and `igraph2pandas` renamed output node ID column to `_n_implicit` (`constants.NODE`)
+
+## [0.24.1 - 2022-04-29]
+
+### Fixed
+
+* Expose symbols for `.chain()` predicates as top-level: previous `ast` export was incorrect
+
+## [0.24.0 - 2022-04-29]
+
+Major version bump due to large dependency increases for kitchen-sink installs and overall sizeable new feature
+
+### Added
+
+* Use buildkit with pip install caching for test dockerfiles
+* Graph AI branch: Autoencoding via dirty_cat and sentence_transformers (`g.featurize()`)
+* Graph AI branch: UMAP via umap_learn (`g.umap()`)
+* Graph AI branch: GNNs via DGL (`g.build_dgl_graph()`)
+* `g.reset_caches()` to clear upload and compute caches (last 100)
+* Central `setup_logger()`
+* Official Python 3.10 support
+
+### Changed
+
+* Logging: Refactor to `setup_logger(__name__)`
+
+### Fixed
+
+* hypergraph: use default logger instead of DEBUG
+
+## [0.23.3 - 2022-04-23]
+
+### Added
+
+* `g.collapse(node='root_id', column='some_col', attribute='some_val')
+
+## [0.23.2 - 2022-04-11]
+
+### Fixed
+
+* Avoid runtime import exn when on GPU-less systems with cudf/dask_cudf installed
+
+## [0.23.1 - 2022-04-08]
+
+### Added
+
+* Docs: `readme.md` digest of compute methods
+
+### Fixed
+
+* Docs: `get_degree()` -> `get_degrees()` (https://github.com/graphistry/pygraphistry/issues/330)
+* Upload memoization handles column renames (https://github.com/graphistry/pygraphistry/issues/326)
+
+## [0.23.0 - 2022-04-08]
+
+### Breaking
+
+* `g.edges()` now takes an optional 4th named parameter `edge` ID
+
+Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like `g.edges(some_fn, None, None, None, some_arg)`
+
+* Similar new optional `edge` ID parameter in `g.bind()`
+
+### Changed
+
+* `g.hop()` now takes optional `return_as_wave_front=False`, primarily for internal use by `chain()`
+
+### Added
+
+* `g.chain([...])` with `graphistry.ast.{n, e_forward, e_reverse, e_undirected}`
+
+## [0.22.0 - 2022-04-06]
+
+### Added
+
+* Node dictionary-based filtering: `g.filter_nodes_by_dict({"some": "value", "another": 2})`
+* Edge dictionary-based filtering: `g.filter_edges_by_dict({"some": "value", "another": 2})`
+* Hops support edge filtering: `g.hop(hops=2, edge_match={"type": "transaction"})`
+* Hops support pre-node filtering: `g.hop(hops=2, source_node_match={"type": "account"})`
+* Hops support post-node filtering: `g.hop(hops=2, destination_node_match={"type": "wallet"})`
+* Hops defaults to full graph if no initial nodes specified: `g.hop(hops=2, edge_match={"type": "transaction"})`
+
+## [0.21.4 - 2022-03-30]
+
+### Added
+
+* Horizontal and radial axis using `.encode_axis(rows=[...])`
+
+### Fixed
+
+* Docs: Work around https://github.com/sphinx-doc/sphinx/issues/10291
+
+## [0.21.0 - 2022-03-13]
+
+### Added
+
+* Better implementation of `.tree_layout(...)` using Sugiyama; good for small/medium DAGs
+* Layout rotation method `.rotate(degree)`
+* Compute method `.hops(nodes, hops, to_fixed_point, direction)`
+
+### Changed
+
+* Infra: `test-cpu-local-minimum.sh` accepts params
+
+## [0.20.6 - 2022-03-12]
+
+### Fixed
+
+* Docs: Point color encodings
+
 ## [0.20.5 - 2021-12-06]
 
 ### Changed

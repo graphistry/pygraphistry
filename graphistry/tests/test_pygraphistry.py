@@ -4,7 +4,8 @@ import unittest
 
 from graphistry import PyGraphistry
 
-#TODO mock requests for testing actual effectful code
+# TODO mock requests for testing actual effectful code
+
 
 class TestPyGraphistry_Auth(unittest.TestCase):
     def test_defaults(self):

@@ -30,6 +30,11 @@ jobs:
 
     - name: Checkout repo
       uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
@@ -42,6 +47,16 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
         python -m pip install -e .[test]
+
+    - name: Lint
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/lint.sh
+
+    - name: Type check
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/typecheck.sh
 
     - name: Minimal tests
       run: |
@@ -56,12 +71,17 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.6, 3.7, 3.8, 3.9]
+        python-version: [3.6, 3.7, 3.8, 3.9, '3.10']
 
     steps:
 
     - name: Checkout repo
       uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
@@ -73,7 +93,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
-        python -m pip install -e .[dev]
+        python -m pip install -e .[docs,test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter]
 
     - name: Lint
       run: |
@@ -91,13 +111,113 @@ jobs:
         ./bin/test.sh
 
 
-  test-neo4j:
+  test-core-umap:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        python-version: [3.6, 3.7, 3.8, 3.9]
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install -e .[test,umap-learn]
+
+    - name: Type check
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/typecheck.sh
+
+    - name: Core feature tests (weak featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-features.sh
+
+    - name: Core umap tests (weak featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-umap-learn-core.sh
+
+  test-full-umap:
+
+    needs: [ test-minimal-python ]
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9]
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install -e .[test,ai]
+
+    - name: Type check
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/typecheck.sh
+
+    - name: Full feature tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-features.sh
+
+    - name: Full umap tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-umap-learn-core.sh
+
+  test-neo4j:
+
+    needs: [ test-minimal-python ]
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_DOCKER_CLI_BUILD: 1
+      DOCKER_BUILDKIT: 1
+
     steps:
     - uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
 
     - name: Neo4j connector tests
       run: |
@@ -111,6 +231,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        lfs: true
+
+    - name: Checkout LFS objects
+      run: git lfs pull
 
     - name: Set up Python 3.7
       uses: actions/setup-python@v2

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -ex
 
-WITH_SUDO=${WITH_SUDO:-sudo}
+WITH_SUDO=${WITH_SUDO-sudo}
 
 ${WITH_SUDO} docker-compose -f neo4j4.yml down -v || exit 1
 ${WITH_SUDO} docker-compose -f neo4j4.yml up -d || exit 1
