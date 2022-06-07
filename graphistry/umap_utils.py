@@ -82,9 +82,9 @@ umap_kwargs_euclidean = {
 # ###############################################################################
 
 
-def reuse_umap(g: Plottable, metadata: Any):  # noqa: C901
+def reuse_umap(g: Plottable, memoize: bool, metadata: Any):  # noqa: C901
     return check_set_memoize(
-        g, metadata, attribute="_umap_param_to_g", name="umap", memoize=True
+        g, metadata, attribute="_umap_param_to_g", name="umap", memoize=memoize
     )
 
 
@@ -215,6 +215,7 @@ class UMAPMixin(MIXIN_BASE):
         X_: pd.DataFrame,
         y_: pd.DataFrame,
         kind,
+        memoize: bool,
         featurize_kwargs,
         **umap_kwargs,
     ):
@@ -231,7 +232,7 @@ class UMAPMixin(MIXIN_BASE):
         logger.debug("process_umap after kwargs: %s", umap_kwargs)
 
         old_res = reuse_umap(
-            res, {**umap_kwargs, "featurize_kwargs": featurize_kwargs or {}}
+            res, memoize, {**umap_kwargs, "featurize_kwargs": featurize_kwargs or {}}
         )
         if old_res:
             logger.info(" --- [[ RE-USING UMAP ]]")
@@ -302,6 +303,7 @@ class UMAPMixin(MIXIN_BASE):
         engine: str = "umap_learn",
         inplace: bool = False,
         feature_engine: str = "auto",
+        memoize: bool = True,
         **featurize_kwargs,
     ):
         """
@@ -328,6 +330,7 @@ class UMAPMixin(MIXIN_BASE):
         :param suffix: optional suffix to add to x, y attributes of umap.
         :param play: Graphistry play parameter, default 0, how much to evolve the network during clustering
         :param engine: selects which engine to use to calculate UMAP: NotImplemented yet, default UMAP-LEARN
+        :param memoize: whether to memoize the results of this method, default True.
         :return: self, with attributes set with new data
         """
         assert_imported()
@@ -355,7 +358,7 @@ class UMAPMixin(MIXIN_BASE):
         logger.debug("umap input y :: %s", y)
 
         featurize_kwargs = self._set_features(
-            res, X, y, kind, feature_engine, featurize_kwargs
+            res, X, y, kind, feature_engine, {**featurize_kwargs, 'memoize': memoize}
         )
         # umap_kwargs = {**umap_kwargs, 'featurize_kwargs': featurize_kwargs or {}}
 
@@ -385,7 +388,7 @@ class UMAPMixin(MIXIN_BASE):
             logger.debug("umap X_: %s", X_)
             logger.debug("umap y_: %s", y_)
 
-            res = res._process_umap(res, X_, y_, kind, featurize_kwargs, **umap_kwargs)
+            res = res._process_umap(res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs)
 
             res._weighted_adjacency_nodes = res._weighted_adjacency
             if res._xy is None:
@@ -410,7 +413,7 @@ class UMAPMixin(MIXIN_BASE):
             ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
-            res = self._process_umap(res, X_, y_, kind, featurize_kwargs, **umap_kwargs)
+            res = self._process_umap(res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs)
             res._weighted_adjacency_edges = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError("This should not happen")
