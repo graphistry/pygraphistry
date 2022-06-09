@@ -1578,9 +1578,9 @@ class FeatureMixin(MIXIN_BASE):
         ndf = res._nodes
         node = res._node
         
-        print(res._node)
         if remove_node_column:
-            ndf = remove_node_column_from_ndf_and_return_ndf(res)
+            #ndf = remove_node_column_from_ndf_and_return_ndf(res)
+            ndf = remove_node_column_from_symbolic(ndf, node)
             X = remove_node_column_from_symbolic(X, node)
 
         if ndf is None:

@@ -157,7 +157,7 @@ def pandas_to_dgl_graph(
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
 
     g = dgl.from_scipy(sp_mat, device=device)  # there are other ways too
-    logger.info(f"Graph Type: {type(g)}")  # why is this making a heterograph?
+    logger.info(f"Graph Type: {type(g)}") 
 
     return g, sp_mat, ordered_nodes_dict
 
@@ -222,7 +222,7 @@ class DGLGraphMixin(MIXIN_BASE):
             nodes = res._nodes[res._node]
         else:
             nodes = self._nodes[node_column]
-            
+        
         if not isinstance(self._edges, pd.DataFrame):  # type: ignore
             raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame, recieved: %s", type(self._edges))  # type: ignore
         edf: pd.DataFrame = self._edges  # type: ignore
@@ -253,11 +253,11 @@ class DGLGraphMixin(MIXIN_BASE):
     def _check_nodes_lineup_with_edges(self):
         if self._nodes is None:
             res = self.materialize_nodes()
-            nodes = res._nodes[res._node]
             node_column = res._node
+            nodes = res._nodes[node_column]
         else:
-            nodes = self._nodes[self._node]
             node_column = self._node
+            nodes = self._nodes[node_column]
         # nodes = self._nodes[node_column]
         unique_nodes = nodes.unique()
         logger.info(
