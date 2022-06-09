@@ -1,4 +1,5 @@
 import copy
+from subprocess import call
 import numpy as np, pandas as pd
 from time import time
 import warnings
@@ -451,18 +452,12 @@ class Embedding:
     
     def __init__(self, df: pd.DataFrame):
         self.index = df.index
-        # self.assertions()
-    
-    # def assertions(self):
-    #     ## assumes a nodes dataframe that was gotten via g.materialize_nodes
-    #     assert 'id' in self.df.columns
-    #     ndf = self.df.set_index('id')
-    #     self.index = ndf.index
     
     def fit(self, n_dim: int):
         logger.info(f'-Creating Random Embedding of dimension {n_dim}')
         self.vectors = np.random.randn(len(self.index), n_dim)
         self.columns = [f'emb_{k}' for k in range(n_dim)]
+        self.get_feature_names_out = callThrough(self.columns)
     
     def transform(self, ids) -> pd.DataFrame:
         mask = self.index.isin(ids)
@@ -741,7 +736,7 @@ def get_numeric_transformers(ndf, y=None):
         y_ = y.select_dtypes(include=[np.number])
         label_encoder = FunctionTransformer(partial(passthrough_df_cols, columns=y_.columns)) # takes dataframe and memorizes which cols to use.
         label_encoder.get_feature_names_out = callThrough(y_.columns)
-
+        
     ndf_ = ndf.select_dtypes(include=[np.number])
     data_encoder = FunctionTransformer(partial(passthrough_df_cols, columns=ndf_.columns))
     data_encoder.get_feature_names_out = callThrough(ndf_.columns)
@@ -762,7 +757,7 @@ def process_dirty_dataframes(
     pd.DataFrame,
     Optional[pd.DataFrame],
     Union[SuperVectorizer, FunctionTransformer],
-    Union[SuperVectorizer, FunctionTransformer],
+    Union[SuperVectorizer, FunctionTransformer]
 ]:
     """
         Dirty_Cat encoder for record level data. Will automatically turn
@@ -808,6 +803,9 @@ def process_dirty_dataframes(
         logger.debug(f"-Transformed Columns: \n{features_transformed[:20]}...\n")
         logger.debug(f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n")
         
+        # now just set the feature names, since dirty cat changes them in a weird way...
+        data_encoder.get_feature_names_out = callThrough(features_transformed)
+        
         X_enc = pd.DataFrame(X_enc, columns=features_transformed, index=ndf.index)
         X_enc = X_enc.fillna(0.0)
     else:
@@ -844,6 +842,8 @@ def process_dirty_dataframes(
             
         y_enc = pd.DataFrame(y_enc, columns=labels_transformed, index=y.index)
         #y_enc = y_enc.fillna(0)
+        # add for later
+        label_encoder.get_feature_names_out = callThrough(labels_transformed)
 
         logger.debug(f"-Shape of target {y_enc.shape}")
         #logger.debug(f"-Target Transformers used: {label_encoder.transformers}\n")
@@ -984,6 +984,7 @@ def process_nodes_dataframes(
     if embedding:
         data_encoder = Embedding(df)
         X_enc = data_encoder.fit_transform(n_dim=n_topics)
+    
 
     if (
         not text_enc.empty and not X_enc.empty
@@ -1044,6 +1045,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
         T = mlb.transform(zip(source, destination))
     T = 1.0 * T  # coerce to float
     columns = mlb.classes_
+    mlb.get_feature_names_out = callThrough(columns)
     T = pd.DataFrame(T, columns=columns, index=edf.index)
     logger.info(f'Shape of Edge Encoding: {T.shape}')
     return T, mlb
