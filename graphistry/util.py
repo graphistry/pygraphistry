@@ -14,7 +14,7 @@ from .constants import VERBOSE, CACHE_COERCION_SIZE
 
 
 # #####################################
-def setup_logger(name, verbose=VERBOSE, fullpath=False):
+def setup_logger(name, verbose=VERBOSE, fullpath=True):
     if fullpath:
         FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
     else:

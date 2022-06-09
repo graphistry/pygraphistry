@@ -220,14 +220,25 @@ def remove_node_column_from_ndf_and_return_ndf(g):
     :param g: graphistry instance
     :return: node DataFrame with or without node column
     """
-    if g._node is not None:
-        node_label = g._node
-        if node_label is not None and node_label in g._nodes.columns:
-            logger.debug(
-                f"removing node column `{node_label}` so we do not featurize it"
+    node_label = g._node
+    if node_label is not None:
+        if g._nodes is not None and node_label in g._nodes.columns:
+            logger.info(
+                f"Removing node column `{node_label}` from DataFrame so we do not featurize it"
             )
             return g._nodes.drop(columns=[node_label], errors="ignore")
     return g._nodes
+
+def remove_node_column_from_symbolic(X_symbolic, node):
+    if isinstance(X_symbolic, list):
+        if node in X_symbolic:
+            logger.info(f'Removing `{node}` from input X_symbolic list')
+            X_symbolic.remove(node)
+        return X_symbolic
+    if isinstance(X_symbolic, pd.DataFrame):
+        logger.info(f'Removing `{node}` from input X_symbolic DataFrame')
+        return X_symbolic.drop(columns=[node], errors='ignore')
+
 
 
 def remove_internal_namespace_if_present(df: pd.DataFrame):
@@ -434,6 +445,35 @@ def get_textual_columns(
 #      Featurization Utils
 #
 # #########################################################################################
+
+
+class Embedding:
+    
+    def __init__(self, df: pd.DataFrame):
+        self.index = df.index
+        # self.assertions()
+    
+    # def assertions(self):
+    #     ## assumes a nodes dataframe that was gotten via g.materialize_nodes
+    #     assert 'id' in self.df.columns
+    #     ndf = self.df.set_index('id')
+    #     self.index = ndf.index
+    
+    def fit(self, n_dim: int):
+        logger.info(f'-Creating Random Embedding of dimension {n_dim}')
+        self.vectors = np.random.randn(len(self.index), n_dim)
+        self.columns = [f'emb_{k}' for k in range(n_dim)]
+    
+    def transform(self, ids) -> pd.DataFrame:
+        mask = self.index.isin(ids)
+        index = self.index[mask]
+        res = self.vectors[mask]
+        res = pd.DataFrame(res, index=index, columns=self.columns)
+        return res
+    
+    def fit_transform(self, n_dim: int):
+        self.fit(n_dim)
+        return self.transform(self.index)
 
 
 def identity(x):
@@ -825,6 +865,7 @@ def process_nodes_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = "robust",
     use_scaler_target: Optional[str] = "kbins",
+    embedding = False,
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
@@ -907,6 +948,7 @@ def process_nodes_dataframes(
     if len(df) == 0 or df.empty:
         logger.warning("DataFrame **seems** to be Empty")
 
+        
     text_cols: List[str] = []
     text_model: Any = None
     text_enc = pd.DataFrame([])
@@ -939,15 +981,19 @@ def process_nodes_dataframes(
         categories=categories,
     )
 
+    if embedding:
+        data_encoder = Embedding(df)
+        X_enc = data_encoder.fit_transform(n_dim=n_topics)
+
     if (
         not text_enc.empty and not X_enc.empty
-    ):  # data_encoder is not None:  # can be False!
-        print('-'*60)
-        print(f"<= Found both a textual embedding + dirty_cat =>")
+    ):  # data_encoder is not None:
+        logger.info('-'*60)
+        logger.info(f"<= Found both a textual embedding + dirty_cat =>")
         X_enc = pd.concat([text_enc, X_enc], axis=1)  # np.c_[embeddings, X_enc.values]
     elif not text_enc.empty and X_enc.empty:
-        print('-'*60)
-        print("<= Found only textual embedding =>")
+        logger.info('-'*60)
+        logger.info("<= Found only textual embedding =>")
         X_enc = text_enc
 
     logger.debug(
@@ -1507,6 +1553,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 120,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        embedding: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
@@ -1529,13 +1576,28 @@ class FeatureMixin(MIXIN_BASE):
     ):
         res = self.copy()
         ndf = res._nodes
+        node = res._node
+        
+        print(res._node)
         if remove_node_column:
             ndf = remove_node_column_from_ndf_and_return_ndf(res)
+            X = remove_node_column_from_symbolic(X, node)
+
+        if ndf is None:
+            logger.info(f'! Materializing Nodes and setting `embedding=True` with laten_dimension n_topics: {n_topics}')
+            embedding = True
+            res = res.materialize_nodes()
+            ndf = res._nodes
+            col = list(ndf.columns)[0]
+            ndf = ndf.set_index(col)
+            # in this case, X is not None, and is a DataFrame
+            col = list(X.columns)[0]
+            X = X.set_index(col)
 
         # resolve everything before setting dict so that `X = ndf[cols]` and `X = cols` resolve to same thing
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
-
+        
         feature_engine = resolve_feature_engine(feature_engine)
 
         fkwargs = dict(
@@ -1547,6 +1609,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            embedding=embedding,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
             max_df=max_df,
@@ -1579,30 +1642,25 @@ class FeatureMixin(MIXIN_BASE):
 
             return fresh_res
 
-        if self._nodes is None:
-            raise ValueError(
-                "Expected nodes; try running nodes.materialize_nodes() first if you only have edges"
-            )
-
         X_resolved = features_without_target(X_resolved, y_resolved)
         X_resolved = remove_internal_namespace_if_present(X_resolved)
 
-        fenc = FastEncoder(X_resolved, y_resolved, kind="nodes")
-
         keys_to_remove = ["X", "y", "remove_node_column"]
-        
         nfkwargs = {}
         for key, value in fkwargs.items():
             if key not in keys_to_remove:
                 nfkwargs[key] = value
-
-        fenc.fit(**nfkwargs)
-
+                
+        #############################################################
+        encoder = FastEncoder(X_resolved, y_resolved, kind="nodes")
+        encoder.fit(**nfkwargs)
+        ############################################################
+        
         # if changing, also update fresh_res
-        res._node_features = fenc.X
-        res._node_target = fenc.y
+        res._node_features = encoder.X
+        res._node_target = encoder.y
         res._node_encoder = (
-            fenc  # now this does all the work `._node_encoder.transform(df, y)` etc
+            encoder  # now this does all the work `._node_encoder.transform(df, y)` etc
         )
 
         return res
@@ -1694,24 +1752,24 @@ class FeatureMixin(MIXIN_BASE):
 
         X_resolved = features_without_target(X_resolved, y_resolved)
 
-        fenc = FastEncoder(X_resolved, y_resolved, kind="edges")
-
         keys_to_remove = [
             "X",
             "y",
         ]
-        
         nfkwargs = {}
         for key, value in fkwargs.items():
             if key not in keys_to_remove:
                 nfkwargs[key] = value
-
-        fenc.fit(src=res._source, dst=res._destination, **nfkwargs)
-
+                
+        ###############################################################
+        encoder = FastEncoder(X_resolved, y_resolved, kind="edges")
+        encoder.fit(src=res._source, dst=res._destination, **nfkwargs)
+        ##############################################################
+        
         # if editing, should also update fresh_res
-        res._edge_features = fenc.X
-        res._edge_target = fenc.y
-        res._edge_encoder = fenc
+        res._edge_features = encoder.X
+        res._edge_target = encoder.y
+        res._edge_encoder = encoder
 
         return res
 
@@ -1793,6 +1851,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        embedding=False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
@@ -1800,7 +1859,7 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         confidence: float = 0.35,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = None, # turn this off in favor of Gap Encoder
+        similarity: Optional[str] = None, # turn this on in favor of Similarity Encoder
         categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
@@ -1881,6 +1940,7 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                embedding=embedding,
                 use_ngrams=use_ngrams,
                 ngram_range=ngram_range,
                 max_df=max_df,
@@ -1940,12 +2000,13 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "robust",
+        use_scaler: Optional[str] = "zscale",
         use_scaler_target: Optional[str] = "kbins",
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        embedding=False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
@@ -1953,7 +2014,7 @@ class FeatureMixin(MIXIN_BASE):
         confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = None, # turn this off in favor of Gap Encoder
+        similarity: Optional[str] = None, # turn this on to 'ngram' in favor of Similarity Encoder
         categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
@@ -1980,8 +2041,7 @@ class FeatureMixin(MIXIN_BASE):
             res._node_target = None
 
         if reuse_if_existing and res._node_features is not None:
-            if res._node_target is None:
-                raise ValueError("Invalid reused; must first set ._node_target")
+            #logger.info('-Reusing Existing Featurization')
             return res._node_features, res._node_target, res
 
         res = res._featurize_nodes(
@@ -1993,6 +2053,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            embedding=embedding,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
             max_df=max_df,
@@ -2067,6 +2128,7 @@ class FeatureMixin(MIXIN_BASE):
             res._edge_target = None
 
         if reuse_if_existing and res._edge_features is not None:
+            #logger.info('-Reusing Existing Featurization')
             return res._edge_features, res._edge_target, res
 
         res = res._featurize_edges(

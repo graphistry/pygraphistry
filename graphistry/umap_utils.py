@@ -158,18 +158,17 @@ class UMAPMixin(MIXIN_BASE):
             return y
         else:
             logger.warning(
-                f"* Ignoring target column of shape {y.shape} as it is not one dimensional"
+                f"* Ignoring target column of shape {y.shape} in UMAP fit, as it is not one dimensional"
             )
             return None
 
     def umap_fit(self, X: pd.DataFrame, y: Union[pd.DataFrame, None] = None):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
-
-        t = time()
-        y = self._check_target_is_one_dimensional(y)
         logger.info('-'*90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
+        t = time()
+        y = self._check_target_is_one_dimensional(y)
 
         self._umap.fit(X, y)
 

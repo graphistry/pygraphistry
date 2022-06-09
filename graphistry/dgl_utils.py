@@ -217,8 +217,12 @@ class DGLGraphMixin(MIXIN_BASE):
 
     def _remove_edges_not_in_nodes(self, node_column: str):
         # need to do this so we get the correct ndata size ...
-
-        nodes = self._nodes[node_column]
+        if self._nodes is None:
+            res = self.materialize_nodes()
+            nodes = res._nodes[res._node]
+        else:
+            nodes = self._nodes[node_column]
+            
         if not isinstance(self._edges, pd.DataFrame):  # type: ignore
             raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame, recieved: %s", type(self._edges))  # type: ignore
         edf: pd.DataFrame = self._edges  # type: ignore
@@ -226,11 +230,16 @@ class DGLGraphMixin(MIXIN_BASE):
         logger.info(f"Length of edge DataFrame {n_initial}")
 
         mask = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)
+        print(f'MASK: length: {len(mask)}')
+        print(f'OG: length: {len(edf)}')
+
         assert (
             sum(mask) > 2
         ), f"mask slice is (practically) empty, will lead to bad graph, found {sum(mask)}"
         self._MASK = mask
         self._edges = edf[mask]
+        print(f'new EDGES: length: {len(self._edges)}')
+
         self._prune_edge_target()
         n_final = len(self._edges)
         logger.info(f"-Length of edge DataFrame {n_final} after pruning")
@@ -242,8 +251,14 @@ class DGLGraphMixin(MIXIN_BASE):
         self._removed_edges_previously = True
 
     def _check_nodes_lineup_with_edges(self):
-        node_column = self._node
-        nodes = self._nodes[node_column]
+        if self._nodes is None:
+            res = self.materialize_nodes()
+            nodes = res._nodes[res._node]
+            node_column = res._node
+        else:
+            nodes = self._nodes[self._node]
+            node_column = self._node
+        # nodes = self._nodes[node_column]
         unique_nodes = nodes.unique()
         logger.info(
             f"{len(nodes)} entities from column {node_column}\n with {len(unique_nodes)} unique entities"
@@ -255,7 +270,7 @@ class DGLGraphMixin(MIXIN_BASE):
                 f"Nodes DataFrame has duplicate entries for column {node_column}"
             )
         # now check that self._entity_to_index is in 1-1 to with self.ndf[node_column]
-        nodes = self._nodes[node_column]
+        #nodes = self._nodes[node_column]
         res = nodes.isin(self._entity_to_index)
         if res.sum() != len(nodes):
             logger.warning(
@@ -269,7 +284,7 @@ class DGLGraphMixin(MIXIN_BASE):
     def _convert_edge_dataframe_to_DGL(
         self, weight_column: Optional[str] = None, inplace: bool = False
     ):
-        logger.info("converting edge DataFrame to DGL graph")
+        logger.info("-Converting edge DataFrame to DGL graph")
 
         if inplace:
             res = self
@@ -310,22 +325,24 @@ class DGLGraphMixin(MIXIN_BASE):
     def _featurize_nodes_to_dgl(
         self,
         res,
+        feature_engine: FeatureEngine = "auto",
         *args,
         **kwargs,
         # X: pd.DataFrame,
         # y: pd.DataFrame,
         # use_scaler: str = None,
-        # feature_engine: FeatureEngine = "auto",
     ):
         logger.info("Running Node Featurization for DGL Graph")
         # logger.debug(f"=*=*=Input shapes are data: {X.shape}, target: {y.shape}")
 
-        X_enc, y_enc, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(*args,
+        X_enc, y_enc, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(
+            feature_engine=resolve_feature_engine(feature_engine),
+            *args,
             **kwargs
             # X=X,
             # y=y,
             # use_scaler=use_scaler,
-            # feature_engine=resolve_feature_engine(feature_engine),
+            #feature_engine=resolve_feature_engine(feature_engine),
         )
 
         logger.debug(
@@ -343,6 +360,7 @@ class DGLGraphMixin(MIXIN_BASE):
     def _featurize_edges_to_dgl(
         self,
         res,
+        feature_engine: FeatureEngine = "auto",
         *args,
         **kwargs
         # X: pd.DataFrame,
@@ -352,7 +370,9 @@ class DGLGraphMixin(MIXIN_BASE):
     ):
         logger.info("Running Edge Featurization for DGL Graph")
 
-        X_enc, y_enc, res = res._featurize_or_get_edges_dataframe_if_X_is_None(*args,
+        X_enc, y_enc, res = res._featurize_or_get_edges_dataframe_if_X_is_None(
+            feature_engine=resolve_feature_engine(feature_engine),
+            *args,
             **kwargs
             # X=X,
             # y=y,
