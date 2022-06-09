@@ -180,7 +180,7 @@ class ArrowUploader:
             org = json_response.get('active_organization',{})
             logged_in_org_name = org.get('slug', None)
 
-            if org_name: # caller pass in org_name
+            if org_name:  # caller pass in org_name
                 if not logged_in_org_name:  # no active_organization in JWT payload
                     raise Exception("Server does not support organization, please omit org_name")
                 else:
@@ -192,7 +192,7 @@ class ArrowUploader:
                 is_found = org.get('is_found', None)
                 is_member = org.get('is_member', None)
 
-                if is_found == False:
+                if not is_found:
                     raise Exception("Organization {} is not found".format(org_name))
                 
                 if not is_member: 
@@ -355,7 +355,7 @@ class ArrowUploader:
         if as_files:
 
             file_uploader = ArrowFileUploader(self)
-            file_opts={'name': self.name + ' edges', 'org_name': self.org_name()}
+            file_opts = {'name': self.name + ' edges', 'org_name': self.org_name}
 
             e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts)
 

@@ -262,7 +262,7 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         au = ArrowUploader()
 
-        with pytest.raises(Exception) as execinfo:
+        with pytest.raises(Exception):
             au.login(username="u", password="p", org_name="mock-org")
 
         with pytest.raises(Exception):
@@ -284,7 +284,7 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         au = ArrowUploader()
 
-        with pytest.raises(Exception) as execinfo:
+        with pytest.raises(Exception):
             au.login(username="u", password="p", org_name="mock-org")
 
         with pytest.raises(Exception):
