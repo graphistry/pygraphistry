@@ -10,11 +10,11 @@ import warnings
 from functools import lru_cache
 from typing import Any
 
-from .constants import VERBOSE, CACHE_COERCION_SIZE
+from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
 
 # #####################################
-def setup_logger(name, verbose=VERBOSE, fullpath=True):
+def setup_logger(name, verbose=VERBOSE, fullpath=TRACE):
     if fullpath:
         FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
     else:

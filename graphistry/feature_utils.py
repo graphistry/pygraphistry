@@ -708,6 +708,7 @@ def get_cardinality_ratio(df: pd.DataFrame):
 
 def make_array(X):
     if scipy.sparse.issparse(X):
+        logger.debug(f'Turning sparse array into dense')
         return X.toarray()
     return X
 
@@ -717,7 +718,6 @@ def passthrough_df_cols(df, columns): #if lambdas, won't pickle in FunctionTrans
 
 
 class callThrough():
-    
     def __init__(self, x):
         self.x = x
     
@@ -1586,7 +1586,7 @@ class FeatureMixin(MIXIN_BASE):
             X = remove_node_column_from_symbolic(X, node)
 
         if ndf is None:
-            logger.info(f'! Materializing Nodes and setting `embedding=True` with laten_dimension n_topics: {n_topics}')
+            logger.info(f'! Materializing Nodes and setting `embedding=True` with latent dimension = n_topics: {n_topics}')
             embedding = True
             res = res.materialize_nodes()
             ndf = res._nodes
