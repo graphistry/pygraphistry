@@ -165,10 +165,11 @@ class UMAPMixin(MIXIN_BASE):
     def umap_fit(self, X: pd.DataFrame, y: Union[pd.DataFrame, None] = None):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
-        logger.info('-'*90)
-        logger.info(f"Starting UMAP-ing data of shape {X.shape}")
+
         t = time()
         y = self._check_target_is_one_dimensional(y)
+        logger.info('-' * 90)
+        logger.info(f"Starting UMAP-ing data of shape {X.shape}")
 
         self._umap.fit(X, y)
 
@@ -194,7 +195,7 @@ class UMAPMixin(MIXIN_BASE):
         self, df: pd.DataFrame, ydf: pd.DataFrame, kind: str = "nodes"
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         x, y = self.transform(df, ydf, kind=kind)
-        emb = self._umap.transform(x) # type: ignore
+        emb = self._umap.transform(x)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
         return emb, x, y
 
@@ -203,7 +204,7 @@ class UMAPMixin(MIXIN_BASE):
         if emb.shape[1] == 2:
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
         else:
-            columns = [config.X, config.Y] + [f'umap_{k}' for k in range(2, emb.shape[1]-2)]
+            columns = [config.X, config.Y] + [f'umap_{k}' for k in range(2, emb.shape[1] - 2)]
             emb = pd.DataFrame(emb, columns=columns, index=index)
             
         return emb
@@ -217,6 +218,10 @@ class UMAPMixin(MIXIN_BASE):
         featurize_kwargs,
         **umap_kwargs,
     ):
+        """
+            Returns res mutated with new _xy
+        """
+
         # need this function to use memoize
         res._umap = umap.UMAP(**umap_kwargs)
 
@@ -233,7 +238,7 @@ class UMAPMixin(MIXIN_BASE):
             fresh_res = copy.copy(res)
             for attr in ["_xy", "_weighted_edges_df", "_weighted_adjacency"]:
                 setattr(fresh_res, attr, getattr(old_res, attr))
-            ## have to set _raw_data attribute on umap?
+            # have to set _raw_data attribute on umap?
             fresh_res._umap = old_res._umap  # this saves the day!
 
             return fresh_res
@@ -241,7 +246,7 @@ class UMAPMixin(MIXIN_BASE):
         emb = res.umap_fit_transform(X_, y_)
         res._xy = emb
         
-        return res # this returns res and sets _xy
+        return res
         
 
     def _set_features(self, res, X, y, kind, feature_engine, featurize_kwargs):

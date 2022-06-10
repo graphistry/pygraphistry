@@ -401,6 +401,7 @@ class DGLGraphMixin(MIXIN_BASE):
         y_edges: YSymbolic = None,
         weight_column: str = None,
         reuse_if_existing=True,
+        featurize_edges =False,
         use_node_scaler: str = "zscale",
         use_node_scaler_target: str = None,
         use_edge_scaler: str = "zscale",
@@ -485,12 +486,12 @@ class DGLGraphMixin(MIXIN_BASE):
                                            use_scaler=use_edge_scaler, use_scaler_target=use_edge_scaler_target,
                                            reuse_if_existing=reuse_if_existing,
                                            *args, **kwargs)
-
-        res = res._featurize_edges_to_dgl(
-            res,
-            **kwargs_edges
-            #X_edges_resolved, y_edges_resolved, use_edge_scaler
-        )
+        if featurize_edges:
+            res = res._featurize_edges_to_dgl(
+                res,
+                **kwargs_edges
+                #X_edges_resolved, y_edges_resolved, use_edge_scaler
+            )
         if not inplace:
             return res
 
@@ -590,7 +591,7 @@ class DGLGraphMixin(MIXIN_BASE):
     # src, dst = "from_node", "to_node"
     # g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
     #
-    # g2 = g.build_dgl_graph(
+    # g2 = g.build_gnn(
     #     "ip",
     #     y_edges=y_edges,
     #     use_edge_columns=good_cols_without_label,
