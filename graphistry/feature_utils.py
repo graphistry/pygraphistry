@@ -1592,8 +1592,8 @@ class FeatureMixin(MIXIN_BASE):
             col = list(ndf.columns)[0]
             ndf = ndf.set_index(col)
             # in this case, X is not None, and is a DataFrame
-            col = list(X.columns)[0]
-            X = X.set_index(col)
+            col = list(X.columns)[0] # type: ignore
+            X = X.set_index(col) # type: ignore
 
         # resolve everything before setting dict so that `X = ndf[cols]` and `X = cols` resolve to same thing
         X_resolved = resolve_X(ndf, X)
