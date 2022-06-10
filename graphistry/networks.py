@@ -137,7 +137,12 @@ class LinkPredModelMultiOutput(nn.Module):
         super().__init__()
         self.sage = SAGE(in_features, hidden_features, out_features)
         self.pred = MLPPredictor(out_features, out_classes)
+        self.embedding = dglnn.GraphConv(out_features, 2)
 
     def forward(self, g, x):
         h = self.sage(g, x)
         return self.pred(g, h)
+    
+    def embed(self, g, x):
+        h = self.sage(g, x)
+        return self.embedding(h)
