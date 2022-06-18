@@ -1,5 +1,7 @@
-from typing import List, Optional
+import pandas as pd
+from typing import Any, List, Optional
 from graphistry.constants import NODE
+from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
@@ -18,7 +20,7 @@ def from_igraph(self,
     edge_attributes: Optional[List[str]] = None,
     load_nodes: bool = True, load_edges: bool = True,
     merge_if_existing: bool = True
-):
+) -> Plottable:
     """
     Convert igraph object into Plotter
 
@@ -27,7 +29,7 @@ def from_igraph(self,
     When merge_if_existing with preexisting nodes/edges df and shapes match ig, combine attributes
 
     For merge_if_existing to work with edges, must set g._edge and have corresponding edge index attribute in igraph.Graph 
-    
+
     :param ig: Source igraph object
     :type ig: igraph
 
@@ -45,6 +47,31 @@ def from_igraph(self,
 
     :param merge_if_existing: Whether to merge with existing node/edge dataframes (default True)
     :param merge_if_existing: bool
+
+    :returns: Plotter
+    :rtype: Plotter
+
+    **Example: Convert from igraph, including all node/edge properties**
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a', 'b', 'c', 'd'], 'd': ['b', 'c', 'd', 'e'], 'v': [101, 102, 103, 104]})
+            g = graphistry.edges(edges, 's', 'd').materialize_nodes().get_degrees()
+            assert 'degree' in g._nodes.columns
+            g2 = g.from_igraph(g.to_igraph())
+            assert len(g2._nodes.columns) == len(g._nodes.columns)
+
+    **Example: Enrich from igraph, but only load in 1 node attribute**
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a', 'b', 'c', 'd'], 'd': ['b', 'c', 'd', 'e'], 'v': [101, 102, 103, 104]})
+            g = graphistry.edges(edges, 's', 'd').materialize_nodes().get_degree()
+            assert 'degree' in g._nodes
+            ig = g.to_igraph(include_nodes=False)
+            assert 'degree' not in ig.vs
+            ig.vs['pagerank'] = ig.pagerank()
+            g2 = g.from_igraph(ig, load_edges=False, node_attributes=[g._node, 'pagerank'])
+            assert 'pagerank' in g2._nodes
+            asssert 'degree' in g2._nodes
 
     """
 
@@ -68,6 +95,8 @@ def from_igraph(self,
                 (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
             ):
                 nodes_df = nodes_df.rename(columns={'name': node_col})
+            elif ('name' in nodes_df) and (g._nodes is None):
+                nodes_df = nodes_df.rename(columns={'name': node_col})
             else:
                 nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
         
@@ -81,6 +110,7 @@ def from_igraph(self,
             g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
             nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
 
+        nodes_df = nodes_df.reset_index(drop=True)
         g = g.nodes(nodes_df, node_col)
 
     # #####
@@ -168,13 +198,13 @@ def from_igraph(self,
     return g
 
 
-def to_igraph(self, 
+def to_igraph(self: Plottable, 
     directed: bool = True,
     include_nodes: bool = True,
     node_attributes: Optional[List[str]] = None,
     edge_attributes: Optional[List[str]] = None
 ):
-    """Convert current item to igraph Graph
+    """Convert current item to igraph Graph . See examples in from_igraph.
 
     :param directed: Whether to create a directed graph (default True)
     :type directed: bool
@@ -209,3 +239,233 @@ def to_igraph(self,
     node_attrs = [x for x in node_attrs if x != g._node]
     nodes_df = g._nodes[[g._node] + node_attrs]
     return igraph.Graph.DataFrame(edges_df, directed=directed, vertices=nodes_df)
+
+
+compute_algs = [
+    'authority_score',
+    'betweenness',
+    'bibcoupling',
+    #'bipartite_projection',
+    'harmonic_centrality',
+    'closeness',
+    'clusters',
+    'cocitation',
+    'community_edge_betweenness',
+    'community_fastgreedy',
+    'community_infomap',
+    'community_label_propagation',
+    #'community_leading_eigenvector_naive',  # in docs but not in code?
+    'community_leading_eigenvector',
+    'community_leiden',
+    'community_multilevel',
+    'community_spinglass',
+    'community_walktrap',
+    'constraint',
+    'gomory_hu_tree',
+    'hub_score',
+    'eccentricity',
+    'eigenvector_centrality',
+    'k_core',
+    #'modularity',
+    'pagerank',
+    'spanning_tree'
+]
+
+def compute_igraph(
+    self: Plottable, alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
+) -> Plottable:
+    """Enrich or replace graph using igraph methods
+
+    :param alg: Name of an igraph.Graph method like `pagerank`
+    :type alg: str
+
+    :param out_col: For algorithms that generate a node attribute column, `out_col` is the desired output column name. When `None`, use the algorithm's name. (default None)
+    :type out_col: Optional[str]
+
+    :param directed: During the to_igraph conversion, whether to be directed. If None, try directed and then undirected. (default None)
+    :type directed: Optional[bool]
+
+    :param params: Any named parameters to pass to the underlying igraph method
+    :type params: dict
+
+    :returns: Plotter
+    :rtype: Plotter
+
+    **Example: Pagerank**
+
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g2 = g.compute_igraph('pagerank')
+            assert 'pagerank' in g2._nodes.columns
+
+    **Example: Pagerank with custom name**
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g2 = g.compute_igraph('pagerank', out_col='my_pr')
+            assert 'my_pr' in g2._nodes.columns
+
+    **Example: Pagerank on an undirected**
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g2 = g.compute_igraph('pagerank', directed=False)
+            assert 'pagerank' in g2._nodes.columns
+
+    **Example: Pagerank with custom parameters**
+            ::
+                import graphistry, pandas as pd
+                edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
+                g = graphistry.edges(edges, 's', 'd')
+                g2 = g.compute_igraph('pagerank', params={'damping': 0.85})
+                assert 'pagerank' in g2._nodes.columns
+
+    """
+
+    import igraph
+
+    if alg not in compute_algs:
+        raise ValueError(f'Unexpected parameter alg "{alg}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
+
+    if out_col is None:
+        out_col = alg
+
+    try:
+        ig = self.to_igraph(directed=True if directed is None else directed)        
+        out = getattr(ig, alg)(**params)
+    except NotImplementedError as e:
+        if directed is None:
+            ig = self.to_igraph(directed=False)        
+            out = getattr(ig, alg)(**params)
+        else:
+            raise e
+
+    if isinstance(out, igraph.clustering.VertexClustering):
+        clustering = out.membership
+    elif isinstance(out, igraph.clustering.VertexDendrogram):
+        clustering = out.as_clustering().membership
+    elif isinstance(out, igraph.Graph):
+        return from_igraph(self, out)
+    elif isinstance(out, list) and self._nodes is None:
+        raise ValueError("No g._nodes table found; use .bind(), .nodes(), .materialize_nodes()")
+    elif len(out) == len(self._nodes):
+        clustering = out
+    else:
+        raise RuntimeError(f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')    
+
+    ig.vs[out_col] = clustering
+
+    return self.from_igraph(ig)
+
+
+layout_algs = [
+    'auto', 'automatic',
+    'bipartite',
+    'circle', 'circular',
+    'dh', 'davidson_harel',
+    'drl',
+    'drl_3d',
+    'fr', 'fruchterman_reingold',
+    'fr_3d', 'fr3d', 'fruchterman_reingold_3d',
+    'grid',
+    'grid_3d',
+    'graphopt',
+    'kk', 'kamada_kawai',
+    'kk_3d', 'kk3d', 'kamada_kawai_3d',
+    'lgl', 'large', 'large_graph',
+    'mds',
+    'random', 'random_3d',
+    'rt', 'tree', 'reingold_tilford',
+    'rt_circular', 'reingold_tilford_circular',
+    'sphere', 'spherical', 'circle_3d', 'circular_3d',
+    'star',
+    'sugiyama'
+]
+
+def layout_igraph(
+    self: Plottable,
+    layout: str,
+    directed: Optional[bool] = None,
+    bind_position: bool = True,
+    x_out_col: str = 'x',
+    y_out_col: str = 'y',
+    play: Optional[int] = 0,
+    params: dict = {}
+) -> Plottable:
+    """Compute graph layout using igraph algorithm. For a list of layouts, see layout_algs or igraph documentation.
+
+    :param layout: Name of an igraph.Graph.layout method like `sugiyama`
+    :type layout: str
+
+    :param directed: During the to_igraph conversion, whether to be directed. If None, try directed and then undirected. (default None)
+    :type directed: Optional[bool]
+
+    :param bind_position: Whether to call bind(point_x=, point_y=) (default True)
+    :type bind_position: bool
+
+    :param x_out_col: Attribute to write x position to. (default 'x')
+    :type x_out_col: str
+
+    :param y_out_col: Attribute to write x position to. (default 'y')
+    :type y_out_col: str
+
+    :param play: If defined, set settings(url_params={'play': play}). (default 0)
+    :type play: Optional[str]
+
+    :param params: Any named parameters to pass to the underlying igraph method
+    :type params: dict
+
+    :returns: Plotter
+    :rtype: Plotter
+
+    **Example: Sugiyama layout**
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g2 = g.layout_igraph('sugiyama')
+            assert 'x' in g2._nodes
+            g2.plot()
+
+    **Example: Change which column names are generated**
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g2 = g.layout_igraph('sugiyama', x_out_col='my_x', y_out_col='my_y')
+            assert 'my_x' in g2._nodes
+            assert g2._point_x == 'my_x'
+            g2.plot()
+
+    **Example: Pass parameters to layout methods - Sort nodes by degree**
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g2 = g.get_degrees()
+            assert 'degree' in g._nodes.columns
+            g3 = g.layout_igraph('sugiyama', params={'layers': 'degree'})
+            g3.plot()
+    """
+
+    try:
+        ig = self.to_igraph(directed=True if directed is None else directed)
+        layout_df = pd.DataFrame([x for x in ig.layout(layout, **params)])
+    except NotImplementedError as e:
+        if directed is None:
+            ig = self.to_igraph(directed=False)
+            layout_df = pd.DataFrame([x for x in ig.layout(layout, **params)])
+        else:
+            raise e
+
+    g2 = self.from_igraph(ig)
+    g2 = g2.nodes(g2._nodes.assign(**{x_out_col: layout_df[0], y_out_col: layout_df[1]}))
+    if bind_position:
+        g2 = g2.bind(point_x=x_out_col, point_y=y_out_col)
+    if play is not None:
+        g2 = g2.layout_settings(play=play)
+    return g2

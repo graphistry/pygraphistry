@@ -2021,6 +2021,27 @@ class PyGraphistry(object):
             scaling_ratio,
         )
 
+    @staticmethod
+    def scene_settings(
+        menu: Optional[bool] = None,
+        info: Optional[bool] = None,
+        show_arrows: Optional[bool] = None,
+        point_size: Optional[float] = None,
+        edge_curvature: Optional[float] = None,
+        edge_opacity: Optional[float] = None,
+        point_opacity: Optional[float] = None,        
+    ):
+        return Plotter().scene_settings(
+            menu,
+            info,
+            show_arrows,
+            point_size,
+            edge_curvature,
+            edge_opacity,
+            point_opacity
+        )
+    scene_settings.__doc__ = Plotter().scene_settings.__doc__
+
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
@@ -2063,6 +2084,7 @@ drop_graph = PyGraphistry.drop_graph
 gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
 layout_settings = PyGraphistry.layout_settings
+scene_settings = PyGraphistry.scene_settings
 from_igraph = PyGraphistry.from_igraph
 
 
