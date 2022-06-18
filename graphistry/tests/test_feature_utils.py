@@ -154,7 +154,7 @@ def allclose_stats(X, x, tol, name):
         print(f'{name}s are not aligned at {tol} tolerance...!')
 
 def check_allclose_fit_transform_on_same_data(X, x, Y=None, y=None): # so we can use on any two fields, not just x, y
-    tols = [12000, 1200, 100, 10, 0.1, 1e-4, 1e-5]
+    tols = [100, 10, 0.1, 1e-4, 1e-5]
     for name, tol in zip(['Features', 'Target'], [tols, tols]):
         print()
         for value in tol:
@@ -320,35 +320,34 @@ class TestFeatureMethods(unittest.TestCase):
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
-            for scaler in ['kbins', 'robust']:
-                for cardinality in [2, 200]:
-                    for use_ngram in [True, False]:
-                        for use_col in use_cols:
-                            for target in targets:
-                                logger.debug("*" * 90)
-                                value = [scaler, cardinality, use_ngram, target, use_col]
-                                names = "scaler, cardinality, use_ngram, target, use_col".split(', ')
-                                logger.debug(f"{value}")
-                                print(f"{[k for k in zip(names, value)]}")
-                                logger.debug("-" * 80)
-                                if kind=='edges' and cardinality == 2:
-                                    # GapEncoder is set to fail on small documents like our edge_df..., so we skip
-                                    continue
-                                g2 = g.featurize(
-                                    kind=kind,
-                                    X=use_col,
-                                    y=target,
-                                    model_name=model_avg_name,
-                                    use_scaler=scaler,
-                                    use_scaler_target=scaler,
-                                    use_ngrams=use_ngram,
-                                    min_df=0,
-                                    max_df=1.,
-                                    cardinality_threshold=cardinality,
-                                    cardinality_threshold_target=cardinality
-                                )
-                
-                                self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
+            for cardinality in [2, 200]:
+                for use_ngram in [True, False]:
+                    for use_col in use_cols:
+                        for target in targets:
+                            logger.debug("*" * 90)
+                            value = [cardinality, use_ngram, target, use_col]
+                            names = "cardinality, use_ngram, target, use_col".split(', ')
+                            logger.debug(f"{value}")
+                            print(f"{[k for k in zip(names, value)]}")
+                            logger.debug("-" * 80)
+                            if kind=='edges' and cardinality == 2:
+                                # GapEncoder is set to fail on small documents like our edge_df..., so we skip
+                                continue
+                            g2 = g.featurize(
+                                kind=kind,
+                                X=use_col,
+                                y=target,
+                                model_name=model_avg_name,
+                                use_scaler=None,
+                                use_scaler_target=None,
+                                use_ngrams=use_ngram,
+                                min_df=0,
+                                max_df=1.,
+                                cardinality_threshold=cardinality,
+                                cardinality_threshold_target=cardinality
+                            )
+            
+                            self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
                                 
                 
     @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")

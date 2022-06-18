@@ -21,7 +21,10 @@ def setup_logger(name, verbose=VERBOSE, fullpath=TRACE):
         FORMAT = " %(message)s\n"
     logging.basicConfig(format=FORMAT)
     logger = logging.getLogger(f'graphistry.{name}')
-    logger.setLevel(logging.INFO if verbose else logging.DEBUG)
+    if verbose is None:
+        logger.setLevel(logging.ERROR)
+    else:
+        logger.setLevel(logging.INFO if verbose else logging.DEBUG)
     return logger
 
 

@@ -213,22 +213,22 @@ def features_without_target(
     return df
 
 
-def remove_node_column_from_ndf_and_return_ndf(g):
-    """
-        Helper method to make sure that node name is not featurized
-    _________________________________________________________________________
+# def remove_node_column_from_ndf_and_return_ndf(g):
+#     """
+#         Helper method to make sure that node name is not featurized
+#     _________________________________________________________________________
 
-    :param g: graphistry instance
-    :return: node DataFrame with or without node column
-    """
-    node_label = g._node
-    if node_label is not None:
-        if g._nodes is not None and node_label in g._nodes.columns:
-            logger.info(
-                f"Removing node column `{node_label}` from DataFrame so we do not featurize it"
-            )
-            return g._nodes.drop(columns=[node_label], errors="ignore")
-    return g._nodes
+#     :param g: graphistry instance
+#     :return: node DataFrame with or without node column
+#     """
+#     node_label = g._node
+#     if node_label is not None:
+#         if g._nodes is not None and node_label in g._nodes.columns:
+#             logger.info(
+#                 f"Removing node column `{node_label}` from DataFrame so we do not featurize it"
+#             )
+#             return g._nodes.drop(columns=[node_label], errors="ignore")
+#     return g._nodes
 
 def remove_node_column_from_symbolic(X_symbolic, node):
     if isinstance(X_symbolic, list):
@@ -910,7 +910,11 @@ def process_nodes_dataframes(
             textual sentence encoding. Lower values means that columns will be labeled textual and sent to sentence-encoder
     :param model_name: SentenceTransformer model name. See available list at
             https://www.sbert.net/docs/pretrained_models.html#sentence-embedding-models
-    :return: X_enc, y_enc, data_encoder, label_encoder
+    :return: X_enc, y_enc, data_encoder, label_encoder,  
+        scaling_pipeline,
+        scaling_pipeline_target,
+        text_model,
+        text_cols,
     """
     logger.info("process_nodes_dataframes[%s]", feature_engine)
 

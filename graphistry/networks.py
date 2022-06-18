@@ -145,4 +145,55 @@ class LinkPredModelMultiOutput(nn.Module):
     
     def embed(self, g, x):
         h = self.sage(g, x)
-        return self.embedding(h)
+        g = dgl.add_self_loop(g)
+        return self.embedding(g, h)
+
+
+############################################################################################
+
+# training
+
+from sklearn import metrics 
+
+MAE = metrics.mean_absolute_error
+ACC = metrics.accuracy_score
+
+    
+def train_link_pred(model, G, epochs=10000, use_cross_entropy_loss = False):
+    # take the node features out
+    node_features = G.ndata["feature"].float()
+    # we are predicting edges
+    edge_label = G.edata["target"]
+
+    n_targets = edge_label.shape[1]
+    labels = edge_label.argmax(1)
+    train_mask = G.edata["train_mask"]
+    test_mask = G.edata["test_mask"]
+
+    if edge_label.shape[1]>1:
+        print(f'Predicting {n_targets} target multiOutput')
+    else:
+        print(f'Predicting {n_targets} target')
+    
+    opt = torch.optim.Adam(model.parameters())
+
+    # train the model
+    for epoch in range(epochs):
+        logits = model(G, node_features)
+
+        if use_cross_entropy_loss:
+            loss = F.cross_entropy(logits[train_mask], edge_label[train_mask])
+        else: # in regressive context
+            loss = ((logits[train_mask] - edge_label[train_mask]) ** 2).mean()
+            
+        p = logits.argmax(1)
+        acc = sum(p[test_mask] == labels[test_mask]) / len(p[test_mask])
+
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        if epoch % 100 == 0:
+            #evaluate(model, G, node_features, logits, test_mask)
+            print(
+                f"epoch: {epoch} --------\nloss: {loss.item():.4f}\n\t Accuracy: {acc:.4f} across {n_targets} targets"
+            )

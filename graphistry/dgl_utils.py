@@ -230,15 +230,15 @@ class DGLGraphMixin(MIXIN_BASE):
         logger.info(f"Length of edge DataFrame {n_initial}")
 
         mask = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)
-        print(f'MASK: length: {len(mask)}')
-        print(f'OG: length: {len(edf)}')
+        # print(f'MASK: length: {len(mask)}')
+        # print(f'OG: length: {len(edf)}')
 
         assert (
             sum(mask) > 2
         ), f"mask slice is (practically) empty, will lead to bad graph, found {sum(mask)}"
         self._MASK = mask
         self._edges = edf[mask]
-        print(f'new EDGES: length: {len(self._edges)}')
+        # print(f'new EDGES: length: {len(self._edges)}')
 
         self._prune_edge_target()
         n_final = len(self._edges)
@@ -401,7 +401,7 @@ class DGLGraphMixin(MIXIN_BASE):
         y_edges: YSymbolic = None,
         weight_column: str = None,
         reuse_if_existing=True,
-        featurize_edges =False,
+        featurize_edges =True,
         use_node_scaler: str = "zscale",
         use_node_scaler_target: str = None,
         use_edge_scaler: str = "zscale",
