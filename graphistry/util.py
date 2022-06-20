@@ -108,6 +108,10 @@ def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = Tr
     """
     
     logger = setup_logger(f'{__name__}.memoization')
+
+    if not memoize:
+        logger.debug('Memoization disabled')
+        return False
     
     hashed = None
     weakref = getattr(g, attribute)
