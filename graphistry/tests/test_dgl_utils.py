@@ -143,7 +143,7 @@ class TestDGL(unittest.TestCase):
         # explicitly set node in .nodes() and not in .build_gnn()
         g = graphistry.nodes(ndf, "ip")
         g.reset_caches()  # so that we redo calcs
-        g = g.umap(scale=1) #keep all edges with scale = 100
+        g = g.umap(scale=1) #keep all edges with scale = 1
 
         g2 = g.build_gnn(
             use_node_scaler="robust",
