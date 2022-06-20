@@ -162,3 +162,15 @@ class TestDGL(unittest.TestCase):
             use_edge_scaler="robust",
         )
         self._test_cases_dgl(g2)
+
+    @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
+    def test_build_dgl_with_no_node_features(self):
+        g = graphistry.edges(edf, src, dst)
+        g.reset_caches()  # so that we redo calcs
+        #g = g.umap(scale=1) #keep all edges with scale = 100
+        # should produce random features for nodes
+        g2 = g.build_gnn(
+            use_node_scaler="robust",
+            use_edge_scaler="robust",
+        )
+        self._test_cases_dgl(g2)
