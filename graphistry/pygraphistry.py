@@ -1594,7 +1594,6 @@ class PyGraphistry(object):
                      tg = graphistry.tigergraph()
                      tg.gsql(\"\"\"
                      INTERPRET QUERY () FOR GRAPH Storage {
-<<<<<<< HEAD
 
                          OrAccum<BOOL> @@stop;
                          ListAccum<EDGE> @@edgeList;
@@ -1602,15 +1601,6 @@ class PyGraphistry(object):
 
                          @@set += to_vertex("61921", "Pool");
 
-=======
-
-                         OrAccum<BOOL> @@stop;
-                         ListAccum<EDGE> @@edgeList;
-                         SetAccum<vertex> @@set;
-
-                         @@set += to_vertex("61921", "Pool");
-
->>>>>>> master
                          Start = @@set;
 
                          while Start.size() > 0 and @@stop == false do

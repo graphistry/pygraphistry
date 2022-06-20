@@ -2,6 +2,7 @@
 set -ex
 
 
+PYTHON_VERSION=${PYTHON_VERSION:-3.6} \
 PIP_DEPS=${PIP_DEPS:--e .[umap-learn,test]} \
 WITH_LINT=${WITH_LINT:-1} \
 WITH_TYPECHECK=${WITH_TYPECHECK:-1} \

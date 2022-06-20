@@ -1523,9 +1523,9 @@ def prune_weighted_edges_df_and_relabel_nodes(
 # ###############################################################################
 
 
-def reuse_featurization(g: Plottable, metadata: Any):  # noqa: C901
+def reuse_featurization(g: Plottable, memoize: bool, metadata: Any):  # noqa: C901
     return check_set_memoize(
-        g, metadata, attribute="_feat_param_to_g", name="featurize", memoize=True
+        g, metadata, attribute="_feat_param_to_g", name="featurize", memoize=memoize
     )
 
 
@@ -1584,6 +1584,7 @@ class FeatureMixin(MIXIN_BASE):
         keep_n_decimals: int = 5,
         remove_node_column: bool = True,
         feature_engine: FeatureEngineConcrete = "pandas",
+        memoize: bool = True
     ):
         res = self.copy()
         ndf = res._nodes
@@ -1644,7 +1645,7 @@ class FeatureMixin(MIXIN_BASE):
 
         res._feature_params = {**getattr(res, "_feature_params", {}), "nodes": fkwargs}
 
-        old_res = reuse_featurization(res, fkwargs)
+        old_res = reuse_featurization(res, memoize, fkwargs)
         if old_res:
             logger.info("--- [[ RE-USING NODE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
@@ -1704,6 +1705,7 @@ class FeatureMixin(MIXIN_BASE):
         strategy: str = "uniform",
         keep_n_decimals: int = 5,
         feature_engine: FeatureEngineConcrete = "pandas",
+        memoize: bool = True
     ):
 
         res = self.copy()
@@ -1752,7 +1754,7 @@ class FeatureMixin(MIXIN_BASE):
 
         res._feature_params = {**getattr(res, "_feature_params", {}), "edges": fkwargs}
 
-        old_res = reuse_featurization(res, fkwargs)
+        old_res = reuse_featurization(res, memoize, fkwargs)
         if old_res:
             logger.info("--- [[ RE-USING EDGE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
@@ -1883,6 +1885,7 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         inplace: bool = False,
         feature_engine: FeatureEngine = "auto",
+        memoize: bool = True
     ):
         r"""
             Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
@@ -1931,6 +1934,7 @@ class FeatureMixin(MIXIN_BASE):
                 (https://www.sbert.net/) library for all available models.
         :param remove_node_column: whether to remove node column so it is not featurized, default True.
         :param inplace: whether to not return new graphistry instance or not, default False.
+        :param memoize: whether to store and reuse results across runs, default True.
         :return: self, with new attributes set by the featurization process.
         """
         assert_imported()
@@ -1971,6 +1975,7 @@ class FeatureMixin(MIXIN_BASE):
                 keep_n_decimals=keep_n_decimals,
                 remove_node_column=remove_node_column,
                 feature_engine=feature_engine,
+                memoize=memoize,
             )
         elif kind == "edges":
             res = res._featurize_edges(
@@ -2000,6 +2005,7 @@ class FeatureMixin(MIXIN_BASE):
                 strategy=strategy,
                 keep_n_decimals=keep_n_decimals,
                 feature_engine=feature_engine,
+                memoize=memoize,
             )
         else:
             logger.warning(f"One may only featurize `nodes` or `edges`, got {kind}")
@@ -2038,6 +2044,7 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         feature_engine: FeatureEngineConcrete = "pandas",
         reuse_if_existing=False,
+        memoize: bool = True,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, MIXIN_BASE]:
         """
         helper method gets node feature and target matrix if X, y are not specified.
@@ -2084,6 +2091,7 @@ class FeatureMixin(MIXIN_BASE):
             keep_n_decimals=keep_n_decimals,
             remove_node_column=remove_node_column,
             feature_engine=feature_engine,
+            memoize=memoize,
         )
 
         assert res._node_features is not None  # ensure no infinite loop
@@ -2092,6 +2100,7 @@ class FeatureMixin(MIXIN_BASE):
             res._node_features,
             res._node_target,
             reuse_if_existing=True,
+            memoize=memoize,
         )  # now we are guaranteed to have node feature and target matrices.
 
     def _featurize_or_get_edges_dataframe_if_X_is_None(
@@ -2123,6 +2132,7 @@ class FeatureMixin(MIXIN_BASE):
         keep_n_decimals: int = 5,
         feature_engine: FeatureEngineConcrete = "pandas",
         reuse_if_existing=False,
+        memoize: bool = True,
     ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
         """
         helper method gets edge feature and target matrix if X, y are not specified
@@ -2169,11 +2179,12 @@ class FeatureMixin(MIXIN_BASE):
             strategy=strategy,
             keep_n_decimals=keep_n_decimals,
             feature_engine=feature_engine,
+            memoize=memoize,
         )
 
         assert res._edge_features is not None  # ensure no infinite loop
 
         return res._featurize_or_get_edges_dataframe_if_X_is_None(
-            res._edge_features, res._edge_target, reuse_if_existing=True
+            res._edge_features, res._edge_target, reuse_if_existing=True, memoize=memoize
         )
 
