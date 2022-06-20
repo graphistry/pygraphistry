@@ -87,31 +87,39 @@ def get_article_by_url(url):
 
 
 def get_article_information(url):
-    # main scraper function
-    import warnings
+	"""Get article information from a url
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore")
-        article = get_article_by_url(url)
-        if article is not None:
-            article.nlp()
-            logger.info("Returning Dictionary of Scraped Article information")
-            return {
-                "article_title": article.title,
-                "document": article.text,
-                "summary": article.summary,
-                "keywords": article.keywords,
-                "authors": article.authors,
-                "tags": list(article.tags),
-                "meta_title": article.meta_description,
-                "hashes": hash_document(article.text),
-                "urls_from_document": extract_all_urls(article.text),
-                "url": url,
-            }
-        else:
-            logger.info("* NULL *" * 4)
-            logger.info("Nothing to Return from Article")
-            return BASE_SCHEMA
+	Args:
+	url (_type_): url
+
+	Returns:
+	_type_: dict of article information
+	"""
+	# main scraper function
+	import warnings
+
+	with warnings.catch_warnings():
+		warnings.filterwarnings("ignore")
+		article = get_article_by_url(url)
+		if article is not None:
+			article.nlp()
+			logger.info("Returning Dictionary of Scraped Article information")
+			return {
+				"article_title": article.title,
+				"document": article.text,
+				"summary": article.summary,
+				"keywords": article.keywords,
+				"authors": article.authors,
+				"tags": list(article.tags),
+				"meta_title": article.meta_description,
+				"hashes": hash_document(article.text),
+				"urls_from_document": extract_all_urls(article.text),
+				"url": url,
+			}
+		else:
+			logger.info("* NULL *" * 4)
+			logger.info("Nothing to Return from Article")
+			return BASE_SCHEMA
 
 
 def get_pdf_from_url(url_to_pdf):
@@ -178,10 +186,10 @@ class Scraper:
 
 	# columns = ['url','article_title', 'document', 'summary', 'keywords', 'authors', 'tags', 'meta_title', 'hashes', 'urls_from_document', 'resource', 'predictions', 'MONEY', 'PERSON', 'FAC', 'ORG', 'PRODUCT', 'DATE', 'EVENT', 'info', 'create_date']
 
-	def __init__(self, tracker_file, fresh=True, *args, **kwargs):
+	def __init__(self, tracker_file, fresh_scrape=True, *args, **kwargs):
 		self.tracker_file = tracker_file
 		self.tracker_file_metadata = make_metadata_file(tracker_file)
-		self.fresh = fresh
+		self.fresh = fresh_scrape
 		self.url = None
 		self.res = None
 		self.ext = None
@@ -328,6 +336,7 @@ class Scraper:
 			metadata['url_counts'] = Counter(metadata['url_counts'])
 		metadata['url_counts'].update(self.url_counts)
 		metadata['hashes'].extend(self.hashes)
+		metadata['hashes'] = list(set(metadata['hashes']))
 		with open(self.tracker_file_metadata, "w") as f:
 			json.dump(metadata, f)
 	
@@ -355,3 +364,4 @@ def ParallelScraper(urls, tracker_file, n_jobs=-1, *args, **kwargs):
             Parallel(n_jobs=n_jobs)(delayed(scrape)(x) for x in urls)
 
     return scrape.get_all()
+
