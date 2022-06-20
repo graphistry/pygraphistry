@@ -1258,12 +1258,15 @@ def transform_dirty(
     logger.debug(f"-{name} Encoder:")
     logger.debug(f"\t{data_encoder}\n")
     X = data_encoder.transform(df)
+    logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         warnings.filterwarnings("ignore", category=FutureWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
         X = pd.DataFrame(X, columns=data_encoder.get_feature_names_out(), index=df.index)
+        logger.debug(f"TRANSFORM DIRTY dataframe -- \t{X.shape}")
+
     return X
 
 
