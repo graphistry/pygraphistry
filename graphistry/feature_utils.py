@@ -729,16 +729,18 @@ def get_numeric_transformers(ndf, y=None):
     # from sklearn.preprocessing import FunctionTransformer
     # from functools import partial
     label_encoder = False
-    
+    data_encoder = False
     y_ = y
     if y is not None:
         y_ = y.select_dtypes(include=[np.number])
         label_encoder = FunctionTransformer(partial(passthrough_df_cols, columns=y_.columns)) # takes dataframe and memorizes which cols to use.
         label_encoder.get_feature_names_out = callThrough(y_.columns)
+    
+    if ndf is not None:
+        ndf_ = ndf.select_dtypes(include=[np.number])
+        data_encoder = FunctionTransformer(partial(passthrough_df_cols, columns=ndf_.columns))
+        data_encoder.get_feature_names_out = callThrough(ndf_.columns)
         
-    ndf_ = ndf.select_dtypes(include=[np.number])
-    data_encoder = FunctionTransformer(partial(passthrough_df_cols, columns=ndf_.columns))
-    data_encoder.get_feature_names_out = callThrough(ndf_.columns)
     return ndf_, y_, data_encoder, label_encoder
 
 
@@ -1114,7 +1116,8 @@ def process_edge_dataframes(
     )
 
     if feature_engine in ["none", "pandas"]:
-        X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(T, y)
+        X = edf.drop(columns=[src, dst], errors="ignore")
+        X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(X, y)
         X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(
             X_enc, y_enc, use_scaler,
             use_scaler_target,
@@ -1127,8 +1130,8 @@ def process_edge_dataframes(
             strategy=strategy,
             keep_n_decimals=keep_n_decimals
             )
-        logger.info(f"Returning only Edge MLB feature")
-        
+        logger.info(f"Returning only Edge MLB and/or numeric features")
+        X_enc = pd.concat([T, X_enc], axis=1)
         return (
             X_enc,
             y_enc,
