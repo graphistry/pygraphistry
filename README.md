@@ -352,8 +352,6 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     G = g.DGL_graph
     from [your_training_pipeline] import train, model
     # Train
-    g = graphistry.nodes(df).build_gnn(y=`target`) 
-    G = g.DGL_graph
     train(G, model)
     # predict on new data
     X_new, _ = g.transform(new_df, None, kind='nodes' or 'edges') # no targets
