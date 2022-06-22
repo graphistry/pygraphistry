@@ -316,7 +316,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     X_new, _ = g.transform(new_df, None, kind='nodes')
     preds = model.predict(X_new)
     ```
-    Likewise, set `kind='nodes'` to featurize edges,
+    Likewise, set `kind='edges'` to featurize edges,
     
      ```python
      g = graphistry.edges(df, src, dst).featurize(kind='edges', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], *args, **kwargs)
