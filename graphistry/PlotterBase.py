@@ -150,7 +150,7 @@ class PlotterBase(Plottable):
         self._node_text_model = None
 
         self._edge_embedding = None
-        self._edge_encoders = None
+        self._edge_encoder = None
         self._edge_features = None
         self._edge_ordinal_pipeline = None
         self._edge_ordinal_pipeline_target = None
