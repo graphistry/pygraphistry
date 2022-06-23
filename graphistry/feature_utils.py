@@ -556,7 +556,7 @@ def fit_pipeline(X: pd.DataFrame, transformer, keep_n_decimals: int = 5) -> pd.D
     
     X = transformer.fit_transform(X)
     if keep_n_decimals:
-        X = np.round(
+        X = np.round( # type: ignore
             X, decimals=keep_n_decimals
         )
     
