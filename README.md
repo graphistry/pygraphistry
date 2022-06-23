@@ -325,13 +325,13 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     print('y', g._node_target)
     ```
 
-Set `kind='edges'` to featurize edges:
+* Set `kind='edges'` to featurize edges:
 
     ```python
     g = graphistry.edges(df, src, dst).featurize(kind='edges', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
     ```
 
-Use generated features with both Graphistry and external libraries:
+* Use generated features with both Graphistry and external libraries:
 
     ```python
     # graphistry
@@ -351,7 +351,7 @@ See `help(g.featurize)` for more options
 
 ### [UMAP](https://umap-learn.readthedocs.io/en/latest/) 
 
-Reduce dimensionality and plot a similarity graph from feature vectors:
+* Reduce dimensionality and plot a similarity graph from feature vectors:
 
     ```python
       # automatic feature engineering, UMAP
@@ -361,14 +361,14 @@ Reduce dimensionality and plot a similarity graph from feature vectors:
       g.plot()
     ```
 
-Apply a trained model to new data:
+* Apply a trained model to new data:
 
     ```python
       new_df = pd.read_csv(...)
       embeddings, X_new, _ = g.transform_umap(new_df, None, kind='nodes')
     ```
 
-UMAP supports many options, such as supervised mode, working on a subset of columns, and passing arguments to underlying `featurize()` and UMAP implementations (see `help(g.umap)`):
+* UMAP supports many options, such as supervised mode, working on a subset of columns, and passing arguments to underlying `featurize()` and UMAP implementations (see `help(g.umap)`):
 
     ```python
       g.umap(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
@@ -382,7 +382,7 @@ See `help(g.umap)` for more options
 
 ### [GNN models](https://docs.dgl.ai/en/0.6.x/index.html)
 
-Graphistry adds bindings and automation to working with popular GNN models, currently focusing on DGL/PyTorch:
+* Graphistry adds bindings and automation to working with popular GNN models, currently focusing on DGL/PyTorch:
 
     ```python
     g = (graphistry
