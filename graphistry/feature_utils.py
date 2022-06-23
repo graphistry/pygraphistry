@@ -558,7 +558,7 @@ def fit_pipeline(X: pd.DataFrame, transformer, keep_n_decimals: int = 5) -> pd.D
     if keep_n_decimals:
         X = np.round( # type: ignore
             X, decimals=keep_n_decimals
-        )
+        ) # noqa
     
     return pd.DataFrame(X, columns=columns, index=index)
     
@@ -687,15 +687,15 @@ def smart_scaler(
         encode=encode,
         strategy=strategy,
         keep_n_decimals=keep_n_decimals,
-    )
+    ) # noqa
 
     if use_scaler and not X_enc.empty:
         logger.info(f"-Feature scaling using {use_scaler}")
-        X_enc, pipeline = encoder(X_enc, use_scaler)
+        X_enc, pipeline = encoder(X_enc, use_scaler) # noqa
 
     if use_scaler_target and not y_enc.empty:
         logger.info(f"-Target scaling using {use_scaler_target}")
-        y_enc, pipeline_target = encoder(y_enc, use_scaler_target)
+        y_enc, pipeline_target = encoder(y_enc, use_scaler_target) # noqa
 
     return X_enc, y_enc, pipeline, pipeline_target
 
