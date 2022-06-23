@@ -93,8 +93,8 @@ def assert_imported_text():
 def assert_imported():
     if not has_min_dependancy:
         logger.error(  # noqa
-                "AI Packages not found, trying running"
-                "`pip install graphistry[ai]`"
+                     "AI Packages not found, trying running"  # noqa
+                     "`pip install graphistry[ai]`"  # noqa
         )
         raise import_min_exn
 
