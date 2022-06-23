@@ -25,7 +25,7 @@ class ArrowUploader:
         return self.__org_name
 
     @org_name.setter
-    def org_name(self, org_name: str):
+    def org_name(self, org_name: str) -> None:
         self.__org_name = org_name
 
     @property
@@ -193,7 +193,7 @@ class ArrowUploader:
 
             org = json_response.get('active_organization',{})
             logged_in_org_name = org.get('slug', None)
-            print("@ArrowUploader login, logged_in_org_name vs org+name : {} vs {}".format(logged_in_org_name, org_name))
+            logger.debug("@ArrowUploader login, logged_in_org_name vs org_name : {} vs {}".format(logged_in_org_name, org_name))
             if org_name:  # caller pass in org_name
                 if not logged_in_org_name:  # no active_organization in JWT payload
                     raise Exception("Server does not support organization, please omit org_name")
@@ -437,7 +437,7 @@ class ArrowUploader:
 
             file_uploader = ArrowFileUploader(self)
             file_opts = {'name': self.name + ' edges', 'org_name': self.org_name()}
-            print("@ArrowUploader : file_opts : {}".format(file_opts))
+            logger.debug("@ArrowUploader : file_opts : {}".format(file_opts))
             e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts)
 
             if not (self.nodes is None):
