@@ -332,11 +332,11 @@ Use generated features with both Graphistry and external libraries:
     
     ```python
     # graphistry
-    g2 = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
+    g2 = g.umap(kind='nodes')  # UMAP, GNNs, use features if already provided, otherwise will compute
     
     # other pydata libraries
-    X = g._edge_features
-    y = g._edge_target
+    X = g._node_features
+    y = g._node_target
     from [favorite_ml_lib] import RegressiveModel
     model = RegressiveModel.fit(X,y) #assumes train/test split
     new_df = pandas.read_csv(...)
