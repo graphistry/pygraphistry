@@ -16,8 +16,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Memoization on UMAP and Featurize calls
 * Adds **kwargs and propagates them through to different function calls (featurize, umap, scale, etc)
 
-## [0.26.0 - 2022-06-03]
-
 ### Breaking 🔥
 
 * Final deprecation of `register(api=2)` protobuf/vgraph mode - also works around need for protobuf test upgrades
