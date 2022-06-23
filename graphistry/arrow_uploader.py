@@ -147,7 +147,7 @@ class ArrowUploader:
             token = None, dataset_id = None,
             metadata = None,
             certificate_validation = True, 
-            org_name = None):
+            org_name: Optional[str] = None):
         self.__name = name
         self.__description = description
         self.__server_base_path = server_base_path
@@ -160,7 +160,8 @@ class ArrowUploader:
         self.__edge_encodings = edge_encodings
         self.__metadata = metadata
         self.__certificate_validation = certificate_validation
-        self.__org_name = org_name
+        if org_name is not None:
+            self.__org_name = org_name
     
     def login(self, username, password, org_name=None):
         from .pygraphistry import PyGraphistry
@@ -179,7 +180,6 @@ class ArrowUploader:
 
             org = json_response.get('active_organization',{})
             logged_in_org_name = org.get('slug', None)
-            print("@ArrowUploader login, logged_in_org_name vs org+name : {} vs {}".format(logged_in_org_name, org_name))
             if org_name:  # caller pass in org_name
                 if not logged_in_org_name:  # no active_organization in JWT payload
                     raise Exception("Server does not support organization, please omit org_name")
@@ -242,8 +242,8 @@ class ArrowUploader:
     def create_dataset(self, json):  # noqa: F811
         tok = self.token
 
-        if self.org_name(): 
-            json['org_name'] = self.org_name()
+        if self.org_name: 
+            json['org_name'] = self.org_name
 
         res = requests.post(
             self.server_base_path + '/api/v2/upload/datasets/',
@@ -355,8 +355,10 @@ class ArrowUploader:
         if as_files:
 
             file_uploader = ArrowFileUploader(self)
-            file_opts = {'name': self.name + ' edges', 'org_name': self.org_name()}
-            print("@ArrowUploader : file_opts : {}".format(file_opts))
+            file_opts = {'name': self.name + ' edges'}
+            if self.org_name:
+                file_opts['org_name'] = self.org_name
+
             e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts)
 
             if not (self.nodes is None):
