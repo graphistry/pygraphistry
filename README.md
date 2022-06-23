@@ -51,6 +51,7 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
    ```python
   # pip install --user graphistry              # minimal
   # pip install --user graphistry[bolt,gremlin,nodexl,igraph,networkx]  # data plugins
+  # Requires Python 3.8+ (for scikit-learn 1.0+):
   # pip install --user graphistry[umap-learn]  # UMAP autoML (without text support)
   # pip install --user graphistry[ai]          # Full UMAP + GNN autoML, including sentence transformers (1GB+)
 
