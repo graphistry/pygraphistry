@@ -147,7 +147,7 @@ class ArrowUploader:
             token = None, dataset_id = None,
             metadata = None,
             certificate_validation = True, 
-            org_name = None):
+            org_name: Optional[str] = None):
         self.__name = name
         self.__description = description
         self.__server_base_path = server_base_path
@@ -160,7 +160,8 @@ class ArrowUploader:
         self.__edge_encodings = edge_encodings
         self.__metadata = metadata
         self.__certificate_validation = certificate_validation
-        self.__org_name = org_name
+        if org_name is not None:
+            self.__org_name = org_name
     
     def login(self, username, password, org_name=None):
         from .pygraphistry import PyGraphistry
@@ -242,8 +243,8 @@ class ArrowUploader:
     def create_dataset(self, json):  # noqa: F811
         tok = self.token
 
-        if self.org_name(): 
-            json['org_name'] = self.org_name()
+        if self.org_name: 
+            json['org_name'] = self.org_name
 
         res = requests.post(
             self.server_base_path + '/api/v2/upload/datasets/',
@@ -356,8 +357,8 @@ class ArrowUploader:
 
             file_uploader = ArrowFileUploader(self)
             file_opts = {'name': self.name + ' edges'}
-            if self.org_name():
-                file_opts['org_name'] = self.org_name()
+            if self.org_name:
+                file_opts['org_name'] = self.org_name
 
             e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts)
 
