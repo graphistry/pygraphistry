@@ -347,7 +347,7 @@ def where_is_currency_column(df: pd.DataFrame, col: str):
             float(x)
             return True
         except Exception as e:
-            logger.warn(e)
+            logger.warning(e)
             return False
 
     mask = df[col].apply(lambda x: check_if_currency)
@@ -1410,7 +1410,7 @@ def transform_dirty(
     try:
         logger.debug(f"{data_encoder.feature_names_in_}")
     except Exception as e:
-        logger.warn(e)
+        logger.warning(e)
         pass
     logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
     X = data_encoder.transform(df)
