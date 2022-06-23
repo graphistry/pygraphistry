@@ -1,5 +1,6 @@
 # ###############################################################
-VERBOSE = False  # set to true for debug
+VERBOSE = True  # set to true for info, false for debug, None for none
+TRACE = False # set to true for full trace of functions
 # ###############################################################
 # source and destination labels for consistent pipeline-ing across files
 SRC = "_src_implicit"
@@ -31,6 +32,7 @@ TEST_MASK = "test_mask"
 #   for dirty_cat params
 DIRTY_CAT = "dirty_cat"
 N_TOPICS_DEFAULT = 42
+N_TOPICS_TARGET_DEFAULT = 7
 N_HASHERS_DEFAULT = 100
 
 # scikit-learn params

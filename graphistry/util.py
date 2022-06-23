@@ -1,19 +1,30 @@
-import hashlib, logging, os, pandas as pd, platform as p, random, string, sys, uuid, warnings
+import hashlib
+import logging
+import os
+import pandas as pd
+import platform as p
+import random
+import string
+import uuid
+import warnings
 from functools import lru_cache
-from typing import Any, Dict
+from typing import Any
 
-from .constants import VERBOSE, CACHE_COERCION_SIZE
+from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
 
 # #####################################
-def setup_logger(name, verbose=VERBOSE):
-    if verbose:
+def setup_logger(name, verbose=VERBOSE, fullpath=TRACE):
+    if fullpath:
         FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
     else:
-        FORMAT = "   %(message)s\n"
+        FORMAT = " %(message)s\n"
     logging.basicConfig(format=FORMAT)
     logger = logging.getLogger(f'graphistry.{name}')
-    logger.setLevel(logging.DEBUG if verbose else logging.ERROR)
+    if verbose is None:
+        logger.setLevel(logging.ERROR)
+    else:
+        logger.setLevel(logging.INFO if verbose else logging.DEBUG)
     return logger
 
 
@@ -97,6 +108,10 @@ def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = Tr
     """
     
     logger = setup_logger(f'{__name__}.memoization')
+
+    if not memoize:
+        logger.debug('Memoization disabled')
+        return False
     
     hashed = None
     weakref = getattr(g, attribute)
@@ -257,3 +272,32 @@ def deprecated(message):
         return deprecated_func
 
     return deprecated_decorator
+
+
+#
+# def inspect_decorator(func, args, kwargs):
+#     import inspect
+#     frame = inspect.currentframe()
+#     args, _, _, values = inspect.getargvalues(frame)
+#     func_name = inspect.getframeinfo(frame)[2]
+#     print(f'function name "{func_name}"')
+#     for i in args:
+#         print("    %s = %s" % (i, values[i]))
+#     return [(i, values[i]) for i in args]
+#
+#
+# # custom decorator
+# def showargs_decorator(func):
+#     import functools
+#     # updates special attributes e.g. __name__, __doc__
+#     @functools.wraps(func)
+#     def wrapper(*args, **kwargs):
+#
+#       # call custom inspection logic
+#       inspect_decorator(func, args, kwargs)
+#
+#       # calls original function
+#       func(*args, **kwargs)
+#
+#     # matches name of inner function
+#     return wrapper

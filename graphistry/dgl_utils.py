@@ -1,12 +1,13 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
-from typing import List, Any, Optional, TYPE_CHECKING, Union
-import pandas as pd
 from collections import Counter
+from typing import Optional, TYPE_CHECKING
+
 import numpy as np
+import pandas as pd
 
 try:
     import dgl
-    has_dependancy = True
+    has_dependancy: bool = True
 except:
     has_dependancy = False
 
@@ -18,19 +19,18 @@ from .feature_utils import (
     XSymbolic,
     YSymbolic,
     resolve_X,
-    resolve_y
+    resolve_y,
 )
 from .util import setup_logger
 
-logger = setup_logger(__name__)
+logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
 
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
 else:
     MIXIN_BASE = object
-    
-    
+
 # #########################################################################################
 #
 #  Torch helpers
@@ -38,7 +38,7 @@ else:
 # #########################################################################################
 
 
-def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):
+def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]): # type: ignore
     """
         Converts X, y to torch tensors compatible with ndata/edata of DGL graph
     _________________________________________________________________________
@@ -47,17 +47,15 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):
     :return: Dictionary of torch encoded arrays
     """
     import torch
-    if y_enc is not None:
+
+    if not y_enc.empty: # type: ignore
         data = {
             config.FEATURE: torch.tensor(X_enc.values),
-            config.TARGET: torch.tensor(y_enc.values),
+            config.TARGET: torch.tensor(y_enc.values), # type: ignore
         }
     else:
         data = {config.FEATURE: torch.tensor(X_enc.values)}
     return data
-
-
-
 
 # #################################################################################################
 #
@@ -74,6 +72,7 @@ def get_available_devices():
         gpu_ids (list): List of IDs of all GPUs that are available.
     """
     import torch
+
     gpu_ids = []
     if torch.cuda.is_available():
         gpu_ids += [gpu_id for gpu_id in range(torch.cuda.device_count())]
@@ -81,7 +80,7 @@ def get_available_devices():
         torch.cuda.set_device(device)
     else:
         device = torch.device("cpu")
-    
+
     return device, gpu_ids
 
 
@@ -158,7 +157,7 @@ def pandas_to_dgl_graph(
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
 
     g = dgl.from_scipy(sp_mat, device=device)  # there are other ways too
-    logger.info(f"Graph Type: {type(g)}")  # why is this making a heterograph?
+    logger.info(f"Graph Type: {type(g)}") 
 
     return g, sp_mat, ordered_nodes_dict
 
@@ -176,11 +175,13 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     test_mask = ~train_mask
     return train_mask, test_mask
 
+
 ########################################################################################################################
 #
 #   DGL MIXIN
 #
 #######################################################################################################################
+
 
 class DGLGraphMixin(MIXIN_BASE):
     """
@@ -197,7 +198,6 @@ class DGLGraphMixin(MIXIN_BASE):
 
         self.dgl_initialized = False
 
-
     def dgl_lazy_init(self, train_split: float = 0.8, device: str = "cpu"):
         """
         Initialize DGL graph lazily
@@ -205,44 +205,60 @@ class DGLGraphMixin(MIXIN_BASE):
         """
 
         if not self.dgl_initialized:
-
             self.train_split = train_split
             self.device = device
             self._removed_edges_previously = False
             self.DGL_graph = None
-
             self.dgl_initialized = True
-
 
     def _prune_edge_target(self):
         if self._edge_target is not None and hasattr(self, "_MASK"):
             self._edge_target = self._edge_target[self._MASK]
 
-
     def _remove_edges_not_in_nodes(self, node_column: str):
         # need to do this so we get the correct ndata size ...
-        nodes = self._nodes[node_column]
+        if self._nodes is None:
+            res = self.materialize_nodes()
+            nodes = res._nodes[res._node]
+        else:
+            nodes = self._nodes[node_column]
+        
         if not isinstance(self._edges, pd.DataFrame):  # type: ignore
             raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame, recieved: %s", type(self._edges))  # type: ignore
-        edf : pd.DataFrame = self._edges  # type: ignore
+        edf: pd.DataFrame = self._edges  # type: ignore
         n_initial = len(edf)
         logger.info(f"Length of edge DataFrame {n_initial}")
+
         mask = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)
+        # print(f'MASK: length: {len(mask)}')
+        # print(f'OG: length: {len(edf)}')
+
+        assert (
+            sum(mask) > 2
+        ), f"mask slice is (practically) empty, will lead to bad graph, found {sum(mask)}"
         self._MASK = mask
         self._edges = edf[mask]
+        # print(f'new EDGES: length: {len(self._edges)}')
+
         self._prune_edge_target()
         n_final = len(self._edges)
-        logger.info(f"Length of edge DataFrame {n_final} after pruning")
+        logger.info(f"-Length of edge DataFrame {n_final} after pruning")
         n_final = len(self._edges)
         if n_final != n_initial:
-            logger.warn(
+            logger.warning(
                 "** Original Edge DataFrame has been changed, some elements have been dropped **"
             )
         self._removed_edges_previously = True
 
-
-    def _check_nodes_lineup_with_edges(self, node_column: str):
-        nodes = self._nodes[node_column]
+    def _check_nodes_lineup_with_edges(self):
+        if self._nodes is None:
+            res = self.materialize_nodes()
+            node_column = res._node
+            nodes = res._nodes[node_column]
+        else:
+            node_column = self._node
+            nodes = self._nodes[node_column]
+        # nodes = self._nodes[node_column]
         unique_nodes = nodes.unique()
         logger.info(
             f"{len(nodes)} entities from column {node_column}\n with {len(unique_nodes)} unique entities"
@@ -254,7 +270,7 @@ class DGLGraphMixin(MIXIN_BASE):
                 f"Nodes DataFrame has duplicate entries for column {node_column}"
             )
         # now check that self._entity_to_index is in 1-1 to with self.ndf[node_column]
-        nodes = self._nodes[node_column]
+        #nodes = self._nodes[node_column]
         res = nodes.isin(self._entity_to_index)
         if res.sum() != len(nodes):
             logger.warning(
@@ -265,26 +281,34 @@ class DGLGraphMixin(MIXIN_BASE):
                 "There are more entities in edges DataFrame (edf) than in nodes DataFrame (ndf)"
             )
 
+    def _convert_edge_dataframe_to_DGL(
+        self, weight_column: Optional[str] = None, inplace: bool = False
+    ):
+        logger.info("-Converting edge DataFrame to DGL graph")
 
-    def _convert_edgeDF_to_DGL(self, node_column: Optional[str] = None, weight_column: Optional[str] = None, inplace: bool = False):
-        logger.info("converting edge DataFrame to DGL graph")
-        
         if inplace:
             res = self
         else:
             res = self.bind()
 
-        if node_column is None:
-            node_column = config.IMPLICIT_NODE_ID
+        if res._node is None:
+            res._node = config.IMPLICIT_NODE_ID
 
         if not res._removed_edges_previously:
-            res._remove_edges_not_in_nodes(node_column)
+            logger.info(
+                f"--Node in convert dataframe to dgl: {res._node}"
+            )
+            res._remove_edges_not_in_nodes(res._node)
 
         if res._source is None:
-            raise ValueError('source column not set, try running g.bind(source="my_col") or g.edges(df, source="my_col")')
+            raise ValueError(
+                'source column not set, try running g.bind(source="my_col") or g.edges(df, source="my_col")'
+            )
 
         if res._destination is None:
-            raise ValueError('destination column not set, try running g.bind(destination="my_col") or g.edges(df, destination="my_col")')
+            raise ValueError(
+                'destination column not set, try running g.bind(destination="my_col") or g.edges(df, destination="my_col")'
+            )
 
         res.DGL_graph, res._adjacency, res._entity_to_index = pandas_to_dgl_graph(
             res._edges,
@@ -295,91 +319,179 @@ class DGLGraphMixin(MIXIN_BASE):
         )
         res._index_to_entity = {k: v for v, k in res._entity_to_index.items()}
         # this is a sanity check after _remove_edges_not_in_nodes
-        res._check_nodes_lineup_with_edges(node_column)
+        res._check_nodes_lineup_with_edges()
         return res
-
 
     def _featurize_nodes_to_dgl(
         self,
         res,
-        X: pd.DataFrame,
-        y: pd.DataFrame,
-        use_scaler: str = None,
-        #refeaturize: bool = False,
+        feature_engine: FeatureEngine = "auto",
+        *args,
+        **kwargs,
+        # X: pd.DataFrame,
+        # y: pd.DataFrame,
+        # use_scaler: str = None,
     ):
         logger.info("Running Node Featurization for DGL Graph")
+        # logger.debug(f"=*=*=Input shapes are data: {X.shape}, target: {y.shape}")
 
-        X_enc, y_enc, _ = res._featurize_or_get_nodes_dataframe_if_X_is_None(
-            X=X, y=y, use_scaler=use_scaler, refeaturize=False
+        X_enc, y_enc, res = res._featurize_or_get_nodes_dataframe_if_X_is_None(
+            feature_engine=resolve_feature_engine(feature_engine),
+            *args,
+            **kwargs
+            # X=X,
+            # y=y,
+            # use_scaler=use_scaler,
+            #feature_engine=resolve_feature_engine(feature_engine),
+        )
+
+        logger.debug(
+            f"=*=*=Encoded Node shapes are data: {X_enc.shape}, target: {y_enc.shape}"
+
         )
 
         ndata = convert_to_torch(X_enc, y_enc)
         # add ndata to the graph
         res.DGL_graph.ndata.update(ndata)
         res._mask_nodes()
-        return res  # have to return despite inplace flag
+        return res
+
 
     def _featurize_edges_to_dgl(
         self,
         res,
-        X: pd.DataFrame,
-        y: pd.DataFrame,
-        use_scaler: str = None,
-        feature_engine: FeatureEngine = "auto"
-        #refeaturize: bool = False,
+        feature_engine: FeatureEngine = "auto",
+        *args,
+        **kwargs
+        # X: pd.DataFrame,
+        # y: pd.DataFrame,
+        # use_scaler: str = None,
+        # feature_engine: FeatureEngine = "auto",
     ):
         logger.info("Running Edge Featurization for DGL Graph")
 
-        # res = _featurize_nodes(
-        X_enc, y_enc, _ = self._featurize_or_get_edges_dataframe_if_X_is_None(
-            X=X, y=y, use_scaler=use_scaler, feature_engine=resolve_feature_engine(feature_engine)
+        X_enc, y_enc, res = res._featurize_or_get_edges_dataframe_if_X_is_None(
+            feature_engine=resolve_feature_engine(feature_engine),
+            *args,
+            **kwargs
+            # X=X,
+            # y=y,
+            # use_scaler=use_scaler,
+            # feature_engine=resolve_feature_engine(feature_engine),
         )
         
+        logger.debug(
+            f"=*=*=Encoded Edge shapes are data: {X_enc.shape}, target: {y_enc.shape}"
+        )
+
         edata = convert_to_torch(X_enc, y_enc)
         # add edata to the graph
         res.DGL_graph.edata.update(edata)
         res._mask_edges()
-        return res  # have to return despite inplace flag
+        return res
 
-    def build_dgl_graph(
+    def convert_kwargs(self, *args, **kwargs):
+        return dict(*args, **kwargs)
+        
+    def build_gnn(
         self,
-        node_column: str = None,
-        weight_column: str = None,
         X_nodes: XSymbolic = None,
         X_edges: XSymbolic = None,
         y_nodes: YSymbolic = None,
         y_edges: YSymbolic = None,
-        use_node_scaler: str = None,
-        use_edge_scaler: str = None,
+        weight_column: str = None,
+        reuse_if_existing=True,
+        featurize_edges =True,
+        use_node_scaler: str = "zscale",
+        use_node_scaler_target: str = None,
+        use_edge_scaler: str = "zscale",
+        use_edge_scaler_target: str = None,
+        train_split: float = 0.8,
+        device: str = "cpu",
         inplace: bool = False,
+        *args,
+        **kwargs
     ):
+        """
+        Builds GNN model using (DGL)[https://www.dgl.ai/]
+
+        Will auto-featurize, and if no explicit edges are found, automatically UMAP to produce implicit edges.
+        ________________________________________________________________________________________________________________
+
+        :param X_nodes: Which node dataframe columns to featurize. If None, will use all columns.
+                If passing in explicit dataframe, will set them as attributes.
+        :param X_edges: Which edge dataframe columns to featurize. If None, will use all columns.
+                If passing in explicit dataframe, will set them as attributes.
+        :param y_nodes: Optional target column from nodes dataframe.
+        :param y_edges: Optional target column from edges dataframe
+        :param weight_column: Optional Weight column if explicit edges table exists with said weights.
+                Otherwise, weight_column is inhereted by UMAP.
+        :param train_split: Randomly assigns a train and test mask according to the split value, default 80%.
+        :param use_node_scaler: selects which scaling to use on featurized nodes dataframe. Default `robust`
+        :param use_edge_scaler: selects which scaling to use on featurized edges dataframe. Default `robust`
+        :param device: device to run model, default `cpu`, with `gpu` the other choice. Can be handled in outer scope.
+        :param inplace: default, False, whether to return Graphistry instance in place or not.
+
+        """
 
         if inplace:
             res = self
         else:
             res = self.bind()
 
-        res.dgl_lazy_init()
+        res.dgl_lazy_init(train_split=train_split, device=device)
 
-        m = res.materialize_nodes()
+        try:
+            m = res.materialize_nodes()
+        except Exception as e:
+            logger.debug(e)
+            logger.info(f'No edges found, please call g.umap(...) to generate implicit edges')
+            raise
+        
         X_nodes_resolved = resolve_X(m._nodes, X_nodes)
         y_nodes_resolved = resolve_y(m._nodes, y_nodes)
+
+        # here we check if edges are from UMAP, at which point X_edges should be none:
+        if list(res._edges.columns) == ["_src_implicit", "_dst_implicit", "_weight"]:
+            logger.debug(
+                f">>> EDGES ARE FROM UMAP, discarding explicit mention of X_edges"
+            )
+            X_edges = None
+
         X_edges_resolved = resolve_X(res._edges, X_edges)
         y_edges_resolved = resolve_y(res._edges, y_edges)
 
         if hasattr(res, "_MASK"):
             if y_edges_resolved is not None:
-                y_edges_resolved = y_edges_resolved[res._MASK]  # automatically prune target using mask
+                y_edges_resolved = y_edges_resolved[
+                    res._MASK
+                ]  # automatically prune target using mask
                 # note, edf, ndf, should both have unique indices
 
         # here we make node and edge features and add them to the DGL graph instance
-        res = res._convert_edgeDF_to_DGL(node_column, weight_column, inplace)
+        res = res._convert_edge_dataframe_to_DGL(weight_column, inplace)
+        
+        kwargs_nodes = self.convert_kwargs(X=X_nodes_resolved, y=y_nodes_resolved,
+                                           use_scaler=use_node_scaler, use_scaler_target=use_node_scaler_target,
+                                           reuse_if_existing=reuse_if_existing,
+                                           *args, **kwargs)
+        
         res = res._featurize_nodes_to_dgl(
-            res, X_nodes_resolved, y_nodes_resolved, use_node_scaler
+            res,
+            **kwargs_nodes
+            #X_nodes_resolved, y_nodes_resolved, use_node_scaler
         )
-        res = res._featurize_edges_to_dgl(
-            res, X_edges_resolved, y_edges_resolved, use_edge_scaler
-        )
+        
+        kwargs_edges = self.convert_kwargs(X=X_edges_resolved, y=y_edges_resolved,
+                                           use_scaler=use_edge_scaler, use_scaler_target=use_edge_scaler_target,
+                                           reuse_if_existing=reuse_if_existing,
+                                           *args, **kwargs)
+        if featurize_edges:
+            res = res._featurize_edges_to_dgl(
+                res,
+                **kwargs_edges
+                #X_edges_resolved, y_edges_resolved, use_edge_scaler
+            )
         if not inplace:
             return res
 
@@ -400,14 +512,14 @@ class DGLGraphMixin(MIXIN_BASE):
             ) = get_torch_train_test_mask(n, self.train_split)
 
     def __getitem__(self, idx):
-        # get one example by index
+        # get one example by index, here we have only one graph. #todo parameterize case if we have RGNN
         if self.DGL_graph is None:
-            logger.warn("DGL graph is not built, run `g.dgl_graph(..)` first")
+            logger.warning("DGL graph is not built, run `g.build_gnn(...)` first")
         return self.DGL_graph
 
-    def __len__(self):
-        # number of data examples
-        return 1
+    # def __len__(self): # this messes up scope.
+    #     # number of data examples
+    #     return 1
 
 
 # if __name__ == "__main__":
@@ -479,7 +591,7 @@ class DGLGraphMixin(MIXIN_BASE):
     # src, dst = "from_node", "to_node"
     # g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
     #
-    # g2 = g.build_dgl_graph(
+    # g2 = g.build_gnn(
     #     "ip",
     #     y_edges=y_edges,
     #     use_edge_columns=good_cols_without_label,

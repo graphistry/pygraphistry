@@ -118,7 +118,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.6, 3.7, 3.8, 3.9]
+        python-version: [3.8, 3.9, '3.10']
 
     steps:
 
@@ -164,7 +164,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9]
+        python-version: [3.8, 3.9, '3.10']
 
     steps:
 
@@ -187,6 +187,12 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip
         python -m pip install -e .[test,ai]
+        echo "dirty-cat: `pip show dirty-cat | grep Version`"
+        echo "pandas: `pip show pandas | grep Version`"
+        echo "numpy: `pip show numpy | grep Version`"
+        echo "scikit-learn: `pip show scikit-learn | grep Version`"
+        echo "scipy: `pip show scipy | grep Version`"
+        echo "umap-learn: `pip show umap-learn | grep Version`"
 
     - name: Type check
       run: |
