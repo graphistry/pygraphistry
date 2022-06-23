@@ -22,6 +22,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Final deprecation of `register(api=2)` protobuf/vgraph mode - also works around need for protobuf test upgrades
 
+## [0.25.3 - 2022-06-22]
+
+### Added
+
+* `register(..., org_name='my_org')`: Optionally upload into an organization
+* `g.privacy(mode='organization')`: Optionally limit sharing to within your organization
+
+### Changed
+
+* docs: `org_name` in `README.md` and sharing tutorial
+
 ## [0.25.2 - 2022-05-11]
 
 ### Added
