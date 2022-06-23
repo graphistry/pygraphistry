@@ -1056,7 +1056,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     else:
         T = mlb.transform(zip(source, destination))
     T = 1.0 * T  # coerce to float
-    columns = mlb.classes_
+    columns = [str(k) for k in mlb.classes_]
     mlb.get_feature_names_out = callThrough(columns)
     T = pd.DataFrame(T, columns=columns, index=edf.index)
     logger.info(f'Shape of Edge Encoding: {T.shape}')
