@@ -35,8 +35,12 @@ except ModuleNotFoundError as e:
 
 try:
     import scipy, scipy.sparse
+    from dirty_cat import __version__ as dirty_cat_version
     from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+    logger.debug(f'SCIPY VERSION: {scipy.__version__}')
+    logger.debug(f'Dirty CAT VERSION: {dirty_cat_version}')
 
+    from sklearn import __version__ as sklearn_version
     from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import (
@@ -48,6 +52,7 @@ try:
         KBinsDiscretizer,
         FunctionTransformer
     )
+    logger.debug(f'sklearn VERSION: {sklearn_version}')
 
     has_min_dependancy: bool = True
 
@@ -536,7 +541,7 @@ def get_preprocessing_pipeline(
     return transformer
 
 
-def fit_pipeline(X: pd.DataFrame, transformer, keep_n_decimals: int = 5):
+def fit_pipeline(X: pd.DataFrame, transformer, keep_n_decimals: int = 5) -> pd.DataFrame:
     """
      Helper to fit DataFrame over transformer pipeline.
      Rounds resulting matrix X by keep_n_digits if not 0,
@@ -546,13 +551,17 @@ def fit_pipeline(X: pd.DataFrame, transformer, keep_n_decimals: int = 5):
     :param transformer: Pipeline object to fit and transform
     :param keep_n_decimals: Int of how many decimal places to keep in rounded transformed data
     """
+    columns = X.columns
+    index = X.index
+    
     X = transformer.fit_transform(X)
     if keep_n_decimals:
         X = np.round(
             X, decimals=keep_n_decimals
         )
-    return X
-
+    
+    return pd.DataFrame(X, columns=columns, index=index)
+    
 
 def impute_and_scale_df(
     df: pd.DataFrame,
@@ -567,8 +576,6 @@ def impute_and_scale_df(
     keep_n_decimals: int = 5,
 ) -> Tuple[pd.DataFrame, Pipeline]:
 
-    columns = df.columns
-    index = df.index
 
     transformer = get_preprocessing_pipeline(
         impute=impute,
@@ -582,7 +589,7 @@ def impute_and_scale_df(
     )
     res = fit_pipeline(df, transformer, keep_n_decimals=keep_n_decimals)
 
-    return pd.DataFrame(res, columns=columns, index=index), transformer
+    return res, transformer
 
 
 def get_text_preprocessor(ngram_range=(1, 3), max_df=0.2, min_df=3):
@@ -1114,10 +1121,16 @@ def process_edge_dataframes(
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
     )
-
+    other_df = edf.drop(columns=[src, dst])
+    logger.debug(
+        f"-Rest of DataFrame has columns: {other_df.columns} and is not empty"
+        if not other_df.empty
+        else f"-Rest of DataFrame has columns: {other_df.columns} and is empty"
+    )
+    
     if feature_engine in ["none", "pandas"]:
-        X = edf.drop(columns=[src, dst], errors="ignore")
-        X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(X, y)
+        
+        X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(other_df, y)
         X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(
             X_enc, y_enc, use_scaler,
             use_scaler_target,
@@ -1143,12 +1156,7 @@ def process_edge_dataframes(
             [],
         )
 
-    other_df = edf.drop(columns=[src, dst])
-    logger.debug(
-        f"-Rest of DataFrame has columns: {other_df.columns} and is not empty"
-        if not other_df.empty
-        else f"-Rest of DataFrame has columns: {other_df.columns} and is empty"
-    )
+
     (
         X_enc,
         y_enc,
@@ -1257,6 +1265,11 @@ def transform_dirty(
 
     logger.debug(f"-{name} Encoder:")
     logger.debug(f"\t{data_encoder}\n")
+    try:
+        logger.debug(f"{data_encoder.feature_names_in_}")
+    except:
+        pass
+    logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
     X = data_encoder.transform(df)
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
