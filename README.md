@@ -375,6 +375,8 @@ You can also featurize edges and UMAP them as we did above.
      
 UMAP support is rapidly evolving, please contact the team directly or on Slack for additional discussions
 
+See `help(g.umap)` for more options
+
 ### [GNN models](https://docs.dgl.ai/en/0.6.x/index.html)
 
 Graphistry adds bindings and automation to working with popular GNN models, currently focusing on DGL/PyTorch:
