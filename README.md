@@ -335,7 +335,7 @@ Automatically and intelligently transform text, numbers, booleans, and other for
 
     ```python
     # graphistry
-    g2 = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
+    g = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
 
     # other pydata libraries
     X = g._node_features
