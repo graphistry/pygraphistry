@@ -332,19 +332,19 @@ Use generated features with both Graphistry and external libraries:
     
     ```python
     # graphistry
-    g2 = g.umap(kind='nodes')  # UMAP, GNNs, use features if already provided, otherwise will compute
+    g2 = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
     
     # other pydata libraries
     X = g._node_features
     y = g._node_target
-    from [favorite_ml_lib] import RegressiveModel
-    model = RegressiveModel.fit(X,y) #assumes train/test split
+    from sklearn.ensemble import RandomForestRegessor
+    model = RandomForestRegessor().fit(X, y) #assumes train/test split
     new_df = pandas.read_csv(...)
     X_new, _ = g.transform(new_df, None, kind='nodes')
     preds = model.predict(X_new)
     ```
 
-See `help(g.featurize) for more options
+See `help(g.featurize)` for more options
 
 ### [UMAP](https://umap-learn.readthedocs.io/en/latest/) 
 
