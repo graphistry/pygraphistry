@@ -316,8 +316,11 @@ Graph autoML features including:
 
 Automatically and intelligently transform text, numbers, booleans, and other formats to AI-ready representations:
 
+* Featurization
+
     ```python
-    g = graphistry.nodes(df).featurize(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)     
+    g = graphistry.nodes(df).featurize(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+
     print('X', g._node_features)
     print('y', g._node_target)
     ```
