@@ -1,0 +1,57 @@
+package:
+  name: "graphistry-dev"
+  version: "0.25.2" #To get version
+
+source:
+  git_rev: 0.25.2
+  git_url: https://github.com/graphistry/pygraphistry
+
+requirements:
+  host:
+    - python
+    - setuptools
+  build:
+    - python
+  run:
+    - numpy
+    - pandas>=0.17.0
+    - protobuf>=2.6.0
+    - pyarrow>=0.15.0
+    - requests
+    - typing-extensions
+    - packaging>=20.1
+
+outputs:
+  - name: igraph
+    requirements:
+      - python-igraph
+  # - name: networkx
+  #   requirements:
+  #     - networkx>=2.5
+  - name: gremlin
+    requirements:
+      - gremlinpython
+  - name: bolt
+    requirements:
+      - neo4j
+      - neotime
+  - name: nodexl
+    requirements:
+      - openpyxl
+      - xlrd
+  - name: jupyter
+    requirements:
+      - ipython
+  - name: umap-learn
+    requirements:
+      - umap-learn
+      - dirty-cat
+  - name: ai
+    requirements:
+      - scikit-learn
+      - scipy
+      - dirty-cat
+      - umap-learn
+      - dgl
+      - torch
+      - sentence-transformers
