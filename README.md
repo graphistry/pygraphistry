@@ -340,8 +340,8 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     # other pydata libraries
     X = g._node_features
     y = g._node_target
-    from sklearn.ensemble import RandomForestRegessor
-    model = RandomForestRegessor().fit(X, y) #assumes train/test split
+    from sklearn.ensemble import RandomForestRegressor
+    model = RandomForestRegressor().fit(X, y) #assumes train/test split
     new_df = pandas.read_csv(...)
     X_new, _ = g.transform(new_df, None, kind='nodes')
     preds = model.predict(X_new)
