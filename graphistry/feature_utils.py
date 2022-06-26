@@ -6,6 +6,7 @@ import warnings
 from functools import partial
 
 from typing import (
+    Hashable,
     List,
     Union,
     Dict,
@@ -270,7 +271,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         return None
     # here we drop all _namespace like _x, _y, etc, so that
     # featurization doesn't include them idempotent-ly
-    reserved_namespace = [
+    reserved_namespace : List[str] = [
         config.X,
         config.Y,
         config.SRC,
@@ -279,7 +280,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.IMPLICIT_NODE_ID,
         "index",  # in umap, we add as reindex
     ]
-    df = df.drop(columns=reserved_namespace, errors="ignore")
+    df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
     return df
 
 
@@ -492,7 +493,7 @@ class Embedding:
 
     def transform(self, ids) -> pd.DataFrame:
         mask = self.index.isin(ids)
-        index = self.index[mask]
+        index = self.index[mask]  # type: ignore
         res = self.vectors[mask]
         res = pd.DataFrame(res, index=index, columns=self.columns)
         return res
@@ -1083,7 +1084,7 @@ def process_nodes_dataframes(
             f"since dependency {import_text_exn} is not met"
         )
 
-    other_df = df.drop(columns=text_cols, errors="ignore")
+    other_df = df.drop(columns=text_cols, errors="ignore")  # type: ignore
 
     X_enc, y_enc, data_encoder, label_encoder = process_dirty_dataframes(
         other_df,
@@ -1130,7 +1131,7 @@ def process_nodes_dataframes(
         keep_n_decimals=keep_n_decimals,
     )
 
-    res = (
+    return (
         X_enc,
         y_enc,
         data_encoder,
@@ -1138,11 +1139,8 @@ def process_nodes_dataframes(
         scaling_pipeline,
         scaling_pipeline_target,
         text_model,
-        text_cols,
+        text_cols  # type: ignore
     )
-
-    return res
-
 
 def encode_edges(edf, src, dst, mlb, fit=False):
     """edge encoder -- creates multilabelBinarizer on edge pairs.

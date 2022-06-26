@@ -135,7 +135,7 @@ def format_entities_from_col(
         base_df = base_df.persist()
         logger.debug('base_df1: %s', base_df.compute())
 
-    missing_cols = [ c for c in meta if c not in base_df ]
+    missing_cols : List[str] = [ c for c in meta.columns if c not in base_df ]
     base_df = base_df.assign(**{
         c: np.nan
         for c in missing_cols
@@ -145,7 +145,11 @@ def format_entities_from_col(
         base_df = base_df.persist()
         logger.debug('base_df2: %s', base_df.compute())
         logger.debug('needs conversions: %s',
-            [(c, base_df[c].dtype.name, meta[c].dtype.name) for c in missing_cols])
+            [(
+                c,
+                base_df[c].dtype.name,
+                meta[c].dtype.name  # type: ignore
+            ) for c in missing_cols])
         for c in base_df:
             logger.debug('test base_df2 col [ %s ]: %s', c, base_df[c].dtype)
             logger.debug('base_df2[ %s ]: %s', c, base_df[c].compute())
@@ -156,7 +160,11 @@ def format_entities_from_col(
                 logger.debug('coerced 1: %s', coerce_col_safe(base_df[c], meta[c].dtype).compute())
                 logger.debug('coerced 2: %s', base_df.assign(**{c: coerce_col_safe(base_df[c], meta[c].dtype)}).compute())
     base_as_meta_df = base_df.assign(**{
-        c: coerce_col_safe(base_df[c], meta[c].dtype) if base_df[c].dtype.name != meta[c].dtype.name else base_df[c]
+        c: coerce_col_safe(
+            base_df[c],
+            meta[c].dtype)
+            if base_df[c].dtype.name != meta[c].dtype.name  # type: ignore
+            else base_df[c]
         for c in missing_cols
     })
     logger.debug('==== BASE 3 ====')
@@ -577,7 +585,7 @@ def df_coercion(  # noqa: C901
             except:
                 failed_cols = [ ]
                 out_gdf = cudf.from_pandas(df[[]])
-                for c in df:
+                for c in df.columns:
                     try:
                         out_gdf[c] = cudf.from_pandas(df[c])
                     except:
@@ -642,7 +650,7 @@ def clean_events(
         import cudf, numpy as np
         if isinstance(events, pd.DataFrame):  # or isinstance(events, cudf.DataFrame):
             events = events.copy()
-            for c in events:
+            for c in events.columns:
                 if events[c].dtype.name == 'object' and events[c].isna().any():
                     logger.debug('None -> nan workaround for col [ %s ] => %s', c, events[c])
                     events[c] = events[c].fillna(np.nan)
