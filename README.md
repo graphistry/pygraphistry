@@ -316,67 +316,73 @@ Graph autoML features including:
 
 Automatically and intelligently transform text, numbers, booleans, and other formats to AI-ready representations:
 
+* Featurization
+
     ```python
-    g = graphistry.nodes(df).featurize(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)     
+    g = graphistry.nodes(df).featurize(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+
     print('X', g._node_features)
     print('y', g._node_target)
     ```
-    
-Set `kind='edges'` to featurize edges:
-    
-     ```python
-     g = graphistry.edges(df, src, dst).featurize(kind='edges', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
-     ```
 
-Use generated features with both Graphistry and external libraries:
+* Set `kind='edges'` to featurize edges:
+
+    ```python
+    g = graphistry.edges(df, src, dst).featurize(kind='edges', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+    ```
+
+* Use generated features with both Graphistry and external libraries:
+
     ```python
     # graphistry
-    g2 = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
-    
+    g = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
+
     # other pydata libraries
-    X = g._edge_features
-    y = g._edge_target
-    from [favorite_ml_lib] import RegressiveModel
-    model = RegressiveModel.fit(X,y) #assumes train/test split
+    X = g._node_features
+    y = g._node_target
+    from sklearn.ensemble import RandomForestRegressor
+    model = RandomForestRegressor().fit(X, y) #assumes train/test split
     new_df = pandas.read_csv(...)
     X_new, _ = g.transform(new_df, None, kind='nodes')
     preds = model.predict(X_new)
     ```
 
-See `help(g.featurize) for more options
+See `help(g.featurize)` for more options
 
 ### [UMAP](https://umap-learn.readthedocs.io/en/latest/) 
 
-Reduce dimensionality and plot a similarity graph from feature vectors:
+* Reduce dimensionality and plot a similarity graph from feature vectors:
 
     ```python
-     # automatic feature engineering, UMAP
-     g = graphistry.nodes(df).umap()
-     
-     # plot the similarity graph even though there was no explicit edge_dataframe passed in -- it is created during UMAP.
-     g.plot()
-     ```
+      # automatic feature engineering, UMAP
+      g = graphistry.nodes(df).umap()
+      
+      # plot the similarity graph even though there was no explicit edge_dataframe passed in -- it is created during UMAP.
+      g.plot()
+    ```
 
-Apply a trained model to new data:
-
-    ```python
-     new_df = pd.read_csv(...)
-     embeddings, X_new, _ = g.transform_umap(new_df, None, kind='nodes')
-     ```
-
-UMAP supports many options, such as supervised mode, working on a subset of columns, and passing arguments to underlying `featurize()` and UMAP implementations (see `help(g.umap)`):
+* Apply a trained model to new data:
 
     ```python
-     g.umap(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
-     ```
+      new_df = pd.read_csv(...)
+      embeddings, X_new, _ = g.transform_umap(new_df, None, kind='nodes')
+    ```
+
+* UMAP supports many options, such as supervised mode, working on a subset of columns, and passing arguments to underlying `featurize()` and UMAP implementations (see `help(g.umap)`):
+
+    ```python
+      g.umap(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+    ```
 
 You can also featurize edges and UMAP them as we did above.
-     
+
 UMAP support is rapidly evolving, please contact the team directly or on Slack for additional discussions
+
+See `help(g.umap)` for more options
 
 ### [GNN models](https://docs.dgl.ai/en/0.6.x/index.html)
 
-Graphistry adds bindings and automation to working with popular GNN models, currently focusing on DGL/PyTorch:
+* Graphistry adds bindings and automation to working with popular GNN models, currently focusing on DGL/PyTorch:
 
     ```python
     g = (graphistry
