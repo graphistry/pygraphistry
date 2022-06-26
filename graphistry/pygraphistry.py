@@ -1,4 +1,5 @@
-from typing import Any, Callable, Iterable, List, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union
+from typing_extensions import Literal
 from graphistry.Plottable import Plottable
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
@@ -105,7 +106,7 @@ class PyGraphistry(object):
             # Mocks may set to True, so bypass in that case
             if (key is None) and (PyGraphistry._is_authenticated is False):
                 util.error(
-                    "In api=1 / api=2 mode, API key not set explicitly in `register()` or available at "
+                    "In api=1 mode, API key not set explicitly in `register()` or available at "
                     + EnvVarNames["api_key"]  # noqa: W503
                 )
             if not PyGraphistry._is_authenticated:
@@ -119,7 +120,7 @@ class PyGraphistry(object):
     relogin = lambda: PyGraphistry.not_implemented_thunk()  # noqa: E731
 
     @staticmethod
-    def login(username, password, fail_silent=False):
+    def login(username, password, org_name=None, fail_silent=False):
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
         By default, must be reinvoked within 24hr."""
 
@@ -291,12 +292,29 @@ class PyGraphistry(object):
 
     @staticmethod
     def api_version(value=None):
-        """Set or get the API version: 1 or 2 for 1.0 (deprecated), 3 for 2.0
+        """Set or get the API version: 1 for 1.0 (deprecated), 3 for 2.0.
+        Setting api=2 (protobuf) fully deprecated from the PyGraphistry client.
         Also set via environment variable GRAPHISTRY_API_VERSION."""
+        
+        import re
         if value is None:
-            return PyGraphistry._config["api_version"]
+            #if set by env var, interpret
+            env_api_version = PyGraphistry._config["api_version"]
+            if isinstance(env_api_version, str):
+                if re.sub(r'\d+', '', env_api_version) == '':
+                    value = int(env_api_version)
+                else:
+                    raise ValueError("Expected API version to be 1, 3, instead got (likely from GRAPHISTRY_API_VERSION): %s" % env_api_version)
+            else:
+                value = env_api_version
+
+        if value not in [1, 3]:
+            raise ValueError("Expected API version to be 1, 3, instead got: %s" % value)
+
         # setter
         PyGraphistry._config["api_version"] = value
+
+        return value
 
     @staticmethod
     def certificate_validation(value=None):
@@ -317,26 +335,27 @@ class PyGraphistry(object):
 
     @staticmethod
     def register(
-        key=None,
-        username=None,
-        password=None,
-        token=None,
-        server=None,
-        protocol=None,
-        api=None,
-        certificate_validation=None,
-        bolt=None,
-        token_refresh_ms=10 * 60 * 1000,
-        store_token_creds_in_memory=None,
-        client_protocol_hostname=None,
+        key: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        token: Optional[str] = None,
+        server: Optional[str] = None,
+        protocol: Optional[str] = None,
+        api: Optional[Literal[1, 3]] = None,
+        certificate_validation: Optional[bool] = None,
+        bolt: Optional[Union[Dict, Any]] = None,
+        token_refresh_ms: int = 10 * 60 * 1000,
+        store_token_creds_in_memory: Optional[bool] = None,
+        client_protocol_hostname: Optional[str] = None,
+        org_name: Optional[str] = None
     ):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
 
-        Provide one of key (api=1,2) or username/password (api=3) or token (api=3).
+        Provide one of key (deprecated api=1), username/password (api=3) or temporary token (api=3).
 
-        :param key: API key (1.0 API).
+        :param key: API key (deprecated 1.0 API)
         :type key: Optional[str]
         :param username: Account username (2.0 API).
         :type username: Optional[str]
@@ -346,6 +365,10 @@ class PyGraphistry(object):
         :type token: Optional[str]
         :param server: URL of the visualization server.
         :type server: Optional[str]
+        :param protocol: Protocol to use for server uploaders, defaults to "https".
+        :type protocol: Optional[str]
+        :param api: API version to use, defaults to 1 (deprecated slow json 1.0 API), prefer 3 (2.0 API with Arrow+JWT)
+        :type api: Optional[Literal[1, 3]]
         :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
         :type certificate_validation: Optional[bool]
         :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
@@ -358,10 +381,18 @@ class PyGraphistry(object):
         :type store_token_creds_in_memory: Optional[bool]
         :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
         :type client_protocol_hostname: Optional[str]
+        :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
+        :type org_name: Optional[str]
         :returns: None.
         :rtype: None
 
-        **Example: Standard (2.0 api by username/password)**
+        **Example: Standard (2.0 api by username/password with org_name)**
+                ::
+
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', username='person', password='pwd', org_name="org-name")
+
+        **Example: Standard (2.0 api by username/password) without org_name**
                 ::
 
                     import graphistry
@@ -395,8 +426,8 @@ class PyGraphistry(object):
         PyGraphistry.certificate_validation(certificate_validation)
         PyGraphistry.store_token_creds_in_memory(store_token_creds_in_memory)
         if not (username is None) and not (password is None):
-            PyGraphistry.login(username, password)
-        PyGraphistry.api_token(token or PyGraphistry._config["api_token"])
+            PyGraphistry.login(username, password, org_name)
+        PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         PyGraphistry.authenticate()
 
         PyGraphistry.set_bolt_driver(bolt)
@@ -406,16 +437,19 @@ class PyGraphistry(object):
         mode: Optional[str] = None,
         notify: Optional[bool] = None,
         invited_users: Optional[List] = None,
+        mode_action: Optional[str] = None,
         message: Optional[str] = None,
     ):
         """Set global default sharing mode
 
-        :param mode: Either "private" or "public"
+        :param mode: Either "private" or "public" or "organization"
         :type mode: str
         :param notify: Whether to email the recipient(s) upon upload
         :type notify: bool
         :param invited_users: List of recipients, where each is {"email": str, "action": str} and action is "10" (view) or "20" (edit)
         :type invited_users: List
+        :param mode_action: Only used when mode="organization", action for sharing within organization, "10" (view) or "20" (edit), default is "20"
+        :type mode_action: str
 
         Requires an account with sharing capabilities.
 
@@ -497,11 +531,12 @@ class PyGraphistry(object):
                 g.plot()
         """
 
-        PyGraphistry._config["privacy"] = {
-            "mode": mode,
-            "notify": notify,
-            "invited_users": invited_users,
-            "message": message,
+        PyGraphistry._config['privacy'] = {
+            'mode': mode,
+            'notify': notify,
+            'invited_users': invited_users,
+            'mode_action': mode_action,
+            'message': message
         }
 
     @staticmethod
@@ -1816,10 +1851,6 @@ class PyGraphistry(object):
                     f.write(json_dataset)
                 else:
                     f.write(json_dataset.encode("utf8"))
-        elif mode == "vgraph":
-            bin_dataset = dataset.SerializeToString()
-            with gzip.GzipFile(fileobj=out_file, mode="w", compresslevel=9) as f:
-                f.write(bin_dataset)
         else:
             raise ValueError("Unknown mode:", mode)
 
@@ -1867,69 +1898,6 @@ class PyGraphistry(object):
                 "type": "vgraph",
             }
 
-    @staticmethod
-    def _etl2(dataset):
-        PyGraphistry.authenticate()
-
-        vg = dataset["vgraph"]
-        encodings = dataset["encodings"]
-        attributes = dataset["attributes"]
-        metadata = {
-            "name": dataset["name"],
-            "datasources": [{"type": "vgraph", "url": "data0"}],
-            "nodes": [
-                {
-                    "count": vg.vertexCount,
-                    "encodings": encodings["nodes"],
-                    "attributes": attributes["nodes"],
-                }
-            ],
-            "edges": [
-                {
-                    "count": vg.edgeCount,
-                    "encodings": encodings["edges"],
-                    "attributes": attributes["edges"],
-                }
-            ],
-        }
-
-        out_file = PyGraphistry._get_data_file(vg, "vgraph")
-        metadata_json = json.dumps(metadata, ensure_ascii=False, cls=NumpyJSONEncoder)
-        parts = {
-            "metadata": ("metadata", metadata_json, "application/json"),
-            "data0": ("data0", out_file.getvalue(), "application/octet-stream"),
-        }
-
-        params = {
-            "usertag": PyGraphistry._tag,
-            "agent": "pygraphistry",
-            "apiversion": "2",
-            "agentversion": sys.modules["graphistry"].__version__,
-            "key": PyGraphistry.api_key(),
-        }
-        response = requests.post(
-            PyGraphistry._etl_url(),
-            files=parts,
-            params=params,
-            verify=PyGraphistry._config["certificate_validation"],
-        )
-        response.raise_for_status()
-
-        try:
-            jres = response.json()
-        except:
-            raise ValueError("Unexpected server response", response)
-
-        if jres["success"] is not True:
-            raise ValueError(
-                "Server reported error:", jres["msg"] if "msg" in jres else "No Message"
-            )
-        else:
-            return {
-                "name": jres["dataset"],
-                "viztoken": jres["viztoken"],
-                "type": "jsonMeta",
-            }
 
     @staticmethod
     def _check_key_and_version():
@@ -1952,6 +1920,7 @@ class PyGraphistry(object):
             ):
                 mver = jres["pygraphistry"]["minVersion"]
                 lver = jres["pygraphistry"]["latestVersion"]
+
                 from packaging.version import parse
                 try:
                     if parse(mver) > parse(cver):
@@ -2052,6 +2021,20 @@ class PyGraphistry(object):
         )
     scene_settings.__doc__ = Plotter().scene_settings.__doc__
 
+    @staticmethod
+    def org_name(value=None):
+        """Set or get the org_name when register/login.
+        """
+
+        if value is None:
+            if 'org_name' in PyGraphistry._config:
+                return PyGraphistry._config['org_name']
+            return None
+
+        # setter
+        if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
+            PyGraphistry._config['org_name'] = value.strip()
+
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
@@ -2094,6 +2077,7 @@ drop_graph = PyGraphistry.drop_graph
 gsql_endpoint = PyGraphistry.gsql_endpoint
 gsql = PyGraphistry.gsql
 layout_settings = PyGraphistry.layout_settings
+org_name = PyGraphistry.org_name
 scene_settings = PyGraphistry.scene_settings
 from_igraph = PyGraphistry.from_igraph
 from_cugraph = PyGraphistry.from_cugraph

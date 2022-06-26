@@ -38,6 +38,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     gremlin_client,
     drop_graph,
     layout_settings,
+    org_name,
     scene_settings,
     nodexl,
     ArrowUploader,
@@ -50,6 +51,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
 from graphistry.compute import (
     n, e_forward, e_reverse, e_undirected
 )
+
 
 from ._version import get_versions
 

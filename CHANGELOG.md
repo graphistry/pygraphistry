@@ -25,6 +25,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * tests: gpu env tweaks
 * tests: umap logging was throwing warnings
 
+## [0.26.0 - 2022-06-03]
+
+### Added
+* `g.transform()`
+* `g.transform_umap()`
+* `g.scale()`
+* Memoization on UMAP and Featurize calls
+* Adds **kwargs and propagates them through to different function calls (featurize, umap, scale, etc)
+
+### Breaking 🔥
+
+* Final deprecation of `register(api=2)` protobuf/vgraph mode - also works around need for protobuf test upgrades
+
+## [0.25.3 - 2022-06-22]
+
+### Added
+
+* `register(..., org_name='my_org')`: Optionally upload into an organization
+* `g.privacy(mode='organization')`: Optionally limit sharing to within your organization
+
+### Changed
+
+* docs: `org_name` in `README.md` and sharing tutorial
+
 ## [0.25.2 - 2022-05-11]
 
 ### Added

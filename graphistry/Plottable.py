@@ -50,27 +50,23 @@ class Plottable(object):
     _bolt_driver : Any
     _tigergraph : Any
 
-    _node_embedding : Optional[Any]
+    _node_embedding : Optional[pd.DataFrame]
     _node_encoder : Optional[Any]
     _node_features : Optional[pd.DataFrame]
-    _node_ordinal_pipeline: Optional[Pipeline]
     _node_target : Optional[pd.DataFrame]
-    _node_target_encoder : Optional[Any]
 
-    _edge_embedding : Optional[Any]
-    _edge_encoders : Optional[Any]
+    _edge_embedding : Optional[pd.DataFrame]
+    _edge_encoder : Optional[Any]
     _edge_features : Optional[pd.DataFrame]
-    _edge_ordinal_pipeline : Optional[Pipeline]
     _edge_target : Optional[pd.DataFrame]
-    _edge_target_encoder : Optional[Any]
 
     _weighted_adjacency: Optional[Any]
     _weighted_adjacency_nodes : Optional[Any]
     _weighted_adjacency_edges : Optional[Any]
-    _weighted_edges_df : Optional[Any]
-    _weighted_edges_df_from_nodes : Optional[Any]
-    _weighted_edges_df_from_edges : Optional[Any]
-    _xy: Optional[Any]
+    _weighted_edges_df : Optional[pd.DataFrame]
+    _weighted_edges_df_from_nodes : Optional[pd.DataFrame]
+    _weighted_edges_df_from_edges : Optional[pd.DataFrame]
+    _xy: Optional[pd.DataFrame]
 
     _umap : Optional[UMAP]
 
@@ -78,6 +74,7 @@ class Plottable(object):
     _entity_to_index : dict
     _index_to_entity : dict
 
+    DGL_graph: Optional[Any]
 
     def __init__(self, *args, **kwargs):
         #raise RuntimeError('should not happen')

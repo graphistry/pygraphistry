@@ -11,7 +11,7 @@
 [![Uptime Robot status](https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com)](https://status.graphistry.com/) [<img src="https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
 [![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)](https://twitter.com/graphistry)
 
-PyGraphistry is a Python visual graph AI library to extract, transform, analyze, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.
+**PyGraphistry is a Python visual graph AI library to extract, transform, analyze, model, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.** Installing with optional `graphistry[ai]` dependencies adds **graph autoML**, including automatic feature engineering, UMAP, and graph neural net support. Combined, PyGraphistry reduces your `time to graph` for going from raw data to visualizations and AI models down to three lines of code.
 
 Graphistry gets used on problems like visually mapping the behavior of devices and users, investigating fraud, analyzing machine learning results, and starting in graph AI. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 2MM elements. The serverside GPU analytics engine supports even bigger graphs. It smoothes graph workflows over the PyData ecosystem including Pandas/Spark/Dask dataframes, Nvidia RAPIDS GPU dataframes & GPU graphs, DGL/PyTorch graph neural networks, and various data connectors.
 
@@ -23,7 +23,7 @@ The PyGraphistry Python client helps several kinds of usage modes:
 * **Dashboarding**: Embed into your favorite framework. Additionally, see our sister project [Graph-App-Kit](https://github.com/graphistry/graph-app-kit) for quickly building interactive graph dashboards by launching a stack built on PyGraphistry, StreamLit, Docker, and ready recipes for integrating with common graph libraries
 
 PyGraphistry is a friendly and optimized PyData-native interface to the language-neutral [Graphistry REST APIs](https://hub.graphistry.com/docs/api/).
-You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Neo4j, Splunk, and more (see below). Wrangle data however you want, and with especially good support for Pandas dataframes, Apache Arrow tables, and Nvidia RAPIDS cuDF dataframes.
+You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Neo4j, Splunk, and more (see below). Wrangle data however you want, and with especially good support for Pandas dataframes, Apache Arrow tables, Nvidia RAPIDS cuDF dataframes & cuGraph graphs, and DGL/PyTorch graph neural networks.
 
 1. [Interactive Demo](#demo-of-friendship-communities-on-facebook)
 2. [Graph Gallery](#gallery)
@@ -49,11 +49,18 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 * **Easy to install:** `pip install` the client in your notebook or web app, and then connect to a [free Graphistry Hub account](https://www.graphistry.com/get-started) or [launch your own private GPU server](https://www.graphistry.com/get-started)
 
    ```python
-  # pip install --user graphistry
-  # pip install --user graphistry[bolt,gremlin,nodexl,igraph,networkx]  # optional
+  # pip install --user graphistry              # minimal
+  # pip install --user graphistry[bolt,gremlin,nodexl,igraph,networkx]  # data plugins
+  # Requires Python 3.8+ (for scikit-learn 1.0+):
+  # pip install --user graphistry[umap-learn]  # UMAP autoML (without text support)
+  # pip install --user graphistry[ai]          # Full UMAP + GNN autoML, including sentence transformers (1GB+)
+
   import graphistry
   graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com
-  #graphistry.register(..., protocol='http', host='my.site.ngo')  # Private
+
+  #graphistry.register(..., org_name='my-org') # Upload into an organization account
+  #graphistry.register(..., protocol='http', server='my.site.ngo')  # Use with a self-hosted server
+  
   ```
 
 * **Notebook-friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:
@@ -79,6 +86,21 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 * **Configurable:** In-tool or via the declarative APIs, use the powerful encodings systems for tasks like coloring by time, sizing by score, clustering by weight, show icons by type, and more.
 
 * **Shareable:** Share live links, configure who has access, and more! [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb)
+
+* **Graph AI that is fast & easy:** In oneines of code, turn messy data into feature vectors for modeling, GNNs for training pipelines, lower dimensional embeddings, and visualizations:
+
+    ```python
+    df = pandas.read_csv('accounts.csv')
+
+    # UMAP dimensionality reduction with automatic feature engineering
+    g1 = graphistry.nodes(df).umap()
+
+    # Automatically shows top inferred similarity edges g1._edges
+    g1.plot()
+    
+    # Optional: Use subset of columns, supervised learning target, & more
+    g2.umap(X=['name', 'description', 'amount'], y=['label_col_1']).plot()
+    ```
 
 ### Explore any data as a graph
 
@@ -286,6 +308,111 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     graphistry.nodexl('https://file.xls')._nodes
     ```
 
+## Graph AI in a single line of code
+
+Graph autoML features including:
+
+### Generate features from raw data
+
+Automatically and intelligently transform text, numbers, booleans, and other formats to AI-ready representations:
+
+* Featurization
+
+    ```python
+    g = graphistry.nodes(df).featurize(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+
+    print('X', g._node_features)
+    print('y', g._node_target)
+    ```
+
+* Set `kind='edges'` to featurize edges:
+
+    ```python
+    g = graphistry.edges(df, src, dst).featurize(kind='edges', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+    ```
+
+* Use generated features with both Graphistry and external libraries:
+
+    ```python
+    # graphistry
+    g = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
+
+    # other pydata libraries
+    X = g._node_features
+    y = g._node_target
+    from sklearn.ensemble import RandomForestRegressor
+    model = RandomForestRegressor().fit(X, y) #assumes train/test split
+    new_df = pandas.read_csv(...)
+    X_new, _ = g.transform(new_df, None, kind='nodes')
+    preds = model.predict(X_new)
+    ```
+
+See `help(g.featurize)` for more options
+
+### [UMAP](https://umap-learn.readthedocs.io/en/latest/) 
+
+* Reduce dimensionality and plot a similarity graph from feature vectors:
+
+    ```python
+      # automatic feature engineering, UMAP
+      g = graphistry.nodes(df).umap()
+      
+      # plot the similarity graph even though there was no explicit edge_dataframe passed in -- it is created during UMAP.
+      g.plot()
+    ```
+
+* Apply a trained model to new data:
+
+    ```python
+      new_df = pd.read_csv(...)
+      embeddings, X_new, _ = g.transform_umap(new_df, None, kind='nodes')
+    ```
+
+* UMAP supports many options, such as supervised mode, working on a subset of columns, and passing arguments to underlying `featurize()` and UMAP implementations (see `help(g.umap)`):
+
+    ```python
+      g.umap(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+    ```
+
+You can also featurize edges and UMAP them as we did above.
+
+UMAP support is rapidly evolving, please contact the team directly or on Slack for additional discussions
+
+See `help(g.umap)` for more options
+
+### [GNN models](https://docs.dgl.ai/en/0.6.x/index.html)
+
+* Graphistry adds bindings and automation to working with popular GNN models, currently focusing on DGL/PyTorch:
+
+    ```python
+    g = (graphistry
+        .nodes(ndf)
+        .edges(edf, src, dst)
+        .build_gnn(
+            X_nodes=['col_1', ..., 'col_n'], #columns from nodes_dataframe
+            y_nodes=['label', ..., 'other_targets'],
+            X_edges=['col_1_edge', ..., 'col_n_edge'], #columns from edges_dataframe
+            y_edges=['label_edge', ..., 'other_targets_edge'],
+            ...)
+    )                    
+    G = g.DGL_graph
+
+    from [your_training_pipeline] import train, model
+    # Train
+    g = graphistry.nodes(df).build_gnn(y=`target`) 
+    G = g.DGL_graph
+    train(G, model)
+    # predict on new data
+    X_new, _ = g.transform(new_df, None, kind='nodes' or 'edges') # no targets
+    predictions = model.predict(G_new, X_new)
+    ```
+
+Like `g.umap()`, GNN layers automate feature engineering (`.featurize()`)
+
+See `help(g.build_gnn)` for options.
+
+GNN support is rapidly evolving, please contact the team directly or on Slack for additional discussions
+
 ### Quickly configurable
 
 Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/). Check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb), [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb), [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb), [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb), [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb) and [sharing controls](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb):
@@ -362,13 +489,18 @@ You need to install the PyGraphistry Python client and connect it to a Graphistr
 
 ### Configure
 
-Most users connect to a Graphistry GPU server account via `graphistry.register(api=3, username='abc', password='xyz')` (hub.graphistry.com) or  `graphistry.register(api=3, username='abc', password='xyz', protocol='http', server='my.private_server.org')`
+Most users connect to a Graphistry GPU server account via:
+* `graphistry.register(api=3, username='abc', password='xyz'`: personal hub.graphistry.com account
+* `graphistry.register(api=3, username='abc', password='xyz', org_name='optional_org')`: team hub.graphistry.com account
+* `graphistry.register(api=3, username='abc', password='xyz', org_name='optiona_org', protocol='http', server='my.private_server.org')`: private server
 
 For more advanced configuration, read on for:
 
 * Version: Use protocol `api=3`, which will soon become the default, or a legacy version
 
-* Tokens: Connect to a GPU server by providing a `username='abc'`/`password='xyz'`, or for advanced long-running service account software, a refresh loop using 1-hour-only JWT tokens
+* JWT Tokens: Connect to a GPU server by providing a `username='abc'`/`password='xyz'`, or for advanced long-running service account software, a refresh loop using 1-hour-only JWT tokens
+
+* Organizations: Optionally use `org_name` to set a specific organization
 
 * Private servers: PyGraphistry defaults to using the free [Graphistry Hub](https://hub.graphistry.com) public API
 
@@ -378,14 +510,14 @@ Non-Python users may want to explore the underlying language-neutral [authentica
 
 #### Advanced Login
 
-* **Recommended for people:** Provide your account username/password:
+* **For people:** Provide your account username/password:
 
 ```python
 import graphistry
 graphistry.register(api=3, username='username', password='your password')
 ```
 
-* **For code**: Long-running services may prefer to use 1-hour JWT tokens:
+* **For service accounts**: Long-running services may prefer to use 1-hour JWT tokens:
 
 ```python
 import graphistry
@@ -399,11 +531,13 @@ fresh_token = graphistry.api_token()
 assert initial_one_hour_token != fresh_token
 ```
 
+Refreshes exhaust their limit every day/month. An upcoming Personal Key feature enables non-expiring use.
+
 Alternatively, you can rerun `graphistry.register(api=3, username='username', password='your password')`, which will also fetch a fresh token.
 
-#### Advanced: Private servers
+#### Advanced: Private servers - server uploads
 
-Specify which Graphistry server to reach:
+Specify which Graphistry server to reach for Python uploads:
 
 ```python
 graphistry.register(protocol='https', server='hub.graphistry.com')
@@ -417,7 +551,7 @@ graphistry.register(protocol='http', server='nginx', client_protocol_hostname=''
 
 Using `'http'`/`'nginx'` ensures uploads stay within the Docker network (vs. going more slowly through an outside network), and client protocol `''` ensures the browser URLs do not show `http://nginx/`, and instead use the server's name. (See immediately following **Switch client URL** section.)
 
-#### Advanced: Switch client URL
+#### Advanced: Private servers - switch client URL for browser views
 
 In cases such as when the notebook server is the same as the Graphistry server, you may want your Python code to  *upload* to a known local Graphistry address without going outside the network (e.g., `http://nginx` or `http://localhost`), but for web viewing, generate and embed URLs to a different public address (e.g., `https://graphistry.acme.ngo/`). In this case, explicitly set a  client (browser) location different from `protocol` / `server`:
 
@@ -442,7 +576,13 @@ By default, visualizations are publicly viewable by anyone with the URL (that is
 * Private-only: You can globally default uploads to private:
 
 ```python
-graphistry.privacy()
+graphistry.privacy()  # graphistry.privacy(mode='private')
+```
+
+* Organizations: You can login with an organization and share only within it
+```python
+graphistry.register(api=3, username='...', password='...', org_name='my-org123')
+graphistry.privacy(mode='organization')
 ```
 
 * Invitees: You can share access to specify users, and optionally, even email them invites
