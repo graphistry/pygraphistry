@@ -18,6 +18,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 
 * Infra: Update GPU test env settings
+* `materialize_nodes`: Return regular index
 
 ### Fixed
 

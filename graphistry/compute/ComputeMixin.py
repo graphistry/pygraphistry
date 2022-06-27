@@ -83,7 +83,7 @@ class ComputeMixin(MIXIN_BASE):
         elif engine == "cudf":
             import cudf
             concat_df = cudf.concat([g._edges[g._source], g._edges[g._destination]])
-        nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame()
+        nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 
     def get_indegrees(self, col: str = "degree_in"):
