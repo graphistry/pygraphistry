@@ -45,7 +45,8 @@ edges3_df = pd.DataFrame({
     'a': ['c', 'd', 'a'],
     'b': ['d', 'a', 'b'],
     'v1': ['cc', 'dd', 'aa'],
-    'i': [2, 4, 6]
+    'i': [2, 4, 6],
+    'f': [2.0, 4.0, 6.0]
 })
 nodes3_df = pd.DataFrame({
     'n': ['a', 'b', 'c', 'd'],
@@ -194,6 +195,14 @@ class Test_to_cugraph(NoAuthTestCase):
         #    NODE_CUGRAPH: nodes
         #}))
 
+    def test_weighted(self):
+        g = (graphistry
+            .edges(edges3_df, 'a', 'b')
+            .bind(edge_weight='f')
+        )
+        G = g.to_cugraph()
+        assert G.is_weighted()
+
     def test_minimal_edges_renamed(self):
         import cudf
         g = (graphistry
@@ -253,6 +262,7 @@ class Test_to_cugraph(NoAuthTestCase):
         #assert g2._node == NODE
 
     def test_nodes(self):
+        import cudf
         g = (graphistry
             .edges(pd.DataFrame({
                 's': [x[0] for x in edges],
@@ -265,18 +275,19 @@ class Test_to_cugraph(NoAuthTestCase):
         )
         G = g.to_cugraph()
         logger.debug('ig: %s', G)
-        g2 = graphistry.from_cugraph(G)
+        g2 = graphistry.from_cugraph(G).materialize_nodes()
         assert g2._edges.shape == g._edges.shape
         assert g2._source == SRC_CUGRAPH
         assert g2._destination == DST_CUGRAPH
         assert g2._edge is None
+        assert g2._node == 'id'
         logger.debug('g2._nodes: %s', g2._nodes)
-        assert g2._nodes.equals(pd.DataFrame({
-            NODE: nodes,
-            'names': names_v
-        }))
-        assert g2._node == NODE
+        assert (
+            g2._nodes.sort_values(by='id').reset_index(drop=True)
+            .equals(cudf.DataFrame({'id': nodes}))
+        )
 
+    @pytest.mark.skipif(True, reason="cugraph does not yet support property graphs")
     def test_nodes_renamed(self):
         g = (graphistry
             .edges(pd.DataFrame({
@@ -325,10 +336,10 @@ class Test_to_cugraph(NoAuthTestCase):
         logger.debug('g2._nodes: %s', g2._nodes)
         logger.debug('other: %s', nodes)
         assert (
-                g2._nodes.sort_values(by=g2._node).reset_index(drop=True)[g2._node]
-                .equals(
-                    cudf.DataFrame({g2._node: nodes}).sort_values(by=g2._node).reset_index(drop=True)[g2._node]
-                )
+            g2._nodes.sort_values(by=g2._node).reset_index(drop=True)[g2._node]
+            .equals(
+                cudf.DataFrame({g2._node: nodes}).sort_values(by=g2._node).reset_index(drop=True)[g2._node]
+            )
         )
 
     def test_nodes_undirected(self):
@@ -344,7 +355,7 @@ class Test_to_cugraph(NoAuthTestCase):
         )
         G = g.to_cugraph(directed=False)
         logger.debug('G: %s', G)
-        g2 = g.from_cugraph(G)
+        g2 = g.from_cugraph(G, load_nodes=False)
         assert g2._edges.shape == g._edges.shape
         assert g2._source == g._source
         assert g2._destination == g._destination
@@ -370,7 +381,7 @@ class Test_to_cugraph(NoAuthTestCase):
         G = g.to_cugraph(directed=False)
         logger.debug('G: %s', G)
         #ig.vs['cluster'] = ig.community_infomap().membership
-        g2 = g.from_cugraph(G)
+        g2 = g.from_cugraph(G, load_nodes=False)
         assert g2._edges.shape == g._edges.shape
         assert g2._source == g._source
         assert g2._destination == g._destination
@@ -398,7 +409,7 @@ class Test_to_cugraph(NoAuthTestCase):
         G = g.to_cugraph(directed=False)
         logger.debug('G: %s', G)
         #ig.vs['cluster'] = ig.community_infomap().membership
-        g2 = g.from_cugraph(G)
+        g2 = g.from_cugraph(G, load_nodes=False)
         assert g2._edges.shape == g._edges.shape
         assert g2._source == g._source
         assert g2._destination == g._destination
@@ -437,9 +448,11 @@ class Test_curaph_usage(NoAuthTestCase):
             }), 's', 'd')
             .materialize_nodes()
         )
+        pagerank = cugraph.pagerank(g.to_cugraph())['pagerank']
+        logger.debug('pagerank: %s', pagerank)
         g2 = g.nodes(cudf.from_pandas(g._nodes).assign(
             #TODO this seems unsafe: no guarantee ._nodes order is ig vertices order?
-            pagerank=cugraph.pagrank(g.to_cugraph())['pagerank']
+            pagerank=pagerank
         ))
         logger.debug('g2 nodes: %s', g2._nodes)
         logger.debug('g2 edges: %s', g2._edges)
@@ -450,46 +463,6 @@ class Test_curaph_usage(NoAuthTestCase):
 
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")
 class Test_cugraph_compute(NoAuthTestCase):
-
-    def test_node_calls(self):
-
-        import cudf, cugraph
-
-        overrides = {
-            #'bipartite_projection': {
-            #    'params': {'which': 0}
-            #},
-            #'community_leading_eigenvector': {
-            #    'directed': False
-            #},
-            #'community_leiden': {
-            #    'directed': False
-            #},
-            #'community_multilevel': {
-            #    'directed': False
-            #},
-            #'gomory_hu_tree': {
-            #    'directed': False
-            #}
-        }
-
-        skiplist = [
-            #'eigenvector_centrality'
-        ]
-
-        edges3_gdf = cudf.from_cudf(edges3_df)
-
-        g = graphistry.edges(edges3_gdf, 'a', 'b').materialize_nodes()
-        for alg in [x for x in node_compute_algs_to_attr.keys()]:
-            if alg not in skiplist:
-                opts = overrides[alg] if alg in overrides else {}
-                logger.debug('alg "%s", opts=(%s)', alg, opts)
-                g2 = compute_cugraph(g, alg, **opts)
-                assert g2 is not None
-                assert len(g2._nodes) == len(g._nodes)
-                assert alg in g2._nodes
-                assert len(g2._nodes.columns) == len(g._nodes.columns) + 1
-                assert g2._edges.shape == g._edges.shape
 
     def test_all_calls(self):
 
@@ -511,20 +484,112 @@ class Test_cugraph_compute(NoAuthTestCase):
             #'gomory_hu_tree': {
             #    'directed': False
             #}
+            'bfs': {
+                'params': {
+                    'start': 'a'
+                }
+            },
+            'bfs_edges': {
+                'params': {
+                    'source': 'a'
+                }
+            },
+            'ego_graph': {
+                'params': {
+                    'n': 'a'
+                }  
+            },
+            'jaccard_w': {
+                'params': {
+                    'weights': cudf.DataFrame({
+                        'vertex': ['a', 'b', 'c', 'd'],
+                        'weight': [1, 1, 1, 2]
+                    })
+                }
+            },
+            'k_truss': {
+                'params': {
+                    'k': 2
+                }
+            },
+            'ktruss_subgraph': {
+                'params': {
+                    'k': 2
+                }
+            },
+            'overlap_w': {
+                'params': {
+                    'weights': cudf.DataFrame({
+                        'vertex': ['a', 'b', 'c', 'd'],
+                        'weight': [1, 1, 1, 2]
+                    })
+                }
+            },
+            'sorensen_w': {
+                'params': {
+                    'weights': cudf.DataFrame({
+                        'vertex': ['a', 'b', 'c', 'd'],
+                        'weight': [1, 1, 1, 2]
+                    })
+                }
+            },
+            'spectralBalancedCutClustering': {
+                'params': {
+                    'num_clusters': 2
+                },
+                'directed': False
+            },
+            'spectralModularityMaximizationClustering': {
+                'params': {
+                    'num_clusters': 2
+                },
+                'directed': False
+            },
+            'shortest_path': {
+                'params': {
+                    'source': 'a'
+                }
+            },
+            'shortest_path_length': {
+                'params': {
+                    'source': 'a'
+                }
+            },
+            'sssp': {
+                'params': {
+                    'source': 'a'
+                }
+            },
+            'subgraph': {
+                'params': {
+                    'vertices': cudf.Series(['a'])
+                }
+            }
         }
 
         skiplist = [
             #'eigenvector_centrality'
         ]
 
-        edges3_gdf = cudf.from_cudf(edges3_df)
+        edges3_gdf = cudf.from_pandas(edges3_df)
 
-        g = graphistry.edges(edges3_gdf, 'a', 'b').materialize_nodes()
+        g = graphistry.edges(edges3_gdf, 'a', 'b').bind(edge_weight='f').materialize_nodes()
         for alg in [x for x in compute_algs]:
             if alg not in skiplist:
                 opts = overrides[alg] if alg in overrides else {}
                 logger.debug('alg "%s", opts=(%s)', alg, opts)
-                assert compute_cugraph(g, alg, **opts) is not None
+                out = compute_cugraph(g, alg, **opts)
+                assert out is not None
+                if alg in node_compute_algs_to_attr:
+                    assert out is not None
+                    logger.debug('node outs: %s', out._nodes)
+                    out_cols = node_compute_algs_to_attr[alg] if isinstance(node_compute_algs_to_attr[alg], list) else [node_compute_algs_to_attr[alg]]
+                    for col in out_cols:
+                        assert col in out._nodes
+                    assert len(out._nodes) == len(g._nodes)
+                    #assert alg in out._nodes
+                    assert len(out._nodes.columns) == len(g._nodes.columns) + len(out_cols)
+                    assert out._edges.shape == g._edges.shape
 
 
 
@@ -542,6 +607,7 @@ class Test_cugraph_layouts(NoAuthTestCase):
         }
 
         g = graphistry.edges(cudf.DataFrame(edges3_df), 'a', 'b').nodes(cudf.DataFrame(nodes3_df), 'n')
+        assert len(layout_algs) > 0
         for alg in layout_algs:
             opts = overrides[alg] if alg in overrides else {}
             logger.debug('alg "%s", opts=(%s)', alg, opts)
@@ -549,4 +615,7 @@ class Test_cugraph_layouts(NoAuthTestCase):
             logger.debug('g._edges: %s', g._edges)
             logger.debug('2._edges: %s', g2._edges)
             assert len(g2._nodes) == len(g._nodes)
+            assert 'x' in g2._nodes
+            assert 'y' in g2._nodes
+            assert len(g2._nodes[['x', 'y']].dropna()) == len(g._nodes)
             assert g2._edges.equals(g._edges)

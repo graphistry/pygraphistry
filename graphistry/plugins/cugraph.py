@@ -166,7 +166,7 @@ node_compute_algs_to_attr : Dict[str, Union[str, List[str]]] = {
     'strongly_connected_components': 'labels',
     'weakly_connected_components': 'labels',
     'core_number': 'core_number',
-    'k_core': 'values',
+    #'k_core': 'values',
     'hits': ['hubs', 'authorities'],
     'pagerank': 'pagerank',
     #random_walks
@@ -192,9 +192,10 @@ edge_compute_algs_to_attr = {
 }
 graph_compute_algs = [
     'ego_graph',
-    'k_truss',
-    'ktruss_subgraph',
-    'subgraph',
+    #'k_truss',  # not implemented in CUDA 11.4 for 22.04
+    'k_core',
+    #'ktruss_subgraph',  # not implemented in CUDA 11.4 for 22.04
+    #'subgraph',  # unclear why not working
     'minimum_spanning_tree'
 ]
 
@@ -234,6 +235,7 @@ def compute_cugraph(
             out = out[0]
         if 'source' in out.columns:
             out = out.rename(columns={'source': 'src', 'destination': 'dst'})
+        g = self
         if g._source != 'src':
             out = out.rename(columns={'src': g._source})
         if g._destination != 'dst':
@@ -253,7 +255,7 @@ def compute_cugraph(
             out = out[0]
         if out_col is not None:
             raise ValueError('Graph returned, but out_col was specified')
-        return from_cugraph(self, out)
+        return from_cugraph(self, out, load_nodes=False)
 
     raise ValueError('Unsupported algorithm: %s', alg)
 

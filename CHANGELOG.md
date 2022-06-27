@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 * `materialize_nodes()`: Supports `cudf`, materializing a `cudf.DataFrame` nodes table when `._edges` is an instance of `cudf.DataFrame`
+* `to_cugraph()`, `from_cugraph()`, `compute_cugraph()`, `layout_cugraph()`
 
 ### Changed
 
