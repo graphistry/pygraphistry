@@ -484,6 +484,11 @@ class Test_cugraph_compute(NoAuthTestCase):
             #'gomory_hu_tree': {
             #    'directed': False
             #}
+            'batched_ego_graphs': {
+                'params': {
+                    'seeds': cudf.Series(['a', 'b'])
+                }
+            },
             'bfs': {
                 'params': {
                     'start': 'a'

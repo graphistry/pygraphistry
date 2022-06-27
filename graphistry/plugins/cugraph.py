@@ -156,6 +156,7 @@ def to_cugraph(self: Plottable,
 #'vertex' +
 node_compute_algs_to_attr : Dict[str, Union[str, List[str]]] = {
     'betweenness_centrality': 'betweenness_centrality',
+    #'degree_centrality': 'degree_centrality',
     'katz_centrality': 'katz_centrality',
     'ecg': 'partition',
     'leiden': 'partition',
@@ -179,6 +180,7 @@ node_compute_algs_to_attr : Dict[str, Union[str, List[str]]] = {
 
 #'src'/'dst' or 'source'/'destination' +
 edge_compute_algs_to_attr = {
+    'batched_ego_graphs': 'unknown',
     'edge_betweenness_centrality': 'edge_betweenness_centrality',
     'jaccard': 'jaccard_coeff',
     'jaccard_w': 'jaccard_coeff',
