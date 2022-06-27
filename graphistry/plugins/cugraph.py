@@ -36,6 +36,13 @@ def from_cugraph(self,
     load_nodes: bool = True, load_edges: bool = True,
     merge_if_existing: bool = True
 ) -> Plottable:
+    """
+    
+    If bound IDs, use the same IDs in the returned graph.
+
+    If non-empty nodes/edges, instead of returning G's topology, use existing topology and merge in G's attributes
+    
+    """
 
     import cudf, cugraph
 
@@ -47,8 +54,8 @@ def from_cugraph(self,
     dst = self._destination or DST_CUGRAPH
     edges_gdf = G.view_edge_list()  # src, dst
 
-    if g._nodes and load_nodes:
-        raise NotImplementedError('cuGraph does not support nodes tables; set g.nodes(None)')
+    if g._nodes is not None and load_nodes:
+        raise NotImplementedError('cuGraph does not support nodes tables; set g.nodes(None) or from_cugraph(load_nodes=False)')
 
     if src != 'src':
         edges_gdf = edges_gdf.rename(columns={'src': src})
@@ -76,7 +83,7 @@ def from_cugraph(self,
                 raise ValueError('Unsupported edge data type, expected pd/cudf.DataFrame, got: %s', type(g._edges))
 
         #TODO handle case where where 3 attrs and third is _edge        
-        if len(g_indexed_df._edges.columns) == 2 and (len(g_indexed_df._edges) == len(edges_gdf)):
+        if len(g_indexed_df.columns) == 2 and (len(g_indexed_df) == len(edges_gdf)):
             #opt: skip merge: no old columns
             1
         elif ((len(edges_gdf.columns) == 2) or len(edges_gdf.columns) == 0) and (len(g._edges) == len(edges_gdf)):
@@ -85,17 +92,16 @@ def from_cugraph(self,
         else:
             if len(g_indexed_df) != len(edges_gdf):
                 logger.warning('edge tables do not match in length; switch merge_if_existing to False or load_edges to False or add missing edges')
-            g_edges_trimmed = df_to_gdf(g_indexed_df._edges)[[x for x in g_indexed_df._edges if x not in edges_gdf or x in [src, dst]]]
+            g_edges_trimmed = df_to_gdf(g_indexed_df)[[x for x in g_indexed_df if x not in edges_gdf or x in [src, dst]]]
             if g._source != 'src':
                 edges_gdf = edges_gdf.rename(columns={'src': src})
             if g._destination != 'dst':
                 edges_gdf = edges_gdf.rename(columns={'dst': dst})
-            edges_gdf = edges_gdf.merge(g_edges_trimmed, how='left', on=[[src, dst]])
+            edges_gdf = edges_gdf.merge(g_edges_trimmed, how='left', on=[src, dst])
 
     g = g.edges(edges_gdf, src, dst)
 
-
-    return self
+    return g
 
 def to_cugraph(self: Plottable, 
     directed: bool = True,
@@ -112,11 +118,12 @@ def to_cugraph(self: Plottable,
         CG = cugraph.MultiGraph
     elif kind == 'BiPartiteGraph':
         CG = cugraph.BiPartiteGraph
+
+    G = CG(directed=directed)
     
     opts = {
         'source': self._source,
         'destination': self._destination,
-        'directed': directed
     }
     if self._edge_weight is not None:
         opts['edge_attr'] = self._edge_weight
@@ -124,20 +131,24 @@ def to_cugraph(self: Plottable,
     if self._edges is None:
         raise ValueError('No edges loaded')
     elif isinstance(self._edges, cudf.DataFrame):
-        G = CG.from_cudf_edgelist(self._edges, **opts)
+        G.from_cudf_edgelist(self._edges, **opts)
     elif isinstance(self._edges, pd.DataFrame):
-        G = CG.from_pandas_edgelist(self._edges, **opts)
+        G.from_pandas_edgelist(self._edges, **opts)
     else:
         was_dask = False
         try:
             import dask_cudf
             if isinstance(self._edges, dask_cudf.DataFrame):
                 was_dask = True
-                G = CG.from_dask_cudf_edgelist(self._edges, **opts)
+                G.from_dask_cudf_edgelist(self._edges, **opts)
         except ImportError:
             1
         if not was_dask:
             raise ValueError('Unsupported edge data type, expected pd/cudf.DataFrame, got: %s', type(self._edges))
+
+    if self._node is not None and self._nodes is not None:
+        nodes_gdf = self._nodes if isinstance(self._nodes, cudf.DataFrame) else cudf.from_pandas(self._nodes)
+        G.add_nodes_from(nodes_gdf[self._node])
 
     return G
 
