@@ -244,3 +244,30 @@ class Plottable(object):
         if 1 + 1:
             return RuntimeError('should not happen')
         return self
+
+    def layout_settings(
+        self,
+
+        play: Optional[int] = None,
+
+        locked_x: Optional[bool] = None,
+        locked_y: Optional[bool] = None,
+        locked_r: Optional[bool] = None,
+
+        left: Optional[float] = None,
+        top: Optional[float] = None,
+        right: Optional[float] = None,
+        bottom: Optional[float] = None,
+
+        lin_log: Optional[bool] = None,
+        strong_gravity: Optional[bool] = None,
+        dissuade_hubs: Optional[bool] = None,
+
+        edge_influence: Optional[float] = None,
+        precision_vs_speed: Optional[float] = None,
+        gravity: Optional[float] = None,
+        scaling_ratio: Optional[float] = None
+    ):
+        if 1 + 1:
+            return RuntimeError('should not happen')
+        return self
