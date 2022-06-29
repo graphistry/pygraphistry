@@ -20,3 +20,18 @@ requirements:
     - protobuf>=2.6.0
     - pyarrow>=0.15.0
     - requests
+
+outputs:
+  - name: graphistry-umap
+    requirements:
+      - umap-learn
+      - dirty_cat
+  - name: graphistry-ai
+    requirements:
+      - scikit-learn
+      - scipy
+      - umap-learn
+      - dirty_cat
+      - dgl
+      - pytorch
+      - sentence-transformers
