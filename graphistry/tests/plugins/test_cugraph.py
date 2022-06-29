@@ -620,7 +620,7 @@ class Test_cugraph_layouts(NoAuthTestCase):
             logger.debug('g._edges: %s', g._edges)
             logger.debug('2._edges: %s', g2._edges)
             assert len(g2._nodes) == len(g._nodes)
-            assert 'x' in g2._nodes
-            assert 'y' in g2._nodes
+            assert 'x' in g2._nodes.columns
+            assert 'y' in g2._nodes.columns
             assert len(g2._nodes[['x', 'y']].dropna()) == len(g._nodes)
             assert g2._edges.equals(g._edges)

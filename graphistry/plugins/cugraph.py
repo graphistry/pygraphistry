@@ -310,7 +310,11 @@ def layout_cugraph(
     self: Plottable,
     layout: str = 'force_atlas2', params: dict = {},
     kind : CuGraphKind = 'Graph', directed = True,
-    G: Optional[Any] = None
+    G: Optional[Any] = None,
+    bind_position: bool = True,
+    x_out_col: str = 'x',
+    y_out_col: str = 'y',
+    play: Optional[int] = 0,
 ) -> Plottable:
     """Layout the grpah using a cuGraph algorithm. For a list of layouts, see cugraph documentation (currently just force_atlas2).
 
@@ -388,4 +392,10 @@ def layout_cugraph(
         out = out.rename(columns={'vertex': g._node})
 
     nodes_gdf = g._nodes.merge(out, how='left', on=g._node)
-    return g.nodes(nodes_gdf)
+
+    g2 = g.nodes(nodes_gdf.assign(**{x_out_col: nodes_gdf['x'], y_out_col: nodes_gdf['y']}))
+    if bind_position:
+        g2 = g2.bind(point_x=x_out_col, point_y=y_out_col)
+    if play is not None:
+        g2 = g2.layout_settings(play=play)
+    return g2
