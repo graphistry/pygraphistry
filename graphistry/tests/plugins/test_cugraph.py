@@ -589,13 +589,13 @@ class Test_cugraph_compute(NoAuthTestCase):
                     assert out is not None
                     logger.debug('node outs: %s', out._nodes)
                     out_cols = node_compute_algs_to_attr[alg] if isinstance(node_compute_algs_to_attr[alg], list) else [node_compute_algs_to_attr[alg]]
+                    out_cols[0] = alg
                     for col in out_cols:
                         assert col in out._nodes
                     assert len(out._nodes) == len(g._nodes)
                     #assert alg in out._nodes
                     assert len(out._nodes.columns) == len(g._nodes.columns) + len(out_cols)
                     assert out._edges.shape == g._edges.shape
-
 
 
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")

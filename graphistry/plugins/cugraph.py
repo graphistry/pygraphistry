@@ -219,7 +219,7 @@ def compute_cugraph(
 
     :param alg: algorithm name
     :type alg: str
-    :param out_col: output column name
+    :param out_col: node table output column name, defaults to alg param
     :type out_col: Optional[str]
     :param params: algorithm parameters passed to cuGraph as kwargs
     :type params: dict
@@ -246,6 +246,7 @@ def compute_cugraph(
     **Example: Pass params to cugraph**
         ::
             g2 = g.compute_cugraph('k_truss', params={'k': 2})
+            assert 'k_truss' in g2._nodes.columns
 
     """
 
@@ -264,10 +265,9 @@ def compute_cugraph(
         expected_cols = node_compute_algs_to_attr[alg]
         if not isinstance(expected_cols, list):
             expected_cols = [expected_cols]
-        if out_col is not None:
-            if len(expected_cols) > 1:
-                raise ValueError('Multiple columns returned, but out_col (singleton) was specified')
-            out = out.rename(columns={expected_cols[0]: out_col})
+        if out_col is None:
+            out_col = alg
+        out = out.rename(columns={expected_cols[0]: out_col})            
         nodes_gdf = g._nodes.merge(out, how='left', on=g._node)
         return g.nodes(nodes_gdf)
     elif alg in edge_compute_algs_to_attr:
