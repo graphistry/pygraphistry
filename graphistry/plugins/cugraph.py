@@ -110,6 +110,12 @@ def to_cugraph(self: Plottable,
     edge_attributes: Optional[List[str]] = None,
     kind : CuGraphKind = 'Graph'
 ):
+    """Convert current graph to a cugraph.Graph object
+
+    To assign an edge weight, use `g.bind(edge_weight='some_col').to_cugraph()`
+
+    Load from pandas, cudf, or dask_cudf DataFrames
+    """
 
     import cudf, cugraph
     if kind == 'Graph':
@@ -209,6 +215,39 @@ def compute_cugraph(
     kind : CuGraphKind = 'Graph', directed = True,
     G: Optional[Any] = None
 ) -> Plottable:
+    """Run cugraph algorithm on graph. For algorithm parameters, see cuGraph docs.
+
+    :param alg: algorithm name
+    :type alg: str
+    :param out_col: output column name
+    :type out_col: Optional[str]
+    :param params: algorithm parameters passed to cuGraph as kwargs
+    :type params: dict
+    :param kind: kind of cugraph to use
+    :type kind: CuGraphKind
+    :param directed: whether graph is directed
+    :type directed: bool
+    :param G: cugraph graph to use; if None, use self
+    :type G: Optional[cugraph.Graph]
+
+    :return: Plottable
+    :rtype: Plottable
+    
+    **Example: Pagerank**
+        ::
+            g2 = g.compute_cugraph('pagerank')
+            assert 'pagerank' in g2._nodes.columns
+
+    **Example: Katz centrality with rename**
+        ::
+            g2 = g.compute_cugraph('katz_centrality', out_col='katz_centrality_renamed')
+            assert 'katz_centrality_renamed' in g2._nodes.columns
+
+    **Example: Pass params to cugraph**
+        ::
+            g2 = g.compute_cugraph('k_truss', params={'k': 2})
+
+    """
 
     import cugraph
 
@@ -269,10 +308,67 @@ layout_algs = [
 
 def layout_cugraph(
     self: Plottable,
-    layout: str, params: dict = {},
+    layout: str = 'force_atlas2', params: dict = {},
     kind : CuGraphKind = 'Graph', directed = True,
     G: Optional[Any] = None
 ) -> Plottable:
+    """Layout the grpah using a cuGraph algorithm. For a list of layouts, see cugraph documentation (currently just force_atlas2).
+
+    :param layout: Name of an cugraph layout method like `force_atlas2`
+    :type layout: str
+
+    :param params: Any named parameters to pass to the underlying cugraph method
+    :type params: dict
+
+    :param kind: The kind of cugraph Graph
+    :type kind: CuGraphKind
+
+    :param directed: During the to_cugraph conversion, whether to be directed. (default True)
+    :type directed: bool
+
+    :param G: The cugraph graph (G) to layout. If None, the current graph is used.
+    :type G: Optional[Any]
+
+    :param bind_position: Whether to call bind(point_x=, point_y=) (default True)
+    :type bind_position: bool
+
+    :param x_out_col: Attribute to write x position to. (default 'x')
+    :type x_out_col: str
+
+    :param y_out_col: Attribute to write x position to. (default 'y')
+    :type y_out_col: str
+
+    :param play: If defined, set settings(url_params={'play': play}). (default 0)
+    :type play: Optional[str]
+
+    :returns: Plotter
+    :rtype: Plotter
+
+    **Example: ForceAtlas2 layout**
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g.layout_cugraph().plot()
+
+    **Example: Change which column names are generated**
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g2 = g.layout_cugraph('force_atlas2', x_out_col='my_x', y_out_col='my_y')
+            assert 'my_x' in g2._nodes
+            assert g2._point_x == 'my_x'
+            g2.plot()
+
+    **Example: Pass parameters to layout methods**
+        ::
+            import graphistry, pandas as pd
+            edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
+            g = graphistry.edges(edges, 's', 'd')
+            g2 = g.layout_cugraph('forceatlas_2', params={'lin_log_mode': True, 'prevent_overlapping': True})
+            g2.plot()
+    """
    
     import cugraph
 
