@@ -25,6 +25,7 @@ COPY bin ./bin
 COPY mypy.ini .
 COPY pytest.ini .
 COPY graphistry ./graphistry
+COPY demos/data ./demos/data
 
 ENV \
     RAPIDS=1 \
