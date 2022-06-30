@@ -134,6 +134,8 @@ def to_cugraph(self: Plottable,
     if self._edge_weight is not None:
         opts['edge_attr'] = self._edge_weight
 
+    logger.debug('opts: %s', opts)
+
     if self._edges is None:
         raise ValueError('No edges loaded')
     elif isinstance(self._edges, cudf.DataFrame):
