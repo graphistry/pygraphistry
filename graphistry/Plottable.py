@@ -237,9 +237,13 @@ class Plottable(object):
         return self
 
     def layout_cugraph(self,
-        layout: str, params: dict = {},
+        layout: str = 'force_atlas2', params: dict = {},
         kind : CuGraphKind = 'Graph', directed = True,
-        G: Optional[Any] = None
+        G: Optional[Any] = None,
+        bind_position: bool = True,
+        x_out_col: str = 'x',
+        y_out_col: str = 'y',
+        play: Optional[int] = 0
     ):
         if 1 + 1:
             return RuntimeError('should not happen')
