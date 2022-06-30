@@ -136,23 +136,25 @@ def to_cugraph(self: Plottable,
 
     logger.debug('opts: %s', opts)
 
-    if self._edges is None:
+    #cugraph seems to get confused when extra cols
+    edges_df = self._edges[list(opts.values())]
+    if edges_df is None:
         raise ValueError('No edges loaded')
-    elif isinstance(self._edges, cudf.DataFrame):
-        G.from_cudf_edgelist(self._edges, **opts)
-    elif isinstance(self._edges, pd.DataFrame):
-        G.from_pandas_edgelist(self._edges, **opts)
+    elif isinstance(edges_df, cudf.DataFrame):
+        G.from_cudf_edgelist(edges_df, **opts)
+    elif isinstance(edges_df, pd.DataFrame):
+        G.from_pandas_edgelist(edges_df, **opts)
     else:
         was_dask = False
         try:
             import dask_cudf
-            if isinstance(self._edges, dask_cudf.DataFrame):
+            if isinstance(edges_df, dask_cudf.DataFrame):
                 was_dask = True
-                G.from_dask_cudf_edgelist(self._edges, **opts)
+                G.from_dask_cudf_edgelist(edges_df, **opts)
         except ImportError:
             1
         if not was_dask:
-            raise ValueError('Unsupported edge data type, expected pd/cudf.DataFrame, got: %s', type(self._edges))
+            raise ValueError('Unsupported edge data type, expected pd/cudf.DataFrame, got: %s', type(edges_df))
 
     if self._node is not None and self._nodes is not None:
         nodes_gdf = self._nodes if isinstance(self._nodes, cudf.DataFrame) else cudf.from_pandas(self._nodes)
