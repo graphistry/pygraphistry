@@ -82,7 +82,13 @@ class ComputeMixin(MIXIN_BASE):
             concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
         elif engine == "cudf":
             import cudf
-            concat_df = cudf.concat([g._edges[g._source], g._edges[g._destination]])
+            if isinstance(g._edges, cudf.DataFrame):
+                edges_gdf = g._edges
+            elif isinstance(g._edges, pd.DataFrame):
+                edges_gdf = cudf.from_pandas(g._edges)
+            else:
+                raise ValueError('Unexpected edges type; convert edges to cudf.DataFrame')
+            concat_df = cudf.concat([edges_gdf[g._source], edges_gdf[g._destination]])
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 
