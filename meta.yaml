@@ -20,3 +20,26 @@ requirements:
     - protobuf>=2.6.0
     - pyarrow>=0.15.0
     - requests
+
+test:
+  requires:
+    - flake8
+    - mock
+    - mypy
+    - pytest
+    - pandas-stubs
+    - types-requests
+
+about:
+  home: https://www.graphistry.com/
+  license: BSD
+  summary: Visual Graph Analytics library for Python
+  description: |
+    Graphistry is a visual graph analytics library for extracting, transforming, 
+    displaying, and sharing big graphs with end-to-end GPU acceleration
+  doc_url: https://www.graphistry.com/docs
+  dev_url: https://github.com/graphistry/pygraphistry
+
+extra:
+  author: The Graphistry Team
+  author_email: pygraphistry@graphistry.com
