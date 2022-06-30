@@ -1,3 +1,4 @@
+from functools import lru_cache
 import graphistry, logging, os, pandas as pd, pytest
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
@@ -17,6 +18,11 @@ logger.setLevel(logging.DEBUG)
 test_cugraph = "TEST_CUGRAPH" in os.environ and os.environ["TEST_CUGRAPH"] == "1"
 
 ####################
+
+@lru_cache(maxsize=1)
+def mis_edges():
+    # source, target, v
+    return pd.read_csv('demos/data/lesmiserables.csv')
 
 
 edges = [(0, 1), (0, 2), (0, 3), (1, 2), (2, 4)]
@@ -624,3 +630,19 @@ class Test_cugraph_layouts(NoAuthTestCase):
             assert 'y' in g2._nodes.columns
             assert len(g2._nodes[['x', 'y']].dropna()) == len(g._nodes)
             assert g2._edges.equals(g._edges)
+
+    def test_fa2_mis(self):
+
+        import cudf, cugraph
+
+        g = graphistry.edges(mis_edges(), 'source', 'target')
+        g2 = layout_cugraph(g)
+        assert 'x' in g2._nodes
+        assert 'y' in g2._nodes
+        assert len(g2._nodes.dropna()) == len(g.materialize_nodes()._nodes)
+
+        g = graphistry.edges(cudf.from_pandas(mis_edges()), 'source', 'target')
+        g2 = g.layout_cugraph('force_atlas2')
+        assert 'x' in g2._nodes
+        assert 'y' in g2._nodes
+        assert len(g2._nodes.dropna()) == len(g.materialize_nodes()._nodes)
