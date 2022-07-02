@@ -272,7 +272,10 @@ def compute_cugraph(
         if out_col is None:
             out_col = alg
         out = out.rename(columns={expected_cols[0]: out_col})            
-        nodes_gdf = g._nodes.merge(out, how='left', on=g._node)
+        nodes_gdf = (g
+            ._nodes[[x for x in g._nodes.columns if x not in out.columns or x == g._node]]
+            .merge(out, how='left', on=g._node)
+        )
         return g.nodes(nodes_gdf)
     elif alg in edge_compute_algs_to_attr:
         out = getattr(cugraph, alg)(G, **params)
@@ -292,7 +295,10 @@ def compute_cugraph(
             if len(expected_cols) > 1:
                 raise ValueError('Multiple columns returned, but out_col (singleton) was specified')
             out = out.rename(columns={expected_cols[0]: out_col})
-        edges_gdf = g._edges.merge(out, how='left', on=[g._source, g._destination])
+        edges_gdf = (g
+            ._edges[[x for x in g._edges if x not in out.columns or x in [g._source, g._destination]]]
+            .merge(out, how='left', on=[g._source, g._destination])
+        )
         return g.edges(edges_gdf)
     elif alg in graph_compute_algs:
         out = getattr(cugraph, alg)(G, **params)
@@ -395,7 +401,10 @@ def layout_cugraph(
     if g._node != 'vertex':
         out = out.rename(columns={'vertex': g._node})
 
-    nodes_gdf = g._nodes.merge(out, how='left', on=g._node)
+    nodes_gdf = (g
+        ._nodes[[x for x in g._nodes if x not in out.columns or x == g._node]]
+        .merge(out, how='left', on=g._node)
+    )
 
     g2 = g.nodes(nodes_gdf.assign(**{x_out_col: nodes_gdf['x'], y_out_col: nodes_gdf['y']}))
     if bind_position:

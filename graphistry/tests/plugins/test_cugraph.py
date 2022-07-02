@@ -603,6 +603,36 @@ class Test_cugraph_compute(NoAuthTestCase):
                     assert len(out._nodes.columns) == len(g._nodes.columns) + len(out_cols)
                     assert out._edges.shape == g._edges.shape
 
+    def test_chain(self):
+
+        import cudf, cugraph
+
+        overrides = { }
+
+        skiplist = [ ]
+
+        edges3_gdf = cudf.from_pandas(edges3_df)
+
+        g = graphistry.edges(edges3_gdf, 'a', 'b').bind(edge_weight='f').materialize_nodes()
+        for alg in [x for x in ['pagerank']]:
+            if alg not in skiplist:
+                opts = overrides[alg] if alg in overrides else {}
+                logger.debug('alg "%s", opts=(%s)', alg, opts)
+                out1 = compute_cugraph(g, alg, **opts)
+                out = compute_cugraph(out1, alg, **opts)
+                assert out is not None
+                if alg in node_compute_algs_to_attr:
+                    assert out is not None
+                    logger.debug('node outs: %s', out._nodes)
+                    out_cols = node_compute_algs_to_attr[alg] if isinstance(node_compute_algs_to_attr[alg], list) else [node_compute_algs_to_attr[alg]]
+                    out_cols[0] = alg
+                    for col in out_cols:
+                        assert col in out._nodes
+                    assert len(out._nodes) == len(g._nodes)
+                    #assert alg in out._nodes
+                    assert len(out._nodes.columns) == len(g._nodes.columns) + len(out_cols)
+                    assert out._edges.shape == g._edges.shape
+
 
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")
 class Test_cugraph_layouts(NoAuthTestCase):
@@ -630,6 +660,16 @@ class Test_cugraph_layouts(NoAuthTestCase):
             assert 'y' in g2._nodes.columns
             assert len(g2._nodes[['x', 'y']].dropna()) == len(g._nodes)
             assert g2._edges.equals(g._edges)
+
+    def test_chain(self):
+        import cudf, cugraph
+
+        g = graphistry.edges(cudf.from_pandas(mis_edges()), 'source', 'target')
+        g2 = g.layout_cugraph('force_atlas2')
+        g3 = g2.layout_cugraph('force_atlas2')
+        assert 'x' in g3._nodes
+        assert 'y' in g3._nodes
+        assert len(g3._nodes.dropna()) == len(g.materialize_nodes()._nodes)
 
     def test_fa2_mis(self):
 
