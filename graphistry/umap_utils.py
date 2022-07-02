@@ -518,7 +518,7 @@ class UMAPMixin(MIXIN_BASE):
             # graphistry instance
             w_name = config.WEIGHT + self.suffix
             umap_edges_df = res._weighted_edges_df_from_nodes.copy(deep=False)
-            umap_edges_df = umap_edges_df.rename({config.WEIGHT: w_name})
+            umap_edges_df = umap_edges_df.rename(columns={config.WEIGHT: w_name})
             res = res.edges(umap_edges_df, config.SRC, config.DST)
             logger.info(
                 " - Wrote new edges_dataframe from UMAP "

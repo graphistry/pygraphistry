@@ -3,9 +3,11 @@ set -ex
 
 echo "CONFIG"
 
+PIP_DEPS=${PIP_DEPS:--e .[gremlin,bolt,test] neo4j==4.4.3}
 WITH_NEO4J=${WITH_NEO4J:-0}
 WITH_LINT=${WITH_LINT:-1}
 WITH_TYPECHECK=${WITH_TYPECHECK:-1}
+WITH_TEST=${WITH_TEST:-1}
 WITH_BUILD=${WITH_BUILD:-1}
 TEST_CPU_VERSION=${TEST_CPU_VERSION:-latest}
 
@@ -22,7 +24,11 @@ then
     ( cd ../test/db/neo4j && ./launch.sh )
 fi
 
-docker-compose build test-gpu
+COMPOSE_DOCKER_CLI_BUILD=1 \
+DOCKER_BUILDKIT=1 \
+docker-compose build \
+    --build-arg PIP_DEPS="${PIP_DEPS}" \
+    test-gpu
 
 echo "RUN"
 
@@ -31,9 +37,13 @@ docker run \
     -e WITH_NEO4J=$WITH_NEO4J \
     -e WITH_LINT=$WITH_LINT \
     -e WITH_TYPECHECK=$WITH_TYPECHECK \
+    -e WITH_TEST=$WITH_TEST \
     -e WITH_BUILD=$WITH_BUILD \
     --security-opt seccomp=unconfined \
     --rm \
     ${NETWORK} \
     graphistry/test-gpu:${TEST_CPU_VERSION} \
-        --maxfail=1 $@
+        --maxfail=1 \
+        --ignore=graphistry/tests/test_feature_utils.py \
+        --ignore=graphistry/tests/test_umap_utils.py \
+        $@

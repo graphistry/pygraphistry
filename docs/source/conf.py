@@ -77,6 +77,7 @@ nitpick_ignore = [
     ('py:class', 'weakref.WeakKeyDictionary'),
     ('py:data', 'typing.Any'),
     ('py:data', 'typing.List'),
+    ('py:data', 'typing.Literal'),
     ('py:data', 'typing.Optional'),
     ('py:data', 'typing.Tuple'),
     ('py:data', 'typing.Union'),

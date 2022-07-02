@@ -222,6 +222,9 @@ class DGLGraphMixin(MIXIN_BASE):
             nodes = res._nodes[res._node]
         else:
             nodes = self._nodes[node_column]
+
+        if self._source is None or self._destination is None:
+            raise ValueError("Need to have source and destination columns bound, call bind() or edges()")
         
         if not isinstance(self._edges, pd.DataFrame):  # type: ignore
             raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame, recieved: %s", type(self._edges))  # type: ignore
