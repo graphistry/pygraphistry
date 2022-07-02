@@ -1,5 +1,8 @@
-from typing import TYPE_CHECKING, Any, Callable, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Union
+from typing_extensions import Literal
 import pandas as pd
+
+from graphistry.plugins_types.cugraph_types import CuGraphKind
 
 try:
     from umap import UMAP
@@ -119,7 +122,7 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
-    def materialize_nodes(self, reuse: bool = True) -> 'Plottable':
+    def materialize_nodes(self, reuse: bool = True, engine: Literal['pandas', 'cudf', 'auto'] = 'auto') -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
@@ -188,7 +191,7 @@ class Plottable(object):
         edge_attributes: Optional[List[str]] = None
     ) -> Any:
         if 1 + 1:
-            raise RecursionError('should not happen')
+            raise RuntimeError('should not happen')
         return self
 
     def from_igraph(self,
@@ -199,5 +202,76 @@ class Plottable(object):
         merge_if_existing: bool = True
     ):
         if 1 + 1:
-            raise RecursionError('should not happen')
+            raise RuntimeError('should not happen')
+        return self
+    
+    def from_cugraph(self,
+        G,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes: bool = True, load_edges: bool = True,
+        merge_if_existing: bool = True
+    ):
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def to_cugraph(self, 
+        directed: bool = True,
+        include_nodes: bool = True,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        kind : CuGraphKind = 'Graph'
+    ) -> Any:
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def compute_cugraph(self,
+        alg: str, out_col: Optional[str] = None, params: dict = {},
+        kind : CuGraphKind = 'Graph', directed = True,
+        G: Optional[Any] = None
+    ):
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def layout_cugraph(self,
+        layout: str = 'force_atlas2', params: dict = {},
+        kind : CuGraphKind = 'Graph', directed = True,
+        G: Optional[Any] = None,
+        bind_position: bool = True,
+        x_out_col: str = 'x',
+        y_out_col: str = 'y',
+        play: Optional[int] = 0
+    ):
+        if 1 + 1:
+            return RuntimeError('should not happen')
+        return self
+
+    def layout_settings(
+        self,
+
+        play: Optional[int] = None,
+
+        locked_x: Optional[bool] = None,
+        locked_y: Optional[bool] = None,
+        locked_r: Optional[bool] = None,
+
+        left: Optional[float] = None,
+        top: Optional[float] = None,
+        right: Optional[float] = None,
+        bottom: Optional[float] = None,
+
+        lin_log: Optional[bool] = None,
+        strong_gravity: Optional[bool] = None,
+        dissuade_hubs: Optional[bool] = None,
+
+        edge_influence: Optional[float] = None,
+        precision_vs_speed: Optional[float] = None,
+        gravity: Optional[float] = None,
+        scaling_ratio: Optional[float] = None
+    ):
+        if 1 + 1:
+            return RuntimeError('should not happen')
         return self

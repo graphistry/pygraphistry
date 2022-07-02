@@ -396,7 +396,7 @@ class TestPlotterPandasConversions(NoAuthTestCase):
         plotter = graphistry.bind()
         df = pd.DataFrame({"x": [1, 2, 3]})
         gdf = cudf.from_pandas(df)
-        dgdf = dask_cudf.from_pandas(gdf, npartitions=2)
+        dgdf = dask_cudf.from_cudf(gdf, npartitions=2)
         out = plotter._table_to_pandas(dgdf)
         assert isinstance(out, pd.DataFrame)
         assertFrameEqual(out, df)

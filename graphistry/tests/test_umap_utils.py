@@ -162,8 +162,8 @@ class TestUMAPMethods(unittest.TestCase):
 
         ndf = remove_internal_namespace_if_present(ndf)
         cols = ndf.columns
-        logger.debug("g_nodes", g._nodes)
-        logger.debug("df", df)
+        logger.debug("g_nodes: %s", g._nodes)
+        logger.debug("df: %s", df)
         self.assertTrue(
             np.array_equal(ndf.reset_index(drop=True), df[cols].reset_index(drop=True)),
             f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",

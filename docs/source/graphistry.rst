@@ -6,6 +6,7 @@ graphistry package
    graphistry.compute
    graphistry.layout
    graphistry.plugins
+   graphistry.plugins_types
 
 
 graphistry.plotter module

@@ -171,12 +171,21 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     )
     ```
 
-* GPU [RAPIDS.ai](https://www.rapids.ai)
+* GPU [RAPIDS.ai](https://www.rapids.ai) cudf
 
     ```python
     edges = cudf.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
     graphistry.edges(edges, 'src', 'dst').plot()
     ```
+
+* GPU [RAPIDS.ai](https://www.rapids.ai) cugraph ([notebook demo](demos/demos_databases_apis/gpu_rapids/cugraph.ipynb))
+
+    ```python
+    g = graphistry.from_cugraph(G)
+    g2 = g.compute_cugraph('pagerank').layout_cugraph('force_atlas2')
+    g2.plot()
+    G2 = g.to_cugraph()
+    ``` 
 
 * [Apache Arrow](https://arrow.apache.org/)
 
@@ -925,6 +934,19 @@ g2._nodes  # pd.DataFrame({
 
 See also `get_indegrees()` and `get_outdegrees()` 
 
+#### Use igraph (CPU) and cugraph (GPU) compute
+
+Install the plugin of choice and then:
+
+
+```python
+g2 =  g.compute_igraph('pagerank')
+assert 'pagerank' in g2._nodes.columns
+
+g3 = g.compute_cugraph('pagerank')
+assert 'pagerank' in g2._nodes.columns
+```
+
 #### Graph pattern matching
 
 Traverse within a graph, or expand one graph against another
@@ -1046,6 +1068,13 @@ With `pip install graphistry[igraph]`, you can also use [`igraph` layouts](https
 ```python
 g.layout_igraph('sugiyama').plot()
 g.layout_igraph('sugiyama', directed=True, params={}).plot()
+```
+
+With [Nvidia RAPIDS cuGraph](https://www.rapids.ai) install:
+
+```python
+g.layout_cugraph().plot()  # GPU ForceAtlas2
+help(g.layout_cugraph)
 ```
 
 ### Control render settings
