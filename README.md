@@ -178,7 +178,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     graphistry.edges(edges, 'src', 'dst').plot()
     ```
 
-* GPU [RAPIDS.ai](https://www.rapids.ai) cugraph
+* GPU [RAPIDS.ai](https://www.rapids.ai) cugraph ([notebook demo](demos/demos_databases_apis/gpu_rapids/cugraph.ipynb))
 
     ```python
     g = graphistry.from_cugraph(G)
