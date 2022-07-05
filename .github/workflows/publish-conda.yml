@@ -12,9 +12,10 @@ jobs:
     name: Build and publish Python 🐍 distributions 📦 to Conda
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: publish-to-conda
-      uses: fcakyon/conda-package-publish-action@v1.3
+      uses: fcakyon/conda-publish-action@v1.3
       with:
         subDir: 'conda'
         AnacondaToken: ${{ secrets.ANACONDA_TOKEN }}
+        platforms: 'linux'
