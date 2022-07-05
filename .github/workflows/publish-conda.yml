@@ -14,7 +14,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: publish-to-conda
-      uses: fcakyon/conda-publish-action@v1.4
+      uses: blanderbuss/conda-publish-action@v1.4
       with:
         subDir: 'conda'
         AnacondaToken: ${{ secrets.ANACONDA_TOKEN }}
