@@ -1,4 +1,5 @@
-from typing import Any, Callable, Iterable, List, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union
+from typing_extensions import Literal
 from graphistry.Plottable import Plottable
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
@@ -107,7 +108,7 @@ class PyGraphistry(object):
             # Mocks may set to True, so bypass in that case
             if (key is None) and (PyGraphistry._is_authenticated is False):
                 util.error(
-                    "In api=1 / api=2 mode, API key not set explicitly in `register()` or available at "
+                    "In api=1 mode, API key not set explicitly in `register()` or available at "
                     + EnvVarNames["api_key"]  # noqa: W503
                 )
             if not PyGraphistry._is_authenticated:
@@ -425,12 +426,29 @@ class PyGraphistry(object):
 
     @staticmethod
     def api_version(value=None):
-        """Set or get the API version: 1 or 2 for 1.0 (deprecated), 3 for 2.0
+        """Set or get the API version: 1 for 1.0 (deprecated), 3 for 2.0.
+        Setting api=2 (protobuf) fully deprecated from the PyGraphistry client.
         Also set via environment variable GRAPHISTRY_API_VERSION."""
+        
+        import re
         if value is None:
-            return PyGraphistry._config["api_version"]
+            #if set by env var, interpret
+            env_api_version = PyGraphistry._config["api_version"]
+            if isinstance(env_api_version, str):
+                if re.sub(r'\d+', '', env_api_version) == '':
+                    value = int(env_api_version)
+                else:
+                    raise ValueError("Expected API version to be 1, 3, instead got (likely from GRAPHISTRY_API_VERSION): %s" % env_api_version)
+            else:
+                value = env_api_version
+
+        if value not in [1, 3]:
+            raise ValueError("Expected API version to be 1, 3, instead got: %s" % value)
+
         # setter
         PyGraphistry._config["api_version"] = value
+
+        return value
 
     @staticmethod
     def certificate_validation(value=None):
@@ -451,29 +469,29 @@ class PyGraphistry(object):
 
     @staticmethod
     def register(
-        key=None,
-        username=None,
-        password=None,
-        token=None,
-        server=None,
-        protocol=None,
-        api=None,
-        certificate_validation=None,
-        bolt=None,
-        token_refresh_ms=10 * 60 * 1000,
-        store_token_creds_in_memory=None,
-        client_protocol_hostname=None,
-        org_name=None,
-        idp_name=None,
-        sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS
+        key: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        token: Optional[str] = None,
+        server: Optional[str] = None,
+        protocol: Optional[str] = None,
+        api: Optional[Literal[1, 3]] = None,
+        certificate_validation: Optional[bool] = None,
+        bolt: Optional[Union[Dict, Any]] = None,
+        token_refresh_ms: int = 10 * 60 * 1000,
+        store_token_creds_in_memory: Optional[bool] = None,
+        client_protocol_hostname: Optional[str] = None,
+        org_name: Optional[str] = None,
+        idp_name: Optional[str] = None,
+        sso_timeout: int = SSO_GET_TOKEN_ELAPSE_SECONDS
     ):
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
 
-        Provide one of key (api=1,2) or username/password (api=3) or token (api=3).
+        Provide one of key (deprecated api=1), username/password (api=3) or temporary token (api=3).
 
-        :param key: API key (1.0 API).
+        :param key: API key (deprecated 1.0 API)
         :type key: Optional[str]
         :param username: Account username (2.0 API).
         :type username: Optional[str]
@@ -483,6 +501,10 @@ class PyGraphistry(object):
         :type token: Optional[str]
         :param server: URL of the visualization server.
         :type server: Optional[str]
+        :param protocol: Protocol to use for server uploaders, defaults to "https".
+        :type protocol: Optional[str]
+        :param api: API version to use, defaults to 1 (deprecated slow json 1.0 API), prefer 3 (2.0 API with Arrow+JWT)
+        :type api: Optional[Literal[1, 3]]
         :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
         :type certificate_validation: Optional[bool]
         :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
@@ -1914,6 +1936,16 @@ class PyGraphistry(object):
         return Plotter().from_igraph(ig, node_attributes, edge_attributes, load_nodes, load_edges)
     from_igraph.__doc__ = Plotter.from_igraph.__doc__
 
+    @staticmethod
+    def from_cugraph(
+        G,
+        node_attributes: Optional[List[str]] = None,
+        edge_attributes: Optional[List[str]] = None,
+        load_nodes: bool = True, load_edges: bool = True,
+        merge_if_existing: bool = True
+    ):
+        return Plotter().from_cugraph(G, node_attributes, edge_attributes, load_nodes, load_edges, merge_if_existing)
+    from_cugraph.__doc__ = Plotter.from_cugraph.__doc__
 
     @staticmethod
     def settings(height=None, url_params={}, render=None):
@@ -1977,10 +2009,6 @@ class PyGraphistry(object):
                     f.write(json_dataset)
                 else:
                     f.write(json_dataset.encode("utf8"))
-        elif mode == "vgraph":
-            bin_dataset = dataset.SerializeToString()
-            with gzip.GzipFile(fileobj=out_file, mode="w", compresslevel=9) as f:
-                f.write(bin_dataset)
         else:
             raise ValueError("Unknown mode:", mode)
 
@@ -2028,69 +2056,6 @@ class PyGraphistry(object):
                 "type": "vgraph",
             }
 
-    @staticmethod
-    def _etl2(dataset):
-        PyGraphistry.authenticate()
-
-        vg = dataset["vgraph"]
-        encodings = dataset["encodings"]
-        attributes = dataset["attributes"]
-        metadata = {
-            "name": dataset["name"],
-            "datasources": [{"type": "vgraph", "url": "data0"}],
-            "nodes": [
-                {
-                    "count": vg.vertexCount,
-                    "encodings": encodings["nodes"],
-                    "attributes": attributes["nodes"],
-                }
-            ],
-            "edges": [
-                {
-                    "count": vg.edgeCount,
-                    "encodings": encodings["edges"],
-                    "attributes": attributes["edges"],
-                }
-            ],
-        }
-
-        out_file = PyGraphistry._get_data_file(vg, "vgraph")
-        metadata_json = json.dumps(metadata, ensure_ascii=False, cls=NumpyJSONEncoder)
-        parts = {
-            "metadata": ("metadata", metadata_json, "application/json"),
-            "data0": ("data0", out_file.getvalue(), "application/octet-stream"),
-        }
-
-        params = {
-            "usertag": PyGraphistry._tag,
-            "agent": "pygraphistry",
-            "apiversion": "2",
-            "agentversion": sys.modules["graphistry"].__version__,
-            "key": PyGraphistry.api_key(),
-        }
-        response = requests.post(
-            PyGraphistry._etl_url(),
-            files=parts,
-            params=params,
-            verify=PyGraphistry._config["certificate_validation"],
-        )
-        response.raise_for_status()
-
-        try:
-            jres = response.json()
-        except:
-            raise ValueError("Unexpected server response", response)
-
-        if jres["success"] is not True:
-            raise ValueError(
-                "Server reported error:", jres["msg"] if "msg" in jres else "No Message"
-            )
-        else:
-            return {
-                "name": jres["dataset"],
-                "viztoken": jres["viztoken"],
-                "type": "jsonMeta",
-            }
 
     @staticmethod
     def _check_key_and_version():
@@ -2113,6 +2078,7 @@ class PyGraphistry(object):
             ):
                 mver = jres["pygraphistry"]["minVersion"]
                 lver = jres["pygraphistry"]["latestVersion"]
+
                 from packaging.version import parse
                 try:
                     if parse(mver) > parse(cver):
@@ -2305,6 +2271,7 @@ idp_name = PyGraphistry.idp_name
 sso_state = PyGraphistry.sso_state
 scene_settings = PyGraphistry.scene_settings
 from_igraph = PyGraphistry.from_igraph
+from_cugraph = PyGraphistry.from_cugraph
 
 
 class NumpyJSONEncoder(json.JSONEncoder):

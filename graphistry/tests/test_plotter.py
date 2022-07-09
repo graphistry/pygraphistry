@@ -256,103 +256,6 @@ class TestPlotterBindings_API_1(NoAuthTestCase):
         assert g3._edges is df3
 
 
-@patch("webbrowser.open")
-@patch("graphistry.pygraphistry.PyGraphistry._etl2")
-class TestPlotterBindings_API_2(NoAuthTestCase):
-    @classmethod
-    def setUpClass(cls):
-        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.register(api=2)
-
-    def test_no_src_dst(self, mock_etl, mock_open):
-        with self.assertRaises(ValueError):
-            graphistry.bind().plot(triangleEdges)
-        with self.assertRaises(ValueError):
-            graphistry.bind(source="src").plot(triangleEdges)
-        with self.assertRaises(ValueError):
-            graphistry.bind(destination="dst").plot(triangleEdges)
-        with self.assertRaises(ValueError):
-            graphistry.bind(source="doesnotexist", destination="dst").plot(
-                triangleEdges
-            )
-
-    def test_no_nodeid(self, mock_etl, mock_open):
-        plotter = graphistry.bind(source="src", destination="dst")
-        with self.assertRaises(ValueError):
-            plotter.plot(triangleEdges, triangleNodes)
-
-    def test_triangle_edges(self, mock_etl, mock_open):
-        plotter = graphistry.bind(source="src", destination="dst")
-        plotter.plot(triangleEdges)
-        self.assertTrue(mock_etl.called)
-
-    def test_bind_edges(self, mock_etl, mock_open):
-        plotter = graphistry.bind(source="src", destination="dst", edge_title="src")
-        plotter.plot(triangleEdges)
-        self.assertTrue(mock_etl.called)
-
-    def test_bind_nodes(self, mock_etl, mock_open):
-        plotter = graphistry.bind(
-            source="src", destination="dst", node="id", point_title="a2"
-        )
-        plotter.plot(triangleEdges, triangleNodes)
-        self.assertTrue(mock_etl.called)
-
-    def test_bind_nodes_rich(self, mock_etl, mock_open):
-        plotter = graphistry.bind(
-            source="src", destination="dst", node="id", point_title="a2"
-        )
-        plotter.plot(triangleEdges, triangleNodesRich)
-        self.assertTrue(mock_etl.called)
-
-    def test_bind_edges_rich_2(self, mock_etl, mock_open):
-        plotter = graphistry.bind(source="src", destination="dst")
-        plotter.plot(squareEvil)
-        self.assertTrue(mock_etl.called)
-
-    def test_unknown_col_edges(self, mock_etl, mock_open):
-        plotter = graphistry.bind(
-            source="src", destination="dst", edge_title="doesnotexist"
-        )
-        with pytest.warns(RuntimeWarning):
-            plotter.plot(triangleEdges)
-        self.assertTrue(mock_etl.called)
-
-    def test_unknown_col_nodes(self, mock_etl, mock_open):
-        plotter = graphistry.bind(
-            source="src", destination="dst", node="id", point_title="doesnotexist"
-        )
-        with pytest.warns(RuntimeWarning):
-            plotter.plot(triangleEdges, triangleNodes)
-        self.assertTrue(mock_etl.called)
-
-    def test_empty_graph(self, mock_etl, mock_open):
-        plotter = graphistry.bind(source="src", destination="dst")
-        with pytest.warns(RuntimeWarning):
-            with self.assertRaises(ValueError):
-                plotter.plot(pd.DataFrame([]))
-
-
-@patch("webbrowser.open")
-@patch.object(graphistry.pygraphistry.PyGraphistry, "_etl2")
-class TestPlotterCallChaining(NoAuthTestCase):
-    @classmethod
-    def setUpClass(cls):
-        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.register(api=2)
-
-    def test_bind_chain(self, mock_etl2, mock_open):
-        plotter0 = graphistry.bind(source="caca").bind(destination="dst", source="src")
-        plotter0.plot(triangleEdges)
-        self.assertTrue(mock_etl2.called)
-
-    def test_bind_edges_nodes(self, mock_etl2, mock_open):
-        plotter0 = graphistry.bind(source="src").bind(destination="dst")
-        plotter1 = plotter0.bind(node="id").bind(point_title="a2")
-        plotter1.edges(triangleEdges).nodes(triangleNodes).plot()
-        self.assertTrue(mock_etl2.called)
-
-
 class TestPlotterConversions(NoAuthTestCase):
     @pytest.mark.xfail(raises=ModuleNotFoundError)
     def test_igraph2pandas(self):
@@ -361,6 +264,7 @@ class TestPlotterConversions(NoAuthTestCase):
         ig = igraph.Graph.Tree(4, 2)
         ig.vs["vattrib"] = 0
         ig.es["eattrib"] = 1
+
         with pytest.warns(DeprecationWarning):
             (e, n) = graphistry.bind(source="src", destination="dst").igraph2pandas(ig)
 
@@ -492,7 +396,7 @@ class TestPlotterPandasConversions(NoAuthTestCase):
         plotter = graphistry.bind()
         df = pd.DataFrame({"x": [1, 2, 3]})
         gdf = cudf.from_pandas(df)
-        dgdf = dask_cudf.from_pandas(gdf, npartitions=2)
+        dgdf = dask_cudf.from_cudf(gdf, npartitions=2)
         out = plotter._table_to_pandas(dgdf)
         assert isinstance(out, pd.DataFrame)
         assertFrameEqual(out, df)
@@ -870,33 +774,6 @@ class TestPlotterStylesJSON(NoAuthTestCase):
         graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
         graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
         graphistry.register(api=1)
-
-    def test_styleApi_reject(self):
-        bg = {"color": "red"}
-        fg = {"blendMode": 1}
-        logo = {"url": "zzz"}
-        page = {"title": "zzz"}
-        g2 = graphistry.edges(pd.DataFrame({"s": [0], "d": [0]})).bind(
-            source="s", destination="d"
-        )
-        g3 = g2.addStyle(
-            bg=copy.deepcopy(bg),
-            fg=copy.deepcopy(fg),
-            page=copy.deepcopy(page),
-            logo=copy.deepcopy(logo),
-        )
-
-        with pytest.raises(ValueError):
-            g3.plot(skip_upload=True)
-
-
-class TestPlotterStylesVgraph(NoAuthTestCase):
-    @classmethod
-    def setUpClass(cls):
-        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
-        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
-        graphistry.register(api=2)
 
     def test_styleApi_reject(self):
         bg = {"color": "red"}

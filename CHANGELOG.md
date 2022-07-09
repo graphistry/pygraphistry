@@ -7,6 +7,42 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.26.1 - 2022-07-01]
+
+### Breaking 🔥
+
+* `_table_to_arrow()` for `cudf`: Updated for RAPIDS 2022.02+ to handle deprecation of `cudf.DataFrame.hash_columns()` in favor of new `cudf.DataFrame.hash_values()`
+
+### Added
+
+* `materialize_nodes()`: Supports `cudf`, materializing a `cudf.DataFrame` nodes table when `._edges` is an instance of `cudf.DataFrame`
+* `to_cugraph()`, `from_cugraph()`, `compute_cugraph()`, `layout_cugraph()`
+* docs: [cugraph demo notebook](demos/demos_databases_apis/gpu_rapids/cugraph.ipynb)
+
+### Changed
+
+* Infra: Update GPU test env settings
+* `materialize_nodes`: Return regular index
+
+### Fixed
+
+* `hypergraph()` in dask handles failing metadata type inference
+* tests: gpu env tweaks
+* tests: umap logging was throwing warnings
+
+## [0.26.0 - 2022-06-03]
+
+### Added
+* `g.transform()`
+* `g.transform_umap()`
+* `g.scale()`
+* Memoization on UMAP and Featurize calls
+* Adds **kwargs and propagates them through to different function calls (featurize, umap, scale, etc)
+
+### Breaking 🔥
+
+* Final deprecation of `register(api=2)` protobuf/vgraph mode - also works around need for protobuf test upgrades
+
 ## [0.25.3 - 2022-06-22]
 
 ### Added
@@ -50,7 +86,7 @@ Major version bump due to breaking igraph change
 * Deprecation warnings in old igraph methods: `g.graph(ig)`, `igraph2pandas`, `pandas2igraph`
 * Internal igraph handlers upgraded to use new igraph methods 
 
-### Breaking
+### Breaking 🔥
 
 * `network2igraph` and `igraph2pandas` renamed output node ID column to `_n_implicit` (`constants.NODE`)
 
@@ -107,7 +143,7 @@ Major version bump due to large dependency increases for kitchen-sink installs a
 
 ## [0.23.0 - 2022-04-08]
 
-### Breaking
+### Breaking 🔥
 
 * `g.edges()` now takes an optional 4th named parameter `edge` ID
 
@@ -330,7 +366,7 @@ Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like
 * Docker: Downgrade local dev 3.7 -> 3.6 to more quickly catch minimum version errors
 * CI: Now tests building docs (fail on warnings), pypi wheels distro, and neo4j connector
 
-### Breaking
+### Breaking 🔥
 
 * Changes in setup.py extras_require: 'all' installs more
 
@@ -369,7 +405,7 @@ Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like
 * Infrastructure: Upgraded Versioneer to 0.19
 * Infrastructure: Fewer warnings and enforce flake8 CI checks
 
-### Breaking
+### Breaking 🔥
 
 * None known; many small changes to fix warnings so version bump out of caution
 
@@ -393,7 +429,7 @@ Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like
 
 ## [0.14.0] - 2020-10-12
 
-### Breaking
+### Breaking 🔥
 * Warnings: Standardizing on Python's warnings.warn
 
 ### Fixed

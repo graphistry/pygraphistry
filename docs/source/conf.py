@@ -42,6 +42,8 @@ extensions = [
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
+    ('py:class', '1'),  # Ex: api : Optional[Literal[1, 3]]
+    ('py:class', '3'),
     ('py:class', "<class 'dict'>"),
     ('py:class', "<class 'str'>"),
     ('py:class', 'graphistry.gremlin.CosmosMixin'),
@@ -75,11 +77,11 @@ nitpick_ignore = [
     ('py:class', 'weakref.WeakKeyDictionary'),
     ('py:data', 'typing.Any'),
     ('py:data', 'typing.List'),
+    ('py:data', 'typing.Literal'),
     ('py:data', 'typing.Optional'),
     ('py:data', 'typing.Tuple'),
     ('py:data', 'typing.Union'),
     ('py:class','pandas.core.frame.DataFrame')
-
 ]
 
 set_type_checking_flag = True

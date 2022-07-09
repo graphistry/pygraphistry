@@ -11,7 +11,7 @@
 [![Uptime Robot status](https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com)](https://status.graphistry.com/) [<img src="https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack">](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
 [![Twitter Follow](https://img.shields.io/twitter/follow/graphistry)](https://twitter.com/graphistry)
 
-PyGraphistry is a Python visual graph AI library to extract, transform, analyze, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.
+**PyGraphistry is a Python visual graph AI library to extract, transform, analyze, model, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.** Installing with optional `graphistry[ai]` dependencies adds **graph autoML**, including automatic feature engineering, UMAP, and graph neural net support. Combined, PyGraphistry reduces your `time to graph` for going from raw data to visualizations and AI models down to three lines of code.
 
 Graphistry gets used on problems like visually mapping the behavior of devices and users, investigating fraud, analyzing machine learning results, and starting in graph AI. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 2MM elements. The serverside GPU analytics engine supports even bigger graphs. It smoothes graph workflows over the PyData ecosystem including Pandas/Spark/Dask dataframes, Nvidia RAPIDS GPU dataframes & GPU graphs, DGL/PyTorch graph neural networks, and various data connectors.
 
@@ -23,7 +23,7 @@ The PyGraphistry Python client helps several kinds of usage modes:
 * **Dashboarding**: Embed into your favorite framework. Additionally, see our sister project [Graph-App-Kit](https://github.com/graphistry/graph-app-kit) for quickly building interactive graph dashboards by launching a stack built on PyGraphistry, StreamLit, Docker, and ready recipes for integrating with common graph libraries
 
 PyGraphistry is a friendly and optimized PyData-native interface to the language-neutral [Graphistry REST APIs](https://hub.graphistry.com/docs/api/).
-You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Neo4j, Splunk, and more (see below). Wrangle data however you want, and with especially good support for Pandas dataframes, Apache Arrow tables, and Nvidia RAPIDS cuDF dataframes.
+You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Neo4j, Splunk, and more (see below). Wrangle data however you want, and with especially good support for Pandas dataframes, Apache Arrow tables, Nvidia RAPIDS cuDF dataframes & cuGraph graphs, and DGL/PyTorch graph neural networks.
 
 1. [Interactive Demo](#demo-of-friendship-communities-on-facebook)
 2. [Graph Gallery](#gallery)
@@ -49,8 +49,12 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 * **Easy to install:** `pip install` the client in your notebook or web app, and then connect to a [free Graphistry Hub account](https://www.graphistry.com/get-started) or [launch your own private GPU server](https://www.graphistry.com/get-started)
 
    ```python
-  # pip install --user graphistry
-  # pip install --user graphistry[bolt,gremlin,nodexl,igraph,networkx]  # optional
+  # pip install --user graphistry              # minimal
+  # pip install --user graphistry[bolt,gremlin,nodexl,igraph,networkx]  # data plugins
+  # Requires Python 3.8+ (for scikit-learn 1.0+):
+  # pip install --user graphistry[umap-learn]  # UMAP autoML (without text support)
+  # pip install --user graphistry[ai]          # Full UMAP + GNN autoML, including sentence transformers (1GB+)
+
   import graphistry
   graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com
 
@@ -82,6 +86,21 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 * **Configurable:** In-tool or via the declarative APIs, use the powerful encodings systems for tasks like coloring by time, sizing by score, clustering by weight, show icons by type, and more.
 
 * **Shareable:** Share live links, configure who has access, and more! [(Notebook tutorial)](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb)
+
+* **Graph AI that is fast & easy:** In oneines of code, turn messy data into feature vectors for modeling, GNNs for training pipelines, lower dimensional embeddings, and visualizations:
+
+    ```python
+    df = pandas.read_csv('accounts.csv')
+
+    # UMAP dimensionality reduction with automatic feature engineering
+    g1 = graphistry.nodes(df).umap()
+
+    # Automatically shows top inferred similarity edges g1._edges
+    g1.plot()
+    
+    # Optional: Use subset of columns, supervised learning target, & more
+    g2.umap(X=['name', 'description', 'amount'], y=['label_col_1']).plot()
+    ```
 
 ### Explore any data as a graph
 
@@ -152,12 +171,21 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     )
     ```
 
-* GPU [RAPIDS.ai](https://www.rapids.ai)
+* GPU [RAPIDS.ai](https://www.rapids.ai) cudf
 
     ```python
     edges = cudf.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst'])
     graphistry.edges(edges, 'src', 'dst').plot()
     ```
+
+* GPU [RAPIDS.ai](https://www.rapids.ai) cugraph ([notebook demo](demos/demos_databases_apis/gpu_rapids/cugraph.ipynb))
+
+    ```python
+    g = graphistry.from_cugraph(G)
+    g2 = g.compute_cugraph('pagerank').layout_cugraph('force_atlas2')
+    g2.plot()
+    G2 = g.to_cugraph()
+    ``` 
 
 * [Apache Arrow](https://arrow.apache.org/)
 
@@ -288,6 +316,111 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     graphistry.nodexl('https://file.xls', engine='xlsxwriter').plot()
     graphistry.nodexl('https://file.xls')._nodes
     ```
+
+## Graph AI in a single line of code
+
+Graph autoML features including:
+
+### Generate features from raw data
+
+Automatically and intelligently transform text, numbers, booleans, and other formats to AI-ready representations:
+
+* Featurization
+
+    ```python
+    g = graphistry.nodes(df).featurize(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+
+    print('X', g._node_features)
+    print('y', g._node_target)
+    ```
+
+* Set `kind='edges'` to featurize edges:
+
+    ```python
+    g = graphistry.edges(df, src, dst).featurize(kind='edges', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+    ```
+
+* Use generated features with both Graphistry and external libraries:
+
+    ```python
+    # graphistry
+    g = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
+
+    # other pydata libraries
+    X = g._node_features
+    y = g._node_target
+    from sklearn.ensemble import RandomForestRegressor
+    model = RandomForestRegressor().fit(X, y) #assumes train/test split
+    new_df = pandas.read_csv(...)
+    X_new, _ = g.transform(new_df, None, kind='nodes')
+    preds = model.predict(X_new)
+    ```
+
+See `help(g.featurize)` for more options
+
+### [UMAP](https://umap-learn.readthedocs.io/en/latest/) 
+
+* Reduce dimensionality and plot a similarity graph from feature vectors:
+
+    ```python
+      # automatic feature engineering, UMAP
+      g = graphistry.nodes(df).umap()
+      
+      # plot the similarity graph even though there was no explicit edge_dataframe passed in -- it is created during UMAP.
+      g.plot()
+    ```
+
+* Apply a trained model to new data:
+
+    ```python
+      new_df = pd.read_csv(...)
+      embeddings, X_new, _ = g.transform_umap(new_df, None, kind='nodes')
+    ```
+
+* UMAP supports many options, such as supervised mode, working on a subset of columns, and passing arguments to underlying `featurize()` and UMAP implementations (see `help(g.umap)`):
+
+    ```python
+      g.umap(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+    ```
+
+You can also featurize edges and UMAP them as we did above.
+
+UMAP support is rapidly evolving, please contact the team directly or on Slack for additional discussions
+
+See `help(g.umap)` for more options
+
+### [GNN models](https://docs.dgl.ai/en/0.6.x/index.html)
+
+* Graphistry adds bindings and automation to working with popular GNN models, currently focusing on DGL/PyTorch:
+
+    ```python
+    g = (graphistry
+        .nodes(ndf)
+        .edges(edf, src, dst)
+        .build_gnn(
+            X_nodes=['col_1', ..., 'col_n'], #columns from nodes_dataframe
+            y_nodes=['label', ..., 'other_targets'],
+            X_edges=['col_1_edge', ..., 'col_n_edge'], #columns from edges_dataframe
+            y_edges=['label_edge', ..., 'other_targets_edge'],
+            ...)
+    )                    
+    G = g.DGL_graph
+
+    from [your_training_pipeline] import train, model
+    # Train
+    g = graphistry.nodes(df).build_gnn(y=`target`) 
+    G = g.DGL_graph
+    train(G, model)
+    # predict on new data
+    X_new, _ = g.transform(new_df, None, kind='nodes' or 'edges') # no targets
+    predictions = model.predict(G_new, X_new)
+    ```
+
+Like `g.umap()`, GNN layers automate feature engineering (`.featurize()`)
+
+See `help(g.build_gnn)` for options.
+
+GNN support is rapidly evolving, please contact the team directly or on Slack for additional discussions
 
 ### Quickly configurable
 
@@ -803,6 +936,19 @@ g2._nodes  # pd.DataFrame({
 
 See also `get_indegrees()` and `get_outdegrees()` 
 
+#### Use igraph (CPU) and cugraph (GPU) compute
+
+Install the plugin of choice and then:
+
+
+```python
+g2 =  g.compute_igraph('pagerank')
+assert 'pagerank' in g2._nodes.columns
+
+g3 = g.compute_cugraph('pagerank')
+assert 'pagerank' in g2._nodes.columns
+```
+
 #### Graph pattern matching
 
 Traverse within a graph, or expand one graph against another
@@ -924,6 +1070,13 @@ With `pip install graphistry[igraph]`, you can also use [`igraph` layouts](https
 ```python
 g.layout_igraph('sugiyama').plot()
 g.layout_igraph('sugiyama', directed=True, params={}).plot()
+```
+
+With [Nvidia RAPIDS cuGraph](https://www.rapids.ai) install:
+
+```python
+g.layout_cugraph().plot()  # GPU ForceAtlas2
+help(g.layout_cugraph)
 ```
 
 ### Control render settings
