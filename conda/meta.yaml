@@ -1,6 +1,6 @@
 package:
   name: graphistry
-  version: {{ GIT_DESCRIBE_TAG }}
+  version: {{ environ.get('GIT_DESCRIBE_TAG', 'failed')}}
 
 source:
   path: ./
