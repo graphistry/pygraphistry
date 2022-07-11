@@ -1,6 +1,6 @@
 package:
-  name: graphistry-dev
-  version: "0.25.2"
+  name: graphistry
+  version: {{ GIT_DESCRIBE_TAG }}
 
 source:
   path: ./
@@ -10,9 +10,9 @@ requirements:
     - python
     - setuptools
   run:
-    - graphistry_dev.graphistry_core
-    - graphistry_dev.graphistry-umap
-    - graphistry_dev.graphistry-ai
+    - graphistry.graphistry-core
+    - graphistry.graphistry-umap
+    - graphistry.graphistry-ai
 
 test:
   requires:
@@ -24,7 +24,7 @@ test:
     - types-requests
 
 outputs:
-  - name: graphistry_dev.graphistry_core
+  - name: graphistry.graphistry-core
     requirements:
       - packaging>=20.1
       - typing-extensions
@@ -33,16 +33,18 @@ outputs:
       - protobuf>=2.6.0
       - pyarrow>=0.15.0
       - requests
-  - name: graphistry_dev.graphistry-umap
+    description: test desc
+  - name: graphistry.graphistry-umap
     requirements:
       - umap-learn
-      - dirty_cat
-  - name: graphistry_dev.graphistry-ai
+      - dirty_cat==0.2.0
+      - scikit-learn>=1.0
+  - name: graphistry.graphistry-ai
     requirements:
-      - scikit-learn
+      - scikit-learn>=1.0
       - scipy
       - umap-learn
-      - dirty_cat
+      - dirty_cat==0.2.0
       - dgl
       - pytorch
       - sentence-transformers
@@ -50,12 +52,20 @@ outputs:
       
 about:
   home: https://www.graphistry.com/
-  license: BSD
-  summary: Visual Graph Analytics library for Python
+  license: BSD3
+  license_file: LICENSE
+  summary: Graphistry Visual Graph Analytics library for Python
   description: |
     Graphistry is a visual graph analytics library for extracting, transforming, 
-    displaying, and sharing big graphs with end-to-end GPU acceleration
-  doc_url: https://www.graphistry.com/docs
+    displaying, and sharing big graphs with end-to-end GPU acceleration.
+    You can install the whole package via:
+    `conda install -c pygraphistry_dev graphistry`
+    Just the core package via:
+    `conda install -c pygraphistry_dev graphistry.graphistry-core`
+    Or other part of the package via:
+    `conda install -c pygraphistry_dev graphistry.graphistry-ai`
+    `conda install -c pygraphistry_dev graphistry.graphistry-umap`
+  doc_url: https://hub.graphistry.com/docs
   dev_url: https://github.com/graphistry/pygraphistry
 
 extra:
