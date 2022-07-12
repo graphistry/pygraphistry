@@ -12,7 +12,7 @@ jobs:
     name: Build and publish Python 🐍 distributions 📦 to Conda
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: publish-to-conda
       uses: blanderbuss/conda-publish-action@v1.4
       with:
