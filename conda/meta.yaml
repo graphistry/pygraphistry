@@ -58,13 +58,20 @@ about:
   summary: Graphistry Visual Graph Analytics library for Python
   description: |
     Graphistry is a visual graph analytics library for extracting, transforming, 
-    displaying, and sharing big graphs with end-to-end GPU acceleration.\n
-    You can install the whole package via:\n
-    `conda install -c pygraphistry_dev graphistry`\n
-    Just the core package via:\n
-    `conda install -c pygraphistry_dev graphistry.graphistry-core`\n
-    Or other part of the package via:\n
-    `conda install -c pygraphistry_dev graphistry.graphistry-ai`\n
+    displaying, and sharing big graphs with end-to-end GPU acceleration.
+
+    You can install the whole package via:
+
+    `conda install -c pygraphistry_dev graphistry`
+
+    Just the core package via:
+
+    `conda install -c pygraphistry_dev graphistry.graphistry-core`
+
+    Or other parts of the package via:
+
+    `conda install -c pygraphistry_dev graphistry.graphistry-ai`
+    
     `conda install -c pygraphistry_dev graphistry.graphistry-umap`
   doc_url: https://hub.graphistry.com/docs
   dev_url: https://github.com/graphistry/pygraphistry
