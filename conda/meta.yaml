@@ -1,9 +1,10 @@
 package:
   name: graphistry
-  version: {{ git tag --sort=-creatordate | head -n 1 }}
+  version: {{ GIT_DESCRIBE_TAG }}
 
 source:
-  path: ./
+  git_rev: 0.25.2
+  git_url: https://github.com/graphistry/pygraphistry
 
 requirements:
   host:
