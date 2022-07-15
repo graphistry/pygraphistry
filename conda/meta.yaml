@@ -3,7 +3,7 @@ package:
   version: {{ GIT_DESCRIBE_TAG }}
 
 source:
-  git_rev: 0.25.2
+  git_rev: {{ GIT_DESCRIBE_TAG }}
   git_url: https://github.com/graphistry/pygraphistry
 
 requirements:
