@@ -174,17 +174,21 @@ class ArrowUploader:
         self.__edge_encodings = edge_encodings
         self.__metadata = metadata
         self.__certificate_validation = certificate_validation
-        if org_name is not None:
-            self.__org_name = org_name
+        self.__org_name = org_name
     
     def login(self, username, password, org_name=None):
         from .pygraphistry import PyGraphistry
 
         base_path = self.server_base_path
+
+        json_data = {'username': username, 'password': password}
+        if org_name:
+            json_data.update({"org_name": org_name})
+
         out = requests.post(
             f'{base_path}/api-token-auth/',
             verify=self.certificate_validation,
-            json={'username': username, 'password': password, "org_name": org_name})
+            json=json_data)
         json_response = None
         try:
             json_response = out.json()
