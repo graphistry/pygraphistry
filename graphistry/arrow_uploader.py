@@ -21,12 +21,12 @@ class ArrowUploader:
         self.__token = token
 
     @property
-    def org_name(self) -> str:
+    def org_name(self) -> Optional[str]:
         return self.__org_name
 
     @org_name.setter
     def org_name(self, org_name: str) -> None:
-        self.__org_name = org_name
+        self.__org_name: Optional[str] = org_name
 
     @property
     def dataset_id(self) -> str:
@@ -162,6 +162,7 @@ class ArrowUploader:
             metadata = None,
             certificate_validation = True, 
             org_name: Optional[str] = None):
+
         self.__name = name
         self.__description = description
         self.__server_base_path = server_base_path
@@ -174,7 +175,7 @@ class ArrowUploader:
         self.__edge_encodings = edge_encodings
         self.__metadata = metadata
         self.__certificate_validation = certificate_validation
-        self.__org_name = org_name
+        self.__org_name = org_name if org_name else None
     
     def login(self, username, password, org_name=None):
         from .pygraphistry import PyGraphistry
