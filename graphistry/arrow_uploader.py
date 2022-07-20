@@ -217,7 +217,11 @@ class ArrowUploader:
                 if not is_member: 
                     raise Exception("You are not a member of {}".format(org_name))
 
-            PyGraphistry.org_name(logged_in_org_name)
+            if logged_in_org_name is None and org_name is None:
+                if 'org_name' in PyGraphistry._config:
+                    del PyGraphistry._config['org_name']
+            else:
+                PyGraphistry.org_name(logged_in_org_name)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
             raise
