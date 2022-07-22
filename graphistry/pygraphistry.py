@@ -306,8 +306,6 @@ class PyGraphistry(object):
                 PyGraphistry._is_authenticated = True
             return PyGraphistry.api_token()
         except Exception as e:
-            import traceback; traceback.print_exc()
-
             if not fail_silent:
                 util.error("Failed to refresh token: %s" % str(e))
 
