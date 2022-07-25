@@ -7,6 +7,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Changed
+
+* Infra: CI early fail on deeper lint
+* Infra: Move Python 3.6 from core to minimal tests due to sklearn 1.0 incompatibility
+
+### Fixed
+
+* lint
+
 ## [0.26.1 - 2022-07-01]
 
 ### Breaking 🔥
