@@ -316,7 +316,7 @@ def group_columns_by_dtypes(df: pd.DataFrame, verbose: bool = True) -> Dict:
     # very useful on large DataFrames, super useful
     # if we use a feature_column type transformer too
     gtypes = df.columns.to_series().groupby(df.dtypes).groups
-    gtypes = {k.name: list(v) for k, v in gtypes.items()}
+    gtypes = {k.name: list(v) for k, v in gtypes.items()}  # type: ignore
     if verbose:
         for k, v in gtypes.items():
             logger.debug(f"{k} has {len(v)} members")
