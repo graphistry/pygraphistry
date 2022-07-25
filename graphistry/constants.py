@@ -1,6 +1,6 @@
 # ###############################################################
 VERBOSE = None  # set to true for info, false for debug, None for none
-TRACE = False # set to true for full trace of functions
+TRACE = False  # set to true for full trace of functions
 # ###############################################################
 # source and destination labels for consistent pipeline-ing across files
 SRC = "_src_implicit"

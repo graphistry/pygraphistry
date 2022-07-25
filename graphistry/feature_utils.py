@@ -316,7 +316,7 @@ def group_columns_by_dtypes(df: pd.DataFrame, verbose: bool = True) -> Dict:
     # very useful on large DataFrames, super useful
     # if we use a feature_column type transformer too
     gtypes = df.columns.to_series().groupby(df.dtypes).groups
-    gtypes = {k.name: list(v) for k, v in gtypes.items()}
+    gtypes = {k.name: list(v) for k, v in gtypes.items()}  # type: ignore
     if verbose:
         for k, v in gtypes.items():
             logger.debug(f"{k} has {len(v)} members")
@@ -905,8 +905,8 @@ def process_dirty_dataframes(
 
     if (
         y is not None
-        and len(y.columns) > 0
-        and not is_dataframe_all_numeric(y)
+        and len(y.columns) > 0  # noqa: E126,W503
+        and not is_dataframe_all_numeric(y)  # noqa: E126,W503
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)

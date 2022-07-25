@@ -108,10 +108,10 @@ class TestUMAPFitTransform(unittest.TestCase):
 
     @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
     def test_columns_match(self):
-        assert all(self.X.columns == self.x.columns), f'Node Feature Columns do not match'
-        assert all(self.Y.columns == self.y.columns), f'Node Target Columns do not match'
-        assert all(self.Xe.columns == self.xe.columns), f'Edge Feature Columns do not match'
-        assert all(self.Ye.columns == self.ye.columns), f'Edge Target Columns do not match'
+        assert all(self.X.columns == self.x.columns), 'Node Feature Columns do not match'
+        assert all(self.Y.columns == self.y.columns), 'Node Target Columns do not match'
+        assert all(self.Xe.columns == self.xe.columns), 'Edge Feature Columns do not match'
+        assert all(self.Ye.columns == self.ye.columns), 'Edge Target Columns do not match'
 
 
 class TestUMAPMethods(unittest.TestCase):
@@ -335,7 +335,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g3._feature_params['nodes']['X'].pop('y')
         assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X'])
         assert g2._feature_params['nodes']['y'].shape == g3._feature_params['nodes']['y'].shape  # None
-        assert g2._node_embedding.shape == g3._node_embedding.shape # kinda weak sauce
+        assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
         
     @pytest.mark.skipif(
         not has_dependancy or not has_featurize,
