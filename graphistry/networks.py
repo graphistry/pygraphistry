@@ -1,6 +1,7 @@
 import dgl
 import dgl.nn as dglnn
 import dgl.function as fn
+from sklearn import metrics 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -153,8 +154,6 @@ class LinkPredModelMultiOutput(nn.Module):
 
 # training
 
-from sklearn import metrics 
-
 MAE = metrics.mean_absolute_error
 ACC = metrics.accuracy_score
 
@@ -170,7 +169,7 @@ def train_link_pred(model, G, epochs=10000, use_cross_entropy_loss = False):
     train_mask = G.edata["train_mask"]
     test_mask = G.edata["test_mask"]
 
-    if edge_label.shape[1]>1:
+    if edge_label.shape[1] > 1:
         print(f'Predicting {n_targets} target multiOutput')
     else:
         print(f'Predicting {n_targets} target')
@@ -183,7 +182,7 @@ def train_link_pred(model, G, epochs=10000, use_cross_entropy_loss = False):
 
         if use_cross_entropy_loss:
             loss = F.cross_entropy(logits[train_mask], edge_label[train_mask])
-        else: # in regressive context
+        else:  # in regressive context
             loss = ((logits[train_mask] - edge_label[train_mask]) ** 2).mean()
             
         p = logits.argmax(1)

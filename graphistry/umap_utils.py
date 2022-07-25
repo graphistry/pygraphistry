@@ -197,8 +197,8 @@ class UMAPMixin(MIXIN_BASE):
 
 
     def transform_umap(  # noqa: E303
-                       self, df: pd.DataFrame, ydf: pd.DataFrame,
-                       kind: str = "nodes"
+        self, df: pd.DataFrame, ydf: pd.DataFrame,
+        kind: str = "nodes"
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         logger.debug(f'Going into Transform umap {df.shape}, {ydf.shape}')
         x, y = self.transform(df, ydf, kind=kind)
@@ -258,7 +258,7 @@ class UMAPMixin(MIXIN_BASE):
 
 
     def _set_features(  # noqa: E303
-                      self, res, X, y, kind, feature_engine, featurize_kwargs):
+            self, res, X, y, kind, feature_engine, featurize_kwargs):
         """
             Helper for setting features for memoize
         """
@@ -528,9 +528,10 @@ class UMAPMixin(MIXIN_BASE):
 
         if encode_position and kind == "nodes":
             if play is not None:
-                return res.bind(point_x=x_name, point_y=y_name)\
-                        .layout_settings(
-                    play=play
+                return (
+                    res
+                        .bind(point_x=x_name, point_y=y_name)
+                        .layout_settings(play=play)
                 )
             else:
                 return res.bind(point_x=x_name, point_y=y_name)

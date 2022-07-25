@@ -55,7 +55,7 @@ ndf = ndf.fillna(0)
 ndf = ndf[node_cols]
 ndf = ndf.drop_duplicates(subset=["ip"]).reset_index(drop=True)
 
-## a target
+# a target
 T = edf.Label.apply(
     lambda x: 1 if "Botnet" in x else 0
 )  # simple indicator, useful for slicing later df.loc[T==1]
@@ -143,7 +143,7 @@ class TestDGL(unittest.TestCase):
         # explicitly set node in .nodes() and not in .build_gnn()
         g = graphistry.nodes(ndf, "ip")
         g.reset_caches()  # so that we redo calcs
-        g = g.umap(scale=1) #keep all edges with scale = 1
+        g = g.umap(scale=1)  # keep all edges with scale = 1
 
         g2 = g.build_gnn(
             use_node_scaler="robust",
@@ -155,7 +155,7 @@ class TestDGL(unittest.TestCase):
     def test_build_dgl_graph_from_umap_no_node_column(self):
         g = graphistry.nodes(ndf)
         g.reset_caches()  # so that we redo calcs
-        g = g.umap(scale=1) #keep all edges with scale = 100
+        g = g.umap(scale=1)  # keep all edges with scale = 100
 
         g2 = g.build_gnn(
             use_node_scaler="robust",
