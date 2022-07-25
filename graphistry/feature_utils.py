@@ -905,8 +905,8 @@ def process_dirty_dataframes(
 
     if (
         y is not None
-        and len(y.columns) > 0
-        and not is_dataframe_all_numeric(y)
+        and len(y.columns) > 0  # noqa: E126,W503
+        and not is_dataframe_all_numeric(y)  # noqa: E126,W503
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
