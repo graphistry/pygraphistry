@@ -164,6 +164,7 @@ class TestDGL(unittest.TestCase):
         self._test_cases_dgl(g2)
 
     @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
+    @pytest.mark.xfail(reason="Mishandling datetimes: https://github.com/graphistry/pygraphistry/issues/381")
     def test_build_dgl_with_no_node_features(self):
         g = graphistry.edges(edf, src, dst)
         g.reset_caches()  # so that we redo calcs
