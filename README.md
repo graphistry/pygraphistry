@@ -182,9 +182,10 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
     ```python
     g = graphistry.from_cugraph(G)
-    g2 = g.compute_cugraph('pagerank').layout_cugraph('force_atlas2')
-    g2.plot()
-    G2 = g.to_cugraph()
+    g2 = g.compute_cugraph('pagerank')
+    g3 = g2.layout_cugraph('force_atlas2')
+    g3.plot()
+    G3 = g.to_cugraph()
     ``` 
 
 * [Apache Arrow](https://arrow.apache.org/)
