@@ -7,6 +7,7 @@ Subpackages
 .. toctree::
    :maxdepth: 4
 
+   graphistry.layout.gib
    graphistry.layout.graph
    graphistry.layout.sugiyama
    graphistry.layout.utils
