@@ -7,9 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.27.1 - 2022-07-25]
+
 ### Fixed
 
 * `group_in_a_box_layout()`: Remove verbose output
+* `group_in_a_box_layout()`: Remove synthesized edge weight
 
 ## [0.27.0 - 2022-07-25]
 

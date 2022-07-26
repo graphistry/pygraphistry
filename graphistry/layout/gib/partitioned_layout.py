@@ -253,6 +253,7 @@ def partitioned_layout(
     )
     global_nodes['y'] = -global_nodes['y']
     g_globally_positioned = g_locally_positioned.nodes(global_nodes)
+    g_globally_positioned._edge_weight = self._edge_weight
     end = timer()
     logger.debug('part_layout postproc: %s s', end - end_communities)
     logger.debug('partitioned_layout total: %s s', end - start)
