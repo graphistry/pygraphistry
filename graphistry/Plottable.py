@@ -162,6 +162,14 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
     
+    def keep_nodes(
+        self,
+        nodes: Union[List, Any]
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
     def collapse(
         self,
         node: Union[str, int],
