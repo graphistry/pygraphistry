@@ -182,9 +182,10 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
     ```python
     g = graphistry.from_cugraph(G)
-    g2 = g.compute_cugraph('pagerank').layout_cugraph('force_atlas2')
-    g2.plot()
-    G2 = g.to_cugraph()
+    g2 = g.compute_cugraph('pagerank')
+    g3 = g2.layout_cugraph('force_atlas2')
+    g3.plot()
+    G3 = g.to_cugraph()
     ``` 
 
 * [Apache Arrow](https://arrow.apache.org/)
@@ -1025,6 +1026,15 @@ g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']}))
 g2 = g.drop_nodes(['c'])  # drops node c, edge c->a, edge b->c,
 ```
 
+#### Keeping nodes
+
+```python
+# keep nodes [a,b,c] and edges [(a,b),(b,c)]
+g2 = g.keep_nodes(['a, b, c'])  
+g2 = g.keep_nodes(pd.Series(['a, b, c']))
+g2 = g.keep_nodes(cudf.Series(['a, b, c']))
+```
+
 #### Collapsing adjacent nodes with specific k=v matches
 
 One col/val pair:
@@ -1048,6 +1058,7 @@ for v in g._nodes['some_col'].unique():
 
 ### Control layouts
 
+#### Tree
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'b'], 'd': ['b', 'c', 'd']}))
 
@@ -1063,6 +1074,8 @@ g3c = g2a.layout_settings(locked_x=True)
 g4 = g2.tree_layout().rotate(90)
 ```
 
+### Plugin: igraph
+
 With `pip install graphistry[igraph]`, you can also use [`igraph` layouts](https://igraph.org/python/doc/api/igraph.Graph.html#layout):
 
 ```python
@@ -1070,11 +1083,34 @@ g.layout_igraph('sugiyama').plot()
 g.layout_igraph('sugiyama', directed=True, params={}).plot()
 ```
 
+See list [`layout_algs`](https://github.com/graphistry/pygraphistry/blob/master/graphistry/plugins/igraph.py#L365)
+
+### Plugin: cugraph
+
 With [Nvidia RAPIDS cuGraph](https://www.rapids.ai) install:
 
 ```python
-g.layout_cugraph().plot()  # GPU ForceAtlas2
+g.layout_cugraph('force_atlas2').plot()
 help(g.layout_cugraph)
+```
+
+See list [`layout_algs`](https://github.com/graphistry/pygraphistry/blob/master/graphistry/plugins/cugraph.py#L315)
+
+#### Group-in-a-box layout
+
+[Group-in-a-box layout](https://ieeexplore.ieee.org/document/6113135) with igraph/pandas and cugraph/cudf implementations:
+
+```python
+g.group_in_a_box_layout().plot()
+g.group_in_a_box_layout(
+  partition_alg='ecg',  # see igraph/cugraph algs
+  #partition_key='some_col',  # use existing col
+  #layout_alg='circle',  # see igraph/cugraph algs
+  #x, y, w, h
+  #encode_colors=False,
+  #colors=['#FFF', '#FF0', ...]
+  engine='cudf'
+).plot()
 ```
 
 ### Control render settings
