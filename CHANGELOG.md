@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Fixed
+
+* `group_in_a_box_layout()`: Remove verbose output
+
 ## [0.27.0 - 2022-07-25]
 
 ### Breaking 🔥
@@ -16,7 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 * `g.keep_nodes(List or Series)`
-* `g.group_in_a_box(...)`: Both CPU (pandas/igraph) and (cudf/cugraph) versions, and various partitioning/layout/styling settings
+* `g.group_in_a_box_layout(...)`: Both CPU (pandas/igraph) and (cudf/cugraph) versions, and various partitioning/layout/styling settings
 * Internal clientside Brewer palettes helper for categorical point coloring
 
 ### Changed
