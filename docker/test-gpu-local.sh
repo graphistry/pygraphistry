@@ -3,7 +3,7 @@ set -ex
 
 echo "CONFIG"
 
-PIP_DEPS=${PIP_DEPS:--e .[gremlin,bolt,test] neo4j==4.4.3}
+PIP_DEPS=${PIP_DEPS:--e .[bolt,gremlin,igraph,test] neo4j==4.4.3}
 WITH_NEO4J=${WITH_NEO4J:-0}
 WITH_LINT=${WITH_LINT:-1}
 WITH_TYPECHECK=${WITH_TYPECHECK:-1}

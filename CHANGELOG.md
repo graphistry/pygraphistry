@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.27.0 - 2022-07-25]
+
+### Breaking 🔥
+
+* Types: Switch `materialize_nodes` engine param to explicitly using`Engine` typing (no change to untyped user code)
+
+### Added
+
+* `g.keep_nodes(List or Series)`
+* `g.group_in_a_box(...)`: Both CPU (pandas/igraph) and (cudf/cugraph) versions, and various partitioning/layout/styling settings
+* Internal clientside Brewer palettes helper for categorical point coloring
+
 ### Changed
 
 * Infra: CI early fail on deeper lint
@@ -15,6 +27,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 * lint
+* suppress known dgl bindings test type bug
 
 ## [0.26.1 - 2022-07-01]
 
