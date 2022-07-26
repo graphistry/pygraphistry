@@ -3,6 +3,7 @@ from typing_extensions import Literal
 import pandas as pd
 
 from graphistry.plugins_types.cugraph_types import CuGraphKind
+from graphistry.Engine import Engine
 
 try:
     from umap import UMAP
@@ -122,7 +123,22 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
-    def materialize_nodes(self, reuse: bool = True, engine: Literal['pandas', 'cudf', 'auto'] = 'auto') -> 'Plottable':
+    def get_outdegrees(self, col: str = 'degree_out') -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def get_degrees(
+        self,
+        col: str = "degree",
+        degree_in: str = "degree_in",
+        degree_out: str = "degree_out",
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def materialize_nodes(self, reuse: bool = True, engine: Union[Engine, Literal['auto']] = 'auto') -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
@@ -137,7 +153,15 @@ class Plottable(object):
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
-
+    
+    def drop_nodes(
+        self,
+        nodes: Any
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+    
     def collapse(
         self,
         node: Union[str, int],

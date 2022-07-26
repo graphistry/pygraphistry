@@ -1,7 +1,8 @@
-import logging, pandas as pd
+import logging, numpy as np, pandas as pd
 from typing import Any, List, Union, TYPE_CHECKING
 from typing_extensions import Literal
 
+from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
 from .chain import chain as chain_base
 from .collapse import collapse_by
@@ -23,7 +24,11 @@ class ComputeMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         pass
 
-    def materialize_nodes(self, reuse: bool = True, engine: Literal['cudf', 'pandas', 'auto'] = "auto"):
+    def materialize_nodes(
+        self,
+        reuse: bool = True,
+        engine: Union[Engine, Literal['auto']] = "auto"
+    ) -> "Plottable":
         """
         Generate g._nodes based on g._edges
 
@@ -68,19 +73,19 @@ class ComputeMixin(MIXIN_BASE):
         node_id = g._node if g._node is not None else "id"
         if engine == 'auto':
             if isinstance(g._edges, pd.DataFrame):
-                engine = 'pandas'
+                engine = Engine.PANDAS
             else:
                 try:
                     import cudf
                     if isinstance(g._edges, cudf.DataFrame):
-                        engine = 'cudf'
+                        engine = Engine.CUDF
                 except ImportError:
                     pass
             if engine == 'auto':
                 raise ValueError('Could not determine engine for edges, expected pandas or cudf dataframe, got: {}'.format(type(g._edges)))
-        if engine == "pandas":
+        if engine == Engine.PANDAS:
             concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
-        elif engine == "cudf":
+        elif engine == Engine.CUDF:
             import cudf
             if isinstance(g._edges, cudf.DataFrame):
                 edges_gdf = g._edges
@@ -89,6 +94,8 @@ class ComputeMixin(MIXIN_BASE):
             else:
                 raise ValueError('Unexpected edges type; convert edges to cudf.DataFrame')
             concat_df = cudf.concat([edges_gdf[g._source].rename(node_id), edges_gdf[g._destination].rename(node_id)])
+        else:
+            raise ValueError('Expected engine to be pandas or cudf, got: {}'.format(engine))
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 
