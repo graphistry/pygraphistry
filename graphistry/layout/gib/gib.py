@@ -71,15 +71,11 @@ def group_in_a_box_layout(
         partition_key=resolved_partition_key,
         engine=engine
     )
-    print('type g_partitioned', type(g_partitioned))
-    print('_nodes ::', type(g_partitioned._nodes))
-    print('_edges ::', type(g_partitioned._edges))
     partition_offsets = treemap(
         g_partitioned, x=x, y=y, w=w, h=h,
         partition_key=resolved_partition_key,
         engine=engine
     )
-    print('type partition_offsets', type(partition_offsets))
     g_positioned = partitioned_layout(
         g_partitioned,
         partition_offsets=partition_offsets,
@@ -88,9 +84,6 @@ def group_in_a_box_layout(
         partition_key=resolved_partition_key,
         engine=engine
     )
-    print('type g_positioned', type(g_positioned))
-    print('_nodes ::', type(g_positioned._nodes))
-    print('_edges ::', type(g_positioned._edges))
     out = style_layout(
         g_positioned,
         encode_color=encode_colors,
@@ -98,9 +91,6 @@ def group_in_a_box_layout(
         partition_key=resolved_partition_key,
         engine=engine
     )
-    print('type out', type(out))
-    print('_nodes ::', type(out._nodes))
-    print('_edges ::', type(out._edges))
 
     end = timer()
     logger.debug('GROUP IN THE BOX: %s s', end - start)

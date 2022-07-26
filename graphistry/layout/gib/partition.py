@@ -65,6 +65,9 @@ def partition(
     elif engine == Engine.CUDF:
         g2 = g2.compute_cugraph(partition_alg, **partition_params, out_col=partition_key)
 
+    out = g2.edges(g._edges)
+    out._edge_weight = g._edge_weight
+
     end = timer()
     logger.debug('partition: %s s', end - start)
-    return g2.edges(g._edges)
+    return out
