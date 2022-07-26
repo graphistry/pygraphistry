@@ -1025,6 +1025,15 @@ g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']}))
 g2 = g.drop_nodes(['c'])  # drops node c, edge c->a, edge b->c,
 ```
 
+#### Keeping nodes
+
+```python
+# keep nodes [a,b,c] and edges [(a,b),(b,c)]
+g2 = g.keep_nodes(['a, b, c'])  
+g2 = g.keep_nodes(pd.Series(['a, b, c']))
+g2 = g.keep_nodes(cudf.Series(['a, b, c']))
+```
+
 #### Collapsing adjacent nodes with specific k=v matches
 
 One col/val pair:

@@ -183,6 +183,66 @@ class ComputeMixin(MIXIN_BASE):
 
         return g2
 
+    def keep_nodes(self, nodes):
+        """
+        Limit nodes and edges to those selected by parameter nodes
+        For edges, both source and destination must be in nodes
+        Nodes can be a list or series of node IDs, or a dictionary
+        When a dictionary, each key corresponds to a node column, and nodes will be included when all match
+        """
+        g = self.materialize_nodes()
+
+        #convert to Dict[Str, Union[Series, List-like]]
+        if isinstance(nodes, dict):
+            pass
+        elif isinstance(nodes, np.ndarray) or isinstance(nodes, list):
+            nodes = {g._node: nodes}
+        else:
+            if isinstance(nodes, pd.Series):
+                nodes = {g._node: nodes.to_numpy()}
+            else:
+                import cudf
+                if isinstance(nodes, cudf.Series):
+                    nodes = {g._node: nodes.to_numpy()}
+                else:
+                    raise ValueError('Unexpected nodes type: {}'.format(type(nodes)))
+        #convert to Dict[Str, List-like]
+        #print('nodes mid', nodes)
+        nodes = {
+            k: v if isinstance(v, np.ndarray) or isinstance(v, list) else v.to_numpy()
+            for k, v in nodes.items()
+        }
+
+        #print('self nodes', g._nodes)
+        #print('pre nodes', nodes)
+        #print('keys', list(nodes.keys()))
+        hits = g._nodes[list(nodes.keys())].isin(nodes)
+        #print('hits', hits)
+        hits_s = hits[g._node]
+        for c in hits.columns:
+            if c != g._node:
+                hits_s = hits_s & hits[c]
+        #print('hits_s', hits_s)
+        new_nodes = g._nodes[hits_s]
+        #print(new_nodes)
+        new_node_ids = new_nodes[g._node].to_numpy()
+        #print('new_node_ids', new_node_ids)
+        #print('new node_ids', type(new_node_ids), len(g._nodes), '->', len(new_node_ids))
+        new_edges_hits_df = (
+            g._edges[[g._source, g._destination]]
+            .isin({
+                g._source: new_node_ids,
+                g._destination: new_node_ids
+            })
+        )
+        #print('new_edges_hits_df', new_edges_hits_df)
+        new_edges = g._edges[
+            new_edges_hits_df[g._source] & new_edges_hits_df[g._destination]
+        ]
+        #print('new_edges', new_edges)
+        #print('new edges', len(g._edges), '->', len(new_edges))
+        return g.nodes(new_nodes).edges(new_edges)
+
     def get_topological_levels(
         self,
         level_col: str = "level",

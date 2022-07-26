@@ -172,6 +172,69 @@ class TestComputeMixin(NoAuthTestCase):
         g2 = g.drop_nodes(["m"])
         assert g2._edges.to_dict(orient="records") == [{"x": "n", "y": "c"}]
 
+    def test_keep_nodes(self):
+        cg = CGFull()
+        g = cg.edges(
+            pd.DataFrame({"x": ["m", "m", "m", "n", "m"], "y": ["m", "a", "b", "c", "d"]}),
+            "x",
+            "y",
+        )
+        assert g.keep_nodes(["z"])._nodes.to_dict(orient="records") == []
+        assert (
+            g.keep_nodes(["m", "a"])._nodes
+            .sort_values(by='id')
+            .to_dict(orient="records") == [{"id": "a"}, {"id": "m"}]
+        )
+        assert (
+            g.keep_nodes(["m", "a", "b"])._edges
+            .sort_values(by='y')
+            .to_dict(orient="records") == [
+                {"x": "m", "y": "a"}, {"x": "m", "y": "b"}, {"x": "m", "y": "m"}
+            ]
+        )
+        assert (
+            g.keep_nodes(pd.Series(["m", "a", "b", "c"]))._nodes
+            .sort_values(by='id')
+            .to_dict(orient="records") == [
+                {"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "m"}
+            ]
+        )
+        #TODO test dict
+
+    @pytest.mark.skipif(
+        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+        reason="cudf tests need TEST_CUDF=1",
+    )
+    def test_keep_nodes_cudf(self):
+        import cudf
+        cg = CGFull()
+        g = cg.edges(
+            cudf.DataFrame({"x": ["m", "m", "m", "n", "m"], "y": ["m", "a", "b", "c", "d"]}),
+            "x",
+            "y",
+        )
+        assert g.keep_nodes(["z"])._nodes.to_pandas().to_dict(orient="records") == []
+        assert (
+            g.keep_nodes(["m", "a"])._nodes
+            .sort_values(by='id')
+            .to_pandas().to_dict(orient="records") == [{"id": "a"}, {"id": "m"}]
+        )
+        assert (
+            g.keep_nodes(["m", "a", "b"])._edges
+            .sort_values(by='y')
+            .to_pandas().to_dict(orient="records") == [
+                {"x": "m", "y": "a"}, {"x": "m", "y": "b"}, {"x": "m", "y": "m"}
+            ]
+        )
+        assert (
+            g.keep_nodes(cudf.Series(["m", "a", "b", "c"]))._nodes
+            .sort_values(by='id')
+            .to_pandas().to_dict(orient="records") == [
+                {"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "m"}
+            ]
+        )
+        #TODO test dict
+
 
 if __name__ == "__main__":
     unittest.main()
