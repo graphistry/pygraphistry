@@ -193,7 +193,7 @@ class ArrowUploader:
         json_response = None
         try:
             json_response = out.json()
-            
+
             if not ('token' in json_response):
                 raise Exception(out.text)
 
@@ -215,7 +215,7 @@ class ArrowUploader:
                     raise Exception("Organization {} is not found".format(org_name))
                 
                 if not is_member: 
-                    raise Exception("You are not a member of {}".format(org_name))
+                    raise Exception("You are not authorized or not a member of {}".format(org_name))
 
             if logged_in_org_name is None and org_name is None:
                 if 'org_name' in PyGraphistry._config:
