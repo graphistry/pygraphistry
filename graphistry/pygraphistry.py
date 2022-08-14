@@ -122,7 +122,7 @@ class PyGraphistry(object):
     relogin = lambda: PyGraphistry.not_implemented_thunk()  # noqa: E731
 
     @staticmethod
-    def login(username, password, org_name=None, fail_silent=False):
+    def login(username, password, org_name=None, personal_key_id=None, personal_key=None, fail_silent=False):
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
         By default, must be reinvoked within 24hr."""
 
@@ -139,7 +139,7 @@ class PyGraphistry(object):
                 + PyGraphistry.server(),    # noqa: W503
                 certificate_validation=PyGraphistry.certificate_validation(),
             )
-            .login(username, password, org_name)
+            .login(username, password, org_name, personal_key_id, personal_key)
             .token
         )
         PyGraphistry.api_token(token)
@@ -2227,6 +2227,36 @@ class PyGraphistry(object):
     scene_settings.__doc__ = Plotter().scene_settings.__doc__
 
 
+    @staticmethod
+    def personal_key_id(value=None):
+        """Set or get the personal_key_id when register.
+        """
+
+        if value is None:
+            if 'personal_key_id' in PyGraphistry._config:
+                return PyGraphistry._config['personal_key_id']
+            return None
+
+        # setter
+        if 'personal_key_id' not in PyGraphistry._config or value is not PyGraphistry._config['personal_key_id']:
+            PyGraphistry._config['personal_key_id'] = value.strip()
+
+    @staticmethod
+    def personal_key(value=None):
+        """Set or get the personal_key when register.
+        """
+
+        if value is None:
+            if 'personal_key' in PyGraphistry._config:
+                return PyGraphistry._config['personal_key']
+            return None
+
+        # setter
+        if 'personal_key' not in PyGraphistry._config or value is not PyGraphistry._config['personal_key']:
+            PyGraphistry._config['personal_key'] = value.strip()
+
+
+
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
 server = PyGraphistry.server
@@ -2275,6 +2305,9 @@ sso_state = PyGraphistry.sso_state
 scene_settings = PyGraphistry.scene_settings
 from_igraph = PyGraphistry.from_igraph
 from_cugraph = PyGraphistry.from_cugraph
+personal_key_id = PyGraphistry.personal_key_id
+personal_key = PyGraphistry.personal_key
+
 
 
 class NumpyJSONEncoder(json.JSONEncoder):

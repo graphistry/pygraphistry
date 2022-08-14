@@ -177,19 +177,40 @@ class ArrowUploader:
         self.__certificate_validation = certificate_validation
         self.__org_name = org_name if org_name else None
     
-    def login(self, username, password, org_name=None):
-        from .pygraphistry import PyGraphistry
+    
 
-        base_path = self.server_base_path
+    def login(self, username, password, org_name=None, personal_key_id=None, personal_key=None):
+        pass
+
+    def _login_personal_id_and_key(self, personal_key_id, personal_key, org_name=None):
+        json_data = {'personal_key_id': personal_key_id, 'personal_key': personal_key}
+        if org_name:
+            json_data.update({"org_name": org_name})
+
+        out = requests.post(
+            f'{self.server_base_path}/api-token-auth/',
+            verify=self.certificate_validation,
+            json=json_data)
+
+        return self._handle_login_response(out, org_name)
+
+
+    def _login_username_password(self, username, password, org_name=None):
+        # base_path = self.server_base_path
 
         json_data = {'username': username, 'password': password}
         if org_name:
             json_data.update({"org_name": org_name})
 
         out = requests.post(
-            f'{base_path}/api-token-auth/',
+            f'{self.server_base_path}/api-token-auth/',
             verify=self.certificate_validation,
             json=json_data)
+
+        return self._handle_login_response(out, org_name)
+
+    def _handle_login_response(self, out, org_name):
+        from .pygraphistry import PyGraphistry
         json_response = None
         try:
             json_response = out.json()
