@@ -122,7 +122,7 @@ class PyGraphistry(object):
     relogin = lambda: PyGraphistry.not_implemented_thunk()  # noqa: E731
 
     @staticmethod
-    def login(username, password, org_name=None, personal_key_id=None, personal_key=None, fail_silent=False):
+    def login(username, password, org_name=None, fail_silent=False):
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
         By default, must be reinvoked within 24hr."""
 
@@ -139,7 +139,7 @@ class PyGraphistry(object):
                 + PyGraphistry.server(),    # noqa: W503
                 certificate_validation=PyGraphistry.certificate_validation(),
             )
-            .login(username, password, org_name, personal_key_id, personal_key)
+            .login(username, password, org_name)
             .token
         )
         PyGraphistry.api_token(token)
@@ -147,6 +147,31 @@ class PyGraphistry(object):
 
         return PyGraphistry.api_token()
 
+    @staticmethod
+    def pkey_login(personal_key_id, personal_key, org_name=None, fail_silent=False):
+        """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
+        By default, must be reinvoked within 24hr."""
+
+        if PyGraphistry._config['store_token_creds_in_memory']:
+            PyGraphistry.relogin = lambda: PyGraphistry.pkey_login(
+                personal_key_id, personal_key, org_name, fail_silent
+            )
+
+        PyGraphistry._is_authenticated = False
+        token = (
+            ArrowUploader(
+                server_base_path=PyGraphistry.protocol()
+                + "://"                     # noqa: W503
+                + PyGraphistry.server(),    # noqa: W503
+                certificate_validation=PyGraphistry.certificate_validation(),
+            )
+            .pkey_login(personal_key_id, personal_key, org_name)
+            .token
+        )
+        PyGraphistry.api_token(token)
+        PyGraphistry._is_authenticated = True
+
+        return PyGraphistry.api_token()
 
     @staticmethod
     def sso_login(org_name=None, idp_name=None, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS):
@@ -166,7 +191,7 @@ class PyGraphistry(object):
         """
 
         if PyGraphistry._config['store_token_creds_in_memory']:
-            PyGraphistry.sso_relogin = lambda: PyGraphistry.sso_login(
+            PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
                 org_name, idp_name, sso_timeout
             )
 
@@ -473,6 +498,8 @@ class PyGraphistry(object):
         username: Optional[str] = None,
         password: Optional[str] = None,
         token: Optional[str] = None,
+        personal_key_id: Optional[str] = None,
+        personal_key: Optional[str] = None,
         server: Optional[str] = None,
         protocol: Optional[str] = None,
         api: Optional[Literal[1, 3]] = None,
@@ -583,14 +610,17 @@ class PyGraphistry(object):
             PyGraphistry.login(username, password, org_name)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
             PyGraphistry.authenticate()
-        else:  # enter SSO login logic
-            if org_name:
+        elif personal_key_id and personal_key:
+            PyGraphistry.pkey_login(personal_key_id, personal_key, org_name)
+            PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
+            PyGraphistry.authenticate()
+        elif not (token is None):
+            PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
+        else:  
+            if org_name: # enter SSO login logic
                 PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
             else:
-                if not (token is None):
-                    PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
-                else:
-                    print("Please provide username/password or at least org_name for SSO login")
+                print("Please provide username/password, personal key id and key, token or at least org_name for SSO login")
 
 
     @staticmethod
