@@ -617,10 +617,10 @@ class PyGraphistry(object):
         elif not (token is None):
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         else:  
-            if org_name: # enter SSO login logic
-                PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
-            else:
-                print("Please provide username/password, personal key id and key, token or at least org_name for SSO login")
+            print("No username/password, personal key id/key & token provided, enter SSO login")
+
+            PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
+                
 
 
     @staticmethod

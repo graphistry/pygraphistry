@@ -253,12 +253,20 @@ class ArrowUploader:
         Koa, 04 May 2022    Get SSO login auth_url or token
         """
         # from .pygraphistry import PyGraphistry
-
-        if idp_name is None:
-            idp_name = ""  # if idp_name is None 
         base_path = self.server_base_path
+
+        if org_name is None and idp_name is None:
+            print("Login to site wide SSO")
+            url = f'{base_path}/api/v2/g/sso/oidc/login/'
+        elif org_name is not None and idp_name is None:
+            print("Login to {} organization level SSO".format(org_name))
+            f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/'
+        elif org_name is not None and idp_name is not None:
+            print("Login to {} idp {} SSO".format(org_name, idp_name))
+            f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/{idp_name}/'
+        
         out = requests.post(
-            f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/{idp_name}', data={'client-type': 'pygraphistry'},
+            url, data={'client-type': 'pygraphistry'},
             verify=self.certificate_validation
         )
         json_response = None
