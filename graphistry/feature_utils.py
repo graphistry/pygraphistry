@@ -13,7 +13,8 @@ from typing import (
     Any,
     Optional,
     Tuple,
-    TYPE_CHECKING,
+    TYPE_CHECKING, 
+    Type
 )  # noqa
 from typing_extensions import Literal  # Literal native to py3.8+
 
@@ -35,15 +36,15 @@ import_text_exn = None
 
 # init all AI packages as none for possible type checking
 # torch
-SentenceTransformer = None
+SentenceTransformer: Any = None
 # 
-SuperVectorizer = None
-SimilarityEncoder = None
-GapEncoder = None
+SuperVectorizer: Any = None
+SimilarityEncoder: Any = None
+GapEncoder: Any = None
 
 # sklearn
-Pipeline = None
-FunctionTransformer = None
+Pipeline: Any = None
+FunctionTransformer: Any = None
 
 
 #@check_set_memoize
