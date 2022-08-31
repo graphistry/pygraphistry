@@ -33,57 +33,78 @@ else:
 import_min_exn = None
 import_text_exn = None
 
-try:
-    from sentence_transformers import SentenceTransformer
+# init all AI packages as none for possible type checking
+# torch
+SentenceTransformer = None
+# 
+SuperVectorizer = None
+SimilarityEncoder = None
+GapEncoder = None
 
-    has_dependancy_text: bool = True
+# sklearn
+Pipeline = None
+FunctionTransformer = None
 
-except ModuleNotFoundError as e:
-    import_text_exn = e
-    has_dependancy_text = False
-    SentenceTransformer = None
 
-try:
-    import scipy, scipy.sparse  # noqa
-    from dirty_cat import __version__ as dirty_cat_version
-    from dirty_cat import (
-        SuperVectorizer,
-        GapEncoder,
-        SimilarityEncoder,
-    )  # noqa
+#@check_set_memoize
+def lazy_import_has_dependancy_text():
+    try:
+        from sentence_transformers import SentenceTransformer
+        has_dependancy_text_: bool = True
+        import_text_exn = 'ok'
+    except ModuleNotFoundError as e:
+        import_text_exn = e
+        has_dependancy_text_ = False
+        # SentenceTransformer = None
+    return has_dependancy_text_, import_text_exn
 
-    logger.debug(f"SCIPY VERSION: {scipy.__version__}")
-    logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
 
-    from sklearn import __version__ as sklearn_version
-    from sklearn.pipeline import Pipeline
-    from sklearn.impute import SimpleImputer
-    from sklearn.preprocessing import (
-        MinMaxScaler,
-        QuantileTransformer,
-        StandardScaler,
-        RobustScaler,
-        MultiLabelBinarizer,
-        KBinsDiscretizer,
-        FunctionTransformer,
-    )
+def lazy_import_has_min_dependancy():
+    try:
+        import scipy, scipy.sparse  # noqa
+        from dirty_cat import __version__ as dirty_cat_version
+        from dirty_cat import (
+            SuperVectorizer,
+            GapEncoder,
+            SimilarityEncoder,
+        )  # noqa
 
-    logger.debug(f"sklearn VERSION: {sklearn_version}")
+        logger.debug(f"SCIPY VERSION: {scipy.__version__}")
+        logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
 
-    has_min_dependancy: bool = True
+        from sklearn import __version__ as sklearn_version
+        from sklearn.pipeline import Pipeline
+        from sklearn.impute import SimpleImputer
+        from sklearn.preprocessing import (
+            MinMaxScaler,
+            QuantileTransformer,
+            StandardScaler,
+            RobustScaler,
+            MultiLabelBinarizer,
+            KBinsDiscretizer,
+            FunctionTransformer,
+        )
 
-except ModuleNotFoundError as e:
-    import_min_exn = e
-    has_min_dependancy = False
-    SuperVectorizer = None
-    SimilarityEncoder = None
-    GapEncoder = None
-    Pipeline = None
-    FunctionTransformer = None
+        logger.debug(f"sklearn VERSION: {sklearn_version}")
+
+        has_min_dependancy_: bool = True
+        import_min_exn = 'ok'
+        
+    except ModuleNotFoundError as e:
+        import_min_exn = e
+        has_min_dependancy_ = False
+        # SuperVectorizer = None
+        # SimilarityEncoder = None
+        # GapEncoder = None
+        # Pipeline = None
+        # FunctionTransformer = None
+        
+    return has_min_dependancy_, import_min_exn
 
 
 def assert_imported_text():
-    if not has_dependancy_text:
+    has_dependancy_text_, import_text_exn = lazy_import_has_dependancy_text()
+    if not has_dependancy_text_:
         logger.error(  # noqa
             "AI Package sentence_transformers not found,"
             "trying running `pip install graphistry[ai]`"
@@ -92,7 +113,8 @@ def assert_imported_text():
 
 
 def assert_imported():
-    if not has_min_dependancy:
+    has_min_dependancy_, import_min_exn = lazy_import_has_min_dependancy()
+    if not has_min_dependancy_:
         logger.error(  # noqa
                      "AI Packages not found, trying running"  # noqa
                      "`pip install graphistry[ai]`"  # noqa
@@ -135,9 +157,11 @@ def resolve_feature_engine(
         return feature_engine  # type: ignore
 
     if feature_engine == "auto":
-        if has_dependancy_text:
+        has_dependancy_text_, _ = lazy_import_has_dependancy_text()
+        if has_dependancy_text_:
             return "torch"
-        if has_min_dependancy:
+        has_min_dependancy_, _ = lazy_import_has_min_dependancy()
+        if has_min_dependancy_:
             return "dirty_cat"
         return "pandas"
 
@@ -482,6 +506,12 @@ def get_textual_columns(
 
 
 class Embedding:
+    """
+    Generates random embeddings of a given dimension 
+    that aligns with the index of the dataframe
+    _____________________________________________________________________
+    
+    """
     def __init__(self, df: pd.DataFrame):
         self.index = df.index
 
@@ -538,6 +568,17 @@ def get_preprocessing_pipeline(
             `uniform`, `quantile`, `kmeans`, default 'quantile'
     :return: scaled array, imputer instances or None, scaler instance or None
     """
+    from sklearn.pipeline import Pipeline
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import (
+        MinMaxScaler,
+        QuantileTransformer,
+        StandardScaler,
+        RobustScaler,
+        KBinsDiscretizer,
+    )
+
+    
     available_preprocessors = [
         "minmax",
         "quantile",
@@ -644,6 +685,7 @@ def get_text_preprocessor(ngram_range=(1, 3), max_df=0.2, min_df=3):
         CountVectorizer,
         TfidfTransformer,
     )
+    from sklearn.pipeline import Pipeline
 
     cvect = CountVectorizer(
         ngram_range=ngram_range, max_df=max_df, min_df=min_df
@@ -683,6 +725,7 @@ def encode_textual(
     min_df: int = 3,
 ) -> Tuple[pd.DataFrame, List, Any]:
     import os
+    from sentence_transformers import SentenceTransformer
 
     t = time()
     text_cols = get_textual_columns(
@@ -776,6 +819,7 @@ def get_cardinality_ratio(df: pd.DataFrame):
 
 
 def make_array(X):
+    import scipy, scipy.sparse
     if scipy.sparse.issparse(X):
         logger.debug("Turning sparse array into dense")
         return X.toarray()
@@ -801,6 +845,7 @@ def get_numeric_transformers(ndf, y=None):
     # for later .transform consistency.
     # from sklearn.preprocessing import FunctionTransformer
     # from functools import partial
+    from sklearn.preprocessing import FunctionTransformer
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -856,6 +901,8 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
+    from sklearn.preprocessing import FunctionTransformer
+    from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     t = time()
 
     if not is_dataframe_all_numeric(ndf):
@@ -967,7 +1014,7 @@ def process_nodes_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = "robust",
     use_scaler_target: Optional[str] = "kbins",
-    embedding=False,
+    embedding=False, #whether to produce random embeddings
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
@@ -1067,7 +1114,8 @@ def process_nodes_dataframes(
     text_cols: List[str] = []
     text_model: Any = None
     text_enc = pd.DataFrame([])
-    if has_dependancy_text and (feature_engine in ["torch", "auto"]):
+    has_deps_text, import_text_exn = lazy_import_has_dependancy_text()
+    if  has_deps_text and (feature_engine in ["torch", "auto"]):
         text_enc, text_cols, text_model = encode_textual(
             df,
             confidence=confidence,
@@ -1101,7 +1149,7 @@ def process_nodes_dataframes(
         data_encoder = Embedding(df)
         X_enc = data_encoder.fit_transform(n_dim=n_topics)
 
-    if not text_enc.empty and not X_enc.empty:  # data_encoder is not None:
+    if not text_enc.empty and not X_enc.empty:
         logger.info("-" * 60)
         logger.info("<= Found both a textual embedding + dirty_cat =>")
         X_enc = pd.concat(
@@ -1229,6 +1277,7 @@ def process_edge_dataframes(
     :return: Encoded data matrix and target (if not None),
         the data encoders, and the label encoder.
     """
+    from sklearn.preprocessing import MultiLabelBinarizer
     logger.info("process_edges_dataframes[%s]", feature_engine)
 
     t = time()
@@ -1369,6 +1418,7 @@ def transform_text(
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
+    from sentence_transformers import SentenceTransformer
 
     logger.debug("Transforming text using:")
     if isinstance(text_model, Pipeline):
