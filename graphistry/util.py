@@ -12,6 +12,7 @@ from typing import Any
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
+print(f'****** PANDAS IN UTILS VERSION -- {pd.__version__}')
 
 # #####################################
 def setup_logger(name, verbose=VERBOSE, fullpath=TRACE):
