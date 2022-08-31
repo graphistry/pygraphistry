@@ -2,6 +2,7 @@ import hashlib
 import logging
 import os
 import pandas as pd
+import pandas.util as putil
 import platform as p
 import random
 import string
@@ -12,7 +13,6 @@ from typing import Any
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
-print(f'****** PANDAS IN UTILS VERSION -- {pd.__version__}')
 
 # #####################################
 def setup_logger(name, verbose=VERBOSE, fullpath=TRACE):
@@ -59,7 +59,7 @@ class WeakValueWrapper:
 def hash_pdf(df: pd.DataFrame) -> str:
     # can be 20% faster via to_parquet (see lmeyerov issue in pandas gh), but unclear if always available
     return (
-        hashlib.sha256(pd.util.hash_pandas_object(df, index=True).values).hexdigest()
+        hashlib.sha256(putil.hash_pandas_object(df, index=True).values).hexdigest()
         + hashlib.sha256(str(df.columns).encode('utf-8')).hexdigest()  # noqa: W503
     )
 
