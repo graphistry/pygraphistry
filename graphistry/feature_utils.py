@@ -1014,7 +1014,7 @@ def process_nodes_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = "robust",
     use_scaler_target: Optional[str] = "kbins",
-    embedding=False, #whether to produce random embeddings
+    embedding=False,  # whether to produce random embeddings
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
@@ -1115,7 +1115,7 @@ def process_nodes_dataframes(
     text_model: Any = None
     text_enc = pd.DataFrame([])
     has_deps_text, import_text_exn = lazy_import_has_dependancy_text()
-    if  has_deps_text and (feature_engine in ["torch", "auto"]):
+    if has_deps_text and (feature_engine in ["torch", "auto"]):
         text_enc, text_cols, text_model = encode_textual(
             df,
             confidence=confidence,
