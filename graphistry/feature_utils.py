@@ -1128,11 +1128,11 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         repulsion_strength: float = 1,
         negative_sample_rate: int = 5,
         n_components: int = 2,
-        metric: str = "euclidean",
+        # metric: str = "euclidean",
         scale_xy: float = 10,
         suffix: str = "",
         play: Optional[int] = 0,
-        engine: str = "umap_learn",
+        engine: Optional[str] = ["umap_learn","cuml"],
     ):
         """
             UMAP the featurized node or edges data, or pass in your own X, y (optional).
@@ -1167,13 +1167,14 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         xy = None
         umap_kwargs = dict(
             n_components=n_components,
-            metric=metric,
+            # metric=metric,
             n_neighbors=n_neighbors,
             min_dist=min_dist,
             spread=spread,
             local_connectivity=local_connectivity,
             repulsion_strength=repulsion_strength,
             negative_sample_rate=negative_sample_rate,
+            # engine=engine,
         )
 
         if inplace:
@@ -1210,7 +1211,10 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             X, y = self._featurize_or_get_nodes_dataframe_if_X_is_None(
                 res, X, y, use_columns
             )
-            xy = scale_xy * res.fit_transform(X, y)
+            if self.engine=='cuml':
+                xy = scale_xy * res.fit_transform(X.get(['source','destination']), y)
+            else:
+                xy = scale_xy * res.fit_transform(X, y)
             res.weighted_adjacency_nodes = res._weighted_adjacency
             res.node_embedding = xy
             # TODO add edge filter so graph doesn't have double edges
@@ -1225,7 +1229,11 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             X, y = self._featurize_or_get_edges_dataframe_if_X_is_None(
                 res, X, y, use_columns
             )
-            xy = scale_xy * res.fit_transform(X, y)
+                # xy = scale_xy * res.fit_transform(X, y)
+            if self.engine=='cuml':
+                xy = scale_xy * res.fit_transform(X.get(['source','destination']), y)
+            else:
+                xy = scale_xy * res.fit_transform(X, y)
             res.weighted_adjacency_edges = res._weighted_adjacency
             res.edge_embedding = xy
             res.weighted_edges_df_from_edges = (
@@ -1239,7 +1247,11 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             )
             if X is not None:
                 logger.info(f"New Matrix `X` passed in for UMAP-ing")
-                xy = res.fit_transform(X, y)
+                # xy = res.fit_transform(X, y)
+                if self.engine=='cuml':
+                    xy = res.fit_transform(X.get(['source','destination']), y)
+                else:
+                    xy = res.fit_transform(X, y)
                 res._xy = xy
                 res._weighted_edges_df = prune_weighted_edges_df_and_relabel_nodes(
                     res._weighted_edges_df, scale=scale
