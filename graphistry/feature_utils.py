@@ -46,9 +46,11 @@ GapEncoder: Any = None
 Pipeline: Any = None
 FunctionTransformer: Any = None
 
+print('start feature_utils')
 
 #@check_set_memoize
 def lazy_import_has_dependancy_text():
+    print('lazy_import_has_dependancy_text')
     import sys, traceback
     try:
         raise RuntimeError('hit lazy_import_has_dependancy_text')
@@ -69,6 +71,7 @@ def lazy_import_has_dependancy_text():
 
 
 def lazy_import_has_min_dependancy():
+    print('lazy_import_has_min_dependancy')
     import sys, traceback
     try:
         raise RuntimeError('hit lazy_import_has_min_dependancy')

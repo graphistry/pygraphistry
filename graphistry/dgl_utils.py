@@ -18,7 +18,9 @@ from .feature_utils import (
 
 from .util import setup_logger
 
+print('start dgl_utils')
 def lazy_dgl_import_has_dependency():
+    print('start lazy_dgl_import_has_dependency')
     import sys, traceback
     try:
         raise RuntimeError('hit lazy_dgl_import_has_dependency')

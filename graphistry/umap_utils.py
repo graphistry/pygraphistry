@@ -27,7 +27,9 @@ else:
 ###############################################################################
 
 
+print('start umap_utils')
 def lazy_umap_import_has_dependancy():
+    print('start lazy_umap_import_has_dependancy')
     import sys, traceback
     try:
         raise RuntimeError('hit lazy_umap_import_has_dependancy')
