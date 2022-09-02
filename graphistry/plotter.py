@@ -6,23 +6,12 @@ from .feature_utils import FeatureMixin  # type: ignore
 from .dgl_utils import DGLGraphMixin  # type: ignore
 from .umap_utils import UMAPMixin  # type: ignore
 
-# has_featurize, _ = lazy_import_has_min_dependancy()
-# has_umap, _ = lazy_umap_import_has_dependancy()
-# has_dgl, _ = lazy_dgl_import_has_dependency()
 
-# mixins = (
-#     [CosmosMixin, NeptuneMixin, GremlinMixin, LayoutsMixin]
-#     + ([DGLGraphMixin] if has_dgl and has_featurize else [])  # noqa: W503
-#     + ([UMAPMixin] if has_umap else [])  # noqa: W503
-#     + [FeatureMixin, ComputeMixin, PlotterBase, object]  # noqa: W503
-# )
-
-mixins = (
-    [CosmosMixin, NeptuneMixin, GremlinMixin, LayoutsMixin] 
-    + [DGLGraphMixin]  # noqa: W503
-    + [UMAPMixin]  # noqa: W503
-    + [FeatureMixin, ComputeMixin, PlotterBase, object]  # noqa: W503
-)
+mixins = ([
+    CosmosMixin, NeptuneMixin, GremlinMixin, LayoutsMixin,
+    DGLGraphMixin, UMAPMixin, FeatureMixin,
+    ComputeMixin, PlotterBase, object
+])
 
 
 class Plotter(  # type: ignore
@@ -32,9 +21,7 @@ class Plotter(  # type: ignore
         PlotterBase.__init__(self, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
         FeatureMixin.__init__(self, *args, **kwargs)
-        #if has_dgl:
         DGLGraphMixin.__init__(self, *args, **kwargs)
-        #if has_umap:
         UMAPMixin.__init__(self, *args, **kwargs)
         LayoutsMixin.__init__(self, *args, **kwargs)
         GremlinMixin.__init__(self, *args, **kwargs)
