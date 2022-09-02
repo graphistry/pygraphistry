@@ -186,7 +186,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g3 = g2.layout_cugraph('force_atlas2')
     g3.plot()
     G3 = g.to_cugraph()
-    ``` 
+    ```
 
 * [Apache Arrow](https://arrow.apache.org/)
 
@@ -359,7 +359,7 @@ Automatically and intelligently transform text, numbers, booleans, and other for
 
 See `help(g.featurize)` for more options
 
-### [UMAP](https://umap-learn.readthedocs.io/en/latest/) 
+### [UMAP](https://umap-learn.readthedocs.io/en/latest/)
 
 * Reduce dimensionality and plot a similarity graph from feature vectors:
 
@@ -500,6 +500,7 @@ You need to install the PyGraphistry Python client and connect it to a Graphistr
 ### Configure
 
 Most users connect to a Graphistry GPU server account via:
+
 * `graphistry.register(api=3, username='abc', password='xyz'`: personal hub.graphistry.com account
 * `graphistry.register(api=3, username='abc', password='xyz', org_name='optional_org')`: team hub.graphistry.com account
 * `graphistry.register(api=3, username='abc', password='xyz', org_name='optiona_org', protocol='http', server='my.private_server.org')`: private server
@@ -590,6 +591,7 @@ graphistry.privacy()  # graphistry.privacy(mode='private')
 ```
 
 * Organizations: You can login with an organization and share only within it
+
 ```python
 graphistry.register(api=3, username='...', password='...', org_name='my-org123')
 graphistry.privacy(mode='organization')
@@ -833,7 +835,6 @@ g2 = (g
   )).settings(url_params={'lockedY': 'true', 'play': 1000})
 ```
 
-
 ### Theming
 
 You can customize several style options to match your theme:
@@ -922,6 +923,7 @@ g2._nodes  # pd.DataFrame({'id': ['a', 'b', 'c']})
 ```
 
 #### Compute degrees
+
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}))
 g2 = g.get_degrees()
@@ -933,12 +935,11 @@ g2._nodes  # pd.DataFrame({
            #})
 ```
 
-See also `get_indegrees()` and `get_outdegrees()` 
+See also `get_indegrees()` and `get_outdegrees()`
 
 #### Use igraph (CPU) and cugraph (GPU) compute
 
 Install the plugin of choice and then:
-
 
 ```python
 g2 =  g.compute_igraph('pagerank')
@@ -1059,6 +1060,7 @@ for v in g._nodes['some_col'].unique():
 ### Control layouts
 
 #### Tree
+
 ```python
 g = graphistry.edges(pd.DataFrame({'s': ['a', 'b', 'b'], 'd': ['b', 'c', 'd']}))
 
