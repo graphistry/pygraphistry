@@ -49,6 +49,12 @@ FunctionTransformer: Any = None
 
 #@check_set_memoize
 def lazy_import_has_dependancy_text():
+    import sys, traceback
+    try:
+        raise RuntimeError('hit lazy_import_has_dependancy_text')
+    except:
+        traceback.print_exc(file=sys.stdout)
+
     import warnings
     warnings.filterwarnings("ignore")
     try:
@@ -63,6 +69,12 @@ def lazy_import_has_dependancy_text():
 
 
 def lazy_import_has_min_dependancy():
+    import sys, traceback
+    try:
+        raise RuntimeError('hit lazy_import_has_min_dependancy')
+    except:
+        traceback.print_exc(file=sys.stdout)
+
     import warnings
     warnings.filterwarnings("ignore")
     try:

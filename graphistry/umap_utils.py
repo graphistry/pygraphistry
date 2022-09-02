@@ -28,7 +28,12 @@ else:
 
 
 def lazy_umap_import_has_dependancy():
-    
+    import sys, traceback
+    try:
+        raise RuntimeError('hit lazy_umap_import_has_dependancy')
+    except:
+        traceback.print_exc(file=sys.stdout)
+
     try:
         import warnings
         warnings.filterwarnings("ignore")

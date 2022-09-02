@@ -19,7 +19,12 @@ from .feature_utils import (
 from .util import setup_logger
 
 def lazy_dgl_import_has_dependency():
-    
+    import sys, traceback
+    try:
+        raise RuntimeError('hit lazy_dgl_import_has_dependency')
+    except:
+        traceback.print_exc(file=sys.stdout)
+
     try:
         import warnings
         warnings.filterwarnings('ignore')
