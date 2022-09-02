@@ -4,9 +4,11 @@ import graphistry
 import pandas as pd
 from graphistry.util import setup_logger
 
-from graphistry.dgl_utils import has_dependancy
+from graphistry.dgl_utils import lazy_dgl_import_has_dependency
 
-if has_dependancy:
+has_dgl, _ = lazy_dgl_import_has_dependency()
+
+if has_dgl:
     import torch
 
 logger = setup_logger("test_DGL_utils", verbose=True)
@@ -110,7 +112,7 @@ class TestDGL(unittest.TestCase):
                     G.ndata[k].sum(), torch.Tensor
                 ), f"Node {G.ndata[k]} for {k} is not a Tensor"
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
+    @pytest.mark.skipif(not has_dgl, reason="requires DGL dependencies")
     def test_build_dgl_graph_from_column_names(self):
         g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
 
@@ -124,7 +126,7 @@ class TestDGL(unittest.TestCase):
         )
         self._test_cases_dgl(g2)
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
+    @pytest.mark.skipif(not has_dgl, reason="requires DGL dependencies")
     def test_build_dgl_graph_from_dataframes(self):
         g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
 
@@ -138,7 +140,7 @@ class TestDGL(unittest.TestCase):
         )
         self._test_cases_dgl(g2)
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
+    @pytest.mark.skipif(not has_dgl, reason="requires DGL dependencies")
     def test_build_dgl_graph_from_umap(self):
         # explicitly set node in .nodes() and not in .build_gnn()
         g = graphistry.nodes(ndf, "ip")
@@ -151,7 +153,7 @@ class TestDGL(unittest.TestCase):
         )
         self._test_cases_dgl(g2)
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
+    @pytest.mark.skipif(not has_dgl, reason="requires DGL dependencies")
     def test_build_dgl_graph_from_umap_no_node_column(self):
         g = graphistry.nodes(ndf)
         g.reset_caches()  # so that we redo calcs
@@ -163,7 +165,7 @@ class TestDGL(unittest.TestCase):
         )
         self._test_cases_dgl(g2)
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires DGL dependencies")
+    @pytest.mark.skipif(not has_dgl, reason="requires DGL dependencies")
     @pytest.mark.xfail(reason="Mishandling datetimes: https://github.com/graphistry/pygraphistry/issues/381")
     def test_build_dgl_with_no_node_features(self):
         g = graphistry.edges(edf, src, dst)

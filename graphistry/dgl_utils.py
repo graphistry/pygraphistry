@@ -5,11 +5,18 @@ from typing import Optional, TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-try:
-    import dgl
-    has_dependancy: bool = True
-except:
-    has_dependancy = False
+
+def lazy_dgl_import_has_dependency():
+    try:
+        import warnings
+        warnings.filterwarnings('ignore')
+        import dgl
+        has_dependancy: bool = True
+        import_exn = 'ok'
+    except ModuleNotFoundError as e:
+        has_dependancy = False
+        import_exn = e
+    return has_dependancy, import_exn
 
 from . import constants as config
 from .feature_utils import (
@@ -154,8 +161,8 @@ def pandas_to_dgl_graph(
         sp_mat: sparse scipy matrix
         ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
+    import dgl
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
-
     g = dgl.from_scipy(sp_mat, device=device)  # there are other ways too
     logger.info(f"Graph Type: {type(g)}") 
 
