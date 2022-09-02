@@ -235,7 +235,7 @@ class UMAPMixin(MIXIN_BASE):
         """
             Returns res mutated with new _xy
         """
-
+        import umap
         # need this function to use memoize
         res._umap = umap.UMAP(**umap_kwargs)
 
