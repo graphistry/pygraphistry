@@ -1,5 +1,3 @@
-print('start networks')
-
 from typing import TYPE_CHECKING
 import torch.nn as nn
 

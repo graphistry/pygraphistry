@@ -25,7 +25,7 @@ from graphistry.tests.test_feature_utils import (
 from graphistry.umap_utils import lazy_umap_import_has_dependancy
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
-has_umap, _ = lazy_umap_import_has_dependancy()
+has_umap, _, _ = lazy_umap_import_has_dependancy()
 
 logger = logging.getLogger(__name__)
 

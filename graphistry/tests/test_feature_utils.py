@@ -27,7 +27,7 @@ except:
     sklearn = Any
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
-has_min_dependancy_text, _ = lazy_import_has_dependancy_text()
+has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")

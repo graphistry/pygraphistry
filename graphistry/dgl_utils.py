@@ -18,48 +18,6 @@ from .feature_utils import (
 
 from .util import setup_logger
 
-print('start dgl_utils')
-def lazy_dgl_import_has_dependency():
-    print('start lazy_dgl_import_has_dependency')
-    import sys, traceback
-    try:
-        raise RuntimeError('hit lazy_dgl_import_has_dependency')
-    except:
-        traceback.print_exc(file=sys.stdout)
-
-    try:
-        import warnings
-        warnings.filterwarnings('ignore')
-        import dgl
-        has_dependancy: bool = True
-        import_exn = 'ok'
-    except ModuleNotFoundError as e:
-        has_dependancy = False
-        import_exn = e
-    return has_dependancy, import_exn
-
-print('start torch_utils')
-def lazy_torch_import_has_dependency():
-    print('start lazy_torch_import_has_dependency')
-    import sys, traceback
-    try:
-        raise RuntimeError('hit lazy_torch_import_has_dependency')
-    except:
-        traceback.print_exc(file=sys.stdout)
-
-    try:
-        import warnings
-        warnings.filterwarnings('ignore')
-        import torch
-        has_dependancy: bool = True
-        import_exn = 'ok'
-    except ModuleNotFoundError as e:
-        has_dependancy = False
-        import_exn = e
-    return has_dependancy, import_exn
-
-logger = setup_logger(name=__name__, verbose=config.VERBOSE)
-
 
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
@@ -73,6 +31,49 @@ if TYPE_CHECKING:
         pass
 else:
     MIXIN_BASE = object
+
+
+print('start dgl_utils')
+def lazy_dgl_import_has_dependency():
+    print('start lazy_dgl_import_has_dependency')
+    import sys, traceback
+    if "pytest" not in sys.modules:
+        try:
+            raise RuntimeError('hit lazy_dgl_import_has_dependency')
+        except:
+            traceback.print_exc(file=sys.stdout)
+
+    try:
+        import warnings
+        warnings.filterwarnings('ignore')
+        import dgl  # noqa: F811
+        return True, 'ok', dgl
+    except ModuleNotFoundError as e:
+        return False, e, None
+
+
+print('start torch_utils')
+def lazy_torch_import_has_dependency():
+    print('start lazy_torch_import_has_dependency')
+    import sys, traceback
+    if "pytest" not in sys.modules:
+        try:
+            raise RuntimeError('hit lazy_torch_import_has_dependency')
+        except:
+            traceback.print_exc(file=sys.stdout)
+
+    try:
+        import warnings
+        warnings.filterwarnings('ignore')
+        import torch  # noqa: F811
+        return True, 'ok', torch
+    except ModuleNotFoundError as e:
+        return False, e, None
+
+
+logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+
+
 
 # #########################################################################################
 #
@@ -89,7 +90,7 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):  # typ
     :param y_enc: DataFrame Matrix of Values for Target
     :return: Dictionary of torch encoded arrays
     """
-    lazy_torch_import_has_dependency()
+    _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 
     if not y_enc.empty:  # type: ignore
         data = {
@@ -114,7 +115,7 @@ def get_available_devices():
         device (torch.device): Main device (GPU 0 or CPU).
         gpu_ids (list): List of IDs of all GPUs that are available.
     """
-    lazy_torch_import_has_dependency()
+    _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 
     gpu_ids = []
     if torch.cuda.is_available():
@@ -197,7 +198,7 @@ def pandas_to_dgl_graph(
         sp_mat: sparse scipy matrix
         ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
-    lazy_dgl_import_has_dependency()
+    _, _, dgl = lazy_dgl_import_has_dependency()  # noqa: F811
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
     g = dgl.from_scipy(sp_mat, device=device)  # there are other ways too
     logger.info(f"Graph Type: {type(g)}") 
@@ -212,7 +213,7 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     :param ratio: mimics train/test split. `ratio` sets number of True vs False mask entries.
     :return: train and test torch tensor masks
     """
-    lazy_torch_import_has_dependency()
+    _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 
     train_mask = torch.zeros(n, dtype=torch.bool).bernoulli(ratio)
     test_mask = ~train_mask

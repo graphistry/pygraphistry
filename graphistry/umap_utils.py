@@ -20,7 +20,6 @@ logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
-    import umap
 else:
     MIXIN_BASE = object
 
@@ -32,24 +31,22 @@ print('start umap_utils')
 def lazy_umap_import_has_dependancy():
     print('start lazy_umap_import_has_dependancy')
     import sys, traceback
-    try:
-        raise RuntimeError('hit lazy_umap_import_has_dependancy')
-    except:
-        traceback.print_exc(file=sys.stdout)
+    if "pytest" not in sys.modules:
+        try:
+            raise RuntimeError('hit lazy_umap_import_has_dependancy')
+        except:
+            traceback.print_exc(file=sys.stdout)
 
     try:
         import warnings
         warnings.filterwarnings("ignore")
         import umap  # noqa
-        has_dependancy: bool = True  # noqa
-        import_exn = 'ok'
+        return True, 'ok', umap
     except ModuleNotFoundError as e:
-        import_exn = e
-        has_dependancy = False
-    return has_dependancy, import_exn
+        return False, e, None
 
 def assert_imported():
-    has_dependancy, import_exn = lazy_umap_import_has_dependancy()
+    has_dependancy, import_exn, _ = lazy_umap_import_has_dependancy()
     if not has_dependancy:
         logger.error("UMAP not found, trying running "
                      "`pip install graphistry[ai]`")
@@ -134,10 +131,9 @@ class UMAPMixin(MIXIN_BASE):
     ):
 
         # FIXME remove as set_new_kwargs will always replace?
-        has_umap, _ = lazy_umap_import_has_dependancy()
+        has_umap, _, umap = lazy_umap_import_has_dependancy()
 
         if has_umap and not self.umap_initialized:
-            lazy_umap_import_has_dependancy()
             umap_kwargs = dict(
                 n_components=n_components,
                 metric=metric,
@@ -242,7 +238,7 @@ class UMAPMixin(MIXIN_BASE):
         """
             Returns res mutated with new _xy
         """
-        lazy_umap_import_has_dependancy()
+        _, _, umap = lazy_umap_import_has_dependancy()
         # need this function to use memoize
         res._umap = umap.UMAP(**umap_kwargs)
 

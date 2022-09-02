@@ -1,7 +1,6 @@
 from typing import Any, Callable, Iterable, List, Optional, Set, Union, TYPE_CHECKING
 import os, pandas as pd
 from .Plottable import Plottable
-print('start gremlin')
 try:
     from gremlin_python.driver.client import Client
     from gremlin_python.driver.resultset import ResultSet
@@ -15,7 +14,7 @@ except:
     Edge = Any
     Path = Any
     1
-print('end gremlin')
+
 from .util import setup_logger
 logger = setup_logger(__name__)
 

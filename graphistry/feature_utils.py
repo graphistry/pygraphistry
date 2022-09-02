@@ -29,23 +29,36 @@ logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
+    try:
+        from sklearn.pipeline import Pipeline
+    except:
+        Pipeline = Any
+    try:
+        from sentence_transformers import SentenceTransformer
+    except:
+        SentenceTransformer = Any
+    try:
+        from dirty_cat import (
+            SuperVectorizer,
+            GapEncoder,
+            SimilarityEncoder,
+        )
+    except:
+        SuperVectorizer = Any
+        GapEncoder = Any
+        SimilarityEncoder = Any
+    try:
+        from sklearn.preprocessing import FunctionTransformer
+    except:
+        FunctionTransformer = Any
 else:
     MIXIN_BASE = object
-
-import_min_exn = None
-import_text_exn = None
-
-# init all AI packages as none for possible type checking
-# torch
-SentenceTransformer: Any = None
-# 
-SuperVectorizer: Any = None
-SimilarityEncoder: Any = None
-GapEncoder: Any = None
-
-# sklearn
-Pipeline: Any = None
-FunctionTransformer: Any = None
+    Pipeline = Any
+    SentenceTransformer = Any
+    SuperVectorizer = Any
+    GapEncoder = Any
+    SimilarityEncoder = Any
+    FunctionTransformer = Any
 
 print('start feature_utils')
 
@@ -53,31 +66,28 @@ print('start feature_utils')
 def lazy_import_has_dependancy_text():
     print('lazy_import_has_dependancy_text')
     import sys, traceback
-    try:
-        raise RuntimeError('hit lazy_import_has_dependancy_text')
-    except:
-        traceback.print_exc(file=sys.stdout)
+    if "pytest" not in sys.modules:
+        try:
+            raise RuntimeError('hit lazy_import_has_dependancy_text')
+        except:
+            traceback.print_exc(file=sys.stdout)
 
     import warnings
     warnings.filterwarnings("ignore")
     try:
         from sentence_transformers import SentenceTransformer
-        has_dependancy_text_: bool = True
-        import_text_exn = 'ok'
+        return True, 'ok', SentenceTransformer
     except ModuleNotFoundError as e:
-        import_text_exn = e
-        has_dependancy_text_ = False
-        # SentenceTransformer = None
-    return has_dependancy_text_, import_text_exn
-
+        return False, e, None
 
 def lazy_import_has_min_dependancy():
     print('lazy_import_has_min_dependancy')
     import sys, traceback
-    try:
-        raise RuntimeError('hit lazy_import_has_min_dependancy')
-    except:
-        traceback.print_exc(file=sys.stdout)
+    if "pytest" not in sys.modules:
+        try:
+            raise RuntimeError('hit lazy_import_has_min_dependancy')
+        except:
+            traceback.print_exc(file=sys.stdout)
 
     import warnings
     warnings.filterwarnings("ignore")
@@ -118,17 +128,12 @@ def lazy_import_has_min_dependancy():
     except ModuleNotFoundError as e:
         import_min_exn = e
         has_min_dependancy_ = False
-        # SuperVectorizer = None
-        # SimilarityEncoder = None
-        # GapEncoder = None
-        # Pipeline = None
-        # FunctionTransformer = None
         
     return has_min_dependancy_, import_min_exn
 
 
 def assert_imported_text():
-    has_dependancy_text_, import_text_exn = lazy_import_has_dependancy_text()
+    has_dependancy_text_, import_text_exn, _ = lazy_import_has_dependancy_text()
     if not has_dependancy_text_:
         logger.error(  # noqa
             "AI Package sentence_transformers not found,"
@@ -182,7 +187,7 @@ def resolve_feature_engine(
         return feature_engine  # type: ignore
 
     if feature_engine == "auto":
-        has_dependancy_text_, _ = lazy_import_has_dependancy_text()
+        has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
         if has_dependancy_text_:
             return "torch"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
@@ -593,8 +598,17 @@ def get_preprocessing_pipeline(
             `uniform`, `quantile`, `kmeans`, default 'quantile'
     :return: scaled array, imputer instances or None, scaler instance or None
     """
-    lazy_import_has_min_dependancy()
-    
+    from sklearn.preprocessing import (
+        FunctionTransformer,
+        KBinsDiscretizer,
+        MinMaxScaler,
+        MultiLabelBinarizer,
+        QuantileTransformer,
+        RobustScaler,
+        StandardScaler,
+    )
+    from sklearn.pipeline import Pipeline
+    from sklearn.impute import SimpleImputer
     available_preprocessors = [
         "minmax",
         "quantile",
@@ -697,8 +711,11 @@ def impute_and_scale_df(
 
 
 def get_text_preprocessor(ngram_range=(1, 3), max_df=0.2, min_df=3):
-    lazy_import_has_min_dependancy()
-    
+    from sklearn.feature_extraction.text import (
+        CountVectorizer,
+        TfidfTransformer,
+    )
+    from sklearn.pipeline import Pipeline
     cvect = CountVectorizer(
         ngram_range=ngram_range, max_df=max_df, min_df=min_df
     )
@@ -736,7 +753,7 @@ def encode_textual(
     max_df: float = 0.2,
     min_df: int = 3,
 ) -> Tuple[pd.DataFrame, List, Any]:
-    lazy_import_has_dependancy_text()
+    _, _, SentenceTransformer = lazy_import_has_dependancy_text()
 
     t = time()
     text_cols = get_textual_columns(
@@ -856,7 +873,7 @@ def get_numeric_transformers(ndf, y=None):
     # for later .transform consistency.
     # from sklearn.preprocessing import FunctionTransformer
     # from functools import partial
-    lazy_import_has_min_dependancy()
+    from sklearn.preprocessing import FunctionTransformer
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -912,8 +929,8 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    lazy_import_has_min_dependancy()
     from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+    from sklearn.preprocessing import FunctionTransformer
     t = time()
 
     if not is_dataframe_all_numeric(ndf):
@@ -1125,7 +1142,7 @@ def process_nodes_dataframes(
     text_cols: List[str] = []
     text_model: Any = None
     text_enc = pd.DataFrame([])
-    has_deps_text, import_text_exn = lazy_import_has_dependancy_text()
+    has_deps_text, import_text_exn, _ = lazy_import_has_dependancy_text()
     if has_deps_text and (feature_engine in ["torch", "auto"]):
         text_enc, text_cols, text_model = encode_textual(
             df,
@@ -1289,6 +1306,9 @@ def process_edge_dataframes(
         the data encoders, and the label encoder.
     """
     lazy_import_has_min_dependancy()
+    from sklearn.preprocessing import (
+        MultiLabelBinarizer,
+    )
     logger.info("process_edges_dataframes[%s]", feature_engine)
 
     t = time()
@@ -1428,8 +1448,8 @@ def transform_text(
     text_model: Union[SentenceTransformer, Pipeline],  # type: ignore
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
-    lazy_import_has_min_dependancy()
-    lazy_import_has_dependancy_text()
+    from sklearn.pipeline import Pipeline
+    _, _, SentenceTransformer = lazy_import_has_dependancy_text()
 
     logger.debug("Transforming text using:")
     if isinstance(text_model, Pipeline):

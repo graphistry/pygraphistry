@@ -6,7 +6,7 @@ from graphistry.util import setup_logger
 
 from graphistry.dgl_utils import lazy_dgl_import_has_dependency
 
-has_dgl, _ = lazy_dgl_import_has_dependency()
+has_dgl, _, dgl = lazy_dgl_import_has_dependency()
 
 if has_dgl:
     import torch
