@@ -14,11 +14,6 @@ relationship_type_key = u'type'
 
 t0 = datetime.min.time()
 
-try:
-    import neo4j
-except:
-    pass
-
 
 def to_bolt_driver(driver=None):
     if driver is None:
@@ -127,6 +122,7 @@ def flatten_spatial_col(df : pd.DataFrame, col : str) -> pd.DataFrame:  # noqa: 
 
 #dtype='obj' -> 'a
 def neo_val_to_pd_val(v):
+    import neo4j
 
     if v is None:
         return v
@@ -160,6 +156,7 @@ def neo_val_to_pd_val(v):
 
 
 def stringify_spatial(v):
+    import neo4j
     if v is None:
         return None
     if isinstance(v, neo4j.spatial.Point):
