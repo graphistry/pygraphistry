@@ -2243,6 +2243,7 @@ class FeatureMixin(MIXIN_BASE):
         :return: self, with new attributes set by the featurization process.
         """
         assert_imported()
+        # assert_imported_text()
         if inplace:
             res = self
         else:

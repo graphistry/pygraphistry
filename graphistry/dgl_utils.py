@@ -214,6 +214,7 @@ class DGLGraphMixin(MIXIN_BASE):
         """
 
         if not self.dgl_initialized:
+            import dgl, torch
             self.train_split = train_split
             self.device = device
             self._removed_edges_previously = False
