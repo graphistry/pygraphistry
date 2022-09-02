@@ -1,5 +1,6 @@
 import copy
 import numpy as np
+import os
 import pandas as pd
 from time import time
 import warnings
@@ -93,16 +94,20 @@ def lazy_import_has_min_dependancy():
         logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
 
         from sklearn import __version__ as sklearn_version
-        from sklearn.pipeline import Pipeline
+        from sklearn.feature_extraction.text import (
+            CountVectorizer,
+            TfidfTransformer,
+        )
         from sklearn.impute import SimpleImputer
+        from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import (
-            MinMaxScaler,
-            QuantileTransformer,
-            StandardScaler,
-            RobustScaler,
-            MultiLabelBinarizer,
-            KBinsDiscretizer,
             FunctionTransformer,
+            KBinsDiscretizer,
+            MinMaxScaler,
+            MultiLabelBinarizer,
+            QuantileTransformer,
+            RobustScaler,
+            StandardScaler,
         )
 
         logger.debug(f"sklearn VERSION: {sklearn_version}")
@@ -588,16 +593,7 @@ def get_preprocessing_pipeline(
             `uniform`, `quantile`, `kmeans`, default 'quantile'
     :return: scaled array, imputer instances or None, scaler instance or None
     """
-    from sklearn.pipeline import Pipeline
-    from sklearn.impute import SimpleImputer
-    from sklearn.preprocessing import (
-        MinMaxScaler,
-        QuantileTransformer,
-        StandardScaler,
-        RobustScaler,
-        KBinsDiscretizer,
-    )
-
+    lazy_import_has_min_dependancy()
     
     available_preprocessors = [
         "minmax",
@@ -701,12 +697,8 @@ def impute_and_scale_df(
 
 
 def get_text_preprocessor(ngram_range=(1, 3), max_df=0.2, min_df=3):
-    from sklearn.feature_extraction.text import (
-        CountVectorizer,
-        TfidfTransformer,
-    )
-    from sklearn.pipeline import Pipeline
-
+    lazy_import_has_min_dependancy()
+    
     cvect = CountVectorizer(
         ngram_range=ngram_range, max_df=max_df, min_df=min_df
     )
@@ -744,8 +736,7 @@ def encode_textual(
     max_df: float = 0.2,
     min_df: int = 3,
 ) -> Tuple[pd.DataFrame, List, Any]:
-    import os
-    from sentence_transformers import SentenceTransformer
+    lazy_import_has_dependancy_text()
 
     t = time()
     text_cols = get_textual_columns(
@@ -865,7 +856,7 @@ def get_numeric_transformers(ndf, y=None):
     # for later .transform consistency.
     # from sklearn.preprocessing import FunctionTransformer
     # from functools import partial
-    from sklearn.preprocessing import FunctionTransformer
+    lazy_import_has_min_dependancy()
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -921,7 +912,7 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    from sklearn.preprocessing import FunctionTransformer
+    lazy_import_has_min_dependancy()
     from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     t = time()
 
@@ -1297,7 +1288,7 @@ def process_edge_dataframes(
     :return: Encoded data matrix and target (if not None),
         the data encoders, and the label encoder.
     """
-    from sklearn.preprocessing import MultiLabelBinarizer
+    lazy_import_has_min_dependancy()
     logger.info("process_edges_dataframes[%s]", feature_engine)
 
     t = time()
@@ -1437,8 +1428,8 @@ def transform_text(
     text_model: Union[SentenceTransformer, Pipeline],  # type: ignore
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
-    from sklearn.pipeline import Pipeline
-    from sentence_transformers import SentenceTransformer
+    lazy_import_has_min_dependancy()
+    lazy_import_has_dependancy_text()
 
     logger.debug("Transforming text using:")
     if isinstance(text_model, Pipeline):
