@@ -19,12 +19,6 @@ from graphistry.feature_utils import (
     FastEncoder
 )
 
-try:
-    import dirty_cat
-    import sklearn
-except:
-    dirty_cat = Any
-    sklearn = Any
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
@@ -205,6 +199,7 @@ class TestFastEncoder(unittest.TestCase):
 
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
+        import dirty_cat
         self.assertIsInstance(
             x,
             pd.DataFrame,
