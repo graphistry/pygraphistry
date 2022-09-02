@@ -1,17 +1,29 @@
-import dgl
-import dgl.nn as dglnn
-import dgl.function as fn
-from sklearn import metrics 
-import torch
+print('start networks')
+
+from typing import TYPE_CHECKING
 import torch.nn as nn
-import torch.nn.functional as F
+
+if TYPE_CHECKING:
+    import dgl
+    import dgl.nn as dglnn
+    import dgl.function as fn
+    import torch
+    import torch.nn.functional as F
 
 from . import constants as config
+
+def lazy_import_networks():
+    import dgl
+    import dgl.nn as dglnn
+    import dgl.function as fn
+    import torch
+    import torch.nn.functional as F
 
 
 class GCN(nn.Module):
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
+        lazy_import_networks()
         self.conv1 = dglnn.GraphConv(in_feats, h_feats)
         self.conv2 = dglnn.GraphConv(h_feats, num_classes)
 
@@ -35,6 +47,7 @@ class RGCN(nn.Module):
 
     def __init__(self, in_feats, hid_feats, out_feats, rel_names):
         super().__init__()
+        lazy_import_networks()
 
         self.conv1 = dglnn.HeteroGraphConv(
             {rel: dglnn.GraphConv(in_feats, hid_feats) for rel in rel_names},
@@ -56,6 +69,7 @@ class RGCN(nn.Module):
 class HeteroClassifier(nn.Module):
     def __init__(self, in_dim, hidden_dim, n_classes, rel_names):
         super().__init__()
+        lazy_import_networks()
         self.rgcn = RGCN(in_dim, hidden_dim, hidden_dim, rel_names)
         self.classify = nn.Linear(hidden_dim, n_classes)
 
@@ -77,6 +91,7 @@ class MLPPredictor(nn.Module):
 
     def __init__(self, in_features, out_classes):
         super().__init__()
+        lazy_import_networks()
         self.W = nn.Linear(in_features * 2, out_classes)
 
     def apply_edges(self, edges):
@@ -97,6 +112,7 @@ class MLPPredictor(nn.Module):
 class SAGE(nn.Module):
     def __init__(self, in_feats, hid_feats, out_feats):
         super().__init__()
+        lazy_import_networks()
         self.conv1 = dglnn.SAGEConv(
             in_feats=in_feats, out_feats=hid_feats, aggregator_type="mean"
         )
@@ -125,6 +141,7 @@ class DotProductPredictor(nn.Module):
 class LinkPredModel(nn.Module):
     def __init__(self, in_features, hidden_features, out_features):
         super().__init__()
+        lazy_import_networks()
         self.sage = SAGE(in_features, hidden_features, out_features)
         self.pred = DotProductPredictor()
 
@@ -136,6 +153,7 @@ class LinkPredModel(nn.Module):
 class LinkPredModelMultiOutput(nn.Module):
     def __init__(self, in_features, hidden_features, out_features, out_classes):
         super().__init__()
+        lazy_import_networks()
         self.sage = SAGE(in_features, hidden_features, out_features)
         self.pred = MLPPredictor(out_features, out_classes)
         self.embedding = dglnn.GraphConv(out_features, 2)
@@ -154,11 +172,12 @@ class LinkPredModelMultiOutput(nn.Module):
 
 # training
 
-MAE = metrics.mean_absolute_error
-ACC = metrics.accuracy_score
-
-    
+#from sklearn import metrics 
+#MAE = metrics.mean_absolute_error
+#ACC = metrics.accuracy_score
+   
 def train_link_pred(model, G, epochs=10000, use_cross_entropy_loss = False):
+    lazy_import_networks()
     # take the node features out
     node_features = G.ndata["feature"].float()
     # we are predicting edges
