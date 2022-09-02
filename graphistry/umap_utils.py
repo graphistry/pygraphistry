@@ -27,15 +27,13 @@ else:
 ###############################################################################
 
 
-
-
 def lazy_umap_import_has_dependancy():
     
     try:
         import warnings
         warnings.filterwarnings("ignore")
         import umap  # noqa
-        has_dependancy: bool = True   # noqa
+        has_dependancy: bool = True  # noqa
         import_exn = 'ok'
     except ModuleNotFoundError as e:
         import_exn = e
