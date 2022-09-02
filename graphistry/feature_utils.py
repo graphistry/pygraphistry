@@ -49,6 +49,8 @@ FunctionTransformer: Any = None
 
 #@check_set_memoize
 def lazy_import_has_dependancy_text():
+    import warnings
+    warnings.filterwarnings("ignore")
     try:
         from sentence_transformers import SentenceTransformer
         has_dependancy_text_: bool = True
@@ -61,6 +63,8 @@ def lazy_import_has_dependancy_text():
 
 
 def lazy_import_has_min_dependancy():
+    import warnings
+    warnings.filterwarnings("ignore")
     try:
         import scipy, scipy.sparse  # noqa
         from dirty_cat import __version__ as dirty_cat_version
