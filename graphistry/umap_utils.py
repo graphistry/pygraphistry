@@ -20,6 +20,7 @@ logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
+    import umap
 else:
     MIXIN_BASE = object
 
@@ -136,7 +137,7 @@ class UMAPMixin(MIXIN_BASE):
         has_umap, _ = lazy_umap_import_has_dependancy()
 
         if has_umap and not self.umap_initialized:
-            import umap
+            lazy_umap_import_has_dependancy()
             umap_kwargs = dict(
                 n_components=n_components,
                 metric=metric,
@@ -241,7 +242,7 @@ class UMAPMixin(MIXIN_BASE):
         """
             Returns res mutated with new _xy
         """
-        import umap
+        lazy_umap_import_has_dependancy()
         # need this function to use memoize
         res._umap = umap.UMAP(**umap_kwargs)
 
