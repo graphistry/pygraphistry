@@ -5,6 +5,18 @@ from typing import Optional, TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from . import constants as config
+from .feature_utils import (
+    FeatureEngine,
+    FeatureMixin,
+    resolve_feature_engine,
+    XSymbolic,
+    YSymbolic,
+    resolve_X,
+    resolve_y,
+)
+
+from .util import setup_logger
 
 def lazy_dgl_import_has_dependency():
     
@@ -19,17 +31,6 @@ def lazy_dgl_import_has_dependency():
         import_exn = e
     return has_dependancy, import_exn
 
-from . import constants as config
-from .feature_utils import (
-    FeatureEngine,
-    FeatureMixin,
-    resolve_feature_engine,
-    XSymbolic,
-    YSymbolic,
-    resolve_X,
-    resolve_y,
-)
-from .util import setup_logger
 
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
