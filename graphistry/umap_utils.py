@@ -30,6 +30,7 @@ else:
 
 
 def lazy_umap_import_has_dependancy():
+    
     try:
         import warnings
         warnings.filterwarnings("ignore")

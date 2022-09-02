@@ -7,10 +7,11 @@ import pandas as pd
 
 
 def lazy_dgl_import_has_dependency():
+    
     try:
         import warnings
         warnings.filterwarnings('ignore')
-        import dgl
+        import dgl  # noqa
         has_dependancy: bool = True
         import_exn = 'ok'
     except ModuleNotFoundError as e:
