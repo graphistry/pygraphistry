@@ -5,14 +5,18 @@ import pandas as pd
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.Engine import Engine
 
-try:
-    from umap import UMAP
-except:
-    UMAP = Any
 
-try:
-    from sklearn.pipeline import Pipeline
-except:
+if TYPE_CHECKING:
+    try:
+        from umap import UMAP
+    except:
+        UMAP = Any
+    try:
+        from sklearn.pipeline import Pipeline
+    except:
+        Pipeline = Any
+else:
+    UMAP = Any
     Pipeline = Any
 
 class Plottable(object):
