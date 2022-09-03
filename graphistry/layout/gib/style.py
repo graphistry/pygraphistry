@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from palettable.colorbrewer.qualitative import Paired_12
+from functools import lru_cache
 
 from graphistry.Engine import Engine, df_concat, df_to_pdf, df_cons
 from graphistry.Plottable import Plottable
@@ -7,14 +7,19 @@ from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
 
+@lru_cache(maxsize=1)
+def lazy_paired_12():
+    from palettable.colorbrewer.qualitative import Paired_12
+    return Paired_12
+
 def categorical_color_by_col(
     self: Plottable,
     col: str,
-    colors: Optional[List[str]] = Paired_12.hex_colors,
+    colors: Optional[List[str]],
     engine: Engine = Engine.PANDAS
 ) -> 'Plottable':
     g = self
-    colors = colors or Paired_12.hex_colors
+    colors = colors or lazy_paired_12().hex_colors
     palette = g._nodes[[col]].drop_duplicates().reset_index(drop=True).reset_index()
     palette['color'] = (
         (palette['index'] % len(colors))
@@ -33,9 +38,9 @@ def categorical_color_by_col(
 
 def style_layout(
     self: Plottable,
-    encode_color=True,
-    colors: Optional[List[str]] = Paired_12.hex_colors,
-    partition_key='partition',
+    encode_color = True,
+    colors: Optional[List[str]] = None,
+    partition_key = 'partition',
     engine: Engine = Engine.PANDAS
 ) -> 'Plottable':
 

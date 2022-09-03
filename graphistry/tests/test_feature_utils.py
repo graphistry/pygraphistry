@@ -14,17 +14,14 @@ from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_nodes_dataframes,
     resolve_feature_engine,
-    has_min_dependancy,
-    has_dependancy_text,
+    lazy_import_has_min_dependancy,
+    lazy_import_has_dependancy_text,
     FastEncoder
 )
 
-try:
-    import dirty_cat
-    import sklearn
-except:
-    dirty_cat = Any
-    sklearn = Any
+
+has_min_dependancy, _ = lazy_import_has_min_dependancy()
+has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
@@ -168,7 +165,7 @@ def check_allclose_fit_transform_on_same_data(X, x, Y=None, y=None):
 class TestFastEncoder(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
     
-    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self):
         fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
         fenc.fit(feature_engine=resolve_feature_engine('auto'),
@@ -186,12 +183,12 @@ class TestFastEncoder(unittest.TestCase):
         self.Xe, self.Ye = fenc.X, fenc.y
         self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
         
-    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_allclose_fit_transform_on_same_data(self):
         check_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
         check_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
         
-    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_columns_match(self):
         assert all(self.X.columns == self.x.columns), 'Node Feature Columns do not match'
         assert all(self.Y.columns == self.y.columns), 'Node Target Columns do not match'
@@ -202,6 +199,7 @@ class TestFastEncoder(unittest.TestCase):
 
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
+        import dirty_cat
         self.assertIsInstance(
             x,
             pd.DataFrame,
@@ -231,7 +229,7 @@ class TestFeatureProcessors(unittest.TestCase):
             f"Data Target Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
         )
 
-    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_process_node_dataframes_min_words(self):
         # test different target cardinality
         with self.assertRaises(Exception) as context:  # test that min words needs to be greater than 1
@@ -351,7 +349,7 @@ class TestFeatureMethods(unittest.TestCase):
                             self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
                                 
                 
-    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_node_featurizations(self):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, meta_cols_reddit]
@@ -366,7 +364,7 @@ class TestFeatureMethods(unittest.TestCase):
         )
         
 
-    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_featurization(self):
         g = graphistry.edges(edge_df, "src", "dst")
         targets = [None, single_target_edge, double_target_edge] + target_names_edge
@@ -380,7 +378,7 @@ class TestFeatureMethods(unittest.TestCase):
             df=edge_df,
         )
         
-    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_node_scaling(self):
         g = graphistry.nodes(ndf_reddit)
         g2 = g.featurize(X="title", y='label', use_scaler=None, use_scaler_target=None)
@@ -390,7 +388,7 @@ class TestFeatureMethods(unittest.TestCase):
 
         
 
-    @pytest.mark.skipif(not has_min_dependancy or not has_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_scaling(self):
         g = graphistry.edges(edge_df2, "src", "dst")
         g2 = g.featurize(y='label', kind='edges', use_scaler=None, use_scaler_target=None)
