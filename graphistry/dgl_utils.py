@@ -35,8 +35,8 @@ else:
 
 def lazy_dgl_import_has_dependency():
     try:
-        #import warnings
-        #warnings.filterwarnings('ignore')
+        import warnings
+        warnings.filterwarnings('ignore')
         import dgl  # noqa: F811
         return True, 'ok', dgl
     except ModuleNotFoundError as e:
@@ -45,8 +45,8 @@ def lazy_dgl_import_has_dependency():
 
 def lazy_torch_import_has_dependency():
     try:
-        #import warnings
-        #warnings.filterwarnings('ignore')
+        import warnings
+        warnings.filterwarnings('ignore')
         import torch  # noqa: F811
         return True, 'ok', torch
     except ModuleNotFoundError as e:
