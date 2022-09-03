@@ -60,20 +60,11 @@ else:
     SimilarityEncoder = Any
     FunctionTransformer = Any
 
-print('start feature_utils')
 
 #@check_set_memoize
 def lazy_import_has_dependancy_text():
-    print('lazy_import_has_dependancy_text')
-    import sys, traceback
-    if "pytest" not in sys.modules:
-        try:
-            raise RuntimeError('hit lazy_import_has_dependancy_text')
-        except:
-            traceback.print_exc(file=sys.stdout)
-
-    import warnings
-    warnings.filterwarnings("ignore")
+    #import warnings
+    #warnings.filterwarnings("ignore")
     try:
         from sentence_transformers import SentenceTransformer
         return True, 'ok', SentenceTransformer
@@ -81,55 +72,19 @@ def lazy_import_has_dependancy_text():
         return False, e, None
 
 def lazy_import_has_min_dependancy():
-    print('lazy_import_has_min_dependancy')
-    import sys, traceback
-    if "pytest" not in sys.modules:
-        try:
-            raise RuntimeError('hit lazy_import_has_min_dependancy')
-        except:
-            traceback.print_exc(file=sys.stdout)
-
-    import warnings
-    warnings.filterwarnings("ignore")
+    #import warnings
+    #warnings.filterwarnings("ignore")
     try:
-        import scipy, scipy.sparse  # noqa
+        import scipy.sparse  # noqa
+        from scipy import __version__ as scipy_version
         from dirty_cat import __version__ as dirty_cat_version
-        from dirty_cat import (
-            SuperVectorizer,
-            GapEncoder,
-            SimilarityEncoder,
-        )  # noqa
-
-        logger.debug(f"SCIPY VERSION: {scipy.__version__}")
-        logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
-
         from sklearn import __version__ as sklearn_version
-        from sklearn.feature_extraction.text import (
-            CountVectorizer,
-            TfidfTransformer,
-        )
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import (
-            FunctionTransformer,
-            KBinsDiscretizer,
-            MinMaxScaler,
-            MultiLabelBinarizer,
-            QuantileTransformer,
-            RobustScaler,
-            StandardScaler,
-        )
-
+        logger.debug(f"SCIPY VERSION: {scipy_version}")
+        logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
         logger.debug(f"sklearn VERSION: {sklearn_version}")
-
-        has_min_dependancy_: bool = True
-        import_min_exn = 'ok'
-        
+        return True, 'ok'
     except ModuleNotFoundError as e:
-        import_min_exn = e
-        has_min_dependancy_ = False
-        
-    return has_min_dependancy_, import_min_exn
+        return False, e
 
 
 def assert_imported_text():

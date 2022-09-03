@@ -33,38 +33,20 @@ else:
     MIXIN_BASE = object
 
 
-print('start dgl_utils')
 def lazy_dgl_import_has_dependency():
-    print('start lazy_dgl_import_has_dependency')
-    import sys, traceback
-    if "pytest" not in sys.modules:
-        try:
-            raise RuntimeError('hit lazy_dgl_import_has_dependency')
-        except:
-            traceback.print_exc(file=sys.stdout)
-
     try:
-        import warnings
-        warnings.filterwarnings('ignore')
+        #import warnings
+        #warnings.filterwarnings('ignore')
         import dgl  # noqa: F811
         return True, 'ok', dgl
     except ModuleNotFoundError as e:
         return False, e, None
 
 
-print('start torch_utils')
 def lazy_torch_import_has_dependency():
-    print('start lazy_torch_import_has_dependency')
-    import sys, traceback
-    if "pytest" not in sys.modules:
-        try:
-            raise RuntimeError('hit lazy_torch_import_has_dependency')
-        except:
-            traceback.print_exc(file=sys.stdout)
-
     try:
-        import warnings
-        warnings.filterwarnings('ignore')
+        #import warnings
+        #warnings.filterwarnings('ignore')
         import torch  # noqa: F811
         return True, 'ok', torch
     except ModuleNotFoundError as e:

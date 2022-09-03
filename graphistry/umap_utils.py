@@ -27,16 +27,7 @@ else:
 ###############################################################################
 
 
-print('start umap_utils')
 def lazy_umap_import_has_dependancy():
-    print('start lazy_umap_import_has_dependancy')
-    import sys, traceback
-    if "pytest" not in sys.modules:
-        try:
-            raise RuntimeError('hit lazy_umap_import_has_dependancy')
-        except:
-            traceback.print_exc(file=sys.stdout)
-
     try:
         import warnings
         warnings.filterwarnings("ignore")
