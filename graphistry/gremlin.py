@@ -14,6 +14,7 @@ except:
     Edge = Any
     Path = Any
     1
+
 from .util import setup_logger
 logger = setup_logger(__name__)
 

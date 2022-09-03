@@ -5,12 +5,6 @@ from typing import Optional, TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-try:
-    import dgl
-    has_dependancy: bool = True
-except:
-    has_dependancy = False
-
 from . import constants as config
 from .feature_utils import (
     FeatureEngine,
@@ -21,15 +15,47 @@ from .feature_utils import (
     resolve_X,
     resolve_y,
 )
-from .util import setup_logger
 
-logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+from .util import setup_logger
 
 
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
+    try:
+        import torch
+    except:
+        pass
+    try:
+        import dgl
+    except:
+        pass
 else:
     MIXIN_BASE = object
+
+
+def lazy_dgl_import_has_dependency():
+    try:
+        import warnings
+        warnings.filterwarnings('ignore')
+        import dgl  # noqa: F811
+        return True, 'ok', dgl
+    except ModuleNotFoundError as e:
+        return False, e, None
+
+
+def lazy_torch_import_has_dependency():
+    try:
+        import warnings
+        warnings.filterwarnings('ignore')
+        import torch  # noqa: F811
+        return True, 'ok', torch
+    except ModuleNotFoundError as e:
+        return False, e, None
+
+
+logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+
+
 
 # #########################################################################################
 #
@@ -46,7 +72,7 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):  # typ
     :param y_enc: DataFrame Matrix of Values for Target
     :return: Dictionary of torch encoded arrays
     """
-    import torch
+    _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 
     if not y_enc.empty:  # type: ignore
         data = {
@@ -71,7 +97,7 @@ def get_available_devices():
         device (torch.device): Main device (GPU 0 or CPU).
         gpu_ids (list): List of IDs of all GPUs that are available.
     """
-    import torch
+    _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 
     gpu_ids = []
     if torch.cuda.is_available():
@@ -154,8 +180,8 @@ def pandas_to_dgl_graph(
         sp_mat: sparse scipy matrix
         ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
+    _, _, dgl = lazy_dgl_import_has_dependency()  # noqa: F811
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
-
     g = dgl.from_scipy(sp_mat, device=device)  # there are other ways too
     logger.info(f"Graph Type: {type(g)}") 
 
@@ -169,7 +195,7 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     :param ratio: mimics train/test split. `ratio` sets number of True vs False mask entries.
     :return: train and test torch tensor masks
     """
-    import torch
+    _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 
     train_mask = torch.zeros(n, dtype=torch.bool).bernoulli(ratio)
     test_mask = ~train_mask
@@ -205,6 +231,8 @@ class DGLGraphMixin(MIXIN_BASE):
         """
 
         if not self.dgl_initialized:
+            lazy_dgl_import_has_dependency()
+            lazy_torch_import_has_dependency()
             self.train_split = train_split
             self.device = device
             self._removed_edges_previously = False

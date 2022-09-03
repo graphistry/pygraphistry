@@ -19,10 +19,13 @@ from graphistry.tests.test_feature_utils import (
     edge_df2,
     edge2_target_df,
     model_avg_name,
-    has_min_dependancy as has_featurize,
+    lazy_import_has_min_dependancy,
     check_allclose_fit_transform_on_same_data
 )
-from graphistry.umap_utils import has_dependancy
+from graphistry.umap_utils import lazy_umap_import_has_dependancy
+
+has_dependancy, _ = lazy_import_has_min_dependancy()
+has_umap, _, _ = lazy_umap_import_has_dependancy()
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +62,7 @@ node_target = triangleNodes[["y"]]
 
 class TestUMAPFitTransform(unittest.TestCase):
     # check to see that .fit and transform gives similar embeddings on same data
-    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def setUp(self):
 
         g = graphistry.nodes(ndf_reddit)
@@ -106,7 +109,7 @@ class TestUMAPFitTransform(unittest.TestCase):
     #     check_allclose_fit_transform_on_same_data(self.EMB, self.emb, None, None)
     #     check_allclose_fit_transform_on_same_data(self.EMBe, self.embe, None, None)
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_columns_match(self):
         assert all(self.X.columns == self.x.columns), 'Node Feature Columns do not match'
         assert all(self.Y.columns == self.y.columns), 'Node Target Columns do not match'
@@ -169,7 +172,7 @@ class TestUMAPMethods(unittest.TestCase):
             f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
         )
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         for use_col in use_cols:
             for target in targets:
@@ -195,7 +198,7 @@ class TestUMAPMethods(unittest.TestCase):
 
                     self.cases_test_graph(g2, kind=kind, df=df)
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_node_umap(self):
         g = graphistry.nodes(triangleNodes)
         use_cols = [node_ints, node_floats, node_numeric]
@@ -209,7 +212,7 @@ class TestUMAPMethods(unittest.TestCase):
             df=triangleNodes,
         )
 
-    @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_edge_umap(self):
         g = graphistry.edges(triangleEdges, "src", "dst")
         use_cols = [edge_ints, edge_floats, edge_numeric]
@@ -223,7 +226,7 @@ class TestUMAPMethods(unittest.TestCase):
             df=triangleEdges,
         )
 
-    @pytest.mark.skipif(not has_dependancy or not has_featurize, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(not has_dependancy or not has_umap, reason="requires umap feature dependencies")
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
             g2 = g.umap(kind=kind, feature_engine="none")
@@ -242,7 +245,7 @@ class TestUMAPMethods(unittest.TestCase):
 
 class TestUMAPAIMethods(TestUMAPMethods):
     @pytest.mark.skipif(
-        not has_dependancy or not has_featurize,
+        not has_dependancy or not has_umap,
         reason="requires ai+umap feature dependencies",
     )
     def _test_umap(self, g, use_cols, targets, name, kind, df):
@@ -272,7 +275,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                                 self.cases_test_graph(g2, kind=kind, df=df)
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_featurize,
+        not has_dependancy or not has_umap,
         reason="requires ai+umap feature dependencies",
     )
     def test_node_umap(self):
@@ -295,7 +298,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
             )
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_featurize,
+        not has_dependancy or not has_umap,
         reason="requires ai+umap feature dependencies",
     )
     def test_edge_umap(self):
@@ -317,7 +320,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
             )
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_featurize,
+        not has_dependancy or not has_umap,
         reason="requires ai+umap feature dependencies",
     )
     def test_chaining_nodes(self):
@@ -338,7 +341,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
         
     @pytest.mark.skipif(
-        not has_dependancy or not has_featurize,
+        not has_dependancy or not has_umap,
         reason="requires ai+umap feature dependencies",
     )
     def test_chaining_edges(self):
@@ -355,7 +358,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         assert all(g2._edge_features == g3._edge_features)
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_featurize,
+        not has_dependancy or not has_umap,
         reason="requires ai+umap feature dependencies",
     )
     def test_feature_kwargs_yield_different_values_using_umap_api(self):
@@ -376,7 +379,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         assert g2._node_target.shape[1] == n_topics_target, 'Targets '
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_featurize,
+        not has_dependancy or not has_umap,
         reason="requires ai+umap feature dependencies",
     )
     def test_filter_edges(self):
