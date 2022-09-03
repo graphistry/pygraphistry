@@ -38,9 +38,9 @@ def categorical_color_by_col(
 
 def style_layout(
     self: Plottable,
-    encode_color=True,
-    colors: Optional[List[str]]=None,
-    partition_key='partition',
+    encode_color = True,
+    colors: Optional[List[str]] = None,
+    partition_key = 'partition',
     engine: Engine = Engine.PANDAS
 ) -> 'Plottable':
 
