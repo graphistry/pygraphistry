@@ -24,6 +24,13 @@ try:
     maybe_cudf = cudf
 except ImportError:
     1
+    
+maybe_cuml = None
+try:
+    import cuml
+    maybe_cuml = cuml
+except ImportError:
+    1
 
 maybe_dask_dataframe = None
 try:
@@ -39,6 +46,13 @@ try:
 except ImportError:
     1
 
+maybe_dask_cuml = None
+try:
+    import dask_cuml
+    maybe_dask_cuml = dask_cuml
+except ImportError:
+    1    
+    
 maybe_spark = None
 try:
     import pyspark

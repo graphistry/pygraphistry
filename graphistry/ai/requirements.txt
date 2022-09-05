@@ -5,6 +5,7 @@ scipy
 pandas
 dirty-cat
 umap-learn
+cuml
 dgl
 torch
 graphistry

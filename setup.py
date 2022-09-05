@@ -26,7 +26,7 @@ base_extras = {
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl', 'xlrd'],
     'jupyter': ['ipython'],
-    'ai': ['scikit-learn', 'scipy', 'dirty-cat', 'umap-learn', 'dgl', 'torch',
+    'ai': ['scikit-learn', 'scipy', 'dirty-cat', 'umap-learn','cuml', 'dgl', 'torch',
            'sentence-transformers']
 }
 
@@ -86,5 +86,5 @@ setup(
         'Topic :: Software Development :: Widget Sets',
         'Topic :: System :: Distributed Computing'
     ],
-    keywords=['cugraph', 'cudf', 'dask', 'GPU', 'Graph',  'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Network', 'NetworkX',  'Notebook', 'Pandas', 'Plot', 'Rapids', 'RDF', 'Splunk', 'Spark', 'Tinkerpop', 'Visualization']
+    keywords=['cugraph', 'cudf','cuml', 'dask', 'GPU', 'Graph',  'GraphX', 'Gremlin', 'igraph', 'Jupyter', 'Neo4j', 'Network', 'NetworkX',  'Notebook', 'Pandas', 'Plot', 'Rapids', 'RDF', 'Splunk', 'Spark', 'Tinkerpop', 'Visualization']
 )

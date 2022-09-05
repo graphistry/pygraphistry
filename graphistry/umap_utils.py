@@ -5,12 +5,12 @@ from typing import Union, Any
 import numpy as np
 import pandas as pd
 
-try:
-    import umap
-    has_dependancy = True
-except:
-    umap = Any
-    has_dependancy = False
+# try:
+    # import umap, cuml
+has_dependancy = True
+# except:
+    # umap = Any
+    # has_dependancy = False
     
 from . import constants as config
 from .ai_utils import setup_logger
@@ -19,7 +19,7 @@ logger = setup_logger(__name__)
 
 umap_kwargs_probs = {
     "n_components": 2,
-    "metric": "hellinger",  # info metric, can't use on textual encodings since they contain negative values...
+    # "metric": "hellinger",  # info metric, can't use on textual encodings since they contain negative values...
     "n_neighbors": 15,
     "min_dist": 0.3,
     "verbose": True,
@@ -31,7 +31,7 @@ umap_kwargs_probs = {
 
 umap_kwargs_euclidean = {
     "n_components": 2,
-    "metric": "euclidean",
+    # "metric": "euclidean",
     "n_neighbors": 12,
     "min_dist": 0.1,
     "verbose": True,
@@ -56,12 +56,13 @@ class UMAPMixin(object):
         repulsion_strength=1,
         negative_sample_rate=5,
         n_components: int = 2,
-        metric: str = "euclidean",
+        # metric: str = "euclidean",
+        engine: str = "", #umap-learn", #"cuml"]
     ):
         if has_dependancy:
             umap_kwargs = dict(
                 n_components=n_components,
-                metric=metric,
+                # metric=metric,
                 n_neighbors=n_neighbors,
                 min_dist=min_dist,
                 spread=spread,
@@ -71,18 +72,25 @@ class UMAPMixin(object):
             )
     
             self.n_components = n_components
-            self.metric = metric
+            # self.metric = metric
             self.n_neighbors = n_neighbors
             self.min_dist = min_dist
             self.spread = spread
             self.local_connectivity = local_connectivity
             self.repulsion_strength = repulsion_strength
             self.negative_sample_rate = negative_sample_rate
-            self._umap = umap.UMAP(**umap_kwargs)
-        
 
-    def _set_new_kwargs(self, **kwargs):
-        self._umap = umap.UMAP(**kwargs)
+    def _set_new_kwargs(self,**kwargs):
+        if kwargs['engine']=='cuml':
+            import cuml
+            self.engine=kwargs['engine']
+            del kwargs['engine']
+            self._umap=cuml.UMAP(**kwargs)
+        elif kwargs['engine']=='umap-learn':
+            import umap
+            self.engine=kwargs['engine']
+            del kwargs['engine']
+            self._umap=umap.UMAP(**kwargs)
 
     def _check_target_is_one_dimensional(self, y: Union[np.ndarray, None]):
         if y is None:
@@ -117,8 +125,13 @@ class UMAPMixin(object):
         coo = self._umap.graph_.tocoo()
         src, dst, weight_col = config.SRC, config.DST, config.WEIGHT
 
-        self._weighted_edges_df = pd.DataFrame(
-            {src: coo.row, dst: coo.col, weight_col: coo.data}
-        )
+        if self.engine=='cuml':
+            self._weighted_edges_df = pd.DataFrame(
+                {src: coo.get().row, dst: coo.get().col, weight_col: coo.get().data}
+            )
+        elif self.engine=='umap-learn':
+            self._weighted_edges_df = pd.DataFrame(
+                {src: coo.row, dst: coo.col, weight_col: coo.data}
+            )
 
         self._weighted_adjacency = self._umap.graph_
