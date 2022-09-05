@@ -5,12 +5,12 @@ from typing import Union, Any
 import numpy as np
 import pandas as pd
 
-try:
-    import umap, cuml
-    has_dependancy = True
-except:
-    umap = Any
-    has_dependancy = False
+# try:
+    # import umap, cuml
+has_dependancy = True
+# except:
+    # umap = Any
+    # has_dependancy = False
     
 from . import constants as config
 from .ai_utils import setup_logger
@@ -27,7 +27,6 @@ umap_kwargs_probs = {
     "local_connectivity": 1,
     "repulsion_strength": 1,
     "negative_sample_rate": 5,
-    # "engine": 'cuml',
 }
 
 umap_kwargs_euclidean = {
@@ -40,7 +39,6 @@ umap_kwargs_euclidean = {
     "local_connectivity": 1,
     "repulsion_strength": 1,
     "negative_sample_rate": 5,
-    # "engine": 'umap-learn',
 }
 
 
@@ -59,7 +57,7 @@ class UMAPMixin(object):
         negative_sample_rate=5,
         n_components: int = 2,
         # metric: str = "euclidean",
-        engine: str = "cuml",#"cuml"]
+        engine: str = "", #umap-learn", #"cuml"]
     ):
         if has_dependancy:
             umap_kwargs = dict(
@@ -71,7 +69,6 @@ class UMAPMixin(object):
                 local_connectivity=local_connectivity,
                 repulsion_strength=repulsion_strength,
                 negative_sample_rate=negative_sample_rate,
-                # engine=engine,
             )
     
             self.n_components = n_components
@@ -82,21 +79,17 @@ class UMAPMixin(object):
             self.local_connectivity = local_connectivity
             self.repulsion_strength = repulsion_strength
             self.negative_sample_rate = negative_sample_rate
-            self.engine = engine
-            # if engine=='cuml':
-            #     import cuml
-            #     self._umap = cuml.UMAP(**umap_kwargs)
-            # else:
-            #     self._umap = umap.UMAP(**umap_kwargs)
-            # self._umap = umap.UMAP(**umap_kwargs)
-        
 
-    def _set_new_kwargs(self, **kwargs):
-        # self._umap = umap.UMAP(**kwargs)
-        if self.engine=='cuml':
+    def _set_new_kwargs(self,**kwargs):
+        if kwargs['engine']=='cuml':
             import cuml
+            self.engine=kwargs['engine']
+            del kwargs['engine']
             self._umap=cuml.UMAP(**kwargs)
-        else:
+        elif kwargs['engine']=='umap-learn':
+            import umap
+            self.engine=kwargs['engine']
+            del kwargs['engine']
             self._umap=umap.UMAP(**kwargs)
 
     def _check_target_is_one_dimensional(self, y: Union[np.ndarray, None]):
@@ -124,13 +117,7 @@ class UMAPMixin(object):
         return self
 
     def fit_transform(self, X: np.ndarray, y: Union[np.ndarray, None] = None):
-        if self.engine=='cuml':
-            # X.columns=['']
-            self.fit(X.get(['source','destination']), y)
-            logger.info(f"BAM! cuml umap")
-        else:
-            self.fit(X, y)
-            logger.info(f"boo! umap-learn :(")
+        self.fit(X, y)
         return self._umap.transform(X)
 
     def _edge_influence(self):
@@ -138,8 +125,13 @@ class UMAPMixin(object):
         coo = self._umap.graph_.tocoo()
         src, dst, weight_col = config.SRC, config.DST, config.WEIGHT
 
-        self._weighted_edges_df = pd.DataFrame(
-            {src: coo.row, dst: coo.col, weight_col: coo.data}
-        )
+        if self.engine=='cuml':
+            self._weighted_edges_df = pd.DataFrame(
+                {src: coo.get().row, dst: coo.get().col, weight_col: coo.get().data}
+            )
+        elif self.engine=='umap-learn':
+            self._weighted_edges_df = pd.DataFrame(
+                {src: coo.row, dst: coo.col, weight_col: coo.data}
+            )
 
         self._weighted_adjacency = self._umap.graph_
