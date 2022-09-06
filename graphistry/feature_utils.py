@@ -947,6 +947,7 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         model_name: str = "paraphrase-MiniLM-L6-v2",
         remove_node_column: bool = True,
         inplace: bool = False,
+        # engine: str = "cuml",
     ):
         """
             Featurize Nodes or Edges of the Graph.
@@ -1128,11 +1129,11 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         repulsion_strength: float = 1,
         negative_sample_rate: int = 5,
         n_components: int = 2,
-        metric: str = "euclidean",
+        # metric: str = "euclidean",
         scale_xy: float = 10,
         suffix: str = "",
         play: Optional[int] = 0,
-        engine: str = "umap_learn",
+        # engine: Optional[str] = "" # "umap-learn" #"cuml"],
     ):
         """
             UMAP the featurized node or edges data, or pass in your own X, y (optional).
@@ -1167,13 +1168,14 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
         xy = None
         umap_kwargs = dict(
             n_components=n_components,
-            metric=metric,
+            # metric=metric,
             n_neighbors=n_neighbors,
             min_dist=min_dist,
             spread=spread,
             local_connectivity=local_connectivity,
             repulsion_strength=repulsion_strength,
             negative_sample_rate=negative_sample_rate,
+            # engine=engine,
         )
 
         if inplace:
@@ -1225,6 +1227,10 @@ class FeatureMixin(ComputeMixin, UMAPMixin):
             X, y = self._featurize_or_get_edges_dataframe_if_X_is_None(
                 res, X, y, use_columns
             )
+            # if res.engine=='cuml':
+                # print(res)
+                # xy = scale_xy * res.fit_transform(X, y)#,convert_dtype=False)
+            # elif res.engine=='umap-learn':
             xy = scale_xy * res.fit_transform(X, y)
             res.weighted_adjacency_edges = res._weighted_adjacency
             res.edge_embedding = xy
