@@ -501,7 +501,7 @@ You need to install the PyGraphistry Python client and connect it to a Graphistr
 
 Most users connect to a Graphistry GPU server account via:
 
-* `graphistry.register(api=3, username='abc', password='xyz'`: personal hub.graphistry.com account
+* `graphistry.register(api=3, username='abc', password='xyz')`: personal hub.graphistry.com account
 * `graphistry.register(api=3, username='abc', password='xyz', org_name='optional_org')`: team hub.graphistry.com account
 * `graphistry.register(api=3, username='abc', password='xyz', org_name='optiona_org', protocol='http', server='my.private_server.org')`: private server
 
