@@ -7,6 +7,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.27.3 - 2022-09-07]
+
+### Changed
+
+* Infra: Remove heavy AI dependencies from `pip install graphistry[dev]`
+
+### Added
+
+* igraph: Optional `use_vids` parameter (default `False`) for `to_igraph()` and its callers (`layout_igraph`, `compute_graph`)
+
+### Fixed
+
+* igraph: CI errors around igraph
+* Docs: Typos and updates - thanks @gadde5300 + @szhorvat !
+
 ## [0.27.2 - 2022-09-02]
 
 ### Changed
