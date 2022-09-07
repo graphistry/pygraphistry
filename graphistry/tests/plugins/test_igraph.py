@@ -496,8 +496,7 @@ class Test_igraph_compute(NoAuthTestCase):
                     import warnings
                     with warnings.catch_warnings(record=True) as w:
                         # Cause all warnings to always be triggered.
-                        #warnings.simplefilter("always")
-                        # Trigger a warning.
+                        warnings.simplefilter("always")
                         assert compute_igraph(g, alg, **opts) is not None
                         assert len(w) == 1
                         assert issubclass(w[-1].category, DeprecationWarning)
