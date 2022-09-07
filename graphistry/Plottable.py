@@ -222,6 +222,7 @@ class Plottable(object):
 
     def to_igraph(self, 
         directed: bool = True,
+        use_vids: bool = False,
         include_nodes: bool = True,
         node_attributes: Optional[List[str]] = None,
         edge_attributes: Optional[List[str]] = None

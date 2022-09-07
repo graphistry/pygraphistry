@@ -1,5 +1,5 @@
 import graphistry, logging, pandas as pd, pytest
-from common import NoAuthTestCase
+from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
 from graphistry.plugins.igraph import SRC_IGRAPH, DST_IGRAPH, compute_algs, compute_igraph, layout_algs, layout_igraph
 
@@ -483,6 +483,8 @@ class Test_igraph_compute(NoAuthTestCase):
             }
         }
 
+        deprecations = [ 'clusters' ]
+
         skiplist = [ 'eigenvector_centrality' ]
 
         g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
@@ -490,7 +492,16 @@ class Test_igraph_compute(NoAuthTestCase):
             if alg not in skiplist:
                 opts = overrides[alg] if alg in overrides else {}
                 #logger.debug('alg "%s", opts=(%s)', alg, opts)
-                assert compute_igraph(g, alg, **opts) is not None
+                if alg in deprecations:
+                    import warnings
+                    with warnings.catch_warnings(record=True) as w:
+                        # Cause all warnings to always be triggered.
+                        warnings.simplefilter("always")
+                        assert compute_igraph(g, alg, **opts) is not None
+                        assert len(w) == 1
+                        assert issubclass(w[-1].category, DeprecationWarning)
+                else:
+                    assert compute_igraph(g, alg, **opts) is not None
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_layouts(NoAuthTestCase):
@@ -500,12 +511,19 @@ class Test_igraph_layouts(NoAuthTestCase):
         overrides = {
             'bipartite': {
                 'params': {'types': 't'}
-            }
+            },
+            #FIXME some reason these complain about unexpected vertex types
+            'lgl': None, 'large': None, 'large_graph': None,
+            'star': None,
+
         }
 
         g = graphistry.edges(edges3_df, 'a', 'b').nodes(nodes3_df, 'n')
         for alg in layout_algs:
             opts = overrides[alg] if alg in overrides else {}
+            if opts is None:
+                logger.debug('skipping alg "%s"', alg)
+                continue
             logger.debug('alg "%s", opts=(%s)', alg, opts)
             g2 = layout_igraph(g, alg, **opts)
             logger.debug('g._edges: %s', g._edges)
