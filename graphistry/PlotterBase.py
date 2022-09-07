@@ -1430,36 +1430,37 @@ class PlotterBase(Plottable):
 
 
     def to_igraph(self, 
-        directed=True, include_nodes=True,
+        directed = True, use_vids = False, include_nodes = True,
         node_attributes: Optional[List[str]] = None,
-        edge_attributes: Optional[List[str]] = None
+        edge_attributes: Optional[List[str]] = None,
     ):
         return to_igraph_base(
             self,
-            directed, include_nodes,
-            node_attributes,
-            edge_attributes
+            directed = directed, use_vids = use_vids, include_nodes = include_nodes,
+            node_attributes = node_attributes,
+            edge_attributes = edge_attributes
         )
     to_igraph.__doc__ = to_igraph_base.__doc__
 
 
     def compute_igraph(self,
-        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
+        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, use_vids: bool = False, params: dict = {}
     ):
-        return compute_igraph_base(self, alg, out_col, directed, params)
+        return compute_igraph_base(self, alg, out_col, directed, use_vids, params)
     compute_igraph.__doc__ = compute_igraph_base.__doc__
 
 
     def layout_igraph(self,
         layout: str,
         directed: Optional[bool] = None,
+        use_vids: bool = False,
         bind_position: bool = True,
         x_out_col: str = 'x',
         y_out_col: str = 'y',
         play: Optional[int] = 0,
         params: dict = {}
     ):
-        return layout_igraph_base(self, layout, directed, bind_position, x_out_col, y_out_col, play, params)
+        return layout_igraph_base(self, layout, directed, use_vids, bind_position, x_out_col, y_out_col, play, params)
     layout_igraph.__doc__ = layout_igraph_base.__doc__
 
 
