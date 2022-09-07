@@ -16,10 +16,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 * igraph: Optional `use_vids` parameter (default `False`) for `to_igraph()` and its callers (`layout_igraph`, `compute_graph`)
+* igraph: add `coreness` and `harmonic_centrality` to `compute_igraph`
 
 ### Fixed
 
 * igraph: CI errors around igraph
+* igraph: Tolerate deprecation warning of `clustering`
 * Docs: Typos and updates - thanks @gadde5300 + @szhorvat !
 
 ## [0.27.2 - 2022-09-02]
