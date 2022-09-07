@@ -202,7 +202,8 @@ def to_igraph(self: Plottable,
     directed: bool = True,
     include_nodes: bool = True,
     node_attributes: Optional[List[str]] = None,
-    edge_attributes: Optional[List[str]] = None
+    edge_attributes: Optional[List[str]] = None,
+    use_vids: bool = False
 ):
     """Convert current item to igraph Graph . See examples in from_igraph.
 
@@ -217,6 +218,9 @@ def to_igraph(self: Plottable,
 
     :param edge_attributes: Which edge attributes to load, None means all (default None)
     :type edge_attributes: Optional[List[str]]
+
+    :param use_vids: Whether to interpret IDs as igraph vertex IDs, which must be non-negative integers (default False)
+    :type use_vids: bool
 
     """
     import igraph
@@ -238,13 +242,16 @@ def to_igraph(self: Plottable,
     node_attrs = g._nodes if node_attributes is None else node_attributes
     node_attrs = [x for x in node_attrs if x != g._node]
     nodes_df = g._nodes[[g._node] + node_attrs]
-    return igraph.Graph.DataFrame(edges_df, directed=directed, vertices=nodes_df)
+    return igraph.Graph.DataFrame(
+        edges_df, directed=directed, vertices=nodes_df, use_vids=use_vids
+    )
 
 
 compute_algs = [
     'authority_score',
     'betweenness',
     'bibcoupling',
+    #'biconnected_components',
     #'bipartite_projection',
     'harmonic_centrality',
     'closeness',
@@ -261,7 +268,9 @@ compute_algs = [
     'community_spinglass',
     'community_walktrap',
     'constraint',
+    'coreness',
     'gomory_hu_tree',
+    'harmonic_centrality',
     'hub_score',
     'eccentricity',
     'eigenvector_centrality',
@@ -272,7 +281,12 @@ compute_algs = [
 ]
 
 def compute_igraph(
-    self: Plottable, alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
+    self: Plottable,
+    alg: str,
+    out_col: Optional[str] = None,
+    directed: Optional[bool] = None,
+    use_vids=False,
+    params: dict = {}
 ) -> Plottable:
     """Enrich or replace graph using igraph methods
 
@@ -284,6 +298,9 @@ def compute_igraph(
 
     :param directed: During the to_igraph conversion, whether to be directed. If None, try directed and then undirected. (default None)
     :type directed: Optional[bool]
+
+    :param use_vids: During the to_igraph conversion, whether to interpret IDs as igraph vertex IDs (non-negative integers) or arbitrary values (False, default)
+    :type use_vids: bool
 
     :param params: Any named parameters to pass to the underlying igraph method
     :type params: dict
@@ -335,11 +352,11 @@ def compute_igraph(
         out_col = alg
 
     try:
-        ig = self.to_igraph(directed=True if directed is None else directed)        
+        ig = self.to_igraph(directed=True if directed is None else directed, use_vids=use_vids)
         out = getattr(ig, alg)(**params)
     except NotImplementedError as e:
         if directed is None:
-            ig = self.to_igraph(directed=False)        
+            ig = self.to_igraph(directed=False, use_vids=use_vids)
             out = getattr(ig, alg)(**params)
         else:
             raise e
@@ -366,6 +383,7 @@ layout_algs = [
     'auto', 'automatic',
     'bipartite',
     'circle', 'circular',
+    #'connected_components',
     'dh', 'davidson_harel',
     'drl',
     'drl_3d',
@@ -383,13 +401,15 @@ layout_algs = [
     'rt_circular', 'reingold_tilford_circular',
     'sphere', 'spherical', 'circle_3d', 'circular_3d',
     'star',
-    'sugiyama'
+    'sugiyama',
+    #'umap'
 ]
 
 def layout_igraph(
     self: Plottable,
     layout: str,
     directed: Optional[bool] = None,
+    use_vids: bool = False,
     bind_position: bool = True,
     x_out_col: str = 'x',
     y_out_col: str = 'y',
@@ -403,6 +423,9 @@ def layout_igraph(
 
     :param directed: During the to_igraph conversion, whether to be directed. If None, try directed and then undirected. (default None)
     :type directed: Optional[bool]
+
+    :param use_vids: Whether to use igraph vertex ids (non-negative integers) or arbitary node ids (False, default)
+    :type use_vids: bool
 
     :param bind_position: Whether to call bind(point_x=, point_y=) (default True)
     :type bind_position: bool
@@ -453,11 +476,11 @@ def layout_igraph(
     """
 
     try:
-        ig = self.to_igraph(directed=True if directed is None else directed)
+        ig = self.to_igraph(directed=True if directed is None else directed, use_vids=use_vids)
         layout_df = pd.DataFrame([x for x in ig.layout(layout, **params)])
     except NotImplementedError as e:
         if directed is None:
-            ig = self.to_igraph(directed=False)
+            ig = self.to_igraph(directed=False, use_vids=use_vids)
             layout_df = pd.DataFrame([x for x in ig.layout(layout, **params)])
         else:
             raise e
