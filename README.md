@@ -676,7 +676,7 @@ Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank
 
 #### Warmup: igraph for computing statistics
 
-[igraph](http://igraph.org/python/) already has these algorithms implemented for us for small graphs. (See our cuGraph examples for big graphs.) If igraph is not already installed, fetch it with `pip install python-igraph`. Warning: `pip install igraph` will install the wrong package!
+[igraph](http://igraph.org/python/) already has these algorithms implemented for us for small graphs. (See our cuGraph examples for big graphs.) If igraph is not already installed, fetch it with `pip install igraph`.
 
 We start by converting our edge dateframe into an igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
 
