@@ -1,5 +1,5 @@
 import graphistry, logging, pandas as pd, pytest
-from common import NoAuthTestCase
+from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
 from graphistry.plugins.igraph import SRC_IGRAPH, DST_IGRAPH, compute_algs, compute_igraph, layout_algs, layout_igraph
 
