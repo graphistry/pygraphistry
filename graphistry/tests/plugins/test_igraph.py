@@ -483,6 +483,8 @@ class Test_igraph_compute(NoAuthTestCase):
             }
         }
 
+        deprecations = [ 'clusters' ]
+
         skiplist = [ 'eigenvector_centrality' ]
 
         g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
@@ -490,7 +492,17 @@ class Test_igraph_compute(NoAuthTestCase):
             if alg not in skiplist:
                 opts = overrides[alg] if alg in overrides else {}
                 #logger.debug('alg "%s", opts=(%s)', alg, opts)
-                assert compute_igraph(g, alg, **opts) is not None
+                if alg in deprecations:
+                    import warnings
+                    with warnings.catch_warnings(record=True) as w:
+                        # Cause all warnings to always be triggered.
+                        #warnings.simplefilter("always")
+                        # Trigger a warning.
+                        assert compute_igraph(g, alg, **opts) is not None
+                        assert len(w) == 1
+                        assert issubclass(w[-1].category, DeprecationWarning)
+                else:
+                    assert compute_igraph(g, alg, **opts) is not None
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_layouts(NoAuthTestCase):
