@@ -251,6 +251,7 @@ compute_algs = [
     'authority_score',
     'betweenness',
     'bibcoupling',
+    #'biconnected_components',
     #'bipartite_projection',
     'harmonic_centrality',
     'closeness',
@@ -267,7 +268,9 @@ compute_algs = [
     'community_spinglass',
     'community_walktrap',
     'constraint',
+    'coreness',
     'gomory_hu_tree',
+    'harmonic_centrality',
     'hub_score',
     'eccentricity',
     'eigenvector_centrality',
@@ -380,6 +383,7 @@ layout_algs = [
     'auto', 'automatic',
     'bipartite',
     'circle', 'circular',
+    #'connected_components',
     'dh', 'davidson_harel',
     'drl',
     'drl_3d',
@@ -397,7 +401,8 @@ layout_algs = [
     'rt_circular', 'reingold_tilford_circular',
     'sphere', 'spherical', 'circle_3d', 'circular_3d',
     'star',
-    'sugiyama'
+    'sugiyama',
+    #'umap'
 ]
 
 def layout_igraph(
