@@ -1,4 +1,4 @@
-import copy
+import copy,sys
 from time import time
 from typing import Any, Dict, Optional, Union, TYPE_CHECKING, Tuple
 
@@ -15,7 +15,8 @@ from .feature_utils import (
 )
 from .util import setup_logger, check_set_memoize
 
-logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+# logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+logger = setup_logger(__name__)
 
 
 if TYPE_CHECKING:
@@ -27,21 +28,26 @@ else:
 ###############################################################################
 
 
-def lazy_umap_import_has_dependancy():
+def lazy_umap_import_has_dependancy(engine):
     try:
         import warnings
         warnings.filterwarnings("ignore")
-        import umap  # noqa
-        return True, 'ok', umap
+        if engine == 'cuml':
+            import cuml #as umap
+            return True, 'ok', cuml
+        elif engine == 'umap-learn':
+            import umap
+            return True, 'ok', umap
     except ModuleNotFoundError as e:
         return False, e, None
 
-def assert_imported():
-    has_dependancy, import_exn, _ = lazy_umap_import_has_dependancy()
+def assert_imported(engine):
+    has_dependancy, import_exn, umap = lazy_umap_import_has_dependancy(engine)
     if not has_dependancy:
         logger.error("UMAP not found, trying running "
                      "`pip install graphistry[ai]`")
         raise import_exn
+    return has_dependancy
 
 
 ###############################################################################
@@ -91,9 +97,16 @@ def umap_graph_to_weighted_edges(umap_graph, cfg=config):
     coo = umap_graph.tocoo()
     src, dst, weight_col = cfg.SRC, cfg.DST, cfg.WEIGHT
 
-    _weighted_edges_df = pd.DataFrame(
-        {src: coo.row, dst: coo.col, weight_col: coo.data}
-    )
+    # if self.engine=='cuml':
+    if 'cuml' in sys.modules:
+        _weighted_edges_df = pd.DataFrame(
+            {src: coo.get().row, dst: coo.get().col, weight_col: coo.get().data}
+        )
+    # elif self.engine=='umap-learn':
+    if 'umap' in sys.modules:
+        _weighted_edges_df = pd.DataFrame(
+            {src: coo.row, dst: coo.col, weight_col: coo.data}
+        )
 
     return _weighted_edges_df
 
@@ -119,10 +132,12 @@ class UMAPMixin(MIXIN_BASE):
         negative_sample_rate=5,
         n_components: int = 2,
         metric: str = "euclidean",
+        # engine: str = "auto",
+        has_umap: str = "True",
     ):
 
         # FIXME remove as set_new_kwargs will always replace?
-        has_umap, _, umap = lazy_umap_import_has_dependancy()
+        # has_umap, _, umap = lazy_umap_import_has_dependancy(engine)
 
         if has_umap and not self.umap_initialized:
             umap_kwargs = dict(
@@ -134,6 +149,7 @@ class UMAPMixin(MIXIN_BASE):
                 local_connectivity=local_connectivity,
                 repulsion_strength=repulsion_strength,
                 negative_sample_rate=negative_sample_rate,
+                # engine=engine,
             )
 
             self.n_components = n_components
@@ -144,8 +160,21 @@ class UMAPMixin(MIXIN_BASE):
             self.local_connectivity = local_connectivity
             self.repulsion_strength = repulsion_strength
             self.negative_sample_rate = negative_sample_rate
-            self._umap = umap.UMAP(**umap_kwargs)
+            # self._umap = umap.UMAP(**umap_kwargs)
             self.umap_initialized = True
+            # self.engine = engine
+
+            # self._umap = umap.UMAP(**umap_kwargs)
+            # if self.engine == 'cuml':
+            if 'cuml' in sys.modules:
+                import cuml
+                del umap_kwargs['metric'] #, umap_kwargs['engine'] 
+                self._umap = cuml.UMAP(**umap_kwargs)
+                print('yay cuml!') ## 
+            elif 'umap' in sys.modules:
+                import umap
+                self._umap = umap.UMAP(**umap_kwargs)
+                print('!boo umap-learn')
 
     def _check_target_is_one_dimensional(self, y: Union[pd.DataFrame, None]):
         if y is None:
@@ -167,7 +196,7 @@ class UMAPMixin(MIXIN_BASE):
 
         t = time()
         y = self._check_target_is_one_dimensional(y)
-        logger.info('-' * 90)
+        # logger.info('-' * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
 
         self._umap.fit(X, y)
@@ -181,6 +210,8 @@ class UMAPMixin(MIXIN_BASE):
         mins = (time() - t) / 60
         logger.info(f"-UMAP-ing took {mins:.2f} minutes total")
         logger.info(f" - or {X.shape[0]/mins:.2f} rows per minute")
+        print(f"-UMAP-ing took {mins:.2f} minutes total")
+        print(f" - or {X.shape[0]/mins:.2f} rows per minute")
         return self
 
     def umap_fit_transform(self, X: pd.DataFrame,
@@ -229,9 +260,21 @@ class UMAPMixin(MIXIN_BASE):
         """
             Returns res mutated with new _xy
         """
-        _, _, umap = lazy_umap_import_has_dependancy()
+        # _, _, umap = lazy_umap_import_has_dependancy(self.engine)
         # need this function to use memoize
-        res._umap = umap.UMAP(**umap_kwargs)
+
+        # res._umap = umap.UMAP(**umap_kwargs)
+
+        if 'cuml' in sys.modules:
+            import cuml
+            del umap_kwargs['metric'] #, res.engine
+            res._umap = cuml.UMAP(**umap_kwargs)
+            # print('using cuml!')
+        if 'umap' in sys.modules:
+            import umap
+            # del res.engine
+            res._umap = umap.UMAP(**umap_kwargs)
+            # print('!boo umap-learn')
 
         logger.debug("process_umap before kwargs: %s", umap_kwargs)
         umap_kwargs.update({"kind": kind, "X": X_, "y": y_})
@@ -311,7 +354,7 @@ class UMAPMixin(MIXIN_BASE):
         play: Optional[int] = 0,
         encode_position: bool = True,
         encode_weight: bool = True,
-        engine: str = "umap_learn",
+        engine: str = "umap-learn",
         inplace: bool = False,
         feature_engine: str = "auto",
         memoize: bool = True,
@@ -360,8 +403,11 @@ class UMAPMixin(MIXIN_BASE):
                 default True.
         :return: self, with attributes set with new data
         """
-        assert_imported()
-        self.umap_lazy_init()
+        # if not engine:
+            # engine='umap-learn'
+        print(engine)
+        has_umap=assert_imported(engine)
+        self.umap_lazy_init(has_umap=has_umap)
 
         self.suffix = suffix
         umap_kwargs = dict(
@@ -373,6 +419,7 @@ class UMAPMixin(MIXIN_BASE):
             local_connectivity=local_connectivity,
             repulsion_strength=repulsion_strength,
             negative_sample_rate=negative_sample_rate,
+            # engine=engine
         )
         logger.debug("umap_kwargs: %s", umap_kwargs)
 
