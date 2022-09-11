@@ -1,7 +1,8 @@
-import logging, pandas as pd
+import logging, numpy as np, pandas as pd
 from typing import Any, List, Union, TYPE_CHECKING
 from typing_extensions import Literal
 
+from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
 from .chain import chain as chain_base
 from .collapse import collapse_by
@@ -23,7 +24,11 @@ class ComputeMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         pass
 
-    def materialize_nodes(self, reuse: bool = True, engine: Literal['cudf', 'pandas', 'auto'] = "auto"):
+    def materialize_nodes(
+        self,
+        reuse: bool = True,
+        engine: Union[Engine, Literal['auto']] = "auto"
+    ) -> "Plottable":
         """
         Generate g._nodes based on g._edges
 
@@ -68,19 +73,19 @@ class ComputeMixin(MIXIN_BASE):
         node_id = g._node if g._node is not None else "id"
         if engine == 'auto':
             if isinstance(g._edges, pd.DataFrame):
-                engine = 'pandas'
+                engine = Engine.PANDAS
             else:
                 try:
                     import cudf
                     if isinstance(g._edges, cudf.DataFrame):
-                        engine = 'cudf'
+                        engine = Engine.CUDF
                 except ImportError:
                     pass
             if engine == 'auto':
                 raise ValueError('Could not determine engine for edges, expected pandas or cudf dataframe, got: {}'.format(type(g._edges)))
-        if engine == "pandas":
+        if engine == Engine.PANDAS:
             concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
-        elif engine == "cudf":
+        elif engine == Engine.CUDF:
             import cudf
             if isinstance(g._edges, cudf.DataFrame):
                 edges_gdf = g._edges
@@ -89,6 +94,8 @@ class ComputeMixin(MIXIN_BASE):
             else:
                 raise ValueError('Unexpected edges type; convert edges to cudf.DataFrame')
             concat_df = cudf.concat([edges_gdf[g._source].rename(node_id), edges_gdf[g._destination].rename(node_id)])
+        else:
+            raise ValueError('Expected engine to be pandas or cudf, got: {}'.format(engine))
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 
@@ -175,6 +182,66 @@ class ComputeMixin(MIXIN_BASE):
             g2 = g2.edges(g2._edges[~dst_hits])
 
         return g2
+
+    def keep_nodes(self, nodes):
+        """
+        Limit nodes and edges to those selected by parameter nodes
+        For edges, both source and destination must be in nodes
+        Nodes can be a list or series of node IDs, or a dictionary
+        When a dictionary, each key corresponds to a node column, and nodes will be included when all match
+        """
+        g = self.materialize_nodes()
+
+        #convert to Dict[Str, Union[Series, List-like]]
+        if isinstance(nodes, dict):
+            pass
+        elif isinstance(nodes, np.ndarray) or isinstance(nodes, list):
+            nodes = {g._node: nodes}
+        else:
+            if isinstance(nodes, pd.Series):
+                nodes = {g._node: nodes.to_numpy()}
+            else:
+                import cudf
+                if isinstance(nodes, cudf.Series):
+                    nodes = {g._node: nodes.to_numpy()}
+                else:
+                    raise ValueError('Unexpected nodes type: {}'.format(type(nodes)))
+        #convert to Dict[Str, List-like]
+        #print('nodes mid', nodes)
+        nodes = {
+            k: v if isinstance(v, np.ndarray) or isinstance(v, list) else v.to_numpy()
+            for k, v in nodes.items()
+        }
+
+        #print('self nodes', g._nodes)
+        #print('pre nodes', nodes)
+        #print('keys', list(nodes.keys()))
+        hits = g._nodes[list(nodes.keys())].isin(nodes)
+        #print('hits', hits)
+        hits_s = hits[g._node]
+        for c in hits.columns:
+            if c != g._node:
+                hits_s = hits_s & hits[c]
+        #print('hits_s', hits_s)
+        new_nodes = g._nodes[hits_s]
+        #print(new_nodes)
+        new_node_ids = new_nodes[g._node].to_numpy()
+        #print('new_node_ids', new_node_ids)
+        #print('new node_ids', type(new_node_ids), len(g._nodes), '->', len(new_node_ids))
+        new_edges_hits_df = (
+            g._edges[[g._source, g._destination]]
+            .isin({
+                g._source: new_node_ids,
+                g._destination: new_node_ids
+            })
+        )
+        #print('new_edges_hits_df', new_edges_hits_df)
+        new_edges = g._edges[
+            new_edges_hits_df[g._source] & new_edges_hits_df[g._destination]
+        ]
+        #print('new_edges', new_edges)
+        #print('new edges', len(g._edges), '->', len(new_edges))
+        return g.nodes(new_nodes).edges(new_edges)
 
     def get_topological_levels(
         self,

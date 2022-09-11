@@ -1,6 +1,7 @@
 from graphistry.Plottable import Plottable
 from typing import Any, Callable, List, Optional, Union
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
+from functools import lru_cache
 from weakref import WeakValueDictionary
 
 
@@ -35,37 +36,56 @@ from .tigeristry import Tigeristry
 from .util import setup_logger
 logger = setup_logger(__name__)
 
-maybe_cudf = None
-try:
-    import cudf
-    maybe_cudf = cudf
-except ImportError:
-    1
-except RuntimeError:
-    logger.warning('Runtime error import cudf: Available but failed to initialize', exc_info=True)
 
-maybe_dask_dataframe = None
-try:
-    import dask.dataframe
-    maybe_dask_dataframe = dask.dataframe
-except ImportError:
-    1
+# #####################################
+# Lazy imports as these get heavy
+# #####################################
 
-maybe_dask_cudf = None
-try:
-    import dask_cudf
-    maybe_dask_cudf = dask_cudf
-except ImportError:
-    1
-except RuntimeError:
-    logger.warning('Runtime error import dask_cudf: Available but failed to initialize', exc_info=True)
+@lru_cache(maxsize=1)
+def maybe_cudf():
+    try:
+        import cudf
+        return cudf
+    except ImportError:
+        1
+    except RuntimeError:
+        logger.warning('Runtime error import cudf: Available but failed to initialize', exc_info=True)
+    return None
 
-maybe_spark = None
-try:
-    import pyspark
-    maybe_spark = pyspark
-except ImportError:
-    1
+@lru_cache(maxsize=1)
+def maybe_dask_cudf():
+    try:
+        import dask_cudf
+        return dask_cudf
+    except ImportError:
+        1
+    except RuntimeError:
+        logger.warning('Runtime error import dask_cudf: Available but failed to initialize', exc_info=True)
+    return None
+
+@lru_cache(maxsize=1)
+def maybe_dask_dataframe():
+    try:
+        import dask.dataframe as dd
+        return dd
+    except ImportError:
+        1
+    except RuntimeError:
+        logger.warning('Runtime error import dask.dataframe: Available but failed to initialize', exc_info=True)
+    return None
+
+@lru_cache(maxsize=1)
+def maybe_spark():
+    try:
+        import pyspark
+        return pyspark
+    except ImportError:
+        1
+    except RuntimeError:
+        logger.warning('Runtime error import pyspark: Available but failed to initialize', exc_info=True)
+    return None
+
+# #####################################
 
 
 class PlotterBase(Plottable):
@@ -1410,36 +1430,37 @@ class PlotterBase(Plottable):
 
 
     def to_igraph(self, 
-        directed=True, include_nodes=True,
+        directed = True, use_vids = False, include_nodes = True,
         node_attributes: Optional[List[str]] = None,
-        edge_attributes: Optional[List[str]] = None
+        edge_attributes: Optional[List[str]] = None,
     ):
         return to_igraph_base(
             self,
-            directed, include_nodes,
-            node_attributes,
-            edge_attributes
+            directed = directed, use_vids = use_vids, include_nodes = include_nodes,
+            node_attributes = node_attributes,
+            edge_attributes = edge_attributes
         )
     to_igraph.__doc__ = to_igraph_base.__doc__
 
 
     def compute_igraph(self,
-        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, params: dict = {}
+        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, use_vids: bool = False, params: dict = {}
     ):
-        return compute_igraph_base(self, alg, out_col, directed, params)
+        return compute_igraph_base(self, alg, out_col, directed, use_vids, params)
     compute_igraph.__doc__ = compute_igraph_base.__doc__
 
 
     def layout_igraph(self,
         layout: str,
         directed: Optional[bool] = None,
+        use_vids: bool = False,
         bind_position: bool = True,
         x_out_col: str = 'x',
         y_out_col: str = 'y',
         play: Optional[int] = 0,
         params: dict = {}
     ):
-        return layout_igraph_base(self, layout, directed, bind_position, x_out_col, y_out_col, play, params)
+        return layout_igraph_base(self, layout, directed, use_vids, bind_position, x_out_col, y_out_col, play, params)
     layout_igraph.__doc__ = layout_igraph_base.__doc__
 
 
@@ -1634,10 +1655,10 @@ class PlotterBase(Plottable):
 
         if isinstance(graph, pd.core.frame.DataFrame) \
                 or isinstance(graph, pa.Table) \
-                or ( not (maybe_cudf is None) and isinstance(graph, maybe_cudf.DataFrame) ) \
-                or ( not (maybe_dask_cudf is None) and isinstance(graph, maybe_dask_cudf.DataFrame) ) \
-                or ( not (maybe_dask_dataframe is None) and isinstance(graph, maybe_dask_dataframe.DataFrame) ) \
-                or ( not (maybe_spark is None) and isinstance(graph, pyspark.sql.dataframe.DataFrame) ):
+                or ( not (maybe_cudf() is None) and isinstance(graph, maybe_cudf().DataFrame) ) \
+                or ( not (maybe_dask_cudf() is None) and isinstance(graph, maybe_dask_cudf().DataFrame) ) \
+                or ( not (maybe_dask_dataframe() is None) and isinstance(graph, maybe_dask_dataframe().DataFrame) ) \
+                or ( not (maybe_spark() is None) and isinstance(graph, maybe_spark().sql.dataframe.DataFrame) ):
             return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize)
 
         try:
@@ -1757,13 +1778,13 @@ class PlotterBase(Plottable):
         if isinstance(table, pa.Table):
             return table.to_pandas()
         
-        if not (maybe_cudf is None) and isinstance(table, maybe_cudf.DataFrame):
+        if not (maybe_cudf() is None) and isinstance(table, maybe_cudf().DataFrame):
             return table.to_pandas()
 
-        if not (maybe_dask_cudf is None) and isinstance(table, maybe_dask_cudf.DataFrame):
+        if not (maybe_dask_cudf() is None) and isinstance(table, maybe_dask_cudf().DataFrame):
             return self._table_to_pandas(table.compute())
 
-        if not (maybe_dask_dataframe is None) and isinstance(table, maybe_dask_dataframe.DataFrame):
+        if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
             return self._table_to_pandas(table.compute())
 
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
@@ -1815,7 +1836,7 @@ class PlotterBase(Plottable):
 
             return out
 
-        if not (maybe_cudf is None) and isinstance(table, maybe_cudf.DataFrame):
+        if not (maybe_cudf() is None) and isinstance(table, maybe_cudf().DataFrame):
 
             hashed = None
             if memoize:
@@ -1844,19 +1865,19 @@ class PlotterBase(Plottable):
             return out
         
         # TODO: per-gdf hashing? 
-        if not (maybe_dask_cudf is None) and isinstance(table, maybe_dask_cudf.DataFrame):
+        if not (maybe_dask_cudf() is None) and isinstance(table, maybe_dask_cudf().DataFrame):
             logger.debug('dgdf->arrow via gdf hash check')
             dgdf = table.persist()
             gdf = dgdf.compute()
             return self._table_to_arrow(gdf, memoize)
 
-        if not (maybe_dask_dataframe is None) and isinstance(table, maybe_dask_dataframe.DataFrame):
+        if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
             logger.debug('ddf->arrow via df hash check')
             ddf = table.persist()
             df = ddf.compute()
             return self._table_to_arrow(df, memoize)
 
-        if not (maybe_spark is None) and isinstance(table, maybe_spark.sql.dataframe.DataFrame):
+        if not (maybe_spark() is None) and isinstance(table, maybe_spark().sql.dataframe.DataFrame):
             logger.debug('spark->arrow via df')
             df = table.toPandas()
             #TODO push the hash check to Spark

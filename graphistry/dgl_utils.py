@@ -5,12 +5,6 @@ from typing import Optional, TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-try:
-    import dgl
-    has_dependancy: bool = True
-except:
-    has_dependancy = False
-
 from . import constants as config
 from .feature_utils import (
     FeatureEngine,
@@ -21,15 +15,47 @@ from .feature_utils import (
     resolve_X,
     resolve_y,
 )
-from .util import setup_logger
 
-logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+from .util import setup_logger
 
 
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
+    try:
+        import torch
+    except:
+        pass
+    try:
+        import dgl
+    except:
+        pass
 else:
     MIXIN_BASE = object
+
+
+def lazy_dgl_import_has_dependency():
+    try:
+        import warnings
+        warnings.filterwarnings('ignore')
+        import dgl  # noqa: F811
+        return True, 'ok', dgl
+    except ModuleNotFoundError as e:
+        return False, e, None
+
+
+def lazy_torch_import_has_dependency():
+    try:
+        import warnings
+        warnings.filterwarnings('ignore')
+        import torch  # noqa: F811
+        return True, 'ok', torch
+    except ModuleNotFoundError as e:
+        return False, e, None
+
+
+logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+
+
 
 # #########################################################################################
 #
@@ -38,7 +64,7 @@ else:
 # #########################################################################################
 
 
-def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]): # type: ignore
+def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):  # type: ignore
     """
         Converts X, y to torch tensors compatible with ndata/edata of DGL graph
     _________________________________________________________________________
@@ -46,12 +72,12 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]): # type
     :param y_enc: DataFrame Matrix of Values for Target
     :return: Dictionary of torch encoded arrays
     """
-    import torch
+    _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 
-    if not y_enc.empty: # type: ignore
+    if not y_enc.empty:  # type: ignore
         data = {
             config.FEATURE: torch.tensor(X_enc.values),
-            config.TARGET: torch.tensor(y_enc.values), # type: ignore
+            config.TARGET: torch.tensor(y_enc.values),  # type: ignore
         }
     else:
         data = {config.FEATURE: torch.tensor(X_enc.values)}
@@ -71,7 +97,7 @@ def get_available_devices():
         device (torch.device): Main device (GPU 0 or CPU).
         gpu_ids (list): List of IDs of all GPUs that are available.
     """
-    import torch
+    _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 
     gpu_ids = []
     if torch.cuda.is_available():
@@ -154,8 +180,8 @@ def pandas_to_dgl_graph(
         sp_mat: sparse scipy matrix
         ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
+    _, _, dgl = lazy_dgl_import_has_dependency()  # noqa: F811
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)
-
     g = dgl.from_scipy(sp_mat, device=device)  # there are other ways too
     logger.info(f"Graph Type: {type(g)}") 
 
@@ -169,7 +195,7 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     :param ratio: mimics train/test split. `ratio` sets number of True vs False mask entries.
     :return: train and test torch tensor masks
     """
-    import torch
+    _, _, torch = lazy_torch_import_has_dependency()  # noqa: F811
 
     train_mask = torch.zeros(n, dtype=torch.bool).bernoulli(ratio)
     test_mask = ~train_mask
@@ -205,6 +231,8 @@ class DGLGraphMixin(MIXIN_BASE):
         """
 
         if not self.dgl_initialized:
+            lazy_dgl_import_has_dependency()
+            lazy_torch_import_has_dependency()
             self.train_split = train_split
             self.device = device
             self._removed_edges_previously = False
@@ -448,7 +476,7 @@ class DGLGraphMixin(MIXIN_BASE):
             m = res.materialize_nodes()
         except Exception as e:
             logger.debug(e)
-            logger.info(f'No edges found, please call g.umap(...) to generate implicit edges')
+            logger.info('No edges found, please call g.umap(...) to generate implicit edges')
             raise
         
         X_nodes_resolved = resolve_X(m._nodes, X_nodes)
@@ -457,7 +485,7 @@ class DGLGraphMixin(MIXIN_BASE):
         # here we check if edges are from UMAP, at which point X_edges should be none:
         if list(res._edges.columns) == ["_src_implicit", "_dst_implicit", "_weight"]:
             logger.debug(
-                f">>> EDGES ARE FROM UMAP, discarding explicit mention of X_edges"
+                ">>> EDGES ARE FROM UMAP, discarding explicit mention of X_edges"
             )
             X_edges = None
 

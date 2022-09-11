@@ -7,6 +7,62 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.27.3 - 2022-09-07]
+
+### Changed
+
+* Infra: Remove heavy AI dependencies from `pip install graphistry[dev]`
+
+### Added
+
+* igraph: Optional `use_vids` parameter (default `False`) for `to_igraph()` and its callers (`layout_igraph`, `compute_graph`)
+* igraph: add `coreness` and `harmonic_centrality` to `compute_igraph`
+
+### Fixed
+
+* igraph: CI errors around igraph
+* igraph: Tolerate deprecation warning of `clustering`
+* Docs: Typos and updates - thanks @gadde5300 + @szhorvat !
+
+## [0.27.2 - 2022-09-02]
+
+### Changed
+
+* Speed up `import graphistry` 10X+ by lazily importing AI dependencies. Use of `pygraphistry[ai]` features will still trigger slow upstream dependency initialization times upon first use.
+
+### Fixed
+
+* Docs: Update Labs references to Hub
+
+## [0.27.1 - 2022-07-25]
+
+### Fixed
+
+* `group_in_a_box_layout()`: Remove verbose output
+* `group_in_a_box_layout()`: Remove synthesized edge weight
+
+## [0.27.0 - 2022-07-25]
+
+### Breaking 🔥
+
+* Types: Switch `materialize_nodes` engine param to explicitly using`Engine` typing (no change to untyped user code)
+
+### Added
+
+* `g.keep_nodes(List or Series)`
+* `g.group_in_a_box_layout(...)`: Both CPU (pandas/igraph) and (cudf/cugraph) versions, and various partitioning/layout/styling settings
+* Internal clientside Brewer palettes helper for categorical point coloring
+
+### Changed
+
+* Infra: CI early fail on deeper lint
+* Infra: Move Python 3.6 from core to minimal tests due to sklearn 1.0 incompatibility
+
+### Fixed
+
+* lint
+* suppress known dgl bindings test type bug
+
 ## [0.26.1 - 2022-07-01]
 
 ### Breaking 🔥
