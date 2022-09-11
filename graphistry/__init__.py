@@ -53,6 +53,7 @@ from graphistry.compute import (
     n, e_forward, e_reverse, e_undirected
 )
 
+from graphistry.Engine import Engine
 
 from ._version import get_versions
 

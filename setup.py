@@ -9,9 +9,11 @@ def unique_flatten_dict(d):
 
 core_requires = [
   'numpy',
+  'palettable >= 3.0',
   'pandas >= 0.17.0',
   'pyarrow >= 0.15.0',
   'requests',
+  'squarify',
   'typing-extensions',
   'packaging >= 20.1'
 ]
@@ -26,28 +28,33 @@ dev_extras = {
     'build': ['build']
 }
 
-base_extras = {
+base_extras_light = {
     'igraph': ['python-igraph'],
     'networkx': ['networkx>=2.5'],
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl', 'xlrd'],
     'jupyter': ['ipython'],
-    'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
-    'ai': ['scikit-learn>=1.0', 'scipy', 'dirty-cat==0.2.0', 'umap-learn', 'dgl', 'torch',
-           'sentence-transformers']
 }
+
+base_extras_heavy = {
+  'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
+}
+base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers']
+
+base_extras = {**base_extras_light, **base_extras_heavy}
 
 extras_require = {
 
-  **base_extras,
+  **base_extras_light,
+  **base_extras_heavy,
   **dev_extras,
 
   #kitchen sink for users -- not recommended
   'all': unique_flatten_dict(base_extras),
 
-  #kitchen sink for contributors
-  'dev': unique_flatten_dict(base_extras) + unique_flatten_dict(dev_extras),
+  #kitchen sink for contributors, skips ai
+  'dev': unique_flatten_dict(base_extras_light) + unique_flatten_dict(dev_extras),
 
 }
 

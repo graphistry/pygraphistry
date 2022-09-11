@@ -46,6 +46,7 @@ nitpick_ignore = [
     ('py:class', '3'),
     ('py:class', "<class 'dict'>"),
     ('py:class', "<class 'str'>"),
+    ('py:class', 'graphistry.Engine.Engine'),
     ('py:class', 'graphistry.gremlin.CosmosMixin'),
     ('py:class', 'graphistry.gremlin.GremlinMixin'),
     ('py:class', 'graphistry.gremlin.NeptuneMixin'),

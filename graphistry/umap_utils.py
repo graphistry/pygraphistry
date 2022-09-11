@@ -27,20 +27,17 @@ else:
 ###############################################################################
 
 
-import_exn = None
-try:
-    import warnings
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=ImportWarning)
+def lazy_umap_import_has_dependancy():
+    try:
+        import warnings
+        warnings.filterwarnings("ignore")
         import umap  # noqa
-        has_dependancy: bool = True   # noqa
-except ModuleNotFoundError as e:
-    import_exn = e
-    has_dependancy = False
-
+        return True, 'ok', umap
+    except ModuleNotFoundError as e:
+        return False, e, None
 
 def assert_imported():
+    has_dependancy, import_exn, _ = lazy_umap_import_has_dependancy()
     if not has_dependancy:
         logger.error("UMAP not found, trying running "
                      "`pip install graphistry[ai]`")
@@ -125,9 +122,9 @@ class UMAPMixin(MIXIN_BASE):
     ):
 
         # FIXME remove as set_new_kwargs will always replace?
+        has_umap, _, umap = lazy_umap_import_has_dependancy()
 
-        if has_dependancy and not self.umap_initialized:
-
+        if has_umap and not self.umap_initialized:
             umap_kwargs = dict(
                 n_components=n_components,
                 metric=metric,
@@ -197,10 +194,13 @@ class UMAPMixin(MIXIN_BASE):
 
 
     def transform_umap(  # noqa: E303
-                       self, df: pd.DataFrame, ydf: pd.DataFrame,
-                       kind: str = "nodes"
+        self, df: pd.DataFrame, ydf: pd.DataFrame,
+        kind: str = "nodes"
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        logger.debug(f'Going into Transform umap {df.shape}, {ydf.shape}')
+        try:
+            logger.debug(f'Going into Transform umap {df.shape}, {ydf.shape}')
+        except:
+            pass
         x, y = self.transform(df, ydf, kind=kind)
         emb = self._umap.transform(x)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
@@ -229,7 +229,7 @@ class UMAPMixin(MIXIN_BASE):
         """
             Returns res mutated with new _xy
         """
-
+        _, _, umap = lazy_umap_import_has_dependancy()
         # need this function to use memoize
         res._umap = umap.UMAP(**umap_kwargs)
 
@@ -258,7 +258,7 @@ class UMAPMixin(MIXIN_BASE):
 
 
     def _set_features(  # noqa: E303
-                      self, res, X, y, kind, feature_engine, featurize_kwargs):
+            self, res, X, y, kind, feature_engine, featurize_kwargs):
         """
             Helper for setting features for memoize
         """
@@ -528,9 +528,10 @@ class UMAPMixin(MIXIN_BASE):
 
         if encode_position and kind == "nodes":
             if play is not None:
-                return res.bind(point_x=x_name, point_y=y_name)\
-                        .layout_settings(
-                    play=play
+                return (
+                    res
+                        .bind(point_x=x_name, point_y=y_name)
+                        .layout_settings(play=play)
                 )
             else:
                 return res.bind(point_x=x_name, point_y=y_name)

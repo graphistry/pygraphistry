@@ -3,15 +3,20 @@ from typing_extensions import Literal
 import pandas as pd
 
 from graphistry.plugins_types.cugraph_types import CuGraphKind
+from graphistry.Engine import Engine
 
-try:
-    from umap import UMAP
-except:
+
+if TYPE_CHECKING:
+    try:
+        from umap import UMAP
+    except:
+        UMAP = Any
+    try:
+        from sklearn.pipeline import Pipeline
+    except:
+        Pipeline = Any
+else:
     UMAP = Any
-
-try:
-    from sklearn.pipeline import Pipeline
-except:
     Pipeline = Any
 
 class Plottable(object):
@@ -122,7 +127,22 @@ class Plottable(object):
             raise RuntimeError('should not happen')
         return self
 
-    def materialize_nodes(self, reuse: bool = True, engine: Literal['pandas', 'cudf', 'auto'] = 'auto') -> 'Plottable':
+    def get_outdegrees(self, col: str = 'degree_out') -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def get_degrees(
+        self,
+        col: str = "degree",
+        degree_in: str = "degree_in",
+        degree_out: str = "degree_out",
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def materialize_nodes(self, reuse: bool = True, engine: Union[Engine, Literal['auto']] = 'auto') -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
@@ -133,6 +153,22 @@ class Plottable(object):
         allow_cycles: bool = True,
         warn_cycles: bool = True,
         remove_self_loops: bool = True
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+    
+    def drop_nodes(
+        self,
+        nodes: Any
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+    
+    def keep_nodes(
+        self,
+        nodes: Union[List, Any]
     ) -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
@@ -186,6 +222,7 @@ class Plottable(object):
 
     def to_igraph(self, 
         directed: bool = True,
+        use_vids: bool = False,
         include_nodes: bool = True,
         node_attributes: Optional[List[str]] = None,
         edge_attributes: Optional[List[str]] = None
