@@ -272,6 +272,7 @@ class ArrowUploader:
         json_response = None
         try:
             json_response = out.json()
+            logger.debug("@ArrowUploader.sso_login, json_response: {}".format(json_response))
             self.token = None
             if not ('status' in json_response):
                 raise Exception(out.text)
@@ -283,6 +284,8 @@ class ArrowUploader:
                         self.sso_auth_url = json_response['data']['auth_url']
                     else:
                         self.token = json_response['data']['token']
+                elif json_response['status'] == 'ERR':
+                    raise Exception(json_response['message'])
 
         except Exception:
             logger.error('Error: %s', out, exc_info=True)

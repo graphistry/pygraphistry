@@ -209,8 +209,9 @@ class PyGraphistry(object):
                 PyGraphistry._is_authenticated = True
 
                 return PyGraphistry.api_token()
-        except:  # required to log on
+        except Exception as e:  # required to log on
             # print("required to log on")
+            import traceback; traceback.print_exc()
             PyGraphistry.sso_state(arrow_uploader.sso_state)
 
             auth_url = arrow_uploader.sso_auth_url
