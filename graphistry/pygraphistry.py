@@ -14,13 +14,14 @@ from . import util
 from . import bolt_util
 from .plotter import Plotter
 from .util import in_databricks, setup_logger, in_ipython, make_iframe
+from .exceptions import SsoRetrieveTokenTimeoutException
 
 logger = setup_logger(__name__)
 
 
 ###############################################################################
 
-SSO_GET_TOKEN_ELAPSE_SECONDS = 180
+SSO_GET_TOKEN_ELAPSE_SECONDS = 50
 
 EnvVarNames = {
     "api_key": "GRAPHISTRY_API_KEY",
@@ -211,7 +212,6 @@ class PyGraphistry(object):
                 return PyGraphistry.api_token()
         except Exception as e:  # required to log on
             # print("required to log on")
-            import traceback; traceback.print_exc()
             PyGraphistry.sso_state(arrow_uploader.sso_state)
 
             auth_url = arrow_uploader.sso_auth_url
@@ -253,18 +253,32 @@ class PyGraphistry(object):
 
         if sso_timeout is not None:
             time.sleep(1)
-            elapsed_time = 11
-            while not PyGraphistry._sso_get_token():
-                if elapsed_time % 10 == 1:
-                    print("Waiting for token : {} ...".format(elapsed_time - 1))
+            elapsed_time = 1
+            token = None
+            
+            while True:
+                token = PyGraphistry._sso_get_token()
+                try:
+                    if not token:
+                        if elapsed_time % 10 == 1:
+                            print("Waiting for token : {} seconds ...".format(sso_timeout - elapsed_time + 1))
 
-                time.sleep(1)
-                elapsed_time = elapsed_time + 1
-                if elapsed_time > sso_timeout:
-                    raise Exception("[SSO] Get token timeout")
-
-            print("Successfully get a token")
-            return PyGraphistry.api_token()
+                        time.sleep(1)
+                        elapsed_time = elapsed_time + 1
+                        if elapsed_time > sso_timeout:
+                            raise SsoRetrieveTokenTimeoutException("[SSO] Get token timeout")
+                    else:
+                        break
+                except SsoRetrieveTokenTimeoutException as toe:
+                    print(toe)
+                    break
+                except Exception as e:
+                    token = None
+            if token:
+                print("Successfully get a token")
+                return PyGraphistry.api_token()
+            else:
+                return None
         else:
             print("Please run graphistry.sso_get_token() to complete the authentication")
 

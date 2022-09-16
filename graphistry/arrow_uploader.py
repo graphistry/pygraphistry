@@ -316,9 +316,6 @@ class ArrowUploader:
                 if json_response['status'] == 'OK':
                     if 'token' in json_response['data']:
                         self.token = json_response['data']['token']
-                else:
-                    return Exception("Error getting token")
-
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
             # raise
