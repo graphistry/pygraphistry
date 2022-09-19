@@ -3,7 +3,7 @@ from time import time
 from typing import Any, Dict, Optional, Union, TYPE_CHECKING, Tuple
 
 import pandas as pd
-from typing_extensions import Literal  # Literal native to py3.8+
+
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .feature_utils import (
@@ -30,7 +30,7 @@ def lazy_umap_import_has_dependancy():
     try:
         import warnings
         warnings.filterwarnings("ignore")
-        import umap
+        import umap  # noqa
         return True, 'ok', umap
     except ModuleNotFoundError as e:
         return False, e, None
@@ -45,11 +45,11 @@ def lazy_cuml_import_has_dependancy():
         return False, e, None
 
 def assert_imported():
-    has_umap_dependancy_, import_umap_exn, _ = lazy_umap_import_has_dependancy()
-    if not has_umap_dependancy_:
+    has_dependancy, import_exn, _ = lazy_umap_import_has_dependancy()
+    if not has_dependancy:
         logger.error("UMAP not found, trying running "
                      "`pip install graphistry[ai]`")
-        raise import_umap_exn
+        raise import_exn
 
 def assert_imported_cuml():
     has_cuml_dependancy_, import_cuml_exn, _ = lazy_cuml_import_has_dependancy()
@@ -412,9 +412,7 @@ class UMAPMixin(MIXIN_BASE):
 
         assert_imported()
         self.umap_lazy_init(engine=engine)
-        engine_resolved = resolve_umap_engine(engine)
-        self.engine=engine_resolved
-
+        self.engine = resolve_umap_engine(engine)
         self.suffix = suffix
         umap_kwargs = dict(
             n_components=n_components,
