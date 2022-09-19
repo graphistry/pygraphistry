@@ -210,7 +210,7 @@ class PyGraphistry(object):
                 PyGraphistry._is_authenticated = True
 
                 return PyGraphistry.api_token()
-        except Exception as e:  # required to log on
+        except Exception:  # required to log on
             # print("required to log on")
             PyGraphistry.sso_state(arrow_uploader.sso_state)
 
@@ -272,7 +272,7 @@ class PyGraphistry(object):
                 except SsoRetrieveTokenTimeoutException as toe:
                     print(toe)
                     break
-                except Exception as e:
+                except Exception:
                     token = None
             if token:
                 print("Successfully get a token")
@@ -541,6 +541,10 @@ class PyGraphistry(object):
         :type password: Optional[str]
         :param token: Valid Account JWT token (2.0). Provide token, or username/password, but not both.
         :type token: Optional[str]
+        :param personal_key_id: Personal Key id for service account.
+        :type personal_key_id: Optional[str]
+        :param personal_key: Personal Key for service account.
+        :type personal_key: Optional[str]
         :param server: URL of the visualization server.
         :type server: Optional[str]
         :param protocol: Protocol to use for server uploaders, defaults to "https".
@@ -598,6 +602,12 @@ class PyGraphistry(object):
                     import graphistry
                     graphistry.register(api=3, protocol='http', server='200.1.1.1', token='abc')
 
+        **Example: Standard (by personal_key_id/personal_key)**
+                ::
+
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', personal_key_id='ZD5872XKNF', personal_key='SA0JJ2DTVT6LLO2S')
+
         **Example: Remote browser to Graphistry-provided notebook server (2.0)**
                 ::
 
@@ -625,18 +635,26 @@ class PyGraphistry(object):
             PyGraphistry.login(username, password, org_name)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
             PyGraphistry.authenticate()
-        elif personal_key_id and personal_key:
-            PyGraphistry.pkey_login(personal_key_id, personal_key, org_name)
+            PyGraphistry.authenticate()
+        elif (username is None and not (password is None)):
+            print("Error: password exist but missing username")
+        elif not (username is None) and password is None:
+            print("Error: username exists but missing password")
+        elif not (personal_key_id is None) and not (personal_key is None):
+            PyGraphistry.pkey_login(personal_key_id, personal_key)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
             PyGraphistry.authenticate()
+        elif personal_key_id is None and not (personal_key is None):
+            print("Error: personal key exists but missing personal key id")
+        elif not (personal_key_id is None) and personal_key is None:
+            print("Error: personal key id exists but missing personal key")
         elif not (token is None):
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
-        else:  
+        else:
             print("No username/password, personal key id/key & token provided, enter SSO login")
 
             PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
                 
-
 
     @staticmethod
     def privacy(

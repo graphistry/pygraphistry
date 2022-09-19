@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import unittest
+import unittest, pytest
 
 from graphistry import PyGraphistry
 
@@ -16,3 +16,9 @@ class TestPyGraphistry_Auth(unittest.TestCase):
         assert PyGraphistry.store_token_creds_in_memory() is True
         PyGraphistry.register(store_token_creds_in_memory=False)
         assert PyGraphistry.store_token_creds_in_memory() is False
+
+
+def test_register_with_only_username(capfd):
+    PyGraphistry.register(username='only_username')
+    out, err = capfd.readouterr()
+    assert out == "Hello World!"

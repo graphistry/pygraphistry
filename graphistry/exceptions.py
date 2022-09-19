@@ -10,4 +10,3 @@ class SsoRetrieveTokenTimeoutException(SsoException):
     Koa, 15 Sep 2022  Custom Exception to Sso retrieve token time out exception scenario
     """
     pass
-

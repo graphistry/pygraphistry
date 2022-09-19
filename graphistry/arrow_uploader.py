@@ -194,8 +194,8 @@ class ArrowUploader:
     def pkey_login(self, personal_key_id, personal_key, org_name=None):
         # json_data = {'personal_key_id': personal_key_id, 'personal_key': personal_key}
         json_data = {}
-        if org_name:
-            json_data.update({"org_name": org_name})
+        # if org_name:
+        #     json_data.update({"org_name": org_name})
 
         headers = {"Authorization": f'PersonalKey {personal_key_id}:{personal_key}'}
 
