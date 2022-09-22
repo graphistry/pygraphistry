@@ -178,11 +178,12 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     graphistry.edges(edges, 'src', 'dst').plot()
     ```
 
-* GPU [RAPIDS.ai](https://www.rapids.ai) cuml
+* GPU [RAPIDS.ai](https://www.rapids.ai) cuML
 
     ```python
+    g = graphistry.nodes(cudf.read_csv('rows.csv'))
     g = graphistry.nodes(G)
-    g.umap(engine='cuml',metric='euclidean')
+    g.umap(engine='cuml',metric='euclidean').plot()
     ```
 
 * GPU [RAPIDS.ai](https://www.rapids.ai) cugraph ([notebook demo](demos/demos_databases_apis/gpu_rapids/cugraph.ipynb))
@@ -391,7 +392,7 @@ See `help(g.featurize)` for more options
       g.umap(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
     ```
 
-* UMAP supports different backend `engine`, which by default exploit an availabile GPU, resulting in marked speed increases, and falling back to CPU processing:
+* `umap(engine="...")` supports multiple implementations. It defaults to using the GPU-accelerated `engine="cuml"` when a GPU is available, resulting in orders-of-magnitude speedups, and falls back to CPU processing via `engine="umap"`.:
 
     ```python
       g.umap(engine='cuml')

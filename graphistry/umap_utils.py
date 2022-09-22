@@ -430,9 +430,6 @@ class UMAPMixin(MIXIN_BASE):
         else:
             res = self.bind()
 
-        res.engine = resolve_umap_engine(engine)
-        
-
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
 
