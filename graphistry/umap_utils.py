@@ -10,6 +10,7 @@ from .feature_utils import (
     FeatureMixin,
     XSymbolic,
     YSymbolic,
+    Literal,
     prune_weighted_edges_df_and_relabel_nodes,
     resolve_feature_engine,
 )
@@ -160,31 +161,28 @@ class UMAPMixin(MIXIN_BASE):
         negative_sample_rate=5,
         n_components: int = 2,
         metric: str = "euclidean",
-        has_umap: str = "True",
-        engine: str = "auto", 
+        engine: str = "auto" #|
     ):
-
-        # FIXME remove as set_new_kwargs will always replace?
         engine_resolved = resolve_umap_engine(engine)
+        # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == "umap_learn":
             _, _, umap_engine = lazy_umap_import_has_dependancy()
         elif engine_resolved =='cuml':
             _, _, umap_engine = lazy_cuml_import_has_dependancy()
         else:
             raise ValueError("No umap engine, ensure 'auto', 'umap', or 'cuml', and the library is installed")
-        
-        if has_umap and not self.umap_initialized: 
-            umap_kwargs = dict(
-                n_components=n_components,
-                # metric=metric,
-                n_neighbors=n_neighbors,
-                min_dist=min_dist,
-                spread=spread,
-                local_connectivity=local_connectivity,
-                repulsion_strength=repulsion_strength,
-                negative_sample_rate=negative_sample_rate,
-                # engine=engine,
-            )
+
+        if not self.umap_initialized: 
+            umap_kwargs = dict({
+                'n_components':n_components,
+                **({'metric':metric} if engine_resolved=="umap_learn" else {}),
+                'n_neighbors':n_neighbors,
+                'min_dist':min_dist,
+                'spread':spread,
+                'local_connectivity':local_connectivity,
+                'repulsion_strength':repulsion_strength,
+                'negative_sample_rate':negative_sample_rate,
+            })
 
             self.n_components = n_components
             self.metric = metric
@@ -368,7 +366,7 @@ class UMAPMixin(MIXIN_BASE):
     ):
         """
             UMAP the featurized node or edges data,
-            or pass in your own fX, y (optional).
+            or pass in your own X, y (optional).
 
         :param kind: `nodes` or `edges` or None.
                 If None, expects explicit X, y (optional) matrices,
@@ -412,18 +410,18 @@ class UMAPMixin(MIXIN_BASE):
 
         assert_imported()
         self.umap_lazy_init(engine=engine)
-        self.engine = resolve_umap_engine(engine)
         self.suffix = suffix
+        
         umap_kwargs = dict(
             n_components=n_components,
-            # metric=metric,
+            metric=metric,
             n_neighbors=n_neighbors,
             min_dist=min_dist,
             spread=spread,
             local_connectivity=local_connectivity,
             repulsion_strength=repulsion_strength,
             negative_sample_rate=negative_sample_rate,
-            # engine=engine_resolved
+            engine=engine
         )
         logger.debug("umap_kwargs: %s", umap_kwargs)
 
@@ -431,6 +429,9 @@ class UMAPMixin(MIXIN_BASE):
             res = self
         else:
             res = self.bind()
+
+        res.engine = resolve_umap_engine(engine)
+        
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
