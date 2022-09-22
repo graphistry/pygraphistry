@@ -525,7 +525,8 @@ class PyGraphistry(object):
         client_protocol_hostname: Optional[str] = None,
         org_name: Optional[str] = None,
         idp_name: Optional[str] = None,
-        sso_timeout: int = SSO_GET_TOKEN_ELAPSE_SECONDS
+        is_sso_login: Optional[bool] = False,
+        sso_timeout: Optional[int] = SSO_GET_TOKEN_ELAPSE_SECONDS
     ):
         """API key registration and server selection
 
@@ -650,11 +651,11 @@ class PyGraphistry(object):
             print("Error: personal key id exists but missing personal key")
         elif not (token is None):
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
-        else:
+        elif not (org_name is None) or is_sso_login:
             print("No username/password, personal key id/key & token provided, enter SSO login")
 
             PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
-                
+
 
     @staticmethod
     def privacy(
