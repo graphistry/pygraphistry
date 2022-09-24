@@ -7,6 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.28.0 - 2022-09-23]
+
+### Added
+
+* neo4j: v5 support (experimental)
+
+### Changed
+
+* Infra: suppress igraph pandas FutureWarnings
+
 ## [0.27.3 - 2022-09-07]
 
 ### Changed

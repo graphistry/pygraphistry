@@ -1,4 +1,4 @@
-import logging, os, pandas as pd, pytest
+import logging, os, pandas as pd, pytest, warnings
 from graphistry.compute import ComputeMixin
 from graphistry.layouts import LayoutsMixin
 from graphistry.plotter import PlotterBase
@@ -33,16 +33,18 @@ class Test_gib(NoAuthTestCase):
             return
         
         lg = LGFull()
-        g = (
-            lg
-             .edges(
-                pd.DataFrame({
-                    's': ['a', 'b', 'c', 'd', 'm', 'd1'],
-                    'd': ['b', 'c', 'd', 'd', 'm', 'd2']
-                }),
-                's', 'd')
-             .group_in_a_box_layout()
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g = (
+                lg
+                .edges(
+                    pd.DataFrame({
+                        's': ['a', 'b', 'c', 'd', 'm', 'd1'],
+                        'd': ['b', 'c', 'd', 'd', 'm', 'd2']
+                    }),
+                    's', 'd')
+                .group_in_a_box_layout()
+            )
         assert isinstance(g._nodes, pd.DataFrame)
         assert isinstance(g._edges, pd.DataFrame)
         assert 'x' in g._nodes
@@ -57,16 +59,18 @@ class Test_gib(NoAuthTestCase):
         import cudf
    
         lg = LGFull()
-        g = (
-            lg
-             .edges(
-                cudf.DataFrame({
-                    's': ['a', 'b', 'c', 'd', 'm', 'd1'],
-                    'd': ['b', 'c', 'd', 'd', 'm', 'd2']
-                }),
-                's', 'd')
-             .group_in_a_box_layout()
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g = (
+                lg
+                .edges(
+                    cudf.DataFrame({
+                        's': ['a', 'b', 'c', 'd', 'm', 'd1'],
+                        'd': ['b', 'c', 'd', 'd', 'm', 'd2']
+                    }),
+                    's', 'd')
+                .group_in_a_box_layout()
+            )
         print('g ::', type(g))
         print('g._nodes ::', type(g._nodes))
         print('g._edges ::', type(g._edges))

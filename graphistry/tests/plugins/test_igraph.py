@@ -1,4 +1,4 @@
-import graphistry, logging, pandas as pd, pytest
+import graphistry, logging, pandas as pd, pytest, warnings
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
 from graphistry.plugins.igraph import SRC_IGRAPH, DST_IGRAPH, compute_algs, compute_igraph, layout_algs, layout_igraph
@@ -168,7 +168,9 @@ class Test_from_igraph(NoAuthTestCase):
                     'd': ['b', 'c', 'a']
                 }), 's', 'd')
         )
-        ig = g.to_igraph()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            ig = g.to_igraph()
         ig.vs['spinglass'] = ig.community_spinglass(spins=3).membership
         g2 = g.from_igraph(ig)
 
@@ -183,7 +185,9 @@ class Test_from_igraph(NoAuthTestCase):
 
     def test_edges_named(self):
         g = graphistry.edges(edges2_df, 'a', 'b').nodes(nodes2_df, 'n')
-        ig = g.to_igraph()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            ig = g.to_igraph()
         g2 = g.from_igraph(ig)
         assert len(g2._nodes) == len(g._nodes)
         assert len(g2._edges) == len(g._edges)
@@ -196,7 +200,9 @@ class Test_from_igraph(NoAuthTestCase):
 
     def test_edges_named_without_nodes(self):
         g = graphistry.edges(edges2_df, 'a', 'b')
-        ig = g.to_igraph()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            ig = g.to_igraph()
         g2 = g.from_igraph(ig)
         assert len(g2._nodes) == len(nodes2_df)
         assert len(g2._edges) == len(g._edges)
@@ -256,7 +262,9 @@ class Test_to_igraph(NoAuthTestCase):
                 'd': [x[1] for x in edges],
             }).astype(str), 's', 'd')
         )
-        ig = g.to_igraph()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            ig = g.to_igraph()
         logger.debug('ig: %s', ig)
         g2 = graphistry.from_igraph(ig)
         assert g2._edges.shape == g._edges.shape
@@ -380,7 +388,9 @@ class Test_to_igraph(NoAuthTestCase):
                 'names': ['x', 'y', 'z']
             }), 'n')
         )
-        ig = g.to_igraph(directed=False)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            ig = g.to_igraph(directed=False)
         logger.debug('ig: %s', ig)
         ig.vs['cluster'] = ig.community_infomap().membership
         g2 = g.from_igraph(ig)
@@ -408,7 +418,9 @@ class Test_to_igraph(NoAuthTestCase):
                 'names': ['x', 'y', 'z']
             }), 'n')
         )
-        ig = g.to_igraph(directed=False)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            ig = g.to_igraph(directed=False)
         logger.debug('ig: %s', ig)
         ig.vs['cluster'] = ig.community_infomap().membership
         g2 = g.from_igraph(ig)
@@ -493,15 +505,16 @@ class Test_igraph_compute(NoAuthTestCase):
                 opts = overrides[alg] if alg in overrides else {}
                 #logger.debug('alg "%s", opts=(%s)', alg, opts)
                 if alg in deprecations:
-                    import warnings
                     with warnings.catch_warnings(record=True) as w:
                         # Cause all warnings to always be triggered.
                         warnings.simplefilter("always")
                         assert compute_igraph(g, alg, **opts) is not None
-                        assert len(w) == 1
+                        #assert len(w) == 1
                         assert issubclass(w[-1].category, DeprecationWarning)
                 else:
-                    assert compute_igraph(g, alg, **opts) is not None
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", category=FutureWarning)
+                        assert compute_igraph(g, alg, **opts) is not None
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_layouts(NoAuthTestCase):
@@ -525,7 +538,9 @@ class Test_igraph_layouts(NoAuthTestCase):
                 logger.debug('skipping alg "%s"', alg)
                 continue
             logger.debug('alg "%s", opts=(%s)', alg, opts)
-            g2 = layout_igraph(g, alg, **opts)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                g2 = layout_igraph(g, alg, **opts)
             logger.debug('g._edges: %s', g._edges)
             logger.debug('2._edges: %s', g2._edges)
             assert len(g2._nodes) == len(g._nodes)
