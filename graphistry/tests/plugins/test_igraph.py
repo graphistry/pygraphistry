@@ -505,7 +505,6 @@ class Test_igraph_compute(NoAuthTestCase):
                 opts = overrides[alg] if alg in overrides else {}
                 #logger.debug('alg "%s", opts=(%s)', alg, opts)
                 if alg in deprecations:
-                    import warnings
                     with warnings.catch_warnings(record=True) as w:
                         # Cause all warnings to always be triggered.
                         warnings.simplefilter("always")
