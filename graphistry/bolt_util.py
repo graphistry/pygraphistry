@@ -79,45 +79,20 @@ def flatten_spatial_col(df : pd.DataFrame, col : str) -> pd.DataFrame:  # noqa: 
 
     ####
 
-    #TODO: Can we do better than duck typing the spatial fields?
-    try:
-        out_df[f'{col}_x'] = df[col].apply(lambda v: None if v is None else v.x)
-    except:
-        pass
-
-    try:
-        out_df[f'{col}_y'] = df[col].apply(lambda v: None if v is None else v.y)
-    except:
-        pass
-
-    try:
-        out_df[f'{col}_z'] = df[col].apply(lambda v: None if v is None else v.z)
-    except:
-        pass
-
-    try:
-        out_df[f'{col}_srid'] = df[col].apply(lambda v: None if v is None else v.srid)
-    except:
-        pass
-
-    try:
-        out_df[f'{col}_longitude'] = df[col].apply(lambda v: None if v is None else v.longitude)
-    except:
-        pass
-
-    try:
-        out_df[f'{col}_latitude'] = df[col].apply(lambda v: None if v is None else v.latitude)
-    except:
-        pass
+    for prop in ['x', 'y', 'z', 'srid', 'longtitude', 'latitude', 'height']:
+        try:
+            # v4.x + v5.x
+            s = df[col].apply(lambda v: getattr(v, prop, None))
+            if len(s.dropna()) > 0:
+                out_df[f'{col}_{prop}'] = s
+        except:
+            continue
 
     ###
 
     out_df[col] = df[col].apply(str)
 
     return out_df
-
-
-
 
 
 #dtype='obj' -> 'a
@@ -136,7 +111,7 @@ def neo_val_to_pd_val(v):
     if v_mod == 'neotime':
         return str(v)
 
-    #neo4j 4
+    #neo4j 4, 5
     if v_mod == 'neo4j.time':
         if v.__class__ == neo4j.time.DateTime:
             return v.to_native()  # datetime.datetime
@@ -177,8 +152,12 @@ def get_mod(v):
 #   - some: stringify
 def flatten_spatial(df : pd.DataFrame, col : str) -> pd.DataFrame:
 
-    any_spatial = (df[col].apply(get_mod) == 'neo4j.spatial').any()  # type: ignore
-    if not any_spatial:
+    #4.x
+    any_spatial4 = (df[col].apply(get_mod) == 'neo4j.spatial').any()  # type: ignore
+
+    #5.x
+    any_spatial5 = (df[col].apply(get_mod) == 'neo4j._spatial').any()  # type: ignore
+    if not any_spatial4 and not any_spatial5:
         return df
 
     with_vals : pd.Series = df[col].dropna()  # type: ignore

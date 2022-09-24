@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import datetime as dt, graphistry, neo4j, os, pandas as pd, pyarrow as pa, pytest
+import datetime as dt, graphistry, neo4j, os, numpy as np, pandas as pd, pyarrow as pa, pytest
 
 from graphistry.bolt_util import (
     neo_df_to_pd_df,
@@ -145,51 +145,53 @@ def test_dates_heterogeneous():
 
 def test_spatial_homogenous():
     rec = {
-        "p": neo4j.spatial.Point([1, 2, 3, 4]),
+        "p": neo4j.spatial.Point([1, 2, 3]),
         "c": neo4j.spatial.CartesianPoint([1, 2]),
         "c2": neo4j.spatial.CartesianPoint([1, 2, 3]),
-        "w": neo4j.spatial.WGS84Point([4, 5]),
+        "w": neo4j.spatial.WGS84Point([4, 5, 6]),
     }
     df = pd.DataFrame([rec])
     df2 = neo_df_to_pd_df(df)
     assert df2.dtypes.to_dict() == {
-        "p": "object",
-        "p_srid": "object",
-        "c": "object",
-        "c_x": "float64",
-        "c_y": "float64",
-        "c_srid": "int64",
-        "c2": "object",
-        "c2_x": "float64",
-        "c2_y": "float64",
-        "c2_z": "float64",
-        "c2_srid": "int64",
-        "w": "object",
-        "w_x": "float64",
-        "w_y": "float64",
-        "w_longitude": "float64",
-        "w_latitude": "float64",
-        "w_srid": "int64",
+        "p": np.dtype("object"),
+        "c": np.dtype("object"),
+        "c_x": np.dtype("float64"),
+        "c_y": np.dtype("float64"),
+        "c_srid": np.dtype("int64"),
+        "c2": np.dtype("object"),
+        "c2_x": np.dtype("float64"),
+        "c2_y": np.dtype("float64"),
+        "c2_z": np.dtype("float64"),
+        "c2_srid": np.dtype("int64"),
+        "w": np.dtype("object"),
+        "w_x": np.dtype("float64"),
+        "w_y": np.dtype("float64"),
+        "w_z": np.dtype("float64"),
+        #"w_longitude": np.dtype("float64"),
+        "w_latitude": np.dtype("float64"),
+        "w_height": np.dtype("float64"),
+        "w_srid": np.dtype("int64"),
     }
     d = df2.to_dict(orient="records")[0]
     assert d == {
-        "p": "POINT(1.0 2.0 3.0 4.0)",
-        "p_srid": None,
+        "p": "POINT(1.0 2.0 3.0)",
         "c": "POINT(1.0 2.0)",
-        "c_x": 1,
-        "c_y": 2,
+        "c_x": 1.,
+        "c_y": 2.,
         "c_srid": 7203,
         "c2": "POINT(1.0 2.0 3.0)",
-        "c2_x": 1,
-        "c2_y": 2,
-        "c2_z": 3,
+        "c2_x": 1.,
+        "c2_y": 2.,
+        "c2_z": 3.,
         "c2_srid": 9157,
-        "w": "POINT(4.0 5.0)",
-        "w_x": 4,
-        "w_y": 5,
-        "w_longitude": 4,
-        "w_latitude": 5,
-        "w_srid": 4326,
+        "w": "POINT(4.0 5.0 6.0)",
+        "w_height": 6.,
+        "w_x": 4.,
+        "w_y": 5.,
+        "w_z": 6.,
+        #"w_longitude": 4,
+        "w_latitude": 5.,
+        "w_srid": 4979,
     }
     pa.Table.from_pandas(df2)
 
@@ -204,47 +206,45 @@ def test_spatial_homogenous_na():
     df = pd.DataFrame(recs)
     df2 = neo_df_to_pd_df(df)
     assert df2.dtypes.to_dict() == {
-        "p": "object",
-        "p_srid": "object",
-        "c": "object",
-        "c_x": "float64",
-        "c_y": "float64",
-        "c_srid": "float64",
-        "c2": "object",
-        "c2_x": "float64",
-        "c2_y": "float64",
-        "c2_z": "float64",
-        "c2_srid": "float64",
-        "w": "object",
-        "w_x": "float64",
-        "w_y": "float64",
-        "w_longitude": "float64",
-        "w_latitude": "float64",
-        "w_srid": "float64",
+        "p": np.dtype("object"),
+        #"p_srid": np.dtype("object"),
+        "c": np.dtype("object"),
+        "c_x": np.dtype("float64"),
+        "c_y": np.dtype("float64"),
+        "c_srid": np.dtype("float64"),
+        "c2": np.dtype("object"),
+        "c2_x": np.dtype("float64"),
+        "c2_y": np.dtype("float64"),
+        "c2_z": np.dtype("float64"),
+        "c2_srid": np.dtype("float64"),
+        "w": np.dtype("object"),
+        "w_x": np.dtype("float64"),
+        "w_y": np.dtype("float64"),
+        #"w_longitude": np.dtype("float64"),
+        "w_latitude": np.dtype("float64"),
+        "w_srid": np.dtype("float64")
     }
     d = df2.to_dict(orient="records")[0]
     assert d == {
         "p": "POINT(1.0 2.0 3.0 4.0)",
-        "p_srid": None,
         "c": "POINT(1.0 2.0)",
-        "c_x": 1,
-        "c_y": 2,
-        "c_srid": 7203,
+        "c_x": 1.,
+        "c_y": 2.,
+        "c_srid": 7203.,
         "c2": "POINT(1.0 2.0 3.0)",
-        "c2_x": 1,
-        "c2_y": 2,
-        "c2_z": 3,
-        "c2_srid": 9157,
+        "c2_x": 1.,
+        "c2_y": 2.,
+        "c2_z": 3.,
+        "c2_srid": 9157.,
         "w": "POINT(4.0 5.0)",
-        "w_x": 4,
-        "w_y": 5,
-        "w_longitude": 4,
-        "w_latitude": 5,
-        "w_srid": 4326,
+        "w_x": 4.,
+        "w_y": 5.,
+        #"w_longitude": 4.,
+        "w_latitude": 5.,
+        "w_srid": 4326.,
     }
 
     d2 = df2.to_dict(orient="records")[1]
-    assert d2["p_srid"] is None
     for k in d2.keys():
         if k not in ["p", "c", "c2", "w", "p_srid"]:
             assert pd.isna(d2[k])
