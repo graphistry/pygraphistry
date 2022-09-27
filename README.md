@@ -178,6 +178,14 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     graphistry.edges(edges, 'src', 'dst').plot()
     ```
 
+* GPU [RAPIDS.ai](https://www.rapids.ai) cuML
+
+    ```python
+    g = graphistry.nodes(cudf.read_csv('rows.csv'))
+    g = graphistry.nodes(G)
+    g.umap(engine='cuml',metric='euclidean').plot()
+    ```
+
 * GPU [RAPIDS.ai](https://www.rapids.ai) cugraph ([notebook demo](demos/demos_databases_apis/gpu_rapids/cugraph.ipynb))
 
     ```python
@@ -359,7 +367,7 @@ Automatically and intelligently transform text, numbers, booleans, and other for
 
 See `help(g.featurize)` for more options
 
-### [UMAP](https://umap-learn.readthedocs.io/en/latest/)
+### [sklearn-based UMAP](https://umap-learn.readthedocs.io/en/latest/), [cuML-based UMAP](https://docs.rapids.ai/api/cuml/stable/api.html?highlight=umap#cuml.UMAP)
 
 * Reduce dimensionality and plot a similarity graph from feature vectors:
 
@@ -382,6 +390,12 @@ See `help(g.featurize)` for more options
 
     ```python
       g.umap(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+    ```
+
+* `umap(engine="...")` supports multiple implementations. It defaults to using the GPU-accelerated `engine="cuml"` when a GPU is available, resulting in orders-of-magnitude speedups, and falls back to CPU processing via `engine="umap"`.:
+
+    ```python
+      g.umap(engine='cuml')
     ```
 
 You can also featurize edges and UMAP them as we did above.
