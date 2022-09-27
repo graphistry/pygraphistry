@@ -858,6 +858,7 @@ def process_dirty_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     similarity: Optional[str] = None,  # "ngram",
     categories: Optional[str] = "auto",
+    multilabel: bool = False,
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -887,53 +888,10 @@ def process_dirty_dataframes(
     from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
     t = time()
-
-    if not is_dataframe_all_numeric(ndf):
-        data_encoder = SuperVectorizer(
-            auto_cast=True,
-            cardinality_threshold=cardinality_threshold,
-            high_card_cat_transformer=GapEncoder(n_topics),
-            #  numerical_transformer=StandardScaler(), This breaks
-            #  since -- AttributeError: Transformer numeric
-            #  (type StandardScaler)
-            #  does not provide get_feature_names.
-            datetime_transformer=None,  # TODO add a smart
-            #  datetime -> histogram transformer
-        )
-
-        logger.info(":: Encoding DataFrame might take a few minutes ------")
-        X_enc = data_encoder.fit_transform(ndf, y)
-        X_enc = make_array(X_enc)
-
-        import warnings
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=DeprecationWarning)
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            features_transformed = data_encoder.get_feature_names_out()
-
-        all_transformers = data_encoder.transformers
-        logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
-        logger.debug(f"-Transformers: \n{all_transformers}\n")
-        logger.debug(
-            f"-Transformed Columns: \n{features_transformed[:20]}...\n"
-        )
-        logger.debug(
-            f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n"
-        )
-        #  now just set the feature names, since dirty cat changes them in
-        #  a weird way...
-        data_encoder.get_feature_names_out = callThrough(features_transformed)
-
-        X_enc = pd.DataFrame(
-            X_enc, columns=features_transformed, index=ndf.index
-        )
-        X_enc = X_enc.fillna(0.0)
-    else:
-        logger.info("-*-*- DataFrame is completely numeric")
-        X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
-
-    if (
+    
+    if multilabel and y is not None:
+        y_enc, label_encoder = encode_multi_target(y, mlb=None)
+    elif (
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
@@ -985,6 +943,54 @@ def process_dirty_dataframes(
     else:
         y_enc, _, label_encoder, _ = get_numeric_transformers(y, None)
 
+    if not is_dataframe_all_numeric(ndf):
+        data_encoder = SuperVectorizer(
+            auto_cast=True,
+            cardinality_threshold=cardinality_threshold,
+            high_card_cat_transformer=GapEncoder(n_topics),
+            #  numerical_transformer=StandardScaler(), This breaks
+            #  since -- AttributeError: Transformer numeric
+            #  (type StandardScaler)
+            #  does not provide get_feature_names.
+            datetime_transformer=None,  # TODO add a smart
+            #  datetime -> histogram transformer
+        )
+
+        logger.info(":: Encoding DataFrame might take a few minutes ------")
+        if multilabel:
+            print(f'Mulitiii {ndf.columns}')
+            X_enc = data_encoder.fit_transform(ndf)
+        else:
+            X_enc = data_encoder.fit_transform(ndf, y)
+        X_enc = make_array(X_enc)
+        
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            features_transformed = data_encoder.get_feature_names_out()
+
+        all_transformers = data_encoder.transformers
+        logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
+        logger.debug(f"-Transformers: \n{all_transformers}\n")
+        logger.debug(
+            f"-Transformed Columns: \n{features_transformed[:20]}...\n"
+        )
+        logger.debug(
+            f"--Fitting on Data took {(time() - t) / 60:.2f} minutes\n"
+        )
+        #  now just set the feature names, since dirty cat changes them in
+        #  a weird way...
+        data_encoder.get_feature_names_out = callThrough(features_transformed)
+
+        X_enc = pd.DataFrame(
+            X_enc, columns=features_transformed, index=ndf.index
+        )
+        X_enc = X_enc.fillna(0.0)
+    else:
+        logger.info("-*-*- DataFrame is completely numeric")
+        X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
+
     return (X_enc, y_enc, data_encoder, label_encoder)
 
 
@@ -997,7 +1003,8 @@ def process_nodes_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = "robust",
     use_scaler_target: Optional[str] = "kbins",
-    embedding=False,  # whether to produce random embeddings
+    multilabel: bool = False,
+    embedding: bool = False,  # whether to produce random embeddings
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
@@ -1126,6 +1133,7 @@ def process_nodes_dataframes(
         n_topics_target=n_topics_target,
         similarity=similarity,
         categories=categories,
+        multilabel=multilabel
     )
 
     if embedding:
@@ -1173,6 +1181,33 @@ def process_nodes_dataframes(
         text_cols  # type: ignore
     )
 
+def encode_multi_target(ydf, mlb = None):
+    #assert isinstance(ydf.values, list), f'Target needs to be a list of lists for Multi-Target'
+    from sklearn.preprocessing import (
+        MultiLabelBinarizer,
+    )
+    ydf = ydf.squeeze() # since its a dataframe, we want series
+    column_name = ydf.name
+    
+    if mlb is None:
+        mlb = MultiLabelBinarizer()
+        T = mlb.fit_transform(ydf) 
+    else:
+        T = mlb.transform(ydf)
+    #print(ydf, type(ydf))
+    T = 1.0 * T
+    #print(f'MULTI LABEL shape {T.shape}')
+    columns = [
+        str(k) for k in mlb.classes_
+    ]     
+    mlb.get_feature_names_out = callThrough(columns)
+    mlb.feature_names_in_ = callThrough([column_name])
+    mlb.column_name = column_name  # lordy
+    T = pd.DataFrame(T, columns=columns, index=ydf.index)
+    logger.info(f"Shape of Target Encoding: {T.shape}")
+    #print(f'{T.columns}')
+    return T, mlb
+
 def encode_edges(edf, src, dst, mlb, fit=False):
     """edge encoder -- creates multilabelBinarizer on edge pairs.
 
@@ -1216,6 +1251,7 @@ def process_edge_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
     use_scaler_target: Optional[str] = None,
+    multilabel: bool = False,
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
@@ -1337,6 +1373,7 @@ def process_edge_dataframes(
         n_topics_target=n_topics_target,
         use_scaler=None,
         use_scaler_target=None,
+        multilabel=multilabel,
         use_ngrams=use_ngrams,
         ngram_range=ngram_range,
         max_df=max_df,
@@ -1438,7 +1475,7 @@ def transform_dirty(
     data_encoder: Union[SuperVectorizer, FunctionTransformer],  # type: ignore
     name: str = "",
 ) -> pd.DataFrame:
-
+    from sklearn.preprocessing import MultiLabelBinarizer
     logger.debug(f"-{name} Encoder:")
     logger.debug(f"\t{data_encoder}\n")
     try:
@@ -1447,7 +1484,13 @@ def transform_dirty(
         logger.warning(e)
         pass
     logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
-    X = data_encoder.transform(df)
+    if isinstance(data_encoder, MultiLabelBinarizer):
+        #print(f'{df}', type(df))
+        column_name = data_encoder.column_name
+        X = data_encoder.transform(df[column_name])
+        #print(f'{X}', type(X))
+    else:
+        X = data_encoder.transform(df)
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
     with warnings.catch_warnings():
@@ -1568,7 +1611,7 @@ def transform(
 class FastEncoder:
     def __init__(self, df, y=None, kind="nodes"):
         self._df = df
-        self._y = pd.DataFrame([]) if y is None else y
+        self._y = pd.DataFrame([], index=df.index) if y is None else y
         self.kind = kind
         self._assertions()
         # these are the parts we can use to reconstruct transform.
@@ -1783,6 +1826,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 120,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        multilabel: bool = False,
         embedding: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
@@ -1844,6 +1888,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            multilabel=multilabel,
             embedding=embedding,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
@@ -2123,7 +2168,8 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
-        embedding=False,
+        multilabel: bool = False,
+        embedding: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
@@ -2242,6 +2288,7 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                multilabel=multilabel,
                 embedding=embedding,
                 use_ngrams=use_ngrams,
                 ngram_range=ngram_range,
@@ -2274,6 +2321,7 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                multilabel=multilabel,
                 use_ngrams=use_ngrams,
                 ngram_range=ngram_range,
                 max_df=max_df,
@@ -2312,6 +2360,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        multilabel: bool = False,
         embedding=False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
@@ -2364,6 +2413,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            multilabel=multilabel,
             embedding=embedding,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
@@ -2406,6 +2456,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 20,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        multilabel: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
@@ -2457,6 +2508,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            multilabel=multilabel,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
             max_df=max_df,
