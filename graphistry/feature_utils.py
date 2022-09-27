@@ -49,8 +49,11 @@ if TYPE_CHECKING:
         SimilarityEncoder = Any
     try:
         from sklearn.preprocessing import FunctionTransformer
+        from sklearn.base import BaseEstimator, TransformerMixin
     except:
         FunctionTransformer = Any
+        BaseEstimator = object
+        TransformerMixin = object
 else:
     MIXIN_BASE = object
     Pipeline = Any
@@ -59,6 +62,8 @@ else:
     GapEncoder = Any
     SimilarityEncoder = Any
     FunctionTransformer = Any
+    BaseEstimator = Any
+    TransformerMixin = Any
 
 
 #@check_set_memoize
@@ -1180,6 +1185,26 @@ def process_nodes_dataframes(
         text_model,
         text_cols  # type: ignore
     )
+class fastMLB():
+    def __init__(self, mlb, columns, out_columns):
+        self.columns = columns # should be singe entry list ['cats']
+        self.mlb = mlb
+        self.out_columns = out_columns
+        self.feature_names_in_ = None
+    
+    def __call__(self, df):
+        ydf = df[self.columns]
+        return self.mlb.transform(ydf.squeeze())
+    
+    def fit(self, X, y=None):
+        return self
+        
+    def transform(self, df):
+        return self(df)
+    
+    def get_feature_names_out(self):
+        return self.out_columns
+
 
 def encode_multi_target(ydf, mlb = None):
     #assert isinstance(ydf.values, list), f'Target needs to be a list of lists for Multi-Target'
@@ -1199,14 +1224,14 @@ def encode_multi_target(ydf, mlb = None):
     #print(f'MULTI LABEL shape {T.shape}')
     columns = [
         str(k) for k in mlb.classes_
-    ]     
-    mlb.get_feature_names_out = callThrough(columns)
-    mlb.feature_names_in_ = callThrough([column_name])
-    mlb.column_name = column_name  # lordy
+    ]
     T = pd.DataFrame(T, columns=columns, index=ydf.index)
     logger.info(f"Shape of Target Encoding: {T.shape}")
-    #print(f'{T.columns}')
-    return T, mlb
+        
+    label_encoder = fastMLB(mlb=mlb, columns=[column_name], out_columns=columns) # memorizes which cols to use.
+    #label_encoder.get_feature_names_out = callThrough(columns)
+ 
+    return T, label_encoder
 
 def encode_edges(edf, src, dst, mlb, fit=False):
     """edge encoder -- creates multilabelBinarizer on edge pairs.
@@ -1484,13 +1509,9 @@ def transform_dirty(
         logger.warning(e)
         pass
     logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
-    if isinstance(data_encoder, MultiLabelBinarizer):
-        #print(f'{df}', type(df))
-        column_name = data_encoder.column_name
-        X = data_encoder.transform(df[column_name])
-        #print(f'{X}', type(X))
-    else:
-        X = data_encoder.transform(df)
+    ######################################
+    X = data_encoder.transform(df)
+    ###################################
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
     with warnings.catch_warnings():
