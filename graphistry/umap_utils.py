@@ -197,7 +197,7 @@ class UMAPMixin(MIXIN_BASE):
             self._umap = umap_engine.UMAP(**umap_kwargs)
             self.umap_initialized = True
             self.engine = engine_resolved
-            self.suffix=suffix
+            self.suffix = suffix
 
     def _check_target_is_one_dimensional(self, y: Union[pd.DataFrame, None]):
         if y is None:
