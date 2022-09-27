@@ -40,7 +40,7 @@ def lazy_cuml_import_has_dependancy():
     try:
         import warnings
         warnings.filterwarnings("ignore")
-        import cuml
+        import cuml # type: ignore
         return True, 'ok', cuml
     except ModuleNotFoundError as e:
         return False, e, None
