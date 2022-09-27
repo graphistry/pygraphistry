@@ -409,8 +409,7 @@ class UMAPMixin(MIXIN_BASE):
         """
 
         assert_imported()
-        self.suffix = suffix
-        
+                
         umap_kwargs = dict(
             n_components=n_components,
             metric=metric,
@@ -430,6 +429,7 @@ class UMAPMixin(MIXIN_BASE):
             res = self.bind()
         
         res.umap_lazy_init(engine=engine)
+        res.suffix = suffix
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
@@ -566,7 +566,7 @@ class UMAPMixin(MIXIN_BASE):
         if encode_weight and kind == "nodes":
             # adds the implicit edge dataframe and binds it to
             # graphistry instance
-            w_name = config.WEIGHT + self.suffix
+            w_name = config.WEIGHT + res.suffix
             umap_edges_df = res._weighted_edges_df_from_nodes.copy(deep=False)
             umap_edges_df = umap_edges_df.rename(columns={config.WEIGHT: w_name})
             res = res.edges(umap_edges_df, config.SRC, config.DST)
