@@ -7,6 +7,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.28.1 - 2022-09-27]
+
+### Changed
+
+* Speed up `g.umap()` >100x by using cuML UMAP engine
+
+### Added
+
+* umap: Optional `engine` parameter (default `cuml`) for `UMAP()`
+* ipynb: UMAP purpose, functionality and parameter details, with general UMAP notebook planned in future (features folder)
+
+### Fixed
+
+* has_umap: removed as no longer necessary
+
 ## [0.28.0 - 2022-09-23]
 
 ### Added
