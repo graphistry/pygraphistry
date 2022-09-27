@@ -409,7 +409,6 @@ class UMAPMixin(MIXIN_BASE):
         """
 
         assert_imported()
-        self.umap_lazy_init(engine=engine)
         self.suffix = suffix
         
         umap_kwargs = dict(
@@ -429,6 +428,8 @@ class UMAPMixin(MIXIN_BASE):
             res = self
         else:
             res = self.bind()
+        
+        res.umap_lazy_init(engine=engine)
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
