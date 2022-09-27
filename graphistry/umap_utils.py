@@ -214,6 +214,7 @@ class UMAPMixin(MIXIN_BASE):
             return None
 
     def umap_fit(self, X: pd.DataFrame, y: Union[pd.DataFrame, None] = None):
+        self.umap_lazy_init()
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
 
@@ -237,6 +238,7 @@ class UMAPMixin(MIXIN_BASE):
 
     def umap_fit_transform(self, X: pd.DataFrame,
                            y: Union[pd.DataFrame, None] = None):
+        self.umap_lazy_init()
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         self.umap_fit(X, y)
