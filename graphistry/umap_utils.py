@@ -162,7 +162,7 @@ class UMAPMixin(MIXIN_BASE):
         negative_sample_rate=5,
         n_components: int = 2,
         metric: str = "euclidean",
-        engine: str = "auto"
+        engine: UMAPEngine = "auto"
     ):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
@@ -551,8 +551,8 @@ class UMAPMixin(MIXIN_BASE):
         df = res._nodes if kind == "nodes" else res._edges
 
         df = df.copy(deep=False)
-        x_name = config.X + self.suffix
-        y_name = config.Y + self.suffix
+        x_name = config.X + res.suffix
+        y_name = config.Y + res.suffix
         if kind == "nodes":
             emb = res._node_embedding
         else:
