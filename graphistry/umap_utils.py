@@ -162,7 +162,8 @@ class UMAPMixin(MIXIN_BASE):
         negative_sample_rate=5,
         n_components: int = 2,
         metric: str = "euclidean",
-        engine: UMAPEngine = "auto"
+        engine: UMAPEngine = "auto",
+        suffix: str= ""
     ):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
@@ -196,6 +197,7 @@ class UMAPMixin(MIXIN_BASE):
             self._umap = umap_engine.UMAP(**umap_kwargs)
             self.umap_initialized = True
             self.engine = engine_resolved
+            self.suffix=suffix
 
     def _check_target_is_one_dimensional(self, y: Union[pd.DataFrame, None]):
         if y is None:
@@ -429,8 +431,8 @@ class UMAPMixin(MIXIN_BASE):
         else:
             res = self.bind()
         
-        res.umap_lazy_init(engine=engine)
-        res.suffix = suffix
+        res.umap_lazy_init(engine=engine, suffix=suffix)
+        # res.suffix = suffix
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
