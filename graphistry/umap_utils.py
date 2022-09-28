@@ -172,7 +172,7 @@ class UMAPMixin(MIXIN_BASE):
         elif engine_resolved == "cuml":
             _, _, umap_engine = lazy_cuml_import_has_dependancy()
         else:
-            raise ValueError("No umap engine, ensure 'auto', 'umap', or 'cuml', and the library is installed")
+            raise ValueError("No umap engine, ensure 'auto', 'umap_learn', or 'cuml', and the library is installed")
 
         if not self.umap_initialized: 
             umap_kwargs = dict({
