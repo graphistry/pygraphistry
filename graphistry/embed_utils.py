@@ -39,7 +39,6 @@ class HeterographEmbedModuleMixin(nn.Module):
                 optim.zero_grad()
 
                 pos_triples = torch.stack((h, r, t), dim=1)
-                neg_triples = _ #TODO: need to generate 
 
                 # negative sample generation
                 h_o_t = torch.randint(high=2, size=h.size())
