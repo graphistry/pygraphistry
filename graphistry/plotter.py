@@ -5,12 +5,13 @@ from .layouts import LayoutsMixin
 from .feature_utils import FeatureMixin  # type: ignore
 from .dgl_utils import DGLGraphMixin  # type: ignore
 from .umap_utils import UMAPMixin  # type: ignore
+from .embed_utils import HeterographEmbedModuleMixin 
 
 
 mixins = ([
     CosmosMixin, NeptuneMixin, GremlinMixin, LayoutsMixin,
     DGLGraphMixin, UMAPMixin, FeatureMixin,
-    ComputeMixin, PlotterBase, object
+    ComputeMixin, PlotterBase, HeterographEmbedModuleMixin, object
 ])
 
 
@@ -27,3 +28,4 @@ class Plotter(  # type: ignore
         GremlinMixin.__init__(self, *args, **kwargs)
         CosmosMixin.__init__(self, *args, **kwargs)
         NeptuneMixin.__init__(self, *args, **kwargs)
+        HeterographEmbedModuleMixin.__init__(self)
