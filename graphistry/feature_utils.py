@@ -1185,12 +1185,14 @@ def process_nodes_dataframes(
         text_model,
         text_cols  # type: ignore
     )
-class fastMLB():
-    def __init__(self, mlb, columns, out_columns):
-        self.columns = columns # should be singe entry list ['cats']
+class FastMLB:
+    def __init__(self, mlb, in_column, out_columns):
+        if isinstance(in_column, str):
+            in_column = [in_column]
+        self.columns = in_column # should be singe entry list ['cats']
         self.mlb = mlb
         self.out_columns = out_columns
-        self.feature_names_in_ = None
+        self.feature_names_in_ = in_column
     
     def __call__(self, df):
         ydf = df[self.columns]
@@ -1204,6 +1206,13 @@ class fastMLB():
     
     def get_feature_names_out(self):
         return self.out_columns
+    
+    def get_feature_names_in(self):
+        return self.feature_names_in_
+    
+    def __repr__(self):
+        doc = f'FastMultiLabelBinarizer(In: {self.columns},  Out: {self.out_columns})'
+        return doc 
 
 
 def encode_multi_target(ydf, mlb = None):
@@ -1228,8 +1237,7 @@ def encode_multi_target(ydf, mlb = None):
     T = pd.DataFrame(T, columns=columns, index=ydf.index)
     logger.info(f"Shape of Target Encoding: {T.shape}")
         
-    label_encoder = fastMLB(mlb=mlb, columns=[column_name], out_columns=columns) # memorizes which cols to use.
-    #label_encoder.get_feature_names_out = callThrough(columns)
+    label_encoder = FastMLB(mlb=mlb, in_column=[column_name], out_columns=columns) # memorizes which cols to use.
  
     return T, label_encoder
 
