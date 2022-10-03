@@ -260,10 +260,10 @@ class ArrowUploader:
             url = f'{base_path}/api/v2/g/sso/oidc/login/'
         elif org_name is not None and idp_name is None:
             print("Login to {} organization level SSO".format(org_name))
-            f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/'
+            url = f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/'
         elif org_name is not None and idp_name is not None:
             print("Login to {} idp {} SSO".format(org_name, idp_name))
-            f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/{idp_name}/'
+            url = f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/{idp_name}/'
         
         out = requests.post(
             url, data={'client-type': 'pygraphistry'},
