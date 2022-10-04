@@ -826,8 +826,6 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    # from sklearn.preprocessing import FunctionTransformer
-    # from functools import partial
     from sklearn.preprocessing import FunctionTransformer
     label_encoder = False
     data_encoder = False
@@ -897,8 +895,6 @@ def process_dirty_dataframes(
             #  since -- AttributeError: Transformer numeric
             #  (type StandardScaler)
             #  does not provide get_feature_names.
-            datetime_transformer=None,  # TODO add a smart
-            #  datetime -> histogram transformer
         )
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
