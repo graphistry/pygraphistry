@@ -3,6 +3,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import trange
 
+import pandas as pd
+
 class HeterographEmbedModuleMixin(nn.Module):
     def __init__(self):
         super().__init__()
@@ -13,15 +15,20 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'RotatE': self.RotatE
         }
 
-    def embed(self, proto='TransE', d=128, gamma=12):
+    def embed(self, proto='TransE', d=128, batch_size=32, epoch=100):
+
+        if callable(proto):
+            proto = proto
+        else:
+            proto = self.protocol[proto]
 
         # initialize hparams (from arguments)
         self.EPS = 2.0
         self.d = d
-        self.emrange = gamma + self.EPS / d
+        self.emrange = 12 + self.EPS / d
         
         # initializing the model
-        em_mod = HeteroEmbed(len(self._nodes), self.EPS, d, self.emrange, self.protocol[proto])
+        em_mod = HeteroEmbed(len(self._nodes), self.EPS, d, self.emrange, proto)
 
         # entity2id <- from graphistry graph
         entity2id = dict()
@@ -45,15 +52,15 @@ class HeterographEmbedModuleMixin(nn.Module):
             triplets.append([s, r, d])
         # initialize the dataloader
         dataset = EmbedDataset(entity2id, relation2id, triplets)
-        train_generator = DataLoader(dataset, batch_size=32) # need autoscale batch for gpu? [AUTOML]
+        train_generator = DataLoader(dataset, batch_size=batch_size) # need autoscale batch for gpu? [AUTOML]
 
         # training loop
         optim = torch.optim.Adam(em_mod.parameters(), lr=0.01)
 
         # TODO: define epoch [AUTOML]
 
-        epoch = trange(1000, leave=True)
-        for _ in epoch:
+        epochs = trange(epoch, leave=True)
+        for _ in epochs:
             loss_acc, c = 0, 0
 
             #for _ in trange(1000):
@@ -77,13 +84,21 @@ class HeterographEmbedModuleMixin(nn.Module):
                 c += 1
                 optim.step()
 
-            epoch.set_description(f"loss: {loss_acc/c}")
-            epoch.refresh()
+            epochs.set_description(f"loss: {loss_acc/c}")
+            epochs.refresh()
 
-        self.node_em = em_mod.node_em.weight.detach().numpy()
-        self.edge_em = em_mod.edge_em.weight.detach().numpy()
-        return self.node_em, self.edge_em
+        self._relational_node_embedding = em_mod.node_em.weight.detach().numpy() 
+        relational_node_features = pd.DataFrame(
+                    self._relational_node_embedding,
+                    index=range(self._relational_node_embedding.shape[0])
+        )
 
+        if self._nodes is not None:
+            self._nodes = pd.concat((self._nodes, relational_node_features), axis=1)
+        else:
+            self._nodes = relational_node_features
+
+        return self
 
     def TransE(self, h, r, t):
         return (h + r - t).norm(p=1, dim=1)
