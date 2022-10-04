@@ -2048,6 +2048,13 @@ class PyGraphistry(object):
         )
 
     @staticmethod
+    def _switch_org_url(org_name):
+        hostname = PyGraphistry._config["hostname"]
+        protocol = PyGraphistry._config["protocol"]
+        return "%s://%s/api/v2/o/switch/%s/" % (protocol, hostname, org_name)
+
+
+    @staticmethod
     def _coerce_str(v):
         try:
             return str(v)
@@ -2235,9 +2242,9 @@ class PyGraphistry(object):
                 return PyGraphistry._config['org_name']
             return None
 
-        # setter
-        if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
-            PyGraphistry._config['org_name'] = value.strip()
+        # setter, use switch_org instead
+        # if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
+        #    PyGraphistry._config['org_name'] = value.strip()
 
 
     @staticmethod
@@ -2292,7 +2299,7 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def personal_key_id(value=None):
+    def personal_key_id(value: Optional[str] = None):
         """Set or get the personal_key_id when register.
         """
 
@@ -2306,7 +2313,7 @@ class PyGraphistry(object):
             PyGraphistry._config['personal_key_id'] = value.strip()
 
     @staticmethod
-    def personal_key(value=None):
+    def personal_key(value: Optional[str] = None):
         """Set or get the personal_key when register.
         """
 
@@ -2319,6 +2326,38 @@ class PyGraphistry(object):
         if 'personal_key' not in PyGraphistry._config or value is not PyGraphistry._config['personal_key']:
             PyGraphistry._config['personal_key'] = value.strip()
 
+    @staticmethod
+    def switch_org(value: Optional[str] = None):
+        # print(PyGraphistry._switch_org_url(value))
+        response = requests.post(
+            PyGraphistry._switch_org_url(value),
+            data={'slug': value},
+            headers={'Authorization': f'Bearer {PyGraphistry.api_token()}'},
+            verify=PyGraphistry._config["certificate_validation"],
+        )
+        # print("response : {}".format(response.text))
+        result = PyGraphistry._handle_api_response(response)
+
+        if result == True:
+            # PyGraphistry._org_name(value)
+            if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
+                PyGraphistry._config['org_name'] = value.strip()
+        else:
+            print(result)
+
+    @staticmethod
+    def _handle_api_response(response):
+        try:
+            json_response = response.json()
+            if json_response.get('status', None) == 'OK':
+                return True
+            else:
+                return json_response.get('message', '')
+        except Exception as e:
+            logger.error('Error: %s', response, exc_info=True)
+            return "Unknown Error"
+
+        
 
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname
@@ -2371,6 +2410,7 @@ from_igraph = PyGraphistry.from_igraph
 from_cugraph = PyGraphistry.from_cugraph
 personal_key_id = PyGraphistry.personal_key_id
 personal_key = PyGraphistry.personal_key
+switch_org = PyGraphistry.switch_org
 
 
 
