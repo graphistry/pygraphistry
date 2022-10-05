@@ -3,7 +3,7 @@ from time import time
 import numpy as np
 import pandas as pd
 from annoy import AnnoyIndex
-from joblib import load, dump # need to make this onnx or similar
+from joblib import load, dump  # need to make this onnx or similar
 
 from .feature_utils import make_array
 from .ai_utils import search_to_df, setup_logger
@@ -74,7 +74,7 @@ class SearchToGraphMixin:
                 
         cols_text = self._node_encoder.text_cols
         if len(cols_text) == 0:
-            print(f'**Querying is only possible using Transformer embeddings')    
+            print('**Querying is only possible using Transformer embeddings')    
             return pd.DataFrame([]), None
             
         qdf[cols_text[0]] = [query]
@@ -85,13 +85,13 @@ class SearchToGraphMixin:
         if hasattr(self._node_encoder.data_encoder, 'columns_'):
             other_cols = self._node_encoder.data_encoder.columns_
             if other_cols is not None:
-                logger.warn(f'There is no easy way to encode categorical or other features at query time.\
+                logger.warn('There is no easy way to encode categorical or other features at query time.\
                             Set `thresh` to a large value if no results show up.')
                 df = self._nodes
                 dt = df[other_cols].dtypes
                 for col, v in zip(other_cols, dt.values):
                     if str(v) in ["string", "object", "category"]:
-                        qdf[col] = df.sample(1)[col].values # so hookey 
+                        qdf[col] = df.sample(1)[col].values  # so hookey 
                     elif str(v) in [
                     "int",
                     "float", 
@@ -105,12 +105,12 @@ class SearchToGraphMixin:
                     "uint32",
                     "uint16",
                 ]:
-                        qdf[col] = 0 #df[col].mean()
+                        qdf[col] = df[col].mean()
         
         return self._query_from_dataframe(qdf, thresh=thresh, top_k=top_k)
 
     def query(
-        self, query: str, cols=None, thresh: float=50, fuzzy: bool = True, top_k: int = 10
+        self, query: str, cols = None, thresh: float = 50, fuzzy: bool = True, top_k: int = 10
     ):  
         if not fuzzy:
             if cols is None:

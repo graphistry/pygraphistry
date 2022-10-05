@@ -5,7 +5,7 @@ from .layouts import LayoutsMixin
 from .feature_utils import FeatureMixin  # type: ignore
 from .dgl_utils import DGLGraphMixin  # type: ignore
 from .umap_utils import UMAPMixin  # type: ignore
-from .text_utils import SearchToGraphMixin # type: ignore
+from .text_utils import SearchToGraphMixin  # type: ignore
 
 mixins = ([
     CosmosMixin, NeptuneMixin, GremlinMixin, LayoutsMixin, 
