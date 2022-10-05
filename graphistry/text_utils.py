@@ -186,5 +186,4 @@ class SearchToGraphMixin:
         cls = load(savepath)
         cls.build_index()
         return cls
-    
-    
+
