@@ -199,7 +199,7 @@ class PlotterBase(Plottable):
 
 
     def __repr__(self):
-        bindings = ['edges', 'nodes', 'source', 'destination', 'relation', 'node', 
+        bindings = ['edges', 'nodes', 'source', 'destination', 'node', 
                     'edge_label', 'edge_color', 'edge_size', 'edge_weight', 'edge_title', 'edge_icon', 'edge_opacity',
                     'edge_source_color', 'edge_destination_color',
                     'point_label', 'point_color', 'point_size', 'point_weight', 'point_title', 'point_icon', 'point_opacity',
