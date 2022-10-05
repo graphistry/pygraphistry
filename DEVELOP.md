@@ -1,6 +1,6 @@
 # Development Setup
 
-See also [CONTRIBUTE.md](contribute.md) and [ARCHITECTURE.md](architecture.md)
+See also [CONTRIBUTE.md](CONTRIBUTE.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
 
 Development is setup for local native and containerized Python coding & testing, and with automatic GitHub Actions for CI + CD. The server tests are like the local ones, except against a wider test matrix of environments.
 
