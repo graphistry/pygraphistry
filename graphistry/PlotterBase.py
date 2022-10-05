@@ -815,7 +815,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def bind(self, source=None, destination=None, relation=None, node=None, edge=None,
+    def bind(self, source=None, destination=None, node=None, edge=None,
              edge_title=None, edge_label=None, edge_color=None, edge_weight=None, edge_size=None, edge_opacity=None, edge_icon=None,
              edge_source_color=None, edge_destination_color=None,
              point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
@@ -924,7 +924,6 @@ class PlotterBase(Plottable):
         res._destination = destination or self._destination
         res._node = node or self._node
         res._edge = edge or self._edge
-        res._relation = relation
 
         res._edge_title = edge_title or self._edge_title
         res._edge_label = edge_label or self._edge_label
@@ -1040,7 +1039,7 @@ class PlotterBase(Plottable):
         return res
 
 
-    def edges(self, edges: Union[Callable, Any], source=None, destination=None, relation=None, edge=None, *args, **kwargs) -> Plottable:
+    def edges(self, edges: Union[Callable, Any], source=None, destination=None, edge=None, *args, **kwargs) -> Plottable:
         """Specify edge list data and associated edge attribute values.
         If a callable, will be called with current Plotter and whatever positional+named arguments
 
@@ -1113,8 +1112,6 @@ class PlotterBase(Plottable):
             base = base.bind(destination=destination)
         if edge is not None:
             base = base.bind(edge=edge)
-        if relation is not None:
-            base = base.bind(relation=relation)
 
         if callable(edges):
             edges2 = edges(base, *args, **kwargs)
