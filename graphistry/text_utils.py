@@ -187,3 +187,4 @@ class SearchToGraphMixin:
         cls.build_index()
         return cls
     
+    
