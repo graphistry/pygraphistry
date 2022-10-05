@@ -836,6 +836,7 @@ def get_numeric_transformers(ndf, y=None):
             partial(passthrough_df_cols, columns=y_.columns)
         )  # takes dataframe and memorizes which cols to use.
         label_encoder.get_feature_names_out = callThrough(y_.columns)
+        label_encoder.columns_ = y_.columns
 
     if ndf is not None:
         ndf_ = ndf.select_dtypes(include=[np.number])
@@ -843,7 +844,8 @@ def get_numeric_transformers(ndf, y=None):
             partial(passthrough_df_cols, columns=ndf_.columns)
         )
         data_encoder.get_feature_names_out = callThrough(ndf_.columns)
-
+        data_encoder.columns_ = ndf_.columns
+        
     return ndf_, y_, data_encoder, label_encoder
 
 
@@ -920,7 +922,8 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed)
-
+        #data_encoder.columns_ = ndf.columns
+        
         X_enc = pd.DataFrame(
             X_enc, columns=features_transformed, index=ndf.index
         )
@@ -945,8 +948,6 @@ def process_dirty_dataframes(
             else SimilarityEncoder(
                 similarity=similarity, categories=categories, n_prototypes=2
             ),  # Similarity
-            datetime_transformer=None,  # TODO add a smart
-            # datetime -> histogram transformer
         )
 
         y_enc = label_encoder.fit_transform(y)
@@ -970,6 +971,7 @@ def process_dirty_dataframes(
         # y_enc = y_enc.fillna(0)
         # add for later
         label_encoder.get_feature_names_out = callThrough(labels_transformed)
+        #label_encoder.columns_ = y.columns
 
         logger.debug(f"-Shape of target {y_enc.shape}")
         # logger.debug(f"-Target Transformers used:
@@ -1196,6 +1198,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
         str(k) for k in mlb.classes_
     ]  # stringify the column names or scikits.base throws error
     mlb.get_feature_names_out = callThrough(columns)
+    mlb.columns_ = [src, dst]
     T = pd.DataFrame(T, columns=columns, index=edf.index)
     logger.info(f"Shape of Edge Encoding: {T.shape}")
     return T, mlb
@@ -1443,7 +1446,8 @@ def transform_dirty(
         logger.warning(e)
         pass
     logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
-    X = data_encoder.transform(df)
+    use_columns = data_encoder.columns_
+    X = data_encoder.transform(df[use_columns])
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
     with warnings.catch_warnings():
@@ -1564,7 +1568,7 @@ def transform(
 class FastEncoder:
     def __init__(self, df, y=None, kind="nodes"):
         self._df = df
-        self._y = pd.DataFrame([]) if y is None else y
+        self._y = pd.DataFrame([], index=df.index) if y is None else y
         self.kind = kind
         self._assertions()
         # these are the parts we can use to reconstruct transform.
@@ -1627,6 +1631,7 @@ class FastEncoder:
         self.scaling_pipeline_target = scaling_pipeline_target
         self.text_model = text_model
         self.text_cols = text_cols
+        #self.other_cols = data_encoder.columns_
 
     def fit(self, src=None, dst=None, *args, **kwargs):
         self.src = src

@@ -69,17 +69,24 @@ class SearchToGraphMixin:
         self.assert_fitted()
         if not hasattr(self, 'search_index'):
             self.build_index()
+
+        qdf = pd.DataFrame([])
                 
         cols_text = self._node_encoder.text_cols
-        qdf = pd.DataFrame([])
+        if len(cols_text) == 0:
+            print(f'**Querying is only possible using Transformer embeddings')    
+            return pd.DataFrame([]), None
+            
         qdf[cols_text[0]] = [query]
         if len(cols_text) > 1:
             for col in cols_text[1:]:
                 qdf[col] = ['']   
-    
+
         if hasattr(self._node_encoder.data_encoder, 'columns_'):
             other_cols = self._node_encoder.data_encoder.columns_
             if other_cols is not None:
+                logger.warn(f'There is no easy way to encode categorical or other features at query time.\
+                            Set `thresh` to a large value if no results show up.')
                 df = self._nodes
                 dt = df[other_cols].dtypes
                 for col, v in zip(other_cols, dt.values):
@@ -98,7 +105,7 @@ class SearchToGraphMixin:
                     "uint32",
                     "uint16",
                 ]:
-                        qdf[col] = 0 #df.sample(1)[col]
+                        qdf[col] = 0 #df[col].mean()
         
         return self._query_from_dataframe(qdf, thresh=thresh, top_k=top_k)
 
@@ -107,15 +114,16 @@ class SearchToGraphMixin:
     ):  
         if not fuzzy:
             if cols is None:
-                logger.error(f'Columns need to be given when fuzzy=False, found {cols}')
+                logger.error(f'Columns to search for `{query}` \
+                             need to be given when fuzzy=False, found {cols}')
                 
-            print(f"-- Word Match: [{query}]")
+            print(f"-- Word Match: [[ {query} ]]")
             return (
                 pd.concat([search_to_df(query, col, self._nodes) for col in cols]),
                 None
             )
         else:
-            print(f"-- Search: [{query}]")
+            print(f"-- Search: [[ {query} ]]")
             return self._query(query, thresh=thresh, top_k=top_k)
 
     def query_to_graph(
@@ -123,7 +131,7 @@ class SearchToGraphMixin:
         query: str,
         scale: float = 0.5,
         top_k: int = 100,
-        thresh: float = 50,
+        thresh: float = 500,
         broader: bool = False,
         inplace: bool = False,
     ):
@@ -141,24 +149,28 @@ class SearchToGraphMixin:
         if query != "":
             # run a real query, else return entire graph
             rdf, _ = res.query(query, thresh=thresh, fuzzy=True, top_k=top_k)
-            indices = rdf[node]
-            # now get edges from indices
-            if broader:  # this will make a broader graph, finding NN in src OR dst
-                edges = edf[
-                    (edf[src].isin(indices)) | (edf[dst].isin(indices))
-                ]
-            else:  # finds only edges between results from query, if they exist, 
-                # default smaller graph
-                edges = edf[
-                    (edf[src].isin(indices)) & (edf[dst].isin(indices))
-                ]
+            if not rdf.empty:
+                indices = rdf[node]
+                # now get edges from indices
+                if broader:  # this will make a broader graph, finding NN in src OR dst
+                    edges = edf[
+                        (edf[src].isin(indices)) | (edf[dst].isin(indices))
+                    ]
+                else:  # finds only edges between results from query, if they exist, 
+                    # default smaller graph
+                    edges = edf[
+                        (edf[src].isin(indices)) & (edf[dst].isin(indices))
+                    ]
+            else:
+                print('**No results found due to empty DataFrame, returning original graph')
+                return res
 
         edges = edges.query(f"{WEIGHT} > {scale}")
         found_indices = pd.concat([edges[src], edges[dst]], axis=0).unique()
         tdf = df.iloc[found_indices]
-        print(f"\t-Returning edge dataframe of size {edges.shape[0]}")
+        print(f"  - Returning edge dataframe of size {edges.shape[0]}")
         # get all the unique nodes
-        print(f"\t-Returning {tdf.shape[0]} unique nodes given scale {scale}")
+        print(f"  - Returning {tdf.shape[0]} unique nodes given scale {scale}")
         g = res.edges(edges, src, dst).nodes(tdf, node)
         return g
 
@@ -174,3 +186,4 @@ class SearchToGraphMixin:
         cls = load(savepath)
         cls.build_index()
         return cls
+    
