@@ -33,8 +33,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         edgetype = self._edges['edgeType'].tolist()
         attrib = self._edges['attribID'].tolist()
         print(attrib)
-        exit()
-
+        
         em_mod = HeteroEmbed(
                 len(set(event)), 
                 len(set(edgetype)), 
@@ -91,14 +90,14 @@ class HeterographEmbedModuleMixin(nn.Module):
             epochs.set_description(f"loss: {loss_acc/c}")
             epochs.refresh()
 
-        self._relational_node_embedding = em_mod.event_em.weight.detach().numpy() 
-        self._nodes = pd.DataFrame(
-                    self._relational_node_embedding,
+        #self._relational_node_embedding = em_mod.event_em.weight.detach().numpy() 
+        res = pd.DataFrame(
+                    em_mod.event_em.weight.detach().numpy(),
                     index=range(self._relational_node_embedding.shape[0])
         )
 
-        # TODO: bug
-        return self
+        
+        return res
 
     
     def TransE(self, h, r, t):
