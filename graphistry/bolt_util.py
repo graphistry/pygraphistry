@@ -32,10 +32,10 @@ def bolt_graph_to_edges_dataframe(graph):
         util.merge_two_dicts(
             { key: value for (key, value) in relationship.items() },
             {
-                relationship_id_key:   relationship.id,  # noqa: E241
+                relationship_id_key:   relationship.element_id,  # noqa: E241
                 relationship_type_key: relationship.type,  # noqa: E241
-                start_node_id_key:     relationship.start_node.id,  # noqa: E241
-                end_node_id_key:       relationship.end_node.id  # noqa: E241
+                start_node_id_key:     relationship.start_node.element_id,  # noqa: E241
+                end_node_id_key:       relationship.end_node.element_id  # noqa: E241
             }
         )
         for relationship in graph.relationships
@@ -57,7 +57,7 @@ def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
             { key: value for (key, value) in node.items() },
             util.merge_two_dicts(
                 { 
-                    node_id_key: node.id, 
+                    node_id_key: node.element_id, 
                     node_type_key: ",".join(sorted([str(label) for label in node.labels])) 
                 },
                 { node_label_prefix_key + str(label): True for label in node.labels }))

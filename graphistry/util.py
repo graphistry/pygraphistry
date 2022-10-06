@@ -59,7 +59,7 @@ class WeakValueWrapper:
 def hash_pdf(df: pd.DataFrame) -> str:
     # can be 20% faster via to_parquet (see lmeyerov issue in pandas gh), but unclear if always available
     return (
-        hashlib.sha256(putil.hash_pandas_object(df, index=True).values).hexdigest()
+        hashlib.sha256(putil.hash_pandas_object(df, index=True).to_numpy().tobytes()).hexdigest()
         + hashlib.sha256(str(df.columns).encode('utf-8')).hexdigest()  # noqa: W503
     )
 
