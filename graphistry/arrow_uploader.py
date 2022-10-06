@@ -1,5 +1,3 @@
-#Enable when we drop 3.6
-#from __future__ import annotations
 from typing import List, Optional
 
 import io, pyarrow as pa, requests, sys
