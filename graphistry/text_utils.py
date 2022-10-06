@@ -14,8 +14,8 @@ logger = setup_logger(__name__, verbose=VERBOSE, fullpath=TRACE)
 
 
 class SearchToGraphMixin:
-    def __init__(self, metric="euclidean", n_trees = N_TREES) -> None:
-        super().__init__()
+    def __init__(self, metric="euclidean", n_trees = N_TREES, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         self._model_kwargs = {} if getattr(self, "_model_kwargs", None) is None else self._model_kwargs
         self._model_kwargs['text_search'] = {'metric': metric,
                                              'n_trees': n_trees}
@@ -84,9 +84,9 @@ class SearchToGraphMixin:
 
         if hasattr(self._node_encoder.data_encoder, 'columns_'):
             other_cols = self._node_encoder.data_encoder.columns_
-            if other_cols is not None:
-                logger.warn('There is no easy way to encode categorical or other features at query time.\
-                            Set `thresh` to a large value if no results show up.')
+            if other_cols is not None and len(other_cols):
+                logger.warn('**There is no easy way to encode categorical or other features at query time.'
+                            f'Set `thresh` to a large value if no results show up.\ncolumns: {other_cols}')
                 df = self._nodes
                 dt = df[other_cols].dtypes
                 for col, v in zip(other_cols, dt.values):
@@ -106,7 +106,7 @@ class SearchToGraphMixin:
                     "uint16",
                 ]:
                         qdf[col] = df[col].mean()
-        
+        print(f'Query DataFrame: {qdf}')
         return self._query_from_dataframe(qdf, thresh=thresh, top_k=top_k)
 
     def query(
@@ -142,7 +142,7 @@ class SearchToGraphMixin:
             res = self.bind()
                     
         edf = edges = res._edges
-        df = res._nodes
+        rdf = df = res._nodes
         node = res._node
         src = res._source
         dst = res._destination
@@ -167,7 +167,10 @@ class SearchToGraphMixin:
 
         edges = edges.query(f"{WEIGHT} > {scale}")
         found_indices = pd.concat([edges[src], edges[dst]], axis=0).unique()
-        tdf = df.iloc[found_indices]
+        try:
+            tdf = rdf.iloc[found_indices]
+        except: # for explicit relabeled nodes
+            tdf = rdf[df[node].isin(found_indices)]
         print(f"  - Returning edge dataframe of size {edges.shape[0]}")
         # get all the unique nodes
         print(f"  - Returning {tdf.shape[0]} unique nodes given scale {scale}")

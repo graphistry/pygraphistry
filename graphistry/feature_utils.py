@@ -1651,8 +1651,10 @@ class FastEncoder:
 
     def scale(self, df, ydf=None, set_scaler=False, *args, **kwargs):
         # pretty hacky but gets job done --
-        """Fits scaling on df, ydf
-        (ie use downstream as X_train, X_test ,... or batch)"""
+        """Fits new scaling functions on df, ydf via args-kwargs
+        (ie use downstream as X_train, X_test ,... or batch 
+        when different scaling on the outputs is required)
+        """
         # pop off the previous scaler so that .transform won't use it
         self.res[4] = None
         self.res[5] = None
@@ -1675,6 +1677,13 @@ class FastEncoder:
 
         return X, y, scaling_pipeline, scaling_pipeline_target
 
+    # def get_column(self, column, kind='nodes'):
+    #     if kind=='nodes':
+    #         X = self._nodes
+    #     elif kind=='edges':
+            
+    #     transformed_columns = X.columns[X.columns.map(lambda x: True if column in x else False)]]
+        # return X[transformed_columns]
 
 # ######################################################################################################################
 #
@@ -1811,7 +1820,6 @@ class FeatureMixin(MIXIN_BASE):
         node = res._node
 
         if remove_node_column:
-            # ndf = remove_node_column_from_ndf_and_return_ndf(res)
             ndf = remove_node_column_from_symbolic(ndf, node)
             X = remove_node_column_from_symbolic(X, node)
 
