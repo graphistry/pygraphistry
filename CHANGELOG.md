@@ -13,6 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Speed up `g.umap()` >100x by using cuML UMAP engine
 * Drop official support for Python 3.6 - its LTS security support stopped 9mo ago
+* neo4j: v5 support - backwards-compatible changing derefs from id to element_id
 
 ### Added
 
