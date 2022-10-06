@@ -7,11 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-## [0.28.1 - 2022-09-27]
+## [0.28.1 - 2022-10-06]
 
 ### Changed
 
 * Speed up `g.umap()` >100x by using cuML UMAP engine
+* Drop official support for Python 3.6 - its LTS security support stopped 9mo ago
 
 ### Added
 
