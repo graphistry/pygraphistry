@@ -1,6 +1,3 @@
-#Enable when we drop 3.6
-#from __future__ import annotations
-
 import pyarrow as pa, requests, sys
 from functools import lru_cache
 from typing import Any, Tuple
