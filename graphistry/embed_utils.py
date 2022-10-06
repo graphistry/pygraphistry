@@ -1,3 +1,4 @@
+from attr import attr
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -15,7 +16,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'RotatE': self.RotatE
         }
 
-    def embed(self, proto='TransE', d=32, batch_size=32, epoch=100):
+    def embed(self, src, dst, relation, proto='TransE', kind='edges', d=32, batch_size=32, epoch=100):
 
         if callable(proto):
             proto = proto
@@ -23,29 +24,46 @@ class HeterographEmbedModuleMixin(nn.Module):
             proto = self.protocol[proto]
 
         # initialize hparams (from arguments)
-        self.EPS = 2.0
-        self.d = d
-        self.emrange = 12 + self.EPS / d
+        EPS = 2.0
+        d = d
+        emrange = (12 + EPS) / d 
         
         # initializing the model
+        if kind=='nodes':
+            edf = self._nodes
+            ndf = self._edges
+            col = self._edge
+        elif kind=='edges':
+            edf = self._edges
+            ndf = self._nodes
+            col = self._node
         
-        event = self._edges['EventID'].tolist()
-        edgetype = self._edges['edgeType'].tolist()
-        attrib = self._edges['attribID'].tolist()
-
+        event = edf[src].tolist()
+        edgetype = edf[relation].tolist()
+        attrib = edf[dst].tolist()
+        
         em_mod = HeteroEmbed(
                 len(set(event)), 
                 len(set(edgetype)), 
                 len(set(attrib)), 
                 d, 
-                self.emrange, 
+                emrange, 
                 proto
         )
 
         # type2id 
         event2id = {s:idx for idx, s in enumerate(set(event))}
+        index2event = {k:v for v, k in event2id.items()}
+        names = [index2event[k] for k in range(len(index2event))]
+
         edgetype2id = {r:idx for idx, r in enumerate(set(edgetype))}
+        index2type = {k:v for v, k in edgetype2id.items()}
+        type_names = [index2type[k] for k in range(len(index2type))]
+        
         attrib2id = {d:idx for idx, d in enumerate(set(attrib))}
+        index2attr = {k:v for v, k in attrib2id.items()}
+        attrib_names = [index2attr[k] for k in range(len(index2attr))]
+
         
         triplets = [[s, r, d] for s, r, d in zip(event, edgetype, attrib)]
         
@@ -65,8 +83,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
             em_mod.train()
             for h, r, t in train_generator:
-
-
+                
                 optim.zero_grad()
 
                 pos_triples = torch.stack((h, r, t), dim=1)
@@ -91,15 +108,45 @@ class HeterographEmbedModuleMixin(nn.Module):
             epochs.set_description(f"loss: {loss_acc/c}")
             epochs.refresh()
 
-        self._relational_node_embedding = em_mod.event_em.weight.detach().numpy() 
-        self._nodes = pd.DataFrame(
-                    self._relational_node_embedding,
-                    index=range(self._relational_node_embedding.shape[0])
+        event_embedding = em_mod.event_em.weight.detach().numpy() 
+        relational_embedding = em_mod.edgetype_em.weight.detach().numpy() 
+        attribute_embedding = em_mod.attrib_em.weight.detach().numpy() 
+        #embeddings = [event_embedding, relational_embedding, attribute_embedding]
+        
+        nodes = pd.DataFrame(
+                    event_embedding, 
+                    columns=range(d),
+                    index=names)
+        
+        relations = pd.DataFrame(
+                    relational_embedding, 
+                    columns=range(d),
+                    index=type_names)
+        
+        attributes = pd.DataFrame(
+                    attribute_embedding,
+                    columns=range(d),
+                    index=attrib_names 
         )
+        
+        # # now that we have the embeddings, make a new graph
+        def align_embedding_enrichment_and_run_umap(ndf, col, nodes):
+            res = self.bind()
 
-        # TODO: bug
-        return o
+            ndf=ndf.reset_index(drop=True)
+            ndf['index'] = ndf[col].apply(lambda x: event2id[x])
+            ndf = ndf.set_index('index')
+                    
+            res = res.nodes(ndf.reset_index(), 'index')
+            res = res.umap(X=nodes.reset_index(), 
+                            kind='nodes', 
+                            use_scaler=None)
+            return res
+        
+        
+        res = align_embedding_enrichment_and_run_umap(ndf, col, nodes)
 
+        return res
     
     def TransE(self, h, r, t):
         return (h + r - t).norm(p=1, dim=1)
