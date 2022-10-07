@@ -25,8 +25,8 @@ from graphistry.tests.test_feature_utils import (
 from graphistry.umap_utils import lazy_umap_import_has_dependancy, lazy_cuml_import_has_dependancy
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
-has_umap, _, _ = lazy_cuml_import_has_dependancy()
-if has_umap is None:
+has_umap, _, umap = lazy_cuml_import_has_dependancy()
+if (has_umap is None) or (float(umap.__version__[:5]) <22.06):
     has_umap, _, _ = lazy_umap_import_has_dependancy()
 
 logger = logging.getLogger(__name__)
