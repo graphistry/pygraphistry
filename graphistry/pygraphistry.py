@@ -2243,9 +2243,12 @@ class PyGraphistry(object):
             return None
 
         # setter, use switch_org instead
-        # if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
-        #    PyGraphistry._config['org_name'] = value.strip()
-
+        if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
+            try: 
+                PyGraphistry.switch_org(value.strip())
+                # PyGraphistry._config['org_name'] = value.strip()
+            except:
+                print("Failed to switch organization")
 
     @staticmethod
     def idp_name(value=None):
@@ -2339,10 +2342,8 @@ class PyGraphistry(object):
         result = PyGraphistry._handle_api_response(response)
 
         if result == True:
-            # PyGraphistry._org_name(value)
-            if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
-                PyGraphistry._config['org_name'] = value.strip()
-        else:
+            PyGraphistry._config['org_name'] = value.strip()
+        else: # print the error message
             print(result)
 
     @staticmethod
