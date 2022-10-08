@@ -37,8 +37,3 @@ def test_register_with_only_personal_key(capfd):
     PyGraphistry.register(personal_key='only_personal_key')
     out, err = capfd.readouterr()
     assert "Error: personal key id exists but missing personal key" in out
-
-def test_register_with_only_personal_key(capfd):
-    PyGraphistry.register(personal_key='only_personal_key')
-    out, err = capfd.readouterr()
-    assert "Error: personal key id exists but missing personal key" in out

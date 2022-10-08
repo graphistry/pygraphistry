@@ -2330,7 +2330,7 @@ class PyGraphistry(object):
             PyGraphistry._config['personal_key'] = value.strip()
 
     @staticmethod
-    def switch_org(value: Optional[str] = None):
+    def switch_org(value):
         # print(PyGraphistry._switch_org_url(value))
         response = requests.post(
             PyGraphistry._switch_org_url(value),
@@ -2341,9 +2341,9 @@ class PyGraphistry(object):
         # print("response : {}".format(response.text))
         result = PyGraphistry._handle_api_response(response)
 
-        if result == True:
+        if result is True:
             PyGraphistry._config['org_name'] = value.strip()
-        else: # print the error message
+        else:  # print the error message
             print(result)
 
     @staticmethod
@@ -2354,7 +2354,7 @@ class PyGraphistry(object):
                 return True
             else:
                 return json_response.get('message', '')
-        except Exception as e:
+        except:
             logger.error('Error: %s', response, exc_info=True)
             return "Unknown Error"
 
