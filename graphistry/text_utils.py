@@ -14,41 +14,49 @@ logger = setup_logger(__name__, verbose=VERBOSE, fullpath=TRACE)
 
 
 class SearchToGraphMixin:
-    def __init__(self, metric="euclidean", n_trees = N_TREES, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._model_kwargs = {} if getattr(self, "_model_kwargs", None) is None else self._model_kwargs
-        self._model_kwargs['text_search'] = {'metric': metric,
-                                             'n_trees': n_trees}
-        self._n_trees = n_trees
-        #self.build_index()
+
+    def _get_feature(self, kind):
+        kind = kind.replace('s', '')
+        assert kind in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
+        x = getattr(self, f'_{kind}_features')
+        return x
 
     def assert_fitted(self):
-        assert self._umap is not None, 'Umap needs to be fit first, run g.umap(..) to fit a model'
-        x = self._node_features
+        # assert self._umap is not None, 'Umap needs to be fit first, run g.umap(..) to fit a model'
         assert (
-            x is not None
-        ), "Graphistry Instance is not fit, run g.umap(..) to fit a model"
+            self._get_feature('nodes') is not None
+        ), f"Graphistry Instance is not fit, run g.featurize(kind='nodes', ..) to fit a model' \
+        'if you have nodes & edges dataframe or g.umap(..) if you only have nodes dataframe"
 
-
-    def build_index(self):
+    def build_index(self, angular=False, n_trees=None):
         # builds local index
         self.assert_fitted()
+        X = self._get_feature('nodes')
 
-        X = self._node_features
         print(f"Building Index of size {X.shape}")
 
-        search_index = AnnoyIndex(X.shape[1], self.metric)
+        if angular:
+            print('-using angular metric')
+            metric = 'angular'
+        else:
+            print('-using euclidean metric')
+            metric = 'euclidean'
+            
+        search_index = AnnoyIndex(X.shape[1], metric)
         # Add all the feature vectors to the search index
         for i in range(len(X)):
             search_index.add_item(i, X.values[i])
+        if n_trees is None:
+            n_trees = N_TREES
 
-        search_index.build(self._n_trees) 
+        print(f'-building index with {n_trees} trees')
+        search_index.build(n_trees)
+
         self.search_index = search_index
 
     def _query_from_dataframe(self, qdf: pd.DataFrame, top_k: int, thresh: float):
-        self.assert_fitted()
-        if not hasattr(self, 'search_index'):
-            self.build_index()
         # Use the loaded featurizers to transform the dataframe
         vect, _ = self.transform(qdf, None, kind="nodes")
         
@@ -66,7 +74,6 @@ class SearchToGraphMixin:
     
     def _query(self, query: str, top_k: int, thresh: float):
         # build the query dataframe
-        self.assert_fitted()
         if not hasattr(self, 'search_index'):
             self.build_index()
 
@@ -74,7 +81,7 @@ class SearchToGraphMixin:
                 
         cols_text = self._node_encoder.text_cols
         if len(cols_text) == 0:
-            print('**Querying is only possible using Transformer embeddings')    
+            print('**Querying is only possible using Transformer/Ngrams embeddings')    
             return pd.DataFrame([]), None
             
         qdf[cols_text[0]] = [query]
@@ -82,6 +89,7 @@ class SearchToGraphMixin:
             for col in cols_text[1:]:
                 qdf[col] = ['']   
 
+        # this is hookey and needs to be fixed on dirty_cat side (with errors='ignore')
         if hasattr(self._node_encoder.data_encoder, 'columns_'):
             other_cols = self._node_encoder.data_encoder.columns_
             if other_cols is not None and len(other_cols):
@@ -126,7 +134,7 @@ class SearchToGraphMixin:
             print(f"-- Search: [[ {query} ]]")
             return self._query(query, thresh=thresh, top_k=top_k)
 
-    def query_to_graph(
+    def query_graph(
         self,
         query: str,
         scale: float = 0.5,
@@ -164,8 +172,12 @@ class SearchToGraphMixin:
             else:
                 print('**No results found due to empty DataFrame, returning original graph')
                 return res
-
-        edges = edges.query(f"{WEIGHT} > {scale}")
+            
+        try: # for umap'd edges
+            edges = edges.query(f"{WEIGHT} > {scale}")
+        except: # for explicit edges
+            pass
+        
         found_indices = pd.concat([edges[src], edges[dst]], axis=0).unique()
         try:
             tdf = rdf.iloc[found_indices]
