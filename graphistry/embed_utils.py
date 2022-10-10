@@ -136,16 +136,21 @@ class HeterographEmbedModuleMixin(nn.Module):
             ndf=ndf.reset_index(drop=True)
             ndf['index'] = ndf[col].apply(lambda x: n2id[x])
             ndf = ndf.set_index('index')
+
+            ndf = pd.concat(
+                    [
+                        nodes.reset_index(), 
+                        ndf.reset_index()
+                    ], 
+                    axis=1, 
+                    ignore_index=True
+            )
                     
-            res = res.nodes(ndf.reset_index(), 'index')
-            res = res.umap(X=nodes.reset_index(), 
-                            kind='nodes', 
-                            use_scaler=None)
+            res = res.nodes(ndf.reset_index(), 'index').umap(kind='nodes')
             return res
         
-        
+        self = self.featurize()
         res = align_embedding_enrichment_and_run_umap(ndf, col, nodes, event2id)
-
         return res
     
     def TransE(self, h, r, t):
