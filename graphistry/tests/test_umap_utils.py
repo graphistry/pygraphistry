@@ -26,7 +26,7 @@ from graphistry.umap_utils import lazy_umap_import_has_dependancy, lazy_cuml_imp
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
 has_umap, _, umap = lazy_cuml_import_has_dependancy()
-if (has_umap is None) or (float(umap.__version__[:5]) <22.06):
+if (has_umap is None) or (float(umap.__version__[:5]) <22.06): ## string ordering
     has_umap, _, _ = lazy_umap_import_has_dependancy()
 
 logger = logging.getLogger(__name__)
@@ -258,23 +258,24 @@ class TestUMAPAIMethods(TestUMAPMethods):
                     for use_ngram in [True, False]:
                         for use_col in use_cols:
                             for target in targets:
-                                logger.debug("*" * 90)
-                                value = [scaler, cardinality, use_ngram, target, use_col]
-                                logger.debug(f"{value}")
-                                logger.debug("-" * 80)
-                            
-                                g2 = g.umap(kind=kind,
-                                    X=use_col,
-                                    y=target,
-                                    model_name=model_avg_name,
-                                    use_scaler=scaler,
-                                    use_scaler_target=scaler,
-                                    use_ngrams=use_ngram,
-                                    cardinality_threshold=cardinality,
-                                    cardinality_threshold_target=cardinality,
-                                    n_neighbors=3)
+                                for engine in ['umap_learn','cuml']:
+                                    logger.debug("*" * 90)
+                                    value = [scaler, cardinality, use_ngram, target, use_col]
+                                    logger.debug(f"{value}")
+                                    logger.debug("-" * 80)
+                                    g2 = g.umap(kind=kind,
+                                        X=use_col,
+                                        y=target,
+                                        model_name=model_avg_name,
+                                        use_scaler=scaler,
+                                        use_scaler_target=scaler,
+                                        use_ngrams=use_ngram,
+                                        engine=engine,
+                                        cardinality_threshold=cardinality,
+                                        cardinality_threshold_target=cardinality,
+                                        n_neighbors=3)
 
-                                self.cases_test_graph(g2, kind=kind, df=df)
+                                    self.cases_test_graph(g2, kind=kind, df=df)
 
     @pytest.mark.skipif(
         not has_dependancy or not has_umap,
