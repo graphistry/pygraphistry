@@ -2338,11 +2338,11 @@ class PyGraphistry(object):
             headers={'Authorization': f'Bearer {PyGraphistry.api_token()}'},
             verify=PyGraphistry._config["certificate_validation"],
         )
-        # print("response : {}".format(response.text))
         result = PyGraphistry._handle_api_response(response)
 
         if result is True:
             PyGraphistry._config['org_name'] = value.strip()
+            print("Switched to organization :{}".format(value.strip()))
         else:  # print the error message
             print(result)
 
