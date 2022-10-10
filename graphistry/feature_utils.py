@@ -49,8 +49,11 @@ if TYPE_CHECKING:
         SimilarityEncoder = Any
     try:
         from sklearn.preprocessing import FunctionTransformer
+        from sklearn.base import BaseEstimator, TransformerMixin
     except:
         FunctionTransformer = Any
+        BaseEstimator = object
+        TransformerMixin = object
 else:
     MIXIN_BASE = object
     Pipeline = Any
@@ -59,6 +62,8 @@ else:
     GapEncoder = Any
     SimilarityEncoder = Any
     FunctionTransformer = Any
+    BaseEstimator = Any
+    TransformerMixin = Any
 
 
 #@check_set_memoize
@@ -858,6 +863,7 @@ def process_dirty_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     similarity: Optional[str] = None,  # "ngram",
     categories: Optional[str] = "auto",
+    multilabel: bool = False,
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -922,7 +928,7 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed)
-        #data_encoder.columns_ = ndf.columns
+        data_encoder.columns_ = ndf.columns
         
         X_enc = pd.DataFrame(
             X_enc, columns=features_transformed, index=ndf.index
@@ -932,7 +938,10 @@ def process_dirty_dataframes(
         logger.info("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
 
-    if (
+
+    if multilabel and y is not None:
+        y_enc, label_encoder = encode_multi_target(y, mlb=None)
+    elif (
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
@@ -971,7 +980,7 @@ def process_dirty_dataframes(
         # y_enc = y_enc.fillna(0)
         # add for later
         label_encoder.get_feature_names_out = callThrough(labels_transformed)
-        #label_encoder.columns_ = y.columns
+        label_encoder.columns_ = y.columns
 
         logger.debug(f"-Shape of target {y_enc.shape}")
         # logger.debug(f"-Target Transformers used:
@@ -995,7 +1004,8 @@ def process_nodes_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = "robust",
     use_scaler_target: Optional[str] = "kbins",
-    embedding=False,  # whether to produce random embeddings
+    multilabel: bool = False,
+    embedding: bool = False,  # whether to produce random embeddings
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
@@ -1124,6 +1134,7 @@ def process_nodes_dataframes(
         n_topics_target=n_topics_target,
         similarity=similarity,
         categories=categories,
+        multilabel=multilabel
     )
 
     if embedding:
@@ -1170,6 +1181,61 @@ def process_nodes_dataframes(
         text_model,
         text_cols  # type: ignore
     )
+class FastMLB:
+    def __init__(self, mlb, in_column, out_columns):
+        if isinstance(in_column, str):
+            in_column = [in_column]
+        self.columns = in_column # should be singe entry list ['cats']
+        self.mlb = mlb
+        self.out_columns = out_columns
+        self.feature_names_in_ = in_column
+    
+    def __call__(self, df):
+        ydf = df[self.columns]
+        return self.mlb.transform(ydf.squeeze())
+    
+    def fit(self, X, y=None):
+        return self
+        
+    def transform(self, df):
+        return self(df)
+    
+    def get_feature_names_out(self):
+        return self.out_columns
+    
+    def get_feature_names_in(self):
+        return self.feature_names_in_
+    
+    def __repr__(self):
+        doc = f'FastMultiLabelBinarizer(In: {self.columns},  Out: {self.out_columns})'
+        return doc 
+
+
+def encode_multi_target(ydf, mlb = None):
+    #assert isinstance(ydf.values, list), f'Target needs to be a list of lists for Multi-Target'
+    from sklearn.preprocessing import (
+        MultiLabelBinarizer,
+    )
+    ydf = ydf.squeeze() # since its a dataframe, we want series
+    column_name = ydf.name
+    
+    if mlb is None:
+        mlb = MultiLabelBinarizer()
+        T = mlb.fit_transform(ydf) 
+    else:
+        T = mlb.transform(ydf)
+    #print(ydf, type(ydf))
+    T = 1.0 * T
+    #print(f'MULTI LABEL shape {T.shape}')
+    columns = [
+        str(k) for k in mlb.classes_
+    ]
+    T = pd.DataFrame(T, columns=columns, index=ydf.index)
+    logger.info(f"Shape of Target Encoding: {T.shape}")
+        
+    label_encoder = FastMLB(mlb=mlb, in_column=[column_name], out_columns=columns) # memorizes which cols to use.
+ 
+    return T, label_encoder
 
 def encode_edges(edf, src, dst, mlb, fit=False):
     """edge encoder -- creates multilabelBinarizer on edge pairs.
@@ -1215,6 +1281,7 @@ def process_edge_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
     use_scaler_target: Optional[str] = None,
+    multilabel: bool = False,
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
@@ -1336,6 +1403,7 @@ def process_edge_dataframes(
         n_topics_target=n_topics_target,
         use_scaler=None,
         use_scaler_target=None,
+        multilabel=multilabel,
         use_ngrams=use_ngrams,
         ngram_range=ngram_range,
         max_df=max_df,
@@ -1437,17 +1505,29 @@ def transform_dirty(
     data_encoder: Union[SuperVectorizer, FunctionTransformer],  # type: ignore
     name: str = "",
 ) -> pd.DataFrame:
-
+    from sklearn.preprocessing import MultiLabelBinarizer
     logger.debug(f"-{name} Encoder:")
     logger.debug(f"\t{data_encoder}\n")
+    # print(f"-{name} Encoder:")
+    # print(f"\t{data_encoder}\n")
     try:
         logger.debug(f"{data_encoder.feature_names_in_}")
     except Exception as e:
         logger.warning(e)
         pass
     logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
-    use_columns = data_encoder.columns_
-    X = data_encoder.transform(df[use_columns])
+
+    ######################################  for dirty_cat 0.3.0
+    
+    # use_columns = getattr(data_encoder, 'columns_', [])
+    # if len(use_columns):
+    #     X = data_encoder.transform(df[use_columns])
+    # ######################################  with dirty_cat 0.2.0
+    # else:
+    #     X = data_encoder.transform(df)
+    # ###################################
+    X = data_encoder.transform(df)
+
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
     with warnings.catch_warnings():
@@ -1783,6 +1863,12 @@ class FeatureMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         pass
 
+    def _get_feature(self, kind):
+        kind = kind.replace('s', '')
+        assert kind in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
+        x = getattr(self, f'_{kind}_features')
+        return x
+    
     def _featurize_nodes(
         self,
         X: XSymbolic = None,
@@ -1793,6 +1879,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 120,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        multilabel: bool = False,
         embedding: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
@@ -1853,6 +1940,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            multilabel=multilabel,
             embedding=embedding,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
@@ -1927,6 +2015,7 @@ class FeatureMixin(MIXIN_BASE):
         min_df: int = 3,
         confidence: float = 0.35,
         min_words: float = 2.5,
+        multilabel: bool = False,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[str] = "ngram",
         categories: Optional[str] = "auto",
@@ -1977,6 +2066,7 @@ class FeatureMixin(MIXIN_BASE):
             model_name=model_name,
             similarity=similarity,
             categories=categories,
+            multilabel=multilabel,
             impute=impute,
             n_quantiles=n_quantiles,
             quantile_range=quantile_range,
@@ -2126,13 +2216,14 @@ class FeatureMixin(MIXIN_BASE):
         kind: str = "nodes",
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "minmax",
-        use_scaler_target: Optional[str] = "kbins",
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
-        embedding=False,
+        multilabel: bool = False,
+        embedding: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
@@ -2142,7 +2233,7 @@ class FeatureMixin(MIXIN_BASE):
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[
             str
-        ] = None,  # turn this on in favor of Similarity Encoder
+        ] = None,  # 'ngrams' turn this on in favor of Similarity Encoder
         categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
@@ -2251,6 +2342,7 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                multilabel=multilabel,
                 embedding=embedding,
                 use_ngrams=use_ngrams,
                 ngram_range=ngram_range,
@@ -2283,6 +2375,7 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                multilabel=multilabel,
                 use_ngrams=use_ngrams,
                 ngram_range=ngram_range,
                 max_df=max_df,
@@ -2321,6 +2414,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        multilabel: bool = False,
         embedding=False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
@@ -2373,6 +2467,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            multilabel=multilabel,
             embedding=embedding,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
@@ -2415,6 +2510,7 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 20,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        multilabel: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
@@ -2466,6 +2562,7 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            multilabel=multilabel,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
             max_df=max_df,
