@@ -445,7 +445,7 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       g2.query_graph('some search query', ...).plot()
     ```
     
-If edges are not given, `g.umap(..)` will supply them, 
+If edges are not given, `g.umap(..)` will supply them: 
 
     ```python
       ndf = pd.read_csv(nodes.csv)
