@@ -267,8 +267,9 @@ class DGLGraphMixin(MIXIN_BASE):
         assert (
             sum(mask) > 2
         ), f"mask slice is (practically) empty, will lead to bad graph, found {sum(mask)}"
-        self._MASK = mask
-        self._edges = edf[mask]
+        self._MASK = mask   # noqa
+        self._edges = edf[mask]   # noqa
+
         # print(f'new EDGES: length: {len(self._edges)}')
 
         self._prune_edge_target()

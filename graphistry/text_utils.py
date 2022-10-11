@@ -88,7 +88,8 @@ class SearchToGraphMixin(MIXIN_BASE):
 
         qdf = pd.DataFrame([])
                 
-        cols_text = self._node_encoder.text_cols
+        cols_text = self._node_encoder.text_cols  # noqa
+        
         if len(cols_text) == 0:
             logger.warn('** Querying is only possible using Transformer/Ngrams embeddings')    
             return pd.DataFrame([]), None
@@ -99,8 +100,8 @@ class SearchToGraphMixin(MIXIN_BASE):
                 qdf[col] = ['']   
 
         # this is hookey and needs to be fixed on dirty_cat side (with errors='ignore')
-        if hasattr(self._node_encoder.data_encoder, 'columns_'):
-            other_cols = self._node_encoder.data_encoder.columns_
+        if hasattr(self._node_encoder.data_encoder, 'columns_'):   # noqa
+            other_cols = self._node_encoder.data_encoder.columns_   # noqa
             if other_cols is not None and len(other_cols):
                 logger.warn('** There is no easy way to encode categorical or other features at query time. '
                             f'Set `thresh` to a large value if no results show up.\ncolumns: {other_cols}')
