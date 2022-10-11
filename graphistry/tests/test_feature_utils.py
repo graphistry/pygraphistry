@@ -232,24 +232,6 @@ class TestFeatureProcessors(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_process_node_dataframes_min_words(self):
         # test different target cardinality
-        with self.assertRaises(Exception) as context:  # test that min words needs to be greater than 1
-            X_enc, y_enc, data_encoder, label_encoder, scaling_pipeline, scaling_pipeline_target, text_model, text_cols = process_nodes_dataframes(
-                ndf_reddit,
-                y=double_target_reddit,
-                use_scaler=None,
-                cardinality_threshold=40,
-                cardinality_threshold_target=40,
-                n_topics=20,
-                confidence=0.35,
-                min_words=1,
-                model_name=model_avg_name,
-                feature_engine=resolve_feature_engine('auto')
-            )
-        logger.info("-" * 90)
-        logger.info(context.exception)
-        logger.info("-" * 90)
-
-        self.assertTrue("best to have at least a word" in str(context.exception))
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
