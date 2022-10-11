@@ -2,8 +2,6 @@ import os
 from time import time
 import numpy as np
 import pandas as pd
-from annoy import AnnoyIndex  # type: ignore
-from joblib import load, dump  # type: ignore   # need to make this onnx or similar
 
 from .feature_utils import FeatureMixin
 from .ai_utils import search_to_df, setup_logger
@@ -20,6 +18,16 @@ from typing import (
     TYPE_CHECKING, 
     Type
 )  # noqa
+
+# def lazy_search_import_has_dependency():
+#     try:
+#         import warnings
+#         warnings.filterwarnings('ignore')
+#         from annoy import AnnoyIndex  # noqa: F811
+#         return True, 'ok', AnnoyIndex
+#     except ModuleNotFoundError as e:
+#         return False, e, None
+
 
 logger = setup_logger(__name__, verbose=VERBOSE, fullpath=TRACE)
 
@@ -40,6 +48,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         'if you have nodes & edges dataframe or g.umap(..) if you only have nodes dataframe"
 
     def build_index(self, angular=False, n_trees=None):
+        from annoy import AnnoyIndex  # type: ignore
         # builds local index
         self.assert_fitted()
         X = self._get_feature('nodes')
@@ -203,6 +212,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         return g
 
     def save(self, savepath):
+        from joblib import dump  # type: ignore   # need to make this onnx or similar
         search = self.search_index
         del self.search_index  # can't pickle Annoy
         dump(self, savepath)
@@ -211,6 +221,7 @@ class SearchToGraphMixin(MIXIN_BASE):
 
     @classmethod
     def load(self, savepath):
+        from joblib import load  # type: ignore   # need to make this onnx or similar
         cls = load(savepath)
         cls.build_index()
         return cls
