@@ -24,15 +24,16 @@ from graphistry.tests.test_feature_utils import (
 )
 from graphistry.umap_utils import lazy_umap_import_has_dependancy, lazy_cuml_import_has_dependancy
 
-has_dependancy, _ = lazy_import_has_min_dependancy()
-has_umap, _, umap = lazy_cuml_import_has_dependancy()
-if (has_umap is None) or (float(umap.__version__[:5]) <22.06): ## string ordering
-    has_umap, _, _ = lazy_umap_import_has_dependancy()
-
 logger = logging.getLogger(__name__)
 
-warnings.filterwarnings('ignore')
+has_dependancy, _ = lazy_import_has_min_dependancy()
+has_umap, _, cuml = lazy_cuml_import_has_dependancy()
+min_cuml_version=22.06 ##due to requiring KBinsDiscretizer https://github.com/rapidsai/cuml/pull/4735
+if (has_umap is None) or (float(cuml.__version__.rsplit('.',1)[0])<min_cuml_version): 
+    has_umap, _, _ = lazy_umap_import_has_dependancy()
+    logger.debug(f"{'cuml_engine'}: {'umap_learn'}")
 
+warnings.filterwarnings('ignore')
 
 triangleEdges = pd.DataFrame(
     {
