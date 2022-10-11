@@ -6,6 +6,13 @@ The changelog format is based on [Keep a Changelog](https://keepachangelog.com/e
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
 ## [Development]
+## [0.28.1 - 2022-10-10]
+
+### Added
+
+* AI: full text & semantic search (`g.query(..)` and `g.query_graph(..).plot()`)
+* Featurization: support for dataframe columns that are list of lists -> multioutput targets
+                  set using `g.featurize(multilabel=True,...)`
 
 ## [0.28.0 - 2022-09-23]
 
