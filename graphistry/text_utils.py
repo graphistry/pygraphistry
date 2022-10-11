@@ -2,8 +2,8 @@ import os
 from time import time
 import numpy as np
 import pandas as pd
-from annoy import AnnoyIndex
-from joblib import load, dump  # need to make this onnx or similar
+from annoy import AnnoyIndex  # type: ignore
+from joblib import load, dump  # type: ignore   # need to make this onnx or similar
 
 from .feature_utils import FeatureMixin
 from .ai_utils import search_to_df, setup_logger
