@@ -138,7 +138,7 @@ class SearchToGraphMixin(MIXIN_BASE):
 
         return self._query_from_dataframe(qdf, thresh=thresh, top_k=top_k)
 
-    def query(
+    def search(
         self, query: str, cols = None, thresh: float = 5000, fuzzy: bool = True, top_k: int = 10
     ):  
         """NL-query and return dataframe of results
@@ -172,7 +172,7 @@ class SearchToGraphMixin(MIXIN_BASE):
             print(f"-- Search: [[ {query} ]]")
             return self._query(query, thresh=thresh, top_k=top_k)
 
-    def query_graph(
+    def search_graph(
         self,
         query: str,
         scale: float = 0.5,
@@ -210,7 +210,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         dst = res._destination
         if query != "":
             # run a real query, else return entire graph
-            rdf, _ = res.query(query, thresh=thresh, fuzzy=True, top_k=top_k)
+            rdf, _ = res.search(query, thresh=thresh, fuzzy=True, top_k=top_k)
             if not rdf.empty:
                 indices = rdf[node]
                 # now get edges from indices
