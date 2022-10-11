@@ -21,7 +21,7 @@ class SearchToGraphMixin:
         # assert self._umap is not None, 'Umap needs to be fit first, run g.umap(..) to fit a model'
         assert (
             self._get_feature('nodes') is not None
-        ), f"Graphistry Instance is not fit, run g.featurize(kind='nodes', ..) to fit a model' \
+        ), "Graphistry Instance is not fit, run g.featurize(kind='nodes', ..) to fit a model' \
         'if you have nodes & edges dataframe or g.umap(..) if you only have nodes dataframe"
 
     def build_index(self, angular=False, n_trees=None):
@@ -167,15 +167,15 @@ class SearchToGraphMixin:
                 print('**No results found due to empty DataFrame, returning original graph')
                 return res
             
-        try: # for umap'd edges
+        try:  # for umap'd edges
             edges = edges.query(f"{WEIGHT} > {scale}")
-        except: # for explicit edges
+        except:  # for explicit edges
             pass
         
         found_indices = pd.concat([edges[src], edges[dst]], axis=0).unique()
         try:
             tdf = rdf.iloc[found_indices]
-        except: # for explicit relabeled nodes
+        except:  # for explicit relabeled nodes
             tdf = rdf[df[node].isin(found_indices)]
         print(f"  - Returning edge dataframe of size {edges.shape[0]}")
         # get all the unique nodes

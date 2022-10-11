@@ -69,6 +69,5 @@ class TestTextSearch(unittest.TestCase):
         #url = res.plot(render=False)
         #logger.info(f'With Explicit Edges: {url}')
 
-
 if __name__ == "__main__":
     unittest.main()

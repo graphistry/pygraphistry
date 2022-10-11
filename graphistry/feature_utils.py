@@ -445,8 +445,8 @@ def check_if_textual_column(
     """
     isstring = df[col].apply(lambda x: isinstance(x, str))
     abundance = sum(isstring) / len(df)
-    if min_words==0: #
-        return False
+    if min_words==0:
+        return True
     
     if abundance >= confidence:
         # now check how many words
@@ -1184,7 +1184,7 @@ class FastMLB:
     def __init__(self, mlb, in_column, out_columns):
         if isinstance(in_column, str):
             in_column = [in_column]
-        self.columns = in_column # should be singe entry list ['cats']
+        self.columns = in_column  # should be singe entry list ['cats']
         self.mlb = mlb
         self.out_columns = out_columns
         self.feature_names_in_ = in_column
@@ -1211,11 +1211,11 @@ class FastMLB:
 
 
 def encode_multi_target(ydf, mlb = None):
-    #assert isinstance(ydf.values, list), f'Target needs to be a list of lists for Multi-Target'
+    # assert isinstance(ydf.values, list), f'Target needs to be a list of lists for Multi-Target'
     from sklearn.preprocessing import (
         MultiLabelBinarizer,
     )
-    ydf = ydf.squeeze() # since its a dataframe, we want series
+    ydf = ydf.squeeze()  # since its a dataframe, we want series
     column_name = ydf.name
     
     if mlb is None:
@@ -1232,7 +1232,7 @@ def encode_multi_target(ydf, mlb = None):
     T = pd.DataFrame(T, columns=columns, index=ydf.index)
     logger.info(f"Shape of Target Encoding: {T.shape}")
         
-    label_encoder = FastMLB(mlb=mlb, in_column=[column_name], out_columns=columns) # memorizes which cols to use.
+    label_encoder = FastMLB(mlb=mlb, in_column=[column_name], out_columns=columns)  # memorizes which cols to use.
  
     return T, label_encoder
 
@@ -1516,11 +1516,11 @@ def transform_dirty(
         pass
     logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
 
-    ######################################  for dirty_cat 0.3.0
+    # #####################################  for dirty_cat 0.3.0
     use_columns = getattr(data_encoder, 'columns_', [])
     if len(use_columns):
         X = data_encoder.transform(df[use_columns])
-    ######################################  with dirty_cat 0.2.0
+    # #####################################  with dirty_cat 0.2.0
     else:
         X = data_encoder.transform(df)
     # ###################################
@@ -1557,8 +1557,8 @@ def transform(
         text_cols,
     ) = res
 
-    feature_columns = X_enc.columns
-    feature_columns_target = y_enc.columns
+    # feature_columns = X_enc.columns
+    # feature_columns_target = y_enc.columns
     logger.info("-" * 90)
 
     y = pd.DataFrame([])
