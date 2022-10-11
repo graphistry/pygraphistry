@@ -423,6 +423,41 @@ See `help(g.build_gnn)` for options.
 
 GNN support is rapidly evolving, please contact the team directly or on Slack for additional discussions
 
+### Semantic Search
+
+* Search textual data semantically and see the resulting graph:
+
+    ```python
+      ndf = pd.read_csv(nodes.csv)
+      edf = pd.read_csv(edges.csv)
+      
+      g = graphistry.nodes(ndf, 'node').edges(edf, 'src', 'dst')
+      
+      g2 = g.featurize(X = ['text_col_1', .., 'text_col_n'], kind='nodes',
+                        min_words=0,  # forces all named columns as textual ones
+                        model_name: str = "paraphrase-MiniLM-L6-v2"  #encode text as paraphrase embeddings
+                        )
+                        
+      results_df, query_vector = g2.query('some search query', ...)
+      
+      # or go directly to graph
+      
+      g2.query_graph('some search query', ...).plot()
+    ```
+    
+If edges are not given, `g.umap(..)` will supply them, 
+
+    ```python
+      ndf = pd.read_csv(nodes.csv)
+      g = graphistry.nodes(ndf)
+      g2 = g.umap(X = ['text_col_1', .., 'text_col_n'], ...)
+      
+      g2.query_graph('some search query', ...).plot()
+    ```
+    
+See `help(g.query_graph)` for options.
+
+
 ### Quickly configurable
 
 Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/). Check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb), [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb), [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb), [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb), [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb) and [sharing controls](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb):
