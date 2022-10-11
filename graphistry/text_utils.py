@@ -8,7 +8,7 @@ from joblib import load, dump  # need to make this onnx or similar
 from .feature_utils import make_array
 from .ai_utils import search_to_df, setup_logger
 
-from .constants import SRC, DST, WEIGHT, N_TREES, DISTANCE, VERBOSE, TRACE
+from .constants import WEIGHT, N_TREES, DISTANCE, VERBOSE, TRACE
 
 logger = setup_logger(__name__, verbose=VERBOSE, fullpath=TRACE)
 
@@ -16,12 +16,6 @@ logger = setup_logger(__name__, verbose=VERBOSE, fullpath=TRACE)
 class SearchToGraphMixin:
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-
-    def _get_feature(self, kind):
-        kind = kind.replace('s', '')
-        assert kind in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
-        x = getattr(self, f'_{kind}_features')
-        return x
 
     def assert_fitted(self):
         # assert self._umap is not None, 'Umap needs to be fit first, run g.umap(..) to fit a model'
@@ -35,13 +29,13 @@ class SearchToGraphMixin:
         self.assert_fitted()
         X = self._get_feature('nodes')
 
-        print(f"Building Index of size {X.shape}")
+        logger.info(f"Building Index of size {X.shape}")
 
         if angular:
-            print('-using angular metric')
+            logger.info('-using angular metric')
             metric = 'angular'
         else:
-            print('-using euclidean metric')
+            logger.info('-using euclidean metric')
             metric = 'euclidean'
             
         search_index = AnnoyIndex(X.shape[1], metric)
@@ -51,7 +45,7 @@ class SearchToGraphMixin:
         if n_trees is None:
             n_trees = N_TREES
 
-        print(f'-building index with {n_trees} trees')
+        logger.info(f'-building index with {n_trees} trees')
         search_index.build(n_trees)
 
         self.search_index = search_index
@@ -81,7 +75,7 @@ class SearchToGraphMixin:
                 
         cols_text = self._node_encoder.text_cols
         if len(cols_text) == 0:
-            print('**Querying is only possible using Transformer/Ngrams embeddings')    
+            logger.warn('** Querying is only possible using Transformer/Ngrams embeddings')    
             return pd.DataFrame([]), None
             
         qdf[cols_text[0]] = [query]
@@ -93,7 +87,7 @@ class SearchToGraphMixin:
         if hasattr(self._node_encoder.data_encoder, 'columns_'):
             other_cols = self._node_encoder.data_encoder.columns_
             if other_cols is not None and len(other_cols):
-                logger.warn('**There is no easy way to encode categorical or other features at query time.'
+                logger.warn('** There is no easy way to encode categorical or other features at query time. '
                             f'Set `thresh` to a large value if no results show up.\ncolumns: {other_cols}')
                 df = self._nodes
                 dt = df[other_cols].dtypes
@@ -114,11 +108,11 @@ class SearchToGraphMixin:
                     "uint16",
                 ]:
                         qdf[col] = df[col].mean()
-        print(f'Query DataFrame: {qdf}')
+        #print(f'Query DataFrame: {qdf}')
         return self._query_from_dataframe(qdf, thresh=thresh, top_k=top_k)
 
     def query(
-        self, query: str, cols = None, thresh: float = 50, fuzzy: bool = True, top_k: int = 10
+        self, query: str, cols = None, thresh: float = 5000, fuzzy: bool = True, top_k: int = 10
     ):  
         if not fuzzy:
             if cols is None:
@@ -139,7 +133,7 @@ class SearchToGraphMixin:
         query: str,
         scale: float = 0.5,
         top_k: int = 100,
-        thresh: float = 500,
+        thresh: float = 5000,
         broader: bool = False,
         inplace: bool = False,
     ):
@@ -186,6 +180,7 @@ class SearchToGraphMixin:
         print(f"  - Returning edge dataframe of size {edges.shape[0]}")
         # get all the unique nodes
         print(f"  - Returning {tdf.shape[0]} unique nodes given scale {scale}")
+        
         g = res.edges(edges, src, dst).nodes(tdf, node)
         return g
 

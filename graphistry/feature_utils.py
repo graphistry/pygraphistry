@@ -445,10 +445,9 @@ def check_if_textual_column(
     """
     isstring = df[col].apply(lambda x: isinstance(x, str))
     abundance = sum(isstring) / len(df)
-    assert (
-        min_words > 1
-    ), "probably best to have at least a word if you want to consider '\
-        'this a textual column?"
+    if min_words==0: #
+        return False
+    
     if abundance >= confidence:
         # now check how many words
         n_words = df[col].apply(
@@ -849,7 +848,8 @@ def get_numeric_transformers(ndf, y=None):
             partial(passthrough_df_cols, columns=ndf_.columns)
         )
         data_encoder.get_feature_names_out = callThrough(ndf_.columns)
-        data_encoder.columns_ = ndf_.columns
+        #data_encoder.columns_ = ndf_.columns
+        data_encoder.get_feature_names_in = callThrough(ndf_.columns)
         
     return ndf_, y_, data_encoder, label_encoder
 
@@ -906,6 +906,7 @@ def process_dirty_dataframes(
         )
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
+        
         X_enc = data_encoder.fit_transform(ndf, y)
         X_enc = make_array(X_enc)
 
@@ -928,7 +929,6 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed)
-        data_encoder.columns_ = ndf.columns
         
         X_enc = pd.DataFrame(
             X_enc, columns=features_transformed, index=ndf.index
@@ -980,7 +980,6 @@ def process_dirty_dataframes(
         # y_enc = y_enc.fillna(0)
         # add for later
         label_encoder.get_feature_names_out = callThrough(labels_transformed)
-        label_encoder.columns_ = y.columns
 
         logger.debug(f"-Shape of target {y_enc.shape}")
         # logger.debug(f"-Target Transformers used:
@@ -1511,22 +1510,21 @@ def transform_dirty(
     # print(f"-{name} Encoder:")
     # print(f"\t{data_encoder}\n")
     try:
-        logger.debug(f"{data_encoder.feature_names_in_}")
+        logger.debug(f"{data_encoder.get_feature_names_in}")
     except Exception as e:
         logger.warning(e)
         pass
     logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
 
     ######################################  for dirty_cat 0.3.0
-    
-    # use_columns = getattr(data_encoder, 'columns_', [])
-    # if len(use_columns):
-    #     X = data_encoder.transform(df[use_columns])
-    # ######################################  with dirty_cat 0.2.0
-    # else:
-    #     X = data_encoder.transform(df)
+    use_columns = getattr(data_encoder, 'columns_', [])
+    if len(use_columns):
+        X = data_encoder.transform(df[use_columns])
+    ######################################  with dirty_cat 0.2.0
+    else:
+        X = data_encoder.transform(df)
     # ###################################
-    X = data_encoder.transform(df)
+    # X = data_encoder.transform(df)
 
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
@@ -1618,21 +1616,6 @@ def transform(
     logger.info(f"--Features matrix shape: {X.shape}")
     logger.info(f"--Target matrix shape: {y.shape}")
 
-    a, b = set(list(X.columns)), set(list(feature_columns))
-    c, d = set(list(y.columns)), set(list(feature_columns_target))
-    if a != b:
-        logger.info("-" * 80)
-        logger.info(
-            "**Different Features Columns!"
-            f"\n--{a.difference(b)} \n\nand\n {b.difference(a)}"
-        )
-    if c != d:
-        logger.info("-" * 80)
-        logger.info(
-            "**Different Target Columns!"
-            f"\n--{c.difference(d)} \n\nand\n {d.difference(c)}"
-        )
-
     if scaling_pipeline and not X.empty:
         logger.info("--Scaling Features")
         X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns)
@@ -1648,7 +1631,9 @@ def transform(
 class FastEncoder:
     def __init__(self, df, y=None, kind="nodes"):
         self._df = df
+        self.feature_names_in = df.columns  
         self._y = pd.DataFrame([], index=df.index) if y is None else y
+        self.target_names_in = self._y.columns
         self.kind = kind
         self._assertions()
         # these are the parts we can use to reconstruct transform.
@@ -1681,6 +1666,9 @@ class FastEncoder:
     def _hecho(self, res):
         logger.info("-" * 40)
         logger.info("\n-- Setting Encoder Parts from Fit ::")
+        logger.info(f'Feature Columns In: {self.feature_names_in}')
+        logger.info(f'Target Columns In: {self.target_names_in}')
+
         for name, value in zip(self.res_names, res):
             if name not in ["X_enc", "y_enc"]:
                 logger.info("-" * 90)
@@ -1700,7 +1688,8 @@ class FastEncoder:
         ] = self.res
 
         self._hecho(res)
-
+        # data_encoder.feature_names_in = self.feature_names_in
+        # label_encoder.target_names_in = self.target_names_in
         self.feature_columns = X_enc.columns
         self.feature_columns_target = y_enc.columns
         self.X = X_enc
@@ -1711,7 +1700,6 @@ class FastEncoder:
         self.scaling_pipeline_target = scaling_pipeline_target
         self.text_model = text_model
         self.text_cols = text_cols
-        #self.other_cols = data_encoder.columns_
 
     def fit(self, src=None, dst=None, *args, **kwargs):
         self.src = src
@@ -1869,6 +1857,12 @@ class FeatureMixin(MIXIN_BASE):
         x = getattr(self, f'_{kind}_features')
         return x
     
+    def _get_target(self, kind):
+        kind = kind.replace('s', '')
+        assert kind in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
+        x = getattr(self, f'_{kind}_target')
+        return x
+    
     def _featurize_nodes(
         self,
         X: XSymbolic = None,
@@ -1995,6 +1989,7 @@ class FeatureMixin(MIXIN_BASE):
         res._node_features = encoder.X
         res._node_target = encoder.y
         res._node_encoder = encoder  # now this does
+        
         # all the work `._node_encoder.transform(df, y)` etc
 
         return res
