@@ -267,8 +267,8 @@ class DGLGraphMixin(MIXIN_BASE):
         assert (
             sum(mask) > 2
         ), f"mask slice is (practically) empty, will lead to bad graph, found {sum(mask)}"
-        self._MASK = mask   # noqa
-        self._edges = edf[mask]   # noqa
+        self._MASK = mask   # type: ignore
+        self._edges = edf[mask]   # type: ignore
 
         # print(f'new EDGES: length: {len(self._edges)}')
 
@@ -496,7 +496,7 @@ class DGLGraphMixin(MIXIN_BASE):
         if hasattr(res, "_MASK"):
             if y_edges_resolved is not None:
                 y_edges_resolved = y_edges_resolved[
-                    res._MASK
+                    res._MASK  # type: ignore
                 ]  # automatically prune target using mask
                 # note, edf, ndf, should both have unique indices
 
