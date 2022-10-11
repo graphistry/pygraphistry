@@ -1,9 +1,9 @@
 #!/bin/bash
 set -ex
 
-PYTHON_VERSION=${PYTHON_VERSION:-3.6}
+PYTHON_VERSION=${PYTHON_VERSION:-3.7}
 WITH_NEO4J=1
-WITH_SUDO=${WITH_SUDO-sudo}
+WITH_SUDO=${WITH_SUDO:-}
 
 ( cd ../test/db/neo4j && WITH_SUDO="$WITH_SUDO" ./launch.sh )
 

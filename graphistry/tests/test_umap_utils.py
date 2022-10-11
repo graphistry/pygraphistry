@@ -22,10 +22,12 @@ from graphistry.tests.test_feature_utils import (
     lazy_import_has_min_dependancy,
     check_allclose_fit_transform_on_same_data
 )
-from graphistry.umap_utils import lazy_umap_import_has_dependancy
+from graphistry.umap_utils import lazy_umap_import_has_dependancy, lazy_cuml_import_has_dependancy
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
-has_umap, _, _ = lazy_umap_import_has_dependancy()
+has_umap, _, _ = lazy_cuml_import_has_dependancy()
+if has_umap is None:
+    has_umap, _, _ = lazy_umap_import_has_dependancy()
 
 logger = logging.getLogger(__name__)
 
