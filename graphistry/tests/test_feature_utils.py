@@ -196,7 +196,6 @@ class TestFastEncoder(unittest.TestCase):
         assert all(self.Ye.columns == self.ye.columns), 'Edge Target Columns do not match'
         
         
-
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
         import dirty_cat
@@ -232,7 +231,6 @@ class TestFeatureProcessors(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_process_node_dataframes_min_words(self):
         # test different target cardinality
-
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             for min_words in [
@@ -253,7 +251,16 @@ class TestFeatureProcessors(unittest.TestCase):
                 )
                 self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
-
+    @pytest.mark.skipif(not has_min_dependancy, reason="requires minimal feature dependencies")
+    def test_multi_label_binarizer(self):
+        g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            g2 = g.featurize(y=['list_str'], X=['src'], multilabel=True)
+        y = g2._get_target('node')
+        assert y.shape == (4, 4)
+        assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
+        
 class TestFeatureMethods(unittest.TestCase):
 
     def _check_attributes(self, g, attributes):

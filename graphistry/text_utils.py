@@ -135,12 +135,29 @@ class SearchToGraphMixin(MIXIN_BASE):
                     "uint16",
                 ]:
                         qdf[col] = df[col].mean()
-        #print(f'Query DataFrame: {qdf}')
+
         return self._query_from_dataframe(qdf, thresh=thresh, top_k=top_k)
 
     def query(
         self, query: str, cols = None, thresh: float = 5000, fuzzy: bool = True, top_k: int = 10
     ):  
+        """NL-query and return dataframe of results
+
+        Args:
+            query (str): natural language query.
+            cols (list or str, optional): if fuzzy=False, select which column to query. 
+                                            Defaults to None.
+            thresh (float, optional): distance threshold from query vector to returned results.
+                                        Defaults to 5000, set large just in case, 
+                                        but could be as low as 10.
+            fuzzy (bool, optional): if True, uses embedding + annoy index for recall, 
+                                        else does string matching over given `cols` 
+                                        Defaults to True.
+            top_k (int, optional): how many results to return. Defaults to 100.
+
+        Returns:
+            pd.DataFrame: rank ordered dataframe of results matching query
+        """
         if not fuzzy:
             if cols is None:
                 logger.error(f'Columns to search for `{query}` \
@@ -164,7 +181,23 @@ class SearchToGraphMixin(MIXIN_BASE):
         broader: bool = False,
         inplace: bool = False,
     ):
+        """Input a natural language query and return a graph of
 
+        Args:
+            query (str): query input eg "coding best practices"
+            scale (float, optional): edge weigh threshold,  Defaults to 0.5.
+            top_k (int, optional): how many results to return. Defaults to 100.
+            thresh (float, optional): distance threshold from query vector to returned results.
+                                        Defaults to 5000, set large just in case, 
+                                        but could be as low as 10.
+            broader (bool, optional): if True, will retrieve entities not recalled by query, 
+                                        but connected via an edge. Defaults to False.
+            inplace (bool, optional): whether to return new instance (default) or mutate self.
+                                        Defaults to False.
+
+        Returns:
+            graphistry Instance: g
+        """
         if inplace:
             res = self
         else:
