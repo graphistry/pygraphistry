@@ -53,10 +53,14 @@ def assert_imported():
         raise import_exn
 
 def assert_imported_cuml():
-    has_cuml_dependancy_, import_cuml_exn, _ = lazy_cuml_import_has_dependancy()
+    has_cuml_dependancy_, import_cuml_exn, cuml = lazy_cuml_import_has_dependancy()
+    min_cuml_version=22.06
     if not has_cuml_dependancy_:
         logger.error("cuML not found, trying running "
                      "`pip install cuml`")
+        raise import_cuml_exn
+    if (has_cuml_dependancy_) and (float(cuml.__version__.rsplit('.',1)[0])<min_cuml_version):
+        logger.error('cuml engine specified, but only version '+cuml.__version__+' installed; umap requires cuml >= 22.06.00')
         raise import_cuml_exn
 
 
