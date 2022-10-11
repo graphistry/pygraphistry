@@ -5,15 +5,30 @@ import pandas as pd
 from annoy import AnnoyIndex
 from joblib import load, dump  # need to make this onnx or similar
 
-from .feature_utils import make_array
+from .compute.ComputeMixin import ComputeMixin
 from .ai_utils import search_to_df, setup_logger
-
 from .constants import WEIGHT, N_TREES, DISTANCE, VERBOSE, TRACE
+
+from typing import (
+    Hashable,
+    List,
+    Union,
+    Dict,
+    Any,
+    Optional,
+    Tuple,
+    TYPE_CHECKING, 
+    Type
+)  # noqa
 
 logger = setup_logger(__name__, verbose=VERBOSE, fullpath=TRACE)
 
+if TYPE_CHECKING:
+    MIXIN_BASE = ComputeMixin
+else:
+    MIXIN_BASE = object
 
-class SearchToGraphMixin:
+class SearchToGraphMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
