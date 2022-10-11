@@ -445,7 +445,7 @@ def check_if_textual_column(
     """
     isstring = df[col].apply(lambda x: isinstance(x, str))
     abundance = sum(isstring) / len(df)
-    if min_words == 0:
+    if min_words == 0:  # force textual encoding of named columns
         return True
     
     if abundance >= confidence:
