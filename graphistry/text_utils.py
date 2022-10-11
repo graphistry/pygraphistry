@@ -5,7 +5,7 @@ import pandas as pd
 from annoy import AnnoyIndex
 from joblib import load, dump  # need to make this onnx or similar
 
-from .compute.ComputeMixin import ComputeMixin
+from .feature_utils import FeatureMixin
 from .ai_utils import search_to_df, setup_logger
 from .constants import WEIGHT, N_TREES, DISTANCE, VERBOSE, TRACE
 
@@ -24,7 +24,7 @@ from typing import (
 logger = setup_logger(__name__, verbose=VERBOSE, fullpath=TRACE)
 
 if TYPE_CHECKING:
-    MIXIN_BASE = ComputeMixin
+    MIXIN_BASE = FeatureMixin
 else:
     MIXIN_BASE = object
 
