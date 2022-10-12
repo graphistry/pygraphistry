@@ -453,6 +453,8 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
                         )
                         
       results_df, query_vector = g2.search('some search query', ...)
+
+      # `results_df` is rank ordered by distance away from the `query_vector` in decending order
       
       # or go directly to graph
       

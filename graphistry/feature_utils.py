@@ -1211,11 +1211,11 @@ class FastMLB:
 
 
 def encode_multi_target(ydf, mlb = None):
-    # assert isinstance(ydf.values, list), f'Target needs to be a list of lists for Multi-Target'
     from sklearn.preprocessing import (
         MultiLabelBinarizer,
     )
     ydf = ydf.squeeze()  # since its a dataframe, we want series
+    assert isinstance(ydf, pd.Series), f'Target needs to be a single column with (list of lists)'
     column_name = ydf.name
     
     if mlb is None:
@@ -1223,9 +1223,8 @@ def encode_multi_target(ydf, mlb = None):
         T = mlb.fit_transform(ydf) 
     else:
         T = mlb.transform(ydf)
-    #print(ydf, type(ydf))
+
     T = 1.0 * T
-    #print(f'MULTI LABEL shape {T.shape}')
     columns = [
         str(k) for k in mlb.classes_
     ]

@@ -22,8 +22,9 @@ def search_to_df(word, col, df, as_string=False):
     :param word: str search term
     :param col: given column of dataframe
     :param df: pandas dataframe
+    :param as_string: if True, will coerce the column `col` to string, default False.
     :returns
-        DataFrame of results
+        DataFrame of results, or empty DataFrame if None are found
     """
     try:
         if as_string:
