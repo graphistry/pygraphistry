@@ -13,7 +13,7 @@ logger = setup_logger(__name__)
 # #################################################################################################
 
 
-def search_to_df(word, col, df):
+def search_to_df(word, col, df, as_string=False):
     """
     A simple way to retrieve entries from a given (edge) col in a dataframe
     :eg
@@ -22,14 +22,18 @@ def search_to_df(word, col, df):
     :param word: str search term
     :param col: given column of dataframe
     :param df: pandas dataframe
+    :param as_string: if True, will coerce the column `col` to string, default False.
     :returns
-        DataFrame of results
+        DataFrame of results, or empty DataFrame if None are found
     """
     try:
-        res = df[df[col].str.contains(word, case=False)]
+        if as_string:
+            res = df[df[col].astype(str).str.contains(word, case=False)]
+        else:
+            res = df[df[col].str.contains(word, case=False)]
     except TypeError as e:
         logger.error(e)
-        return df
+        return pd.DataFrame([], columns = df.columns)
     return res
 
 
