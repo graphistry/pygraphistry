@@ -128,26 +128,26 @@ class HeterographEmbedModuleMixin(nn.Module):
                     columns=range(d),
                     index=attrib_names 
         )
-        
+
         # # now that we have the embeddings, make a new graph
         def align_embedding_enrichment_and_run_umap(ndf, col, nodes, n2id):
             res = self.bind()
 
             ndf=ndf.reset_index(drop=True)
             ndf['index'] = ndf[col].apply(lambda x: n2id[x])
-            ndf = ndf.set_index('index')
+
+            nodes.columns = [str(i) for i in range(len(nodes.columns))]
+            cols = list(nodes.columns) + list(ndf.columns)
 
             ndf = pd.concat(
                     [
-                        nodes.reset_index(), 
-                        ndf.reset_index()
+                        nodes.reset_index(drop=True), 
+                        ndf.reset_index(drop=True)
                     ], 
-                    axis=1, 
-                    ignore_index=True
+                    axis=1
             )
-                    
-            res = res.nodes(ndf.reset_index(), 'index').umap(kind='nodes')
-            return res
+            ndf.columns = cols
+            return res.nodes(ndf, 'index').umap(kind='nodes')
         
         self = self.featurize()
         res = align_embedding_enrichment_and_run_umap(ndf, col, nodes, event2id)
