@@ -1019,6 +1019,10 @@ class PlotterBase(Plottable):
         else:
             res = copy.copy(base)
             res._nodes = nodes
+        # for use in text_utils.py search index
+        if hasattr(res, 'search_index'):
+            delattr(res, 'search_index')  # reset so that g.search will rebuild index
+            
         return res
 
     def name(self, name):

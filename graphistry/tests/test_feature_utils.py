@@ -244,7 +244,6 @@ class TestFeatureProcessors(unittest.TestCase):
                     cardinality_threshold=40,
                     cardinality_threshold_target=40,
                     n_topics=20,
-                    confidence=0.35,
                     min_words=min_words,
                     model_name=model_avg_name,
                     feature_engine=resolve_feature_engine('auto')
