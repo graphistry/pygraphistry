@@ -74,12 +74,12 @@ class SearchToGraphMixin(MIXIN_BASE):
 
         self.search_index = search_index
 
-    def _query_from_dataframe(self, qdf: pd.DataFrame, top_k: int, thresh: float):
+    def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float):
         # Use the loaded featurizers to transform the dataframe
         vect, _ = self.transform(qdf, None, kind="nodes")
         
         indices, distances = self.search_index.get_nns_by_vector(
-            vect.values[0], top_k, include_distances=True
+            vect.values[0], top_n, include_distances=True
         )
         
         results = self._nodes.iloc[indices]
@@ -90,7 +90,7 @@ class SearchToGraphMixin(MIXIN_BASE):
 
         return results, vect
     
-    def _query(self, query: str, top_k: int, thresh: float):
+    def _query(self, query: str, top_n: int, thresh: float):
         # build the query dataframe
         if not hasattr(self, 'search_index'):
             self.build_index()
@@ -109,6 +109,8 @@ class SearchToGraphMixin(MIXIN_BASE):
                 qdf[col] = ['']   
 
         # this is hookey and needs to be fixed on dirty_cat side (with errors='ignore')
+        # if however min_words = 0, all columns will be textual, 
+        # and no other data_encoder will be generated
         if hasattr(self._node_encoder.data_encoder, 'columns_'):  # type: ignore
 
             other_cols = self._node_encoder.data_encoder.columns_  # type: ignore
@@ -136,27 +138,48 @@ class SearchToGraphMixin(MIXIN_BASE):
                 ]:
                         qdf[col] = df[col].mean()
 
-        return self._query_from_dataframe(qdf, thresh=thresh, top_k=top_k)
+        return self._query_from_dataframe(qdf, thresh=thresh, top_n=top_n)
 
     def search(
-        self, query: str, cols = None, thresh: float = 5000, fuzzy: bool = True, top_k: int = 10
+        self, query: str, cols = None, thresh: float = 5000, fuzzy: bool = True, top_n: int = 10
     ):  
-        """NL-query and return dataframe of results
+        """Natural language query over nodes that returns a dataframe of results sorted by relevance column "distance".
+
+            If node data is not yet feature-encoded (and explicit edges are given), 
+            run automatic feature engineering: 
+            ```
+                g2 = g.featurize(kind='nodes', X=['text_col_1', ..], 
+                min_words=0 # forces all named columns are textually encoded
+                )  
+            ```    
+            
+            If edges do not yet exist, generate them via 
+            ```
+                g2 = g.umap(kind='nodes', X=['text_col_1', ..], 
+                min_words=0 # forces all named columns are textually encoded
+                )  
+            ``` 
+            If an index is not yet built, it is generated `g2.build_index()` on the fly at search time.
+            Otherwise, can set `g2.build_index()` and then subsequent `g2.search(...)` 
+            calls will be not rebuilt index.
 
         Args:
             query (str): natural language query.
             cols (list or str, optional): if fuzzy=False, select which column to query. 
-                                            Defaults to None.
+                                            Defaults to None since fuzzy=True by defaul.
             thresh (float, optional): distance threshold from query vector to returned results.
                                         Defaults to 5000, set large just in case, 
                                         but could be as low as 10.
             fuzzy (bool, optional): if True, uses embedding + annoy index for recall, 
-                                        else does string matching over given `cols` 
+                                        otherwise does string matching over given `cols` 
                                         Defaults to True.
-            top_k (int, optional): how many results to return. Defaults to 100.
+            top_n (int, optional): how many results to return. Defaults to 100.
 
         Returns:
-            pd.DataFrame: rank ordered dataframe of results matching query
+            pd.DataFrame, vector_encoding_of_query: 
+                * rank ordered dataframe of results matching query
+                * vector encoding of query via given transformer/ngrams model if fuzzy=True
+                    else None
         """
         if not fuzzy:
             if cols is None:
@@ -170,28 +193,29 @@ class SearchToGraphMixin(MIXIN_BASE):
             )
         else:
             logger.info(f"-- Search: [[ {query} ]]")
-            return self._query(query, thresh=thresh, top_k=top_k)
+            return self._query(query, thresh=thresh, top_n=top_n)
 
     def search_graph(
         self,
         query: str,
         scale: float = 0.5,
-        top_k: int = 100,
+        top_n: int = 100,
         thresh: float = 5000,
         broader: bool = False,
         inplace: bool = False,
     ):
-        """Input a natural language query and return a graph of
+        """Input a natural language query and return a graph of results. 
+            See help(g.search) for more information
 
         Args:
             query (str): query input eg "coding best practices"
             scale (float, optional): edge weigh threshold,  Defaults to 0.5.
-            top_k (int, optional): how many results to return. Defaults to 100.
+            top_n (int, optional): how many results to return. Defaults to 100.
             thresh (float, optional): distance threshold from query vector to returned results.
                                         Defaults to 5000, set large just in case, 
                                         but could be as low as 10.
-            broader (bool, optional): if True, will retrieve entities not recalled by query, 
-                                        but connected via an edge. Defaults to False.
+            broader (bool, optional): if True, will retrieve entities connected via an edge
+                that were not necessarily bubbled up in the results_dataframe. Defaults to False.
             inplace (bool, optional): whether to return new instance (default) or mutate self.
                                         Defaults to False.
 
@@ -210,7 +234,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         dst = res._destination
         if query != "":
             # run a real query, else return entire graph
-            rdf, _ = res.search(query, thresh=thresh, fuzzy=True, top_k=top_k)
+            rdf, _ = res.search(query, thresh=thresh, fuzzy=True, top_n=top_n)
             if not rdf.empty:
                 indices = rdf[node]
                 # now get edges from indices
@@ -237,9 +261,9 @@ class SearchToGraphMixin(MIXIN_BASE):
             tdf = rdf.iloc[found_indices]
         except:  # for explicit relabeled nodes
             tdf = rdf[df[node].isin(found_indices)]
-        logger.info(f"  - Returning edge dataframe of size {edges.shape[0]}")
+        logger.info(f" - Returning edge dataframe of size {edges.shape[0]}")
         # get all the unique nodes
-        logger.info(f"  - Returning {tdf.shape[0]} unique nodes given scale {scale}")
+        logger.info(f" - Returning {tdf.shape[0]} unique nodes given scale {scale} and thresh {thresh}")
         
         g = res.edges(edges, src, dst).nodes(tdf, node)
         return g
