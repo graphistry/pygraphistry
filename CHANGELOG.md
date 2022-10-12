@@ -8,8 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 ### Added
 
-* AI: full text & semantic search (`g.search(..)` and `g.searc_graph(..).plot()`)
-* Featurization: support for dataframe columns that are list of lists -> multioutput targets
+* AI: full text & semantic search (`g.search(..)` and `g.search_graph(..).plot()`)
+* Featurization: support for dataframe columns that are list of lists -> multilabel targets
                   set using `g.featurize(y=['list_of_lists_column'], multilabel=True,...)`
 
 ## [0.28.1 - 2022-10-06]
