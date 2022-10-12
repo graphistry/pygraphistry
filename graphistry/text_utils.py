@@ -36,12 +36,21 @@ class SearchToGraphMixin(MIXIN_BASE):
         assert (
             self._get_feature('nodes') is not None
         ), "Graphistry Instance is not fit, run g.featurize(kind='nodes', ..) to fit a model' \
-        'if you have nodes & edges dataframe or g.umap(..) if you only have nodes dataframe"
+        'if you have nodes & edges dataframe or g.umap(kind='nodes', ..) if you only have nodes dataframe"
+
+    def assert_features_line_up_with_nodes(self):
+        ndf = self._nodes
+        X = self._get_feature('nodes')
+        a, b = ndf.shape[0], X.shape[0]
+        assert a == b, f'Nodes dataframe and feature vectors are not same size, '\
+        'found nodes: {a}, feats: {b}. Did you mutate nodes between fit?'
 
     def build_index(self, angular=False, n_trees=None):
         from annoy import AnnoyIndex  # type: ignore
         # builds local index
         self.assert_fitted()
+        self.assert_features_line_up_with_nodes()
+        
         X = self._get_feature('nodes')
 
         logger.info(f"Building Index of size {X.shape}")
