@@ -42,8 +42,8 @@ class SearchToGraphMixin(MIXIN_BASE):
         ndf = self._nodes
         X = self._get_feature('nodes')
         a, b = ndf.shape[0], X.shape[0]
-        assert a == b, f'Nodes dataframe and feature vectors are not same size, '\
-        'found nodes: {a}, feats: {b}. Did you mutate nodes between fit?'
+        assert a == b, 'Nodes dataframe and feature vectors are not same size, '\
+        f'found nodes: {a}, feats: {b}. Did you mutate nodes between fit?'
 
     def build_index(self, angular=False, n_trees=None):
         from annoy import AnnoyIndex  # type: ignore
