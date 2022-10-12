@@ -449,16 +449,14 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       
       g2 = g.featurize(X = ['text_col_1', .., 'text_col_n'], kind='nodes',
                         min_words=0,  # forces all named columns as textual ones
-                        model_name: str = "paraphrase-MiniLM-L6-v2"  #encode text as paraphrase embeddings, supports any sbert/Huggingface model
-                        )
+                        #encode text as paraphrase embeddings, supports any sbert/Huggingface model
+                        model_name: str = "paraphrase-MiniLM-L6-v2")
                         
-      results_df, query_vector = g2.search('some search query', ...)
-
-      # `results_df` is rank ordered by distance away from the `query_vector` in decending order
+      results_df, query_vector = g2.search('my natural language query', ...)
+      print(results_df[['distance', 'text_col_1', ..., 'text_col_n']])  #sorted by relevancy
       
-      # or go directly to graph
-      
-      g2.search_graph('some search query', ...).plot()
+      # or see graph of matching entities and similarity edges (or optional original edges)
+      g2.search_graph('my natural language query', ...).plot()
     ```
     
 * If edges are not given, `g.umap(..)` will supply them: 
@@ -468,10 +466,10 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       g = graphistry.nodes(ndf)
       g2 = g.umap(X = ['text_col_1', .., 'text_col_n'], min_words=0, ...)
       
-      g2.search_graph('some search query', ...).plot()
+      g2.search_graph('my natural language query', ...).plot()
     ```
     
-See `help(g.search_graph)` for options.
+See `help(g.search_graph)` for options
 
 
 ### Quickly configurable
