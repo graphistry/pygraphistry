@@ -9,9 +9,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.28.2 - 2022-10-11]
 
+### Changed
+
+* Infra: Updated github actions
+
 ### Fixed
 
 * `encode_axis()` now correctly sets axis
+* work around mypy mistyping operator & on pandas series 
 
 ## [0.28.1 - 2022-10-06]
 
