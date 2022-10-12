@@ -3,6 +3,7 @@ from time import time
 from typing import Any, Dict, Optional, Union, TYPE_CHECKING, Tuple
 
 import pandas as pd
+from pkg_resources import require,VersionConflict
 
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
@@ -40,28 +41,30 @@ def lazy_cuml_import_has_dependancy():
     try:
         import warnings
         warnings.filterwarnings("ignore")
-        import cuml  # type: ignore
+        require("cuml>=22.06.00")  # modified to use specific cuml
+        import cuml  # type: ignore      
         return True, 'ok', cuml
+    except VersionConflict as e:
+        return False, e, None
     except ModuleNotFoundError as e:
         return False, e, None
 
 def assert_imported():
-    has_dependancy, import_exn, _ = lazy_umap_import_has_dependancy()
-    if not has_dependancy:
+    has_dependancy_, import_exn, umap_learn = lazy_umap_import_has_dependancy()
+    if not has_dependancy_:
         logger.error("UMAP not found, trying running "
                      "`pip install graphistry[ai]`")
         raise import_exn
 
 def assert_imported_cuml():
     has_cuml_dependancy_, import_cuml_exn, cuml = lazy_cuml_import_has_dependancy()
-    min_cuml_version=22.06
     if not has_cuml_dependancy_:
-        logger.error("cuML not found, trying running "
-                     "`pip install cuml`")
+        # logger.warning("cuML not found, trying running "
+                     # "`pip install cuml`")
         raise import_cuml_exn
-    if (has_cuml_dependancy_) and (float(cuml.__version__.rsplit('.',1)[0])<min_cuml_version):
-        logger.error('cuml engine specified, but only version '+cuml.__version__+' installed; umap requires cuml >= 22.06.00')
-        raise import_cuml_exn
+    elif (has_cuml_dependancy_) and (float(cuml.__version__.rsplit('.',1)[0])<22.06):
+            # logger.warning('cuml engine specified, but only version '+cuml.__version__+' installed; umap requires cuml >= 22.06.00')
+            raise import_cuml_exn
 
 
 UMAPEngineConcrete = Literal["cuml", "umap_learn"]
@@ -74,7 +77,7 @@ def resolve_umap_engine(
     if engine in ["cuml", "umap_learn"]:
         return engine  # type: ignore
     if engine in ["auto"]:
-        has_cuml_dependancy_, _, _ = lazy_cuml_import_has_dependancy()
+        has_cuml_dependancy_, _, cuml = lazy_cuml_import_has_dependancy()
         if has_cuml_dependancy_:
             return "cuml" 
         has_umap_dependancy_, _, _ = lazy_umap_import_has_dependancy()
@@ -416,8 +419,10 @@ class UMAPMixin(MIXIN_BASE):
                 default True.
         :return: self, with attributes set with new data
         """
-
-        assert_imported()
+        if engine=='umap_learn':
+            assert_imported()
+        elif engine=='cuml':
+            assert_imported_cuml()
                 
         umap_kwargs = dict(
             n_components=n_components,
