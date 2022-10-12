@@ -1215,7 +1215,7 @@ def encode_multi_target(ydf, mlb = None):
         MultiLabelBinarizer,
     )
     ydf = ydf.squeeze()  # since its a dataframe, we want series
-    assert isinstance(ydf, pd.Series), f'Target needs to be a single column with (list of lists)'
+    assert isinstance(ydf, pd.Series), 'Target needs to be a single column of (list of lists)'
     column_name = ydf.name
     
     if mlb is None:

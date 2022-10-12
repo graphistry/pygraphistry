@@ -19,15 +19,6 @@ from typing import (
     Type
 )  # noqa
 
-# def lazy_search_import_has_dependency():
-#     try:
-#         import warnings
-#         warnings.filterwarnings('ignore')
-#         from annoy import AnnoyIndex  # noqa: F811
-#         return True, 'ok', AnnoyIndex
-#     except ModuleNotFoundError as e:
-#         return False, e, None
-
 
 logger = setup_logger(__name__, verbose=VERBOSE, fullpath=TRACE)
 
@@ -163,13 +154,13 @@ class SearchToGraphMixin(MIXIN_BASE):
                 logger.error(f'Columns to search for `{query}` \
                              need to be given when fuzzy=False, found {cols}')
                 
-            print(f"-- Word Match: [[ {query} ]]")
+            logger.info(f"-- Word Match: [[ {query} ]]")
             return (
                 pd.concat([search_to_df(query, col, self._nodes) for col in cols]),
                 None
             )
         else:
-            print(f"-- Search: [[ {query} ]]")
+            logger.info(f"-- Search: [[ {query} ]]")
             return self._query(query, thresh=thresh, top_k=top_k)
 
     def search_graph(
@@ -224,7 +215,7 @@ class SearchToGraphMixin(MIXIN_BASE):
                         (edf[src].isin(indices)) & (edf[dst].isin(indices))
                     ]
             else:
-                print('**No results found due to empty DataFrame, returning original graph')
+                logger.warn('**No results found due to empty DataFrame, returning original graph')
                 return res
             
         try:  # for umap'd edges
@@ -237,23 +228,23 @@ class SearchToGraphMixin(MIXIN_BASE):
             tdf = rdf.iloc[found_indices]
         except:  # for explicit relabeled nodes
             tdf = rdf[df[node].isin(found_indices)]
-        print(f"  - Returning edge dataframe of size {edges.shape[0]}")
+        logger.info(f"  - Returning edge dataframe of size {edges.shape[0]}")
         # get all the unique nodes
-        print(f"  - Returning {tdf.shape[0]} unique nodes given scale {scale}")
+        logger.info(f"  - Returning {tdf.shape[0]} unique nodes given scale {scale}")
         
         g = res.edges(edges, src, dst).nodes(tdf, node)
         return g
 
-    def save(self, savepath):
+    def save_search_instance(self, savepath):
         from joblib import dump  # type: ignore   # need to make this onnx or similar
         search = self.search_index
         del self.search_index  # can't pickle Annoy
         dump(self, savepath)
         self.search_index = search  # add it back
-        print(f"Saved: {savepath}")
+        logger.info(f"Saved: {savepath}")
 
     @classmethod
-    def load(self, savepath):
+    def load_search_instance(self, savepath):
         from joblib import load  # type: ignore   # need to make this onnx or similar
         cls = load(savepath)
         cls.build_index()
