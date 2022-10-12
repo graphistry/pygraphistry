@@ -338,7 +338,7 @@ def group_columns_by_dtypes(df: pd.DataFrame, verbose: bool = True) -> Dict:
 
 
 def set_to_numeric(df: pd.DataFrame, cols: List, fill_value: float = 0.0):
-    df[cols] = pd.to_numeric(df[cols], errors="coerce").fillna(fill_value)
+    df[cols] = pd.to_numeric(df[cols], errors="coerce").fillna(fill_value)  # type: ignore
 
 
 def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
