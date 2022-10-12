@@ -260,7 +260,7 @@ class DGLGraphMixin(MIXIN_BASE):
         n_initial = len(edf)
         logger.info(f"Length of edge DataFrame {n_initial}")
 
-        mask = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)
+        mask = np.array(edf[self._source].isin(nodes) & edf[self._destination].isin(nodes), dtype=bool)
         # print(f'MASK: length: {len(mask)}')
         # print(f'OG: length: {len(edf)}')
 
