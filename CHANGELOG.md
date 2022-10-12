@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.28.2 - 2022-10-11]
+
+### Fixed
+
+* `encode_axis()` now correctly sets axis
+
 ## [0.28.1 - 2022-10-06]
 
 ### Changed
