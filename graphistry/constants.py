@@ -5,7 +5,7 @@ TRACE = False  # set to true for full trace of functions
 # source and destination labels for consistent pipeline-ing across files
 SRC = "_src_implicit"
 DST = "_dst_implicit"
-NODE = '_n_implicit'
+NODE = '_n_implicit'  # Is this being use anymore??
 WEIGHT = "_weight"
 # for UMAP reserved namespace
 X = "x"
@@ -13,7 +13,7 @@ Y = "y"
 IMPLICIT_NODE_ID = (
     "_n"  # for g.featurize(..).umap(..) -> g.weighted_edges_from_nodes_df
 )
-
+DISTANCE = '_distance'  # for text search db column
 # ###############################################################
 # consistent clf pipelining and constructor methods across files
 DGL_GRAPH = "DGL_graph"
@@ -42,3 +42,8 @@ SKLEARN = "sklearn"
 # #############################################################
 # Caching and other internals
 CACHE_COERCION_SIZE = 100
+
+
+# #############################################################
+# Annoy defaults
+N_TREES = 10
