@@ -876,8 +876,6 @@ def process_dirty_dataframes(
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
-    #similarity: Optional[str] = None,  # "ngram",
-    #categories: Optional[str] = "auto",
     multilabel: bool = False,
 ) -> Tuple[
     pd.DataFrame,
@@ -968,6 +966,10 @@ def process_dirty_dataframes(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold_target,
             high_card_cat_transformer=GapEncoder(n_topics_target)
+            # if not similarity
+            # else SimilarityEncoder(
+            #     similarity=similarity, categories=categories, n_prototypes=2
+            # ),  # Similarity
         )
 
         y_enc = label_encoder.fit_transform(y)
@@ -1141,8 +1143,6 @@ def process_nodes_dataframes(
         cardinality_threshold_target=cardinality_threshold_target,
         n_topics=n_topics,
         n_topics_target=n_topics_target,
-        #similarity=similarity,
-        #categories=categories,
         multilabel=multilabel
     )
 
@@ -1515,7 +1515,6 @@ def transform_dirty(
     from sklearn.preprocessing import MultiLabelBinarizer
     logger.debug(f"-{name} Encoder:")
     logger.debug(f"\t{data_encoder}\n")
-
     try:
         logger.debug(f"{data_encoder.get_feature_names_in}")
     except Exception as e:
@@ -1531,7 +1530,6 @@ def transform_dirty(
     else:
         X = data_encoder.transform(df)
     # ###################################
-
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
     with warnings.catch_warnings():
@@ -1751,6 +1749,13 @@ class FastEncoder:
 
         return X, y, scaling_pipeline, scaling_pipeline_target
 
+    # def get_column(self, column, kind='nodes'):
+    #     if kind=='nodes':
+    #         X = self._nodes
+    #     elif kind=='edges':
+            
+    #     transformed_columns = X.columns[X.columns.map(lambda x: True if column in x else False)]]
+        # return X[transformed_columns]
 
 # ######################################################################################################################
 #
@@ -2434,10 +2439,6 @@ class FeatureMixin(MIXIN_BASE):
         #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        # similarity: Optional[
-        #     str
-        # ] = None,  # turn this on to 'ngram' in favor of Similarity Encoder
-        # categories: Optional[str] = "auto",
         impute: str = 'median',
         n_quantiles: int = 10,
         output_distribution: str = "normal",
