@@ -638,9 +638,8 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-    print(X.shape, len(columns))
+
     X = transformer.fit_transform(X)
-    print(X.shape)
 
     if keep_n_decimals:
         X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
