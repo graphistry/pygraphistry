@@ -62,14 +62,9 @@ def assert_imported_cuml():
         logger.warning("cuML not found, trying running "
                      "`pip install cuml`")
         raise import_cuml_exn
-    elif (has_cuml_dependancy_) and (float(cuml.__version__.rsplit('.',1)[0])>=min_cuml_version):
-        logger.warning('cuml engine specified, but only version '+cuml.__version__+' installed; umap requires cuml >= 22.06.00')
-        raise import_cuml_exn
-
 
 UMAPEngineConcrete = Literal["cuml", "umap_learn"]
 UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
-
 
 def resolve_umap_engine(
     engine: UMAPEngine,
@@ -133,16 +128,15 @@ def reuse_umap(g: Plottable, memoize: bool, metadata: Any):  # noqa: C901
     )
 
 
-def umap_graph_to_weighted_edges(umap_graph, engine, k, cfg=config):
+def umap_graph_to_weighted_edges(umap_graph, engine,knn, cfg=config):
     logger.debug("Calculating weighted adjacency (edge) DataFrame")
     coo = umap_graph.tocoo()
     src, dst, weight_col = cfg.SRC, cfg.DST, cfg.WEIGHT
-
-    if (k>1) or (engine == "umap_learn"): ## old cuml or umap_learn
+    if (knn is not None) or (engine == "umap_learn"): ## old cuml or umap_learn
         _weighted_edges_df = pd.DataFrame(
             {src: coo.row, dst: coo.col, weight_col: coo.data}
         )
-    elif (engine == "cuml") and (k==1):
+    elif (engine == "cuml") and (knn is None):
         _weighted_edges_df = pd.DataFrame(
             {src: coo.get().row, dst: coo.get().col, weight_col: coo.get().data}
         )
@@ -237,31 +231,26 @@ class UMAPMixin(MIXIN_BASE):
         if (self.engine=='cuml') and (self.suffix<22.06): #(mod_ver<22.06):
             from cuml.neighbors import NearestNeighbors
             import cupy
-            logger.info(f"using cuml<22.06 requires setting knn_graph, default n_neighbors=5. try upgrading `cuml` or using `umap_learn`")
-            k=5
-            knn = NearestNeighbors(k)
+            logger.info(f"using cuml<22.06 requires setting knn_graph. try upgrading `cuml` or using `umap_learn`")
+            knn = NearestNeighbors(self.n_neighbors)
             X=cupy. array(X)
             knn.fit(X) #from cudf
             distances, indices = knn.kneighbors(X)
-            distances = distances.reshape(X.shape[0] * k)
-            indices = indices.reshape(X.shape[0] * k)
-            indptr = cupy.arange(0, (k*X.shape[0])+1, k)
+            distances = distances.reshape(X.shape[0] * self.n_neighbors)
+            indices = indices.reshape(X.shape[0] * self.n_neighbors)
+            indptr = cupy.arange(0, (self.n_neighbors*X.shape[0])+1, self.n_neighbors)
             knn_graph = cupy.sparse.csr_matrix((distances, indices, indptr), shape=(X.shape[0], X.shape[0])).get()
-            df = pd.DataFrame.sparse.from_spmatrix(knn_graph)
-            J=df.sparse.to_dense() 
-            self._umap.fit(X=cupy.asnumpy(X),y=y,knn_graph=J.values)
+            self._umap.fit(X=cupy.asnumpy(X),y=y,knn_graph=knn_graph)
             self._weighted_edges_df = (
-                umap_graph_to_weighted_edges(knn_graph,self.engine,k)
+                umap_graph_to_weighted_edges(knn_graph,self.engine,knn_graph)
             )
-            df = pd.DataFrame.sparse.from_spmatrix(knn_graph)
-            J=df.sparse.to_dense() 
-            self._weighted_adjacency = J #self._umap.graph_
+            self._weighted_adjacency = knn_graph 
         else:
             self._umap.fit(X, y)
 
             # if changing, also update fresh_res
             self._weighted_edges_df = (
-                umap_graph_to_weighted_edges(self._umap.graph_,self.engine,1)
+                umap_graph_to_weighted_edges(self._umap.graph_,self.engine,None)
             )
             self._weighted_adjacency = self._umap.graph_
 
@@ -446,10 +435,10 @@ class UMAPMixin(MIXIN_BASE):
                 default True.
         :return: self, with attributes set with new data
         """
-        # if engine=='umap_learn':
-        #     assert_imported()
-        # elif engine=='cuml':
-        #     assert_imported_cuml()
+        if engine=='umap_learn':
+            assert_imported()
+        elif engine=='cuml':
+            assert_imported_cuml()
                 
         umap_kwargs = dict(
             n_components=n_components,
