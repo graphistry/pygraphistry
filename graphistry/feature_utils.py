@@ -529,7 +529,7 @@ def identity(x):
 
 def get_preprocessing_pipeline(
     use_scaler: str = "robust",
-    impute: bool = True,
+    impute: str = 'median',
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
@@ -580,11 +580,11 @@ def get_preprocessing_pipeline(
     available_quantile_distributions = ["normal", "uniform"]
 
     if impute:
-        logger.debug("Imputing Values using “median” strategy")
+        logger.debug(f"Imputing Values using `{impute}` strategy")
         # impute values -- 
         # if strategy is not 'constant' it will remove np.nan columns
         # breaking subsequent encoding...
-        imputer = SimpleImputer(missing_values=np.nan, strategy="constant")
+        imputer = SimpleImputer(missing_values=np.nan, strategy=impute)
     else:
         imputer = 'passthrough'
     
@@ -613,7 +613,7 @@ def get_preprocessing_pipeline(
         )
     else:
         logger.error(
-            f"`scaling` must be on of {available_preprocessors} "
+            f"`scaling` must be one of {available_preprocessors} "
             f"or {None}, got {scaler}.\nData is not scaled"
         )
     logger.debug(f"Using {use_scaler} scaling")
@@ -631,6 +631,7 @@ def fit_pipeline(
      which helps for when transformer pipeline is scaling or imputer
      which sometime introduce small negative numbers,
      and umap metrics like Hellinger need to be positive
+     
     :param X, DataFrame to transform.
     :param transformer: Pipeline object to fit and transform
     :param keep_n_decimals: Int of how many decimal places to keep in
@@ -650,7 +651,7 @@ def fit_pipeline(
 def impute_and_scale_df(
     df: pd.DataFrame,
     use_scaler: str = "robust",
-    impute: bool = True,
+    impute: str = 'median',
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
@@ -761,7 +762,7 @@ def smart_scaler(
     y_enc,
     use_scaler,
     use_scaler_target,
-    impute: bool = True,
+    impute: str = 'median',
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
@@ -875,8 +876,8 @@ def process_dirty_dataframes(
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
-    similarity: Optional[str] = None,  # "ngram",
-    categories: Optional[str] = "auto",
+    #similarity: Optional[str] = None,  # "ngram",
+    #categories: Optional[str] = "auto",
     multilabel: bool = False,
 ) -> Tuple[
     pd.DataFrame,
@@ -967,10 +968,6 @@ def process_dirty_dataframes(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold_target,
             high_card_cat_transformer=GapEncoder(n_topics_target)
-            if not similarity
-            else SimilarityEncoder(
-                similarity=similarity, categories=categories, n_prototypes=2
-            ),  # Similarity
         )
 
         y_enc = label_encoder.fit_transform(y)
@@ -1025,9 +1022,9 @@ def process_nodes_dataframes(
     min_df: int = 3,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-    similarity: Optional[str] = None,
-    categories: Optional[str] = "auto",
-    impute: bool = True,
+    #similarity: Optional[str] = None,
+    #categories: Optional[str] = "auto",
+    impute: str = 'median',
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
@@ -1144,8 +1141,8 @@ def process_nodes_dataframes(
         cardinality_threshold_target=cardinality_threshold_target,
         n_topics=n_topics,
         n_topics_target=n_topics_target,
-        similarity=similarity,
-        categories=categories,
+        #similarity=similarity,
+        #categories=categories,
         multilabel=multilabel
     )
 
@@ -1302,7 +1299,7 @@ def process_edge_dataframes(
     model_name: str = "paraphrase-MiniLM-L6-v2",
     similarity: Optional[str] = None,
     categories: Optional[str] = "auto",
-    impute: bool = True,
+    impute: str = 'median',
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
@@ -1421,8 +1418,8 @@ def process_edge_dataframes(
         min_df=min_df,
         min_words=min_words,
         model_name=model_name,
-        similarity=similarity,
-        categories=categories,
+        #similarity=similarity,
+        #$categories=categories,
         feature_engine=feature_engine,
     )
 
@@ -1518,8 +1515,7 @@ def transform_dirty(
     from sklearn.preprocessing import MultiLabelBinarizer
     logger.debug(f"-{name} Encoder:")
     logger.debug(f"\t{data_encoder}\n")
-    # print(f"-{name} Encoder:")
-    # print(f"\t{data_encoder}\n")
+
     try:
         logger.debug(f"{data_encoder.get_feature_names_in}")
     except Exception as e:
@@ -1535,7 +1531,6 @@ def transform_dirty(
     else:
         X = data_encoder.transform(df)
     # ###################################
-    # X = data_encoder.transform(df)
 
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
@@ -1756,17 +1751,10 @@ class FastEncoder:
 
         return X, y, scaling_pipeline, scaling_pipeline_target
 
-    # def get_column(self, column, kind='nodes'):
-    #     if kind=='nodes':
-    #         X = self._nodes
-    #     elif kind=='edges':
-            
-    #     transformed_columns = X.columns[X.columns.map(lambda x: True if column in x else False)]]
-        # return X[transformed_columns]
 
 # ######################################################################################################################
 #
-#
+#    Main Mixin
 #
 # ######################################################################################################################
 
@@ -1893,9 +1881,9 @@ class FeatureMixin(MIXIN_BASE):
         #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = "ngram",
-        categories: Optional[str] = "auto",
-        impute: bool = True,
+        #similarity: Optional[str] = "ngram",
+        #categories: Optional[str] = "auto",
+        impute: str = 'median',
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -1954,8 +1942,8 @@ class FeatureMixin(MIXIN_BASE):
             #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
-            similarity=similarity,
-            categories=categories,
+            #similarity=similarity,
+            #categories=categories,
             impute=impute,
             n_quantiles=n_quantiles,
             quantile_range=quantile_range,
@@ -2025,7 +2013,7 @@ class FeatureMixin(MIXIN_BASE):
         model_name: str = "paraphrase-MiniLM-L6-v2",
         #similarity: Optional[str] = "ngram",
         #categories: Optional[str] = "auto",
-        impute: bool = True,
+        impute: str = 'median',
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -2148,7 +2136,7 @@ class FeatureMixin(MIXIN_BASE):
         use_scaler,
         use_scaler_target,
         set_scaler=False,
-        impute: bool = True,
+        impute: str = 'median',
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -2236,7 +2224,7 @@ class FeatureMixin(MIXIN_BASE):
         min_df: int = 3,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        impute: bool = True,
+        impute: str = 'median',
         n_quantiles: int = 100,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -2322,9 +2310,8 @@ class FeatureMixin(MIXIN_BASE):
                 eg: max_df = 0.2,
         :param min_df:  if use_ngrams=True, set min word count to consider in vocabulary
                 eg: min_df = 3    
-        :param categories: Optional[str] in ["auto", "k-means", "most_frequent"], decides which 
-                category to select in Similarity Encoding, default 'auto'
-        :param impute: Whether to impute missing values, default True
+        :param impute: Whether to impute missing values using impute as strategy, default 'median'
+                if input has a column of np.nan's, set `impute='constant'`
         :param n_quantiles: if use_scaler = 'quantile',
                 sets the quantile bin size.
         :param output_distribution: if use_scaler = 'quantile',
@@ -2451,7 +2438,7 @@ class FeatureMixin(MIXIN_BASE):
         #     str
         # ] = None,  # turn this on to 'ngram' in favor of Similarity Encoder
         # categories: Optional[str] = "auto",
-        impute: bool = True,
+        impute: str = 'median',
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -2546,7 +2533,7 @@ class FeatureMixin(MIXIN_BASE):
         #     str
         # ] = None,  # turn this off in favor of Gap Encoder
         # categories: Optional[str] = "auto",
-        impute: bool = True,
+        impute: str = 'median', 
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
