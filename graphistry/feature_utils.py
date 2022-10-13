@@ -197,6 +197,7 @@ def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
     if X is None:
         return df
     elif isinstance(X, str):
+        print(X)
         return df[[X]]
     elif isinstance(X, list):
         return df[X]
@@ -578,13 +579,16 @@ def get_preprocessing_pipeline(
     ]
     available_quantile_distributions = ["normal", "uniform"]
 
-    imputer = identity
     if impute:
         logger.debug("Imputing Values using “median” strategy")
-        # impute values
-        imputer = SimpleImputer(missing_values=np.nan, strategy="median")
-    scaler = identity
-
+        # impute values -- 
+        # if strategy is not 'constant' it will remove np.nan columns
+        # breaking subsequent encoding...
+        imputer = SimpleImputer(missing_values=np.nan, strategy="constant")
+    else:
+        imputer = 'passthrough'
+    
+    scaler = MockTransformer()
     if use_scaler == "minmax":
         # scale the resulting values column-wise between min and max
         # column values and sets them between 0 and 1
@@ -634,8 +638,10 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-
+    print(X.shape, len(columns))
     X = transformer.fit_transform(X)
+    print(X.shape)
+
     if keep_n_decimals:
         X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
 
@@ -826,6 +832,15 @@ class callThrough:
     def __call__(self, *args, **kwargs):
         return self.x
 
+class MockTransformer:
+    def __init__(self):
+        pass
+    
+    def transform(self, X, y=None):
+        return X, y
+
+    def fit(self, X, y=None):
+        return X, y
 
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
