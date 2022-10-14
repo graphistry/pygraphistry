@@ -399,6 +399,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                 self.assertGreaterEqual(shape[0], last_shape)
                 last_shape = shape[0]
 
+
 @pytest.mark.skipif(
     not has_dependancy or not has_cuml,
     reason="requires cuml feature dependencies",
@@ -561,4 +562,3 @@ class TestCUMLMethods(TestUMAPMethods):
 
 if __name__ == "__main__":
     unittest.main()
-    
