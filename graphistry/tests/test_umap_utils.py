@@ -403,8 +403,6 @@ class TestUMAPAIMethods(TestUMAPMethods):
     not has_dependancy or not has_cuml,
     reason="requires cuml feature dependencies",
 )
-
-
 class TestCUMLMethods(TestUMAPMethods):
     @pytest.mark.skipif(
         not has_dependancy or not has_cuml,
