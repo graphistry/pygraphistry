@@ -482,10 +482,6 @@ class UMAPMixin(MIXIN_BASE):
                 )
 
             nodes = res._nodes[res._node].values
-            # print('-*'*40)
-            # print(nodes)
-            # print('-*'*40)
-
             index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
             logger.debug("propagating with featurize_kwargs: %s",
