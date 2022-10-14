@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
 has_umap, _, cuml = lazy_cuml_import_has_dependancy()
-min_cuml_version=22.06 ##due to requiring KBinsDiscretizer https://github.com/rapidsai/cuml/pull/4735
-if (not has_umap) or (float(cuml.__version__.rsplit('.',1)[0])<min_cuml_version):
+min_cuml_version = 22.06
+if (not has_umap) or (float(cuml.__version__.rsplit('.',1)[0]) < min_cuml_version):
     has_umap, _, _ = lazy_umap_import_has_dependancy()
     logger.debug(f"{'cuml_engine'}: {'umap_learn'}")
 

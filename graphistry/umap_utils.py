@@ -132,7 +132,7 @@ def umap_graph_to_weighted_edges(umap_graph, engine,knn, cfg=config):
     logger.debug("Calculating weighted adjacency (edge) DataFrame")
     coo = umap_graph.tocoo()
     src, dst, weight_col = cfg.SRC, cfg.DST, cfg.WEIGHT
-    if (knn is not None) or (engine == "umap_learn"): ## old cuml or umap_learn
+    if (knn is not None) or (engine == "umap_learn"):
         _weighted_edges_df = pd.DataFrame(
             {src: coo.row, dst: coo.col, weight_col: coo.data}
         )
@@ -199,8 +199,8 @@ class UMAPMixin(MIXIN_BASE):
             self._umap = umap_engine.UMAP(**umap_kwargs)
             self.umap_initialized = True
             self.engine = engine_resolved
-            if (engine_resolved=='cuml'):# and (float(umap_engine.__version__[:5])<22.06):
-                self.suffix = float(umap_engine.__version__[:5]) ##
+            if (engine_resolved=='cuml'):
+                self.suffix = float(umap_engine.__version__[:5])
             else:
                 self.suffix = suffix
                 
@@ -231,14 +231,14 @@ class UMAPMixin(MIXIN_BASE):
         if (self.engine=='cuml') and (self.suffix<22.06): #(mod_ver<22.06):
             from cuml.neighbors import NearestNeighbors
             import cupy
-            logger.info(f"using cuml<22.06 requires setting knn_graph. try upgrading `cuml` or using `umap_learn`")
+            logger.info(f"using cuml<22.06 requires setting knn_graph. try upgrading 'cuml' or using 'umap_learn'")
             knn = NearestNeighbors(self.n_neighbors)
-            X=cupy. array(X)
-            knn.fit(X) #from cudf
+            X = cupy. array(X)
+            knn.fit(X)
             distances, indices = knn.kneighbors(X)
             distances = distances.reshape(X.shape[0] * self.n_neighbors)
             indices = indices.reshape(X.shape[0] * self.n_neighbors)
-            indptr = cupy.arange(0, (self.n_neighbors*X.shape[0])+1, self.n_neighbors)
+            indptr = cupy.arange(0, (self.n_neighbors * X.shape[0])+1, self.n_neighbors)
             knn_graph = cupy.sparse.csr_matrix((distances, indices, indptr), shape=(X.shape[0], X.shape[0])).get()
             self._umap.fit(X=cupy.asnumpy(X),y=y,knn_graph=knn_graph)
             self._weighted_edges_df = (
@@ -435,9 +435,9 @@ class UMAPMixin(MIXIN_BASE):
                 default True.
         :return: self, with attributes set with new data
         """
-        if engine=='umap_learn':
+        if engine == 'umap_learn':
             assert_imported()
-        elif engine=='cuml':
+        elif engine == 'cuml':
             assert_imported_cuml()
                 
         umap_kwargs = dict(
