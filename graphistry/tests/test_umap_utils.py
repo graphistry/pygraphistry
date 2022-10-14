@@ -24,13 +24,14 @@ from graphistry.tests.test_feature_utils import (
 )
 from graphistry.umap_utils import lazy_umap_import_has_dependancy, lazy_cuml_import_has_dependancy
 
-logger = logging.getLogger(__name__)
-
 has_dependancy, _ = lazy_import_has_min_dependancy()
 has_cuml, _, _ = lazy_cuml_import_has_dependancy()
 has_umap, _, _ = lazy_umap_import_has_dependancy()
 
+logger = logging.getLogger(__name__)
+
 warnings.filterwarnings('ignore')
+
 
 triangleEdges = pd.DataFrame(
     {
@@ -260,6 +261,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                                 value = [scaler, cardinality, use_ngram, target, use_col]
                                 logger.debug(f"{value}")
                                 logger.debug("-" * 80)
+                            
                                 g2 = g.umap(kind=kind,
                                     X=use_col,
                                     y=target,
@@ -267,7 +269,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                                     use_scaler=scaler,
                                     use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
-                                    engine='umap_learn',
+                                    engine='umap_learn'
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality,
                                     n_neighbors=3)
@@ -401,8 +403,13 @@ class TestUMAPAIMethods(TestUMAPMethods):
     not has_dependancy or not has_cuml,
     reason="requires cuml feature dependencies",
 )
-class TestCUMLMethods(TestUMAPMethods):
 
+
+class TestCUMLMethods(TestUMAPMethods):
+    @pytest.mark.skipif(
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
+    )
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -415,6 +422,7 @@ class TestCUMLMethods(TestUMAPMethods):
                                 value = [scaler, cardinality, use_ngram, target, use_col]
                                 logger.debug(f"{value}")
                                 logger.debug("-" * 80)
+                            
                                 g2 = g.umap(kind=kind,
                                     X=use_col,
                                     y=target,
@@ -422,7 +430,6 @@ class TestCUMLMethods(TestUMAPMethods):
                                     use_scaler=scaler,
                                     use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
-                                    engine='cuml',
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality,
                                     n_neighbors=3)
@@ -534,8 +541,8 @@ class TestCUMLMethods(TestUMAPMethods):
         assert g2._node_target.shape[1] == n_topics_target, 'Targets '
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_cuml,
-        reason="requires cuml feature dependencies",
+        not has_dependancy or not has_umap,
+        reason="requires ai+umap feature dependencies",
     )
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(ndf_reddit))]:
@@ -552,6 +559,6 @@ class TestCUMLMethods(TestUMAPMethods):
                 self.assertGreaterEqual(shape[0], last_shape)
                 last_shape = shape[0]
 
-                
+
 if __name__ == "__main__":
     unittest.main()
