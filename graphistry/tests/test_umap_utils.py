@@ -397,11 +397,12 @@ class TestUMAPAIMethods(TestUMAPMethods):
                 self.assertGreaterEqual(shape[0], last_shape)
                 last_shape = shape[0]
 
+@pytest.mark.skipif(
+    not has_dependancy or not has_cuml,
+    reason="requires cuml feature dependencies",
+)
 class TestCUMLMethods(TestUMAPMethods):
-    @pytest.mark.skipif(
-        not has_dependancy or not has_cuml,
-        reason="requires cuml feature dependencies",
-    )
+
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -429,8 +430,8 @@ class TestCUMLMethods(TestUMAPMethods):
                                 self.cases_test_graph(g2, kind=kind, df=df)
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_umap,
-        reason="requires ai+umap feature dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_node_umap(self):
         g = graphistry.nodes(ndf_reddit)
@@ -452,8 +453,8 @@ class TestCUMLMethods(TestUMAPMethods):
             )
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_umap,
-        reason="requires ai+umap feature dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_edge_umap(self):
         g = graphistry.edges(edge_df2, "src", "dst")
@@ -474,8 +475,8 @@ class TestCUMLMethods(TestUMAPMethods):
             )
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_umap,
-        reason="requires ai+umap feature dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_chaining_nodes(self):
         g = graphistry.nodes(ndf_reddit)
@@ -495,8 +496,8 @@ class TestCUMLMethods(TestUMAPMethods):
         assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
         
     @pytest.mark.skipif(
-        not has_dependancy or not has_umap,
-        reason="requires ai+umap feature dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_chaining_edges(self):
         g = graphistry.edges(edge_df, "src", "dst")
@@ -512,8 +513,8 @@ class TestCUMLMethods(TestUMAPMethods):
         assert all(g2._edge_features == g3._edge_features)
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_umap,
-        reason="requires ai+umap feature dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_feature_kwargs_yield_different_values_using_umap_api(self):
         g = graphistry.nodes(ndf_reddit)
@@ -533,8 +534,8 @@ class TestCUMLMethods(TestUMAPMethods):
         assert g2._node_target.shape[1] == n_topics_target, 'Targets '
 
     @pytest.mark.skipif(
-        not has_dependancy or not has_umap,
-        reason="requires ai+umap feature dependencies",
+        not has_dependancy or not has_cuml,
+        reason="requires cuml feature dependencies",
     )
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(ndf_reddit))]:
