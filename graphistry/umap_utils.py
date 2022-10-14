@@ -3,7 +3,6 @@ from time import time
 from typing import Any, Dict, Optional, Union, TYPE_CHECKING, Tuple
 
 import pandas as pd
-# from pkg_resources import require,VersionConflict
 
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
@@ -222,6 +221,7 @@ class UMAPMixin(MIXIN_BASE):
         y = self._check_target_is_one_dimensional(y)
         logger.info('-' * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
+        
         def is_old_cuml():
             import cuml
             vs = cuml.__version__.split(".")
@@ -230,8 +230,6 @@ class UMAPMixin(MIXIN_BASE):
             else:
                 return False
         if (self.engine == 'cuml' and is_old_cuml()):
-            # _, _, umap_engine = lazy_cuml_import_has_dependancy()
-            # if (float(''.join(umap_engine.__version__.rsplit('.', 1))) < 22.06):
             from cuml.neighbors import NearestNeighbors
             import cupy
             knn = NearestNeighbors(self.n_neighbors)
@@ -247,8 +245,6 @@ class UMAPMixin(MIXIN_BASE):
                 umap_graph_to_weighted_edges(knn_graph, self.engine, knn_graph)
             )
             self._weighted_adjacency = knn_graph
-            # else:
-                # return
         else:
             self._umap.fit(X, y)
 
@@ -272,7 +268,6 @@ class UMAPMixin(MIXIN_BASE):
         emb = self._umap.transform(X)
         emb = self._bundle_embedding(emb, index=X.index)
         return emb
-
 
     def transform_umap(  # noqa: E303
         self, df: pd.DataFrame, ydf: pd.DataFrame,
