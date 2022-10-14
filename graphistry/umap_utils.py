@@ -36,12 +36,12 @@ def lazy_umap_import_has_dependancy():
         return True, 'ok', umap
     except ModuleNotFoundError as e:
         return False, e, None
-    
+
 def lazy_cuml_import_has_dependancy():
     try:
         import warnings
         warnings.filterwarnings("ignore")
-        import cuml  # type: ignore      
+        import cuml  # type: ignore
         return True, 'ok', cuml
     except ModuleNotFoundError as e:
         return False, e, None
@@ -60,7 +60,7 @@ def assert_imported_cuml():
                      "`pip install cuml`")
         raise import_cuml_exn
 
-        
+
 UMAPEngineConcrete = Literal["cuml", "umap_learn"]
 UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
 
@@ -163,7 +163,7 @@ class UMAPMixin(MIXIN_BASE):
         n_components: int = 2,
         metric: str = "euclidean",
         engine: UMAPEngine = "auto",
-        suffix = "",
+        suffix: str = "",
     ):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
@@ -199,7 +199,7 @@ class UMAPMixin(MIXIN_BASE):
             self.engine = engine_resolved
             self.suffix = suffix
 
-                
+
     def _check_target_is_one_dimensional(self, y: Union[pd.DataFrame, None]):
         if y is None:
             return None
@@ -225,7 +225,7 @@ class UMAPMixin(MIXIN_BASE):
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
         if (self.engine == 'cuml'):
             _, _, umap_engine = lazy_cuml_import_has_dependancy()
-            if (float(''.join(umap_engine.__version__.rsplit('.', 1)))<22.06):
+            if (float(''.join(umap_engine.__version__.rsplit('.', 1))) < 22.06):
                 from cuml.neighbors import NearestNeighbors
                 import cupy
                 knn = NearestNeighbors(self.n_neighbors)
@@ -236,20 +236,13 @@ class UMAPMixin(MIXIN_BASE):
                 indices = indices.reshape(X.shape[0] * self.n_neighbors)
                 indptr = cupy.arange(0, (self.n_neighbors * X.shape[0]) + 1, self.n_neighbors)
                 knn_graph = cupy.sparse.csr_matrix((distances, indices, indptr), shape=(X.shape[0], X.shape[0])).get()
-                self._umap.fit(X=cupy.asnumpy(X),y=y,knn_graph=knn_graph)
+                self._umap.fit(X=cupy.asnumpy(X), y=y, knn_graph=knn_graph)
                 self._weighted_edges_df = (
-                    umap_graph_to_weighted_edges(knn_graph,self.engine,knn_graph)
+                    umap_graph_to_weighted_edges(knn_graph, self.engine, knn_graph)
                 )
                 self._weighted_adjacency = knn_graph
             else:
                 return
-#                 self._umap.fit(X, y)
-
-#                 # if changing, also update fresh_res
-#                 self._weighted_edges_df = (
-#                     umap_graph_to_weighted_edges(self._umap.graph_,self.engine,None)
-#                 )
-#                 self._weighted_adjacency = self._umap.graph_
         else:
             self._umap.fit(X, y)
 
@@ -312,7 +305,7 @@ class UMAPMixin(MIXIN_BASE):
             Returns res mutated with new _xy
         """
         res._umap = self._umap
-        
+
         logger.debug("process_umap before kwargs: %s", umap_kwargs)
         umap_kwargs.update({"kind": kind, "X": X_, "y": y_})
         umap_kwargs = {**umap_kwargs,
@@ -387,7 +380,7 @@ class UMAPMixin(MIXIN_BASE):
         negative_sample_rate: int = 5,
         n_components: int = 2,
         metric: str = "euclidean",
-        suffix = "",
+        suffix: str = "",
         play: Optional[int] = 0,
         encode_position: bool = True,
         encode_weight: bool = True,
@@ -444,7 +437,7 @@ class UMAPMixin(MIXIN_BASE):
             assert_imported()
         elif engine == 'cuml':
             assert_imported_cuml()
-                
+
         umap_kwargs = dict(
             n_components=n_components,
             metric=metric,
@@ -462,7 +455,7 @@ class UMAPMixin(MIXIN_BASE):
             res = self
         else:
             res = self.bind()
-        
+
         res.umap_lazy_init(engine=engine, suffix=suffix)
         # res.suffix = suffix
 
