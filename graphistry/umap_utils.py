@@ -166,7 +166,7 @@ class UMAPMixin(MIXIN_BASE):
         n_components: int = 2,
         metric: str = "euclidean",
         engine: UMAPEngine = "auto",
-        suffix: str = "",
+        suffix = "",
     ):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
