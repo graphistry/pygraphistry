@@ -256,23 +256,23 @@ class TestUMAPAIMethods(TestUMAPMethods):
                     for use_ngram in [True, False]:
                         for use_col in use_cols:
                             for target in targets:
-                                    logger.debug("*" * 90)
-                                    value = [scaler, cardinality, use_ngram, target, use_col]
-                                    logger.debug(f"{value}")
-                                    logger.debug("-" * 80)
-                                    g2 = g.umap(kind=kind,
-                                        X=use_col,
-                                        y=target,
-                                        model_name=model_avg_name,
-                                        use_scaler=scaler,
-                                        use_scaler_target=scaler,
-                                        use_ngrams=use_ngram,
-                                        engine='umap_learn',
-                                        cardinality_threshold=cardinality,
-                                        cardinality_threshold_target=cardinality,
-                                        n_neighbors=3)
+                                logger.debug("*" * 90)
+                                value = [scaler, cardinality, use_ngram, target, use_col]
+                                logger.debug(f"{value}")
+                                logger.debug("-" * 80)
+                                g2 = g.umap(kind=kind,
+                                    X=use_col,
+                                    y=target,
+                                    model_name=model_avg_name,
+                                    use_scaler=scaler,
+                                    use_scaler_target=scaler,
+                                    use_ngrams=use_ngram,
+                                    engine='umap_learn',
+                                    cardinality_threshold=cardinality,
+                                    cardinality_threshold_target=cardinality,
+                                    n_neighbors=3)
 
-                                    self.cases_test_graph(g2, kind=kind, df=df)
+                                self.cases_test_graph(g2, kind=kind, df=df)
 
     @pytest.mark.skipif(
         not has_dependancy or not has_umap,
@@ -410,23 +410,23 @@ class TestCUMLMethods(TestUMAPMethods):
                     for use_ngram in [True, False]:
                         for use_col in use_cols:
                             for target in targets:
-                                    logger.debug("*" * 90)
-                                    value = [scaler, cardinality, use_ngram, target, use_col]
-                                    logger.debug(f"{value}")
-                                    logger.debug("-" * 80)
-                                    g2 = g.umap(kind=kind,
-                                        X=use_col,
-                                        y=target,
-                                        model_name=model_avg_name,
-                                        use_scaler=scaler,
-                                        use_scaler_target=scaler,
-                                        use_ngrams=use_ngram,
-                                        engine='cuml',
-                                        cardinality_threshold=cardinality,
-                                        cardinality_threshold_target=cardinality,
-                                        n_neighbors=3)
+                                logger.debug("*" * 90)
+                                value = [scaler, cardinality, use_ngram, target, use_col]
+                                logger.debug(f"{value}")
+                                logger.debug("-" * 80)
+                                g2 = g.umap(kind=kind,
+                                    X=use_col,
+                                    y=target,
+                                    model_name=model_avg_name,
+                                    use_scaler=scaler,
+                                    use_scaler_target=scaler,
+                                    use_ngrams=use_ngram,
+                                    engine='cuml',
+                                    cardinality_threshold=cardinality,
+                                    cardinality_threshold_target=cardinality,
+                                    n_neighbors=3)
 
-                                    self.cases_test_graph(g2, kind=kind, df=df)
+                                self.cases_test_graph(g2, kind=kind, df=df)
 
     @pytest.mark.skipif(
         not has_dependancy or not has_umap,

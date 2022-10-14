@@ -240,8 +240,7 @@ class UMAPMixin(MIXIN_BASE):
             indices = indices.reshape(X.shape[0] * self.n_neighbors)
             indptr = cupy.arange(0, (self.n_neighbors * X.shape[0]) + 1, self.n_neighbors)
             knn_graph = cupy.sparse.csr_matrix((distances, indices, indptr), shape=(X.shape[0], X.shape[0])).get()
-            self._umap.graph_=self._umap.fit(X=cupy.asnumpy(X), y=y, knn_graph=knn_graph)
-            print(self._umap.graph_)
+            self._umap.graph_ = self._umap.fit(X=cupy.asnumpy(X), y=y, knn_graph=knn_graph)
             self._weighted_edges_df = (
                 umap_graph_to_weighted_edges(knn_graph, self.engine, knn_graph)
             )
