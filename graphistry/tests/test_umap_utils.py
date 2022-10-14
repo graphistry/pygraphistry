@@ -269,7 +269,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                                     use_scaler=scaler,
                                     use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
-                                    engine='umap_learn'
+                                    engine='umap_learn',
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality,
                                     n_neighbors=3)
@@ -430,6 +430,7 @@ class TestCUMLMethods(TestUMAPMethods):
                                     use_scaler=scaler,
                                     use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
+                                    engine='cuml',
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality,
                                     n_neighbors=3)
