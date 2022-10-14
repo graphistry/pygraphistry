@@ -384,7 +384,7 @@ class UMAPMixin(MIXIN_BASE):
         negative_sample_rate: int = 5,
         n_components: int = 2,
         metric: str = "euclidean",
-        suffix: str = "",
+        suffix = "",
         play: Optional[int] = 0,
         encode_position: bool = True,
         encode_weight: bool = True,
