@@ -228,8 +228,7 @@ class UMAPMixin(MIXIN_BASE):
         y = self._check_target_is_one_dimensional(y)
         logger.info('-' * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
-        # mod_ver=eval(self._umap().__module__.split('.')[0]).__version__
-        if (self.engine == 'cuml') and (self.suffix < 22.06): #(mod_ver<22.06):
+        if (self.engine == 'cuml') and (self.suffix < 22.06):
             from cuml.neighbors import NearestNeighbors
             import cupy
             logger.info("using cuml<22.06 requires setting knn_graph. try upgrading 'cuml' or using 'umap_learn'")
