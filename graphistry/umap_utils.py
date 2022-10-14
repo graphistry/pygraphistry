@@ -218,31 +218,37 @@ class UMAPMixin(MIXIN_BASE):
         self.umap_lazy_init()
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
-
         t = time()
         y = self._check_target_is_one_dimensional(y)
         logger.info('-' * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
-        if (self.engine == 'cuml'):
-            _, _, umap_engine = lazy_cuml_import_has_dependancy()
-            if (float(''.join(umap_engine.__version__.rsplit('.', 1))) < 22.06):
-                from cuml.neighbors import NearestNeighbors
-                import cupy
-                knn = NearestNeighbors(self.n_neighbors)
-                X = cupy. array(X)
-                knn.fit(X)
-                distances, indices = knn.kneighbors(X)
-                distances = distances.reshape(X.shape[0] * self.n_neighbors)
-                indices = indices.reshape(X.shape[0] * self.n_neighbors)
-                indptr = cupy.arange(0, (self.n_neighbors * X.shape[0]) + 1, self.n_neighbors)
-                knn_graph = cupy.sparse.csr_matrix((distances, indices, indptr), shape=(X.shape[0], X.shape[0])).get()
-                self._umap.fit(X=cupy.asnumpy(X), y=y, knn_graph=knn_graph)
-                self._weighted_edges_df = (
-                    umap_graph_to_weighted_edges(knn_graph, self.engine, knn_graph)
-                )
-                self._weighted_adjacency = knn_graph
+        def is_old_cuml():
+            import cuml
+            vs = cuml.__version__.split(".")
+            if (vs[0] in ['0', '21']) or (vs[0] == '22' and float(vs[1]) < 6):
+                return True
             else:
-                return
+                return False
+        if (self.engine == 'cuml' and is_old_cuml()):
+            # _, _, umap_engine = lazy_cuml_import_has_dependancy()
+            # if (float(''.join(umap_engine.__version__.rsplit('.', 1))) < 22.06):
+            from cuml.neighbors import NearestNeighbors
+            import cupy
+            knn = NearestNeighbors(self.n_neighbors)
+            X = cupy. array(X)
+            knn.fit(X)
+            distances, indices = knn.kneighbors(X)
+            distances = distances.reshape(X.shape[0] * self.n_neighbors)
+            indices = indices.reshape(X.shape[0] * self.n_neighbors)
+            indptr = cupy.arange(0, (self.n_neighbors * X.shape[0]) + 1, self.n_neighbors)
+            knn_graph = cupy.sparse.csr_matrix((distances, indices, indptr), shape=(X.shape[0], X.shape[0])).get()
+            self._umap.fit(X=cupy.asnumpy(X), y=y, knn_graph=knn_graph)
+            self._weighted_edges_df = (
+                umap_graph_to_weighted_edges(knn_graph, self.engine, knn_graph)
+            )
+            self._weighted_adjacency = knn_graph
+            # else:
+                # return
         else:
             self._umap.fit(X, y)
 
