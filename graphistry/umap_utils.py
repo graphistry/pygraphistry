@@ -63,6 +63,7 @@ def assert_imported_cuml():
                      "`pip install cuml`")
         raise import_cuml_exn
 
+        
 UMAPEngineConcrete = Literal["cuml", "umap_learn"]
 UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
 
@@ -199,7 +200,7 @@ class UMAPMixin(MIXIN_BASE):
             self._umap = umap_engine.UMAP(**umap_kwargs)
             self.umap_initialized = True
             self.engine = engine_resolved
-            if (engine_resolved=='cuml'):
+            if (engine_resolved == 'cuml'):
                 self.suffix = float(umap_engine.__version__[:5])
             else:
                 self.suffix = suffix
@@ -228,17 +229,17 @@ class UMAPMixin(MIXIN_BASE):
         logger.info('-' * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
         # mod_ver=eval(self._umap().__module__.split('.')[0]).__version__
-        if (self.engine=='cuml') and (self.suffix<22.06): #(mod_ver<22.06):
+        if (self.engine == 'cuml') and (self.suffix < 22.06): #(mod_ver<22.06):
             from cuml.neighbors import NearestNeighbors
             import cupy
-            logger.info(f"using cuml<22.06 requires setting knn_graph. try upgrading 'cuml' or using 'umap_learn'")
+            logger.info("using cuml<22.06 requires setting knn_graph. try upgrading 'cuml' or using 'umap_learn'")
             knn = NearestNeighbors(self.n_neighbors)
             X = cupy. array(X)
             knn.fit(X)
             distances, indices = knn.kneighbors(X)
             distances = distances.reshape(X.shape[0] * self.n_neighbors)
             indices = indices.reshape(X.shape[0] * self.n_neighbors)
-            indptr = cupy.arange(0, (self.n_neighbors * X.shape[0])+1, self.n_neighbors)
+            indptr = cupy.arange(0, (self.n_neighbors * X.shape[0]) + 1, self.n_neighbors)
             knn_graph = cupy.sparse.csr_matrix((distances, indices, indptr), shape=(X.shape[0], X.shape[0])).get()
             self._umap.fit(X=cupy.asnumpy(X),y=y,knn_graph=knn_graph)
             self._weighted_edges_df = (
