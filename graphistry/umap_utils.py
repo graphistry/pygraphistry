@@ -125,7 +125,7 @@ def reuse_umap(g: Plottable, memoize: bool, metadata: Any):  # noqa: C901
     )
 
 
-def umap_graph_to_weighted_edges(umap_graph, engine,knn, cfg=config):
+def umap_graph_to_weighted_edges(umap_graph, engine, knn, cfg=config):
     logger.debug("Calculating weighted adjacency (edge) DataFrame")
     coo = umap_graph.tocoo()
     src, dst, weight_col = cfg.SRC, cfg.DST, cfg.WEIGHT
@@ -214,7 +214,6 @@ class UMAPMixin(MIXIN_BASE):
             return None
 
     def umap_fit(self, X: pd.DataFrame, y: Union[pd.DataFrame, None] = None):
-        self.umap_lazy_init()
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         t = time()
@@ -261,7 +260,6 @@ class UMAPMixin(MIXIN_BASE):
 
     def umap_fit_transform(self, X: pd.DataFrame,
                            y: Union[pd.DataFrame, None] = None):
-        self.umap_lazy_init()
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         self.umap_fit(X, y)
