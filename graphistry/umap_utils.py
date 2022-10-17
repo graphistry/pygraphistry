@@ -523,7 +523,7 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
             res = res._process_umap(res, X_, y_, kind, memoize,
-                                     featurize_kwargs, **umap_kwargs)
+                                featurize_kwargs, **umap_kwargs)
             res._weighted_adjacency_edges = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError("This should not happen")
