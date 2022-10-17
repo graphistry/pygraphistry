@@ -522,7 +522,7 @@ class UMAPMixin(MIXIN_BASE):
             ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
-            res = self._process_umap(res, X_, y_, kind, memoize,
+            res = res._process_umap(res, X_, y_, kind, memoize,
                                      featurize_kwargs, **umap_kwargs)
             res._weighted_adjacency_edges = res._weighted_adjacency
             if res._xy is None:
@@ -562,7 +562,7 @@ class UMAPMixin(MIXIN_BASE):
             raise ValueError(
                 f"`kind` needs to be one of `nodes`, `edges`, `None`, got {kind}"  # noqa: E501
             )
-        res = self._bind_xy_from_umap(res, kind, encode_position, encode_weight, play)  # noqa: E501
+        res = res._bind_xy_from_umap(res, kind, encode_position, encode_weight, play)  # noqa: E501
         if not inplace:
             return res
 
