@@ -125,15 +125,15 @@ def reuse_umap(g: Plottable, memoize: bool, metadata: Any):  # noqa: C901
     )
 
 
-def umap_graph_to_weighted_edges(umap_graph, engine, knn, cfg=config):
+def umap_graph_to_weighted_edges(umap_graph, engine, is_old, cfg=config):
     logger.debug("Calculating weighted adjacency (edge) DataFrame")
     coo = umap_graph.tocoo()
     src, dst, weight_col = cfg.SRC, cfg.DST, cfg.WEIGHT
-    if (knn is not None) or (engine == "umap_learn"):
+    if (is_old is True) or (engine == "umap_learn"):
         _weighted_edges_df = pd.DataFrame(
             {src: coo.row, dst: coo.col, weight_col: coo.data}
         )
-    elif (engine == "cuml") and (knn is None):
+    elif (engine == "cuml") and (is_old is False):
         _weighted_edges_df = pd.DataFrame(
             {src: coo.get().row, dst: coo.get().col, weight_col: coo.get().data}
         )
@@ -240,8 +240,9 @@ class UMAPMixin(MIXIN_BASE):
             indptr = cupy.arange(0, (self.n_neighbors * X.shape[0]) + 1, self.n_neighbors)
             knn_graph = cupy.sparse.csr_matrix((distances, indices, indptr), shape=(X.shape[0], X.shape[0])).get()
             self._umap.graph_ = self._umap.fit(X=cupy.asnumpy(X), y=y, knn_graph=knn_graph)
+            is_old=is_old_cuml()
             self._weighted_edges_df = (
-                umap_graph_to_weighted_edges(knn_graph, self.engine, knn_graph)
+                umap_graph_to_weighted_edges(knn_graph, self.engine, is_old)
             )
             self._weighted_adjacency = self._umap.graph_.embedding_
         else:
