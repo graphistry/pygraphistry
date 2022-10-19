@@ -85,7 +85,7 @@ class HeteroEmbed(nn.Module):
         # returns node embeddings
         return self.rgcn(g, node_ids)
 
-    def score(self, node_embedding, triplets)
+    def score(self, node_embedding, triplets):
         h, r, t = triplets.T
         h, r, t = node_embedding[h], self.relational_embedding[r], node_embedding[t]
         return self.proto(h, r, t)
