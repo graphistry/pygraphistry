@@ -59,7 +59,14 @@ def assert_imported_cuml():
                      "`pip install cuml`")
         raise import_cuml_exn
 
-
+def is_old_cuml():
+    import cuml
+    vs = cuml.__version__.split(".")
+    if (vs[0] in ['0', '21']) or (vs[0] == '22' and float(vs[1]) < 6):
+        return True
+    else:
+        return False
+        
 UMAPEngineConcrete = Literal["cuml", "umap_learn"]
 UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
 
@@ -71,10 +78,10 @@ def resolve_umap_engine(
     if engine in ["auto"]:
         has_cuml_dependancy_, _, cuml = lazy_cuml_import_has_dependancy()
         if has_cuml_dependancy_:
-            return "cuml" 
+            return "cuml"
         has_umap_dependancy_, _, _ = lazy_umap_import_has_dependancy()
         if has_umap_dependancy_:
-            return "umap_learn" 
+            return "umap_learn"
 
     raise ValueError(  # noqa
         f'engine expected to be "auto", '
@@ -129,11 +136,11 @@ def umap_graph_to_weighted_edges(umap_graph, engine, is_old, cfg=config):
     logger.debug("Calculating weighted adjacency (edge) DataFrame")
     coo = umap_graph.tocoo()
     src, dst, weight_col = cfg.SRC, cfg.DST, cfg.WEIGHT
-    if (is_old is True) or (engine == "umap_learn"):
+    if (engine == "umap_learn") or is_old:
         _weighted_edges_df = pd.DataFrame(
             {src: coo.row, dst: coo.col, weight_col: coo.data}
         )
-    elif (engine == "cuml") and (is_old is False):
+    elif (engine == "cuml") and not is_old:
         _weighted_edges_df = pd.DataFrame(
             {src: coo.get().row, dst: coo.get().col, weight_col: coo.get().data}
         )
@@ -220,39 +227,23 @@ class UMAPMixin(MIXIN_BASE):
         y = self._check_target_is_one_dimensional(y)
         logger.info('-' * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
-        
-        def is_old_cuml():
+
+        is_old = is_old_cuml()
+        if (self.engine == 'cuml' and is_old):
             import cuml
-            vs = cuml.__version__.split(".")
-            if (vs[0] in ['0', '21']) or (vs[0] == '22' and float(vs[1]) < 6):
-                return True
-            else:
-                return False
-        if (self.engine == 'cuml' and is_old_cuml()):
-            from cuml.neighbors import NearestNeighbors
-            import cupy
-            knn = NearestNeighbors(self.n_neighbors)
-            X = cupy. array(X)
-            knn.fit(X)
-            distances, indices = knn.kneighbors(X)
-            distances = distances.reshape(X.shape[0] * self.n_neighbors)
-            indices = indices.reshape(X.shape[0] * self.n_neighbors)
-            indptr = cupy.arange(0, (self.n_neighbors * X.shape[0]) + 1, self.n_neighbors)
-            knn_graph = cupy.sparse.csr_matrix((distances, indices, indptr), shape=(X.shape[0], X.shape[0])).get()
-            self._umap.graph_ = self._umap.fit(X=cupy.asnumpy(X), y=y, knn_graph=knn_graph)
-            is_old = is_old_cuml()
-            self._weighted_edges_df = (
-                umap_graph_to_weighted_edges(knn_graph, self.engine, is_old)
-            )
-            self._weighted_adjacency = self._umap.graph_.embedding_
+            knn = cuml.neighbors.NearestNeighbors(n_neighbors=self.n_neighbors)
+            cc = cuml.UMAP().fit(X, y, knn_graph=knn)
+            knn.fit(cc.embedding_)
+            self._umap.graph_ = knn.kneighbors_graph(cc.embedding_)
+            self._weighted_adjacency = self._umap.graph_
+
         else:
             self._umap.fit(X, y)
-
-            # if changing, also update fresh_res
-            self._weighted_edges_df = (
-                umap_graph_to_weighted_edges(self._umap.graph_,self.engine,None)
-            )
             self._weighted_adjacency = self._umap.graph_
+        # if changing, also update fresh_res
+        self._weighted_edges_df = (
+            umap_graph_to_weighted_edges(self._umap.graph_,self.engine,is_old)
+        )
 
         mins = (time() - t) / 60
         logger.info(f"-UMAP-ing took {mins:.2f} minutes total")
@@ -264,7 +255,13 @@ class UMAPMixin(MIXIN_BASE):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         self.umap_fit(X, y)
-        emb = self._umap.transform(X)
+
+        is_old = is_old_cuml()
+        if is_old:
+            import cuml
+            emb = cuml.UMAP().fit_transform(X)
+        else:
+            emb = self._umap.transform(X)
         emb = self._bundle_embedding(emb, index=X.index)
         return emb
 
@@ -492,7 +489,7 @@ class UMAPMixin(MIXIN_BASE):
             ) = res._featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
-
+            
             logger.debug("umap X_: %s", X_)
             logger.debug("umap y_: %s", y_)
 
@@ -523,8 +520,9 @@ class UMAPMixin(MIXIN_BASE):
             ) = res._featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
+
             res = res._process_umap(res, X_, y_, kind, memoize,
-                                featurize_kwargs, **umap_kwargs)
+                                     featurize_kwargs, **umap_kwargs)
             res._weighted_adjacency_edges = res._weighted_adjacency
             if res._xy is None:
                 raise RuntimeError("This should not happen")
