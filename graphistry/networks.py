@@ -166,6 +166,25 @@ class LinkPredModelMultiOutput(nn.Module):
         return self.embedding(g, h)
 
 
+class RGCN(nn.Module):
+    def __init__(self, d, num_nodes, num_rels):
+        super().__init__()
+
+        self.emb = nn.Embedding(num_nodes, d)
+        
+        # TODO: need to think something about the self loop
+        self.rgc1 = RelGraphConv(d, d, num_rels, regularizer='bdd', num_bases=100, self_loop=True)
+        self.rgc1 = RelGraphConv(d, d, num_rels, regularizer='bdd', num_bases=100, self_loop=True)
+
+        self.dropout = nn.Dropout(0.2)
+
+    def forward(self, g, node_ids):
+        x = self.emb(node_ids)
+        x = F.relu(self.conv1(g, x, g.edata[dgl.ETYPE], g.edata['norm']))
+        x = self.conv2(g, self.dropout(x), g.edata[dgl.ETYPE], g.edata['norm'])
+        return self.dropout(x)
+
+
 ############################################################################################
 
 # training
