@@ -1,10 +1,13 @@
 from attr import attr
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import trange
-from .networks import RGCN
+from .networks import RGCNEmbed
+import dgl
 from dgl.dataloading import GraphDataLoader
+import torch.nn.functional as F
 
 import pandas as pd
 
@@ -18,23 +21,31 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'RotatE': self.RotatE
         }
 
-    def embed(self, src, dst, relation, proto='TransE', d=32):
+    def embed(self, src, dst, relation, proto='DistMult', d=32):
         
         if callable(proto):
             proto = proto
         else:
             proto = self.protocol[proto]
 
-        # steps
-        # ---
-        # 1. graphistry graph -> dgl.graph
+        nodes = list(set(self._edges[src].tolist() + self._edges[dst].tolist()))
+        relations = self._edges[relation].tolist()
+        
+        # type2id 
+        node2id = {n:idx for idx, n in enumerate(nodes)}
+        relation2id = {r:idx for idx, r in enumerate(relations)}
 
-        # pseudo code
-        g_dgl = self.dgl_graph() 
-        num_nodes, num_rels = g_dgl.num_nodes(), d_dgl.num_rels
+        s, r, t = self._edges[src].tolist(), self._edges[relation].tolist(), self._edges[dst].tolist()
+        triplets = [[node2id[_s], relation2id[_r], node2id[_t]] for _s, _r, _t in zip(s, r, t)]
+        del s, r, t
+        
+        num_nodes, num_rels = len(nodes), len(relations)
+
+        s, r, t = torch.tensor(triplets).T
+        g_dgl = dgl.graph((s, t), num_nodes=num_nodes)
+        g_dgl.edata[dgl.ETYPE] = r
 
         # TODO: bidirectional connection
-
         g_iter = SubgraphIterator(g_dgl, num_rels)
         g_dataloader = GraphDataLoader(g_iter, batch_size=1, collate_fn=lambda x: x[0])
 
@@ -42,8 +53,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         model = HeteroEmbed(num_nodes, num_rels, d, proto=proto)
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
-        epochs = trange(enumerate(g_dataloader), leave=True)
-        for epoch, data in epochs:
+        for data in g_dataloader:
             model.train()
             g, node_ids, edges, labels = data
 
@@ -54,8 +64,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             
-            epochs.set_description(f"loss: {loss.item()}")
-            epochs.refresh()
+            print(f"loss: {loss.item()}")
 
     def TransE(self, h, r, t):
         return (h + r - t).norm(p=1, dim=1)
@@ -73,7 +82,7 @@ class HeteroEmbed(nn.Module):
 
         self.reg = reg
         self.proto = proto
-        self.rgcn = RGCN(num_nodes, d, num_rels)
+        self.rgcn = RGCNEmbed(d, num_nodes, num_rels)
         self.relational_embedding = nn.Parameter(torch.Tensor(num_rels, d))
 
         nn.init.xavier_uniform_(
@@ -98,16 +107,17 @@ class HeteroEmbed(nn.Module):
 
         # regularization loss
         ne_ = torch.mean(node_embedding.pow(2))
-        re_ = torch.mean(relational_embedding.pow(2))
+        re_ = torch.mean(self.relational_embedding.pow(2))
         rl = ne_ + re_
         
         return l + self.reg * rl
     
 
-class SubGraphIterator:
+class SubgraphIterator:
     def __init__(self, g, num_rels, sample_size=30000, num_epochs=1000):
         self.num_epochs = num_epochs
-        self.sample_size = sample_size
+        # TODO: raise exception -> sample size must be > 1
+        self.sample_size = int(sample_size/2)
         self.eids = np.arange(g.num_edges())
         self.g = g
 
@@ -122,57 +132,48 @@ class SubGraphIterator:
         )
 
         src, dst = self.g.find_edges(eids)
-        src, dst = src.numpy(), dst.numpy()
         rel = self.g.edata[dgl.ETYPE][eids].numpy()
 
-        uniq_v, edges = np.unique((src, dst), return_inverse=True)
+        uniq_v, _ = torch.unique(torch.cat((src, dst)), return_inverse=True)
         num_nodes = len(uniq_v)
 
-        src, dst = edges.T
         triplets = np.stack((src, rel, dst)).T
-
+        
         # negative sampling
-        samples, labels = SubGraphIterator.sample_neg(
+        samples, labels = SubgraphIterator.sample_neg_(
                 triplets, 
                 num_nodes, 
                 self.sample_size
         )
 
-        chosen_ids = np.random.choice(np.arange(self.sample_size),
-                                      size=int(self.sample_size / 2),
-                                      replace=False)
-        src, dst, rel = samples.T
+        src, rel, dst = samples.T
 
         # might need to add bidirectional edges
         sub_g = dgl.graph((src, dst), num_nodes=num_nodes)
-        sub_g.edata[dgl.ETYPE] = torch.from_numpy(rel)
+        sub_g.edata[dgl.ETYPE] = rel
         sub_g.edata['norm'] = dgl.norm_by_dst(sub_g).unsqueeze(-1)
-        uniq_v = torch.from_numpy(uniq_v).view(-1).long()
+        uniq_v = uniq_v.view(-1).long()
 
         return sub_g, uniq_v, samples, labels
 
     @staticmethod
     def sample_neg_(triplets, num_nodes, sample_size):
 
+        # TODO: remove all numpy operations
+
         triplets = torch.tensor(triplets)
         h, r, t = triplets.T
-        h_o_t = torch.randint(high=2, size=triplets.size()[0])
+        h_o_t = torch.randint(high=2, size=h.size())
 
-        random_h = torch.randint(high=len(event2id), size=h.size())
-        random_t = torch.randint(high=len(attrib2id), size=h.size())
+        random_h = torch.randint(high=num_nodes, size=h.size())
+        random_t = torch.randint(high=num_nodes, size=h.size())
 
         neg_h = torch.where(h_o_t == 0, random_h, h)
         neg_t = torch.where(h_o_t == 1, random_t, t)
-                
         neg_triplets = torch.stack((neg_h, r, neg_t), dim=1)
 
-        all_triplets = torch.cat((triplets, neg_triplets), dim=1)
-        labels = np.zeros((all_triplets.size()[0]))
-        labels[:triplets.size()[0]] = 1
+        all_triplets = torch.cat((triplets, neg_triplets), dim=0)
+        labels = torch.zeros((all_triplets.size()[0]))
+        labels[:triplets.shape[0]] = 1
         
-        flag = torch.randint(high=2, size=all_triplets.size()[0])
-        all_triplets, labels = all_triplets[idx][flag==1], labels[idx][flag==1]
-
-        all_triplets = all_triplets.numpy()
-
         return all_triplets, labels
