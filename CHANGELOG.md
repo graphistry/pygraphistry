@@ -7,6 +7,44 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.28.3 - 2022-10-12]
+
+### Added
+
+* AI: full text & semantic search (`g.search(..)` and `g.search_graph(..).plot()`)
+* Featurization: support for dataframe columns that are list of lists -> multilabel targets
+                  set using `g.featurize(y=['list_of_lists_column'], multilabel=True,...)`
+                  Only supports single-column data targets
+
+
+## [0.28.2 - 2022-10-11]
+
+### Changed
+
+* Infra: Updated github actions
+
+### Fixed
+
+* `encode_axis()` now correctly sets axis
+* work around mypy mistyping operator & on pandas series 
+
+## [0.28.1 - 2022-10-06]
+
+### Changed
+
+* Speed up `g.umap()` >100x by using cuML UMAP engine
+* Drop official support for Python 3.6 - its LTS security support stopped 9mo ago
+* neo4j: v5 support - backwards-compatible changing derefs from id to element_id
+
+### Added
+
+* umap: Optional `engine` parameter (default `cuml`) for `UMAP()`
+* ipynb: UMAP purpose, functionality and parameter details, with general UMAP notebook planned in future (features folder)
+
+### Fixed
+
+* has_umap: removed as no longer necessary
+
 ## [0.28.0 - 2022-09-23]
 
 ### Added

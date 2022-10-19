@@ -49,8 +49,11 @@ if TYPE_CHECKING:
         SimilarityEncoder = Any
     try:
         from sklearn.preprocessing import FunctionTransformer
+        from sklearn.base import BaseEstimator, TransformerMixin
     except:
         FunctionTransformer = Any
+        BaseEstimator = object
+        TransformerMixin = object
 else:
     MIXIN_BASE = object
     Pipeline = Any
@@ -59,6 +62,8 @@ else:
     GapEncoder = Any
     SimilarityEncoder = Any
     FunctionTransformer = Any
+    BaseEstimator = Any
+    TransformerMixin = Any
 
 
 #@check_set_memoize
@@ -333,7 +338,7 @@ def group_columns_by_dtypes(df: pd.DataFrame, verbose: bool = True) -> Dict:
 
 
 def set_to_numeric(df: pd.DataFrame, cols: List, fill_value: float = 0.0):
-    df[cols] = pd.to_numeric(df[cols], errors="coerce").fillna(fill_value)
+    df[cols] = pd.to_numeric(df[cols], errors="coerce").fillna(fill_value)  # type: ignore
 
 
 def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
@@ -440,10 +445,9 @@ def check_if_textual_column(
     """
     isstring = df[col].apply(lambda x: isinstance(x, str))
     abundance = sum(isstring) / len(df)
-    assert (
-        min_words > 1
-    ), "probably best to have at least a word if you want to consider '\
-        'this a textual column?"
+    if min_words == 0:  # force textual encoding of named columns
+        return True
+    
     if abundance >= confidence:
         # now check how many words
         n_words = df[col].apply(
@@ -463,7 +467,7 @@ def check_if_textual_column(
 
 
 def get_textual_columns(
-    df: pd.DataFrame, confidence: float = 0.35, min_words: float = 2.5
+    df: pd.DataFrame, min_words: float = 2.5
 ) -> List[str]:
     """
         Collects columns from df that it deems are textual.
@@ -475,7 +479,7 @@ def get_textual_columns(
     text_cols = []
     for col in df.columns:
         if check_if_textual_column(
-            df, col, confidence=confidence, min_words=min_words
+            df, col, confidence=0.35, min_words=min_words
         ):
             text_cols.append(col)
     if len(text_cols) == 0:
@@ -538,14 +542,15 @@ def get_preprocessing_pipeline(
     -----------------------------------------------------------------
     :param X: np.ndarray
     :param impute: whether to run imputing or not
-    :param use_scaler: string in
+    :param use_scaler: string in None or
             ["minmax", "quantile", "zscale", "robust", "kbins"],
-            selects scaling transformer, default `robust`
+            selects scaling transformer, default None
     :param n_quantiles: if use_scaler = 'quantile',
             sets the quantile bin size.
     :param output_distribution: if use_scaler = 'quantile',
             can return distribution as ["normal", "uniform"]
-    :param quantile_range: if use_scaler = 'robust', sets the quantile range.
+    :param quantile_range: if use_scaler = 'robust'/'quantile', 
+            sets the quantile range.
     :param n_bins: number of bins to use in kbins discretizer
     :param encode: encoding for KBinsDiscretizer, can be one of
             `onehot`, `onehot-dense`, `ordinal`, default 'ordinal'
@@ -700,7 +705,6 @@ def _get_sentence_transformer_headers(emb, text_cols):
 
 def encode_textual(
     df: pd.DataFrame,
-    confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     use_ngrams: bool = False,
@@ -712,7 +716,7 @@ def encode_textual(
 
     t = time()
     text_cols = get_textual_columns(
-        df, confidence=confidence, min_words=min_words
+        df, min_words=min_words
     )
     embeddings = (
         []
@@ -826,8 +830,6 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    # from sklearn.preprocessing import FunctionTransformer
-    # from functools import partial
     from sklearn.preprocessing import FunctionTransformer
     label_encoder = False
     data_encoder = False
@@ -838,6 +840,7 @@ def get_numeric_transformers(ndf, y=None):
             partial(passthrough_df_cols, columns=y_.columns)
         )  # takes dataframe and memorizes which cols to use.
         label_encoder.get_feature_names_out = callThrough(y_.columns)
+        label_encoder.columns_ = y_.columns
 
     if ndf is not None:
         ndf_ = ndf.select_dtypes(include=[np.number])
@@ -845,7 +848,9 @@ def get_numeric_transformers(ndf, y=None):
             partial(passthrough_df_cols, columns=ndf_.columns)
         )
         data_encoder.get_feature_names_out = callThrough(ndf_.columns)
-
+        #data_encoder.columns_ = ndf_.columns
+        data_encoder.get_feature_names_in = callThrough(ndf_.columns)
+        
     return ndf_, y_, data_encoder, label_encoder
 
 
@@ -858,6 +863,7 @@ def process_dirty_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     similarity: Optional[str] = None,  # "ngram",
     categories: Optional[str] = "auto",
+    multilabel: bool = False,
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -897,11 +903,10 @@ def process_dirty_dataframes(
             #  since -- AttributeError: Transformer numeric
             #  (type StandardScaler)
             #  does not provide get_feature_names.
-            datetime_transformer=None,  # TODO add a smart
-            #  datetime -> histogram transformer
         )
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
+        
         X_enc = data_encoder.fit_transform(ndf, y)
         X_enc = make_array(X_enc)
 
@@ -924,7 +929,7 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed)
-
+        
         X_enc = pd.DataFrame(
             X_enc, columns=features_transformed, index=ndf.index
         )
@@ -933,7 +938,10 @@ def process_dirty_dataframes(
         logger.info("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
 
-    if (
+
+    if multilabel and y is not None:
+        y_enc, label_encoder = encode_multi_target(y, mlb=None)
+    elif (
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
@@ -949,8 +957,6 @@ def process_dirty_dataframes(
             else SimilarityEncoder(
                 similarity=similarity, categories=categories, n_prototypes=2
             ),  # Similarity
-            datetime_transformer=None,  # TODO add a smart
-            # datetime -> histogram transformer
         )
 
         y_enc = label_encoder.fit_transform(y)
@@ -997,12 +1003,12 @@ def process_nodes_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = "robust",
     use_scaler_target: Optional[str] = "kbins",
-    embedding=False,  # whether to produce random embeddings
+    multilabel: bool = False,
+    embedding: bool = False,  # whether to produce random embeddings
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
     min_df: int = 3,
-    confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     similarity: Optional[str] = None,
@@ -1041,10 +1047,11 @@ def process_nodes_dataframes(
     :param confidence: Number between 0 and 1, will pass
             column for textual processing if total entries are string
             like in a column and above this relative threshold.
-    :param min_words: Number greater than 1 that sets the threshold
+    :param min_words: Sets the threshold
             for average number of words to include column for
             textual sentence encoding. Lower values means that
-            columns will be labeled textual and sent to sentence-encoder
+            columns will be labeled textual and sent to sentence-encoder. 
+            Set to 0 to force named columns as textual.
     :param model_name: SentenceTransformer model name. See available list at
             https://www.sbert.net/docs/pretrained_models.
             html#sentence-embedding-models
@@ -1101,7 +1108,6 @@ def process_nodes_dataframes(
     if has_deps_text and (feature_engine in ["torch", "auto"]):
         text_enc, text_cols, text_model = encode_textual(
             df,
-            confidence=confidence,
             min_words=min_words,
             model_name=model_name,
             use_ngrams=use_ngrams,
@@ -1126,6 +1132,7 @@ def process_nodes_dataframes(
         n_topics_target=n_topics_target,
         similarity=similarity,
         categories=categories,
+        multilabel=multilabel
     )
 
     if embedding:
@@ -1172,6 +1179,60 @@ def process_nodes_dataframes(
         text_model,
         text_cols  # type: ignore
     )
+class FastMLB:
+    def __init__(self, mlb, in_column, out_columns):
+        if isinstance(in_column, str):
+            in_column = [in_column]
+        self.columns = in_column  # should be singe entry list ['cats']
+        self.mlb = mlb
+        self.out_columns = out_columns
+        self.feature_names_in_ = in_column
+    
+    def __call__(self, df):
+        ydf = df[self.columns]
+        return self.mlb.transform(ydf.squeeze())
+    
+    def fit(self, X, y=None):
+        return self
+        
+    def transform(self, df):
+        return self(df)
+    
+    def get_feature_names_out(self):
+        return self.out_columns
+    
+    def get_feature_names_in(self):
+        return self.feature_names_in_
+    
+    def __repr__(self):
+        doc = f'FastMultiLabelBinarizer(In: {self.columns},  Out: {self.out_columns})'
+        return doc 
+
+
+def encode_multi_target(ydf, mlb = None):
+    from sklearn.preprocessing import (
+        MultiLabelBinarizer,
+    )
+    ydf = ydf.squeeze()  # since its a dataframe, we want series
+    assert isinstance(ydf, pd.Series), 'Target needs to be a single column of (list of lists)'
+    column_name = ydf.name
+    
+    if mlb is None:
+        mlb = MultiLabelBinarizer()
+        T = mlb.fit_transform(ydf) 
+    else:
+        T = mlb.transform(ydf)
+
+    T = 1.0 * T
+    columns = [
+        str(k) for k in mlb.classes_
+    ]
+    T = pd.DataFrame(T, columns=columns, index=ydf.index)
+    logger.info(f"Shape of Target Encoding: {T.shape}")
+        
+    label_encoder = FastMLB(mlb=mlb, in_column=[column_name], out_columns=columns)  # memorizes which cols to use.
+ 
+    return T, label_encoder
 
 def encode_edges(edf, src, dst, mlb, fit=False):
     """edge encoder -- creates multilabelBinarizer on edge pairs.
@@ -1200,6 +1261,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
         str(k) for k in mlb.classes_
     ]  # stringify the column names or scikits.base throws error
     mlb.get_feature_names_out = callThrough(columns)
+    mlb.columns_ = [src, dst]
     T = pd.DataFrame(T, columns=columns, index=edf.index)
     logger.info(f"Shape of Edge Encoding: {T.shape}")
     return T, mlb
@@ -1216,11 +1278,12 @@ def process_edge_dataframes(
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
     use_scaler_target: Optional[str] = None,
+    multilabel: bool = False,
     use_ngrams: bool = False,
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
     min_df: int = 3,
-    confidence: float = 0.35,
+    #confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     similarity: Optional[str] = None,
@@ -1337,11 +1400,11 @@ def process_edge_dataframes(
         n_topics_target=n_topics_target,
         use_scaler=None,
         use_scaler_target=None,
+        multilabel=multilabel,
         use_ngrams=use_ngrams,
         ngram_range=ngram_range,
         max_df=max_df,
         min_df=min_df,
-        confidence=confidence,
         min_words=min_words,
         model_name=model_name,
         similarity=similarity,
@@ -1438,16 +1501,28 @@ def transform_dirty(
     data_encoder: Union[SuperVectorizer, FunctionTransformer],  # type: ignore
     name: str = "",
 ) -> pd.DataFrame:
-
+    from sklearn.preprocessing import MultiLabelBinarizer
     logger.debug(f"-{name} Encoder:")
     logger.debug(f"\t{data_encoder}\n")
+    # print(f"-{name} Encoder:")
+    # print(f"\t{data_encoder}\n")
     try:
-        logger.debug(f"{data_encoder.feature_names_in_}")
+        logger.debug(f"{data_encoder.get_feature_names_in}")
     except Exception as e:
         logger.warning(e)
         pass
     logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
-    X = data_encoder.transform(df)
+
+    # #####################################  for dirty_cat 0.3.0
+    use_columns = getattr(data_encoder, 'columns_', [])
+    if len(use_columns):
+        X = data_encoder.transform(df[use_columns])
+    # #####################################  with dirty_cat 0.2.0
+    else:
+        X = data_encoder.transform(df)
+    # ###################################
+    # X = data_encoder.transform(df)
+
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
     with warnings.catch_warnings():
@@ -1479,8 +1554,8 @@ def transform(
         text_cols,
     ) = res
 
-    feature_columns = X_enc.columns
-    feature_columns_target = y_enc.columns
+    # feature_columns = X_enc.columns
+    # feature_columns_target = y_enc.columns
     logger.info("-" * 90)
 
     y = pd.DataFrame([])
@@ -1538,21 +1613,6 @@ def transform(
     logger.info(f"--Features matrix shape: {X.shape}")
     logger.info(f"--Target matrix shape: {y.shape}")
 
-    a, b = set(list(X.columns)), set(list(feature_columns))
-    c, d = set(list(y.columns)), set(list(feature_columns_target))
-    if a != b:
-        logger.info("-" * 80)
-        logger.info(
-            "**Different Features Columns!"
-            f"\n--{a.difference(b)} \n\nand\n {b.difference(a)}"
-        )
-    if c != d:
-        logger.info("-" * 80)
-        logger.info(
-            "**Different Target Columns!"
-            f"\n--{c.difference(d)} \n\nand\n {d.difference(c)}"
-        )
-
     if scaling_pipeline and not X.empty:
         logger.info("--Scaling Features")
         X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns)
@@ -1568,7 +1628,9 @@ def transform(
 class FastEncoder:
     def __init__(self, df, y=None, kind="nodes"):
         self._df = df
-        self._y = pd.DataFrame([]) if y is None else y
+        self.feature_names_in = df.columns  
+        self._y = pd.DataFrame([], index=df.index) if y is None else y
+        self.target_names_in = self._y.columns
         self.kind = kind
         self._assertions()
         # these are the parts we can use to reconstruct transform.
@@ -1601,6 +1663,9 @@ class FastEncoder:
     def _hecho(self, res):
         logger.info("-" * 40)
         logger.info("\n-- Setting Encoder Parts from Fit ::")
+        logger.info(f'Feature Columns In: {self.feature_names_in}')
+        logger.info(f'Target Columns In: {self.target_names_in}')
+
         for name, value in zip(self.res_names, res):
             if name not in ["X_enc", "y_enc"]:
                 logger.info("-" * 90)
@@ -1620,7 +1685,8 @@ class FastEncoder:
         ] = self.res
 
         self._hecho(res)
-
+        # data_encoder.feature_names_in = self.feature_names_in
+        # label_encoder.target_names_in = self.target_names_in
         self.feature_columns = X_enc.columns
         self.feature_columns_target = y_enc.columns
         self.X = X_enc
@@ -1650,8 +1716,10 @@ class FastEncoder:
 
     def scale(self, df, ydf=None, set_scaler=False, *args, **kwargs):
         # pretty hacky but gets job done --
-        """Fits scaling on df, ydf
-        (ie use downstream as X_train, X_test ,... or batch)"""
+        """Fits new scaling functions on df, ydf via args-kwargs
+        (ie use downstream as X_train, X_test ,... or batch 
+        when different scaling on the outputs is required)
+        """
         # pop off the previous scaler so that .transform won't use it
         self.res[4] = None
         self.res[5] = None
@@ -1674,6 +1742,13 @@ class FastEncoder:
 
         return X, y, scaling_pipeline, scaling_pipeline_target
 
+    # def get_column(self, column, kind='nodes'):
+    #     if kind=='nodes':
+    #         X = self._nodes
+    #     elif kind=='edges':
+            
+    #     transformed_columns = X.columns[X.columns.map(lambda x: True if column in x else False)]]
+        # return X[transformed_columns]
 
 # ######################################################################################################################
 #
@@ -1773,6 +1848,18 @@ class FeatureMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         pass
 
+    def _get_feature(self, kind):
+        kind = kind.replace('s', '')
+        assert kind in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
+        x = getattr(self, f'_{kind}_features')
+        return x
+    
+    def _get_target(self, kind):
+        kind = kind.replace('s', '')
+        assert kind in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
+        x = getattr(self, f'_{kind}_target')
+        return x
+    
     def _featurize_nodes(
         self,
         X: XSymbolic = None,
@@ -1783,12 +1870,13 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 120,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        multilabel: bool = False,
         embedding: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        confidence: float = 0.35,
+        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[str] = "ngram",
@@ -1810,7 +1898,6 @@ class FeatureMixin(MIXIN_BASE):
         node = res._node
 
         if remove_node_column:
-            # ndf = remove_node_column_from_ndf_and_return_ndf(res)
             ndf = remove_node_column_from_symbolic(ndf, node)
             X = remove_node_column_from_symbolic(X, node)
 
@@ -1844,12 +1931,13 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            multilabel=multilabel,
             embedding=embedding,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            confidence=confidence,
+            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
             similarity=similarity,
@@ -1898,6 +1986,7 @@ class FeatureMixin(MIXIN_BASE):
         res._node_features = encoder.X
         res._node_target = encoder.y
         res._node_encoder = encoder  # now this does
+        
         # all the work `._node_encoder.transform(df, y)` etc
 
         return res
@@ -1916,11 +2005,12 @@ class FeatureMixin(MIXIN_BASE):
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        confidence: float = 0.35,
+        #confidence: float = 0.35,
         min_words: float = 2.5,
+        multilabel: bool = False,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = "ngram",
-        categories: Optional[str] = "auto",
+        #similarity: Optional[str] = "ngram",
+        #categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
@@ -1963,11 +2053,12 @@ class FeatureMixin(MIXIN_BASE):
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            confidence=confidence,
+            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
-            similarity=similarity,
-            categories=categories,
+            #similarity=similarity,
+            #categories=categories,
+            multilabel=multilabel,
             impute=impute,
             n_quantiles=n_quantiles,
             quantile_range=quantile_range,
@@ -2117,26 +2208,22 @@ class FeatureMixin(MIXIN_BASE):
         kind: str = "nodes",
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "minmax",
-        use_scaler_target: Optional[str] = "kbins",
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
-        n_topics: int = config.N_TOPICS_DEFAULT,
-        n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
-        embedding=False,
+        n_topics: int = 42,
+        n_topics_target: int = 12,
+        multilabel: bool = False,
+        embedding: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
         min_words: float = 2.5,
-        confidence: float = 0.35,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[
-            str
-        ] = None,  # turn this on in favor of Similarity Encoder
-        categories: Optional[str] = "auto",
         impute: bool = True,
-        n_quantiles: int = 10,
+        n_quantiles: int = 100,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
         n_bins: int = 10,
@@ -2160,12 +2247,12 @@ class FeatureMixin(MIXIN_BASE):
         :param X: Optional input, default None. If symbolic, evaluated
                 against self data based on kind.
                 If None, will featurize all columns of DataFrame
-        :param y: Optional Target(s) columns or explicit DataFrame, default
+        :param y: Optional Target(s) columns or explicit DataFrame, default None
         :param use_scaler: selects which scaler (and automatically imputes
                 missing values using mean strategy)
                 to scale the data. Options are;
                 "minmax", "quantile", "zscale", "robust",
-                "kbins", default "robust".
+                "kbins", default None.
                 Please see scikits-learn documentation
                 https://scikit-learn.org/stable/modules/preprocessing.html
                 Here 'zscale' corresponds to 'StandardScaler' in scikits.
@@ -2195,19 +2282,13 @@ class FeatureMixin(MIXIN_BASE):
                 n_topics_lower_bound ~ (\pi/2) * (N-documents)**(1/4)
         :param n_topics_target: the number of topics to use in the GapEncoder
                 if cardinality_thresholds_target is
-                saturated for the target(s).
+                saturated for the target(s). Default 12.
         :param min_words: sets threshold on how many words to consider in a
                 textual column if it is to be considered in
                 the text processing pipeline. Set this very high if you want
                 any textual columns to bypass the
-                transformer, in favor of GapEncoder (topic modeling).
-        :param confidence: sets the threshold on whether to treat a column as
-        textual or not. Default is 0.35,
-                which means that 35% of the entries should be string like.
-                This is a weak rule (and might be deprecated)
-                and better to use `min_words` for decisions on whether to
-                encode text using sentence_transformers
-                or GapEncoder.
+                transformer, in favor of GapEncoder (topic modeling). Set to 
+                0 to force all named columns to be encoded as textual (embedding)
         :param model_name: Sentence Transformer model to use. Default
                 Paraphrase model makes useful vectors,
                 but at cost of encoding time. If faster encoding is needed,
@@ -2215,6 +2296,36 @@ class FeatureMixin(MIXIN_BASE):
                 and produces less semantically relevant vectors.
                 Please see www.huggingface.co or sentence_transformer
                 (https://www.sbert.net/) library for all available models.
+        :param multilabel: if True, will encode a *single* target column composed of
+                lists of lists as multilabel outputs. 
+                This only works with y=['a_single_col'], default False
+        :param embedding: If True, produces a random node embedding of size `n_topics`
+                default, False.
+        :param use_ngrams: If True, will encode textual columns as TfIdf Vectors,
+                default, False.
+        :param ngram_range: if use_ngrams=True, can set ngram_range, eg: tuple = (1, 3)
+        :param max_df:  if use_ngrams=True, set max word frequency to consider in vocabulary
+                eg: max_df = 0.2,
+        :param min_df:  if use_ngrams=True, set min word count to consider in vocabulary
+                eg: min_df = 3    
+        :param categories: Optional[str] in ["auto", "k-means", "most_frequent"], decides which 
+                category to select in Similarity Encoding, default 'auto'
+        :param impute: Whether to impute missing values, default True
+        :param n_quantiles: if use_scaler = 'quantile',
+                sets the quantile bin size.
+        :param output_distribution: if use_scaler = 'quantile',
+                can return distribution as ["normal", "uniform"]
+        :param quantile_range: if use_scaler = 'robust'|'quantile', 
+                sets the quantile range.
+        :param n_bins: number of bins to use in kbins discretizer
+        :param encode: encoding for KBinsDiscretizer, can be one of
+                `onehot`, `onehot-dense`, `ordinal`, default 'ordinal'
+        :param strategy: strategy for KBinsDiscretizer, can be one of
+                `uniform`, `quantile`, `kmeans`, default 'quantile'
+        :param n_quantiles: if use_scaler = "quantile", sets the number of quantiles, default=100
+        :param output_distribution: if use_scaler="quantile"|"robust", 
+                choose from ["normal", "uniform"]
+        :param keep_n_decimals: number of decimals to keep                
         :param remove_node_column: whether to remove node column so it is
                 not featurized, default True.
         :param inplace: whether to not return new graphistry instance or
@@ -2224,7 +2335,6 @@ class FeatureMixin(MIXIN_BASE):
         :return: self, with new attributes set by the featurization process.
         """
         assert_imported()
-        # assert_imported_text()
         if inplace:
             res = self
         else:
@@ -2242,16 +2352,17 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                multilabel=multilabel,
                 embedding=embedding,
                 use_ngrams=use_ngrams,
                 ngram_range=ngram_range,
                 max_df=max_df,
                 min_df=min_df,
-                confidence=confidence,
+                #confidence=confidence,  # deprecated
                 min_words=min_words,
                 model_name=model_name,
-                similarity=similarity,
-                categories=categories,
+                #similarity=similarity,  # deprecated
+                #categories=categories,  # deprecated
                 impute=impute,
                 n_quantiles=n_quantiles,
                 quantile_range=quantile_range,
@@ -2274,15 +2385,16 @@ class FeatureMixin(MIXIN_BASE):
                 cardinality_threshold_target=cardinality_threshold_target,
                 n_topics=n_topics,
                 n_topics_target=n_topics_target,
+                multilabel=multilabel,
                 use_ngrams=use_ngrams,
                 ngram_range=ngram_range,
                 max_df=max_df,
                 min_df=min_df,
-                confidence=confidence,
+                #confidence=confidence,  # deprecated
                 min_words=min_words,
                 model_name=model_name,
-                similarity=similarity,
-                categories=categories,
+                #similarity=similarity,  # deprecated
+                #categories=categories,  # deprecated
                 impute=impute,
                 n_quantiles=n_quantiles,
                 quantile_range=quantile_range,
@@ -2312,18 +2424,19 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        multilabel: bool = False,
         embedding=False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        confidence: float = 0.35,
+        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[
-            str
-        ] = None,  # turn this on to 'ngram' in favor of Similarity Encoder
-        categories: Optional[str] = "auto",
+        # similarity: Optional[
+        #     str
+        # ] = None,  # turn this on to 'ngram' in favor of Similarity Encoder
+        # categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
@@ -2364,16 +2477,17 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            multilabel=multilabel,
             embedding=embedding,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            confidence=confidence,
+            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
-            similarity=similarity,
-            categories=categories,
+            #similarity=similarity,
+            #categories=categories,
             impute=impute,
             n_quantiles=n_quantiles,
             quantile_range=quantile_range,
@@ -2406,17 +2520,18 @@ class FeatureMixin(MIXIN_BASE):
         cardinality_threshold_target: int = 20,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+        multilabel: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        confidence: float = 0.35,
+        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[
-            str
-        ] = None,  # turn this off in favor of Gap Encoder
-        categories: Optional[str] = "auto",
+        # similarity: Optional[
+        #     str
+        # ] = None,  # turn this off in favor of Gap Encoder
+        # categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
@@ -2457,15 +2572,16 @@ class FeatureMixin(MIXIN_BASE):
             cardinality_threshold_target=cardinality_threshold_target,
             n_topics=n_topics,
             n_topics_target=n_topics_target,
+            multilabel=multilabel,
             use_ngrams=use_ngrams,
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            confidence=confidence,
+            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
-            similarity=similarity,
-            categories=categories,
+            #similarity=similarity,
+            #categories=categories,
             impute=impute,
             n_quantiles=n_quantiles,
             quantile_range=quantile_range,

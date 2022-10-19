@@ -178,6 +178,14 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     graphistry.edges(edges, 'src', 'dst').plot()
     ```
 
+* GPU [RAPIDS.ai](https://www.rapids.ai) cuML
+
+    ```python
+    g = graphistry.nodes(cudf.read_csv('rows.csv'))
+    g = graphistry.nodes(G)
+    g.umap(engine='cuml',metric='euclidean').plot()
+    ```
+
 * GPU [RAPIDS.ai](https://www.rapids.ai) cugraph ([notebook demo](demos/demos_databases_apis/gpu_rapids/cugraph.ipynb))
 
     ```python
@@ -359,7 +367,7 @@ Automatically and intelligently transform text, numbers, booleans, and other for
 
 See `help(g.featurize)` for more options
 
-### [UMAP](https://umap-learn.readthedocs.io/en/latest/)
+### [sklearn-based UMAP](https://umap-learn.readthedocs.io/en/latest/), [cuML-based UMAP](https://docs.rapids.ai/api/cuml/stable/api.html?highlight=umap#cuml.UMAP)
 
 * Reduce dimensionality and plot a similarity graph from feature vectors:
 
@@ -382,6 +390,12 @@ See `help(g.featurize)` for more options
 
     ```python
       g.umap(kind='nodes', X=['col_1', ..., 'col_n'], y=['label', ..., 'other_targets'], ...)
+    ```
+
+* `umap(engine="...")` supports multiple implementations. It defaults to using the GPU-accelerated `engine="cuml"` when a GPU is available, resulting in orders-of-magnitude speedups, and falls back to CPU processing via `engine="umap_learn"`.:
+
+    ```python
+      g.umap(engine='cuml')
     ```
 
 You can also featurize edges and UMAP them as we did above.
@@ -422,6 +436,41 @@ Like `g.umap()`, GNN layers automate feature engineering (`.featurize()`)
 See `help(g.build_gnn)` for options.
 
 GNN support is rapidly evolving, please contact the team directly or on Slack for additional discussions
+
+### [Semantic Search](https://www.sbert.net/examples/applications/semantic-search/README.html)
+
+* Search textual data semantically and see the resulting graph:
+
+    ```python
+      ndf = pd.read_csv(nodes.csv)
+      edf = pd.read_csv(edges.csv)
+      
+      g = graphistry.nodes(ndf, 'node').edges(edf, 'src', 'dst')
+      
+      g2 = g.featurize(X = ['text_col_1', .., 'text_col_n'], kind='nodes',
+                        min_words=0,  # forces all named columns as textual ones
+                        #encode text as paraphrase embeddings, supports any sbert/Huggingface model
+                        model_name: str = "paraphrase-MiniLM-L6-v2")
+                        
+      results_df, query_vector = g2.search('my natural language query', ...)
+      print(results_df[['distance', 'text_col_1', ..., 'text_col_n']])  #sorted by relevancy
+      
+      # or see graph of matching entities and similarity edges (or optional original edges)
+      g2.search_graph('my natural language query', ...).plot()
+    ```
+    
+* If edges are not given, `g.umap(..)` will supply them: 
+
+    ```python
+      ndf = pd.read_csv(nodes.csv)
+      g = graphistry.nodes(ndf)
+      g2 = g.umap(X = ['text_col_1', .., 'text_col_n'], min_words=0, ...)
+      
+      g2.search_graph('my natural language query', ...).plot()
+    ```
+    
+See `help(g.search_graph)` for options
+
 
 ### Quickly configurable
 
@@ -492,7 +541,7 @@ You need to install the PyGraphistry Python client and connect it to a Graphistr
     * Later, [setup and manage](https://github.com/graphistry/graphistry-cli) your own private Docker instance ([contact](https://www.graphistry.com/demo-request))
 
 2. PyGraphistry Python client:
-    * `pip install --user graphistry` (Python 3.6+) or [directly call the HTTP API](https://hub.graphistry.com/docs/api/)
+    * `pip install --user graphistry` (Python 3.7+) or [directly call the HTTP API](https://hub.graphistry.com/docs/api/)
         * Use `pip install --user graphistry[all]` for optional dependencies such as Neo4j drivers
     * To use from a notebook environment, run your own [Jupyter](https://jupyter.org/) server ([one-click launch your own private AWS/Azure GPU instance](https://www.graphistry.com/get-started)) or another such as [Google Colab](https://colab.research.google.com)
     * See immediately following `configure` section for how to connect

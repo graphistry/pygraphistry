@@ -40,7 +40,7 @@ base_extras_light = {
 base_extras_heavy = {
   'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
 }
-base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers']
+base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'annoy', 'joblib']
 
 base_extras = {**base_extras_light, **base_extras_heavy}
 
@@ -69,7 +69,7 @@ setup(
     long_description_content_type='text/markdown',
     url='https://github.com/graphistry/pygraphistry',
     download_url= 'https://pypi.python.org/pypi/graphistry/',
-    python_requires='>=3.6',
+    python_requires='>=3.7',
     author='The Graphistry Team',
     author_email='pygraphistry@graphistry.com',
     install_requires=core_requires,
@@ -85,7 +85,6 @@ setup(
         'Intended Audience :: Information Technology',
         'Intended Audience :: Science/Research',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
