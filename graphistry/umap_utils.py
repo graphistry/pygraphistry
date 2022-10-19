@@ -60,11 +60,14 @@ def assert_imported_cuml():
         raise import_cuml_exn
 
 def is_old_cuml():
-    import cuml
-    vs = cuml.__version__.split(".")
-    if (vs[0] in ['0', '21']) or (vs[0] == '22' and float(vs[1]) < 6):
-        return True
-    else:
+    try:
+        import cuml
+        vs = cuml.__version__.split(".")
+        if (vs[0] in ['0', '21']) or (vs[0] == '22' and float(vs[1]) < 6):
+            return True
+        else:
+            return False
+    except ModuleNotFoundError:
         return False
 
 
@@ -257,8 +260,7 @@ class UMAPMixin(MIXIN_BASE):
             raise ValueError("UMAP is not initialized")
         self.umap_fit(X, y)
 
-        is_old = is_old_cuml()
-        if is_old:
+        if is_old_cuml():
             import cuml
             emb = cuml.UMAP().fit_transform(X)
         else:
