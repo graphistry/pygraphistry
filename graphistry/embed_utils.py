@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import trange
-from networks import RGCN
+from .networks import RGCN
 from dgl.dataloading import GraphDataLoader
 
 import pandas as pd

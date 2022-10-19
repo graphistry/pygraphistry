@@ -174,14 +174,14 @@ class RGCN(nn.Module):
         
         # TODO: need to think something about the self loop
         self.rgc1 = RelGraphConv(d, d, num_rels, regularizer='bdd', num_bases=100, self_loop=True)
-        self.rgc1 = RelGraphConv(d, d, num_rels, regularizer='bdd', num_bases=100, self_loop=True)
+        self.rgc2 = RelGraphConv(d, d, num_rels, regularizer='bdd', num_bases=100, self_loop=True)
 
         self.dropout = nn.Dropout(0.2)
 
     def forward(self, g, node_ids):
         x = self.emb(node_ids)
-        x = F.relu(self.conv1(g, x, g.edata[dgl.ETYPE], g.edata['norm']))
-        x = self.conv2(g, self.dropout(x), g.edata[dgl.ETYPE], g.edata['norm'])
+        x = F.relu(self.rgc1(g, x, g.edata[dgl.ETYPE], g.edata['norm']))
+        x = self.rgc2(g, self.dropout(x), g.edata[dgl.ETYPE], g.edata['norm'])
         return self.dropout(x)
 
 
