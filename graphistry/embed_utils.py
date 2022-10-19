@@ -37,6 +37,10 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         s, r, t = self._edges[src].tolist(), self._edges[relation].tolist(), self._edges[dst].tolist()
         triplets = [[node2id[_s], relation2id[_r], node2id[_t]] for _s, _r, _t in zip(s, r, t)]
+
+        # temp 
+        self.triplets_ = triplets
+
         del s, r, t
         
         num_nodes, num_rels = len(nodes), len(relations)
@@ -44,6 +48,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         s, r, t = torch.tensor(triplets).T
         g_dgl = dgl.graph((s, t), num_nodes=num_nodes)
         g_dgl.edata[dgl.ETYPE] = r
+        self.g_dgl = g_dgl
 
         # TODO: bidirectional connection
         g_iter = SubgraphIterator(g_dgl, num_rels)
@@ -63,8 +68,64 @@ class HeterographEmbedModuleMixin(nn.Module):
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            
+
             print(f"loss: {loss.item()}")
+
+        self.embed_mod_ = model
+        return self
+    
+    def predict_link(self, test_triplets, threshold=0.5):
+
+        triplets = torch.tensor(self.triplets_)
+        test_triplets = torch.tensor(test_triplets)
+
+        s, r, o = triplets.T
+        nodes = torch.tensor(list(set(s.tolist() + o.tolist())))
+        edge_index = torch.stack([s, o])
+
+        # make graph
+        g = dgl.graph((s, o), num_nodes=edge_index.max()+1)
+        g.edata[dgl.ETYPE] = r
+        g.edata['norm'] = dgl.norm_by_dst(g).unsqueeze(-1)
+        del s, r, o
+
+        node_embeddings = self.embed_mod_(g, nodes)
+        num_entity = len(node_embeddings)
+
+        h_r = triplets[:, :2]
+        t_r = torch.stack((triplets[:, 2], triplets[:, 1])).transpose(0, 1)
+
+        for test_triplet in test_triplets:
+
+            s, r, o_ = test_triplet
+            subject_relation = test_triplet[:2]
+
+            delete_idx = torch.sum(h_r == subject_relation, dim = 1)
+            delete_idx = torch.nonzero(delete_idx == 2).squeeze()
+    
+            delete_entity_idx = triplets[delete_idx, 2].view(-1).numpy()
+            perturb_entity_idx = np.array(list(set(np.arange(num_entity)) - set(delete_entity_idx)))
+            perturb_entity_idx = torch.from_numpy(perturb_entity_idx)
+            perturb_entity_idx = torch.cat((perturb_entity_idx, o_.view(-1)))
+
+            emb_sr = (node_embeddings[s] * self.embed_mod_.relational_embedding[r]).view(-1, 1, 1)
+    
+            emb_o = node_embeddings[perturb_entity_idx]
+            emb_o = emb_o.transpose(0, 1).unsqueeze(1)
+    
+            o = torch.bmm(emb_sr, emb_o)
+
+            score = torch.sigmoid(
+                    torch.sum(o, dim = 0)
+            )
+            
+            target = torch.tensor(len(perturb_entity_idx) - 1)
+            score_sorted, indices = torch.sort(score, dim=1, descending=True)
+            links = indices[score_sorted > threshold]
+            print(f"{s} is connected via {r} with {links}, num_hit: {len(links)}")
+            break
+    # TODO: all(s) with r_o    
+
 
     def TransE(self, h, r, t):
         return (h + r - t).norm(p=1, dim=1)
