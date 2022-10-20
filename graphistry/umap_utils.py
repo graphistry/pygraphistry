@@ -59,7 +59,7 @@ def assert_imported_cuml():
                      "`pip install cuml`")
         raise import_cuml_exn
 
-def is_old_cuml():
+def is_legacy_cuml():
     try:
         import cuml
         vs = cuml.__version__.split(".")
@@ -136,15 +136,15 @@ def reuse_umap(g: Plottable, memoize: bool, metadata: Any):  # noqa: C901
     )
 
 
-def umap_graph_to_weighted_edges(umap_graph, engine, is_old, cfg=config):
+def umap_graph_to_weighted_edges(umap_graph, engine, is_legacy, cfg=config):
     logger.debug("Calculating weighted adjacency (edge) DataFrame")
     coo = umap_graph.tocoo()
     src, dst, weight_col = cfg.SRC, cfg.DST, cfg.WEIGHT
-    if (engine == "umap_learn") or is_old:
+    if (engine == "umap_learn") or is_legacy:
         _weighted_edges_df = pd.DataFrame(
             {src: coo.row, dst: coo.col, weight_col: coo.data}
         )
-    elif (engine == "cuml") and not is_old:
+    elif (engine == "cuml") and not is_legacy:
         _weighted_edges_df = pd.DataFrame(
             {src: coo.get().row, dst: coo.get().col, weight_col: coo.get().data}
         )
@@ -232,9 +232,9 @@ class UMAPMixin(MIXIN_BASE):
         logger.info('-' * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
 
-        if (self.engine == 'cuml' and is_old_cuml()):
-            import cuml
-            knn = cuml.neighbors.NearestNeighbors(n_neighbors=self.n_neighbors)
+        if (self.engine == 'cuml' and is_legacy_cuml()):
+            from cuml.neighbors import NearestNeighbors
+            knn = NearestNeighbors(n_neighbors=self.n_neighbors)
             cc = self._umap.fit(X, y, knn_graph=knn)
             knn.fit(cc.embedding_)
             self._umap.graph_ = knn.kneighbors_graph(cc.embedding_)
@@ -245,7 +245,7 @@ class UMAPMixin(MIXIN_BASE):
             self._weighted_adjacency = self._umap.graph_
         # if changing, also update fresh_res
         self._weighted_edges_df = (
-            umap_graph_to_weighted_edges(self._umap.graph_,self.engine,is_old_cuml())
+            umap_graph_to_weighted_edges(self._umap.graph_,self.engine,is_legacy_cuml())
         )
 
         mins = (time() - t) / 60
@@ -486,7 +486,7 @@ class UMAPMixin(MIXIN_BASE):
             ) = res._featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
                 **featurize_kwargs
             )
-            
+
             logger.debug("umap X_: %s", X_)
             logger.debug("umap y_: %s", y_)
 
@@ -559,6 +559,10 @@ class UMAPMixin(MIXIN_BASE):
                 f"`kind` needs to be one of `nodes`, `edges`, `None`, got {kind}"  # noqa: E501
             )
         res = res._bind_xy_from_umap(res, kind, encode_position, encode_weight, play)  # noqa: E501
+
+        if (res.engine == 'cuml' and is_legacy_cuml()):
+            res = res.prune_self_edges()
+
         if not inplace:
             return res
 
