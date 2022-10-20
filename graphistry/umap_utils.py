@@ -232,11 +232,10 @@ class UMAPMixin(MIXIN_BASE):
         logger.info('-' * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
 
-        is_old = is_old_cuml()
-        if (self.engine == 'cuml' and is_old):
+        if (self.engine == 'cuml' and is_old_cuml()):
             import cuml
             knn = cuml.neighbors.NearestNeighbors(n_neighbors=self.n_neighbors)
-            cc = cuml.UMAP().fit(X, y, knn_graph=knn)
+            cc = self._umap.fit(X, y, knn_graph=knn)
             knn.fit(cc.embedding_)
             self._umap.graph_ = knn.kneighbors_graph(cc.embedding_)
             self._weighted_adjacency = self._umap.graph_
@@ -246,7 +245,7 @@ class UMAPMixin(MIXIN_BASE):
             self._weighted_adjacency = self._umap.graph_
         # if changing, also update fresh_res
         self._weighted_edges_df = (
-            umap_graph_to_weighted_edges(self._umap.graph_,self.engine,is_old)
+            umap_graph_to_weighted_edges(self._umap.graph_,self.engine,is_old_cuml())
         )
 
         mins = (time() - t) / 60
@@ -259,12 +258,7 @@ class UMAPMixin(MIXIN_BASE):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         self.umap_fit(X, y)
-
-        if is_old_cuml():
-            import cuml
-            emb = cuml.UMAP().fit_transform(X)
-        else:
-            emb = self._umap.transform(X)
+        emb = self._umap.transform(X)
         emb = self._bundle_embedding(emb, index=X.index)
         return emb
 
