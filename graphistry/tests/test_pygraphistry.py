@@ -32,12 +32,12 @@ def test_register_with_only_password(capfd):
 def test_register_with_only_personal_key_id(capfd):
     PyGraphistry.register(personal_key_id='only_personal_key_id')
     out, err = capfd.readouterr()
-    assert "Error: personal key id exists but missing personal key" in out
+    assert "Error: personal key id exists but missing personal key secret" in out
 
-def test_register_with_only_personal_key(capfd):
-    PyGraphistry.register(personal_key='only_personal_key')
+def test_register_with_only_personal_key_secret(capfd):
+    PyGraphistry.register(personal_key_secret='only_personal_key_secret')
     out, err = capfd.readouterr()
-    assert "Error: personal key exists but missing personal key id" in out
+    assert "Error: personal key secret exists but missing personal key id" in out
 
 
 class FakeRequestResponse(object):
@@ -52,7 +52,7 @@ class FakeRequestResponse(object):
 
 switch_org_success_response = {
     "status": "OK",
-    "message": "Switch to organization success-org",
+    "message": "Switched to organization: success-org",
     "data": []
 }
 
@@ -74,7 +74,7 @@ org_not_permitted_response = {
 def test_switch_organization_success(mock_response, capfd):
     PyGraphistry.org_name("success-org")
     out, err = capfd.readouterr()
-    assert "Switch to organization success-org" in out
+    assert "Switched to organization: success-org" in out
 
 
 @patch("requests.post", return_value=FakeRequestResponse(org_not_exist_response))

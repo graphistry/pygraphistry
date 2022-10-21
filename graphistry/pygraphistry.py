@@ -149,13 +149,13 @@ class PyGraphistry(object):
         return PyGraphistry.api_token()
 
     @staticmethod
-    def pkey_login(personal_key_id, personal_key, org_name=None, fail_silent=False):
+    def pkey_login(personal_key_id, personal_key_secret, org_name=None, fail_silent=False):
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
         By default, must be reinvoked within 24hr."""
 
         if PyGraphistry._config['store_token_creds_in_memory']:
             PyGraphistry.relogin = lambda: PyGraphistry.pkey_login(
-                personal_key_id, personal_key, org_name, fail_silent
+                personal_key_id, personal_key_secret, org_name, fail_silent
             )
 
         PyGraphistry._is_authenticated = False
@@ -166,7 +166,7 @@ class PyGraphistry(object):
                 + PyGraphistry.server(),    # noqa: W503
                 certificate_validation=PyGraphistry.certificate_validation(),
             )
-            .pkey_login(personal_key_id, personal_key, org_name)
+            .pkey_login(personal_key_id, personal_key_secret, org_name)
             .token
         )
         PyGraphistry.api_token(token)
@@ -514,7 +514,7 @@ class PyGraphistry(object):
         password: Optional[str] = None,
         token: Optional[str] = None,
         personal_key_id: Optional[str] = None,
-        personal_key: Optional[str] = None,
+        personal_key_secret: Optional[str] = None,
         server: Optional[str] = None,
         protocol: Optional[str] = None,
         api: Optional[Literal[1, 3]] = None,
@@ -544,8 +544,8 @@ class PyGraphistry(object):
         :type token: Optional[str]
         :param personal_key_id: Personal Key id for service account.
         :type personal_key_id: Optional[str]
-        :param personal_key: Personal Key for service account.
-        :type personal_key: Optional[str]
+        :param personal_key_secret: Personal Key secret for service account.
+        :type personal_key_secret: Optional[str]
         :param server: URL of the visualization server.
         :type server: Optional[str]
         :param protocol: Protocol to use for server uploaders, defaults to "https".
@@ -603,11 +603,11 @@ class PyGraphistry(object):
                     import graphistry
                     graphistry.register(api=3, protocol='http', server='200.1.1.1', token='abc')
 
-        **Example: Standard (by personal_key_id/personal_key)**
+        **Example: Standard (by personal_key_id/personal_key_secret)**
                 ::
 
                     import graphistry
-                    graphistry.register(api=3, protocol='http', server='200.1.1.1', personal_key_id='ZD5872XKNF', personal_key='SA0JJ2DTVT6LLO2S')
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', personal_key_id='ZD5872XKNF', personal_key_secret='SA0JJ2DTVT6LLO2S')
 
         **Example: Remote browser to Graphistry-provided notebook server (2.0)**
                 ::
@@ -641,18 +641,18 @@ class PyGraphistry(object):
             print("Error: password exist but missing username")
         elif not (username is None) and password is None:
             print("Error: username exists but missing password")
-        elif not (personal_key_id is None) and not (personal_key is None):
-            PyGraphistry.pkey_login(personal_key_id, personal_key)
+        elif not (personal_key_id is None) and not (personal_key_secret is None):
+            PyGraphistry.pkey_login(personal_key_id, personal_key_secret)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
             PyGraphistry.authenticate()
-        elif personal_key_id is None and not (personal_key is None):
-            print("Error: personal key exists but missing personal key id")
-        elif not (personal_key_id is None) and personal_key is None:
-            print("Error: personal key id exists but missing personal key")
+        elif personal_key_id is None and not (personal_key_secret is None):
+            print("Error: personal key secret exists but missing personal key id")
+        elif not (personal_key_id is None) and personal_key_secret is None:
+            print("Error: personal key id exists but missing personal key secret")
         elif not (token is None):
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         elif not (org_name is None) or is_sso_login:
-            print("No username/password, personal key id/key & token provided, enter SSO login")
+            print("No username/password, personal key id/secret & token provided, enter SSO login")
 
             PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
 
@@ -2051,7 +2051,7 @@ class PyGraphistry(object):
     def _switch_org_url(org_name):
         hostname = PyGraphistry._config["hostname"]
         protocol = PyGraphistry._config["protocol"]
-        return "%s://%s/api/v2/o/switch/%s/" % (protocol, hostname, org_name)
+        return "{}://{}/api/v2/o/{}/switch/".format(protocol, hostname, org_name)
 
 
     @staticmethod
@@ -2316,18 +2316,18 @@ class PyGraphistry(object):
             PyGraphistry._config['personal_key_id'] = value.strip()
 
     @staticmethod
-    def personal_key(value: Optional[str] = None):
-        """Set or get the personal_key when register.
+    def personal_key_secret(value: Optional[str] = None):
+        """Set or get the personal_key_secret when register.
         """
 
         if value is None:
-            if 'personal_key' in PyGraphistry._config:
-                return PyGraphistry._config['personal_key']
+            if 'personal_key_secret' in PyGraphistry._config:
+                return PyGraphistry._config['personal_key_secret']
             return None
 
         # setter
-        if 'personal_key' not in PyGraphistry._config or value is not PyGraphistry._config['personal_key']:
-            PyGraphistry._config['personal_key'] = value.strip()
+        if 'personal_key_secret' not in PyGraphistry._config or value is not PyGraphistry._config['personal_key']:
+            PyGraphistry._config['personal_key_secret'] = value.strip()
 
     @staticmethod
     def switch_org(value):
@@ -2342,7 +2342,7 @@ class PyGraphistry(object):
 
         if result is True:
             PyGraphistry._config['org_name'] = value.strip()
-            print("Switched to organization :{}".format(value.strip()))
+            print("Switched to organization: {}".format(value.strip()))
         else:  # print the error message
             print(result)
 
@@ -2410,7 +2410,7 @@ scene_settings = PyGraphistry.scene_settings
 from_igraph = PyGraphistry.from_igraph
 from_cugraph = PyGraphistry.from_cugraph
 personal_key_id = PyGraphistry.personal_key_id
-personal_key = PyGraphistry.personal_key
+personal_key_secret = PyGraphistry.personal_key_secret
 switch_org = PyGraphistry.switch_org
 
 
