@@ -936,6 +936,7 @@ g2.plot() # nodes are values from cols s, d, k1
   .pipe(lambda g2: g2.nodes(g2._nodes.assign(t=x))) # transform
   .filter_edges_by_dict({"k1": "x"})
   .filter_nodes_by_dict({"k2": 4})
+  .prune_self_edges()
   .hop( # filter to subgraph
     #almost all optional
     direction='forward', # 'reverse', 'undirected'
