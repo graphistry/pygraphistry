@@ -1879,7 +1879,7 @@ class FeatureMixin(MIXIN_BASE):
         #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = "ngram",
+        similarity: Optional[str] = None,
         categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
@@ -2009,8 +2009,8 @@ class FeatureMixin(MIXIN_BASE):
         min_words: float = 2.5,
         multilabel: bool = False,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        #similarity: Optional[str] = "ngram",
-        #categories: Optional[str] = "auto",
+        similarity: Optional[str] = "ngram",
+        categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
@@ -2056,8 +2056,8 @@ class FeatureMixin(MIXIN_BASE):
             #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
-            #similarity=similarity,
-            #categories=categories,
+            similarity=similarity,
+            categories=categories,
             multilabel=multilabel,
             impute=impute,
             n_quantiles=n_quantiles,
@@ -2229,6 +2229,10 @@ class FeatureMixin(MIXIN_BASE):
         n_bins: int = 10,
         encode: str = "ordinal",
         strategy: str = "uniform",
+        similarity: Optional[
+            str
+        ] = None,  # turn this off in favor of Gap Encoder
+        categories: Optional[str] = "auto",
         keep_n_decimals: int = 5,
         remove_node_column: bool = True,
         inplace: bool = False,
@@ -2361,8 +2365,8 @@ class FeatureMixin(MIXIN_BASE):
                 #confidence=confidence,  # deprecated
                 min_words=min_words,
                 model_name=model_name,
-                #similarity=similarity,  # deprecated
-                #categories=categories,  # deprecated
+                similarity=similarity,  # deprecated
+                categories=categories,  # deprecated
                 impute=impute,
                 n_quantiles=n_quantiles,
                 quantile_range=quantile_range,
@@ -2393,8 +2397,8 @@ class FeatureMixin(MIXIN_BASE):
                 #confidence=confidence,  # deprecated
                 min_words=min_words,
                 model_name=model_name,
-                #similarity=similarity,  # deprecated
-                #categories=categories,  # deprecated
+                similarity=similarity,  # deprecated
+                categories=categories,  # deprecated
                 impute=impute,
                 n_quantiles=n_quantiles,
                 quantile_range=quantile_range,
@@ -2433,10 +2437,10 @@ class FeatureMixin(MIXIN_BASE):
         #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        # similarity: Optional[
-        #     str
-        # ] = None,  # turn this on to 'ngram' in favor of Similarity Encoder
-        # categories: Optional[str] = "auto",
+        similarity: Optional[
+            str
+        ] = None,  # turn this on to 'ngram' in favor of Similarity Encoder
+        categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
@@ -2486,8 +2490,8 @@ class FeatureMixin(MIXIN_BASE):
             #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
-            #similarity=similarity,
-            #categories=categories,
+            similarity=similarity,
+            categories=categories,
             impute=impute,
             n_quantiles=n_quantiles,
             quantile_range=quantile_range,
@@ -2528,10 +2532,10 @@ class FeatureMixin(MIXIN_BASE):
         #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        # similarity: Optional[
-        #     str
-        # ] = None,  # turn this off in favor of Gap Encoder
-        # categories: Optional[str] = "auto",
+        similarity: Optional[
+            str
+        ] = None,  # turn this off in favor of Gap Encoder
+        categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
@@ -2580,8 +2584,8 @@ class FeatureMixin(MIXIN_BASE):
             #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
-            #similarity=similarity,
-            #categories=categories,
+            similarity=similarity,
+            categories=categories,
             impute=impute,
             n_quantiles=n_quantiles,
             quantile_range=quantile_range,

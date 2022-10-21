@@ -326,6 +326,9 @@ class ComputeMixin(MIXIN_BASE):
             )
             return self.nodes(out_df)
 
+    def prune_self_edges(self):
+        return self.edges(self._edges[ self._edges[self._source] != self._edges[self._destination] ])
+
     def collapse(
         self,
         node: Union[str, int],
