@@ -1878,7 +1878,7 @@ class FeatureMixin(MIXIN_BASE):
         #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        similarity: Optional[str] = "ngram",
+        similarity: Optional[str] = None,
         categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
@@ -2228,6 +2228,10 @@ class FeatureMixin(MIXIN_BASE):
         n_bins: int = 10,
         encode: str = "ordinal",
         strategy: str = "uniform",
+        similarity: Optional[
+            str
+        ] = None,  # turn this off in favor of Gap Encoder
+        categories: Optional[str] = "auto",
         keep_n_decimals: int = 5,
         remove_node_column: bool = True,
         inplace: bool = False,
