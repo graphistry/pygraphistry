@@ -228,7 +228,7 @@ class PyGraphistry(object):
         :param auth_url: SSO auth url retrieved via API
         :type auth_url: str
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
-        :type sso_timeout: Optional[int|None]
+        :type sso_timeout: Optional[int]
         :returns: None.
         :rtype: None
 
@@ -569,7 +569,7 @@ class PyGraphistry(object):
         :param idp_name: Set sso login idp name. Default as None (for site-wide SSO / for the only idp record).
         :type idp_name: Optional[str]
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
-        :type sso_timeout: Optional[int|None]
+        :type sso_timeout: Optional[int]
         :returns: None.
         :rtype: None
 
