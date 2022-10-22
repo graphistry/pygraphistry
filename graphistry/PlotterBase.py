@@ -366,11 +366,14 @@ class PlotterBase(Plottable):
         """
 
         complex_encodings = self._complex_encodings or {}
-        if 'current' not in complex_encodings:
-            complex_encodings['current'] = {}
-        if 'default' not in complex_encodings:
-            complex_encodings['default'] = {}
-        complex_encodings['default']["pointAxisEncoding"] = {
+        if 'node_encodings' not in complex_encodings:
+            complex_encodings['node_encodings'] = {}
+        node_encodings = complex_encodings['node_encodings']
+        if 'current' not in node_encodings:
+            node_encodings['current'] = {}
+        if 'default' not in node_encodings:
+            node_encodings['default'] = {}
+        node_encodings['default']["pointAxisEncoding"] = {
             "graphType": "point",
             "encodingType": "axis",
             "variation": "categorical",
@@ -1016,6 +1019,10 @@ class PlotterBase(Plottable):
         else:
             res = copy.copy(base)
             res._nodes = nodes
+        # for use in text_utils.py search index
+        if hasattr(res, 'search_index'):
+            delattr(res, 'search_index')  # reset so that g.search will rebuild index
+            
         return res
 
     def name(self, name):

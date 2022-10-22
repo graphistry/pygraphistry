@@ -437,6 +437,41 @@ See `help(g.build_gnn)` for options.
 
 GNN support is rapidly evolving, please contact the team directly or on Slack for additional discussions
 
+### [Semantic Search](https://www.sbert.net/examples/applications/semantic-search/README.html)
+
+* Search textual data semantically and see the resulting graph:
+
+    ```python
+      ndf = pd.read_csv(nodes.csv)
+      edf = pd.read_csv(edges.csv)
+      
+      g = graphistry.nodes(ndf, 'node').edges(edf, 'src', 'dst')
+      
+      g2 = g.featurize(X = ['text_col_1', .., 'text_col_n'], kind='nodes',
+                        min_words=0,  # forces all named columns as textual ones
+                        #encode text as paraphrase embeddings, supports any sbert/Huggingface model
+                        model_name: str = "paraphrase-MiniLM-L6-v2")
+                        
+      results_df, query_vector = g2.search('my natural language query', ...)
+      print(results_df[['distance', 'text_col_1', ..., 'text_col_n']])  #sorted by relevancy
+      
+      # or see graph of matching entities and similarity edges (or optional original edges)
+      g2.search_graph('my natural language query', ...).plot()
+    ```
+    
+* If edges are not given, `g.umap(..)` will supply them: 
+
+    ```python
+      ndf = pd.read_csv(nodes.csv)
+      g = graphistry.nodes(ndf)
+      g2 = g.umap(X = ['text_col_1', .., 'text_col_n'], min_words=0, ...)
+      
+      g2.search_graph('my natural language query', ...).plot()
+    ```
+    
+See `help(g.search_graph)` for options
+
+
 ### Quickly configurable
 
 Set visual attributes through [quick data bindings](https://hub.graphistry.com/docs/api/2/rest/upload/#createdataset2) and set [all sorts of URL options](https://hub.graphistry.com/docs/api/1/rest/url/). Check out the tutorials on [colors](demos/more_examples/graphistry_features/encodings-colors.ipynb), [sizes](demos/more_examples/graphistry_features/encodings-sizes.ipynb), [icons](demos/more_examples/graphistry_features/encodings-icons.ipynb), [badges](demos/more_examples/graphistry_features/encodings-badges.ipynb), [weighted clustering](demos/more_examples/graphistry_features/edge-weights.ipynb) and [sharing controls](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/sharing_tutorial.ipynb):
@@ -901,6 +936,7 @@ g2.plot() # nodes are values from cols s, d, k1
   .pipe(lambda g2: g2.nodes(g2._nodes.assign(t=x))) # transform
   .filter_edges_by_dict({"k1": "x"})
   .filter_nodes_by_dict({"k2": 4})
+  .prune_self_edges()
   .hop( # filter to subgraph
     #almost all optional
     direction='forward', # 'reverse', 'undirected'

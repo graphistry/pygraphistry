@@ -7,6 +7,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.28.4 - 2022-10-20]
+
+### Added
+
+* AI: `umap(engine='cuml') now supports older RAPIDS versions via knn fallback for edge creation
+* `prune_self_edges()` to drop any edges where the source and destination are the same
+
+## [0.28.3 - 2022-10-12]
+
+### Added
+
+* AI: full text & semantic search (`g.search(..)` and `g.search_graph(..).plot()`)
+* Featurization: support for dataframe columns that are list of lists -> multilabel targets
+                  set using `g.featurize(y=['list_of_lists_column'], multilabel=True,...)`
+                  Only supports single-column data targets
+
+
+## [0.28.2 - 2022-10-11]
+
+### Changed
+
+* Infra: Updated github actions
+
+### Fixed
+
+* `encode_axis()` now correctly sets axis
+* work around mypy mistyping operator & on pandas series 
+
 ## [0.28.1 - 2022-10-06]
 
 ### Changed

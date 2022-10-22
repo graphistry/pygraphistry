@@ -260,15 +260,16 @@ class DGLGraphMixin(MIXIN_BASE):
         n_initial = len(edf)
         logger.info(f"Length of edge DataFrame {n_initial}")
 
-        mask = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)
+        mask : pd.Series[bool] = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)  # type: ignore
         # print(f'MASK: length: {len(mask)}')
         # print(f'OG: length: {len(edf)}')
 
         assert (
             sum(mask) > 2
         ), f"mask slice is (practically) empty, will lead to bad graph, found {sum(mask)}"
-        self._MASK = mask
-        self._edges = edf[mask]
+        self._MASK = mask   # type: ignore
+        self._edges = edf[mask]   # type: ignore
+
         # print(f'new EDGES: length: {len(self._edges)}')
 
         self._prune_edge_target()
@@ -495,7 +496,7 @@ class DGLGraphMixin(MIXIN_BASE):
         if hasattr(res, "_MASK"):
             if y_edges_resolved is not None:
                 y_edges_resolved = y_edges_resolved[
-                    res._MASK
+                    res._MASK  # type: ignore
                 ]  # automatically prune target using mask
                 # note, edf, ndf, should both have unique indices
 
