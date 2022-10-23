@@ -110,8 +110,8 @@ class ModelDict(UserDict):
 
 
 default_parameters = dict(kind='nodes', 
-                            use_scaler=None,
-                            use_scaler_target=None,
+                            use_scaler=NO_SCALER,
+                            use_scaler_target=NO_SCALER,
                             cardinality_threshold=CARD_THRESH,
                             cardinality_threshold_target=CARD_THRESH_TARGET,
                             n_topics=N_TOPICS,
@@ -143,6 +143,8 @@ default_parameters = dict(kind='nodes',
 
 # #############################################################################
 # Create useful presets for the user
+# makes naming and encoding models consistently and testing different models against eachother easy 
+# customize the default parameters for each model you want to test
 
 # Ngrams Model over features
 ngrams_model = ModelDict('Ngrams Model', verbose=True, **default_parameters)
@@ -164,23 +166,22 @@ topic_model.update(dict(
 
 # useful for text data that you want to paraphrase
 embedding_model = ModelDict(f'{PARAPHRASE_SMALL_MODEL} Embedding Model', verbose=True, **default_parameters)
-# text -- paraphrase BERT style model
 embedding_model.update(dict(
-    min_words=FORCE_EMBEDDING_ALL_COLUMNS,  # make sentence transformer using paraphrase model #default in graphistry
+    min_words=FORCE_EMBEDDING_ALL_COLUMNS, 
     model_name=PARAPHRASE_SMALL_MODEL,  # if we need multilingual support, use PARAPHRASE_MULTILINGUAL_MODEL
 ))
 
 # useful for when search input is much smaller than the encoded documents
 search_model = ModelDict(f'{MSMARCO2} Search Model', verbose=True, **default_parameters)
 search_model.update(dict(
-    min_words=FORCE_EMBEDDING_ALL_COLUMNS,  # make sentence transformer using paraphrase model #default in graphistry
+    min_words=FORCE_EMBEDDING_ALL_COLUMNS, 
     model_name=MSMARCO2,
 ))
 
 # Question Answering encodings for search
 qa_model = ModelDict(f'{QA_SMALL_MODEL} QA Model', verbose=True, **default_parameters)
 qa_model.update(dict(
-    min_words=FORCE_EMBEDDING_ALL_COLUMNS,  # make sentence transformer
+    min_words=FORCE_EMBEDDING_ALL_COLUMNS, 
     model_name=QA_SMALL_MODEL,
 ))
 
@@ -195,8 +196,6 @@ BASE_MODELS = {
 
 
 if __name__ == '__main__':
-    # print('----------- BASE_MODELS -----------')
-    # print(BASE_MODELS)
     # python3 -m graphistry.features -m 'my awesome edge encoded model' -p '{"kind":"edges"}'
     import argparse    
     import json
