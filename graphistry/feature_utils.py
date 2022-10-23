@@ -559,10 +559,8 @@ def get_preprocessing_pipeline(
     :return: scaled array, imputer instances or None, scaler instance or None
     """
     from sklearn.preprocessing import (
-        FunctionTransformer,
         KBinsDiscretizer,
         MinMaxScaler,
-        MultiLabelBinarizer,
         QuantileTransformer,
         RobustScaler,
         StandardScaler,

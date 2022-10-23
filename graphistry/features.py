@@ -4,31 +4,51 @@ from .constants import VERBOSE, TRACE
 
 logger = setup_logger('graphistry.features', verbose=VERBOSE, fullpath=TRACE)
 
-
+# ###############################################################
 UNK = 'UNK'
 LENGTH_PRINT = 80
 ################# Encoded Global Models #################
 EMBEDDING_MODEL_PATH = 'embedding.model'
 TOPIC_MODEL_PATH = 'topic.model'
 NGRAMS_MODEL_PATH = 'ngrams.model'
+SEARCH_MODEL_PATH = 'search.model'
 
 ################# Actual Models #################
+## add specific instances of models here
 
 
 ################################################################################
 ################## graphistry featurization config constants #################
 N_TOPICS = 42
 N_TOPICS_TARGET = 10
-HIGH_CARD = 4e6  # forces one hot encoding
+HIGH_CARD = 4e7  # forces one hot encoding
+MID_CARD = 2e3  # todo: forces hashing
 LOW_CARD = 2
+
+CARD_THRESH=40,
+CARD_THRESH_TARGET=400,
 
 FORCE_EMBEDDING_ALL_COLUMNS = 0 # min_words
 HIGH_WORD_COUNT = 1024
-LOW_WORD_COUNT = 2
+LOW_WORD_COUNT = 3
+
+NGRAMS_RANGE = (1, 3),
+MAX_DF=0.2,
+MIN_DF=3,
 
 N_BINS = 10 
 KBINS_SCALER = "kbins"
-
+IMPUTE='median',  # set to 
+N_QUANTILES=100,
+OUTPUT_DISTRIBUTION='normal',
+QUANTILES_RANGE=(25, 75),
+N_BINS=10,
+ENCODE='ordinal', # kbins, onehot, ordinal, label
+STRATEGY='uniform', # uniform, quantile, kmeans
+SIMILARITY=None, # 'ngram' , default None uses Gap
+CATEGORIES='auto',  
+KEEP_N_DECIMALS=5,
+             
 BATCH_SIZE = 1000
 NO_SCALER = None
 EXTRA_COLS_NEEDED = ['x', 'y', '_n']
@@ -41,26 +61,37 @@ TIME_TOPIC = "time_topic"
 TRANSLATED = "translated"
 TRANSLATIONS = "translations"
 SENTIMENT = "sentiment"
-############# The Search Instance /key
+
+################################################################
+############# The Search key
 SEARCH = "search"
-############# Embeddings
+############# Embeddings keys
 TOPIC = "topic"  # topic model embeddings
 SEMANTIC = "semantic"  # multilingual embeddings
 QA = "qa"
 NGRAMS = "ngrams"
-############# Embedding Models:
+############# Embedding Models
 PARAPHRASE_SMALL_MODEL = 'sentence-transformers/paraphrase-albert-small-v2'
 PARAPHRASE_MULTILINGUAL_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-MSMARCO = "sentence-transformers/msmarco-distilbert-base-v3" # 512
+MSMARCO2 = "sentence-transformers/msmarco-distilbert-base-v2" # 768
+MSMARCO3 = "sentence-transformers/msmarco-distilbert-base-v3" # 512
 QA_SMALL_MODEL = "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
 # #############################################################################
 # Model Training Constants
 # Used for seeding random state
 RANDOM_STATE = 42
-SPLIT = 0.1
+SPLIT_LOW = 0.1
+SPLIT_MEDIUM = 0.2
+SPLIT_HIGH = 0.5
 
-
+# #############################################################################
 class ModelDict(UserDict):
+    """Helper class to print out model names
+
+    Args:
+        message: description of model
+        verbose: print out model names, logging happens regardless
+    """
     def __init__(self, message, verbose=True, *args, **kwargs):
         self._message = message
         self._verbose = verbose
@@ -70,40 +101,39 @@ class ModelDict(UserDict):
     def __repr__(self):
         logger.info(self._message)
         if self._verbose:
-            print('_'*self._print_length)
+            print('_'*self._print_length+1)
             print()
             print(self._message)
             print('_'*self._print_length)
             print()
-            #print('-'*50)
         return super().__repr__()         
 
 
 default_parameters = dict(kind='nodes', 
                             use_scaler=None,
                             use_scaler_target=None,
-                            cardinality_threshold=40,
-                            cardinality_threshold_target=400,
-                            n_topics=42,
-                            n_topics_target=10,
+                            cardinality_threshold=CARD_THRESH,
+                            cardinality_threshold_target=CARD_THRESH_TARGET,
+                            n_topics=N_TOPICS,
+                            n_topics_target=N_TOPICS_TARGET,
                             multilabel=False,
                             embedding=False,
                             use_ngrams=False,
-                            ngram_range=(1, 3),
-                            max_df=0.2,
-                            min_df=3,
-                            min_words=3,
-                            model_name='paraphrase-MiniLM-L6-v2',
-                            impute='median',
-                            n_quantiles=100,
-                            output_distribution='normal',
-                            quantile_range=(25, 75),
-                            n_bins=10,
-                            encode='ordinal',
-                            strategy='uniform',
-                            similarity=None,
-                            categories='auto',
-                            keep_n_decimals=5,
+                            ngram_range=NGRAMS_RANGE,
+                            max_df=MAX_DF,
+                            min_df=MIN_DF,
+                            min_words=LOW_WORD_COUNT,
+                            model_name=MSMARCO2,
+                            impute=IMPUTE,  
+                            n_quantiles=N_QUANTILES,
+                            output_distribution=OUTPUT_DISTRIBUTION,
+                            quantile_range=QUANTILES_RANGE,
+                            n_bins=N_BINS,
+                            encode=ENCODE, # kbins, onehot, ordinal, label
+                            strategy=STRATEGY, # uniform, quantile, kmeans
+                            similarity=SIMILARITY, # 'ngram' 
+                            categories=CATEGORIES,  
+                            keep_n_decimals=KEEP_N_DECIMALS,
                             remove_node_column=True,
                             inplace=False,
                             feature_engine='auto',
@@ -111,17 +141,19 @@ default_parameters = dict(kind='nodes',
     )
 
 
-ngrams_model = ModelDict('Ngrams Model', verbose=True)
-ngrams_model.update(default_parameters)
+# #############################################################################
+# Create useful presets for the user
+
+# Ngrams Model over features
+ngrams_model = ModelDict('Ngrams Model', verbose=True, **default_parameters)
 ngrams_model.update(dict(
     use_ngrams=True,
-    min_words=LOW_WORD_COUNT, 
-                )
-            )
+    min_words=LOW_WORD_COUNT
+    )
+)
 
-
-topic_model = ModelDict('Topic Model', verbose=True)
-topic_model.update(default_parameters)
+# Topic Model over features
+topic_model = ModelDict('Topic Model', verbose=True, **default_parameters)
 topic_model.update(dict(
     cardinality_threshold=LOW_CARD,  # force topic model
     cardinality_threshold_target=LOW_CARD,  # force topic model
@@ -130,26 +162,23 @@ topic_model.update(dict(
     min_words=HIGH_CARD,  # make sure it doesn't turn into sentence model, but rather topic models
 ))
 
-
-embedding_model = ModelDict(f'{PARAPHRASE_SMALL_MODEL} Embedding Model', verbose=True)
-embedding_model.update(default_parameters)
+# useful for text data that you want to paraphrase
+embedding_model = ModelDict(f'{PARAPHRASE_SMALL_MODEL} Embedding Model', verbose=True, **default_parameters)
 # text -- paraphrase BERT style model
 embedding_model.update(dict(
     min_words=FORCE_EMBEDDING_ALL_COLUMNS,  # make sentence transformer using paraphrase model #default in graphistry
     model_name=PARAPHRASE_SMALL_MODEL,  # if we need multilingual support, use PARAPHRASE_MULTILINGUAL_MODEL
 ))
 
-search_model = ModelDict(f'{MSMARCO} Search Model', verbose=True)
-search_model.update(default_parameters)
+# useful for when search input is much smaller than the encoded documents
+search_model = ModelDict(f'{MSMARCO2} Search Model', verbose=True, **default_parameters)
 search_model.update(dict(
     min_words=FORCE_EMBEDDING_ALL_COLUMNS,  # make sentence transformer using paraphrase model #default in graphistry
-    model_name=MSMARCO,  # if we need multilingual support, use PARAPHRASE_MULTILINGUAL_MODEL
-    
+    model_name=MSMARCO2,
 ))
 
-
-qa_model = ModelDict(f'{QA_SMALL_MODEL} QA Model', verbose=True)
-qa_model.update(default_parameters)
+# Question Answering encodings for search
+qa_model = ModelDict(f'{QA_SMALL_MODEL} QA Model', verbose=True, **default_parameters)
 qa_model.update(dict(
     min_words=FORCE_EMBEDDING_ALL_COLUMNS,  # make sentence transformer
     model_name=QA_SMALL_MODEL,
