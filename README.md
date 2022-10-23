@@ -356,14 +356,32 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     g = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
 
     # other pydata libraries
-    X = g._node_features
-    y = g._node_target
+    X = g._node_features  # g._get_feature('nodes')
+    y = g._node_target  # g._get_target('nodes')
     from sklearn.ensemble import RandomForestRegressor
     model = RandomForestRegressor().fit(X, y) #assumes train/test split
     new_df = pandas.read_csv(...)
     X_new, _ = g.transform(new_df, None, kind='nodes')
     preds = model.predict(X_new)
     ```
+
+ * Encode model definitions and compare models against each other
+
+   ```python
+    # graphistry
+    from graphistry.features import search_model, topic_model, ngrams_model, ModelDict, default_parameters
+
+    g = graphistry.nodes(df)
+    g = g.umap(X=[..], y=[..], **search_model)
+
+    # set custom encoding model 
+    new_model = ModelDict(message='encoding a new model is easy', **default_parameters)
+    new_model.update(dict(kind='edges', model_name='hf/a_cool_transformer_model', use_scaler_target='kbins', n_bins=11, strategy='normal'))
+    print(new_model)
+
+    g = g.umap(X=[..], y=[..], **new_model)
+    ```
+
 
 See `help(g.featurize)` for more options
 
@@ -458,6 +476,8 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       # or see graph of matching entities and similarity edges (or optional original edges)
       g2.search_graph('my natural language query', ...).plot()
     ```
+    Create and keep track of model encodings
+
     
 * If edges are not given, `g.umap(..)` will supply them: 
 
