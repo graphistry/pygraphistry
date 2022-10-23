@@ -16,7 +16,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-* Infra: Updated github actions for publishing 
+* Infra: Updated github actions versions and Ubuntu environment for publishing 
 
 ## [0.28.3 - 2022-10-12]
 
