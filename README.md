@@ -476,8 +476,7 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       # or see graph of matching entities and similarity edges (or optional original edges)
       g2.search_graph('my natural language query', ...).plot()
     ```
-    Create and keep track of model encodings
-
+    
     
 * If edges are not given, `g.umap(..)` will supply them: 
 
