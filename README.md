@@ -372,14 +372,16 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     from graphistry.features import search_model, topic_model, ngrams_model, ModelDict, default_parameters
 
     g = graphistry.nodes(df)
-    g = g.umap(X=[..], y=[..], **search_model)
+    g2 = g.umap(X=[..], y=[..], **search_model)
 
     # set custom encoding model 
     new_model = ModelDict(message='encoding a new model is easy', **default_parameters)
     new_model.update(dict(kind='edges', model_name='hf/a_cool_transformer_model', use_scaler_target='kbins', n_bins=11, strategy='normal'))
     print(new_model)
 
-    g = g.umap(X=[..], y=[..], **new_model)
+    g3 = g.umap(X=[..], y=[..], **new_model)
+    # compare g2 vs g3 or add to different pipelines
+    # ...
     ```
 
 
@@ -476,7 +478,7 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       # or see graph of matching entities and similarity edges (or optional original edges)
       g2.search_graph('my natural language query', ...).plot()
     ```
-    
+
     
 * If edges are not given, `g.umap(..)` will supply them: 
 
