@@ -25,29 +25,29 @@ HIGH_CARD = 4e7  # forces one hot encoding
 MID_CARD = 2e3  # todo: forces hashing
 LOW_CARD = 2
 
-CARD_THRESH=40,
-CARD_THRESH_TARGET=400,
+CARD_THRESH=40
+CARD_THRESH_TARGET=400
 
 FORCE_EMBEDDING_ALL_COLUMNS = 0 # min_words
 HIGH_WORD_COUNT = 1024
 LOW_WORD_COUNT = 3
 
-NGRAMS_RANGE = (1, 3),
-MAX_DF=0.2,
-MIN_DF=3,
+NGRAMS_RANGE = (1, 3)
+MAX_DF=0.2
+MIN_DF=3
 
 N_BINS = 10 
 KBINS_SCALER = "kbins"
-IMPUTE='median',  # set to 
-N_QUANTILES=100,
-OUTPUT_DISTRIBUTION='normal',
-QUANTILES_RANGE=(25, 75),
-N_BINS=10,
-ENCODE='ordinal', # kbins, onehot, ordinal, label
-STRATEGY='uniform', # uniform, quantile, kmeans
-SIMILARITY=None, # 'ngram' , default None uses Gap
-CATEGORIES='auto',  
-KEEP_N_DECIMALS=5,
+IMPUTE='median'  # set to 
+N_QUANTILES=100
+OUTPUT_DISTRIBUTION='normal'
+QUANTILES_RANGE=(25, 75)
+N_BINS=10
+ENCODE='ordinal' # kbins, onehot, ordinal, label
+STRATEGY='uniform' # uniform, quantile, kmeans
+SIMILARITY=None # 'ngram' , default None uses Gap
+CATEGORIES='auto'  
+KEEP_N_DECIMALS=5
              
 BATCH_SIZE = 1000
 NO_SCALER = None
@@ -101,7 +101,7 @@ class ModelDict(UserDict):
     def __repr__(self):
         logger.info(self._message)
         if self._verbose:
-            print('_'*self._print_length+1)
+            print('_'*(self._print_length+1))
             print()
             print(self._message)
             print('_'*self._print_length)
@@ -192,3 +192,25 @@ BASE_MODELS = {
     QA: qa_model,
     NGRAMS: ngrams_model,
 }
+
+
+if __name__ == '__main__':
+    # print('----------- BASE_MODELS -----------')
+    # print(BASE_MODELS)
+    # python3 -m graphistry.features -m 'my awesome edge encoded model' -p '{"kind":"edges"}'
+    import argparse    
+    import json
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m', '--model', type=str, default=SEARCH, help='description of your model')
+    parser.add_argument('-v', '--verbose', type=bool, default=True)
+    parser.add_argument('-p', '--model_params', type=str)
+    args = parser.parse_args()
+
+    params = json.loads(args.model_params)
+    print('----------- params -----------')
+    print(params)
+    model = ModelDict(args.model, verbose=args.verbose, **default_parameters)
+    model.update(params)
+
+    print(model)
