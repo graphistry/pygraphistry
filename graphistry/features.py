@@ -67,7 +67,7 @@ SENTIMENT = "sentiment"
 SEARCH = "search"
 ############# Embeddings keys
 TOPIC = "topic"  # topic model embeddings
-SEMANTIC = "semantic"  # multilingual embeddings
+EMBEDDING = "embedding"  # multilingual embeddings
 QA = "qa"
 NGRAMS = "ngrams"
 ############# Embedding Models
@@ -96,20 +96,27 @@ class ModelDict(UserDict):
         self._message = message
         self._verbose = verbose
         self._print_length = min(LENGTH_PRINT, len(message))
+        self._updates=[]
         super().__init__(*args, **kwargs)
         
     def __repr__(self):
         logger.info(self._message)
         if self._verbose:
-            print('_'*(self._print_length+1))
+            print('_'*self._print_length)
             print()
             print(self._message)
             print('_'*self._print_length)
             print()
         return super().__repr__()         
+    
+    def update(self, *args, **kwargs):
+        self._updates.append(args[0])
+        if len(self._updates) > 1: # don't take first update since its the init/default
+            self._message += '\n' + '_'*self._print_length + f'\n\nUpdated: {self._updates[-1]}'
+        return super().update(*args, **kwargs)
 
 
-default_parameters = dict(kind='nodes', 
+default_featurize_parameters = dict(kind='nodes', 
                             use_scaler=NO_SCALER,
                             use_scaler_target=NO_SCALER,
                             cardinality_threshold=CARD_THRESH,
@@ -147,7 +154,7 @@ default_parameters = dict(kind='nodes',
 # customize the default parameters for each model you want to test
 
 # Ngrams Model over features
-ngrams_model = ModelDict('Ngrams Model', verbose=True, **default_parameters)
+ngrams_model = ModelDict('Ngrams Model', verbose=True, **default_featurize_parameters)
 ngrams_model.update(dict(
     use_ngrams=True,
     min_words=LOW_WORD_COUNT
@@ -155,7 +162,7 @@ ngrams_model.update(dict(
 )
 
 # Topic Model over features
-topic_model = ModelDict('Topic Model', verbose=True, **default_parameters)
+topic_model = ModelDict('Topic Model', verbose=True, **default_featurize_parameters)
 topic_model.update(dict(
     cardinality_threshold=LOW_CARD,  # force topic model
     cardinality_threshold_target=LOW_CARD,  # force topic model
@@ -165,21 +172,21 @@ topic_model.update(dict(
 ))
 
 # useful for text data that you want to paraphrase
-embedding_model = ModelDict(f'{PARAPHRASE_SMALL_MODEL} Embedding Model', verbose=True, **default_parameters)
+embedding_model = ModelDict(f'{PARAPHRASE_SMALL_MODEL} Embedding Model', verbose=True, **default_featurize_parameters)
 embedding_model.update(dict(
     min_words=FORCE_EMBEDDING_ALL_COLUMNS, 
     model_name=PARAPHRASE_SMALL_MODEL,  # if we need multilingual support, use PARAPHRASE_MULTILINGUAL_MODEL
 ))
 
 # useful for when search input is much smaller than the encoded documents
-search_model = ModelDict(f'{MSMARCO2} Search Model', verbose=True, **default_parameters)
+search_model = ModelDict(f'{MSMARCO2} Search Model', verbose=True, **default_featurize_parameters)
 search_model.update(dict(
     min_words=FORCE_EMBEDDING_ALL_COLUMNS, 
     model_name=MSMARCO2,
 ))
 
 # Question Answering encodings for search
-qa_model = ModelDict(f'{QA_SMALL_MODEL} QA Model', verbose=True, **default_parameters)
+qa_model = ModelDict(f'{QA_SMALL_MODEL} QA Model', verbose=True, **default_featurize_parameters)
 qa_model.update(dict(
     min_words=FORCE_EMBEDDING_ALL_COLUMNS, 
     model_name=QA_SMALL_MODEL,
@@ -187,10 +194,10 @@ qa_model.update(dict(
 
 
 BASE_MODELS = {
-    SEMANTIC: embedding_model,
+    EMBEDDING: embedding_model,
     SEARCH: search_model,
-    TOPIC: topic_model,
     QA: qa_model,
+    TOPIC: topic_model,
     NGRAMS: ngrams_model,
 }
 
@@ -209,7 +216,6 @@ if __name__ == '__main__':
     params = json.loads(args.model_params)
     print('----------- params -----------')
     print(params)
-    model = ModelDict(args.model, verbose=args.verbose, **default_parameters)
+    model = ModelDict(args.model, verbose=args.verbose, **default_featurize_parameters)
     model.update(params)
-
     print(model)
