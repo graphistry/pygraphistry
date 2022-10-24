@@ -167,7 +167,7 @@ class LinkPredModelMultiOutput(nn.Module):
 
 
 class RGCNEmbed(nn.Module):
-    def __init__(self, d, num_nodes, num_rels):
+    def __init__(self, d, num_nodes, num_rels, hidden=None):
         super().__init__()
 
         #lazy_import_networks()
@@ -175,22 +175,28 @@ class RGCNEmbed(nn.Module):
         import torch.nn as nn
 
         self.emb = nn.Embedding(num_nodes, d)
+        hidden = d if not hidden else d + hidden
 
         # TODO: need to think something about the self loop
         self.rgc1 = dglnn.RelGraphConv(d, d, num_rels, regularizer='bdd', num_bases=d, self_loop=True)
-        self.rgc2 = dglnn.RelGraphConv(d, d, num_rels, regularizer='bdd', num_bases=d, self_loop=True)
+        self.rgc2 = dglnn.RelGraphConv(hidden, d, num_rels, self_loop=True)
 
         self.dropout = nn.Dropout(0.2)
 
-    def forward(self, g, node_ids):
+    def forward(self, g, node_ids, node_features=None):
 
         #TODO: lazy import is not working
         import torch.nn.functional as F
+        import torch
         import dgl.nn as dglnn
         import dgl
 
         x = self.emb(node_ids)
-        x = F.relu(self.rgc1(g, x, g.edata[dgl.ETYPE], g.edata['norm']))
+        x = self.rgc1(g, x, g.edata[dgl.ETYPE], g.edata['norm'])
+        if node_features is not None:
+            x= F.relu(torch.cat([x, node_features], dim=1))
+        else:
+            x = F.relu(x)
         x = self.rgc2(g, self.dropout(x), g.edata[dgl.ETYPE], g.edata['norm'])
         return self.dropout(x)
 

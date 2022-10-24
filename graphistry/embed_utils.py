@@ -21,8 +21,11 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'RotatE': self.RotatE
         }
 
-    def embed(self, src, dst, relation, proto='DistMult', d=32):
-        
+    def embed(self, src, dst, relation, proto='DistMult', d=32, use_feat=True, features=None):
+        self._use_feat = True
+        if self._use_feat:
+            self = self.featurize(kind="nodes", X=features)
+
         if callable(proto):
             proto = proto
         else:
@@ -34,6 +37,9 @@ class HeterographEmbedModuleMixin(nn.Module):
         # type2id 
         node2id = {n:idx for idx, n in enumerate(nodes)}
         relation2id = {r:idx for idx, r in enumerate(relations)}
+
+        self._id2node = {idx:n for idx, n in enumerate(nodes)}
+        self._id2relation = {idx:r for idx, r in enumerate(relations)}
 
         s, r, t = self._edges[src].tolist(), self._edges[relation].tolist(), self._edges[dst].tolist()
         triplets = [[node2id[_s], relation2id[_r], node2id[_t]] for _s, _r, _t in zip(s, r, t)]
@@ -52,32 +58,69 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         # TODO: bidirectional connection
         g_iter = SubgraphIterator(g_dgl, num_rels)
-        g_dataloader = GraphDataLoader(g_iter, batch_size=1, collate_fn=lambda x: x[0])
+        g_dataloader = GraphDataLoader(g_iter, batch_size=10, collate_fn=lambda x: x[0])
 
         # init model and optimizer
-        model = HeteroEmbed(num_nodes, num_rels, d, proto=proto)
+        if self._use_feat:
+            model = HeteroEmbed(num_nodes, num_rels, d, proto=proto, 
+                    node_features=self._node_features)
+        else:
+            model = HeteroEmbed(num_nodes, num_rels, d, proto=proto)
+            
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
-        for data in g_dataloader:
-            model.train()
-            g, node_ids, edges, labels = data
+        for _ in range(2):
+            for data in g_dataloader:
+                model.train()
+                g, node_ids, edges, labels = data
 
-            emb = model(g, node_ids)
-            loss = model.loss(emb, edges, labels)
-            optimizer.zero_grad()
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+                emb = model(g, node_ids)
+                loss = model.loss(emb, edges, labels)
+                optimizer.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
 
-            print(f"loss: {loss.item()}")
+                print(f"loss: {loss.item()}")
 
         self.embed_mod_ = model
         return self
+
+    def calculate_prob(self, test_triplet, triplets, threshold, h_r, node_embeddings):
+        # TODO: simplify
+        s, r, o_ = test_triplet
+        subject_relation = test_triplet[:2]
+        num_entity = len(node_embeddings)
+
+        delete_idx = torch.sum(h_r == subject_relation, dim = 1)
+        delete_idx = torch.nonzero(delete_idx == 2).squeeze()
     
+        delete_entity_idx = triplets[delete_idx, 2].view(-1).numpy()
+        perturb_entity_idx = np.array(list(set(np.arange(num_entity)) - set(delete_entity_idx)))
+        perturb_entity_idx = torch.from_numpy(perturb_entity_idx)
+        perturb_entity_idx = torch.cat((perturb_entity_idx, o_.view(-1)))
+
+        emb_sr = (node_embeddings[s] * self.embed_mod_.relational_embedding[r]).view(-1, 1, 1)
+    
+        emb_o = node_embeddings[perturb_entity_idx]
+        emb_o = emb_o.transpose(0, 1).unsqueeze(1)
+    
+        o = torch.bmm(emb_sr, emb_o)
+
+        score = torch.sigmoid(
+            torch.sum(o, dim = 0)
+        )
+            
+        target = torch.tensor(len(perturb_entity_idx) - 1)
+        score_sorted, indices = torch.sort(score, dim=1, descending=True)
+        links = indices[score_sorted > threshold]
+        return links
+
+
     def predict_link(self, test_triplets, threshold=0.5):
 
-        triplets = torch.tensor(self.triplets_)
         test_triplets = torch.tensor(test_triplets)
+        triplets = torch.tensor(self.triplets_)
 
         s, r, o = triplets.T
         nodes = torch.tensor(list(set(s.tolist() + o.tolist())))
@@ -90,41 +133,56 @@ class HeterographEmbedModuleMixin(nn.Module):
         del s, r, o
 
         node_embeddings = self.embed_mod_(g, nodes)
-        num_entity = len(node_embeddings)
 
         h_r = triplets[:, :2]
         t_r = torch.stack((triplets[:, 2], triplets[:, 1])).transpose(0, 1)
 
+        visited, predicted_links = {}, []
         for test_triplet in test_triplets:
-
             s, r, o_ = test_triplet
-            subject_relation = test_triplet[:2]
+            k = ''.join([str(s), "_", str(r)])
 
-            delete_idx = torch.sum(h_r == subject_relation, dim = 1)
-            delete_idx = torch.nonzero(delete_idx == 2).squeeze()
-    
-            delete_entity_idx = triplets[delete_idx, 2].view(-1).numpy()
-            perturb_entity_idx = np.array(list(set(np.arange(num_entity)) - set(delete_entity_idx)))
-            perturb_entity_idx = torch.from_numpy(perturb_entity_idx)
-            perturb_entity_idx = torch.cat((perturb_entity_idx, o_.view(-1)))
+            # for [s, r] -> {d}
+            if k not in visited:
 
-            emb_sr = (node_embeddings[s] * self.embed_mod_.relational_embedding[r]).view(-1, 1, 1)
-    
-            emb_o = node_embeddings[perturb_entity_idx]
-            emb_o = emb_o.transpose(0, 1).unsqueeze(1)
-    
-            o = torch.bmm(emb_sr, emb_o)
+                links = self.calculate_prob(
+                        test_triplet, 
+                        triplets, 
+                        threshold, 
+                        h_r, 
+                        node_embeddings
+                ) 
+                visited[k] = ''
+                predicted_links += [[self._id2node[s.item()], self._id2relation[r.item()], 
+                    self._id2node[i.item()]] for i in links]
 
-            score = torch.sigmoid(
-                    torch.sum(o, dim = 0)
-            )
-            
-            target = torch.tensor(len(perturb_entity_idx) - 1)
-            score_sorted, indices = torch.sort(score, dim=1, descending=True)
-            links = indices[score_sorted > threshold]
-            print(f"{s} is connected via {r} with {links}, num_hit: {len(links)}")
-            break
-    # TODO: all(s) with r_o    
+            # for [d, r] -> {s}
+            if k not in visited:
+                links = self.calculate_prob(
+                        test_triplet,
+                        triplets,
+                        threshold,
+                        t_r,
+                        node_embeddings
+                )
+                visited[k] = ''
+                predicted_links += [[self._id2node[s.item()], self._id2relation[r.item()], 
+                    self._id2node[i.item()]] for i in links]
+                
+        # TODO: dropduplicates    
+        return predicted_links
+
+    def predict_link_all(self, threshold=0.5):
+        predicted_links = pd.DataFrame(
+                self.predict_link(
+                    torch.tensor(self.triplets_),
+                    threshold
+            ),
+            columns = ['src', 'rel_type', 'dst']
+        )
+
+        #create a new graphistry graph
+        return self.nodes(self._nodes).edges(predicted_links, 'src', 'dst')
 
 
     def TransE(self, h, r, t):
@@ -138,12 +196,14 @@ class HeterographEmbedModuleMixin(nn.Module):
         
 
 class HeteroEmbed(nn.Module):
-    def __init__(self, num_nodes, num_rels, d, proto, reg=0.01):
+    def __init__(self, num_nodes, num_rels, d, proto, node_features=None, reg=0.01):
         super().__init__()
 
         self.reg = reg
         self.proto = proto
-        self.rgcn = RGCNEmbed(d, num_nodes, num_rels)
+        self._node_features = node_features
+        hidden = self._node_features.shape[-1] if node_features is not None else None
+        self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden)
         self.relational_embedding = nn.Parameter(torch.Tensor(num_rels, d))
 
         nn.init.xavier_uniform_(
@@ -153,7 +213,10 @@ class HeteroEmbed(nn.Module):
 
     def __call__(self, g, node_ids):
         # returns node embeddings
-        return self.rgcn(g, node_ids)
+        if self._node_features is not None:
+            x = torch.tensor(self._node_features.values[node_ids],
+                    dtype=torch.float32)
+        return self.rgcn(g, node_ids, node_features=x)
 
     def score(self, node_embedding, triplets):
         h, r, t = triplets.T
