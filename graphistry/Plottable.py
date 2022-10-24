@@ -165,10 +165,17 @@ class Plottable(object):
         if 1 + 1:
             raise RuntimeError('should not happen')
         return self
-    
+
     def keep_nodes(
         self,
         nodes: Union[List, Any]
+    ) -> 'Plottable':
+        if 1 + 1:
+            raise RuntimeError('should not happen')
+        return self
+
+    def prune_self_edges(
+        self
     ) -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')

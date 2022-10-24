@@ -13,17 +13,17 @@ on:
 jobs:
   build-n-publish:
     name: Build and publish Python 🐍 distributions 📦 to PyPI and TestPyPI
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v3
         with:  # fetch tag for versioneer
           fetch-depth: 0
 
       - name: Set up Python 3.7
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v4
         with:
-          python-version: 3.7
+          python-version: '3.7'
 
       - name: Install pypa/build
         run: >-
@@ -34,12 +34,12 @@ jobs:
           ./bin/build.sh
 
       - name: Publish distribution 📦 to Test PyPI
-        uses: pypa/gh-action-pypi-publish@master
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_TEST }}
           repository_url: https://test.pypi.org/legacy/
 
       - name: Publish distribution 📦 to PyPI
-        uses: pypa/gh-action-pypi-publish@master
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYGGRAPHISTRY_PYPI }}
