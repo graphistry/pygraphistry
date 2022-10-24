@@ -487,6 +487,11 @@ def get_textual_columns(
     return text_cols
 
 
+def get_col(col, df):
+    # returns a dataframe with columns that contain `col` in their name
+    cols = df.columns[df.columns.map(lambda x: col in x)]
+    return df[cols]
+
 # ######################################################################
 #
 #      Featurization Utils
@@ -1740,17 +1745,11 @@ class FastEncoder:
 
         return X, y, scaling_pipeline, scaling_pipeline_target
 
-    # def get_column(self, column, kind='nodes'):
-    #     if kind=='nodes':
-    #         X = self._nodes
-    #     elif kind=='edges':
-            
-    #     transformed_columns = X.columns[X.columns.map(lambda x: True if column in x else False)]]
-        # return X[transformed_columns]
+
 
 # ######################################################################################################################
 #
-#
+#  The Graph Encoder Methods
 #
 # ######################################################################################################################
 
@@ -2395,8 +2394,8 @@ class FeatureMixin(MIXIN_BASE):
                 #confidence=confidence,  # deprecated
                 min_words=min_words,
                 model_name=model_name,
-                similarity=similarity,  # deprecated
-                categories=categories,  # deprecated
+                similarity=similarity,  
+                categories=categories,  
                 impute=impute,
                 n_quantiles=n_quantiles,
                 quantile_range=quantile_range,
@@ -2532,7 +2531,7 @@ class FeatureMixin(MIXIN_BASE):
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[
             str
-        ] = None,  # turn this off in favor of Gap Encoder
+        ] = None,  # turn this off in favor of Gap Encoder, or on to 'ngram'
         categories: Optional[str] = "auto",
         impute: bool = True,
         n_quantiles: int = 10,
