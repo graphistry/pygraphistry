@@ -21,7 +21,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'RotatE': self.RotatE
         }
 
-    def embed(self, src, dst, relation, proto='DistMult', d=32, use_feat=True, features=None, epochs=5):
+    def embed(self, src, dst, relation, proto='DistMult', d=32, use_feat=True, features=None, epochs=5, batch_size=32):
         self._use_feat = use_feat
         if self._use_feat:
             self = self.featurize(kind="nodes", X=features)
@@ -58,7 +58,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         # TODO: bidirectional connection
         g_iter = SubgraphIterator(g_dgl, num_rels)
-        g_dataloader = GraphDataLoader(g_iter, batch_size=10, collate_fn=lambda x: x[0])
+        g_dataloader = GraphDataLoader(g_iter, batch_size=batch_size, collate_fn=lambda x: x[0])
 
         # init model and optimizer
         if self._use_feat:
