@@ -51,25 +51,18 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
    ```python
   # pip install --user graphistry              # minimal
   # pip install --user graphistry[bolt,gremlin,nodexl,igraph,networkx]  # data plugins
-  # Requires Python 3.8+ (for scikit-learn 1.0+):
-  # pip install --user graphistry[umap-learn]  # UMAP autoML (without text support)
-  # pip install --user graphistry[ai]          # Full UMAP + GNN autoML, including sentence transformers (1GB+)
+  # AI modules: Python 3.8+ with scikit-learn 1.0+:
+  # pip install --user graphistry[umap-learn]  # Lightweight: UMAP autoML (without text support); scikit-learn 1.0+
+  # pip install --user graphistry[ai]          # Heavy: Full UMAP + GNN autoML, including sentence transformers (1GB+)
 
   import graphistry
   graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com
-
-  #graphistry.register(..., org_name='my-org') # Upload into an organization account
-  #graphistry.register(..., protocol='http', server='my.site.ngo')  # Use with a self-hosted server
-  
-  # Login with personal key id/secret
-  import graphistry
-  graphistry.register(api=3, personal_key_id='pkey_id',personal_key_secret='pkey_secret')  # Free: hub.graphistry.com
-
-  # Login with sso login
-  import graphistry
-  graphistry.register(api=3, protocol='http', server='my.site.ngo', is_sso_login=True)  # Use with a self-hosted server
-
-
+  #graphistry.register(..., personal_key_id='pkey_id', personal_key_secret='pkey_secret') # Key instead of password
+  #graphistry.register(..., is_sso_login=True)  # SSO instead of password
+  #graphistry.register(..., org_name='my-org') # Upload into an organization account vs personal
+  #graphistry.register(..., protocol='https', server='my.site.ngo')  # Use with a self-hosted server
+  # ... and if client (browser) URLs are different than python server<> graphistry server uploads
+  #graphistry.register(..., client_protocol_hostname='https://public.acme.co')
   ```
 
 * **Notebook-friendly:** PyGraphistry plays well with interactive notebooks like [Jupyter](http://ipython.org), [Zeppelin](https://zeppelin.incubator.apache.org/), and [Databricks](http://databricks.com). Process, visualize, and drill into with graphs directly within your notebooks:
