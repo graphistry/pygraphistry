@@ -221,7 +221,7 @@ class HeteroEmbed(nn.Module):
         self.proto = proto
         self._node_features = node_features
         if self._node_features is not None:
-            self._node_features = torch.tensor(self._node_features)
+            self._node_features = torch.tensor(self._node_features.values, dtype=torch.float32)
             print("node_features shape", node_features.shape)
         hidden = self._node_features.shape[-1] if node_features is not None else None
         self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden)
@@ -237,8 +237,7 @@ class HeteroEmbed(nn.Module):
         x = None
         if self._node_features is not None:
             node_ids = torch.tensor([n for n in node_ids if n < len(self._node_features)])
-            x = torch.tensor(self._node_features.values[node_ids],
-                    dtype=torch.float32)
+            x = self._node_features[node_ids]
         return self.rgcn(g, node_ids, node_features=x)
     
 
