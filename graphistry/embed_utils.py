@@ -22,7 +22,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'RotatE': self.RotatE
         }
 
-    def embed(self, src, dst, relation, proto='DistMult', d=32, use_feat=True, X=None):
+    def embed(self, src, dst, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=5, batch_size=32):
         self._use_feat = use_feat
         if self._use_feat:
             self = self.featurize(kind="nodes", X=X)
@@ -59,7 +59,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         # TODO: bidirectional connection
         g_iter = SubgraphIterator(g_dgl, num_rels)
-        g_dataloader = GraphDataLoader(g_iter, batch_size=10, collate_fn=lambda x: x[0])
+        g_dataloader = GraphDataLoader(g_iter, batch_size=batch_size, collate_fn=lambda x: x[0])
 
         # init model and optimizer
         if self._use_feat:
@@ -70,7 +70,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 
-        for _ in range(2):
+        for _ in range(epochs):
             for data in g_dataloader:
                 model.train()
                 g, node_ids, edges, labels = data
