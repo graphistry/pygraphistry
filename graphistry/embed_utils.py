@@ -86,7 +86,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         self.embed_mod_ = model
         return self
 
-    def calculate_prob(self, test_triplet, triplets, threshold, h_r, node_embeddings):
+    def calculate_prob(self, test_triplet, threshold, h_r, node_embeddings):
         # TODO: simplify
         s, r, o_ = test_triplet
         subject_relation = test_triplet[:2]
@@ -95,7 +95,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         delete_idx = torch.sum(h_r == subject_relation, dim = 1)
         delete_idx = torch.nonzero(delete_idx == 2).squeeze()
     
-        delete_entity_idx = triplets[delete_idx, 2].view(-1).numpy()
+        delete_entity_idx = test_triplets[delete_idx, 2].view(-1).numpy()
         perturb_entity_idx = np.array(list(set(np.arange(num_entity)) - set(delete_entity_idx)))
         perturb_entity_idx = torch.from_numpy(perturb_entity_idx)
         perturb_entity_idx = torch.cat((perturb_entity_idx, o_.view(-1)))
