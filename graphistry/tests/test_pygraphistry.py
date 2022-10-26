@@ -4,6 +4,13 @@ import unittest, pytest
 from mock import patch
 
 from graphistry.pygraphistry import PyGraphistry
+from graphistry.messages import (
+    MSG_REGISTER_MISSING_PASSWORD,
+    MSG_REGISTER_MISSING_USERNAME,
+    MSG_REGISTER_MISSING_PKEY_SECRET,
+    MSG_REGISTER_MISSING_PKEY_ID
+)
+
 
 # TODO mock requests for testing actual effectful code
 
@@ -20,24 +27,31 @@ class TestPyGraphistry_Auth(unittest.TestCase):
 
 
 def test_register_with_only_username(capfd):
-    PyGraphistry.register(username='only_username')
-    out, err = capfd.readouterr()
-    assert "username exists but missing password" in out
+    with pytest.raises(Exception) as exc_info:
+        PyGraphistry.register(username='only_username')
+
+    assert str(exc_info.value) == MSG_REGISTER_MISSING_PASSWORD
+
 
 def test_register_with_only_password(capfd):
-    PyGraphistry.register(password='only_password')
-    out, err = capfd.readouterr()
-    assert "password exist but missing username" in out
+    with pytest.raises(Exception) as exc_info:
+        PyGraphistry.register(password='only_password')
+
+    assert str(exc_info.value) == MSG_REGISTER_MISSING_USERNAME
+
 
 def test_register_with_only_personal_key_id(capfd):
-    PyGraphistry.register(personal_key_id='only_personal_key_id')
-    out, err = capfd.readouterr()
-    assert "Error: personal key id exists but missing personal key secret" in out
+    with pytest.raises(Exception) as exc_info:
+        PyGraphistry.register(personal_key_id='only_personal_key_id')
+
+    assert str(exc_info.value) == MSG_REGISTER_MISSING_PKEY_SECRET
+
 
 def test_register_with_only_personal_key_secret(capfd):
-    PyGraphistry.register(personal_key_secret='only_personal_key_secret')
-    out, err = capfd.readouterr()
-    assert "Error: personal key secret exists but missing personal key id" in out
+    with pytest.raises(Exception) as exc_info:
+        PyGraphistry.register(personal_key_secret='only_personal_key_secret')
+
+    assert str(exc_info.value) == MSG_REGISTER_MISSING_PKEY_ID
 
 
 class FakeRequestResponse(object):

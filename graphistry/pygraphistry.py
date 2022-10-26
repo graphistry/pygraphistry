@@ -16,6 +16,15 @@ from .plotter import Plotter
 from .util import in_databricks, setup_logger, in_ipython, make_iframe
 from .exceptions import SsoRetrieveTokenTimeoutException
 
+from .messages import (
+    MSG_REGISTER_MISSING_PASSWORD,
+    MSG_REGISTER_MISSING_USERNAME,
+    MSG_REGISTER_MISSING_PKEY_SECRET,
+    MSG_REGISTER_MISSING_PKEY_ID,
+    MSG_REGISTER_ENTER_SSO_LOGIN
+)
+
+
 logger = setup_logger(__name__)
 
 
@@ -636,23 +645,22 @@ class PyGraphistry(object):
             PyGraphistry.login(username, password, org_name)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
             PyGraphistry.authenticate()
-            PyGraphistry.authenticate()
         elif (username is None and not (password is None)):
-            print("Error: password exist but missing username")
+            raise Exception(MSG_REGISTER_MISSING_USERNAME)
         elif not (username is None) and password is None:
-            print("Error: username exists but missing password")
+            raise Exception(MSG_REGISTER_MISSING_PASSWORD)
         elif not (personal_key_id is None) and not (personal_key_secret is None):
             PyGraphistry.pkey_login(personal_key_id, personal_key_secret)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
             PyGraphistry.authenticate()
         elif personal_key_id is None and not (personal_key_secret is None):
-            print("Error: personal key secret exists but missing personal key id")
+            raise Exception(MSG_REGISTER_MISSING_PKEY_ID)
         elif not (personal_key_id is None) and personal_key_secret is None:
-            print("Error: personal key id exists but missing personal key secret")
+            raise Exception(MSG_REGISTER_MISSING_PKEY_SECRET)
         elif not (token is None):
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         elif not (org_name is None) or is_sso_login:
-            print("No username/password, personal key id/secret & token provided, enter SSO login")
+            print(MSG_REGISTER_ENTER_SSO_LOGIN)
 
             PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
 
