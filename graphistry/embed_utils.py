@@ -158,7 +158,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                     self._id2node[i.item()]] for i in links]
 
             # for [d, r] -> {s}
-            if k not in visited and directed:
+            if k not in visited and not directed:
                 links = self.calculate_prob(
                         test_triplet,
                         triplets,
