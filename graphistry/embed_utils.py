@@ -12,14 +12,30 @@ import torch.nn.functional as F
 
 import pandas as pd
 
+class EmbedDistScore:
+
+    @staticmethod
+    def TransE(h, r, t):
+        return (h + r - t).norm(p=1, dim=1)
+
+    @staticmethod
+    def DistMult(h, r, t):
+        return (h * r * t).sum(dim=1)
+
+    @staticmethod
+    def RotatE(h, r, t):
+        return -(h * r - t).norm(p=1, dim=1)
+ 
+    
+
 class HeterographEmbedModuleMixin(nn.Module):
     def __init__(self):
         super().__init__()
 
         self.protocol = {
-                'TransE': self.TransE,
-                'DistMult': self.DistMult,
-                'RotatE': self.RotatE
+                'TransE': EmbedDistScore.TransE,
+                'DistMult': EmbedDistScore.DistMult,
+                'RotatE':  EmbedDistScore.RotatE
         }
 
     def embed(self, src, dst, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, batch_size=32, *args, **kwargs):
@@ -33,9 +49,9 @@ class HeterographEmbedModuleMixin(nn.Module):
             self = res = res.featurize(kind="nodes", X=X, *args, **kwargs)
 
         if callable(proto):
-            proto = proto
+            self.proto = proto
         else:
-            proto = self.protocol[proto]
+            self.proto = self.protocol[proto]
 
         nodes = list(set(self._edges[src].tolist() + self._edges[dst].tolist()))
         relations = list(set(self._edges[relation].tolist()))
@@ -69,7 +85,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         g_dataloader = GraphDataLoader(g_iter, batch_size=batch_size, collate_fn=lambda x: x[0])
 
         # init model and optimizer
-        model = HeteroEmbed(num_nodes, num_rels, d, proto=proto, 
+        model = HeteroEmbed(num_nodes, num_rels, d, proto=self.proto, 
                     node_features=self._node_features)
 
             
@@ -95,7 +111,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         self._emdeddings = model(g_dgl, g_dgl.nodes()).detach().numpy()
         return self
 
-    def calculate_prob(self, test_triplet, triplets, threshold, h_r, node_embeddings):
+    def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings):
         # TODO: simplify
         s, r, o_ = test_triplet
         subject_relation = test_triplet[:2]
@@ -104,26 +120,18 @@ class HeterographEmbedModuleMixin(nn.Module):
         delete_idx = torch.sum(h_r == subject_relation, dim = 1)
         delete_idx = torch.nonzero(delete_idx == 2).squeeze()
     
-        delete_entity_idx = triplets[delete_idx, 2].view(-1).numpy()
+        delete_entity_idx = test_triplets[delete_idx, 2].view(-1).numpy()
         perturb_entity_idx = np.array(list(set(np.arange(num_entity)) - set(delete_entity_idx)))
-        perturb_entity_idx = torch.from_numpy(perturb_entity_idx)
-        perturb_entity_idx = torch.cat((perturb_entity_idx, o_.view(-1)))
+        perturb_entity_idx = torch.from_numpy(perturb_entity_idx).squeeze()
+        perturb_entity_idx = torch.cat((perturb_entity_idx, torch.unsqueeze(o_, 0)))
 
-        emb_sr = (node_embeddings[s] * self._embed_model.relational_embedding[r]).view(-1, 1, 1)
-    
-        emb_o = node_embeddings[perturb_entity_idx]
-        emb_o = emb_o.transpose(0, 1).unsqueeze(1)
-    
-        o = torch.bmm(emb_sr, emb_o) #distmult? 
+        o = self.proto(
+                node_embeddings[s],
+                self._embed_model.relational_embedding[r],
+                node_embeddings[perturb_entity_idx])
 
-        score = torch.sigmoid(
-            torch.sum(o, dim = 0)
-        )
-            
-        target = torch.tensor(len(perturb_entity_idx) - 1)
-        score_sorted, indices = torch.sort(score, dim=1, descending=True)
-        links = indices[score_sorted > threshold]
-        return links
+        score = torch.sigmoid(o)
+        return perturb_entity_idx[score > threshold]
 
 
     def predict_link(self, test_triplets, threshold=0.5, directed=True):
@@ -157,7 +165,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
                 links = self.calculate_prob(
                         test_triplet, 
-                        triplets, 
+                        test_triplets,
                         threshold, 
                         h_r, 
                         node_embeddings
@@ -170,7 +178,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             if kr not in visited and not directed:
                 links = self.calculate_prob(
                         test_triplet,
-                        triplets,
+                        test_triplets,
                         threshold,
                         t_r,
                         node_embeddings
@@ -196,17 +204,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         if return_embeddings:
             return g_new, predicted_links, node_embeddings
         return g_new
-
-
-    def TransE(self, h, r, t):
-        return (h + r - t).norm(p=1, dim=1)
-
-    def DistMult(self, h, r, t):
-        return (h * r * t).sum(dim=-1)
-
-    def RotatE(self, h, r, t):
-        return -(h * r - t).norm(p=1, dim=1)
-        
+       
 
 class HeteroEmbed(nn.Module):
     def __init__(self, num_nodes, num_rels, d, proto, node_features=None, reg=0.01):
