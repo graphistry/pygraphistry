@@ -108,7 +108,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         self._embed_model = model
         model.eval()
-        self._emdeddings = model(g_dgl, g_dgl.nodes()).detach().numpy()
+        self._embeddings = model(g_dgl, g_dgl.nodes()).detach().numpy()
         return self
 
     def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings):
@@ -204,6 +204,13 @@ class HeterographEmbedModuleMixin(nn.Module):
         if return_embeddings:
             return g_new, predicted_links, node_embeddings
         return g_new
+    
+    def score(self, triplets):
+        emb = torch.tensor(self._embeddings)
+        triplets = torch.tensor(triplets)
+        score =  self._embed_model.score(emb, triplets)
+        prob = torch.sigmoid(score)
+        return prob
        
 
 class HeteroEmbed(nn.Module):
