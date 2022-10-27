@@ -201,7 +201,6 @@ class ArrowUploader:
             f'{self.server_base_path}/api/v2/auth/pkey/jwt/',
             verify=self.certificate_validation,
             json=json_data, headers=headers)
-
         return self._handle_login_response(out, org_name)
 
     def _handle_login_response(self, out, org_name):
@@ -209,7 +208,7 @@ class ArrowUploader:
         json_response = None
         try:
             json_response = out.json()
-
+            print("json_response : {}".format(json_response))
             if not ('token' in json_response):
                 raise Exception(out.text)
 
@@ -217,7 +216,7 @@ class ArrowUploader:
             logged_in_org_name = org.get('slug', None)
             if org_name:  # caller pass in org_name
                 if not logged_in_org_name:  # no active_organization in JWT payload
-                    raise Exception("Server does not support organization, please omit org_name")
+                    raise Exception("You are not authorized to the organization '{}', or server does not support organization, please omit org_name parameter".format(org_name))
                 else:
                     # if JWT response with org_name different than the pass in org_name
                     # => org_name not found and return default organization (currently is personal org)

@@ -2352,7 +2352,7 @@ class PyGraphistry(object):
             PyGraphistry._config['org_name'] = value.strip()
             print("Switched to organization: {}".format(value.strip()))
         else:  # print the error message
-            print(result)
+            raise Exception(result)
 
     @staticmethod
     def _handle_api_response(response):
@@ -2364,7 +2364,7 @@ class PyGraphistry(object):
                 return json_response.get('message', '')
         except:
             logger.error('Error: %s', response, exc_info=True)
-            return "Unknown Error"
+            raise Exception("Unknown Error")
 
         
 
