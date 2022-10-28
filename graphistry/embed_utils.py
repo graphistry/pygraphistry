@@ -53,7 +53,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         else:
             self.proto = self.protocol[proto]
 
-        nodes = list(set(self._edges[src].tolist() + self._edges[dst].tolist()))
+        nodes = self._nodes[self._node] #list(set(self._edges[src].tolist() + self._edges[dst].tolist()))
         relations = list(set(self._edges[relation].tolist()))
         
         # type2id 
@@ -210,7 +210,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         triplets = torch.tensor(triplets)
         score =  self._embed_model.score(emb, triplets)
         prob = torch.sigmoid(score)
-        return prob
+        return prob.detach().numpy()
        
 
 class HeteroEmbed(nn.Module):
@@ -236,7 +236,7 @@ class HeteroEmbed(nn.Module):
         # returns node embeddings
         x = None
         if self._node_features is not None:
-            node_ids = torch.tensor([n for n in node_ids if n < len(self._node_features)])
+            #node_ids = torch.tensor([n for n in node_ids if n < len(self._node_features)])
             x = self._node_features[node_ids]
         return self.rgcn(g, node_ids, node_features=x)
     
@@ -290,7 +290,7 @@ class SubgraphIterator:
         samples, labels = SubgraphIterator.sample_neg_(
                 triplets, 
                 num_nodes, 
-                self.sample_size
+                self.sample_size  # does nothing
         )
 
         src, rel, dst = samples.T
