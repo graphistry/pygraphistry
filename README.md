@@ -57,7 +57,7 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
 
   import graphistry
   graphistry.register(api=3, username='abc', password='xyz')  # Free: hub.graphistry.com
-  #graphistry.register(..., personal_key_id='pkey_id', personal_key_secret='pkey_secret') # Key instead of password
+  #graphistry.register(..., personal_key_id='pkey_id', personal_key_secret='pkey_secret') # Key instead of username+password+org_name
   #graphistry.register(..., is_sso_login=True)  # SSO instead of password
   #graphistry.register(..., org_name='my-org') # Upload into an organization account vs personal
   #graphistry.register(..., protocol='https', server='my.site.ngo')  # Use with a self-hosted server
