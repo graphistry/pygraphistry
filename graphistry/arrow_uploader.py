@@ -208,7 +208,6 @@ class ArrowUploader:
         json_response = None
         try:
             json_response = out.json()
-            print("json_response : {}".format(json_response))
             if not ('token' in json_response):
                 raise Exception(out.text)
 
