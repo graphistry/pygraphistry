@@ -54,7 +54,9 @@ class HeterographEmbedModuleMixin(nn.Module):
             self.proto = self.protocol[proto]
 
         nodes = self._nodes[self._node] #list(set(self._edges[src].tolist() + self._edges[dst].tolist()))
-        relations = list(set(self._edges[relation].tolist()))
+        edges = self._edges
+        edges = edges[edges[src].isin(nodes) & edges[dst].isin(nodes)]
+        relations = list(set(edges[relation].tolist()))
         
         # type2id 
         node2id = {n:idx for idx, n in enumerate(nodes)}
