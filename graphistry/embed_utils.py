@@ -12,6 +12,7 @@ import torch.nn.functional as F
 
 import pandas as pd
 
+
 class EmbedDistScore:
 
     @staticmethod
@@ -38,7 +39,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'RotatE':  EmbedDistScore.RotatE
         }
 
-    def embed(self, src, dst, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, batch_size=32, *args, **kwargs):
+    def embed(self, src, dst, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, batch_size=32, train_split=1, *args, **kwargs):
         self._src = src
         self._dst = dst
         self.relation=relation
@@ -57,16 +58,26 @@ class HeterographEmbedModuleMixin(nn.Module):
         relations = list(set(self._edges[relation].tolist()))
         
         # type2id 
-        node2id = {n:idx for idx, n in enumerate(nodes)}
-        relation2id = {r:idx for idx, r in enumerate(relations)}
+        self._node2id = {n:idx for idx, n in enumerate(nodes)}
+        self._relation2id = {r:idx for idx, r in enumerate(relations)}
 
         self._id2node = {idx:n for idx, n in enumerate(nodes)}
         self._id2relation = {idx:r for idx, r in enumerate(relations)}
 
         s, r, t = self._edges[src].tolist(), self._edges[relation].tolist(), self._edges[dst].tolist()
-        triplets = [[node2id[_s], relation2id[_r], node2id[_t]] for _s, _r, _t in zip(s, r, t)]
+        triplets = [[self._node2id[_s], self._relation2id[_r], self._node2id[_t]] for _s, _r, _t in zip(s, r, t)]
 
-        # temp 
+        # split idx
+        train_size = int(train_split * len(triplets))
+        test_size = len(triplets) - train_size
+        train_dataset, test_dataset = torch.utils.data.random_split(
+                torch.tensor(triplets), 
+                [train_size, test_size]
+        )
+        self.train_idx = train_dataset.indices
+        self.test_idx = test_dataset.indices
+
+
         self.triplets_ = triplets
 
         del s, r, t
@@ -74,15 +85,22 @@ class HeterographEmbedModuleMixin(nn.Module):
         num_nodes, num_rels = len(nodes), len(relations)
 
         s, r, t = torch.tensor(triplets).T
-        g_dgl = dgl.graph((s, t), num_nodes=num_nodes)
-        g_dgl.edata[dgl.ETYPE] = r
+        g_dgl = dgl.graph(
+                (s[self.train_idx], t[self.train_idx]), 
+                num_nodes=num_nodes
+        )
+        g_dgl.edata[dgl.ETYPE] = r[self.train_idx]
         g_dgl.edata['norm'] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
 
         self.g_dgl = g_dgl
 
         # TODO: bidirectional connection
         g_iter = SubgraphIterator(g_dgl)
-        g_dataloader = GraphDataLoader(g_iter, batch_size=batch_size, collate_fn=lambda x: x[0])
+        g_dataloader = GraphDataLoader(
+                g_iter, 
+                batch_size=batch_size, 
+                collate_fn=lambda x: x[0]
+        )
 
         # init model and optimizer
         model = HeteroEmbed(num_nodes, num_rels, d, proto=self.proto, 
@@ -111,9 +129,14 @@ class HeterographEmbedModuleMixin(nn.Module):
         self._embeddings = model(g_dgl, g_dgl.nodes()).detach().numpy()
         return self
 
-    def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings):
+    def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
         # TODO: simplify
-        s, r, o_ = test_triplet
+
+        if infer == "all":
+            s, r, o_ = test_triplet
+        else:
+            s, r = test_triplet
+
         subject_relation = test_triplet[:2]
         num_entity = len(node_embeddings)
 
@@ -123,7 +146,9 @@ class HeterographEmbedModuleMixin(nn.Module):
         delete_entity_idx = test_triplets[delete_idx, 2].view(-1).numpy()
         perturb_entity_idx = np.array(list(set(np.arange(num_entity)) - set(delete_entity_idx)))
         perturb_entity_idx = torch.from_numpy(perturb_entity_idx).squeeze()
-        perturb_entity_idx = torch.cat((perturb_entity_idx, torch.unsqueeze(o_, 0)))
+
+        if infer == "all":
+            perturb_entity_idx = torch.cat((perturb_entity_idx, torch.unsqueeze(o_, 0)))
 
         o = self.proto(
                 node_embeddings[s],
@@ -134,7 +159,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         return perturb_entity_idx[score > threshold]
 
 
-    def predict_link(self, test_triplets, threshold=0.5, directed=True):
+    def _predict(self, test_triplets, threshold=0.5, directed=True, infer=None):
 
         test_triplets = torch.tensor(test_triplets)
         triplets = torch.tensor(self.triplets_)
@@ -168,7 +193,8 @@ class HeterographEmbedModuleMixin(nn.Module):
                         test_triplets,
                         threshold, 
                         h_r, 
-                        node_embeddings
+                        node_embeddings,
+                        infer
                 ) 
                 visited[k] = ''
                 predicted_links += [[self._id2node[s.item()], self._id2relation[r.item()], 
@@ -181,7 +207,8 @@ class HeterographEmbedModuleMixin(nn.Module):
                         test_triplets,
                         threshold,
                         t_r,
-                        node_embeddings
+                        node_embeddings,
+                        infer
                 )
                 visited[k] = ''
                 predicted_links += [[self._id2node[s.item()], self._id2relation[r.item()], 
@@ -193,11 +220,33 @@ class HeterographEmbedModuleMixin(nn.Module):
         )
         return predicted_links, node_embeddings
 
+    def predict_link(self, test_df, src, rel, threshold=0.5):
+
+        nodes = [self._node2id[i] for i in test_df[src].tolist()]
+        relations = [self._relation2id[i] for i in test_df[rel].tolist()]
+
+        all_nodes = self._node2id.values()
+        result = None
+        for s, r in zip(nodes, relations):
+            t_ = [[s, r, i] for i in all_nodes]
+            o = self.score(t_)
+            o = torch.tensor(t_)[o>=threshold]
+            result = np.concatenate((result, o), axis=0) if result is not None else o
+
+        result_df = []
+        for i in result:
+            s, r, d = i
+            result_df += [[self._id2node[s], self._id2relation[r], self._id2node[d]]]
+        result_df = pd.DataFrame(result_df, columns=[src, rel, "predicted_destination"])
+
+        return result_df
+
     def predict_link_all(self, threshold=0.5, return_embeddings=True):
-        predicted_links, node_embeddings = self.predict_link(
+        predicted_links, node_embeddings = self._predict(
                     torch.tensor(self.triplets_),
-                    threshold
-            )
+                    threshold,
+                    infer="all"
+        )
         
         g_new = self.nodes(self._nodes).edges(predicted_links, self._src, self._dst)
         #create a new graphistry graph
@@ -211,6 +260,16 @@ class HeterographEmbedModuleMixin(nn.Module):
         score =  self._embed_model.score(emb, triplets)
         prob = torch.sigmoid(score)
         return prob.detach().numpy()
+
+    def eval(self, threshold):
+        if self.test_idx != []:
+            s, r, d = torch.tensor(self.triplets_).T[self.test_idx]
+            triplets = torch.stack(s, r, d)
+            score = self.score(triplets)
+            return len(score[score > threshold]) / len(score) * 100
+        else:
+            #raise exception -> "train_split must be < 1 for eval()"
+            print('train_split must be < 1 for eval()')
        
 
 class HeteroEmbed(nn.Module):
