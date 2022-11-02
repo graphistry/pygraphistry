@@ -1,11 +1,13 @@
 from typing import TYPE_CHECKING
 import torch.nn as nn
 
+
 if TYPE_CHECKING:
     import dgl
     import dgl.nn as dglnn
     import dgl.function as fn
     import torch
+    import torch.nn as nn
     import torch.nn.functional as F
 
 from . import constants as config
@@ -15,17 +17,20 @@ def lazy_import_networks():
     import dgl.nn as dglnn
     import dgl.function as fn
     import torch
+    import torch.nn as nn
     import torch.nn.functional as F
+    return nn, dgl, dglnn, fn, torch, F
 
 
 class GCN(nn.Module):
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
-        lazy_import_networks()
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
         self.conv1 = dglnn.GraphConv(in_feats, h_feats)
         self.conv2 = dglnn.GraphConv(h_feats, num_classes)
 
     def forward(self, g, in_feat):
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
         h = self.conv1(g, in_feat)
         h = F.relu(h)
         h = self.conv2(g, h)
@@ -45,8 +50,8 @@ class RGCN(nn.Module):
 
     def __init__(self, in_feats, hid_feats, out_feats, rel_names):
         super().__init__()
-        lazy_import_networks()
-
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()        
+        
         self.conv1 = dglnn.HeteroGraphConv(
             {rel: dglnn.GraphConv(in_feats, hid_feats) for rel in rel_names},
             aggregate="sum",
@@ -57,6 +62,7 @@ class RGCN(nn.Module):
         )
 
     def forward(self, graph, inputs):
+        import torch.nn.functional as F
         # inputs are features of nodes
         h = self.conv1(graph, inputs)
         h = {k: F.relu(v) for k, v in h.items()}
@@ -67,11 +73,12 @@ class RGCN(nn.Module):
 class HeteroClassifier(nn.Module):
     def __init__(self, in_dim, hidden_dim, n_classes, rel_names):
         super().__init__()
-        lazy_import_networks()
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
         self.rgcn = RGCN(in_dim, hidden_dim, hidden_dim, rel_names)
         self.classify = nn.Linear(hidden_dim, n_classes)
 
     def forward(self, g):
+        import dgl 
         h = g.ndata[config.FEATURE]
         h = self.rgcn(g, h)
         with g.local_scope():  # create a local scope to hold onto hidden layer 'h'
@@ -89,10 +96,11 @@ class MLPPredictor(nn.Module):
 
     def __init__(self, in_features, out_classes):
         super().__init__()
-        lazy_import_networks()
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
         self.W = nn.Linear(in_features * 2, out_classes)
 
     def apply_edges(self, edges):
+        import torch
         h_u = edges.src["h"]
         h_v = edges.dst["h"]
         score = self.W(torch.cat([h_u, h_v], 1))
@@ -110,7 +118,7 @@ class MLPPredictor(nn.Module):
 class SAGE(nn.Module):
     def __init__(self, in_feats, hid_feats, out_feats):
         super().__init__()
-        lazy_import_networks()
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
         self.conv1 = dglnn.SAGEConv(
             in_feats=in_feats, out_feats=hid_feats, aggregator_type="mean"
         )
@@ -120,6 +128,7 @@ class SAGE(nn.Module):
 
     def forward(self, graph, inputs):
         # inputs are features of nodes
+        import torch.nn.functional as F
         h = self.conv1(graph, inputs)
         h = F.relu(h)
         h = self.conv2(graph, h)
@@ -128,6 +137,8 @@ class SAGE(nn.Module):
 
 class DotProductPredictor(nn.Module):
     def forward(self, graph, h):
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+
         # h contains the node representations computed from the GNN defined
         # in the node classification section (Section 5.1).
         with graph.local_scope():
@@ -138,8 +149,9 @@ class DotProductPredictor(nn.Module):
 
 class LinkPredModel(nn.Module):
     def __init__(self, in_features, hidden_features, out_features):
+        dgl, dglnn, fn, torch, F = lazy_import_networks()
         super().__init__()
-        lazy_import_networks()
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
         self.sage = SAGE(in_features, hidden_features, out_features)
         self.pred = DotProductPredictor()
 
@@ -150,8 +162,8 @@ class LinkPredModel(nn.Module):
 
 class LinkPredModelMultiOutput(nn.Module):
     def __init__(self, in_features, hidden_features, out_features, out_classes):
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
         super().__init__()
-        lazy_import_networks()
         self.sage = SAGE(in_features, hidden_features, out_features)
         self.pred = MLPPredictor(out_features, out_classes)
         self.embedding = dglnn.GraphConv(out_features, 2)
@@ -161,9 +173,39 @@ class LinkPredModelMultiOutput(nn.Module):
         return self.pred(g, h)
     
     def embed(self, g, x):
+        import dgl
         h = self.sage(g, x)
         g = dgl.add_self_loop(g)
         return self.embedding(g, h)
+
+
+class RGCNEmbed(nn.Module):
+    def __init__(self, d, num_nodes, num_rels, hidden=None):
+        super().__init__()
+
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+
+        self.emb = nn.Embedding(num_nodes, d)
+        hidden = d if not hidden else d + hidden
+
+        # TODO: need to think something about the self loop
+        self.rgc1 = dglnn.RelGraphConv(d, d, num_rels, regularizer='bdd', num_bases=d, self_loop=True)
+        self.rgc2 = dglnn.RelGraphConv(hidden, d, num_rels, self_loop=True)
+
+        self.dropout = nn.Dropout(0.2)
+
+    def forward(self, g, node_ids, node_features=None):
+
+        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+
+        x = self.emb(node_ids)
+        x = self.rgc1(g, x, g.edata[dgl.ETYPE], g.edata['norm'])
+        if node_features is not None:
+            x = F.relu(torch.cat([x, node_features], dim=1))
+        else:
+            x = F.relu(x)
+        x = self.rgc2(g, self.dropout(x), g.edata[dgl.ETYPE], g.edata['norm'])
+        return self.dropout(x)
 
 
 ############################################################################################
@@ -175,7 +217,7 @@ class LinkPredModelMultiOutput(nn.Module):
 #ACC = metrics.accuracy_score
    
 def train_link_pred(model, G, epochs=10000, use_cross_entropy_loss = False):
-    lazy_import_networks()
+    nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
     # take the node features out
     node_features = G.ndata["feature"].float()
     # we are predicting edges
