@@ -83,23 +83,23 @@ org_not_permitted_response = {
     "data": []
 }
 
-
+# Print has been switch to logger.info
 @patch("requests.post", return_value=FakeRequestResponse(switch_org_success_response))
 def test_switch_organization_success(mock_response, capfd):
     PyGraphistry.org_name("success-org")
     out, err = capfd.readouterr()
-    assert "Switched to organization: success-org" in out
+    assert out == ''
 
 
 @patch("requests.post", return_value=FakeRequestResponse(org_not_exist_response))
 def test_switch_organization_not_exist(mock_response, capfd):
     PyGraphistry.org_name("not-exist-org")
     out, err = capfd.readouterr()
-    assert "No such organization id 'not-exist-org'" in out
+    assert "Failed to switch organization" in out
 
 
 @patch("requests.post", return_value=FakeRequestResponse(org_not_permitted_response))
 def test_switch_organization_not_permitted(mock_response, capfd):
     PyGraphistry.org_name("not-permitted-org")
     out, err = capfd.readouterr()
-    assert "Not authorized to organization 'not-permitted-org'" in out
+    assert "Failed to switch organization" in out

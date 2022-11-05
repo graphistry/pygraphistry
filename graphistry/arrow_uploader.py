@@ -174,7 +174,21 @@ class ArrowUploader:
         self.__metadata = metadata
         self.__certificate_validation = certificate_validation
         self.__org_name = org_name if org_name else None
-    
+
+        if org_name:
+            self.__org_name = org_name
+        else:
+            # check current org_name
+            from .pygraphistry import PyGraphistry
+            if 'org_name' in PyGraphistry._config:
+                print("@ArrowUploader.__init__: There is an org_name : {}".format(PyGraphistry._config['org_name']))
+                self.__org_name = PyGraphistry._config['org_name']
+            else:
+                self.__org_name = None
+
+        print("@ArrowUploader.__init__: After set self.org_name: {}, self.__org_name : {}".format(self.org_name, self.__org_name))
+
+
     def login(self, username, password, org_name=None):
         # base_path = self.server_base_path
 
@@ -189,13 +203,13 @@ class ArrowUploader:
 
         return self._handle_login_response(out, org_name)
 
-    def pkey_login(self, personal_key_id, personal_key, org_name=None):
-        # json_data = {'personal_key_id': personal_key_id, 'personal_key': personal_key}
+    def pkey_login(self, personal_key_id, personal_key_secret, org_name=None):
+        # json_data = {'personal_key_id': personal_key_id, 'personal_key_secret': personal_key}
         json_data = {}
         # if org_name:
         #     json_data.update({"org_name": org_name})
 
-        headers = {"Authorization": f'PersonalKey {personal_key_id}:{personal_key}'}
+        headers = {"Authorization": f'PersonalKey {personal_key_id}:{personal_key_secret}'}
 
         out = requests.get(
             f'{self.server_base_path}/api/v2/auth/pkey/jwt/',
@@ -235,6 +249,8 @@ class ArrowUploader:
                 if 'org_name' in PyGraphistry._config:
                     del PyGraphistry._config['org_name']
             else:
+                if org_name in PyGraphistry._config:
+                    print("handle login : {}".format(PyGraphistry._config['org_name']))
                 PyGraphistry._config['org_name'] = logged_in_org_name 
                 # PyGraphistry.org_name(logged_in_org_name)
         except Exception:
@@ -262,10 +278,12 @@ class ArrowUploader:
             print("Login to {} idp {} SSO".format(org_name, idp_name))
             url = f'{base_path}/api/v2/o/{org_name}/sso/oidc/login/{idp_name}/'
         
+        # print("url : {}".format(url))
         out = requests.post(
             url, data={'client-type': 'pygraphistry'},
             verify=self.certificate_validation
         )
+        # print(out.text)
         json_response = None
         try:
             json_response = out.json()
@@ -299,7 +317,7 @@ class ArrowUploader:
 
         base_path = self.server_base_path
         out = requests.get(
-            f'{base_path}/api/v1/o/sso/oidc/jwt/{state}/',
+            f'{base_path}/api/v2/o/sso/oidc/jwt/{state}/',
             verify=self.certificate_validation
         )
         json_response = None
@@ -313,6 +331,10 @@ class ArrowUploader:
                 if json_response['status'] == 'OK':
                     if 'token' in json_response['data']:
                         self.token = json_response['data']['token']
+                    if 'active_organization' in json_response['data']:
+                        # print("org: {}".format(json_response['data']['active_organization']['slug']))
+                        self.org_name = json_response['data']['active_organization']['slug']
+
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
             # raise
@@ -354,10 +376,10 @@ class ArrowUploader:
 
     def create_dataset(self, json):  # noqa: F811
         tok = self.token
-
+        print("@ArrowUploder create_dataset self.org_name: {}".format(self.org_name))
         if self.org_name: 
             json['org_name'] = self.org_name
-
+        print("@ArrowUploder create_dataset json: {}".format(json))
         res = requests.post(
             self.server_base_path + '/api/v2/upload/datasets/',
             verify=self.certificate_validation,
@@ -465,6 +487,7 @@ class ArrowUploader:
         """
         Note: likely want to pair with self.maybe_post_share_link(g)
         """
+        print("post , self.org_name : {}".format(self.org_name))
         if as_files:
 
             file_uploader = ArrowFileUploader(self)
