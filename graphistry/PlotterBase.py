@@ -1369,7 +1369,7 @@ class PlotterBase(Plottable):
 
         """
         from .pygraphistry import PyGraphistry
-        print("1. @PloatterBase plot: PyGraphistry.org_name(): {} vs PyGraphistry._config['org_name']: {}".format(PyGraphistry.org_name(), PyGraphistry._config['org_name']))
+        logger.debug("1. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
 
         if graph is None:
             if self._edges is None:
@@ -1385,17 +1385,16 @@ class PlotterBase(Plottable):
 
         # from .pygraphistry import PyGraphistry
         api_version = PyGraphistry.api_version()
-        print("2. @PloatterBase plot: PyGraphistry.org_name(): {} vs PyGraphistry._config['org_name']: {}".format(PyGraphistry.org_name(), PyGraphistry._config['org_name']))
+        logger.debug("2. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
         if api_version == 1:
             dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
             if skip_upload:
                 return dataset
             info = PyGraphistry._etl1(dataset)
         elif api_version == 3:
-            print("3. @PloatterBase plot: PyGraphistry.org_name(): {} vs PyGraphistry._config['org_name']: {}".format(PyGraphistry.org_name(), PyGraphistry._config['org_name']))
-
+            logger.debug("3. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
             PyGraphistry.refresh()
-            print("4. @PloatterBase plot: PyGraphistry.org_name(): {} vs PyGraphistry._config['org_name']: {}".format(PyGraphistry.org_name(), PyGraphistry._config['org_name']))
+            logger.debug("4. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
 
             dataset = self._plot_dispatch(g, n, name, description, 'arrow', self._style, memoize)
             if skip_upload:
@@ -1910,8 +1909,6 @@ class PlotterBase(Plottable):
                 warn('Graph has no edges, may have rendering issues')
         except:
             1
-        from .pygraphistry import PyGraphistry
-        print("@PloatterBase make_dataset: PyGraphistry.org_name(): {} vs PyGraphistry._config['org_name']: {}".format(PyGraphistry.org_name(), PyGraphistry._config['org_name']))
         #compatibility checks
         if mode == 'json':
             if not (metadata is None):
@@ -1966,7 +1963,6 @@ class PlotterBase(Plottable):
     def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata) -> ArrowUploader:
 
         from .pygraphistry import PyGraphistry
-        print("@PlotterBase, make_arrow_dataset : {}".format(PyGraphistry.org_name()))
         au : ArrowUploader = ArrowUploader(
             server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
             edges=edges, nodes=nodes,

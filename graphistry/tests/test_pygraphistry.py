@@ -8,7 +8,10 @@ from graphistry.messages import (
     MSG_REGISTER_MISSING_PASSWORD,
     MSG_REGISTER_MISSING_USERNAME,
     MSG_REGISTER_MISSING_PKEY_SECRET,
-    MSG_REGISTER_MISSING_PKEY_ID
+    MSG_REGISTER_MISSING_PKEY_ID,
+    MSG_SWITCH_ORG_SUCCESS,
+    MSG_SWITCH_ORG_NOT_FOUND,
+    MSG_SWITCH_ORG_NOT_PERMITTED
 )
 
 
@@ -66,20 +69,20 @@ class FakeRequestResponse(object):
 
 switch_org_success_response = {
     "status": "OK",
-    "message": "Switched to organization: success-org",
+    "message": MSG_SWITCH_ORG_SUCCESS.format('success-org'),
     "data": []
 }
 
 
 org_not_exist_response = {
     "status": "Failed",
-    "message": "No such organization id 'not-exist-org'",
+    "message": MSG_SWITCH_ORG_NOT_FOUND.format('not-exist-org'),
     "data": []
 }
 
 org_not_permitted_response = {
     "status": "Failed",
-    "message": "Not authorized to organization 'not-permitted-org'",
+    "message": MSG_SWITCH_ORG_NOT_PERMITTED.format('not-permitted-org'),
     "data": []
 }
 
@@ -93,13 +96,26 @@ def test_switch_organization_success(mock_response, capfd):
 
 @patch("requests.post", return_value=FakeRequestResponse(org_not_exist_response))
 def test_switch_organization_not_exist(mock_response, capfd):
-    PyGraphistry.org_name("not-exist-org")
-    out, err = capfd.readouterr()
-    assert "Failed to switch organization" in out
+    org_name = "not-exist-org"
+    with pytest.raises(Exception) as exc_info:
+        PyGraphistry.org_name(org_name)
+
+    assert str(exc_info.value) == "Failed to switch organization"
+
+    # PyGraphistry.org_name("not-exist-org")
+    # out, err = capfd.readouterr()
+    # assert "Failed to switch organization" in out
 
 
 @patch("requests.post", return_value=FakeRequestResponse(org_not_permitted_response))
 def test_switch_organization_not_permitted(mock_response, capfd):
-    PyGraphistry.org_name("not-permitted-org")
-    out, err = capfd.readouterr()
-    assert "Failed to switch organization" in out
+    org_name = "not-permitted-org"
+    with pytest.raises(Exception) as exc_info:
+        PyGraphistry.org_name(org_name)
+
+    assert str(exc_info.value) == "Failed to switch organization"
+
+
+    # PyGraphistry.org_name("not-permitted-org")
+    # out, err = capfd.readouterr()
+    # assert "Failed to switch organization" in out

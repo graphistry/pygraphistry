@@ -181,12 +181,12 @@ class ArrowUploader:
             # check current org_name
             from .pygraphistry import PyGraphistry
             if 'org_name' in PyGraphistry._config:
-                print("@ArrowUploader.__init__: There is an org_name : {}".format(PyGraphistry._config['org_name']))
+                logger.debug("@ArrowUploader.__init__: There is an org_name : {}".format(PyGraphistry._config['org_name']))
                 self.__org_name = PyGraphistry._config['org_name']
             else:
                 self.__org_name = None
 
-        print("@ArrowUploader.__init__: After set self.org_name: {}, self.__org_name : {}".format(self.org_name, self.__org_name))
+        logger.debug("2. @ArrowUploader.__init__: After set self.org_name: {}, self.__org_name : {}".format(self.org_name, self.__org_name))
 
 
     def login(self, username, password, org_name=None):
@@ -250,7 +250,7 @@ class ArrowUploader:
                     del PyGraphistry._config['org_name']
             else:
                 if org_name in PyGraphistry._config:
-                    print("handle login : {}".format(PyGraphistry._config['org_name']))
+                    logger.debug("@ArrowUploder, handle login reponse, org_name: {}".format(PyGraphistry._config['org_name']))
                 PyGraphistry._config['org_name'] = logged_in_org_name 
                 # PyGraphistry.org_name(logged_in_org_name)
         except Exception:
@@ -293,7 +293,7 @@ class ArrowUploader:
                 raise Exception(out.text)
             else:
                 if json_response['status'] == 'OK':
-                    # print("[ArrowUploader] json_data : {}".format(json_response['data']))
+                    logger.debug("@ArrowUploader.sso_login, json_data : {}".format(json_response['data']))
                     if 'state' in json_response['data']:
                         self.sso_state = json_response['data']['state']
                         self.sso_auth_url = json_response['data']['auth_url']
@@ -332,7 +332,7 @@ class ArrowUploader:
                     if 'token' in json_response['data']:
                         self.token = json_response['data']['token']
                     if 'active_organization' in json_response['data']:
-                        # print("org: {}".format(json_response['data']['active_organization']['slug']))
+                        logger.debug("@ArrowUploader.sso_get_token, org_name: {}".format(json_response['data']['active_organization']['slug']))
                         self.org_name = json_response['data']['active_organization']['slug']
 
         except Exception:
@@ -376,10 +376,9 @@ class ArrowUploader:
 
     def create_dataset(self, json):  # noqa: F811
         tok = self.token
-        print("@ArrowUploder create_dataset self.org_name: {}".format(self.org_name))
         if self.org_name: 
             json['org_name'] = self.org_name
-        print("@ArrowUploder create_dataset json: {}".format(json))
+        logger.debug("@ArrowUploder create_dataset json: {}".format(json))
         res = requests.post(
             self.server_base_path + '/api/v2/upload/datasets/',
             verify=self.certificate_validation,
@@ -487,7 +486,7 @@ class ArrowUploader:
         """
         Note: likely want to pair with self.maybe_post_share_link(g)
         """
-        print("post , self.org_name : {}".format(self.org_name))
+        logger.debug("@ArrowUploader.post, self.org_name : {}".format(self.org_name))
         if as_files:
 
             file_uploader = ArrowFileUploader(self)

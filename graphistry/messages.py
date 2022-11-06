@@ -8,3 +8,7 @@ MSG_REGISTER_MISSING_PKEY_ID = 'Error: personal key secret exists but missing pe
 
 
 MSG_REGISTER_ENTER_SSO_LOGIN = 'No username/password, personal key id/secret & token provided, enter SSO login'
+
+MSG_SWITCH_ORG_SUCCESS = "Switched to organization: {}"
+MSG_SWITCH_ORG_NOT_FOUND = "No such organization id '{}'"
+MSG_SWITCH_ORG_NOT_PERMITTED = "Not authorized to organization '{}'"

@@ -275,7 +275,6 @@ class PyGraphistry(object):
             import webbrowser
             input("Press Enter to open browser ...")
             # open browser to auth_url
-            print(auth_url)
             webbrowser.open(auth_url)
 
         if sso_timeout is not None:
@@ -297,7 +296,7 @@ class PyGraphistry(object):
                     else:
                         break
                 except SsoRetrieveTokenTimeoutException as toe:
-                    print(toe)
+                    logger.debug(toe, exc_info=1)
                     break
                 except Exception:
                     token = None
@@ -357,11 +356,11 @@ class PyGraphistry(object):
     def refresh(token=None, fail_silent=False):
         """Use self or provided JWT token to get a fresher one. If self token, internalize upon refresh."""
         using_self_token = token is None
-        print("@PyGraphistry refresh : {}".format(PyGraphistry._config['org_name']))
+        logger.debug("1. @PyGraphistry refresh, org_name: {}".format(PyGraphistry._config['org_name']))
         try:
             if PyGraphistry.store_token_creds_in_memory():
                 logger.debug("JWT refresh via creds")
-                print("@PyGraphistry refresh :relogin")
+                logger.debug("2. @PyGraphistry refresh :relogin")
                 return PyGraphistry.relogin()
 
             logger.debug("JWT refresh via token")
@@ -2302,7 +2301,7 @@ class PyGraphistry(object):
                 PyGraphistry.switch_org(value.strip())
                 # PyGraphistry._config['org_name'] = value.strip()
             except:
-                print("Failed to switch organization")
+                raise Exception("Failed to switch organization")
 
     @staticmethod
     def idp_name(value=None):
