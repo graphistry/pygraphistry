@@ -7,12 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-## [0.28.4 - 2022-10-20]
+## [0.28.4 - 2022-10-22]
 
 ### Added
 
-* AI: `umap(engine='cuml') now supports older RAPIDS versions via knn fallback for edge creation
+* AI: `umap(engine='cuml')` now supports older RAPIDS versions via knn fallback for edge creation. Also: `"umap_learn"`, defaults to `"auto"`
 * `prune_self_edges()` to drop any edges where the source and destination are the same
+
+### Fixed
+
+* Infra: Updated github actions versions and Ubuntu environment for publishing 
 
 ## [0.28.3 - 2022-10-12]
 
