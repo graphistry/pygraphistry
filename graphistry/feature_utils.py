@@ -415,6 +415,45 @@ def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
                     bad_cols.append(col)
     return bad_cols
 
+# ############################################################################
+#
+#      Conditional Probability
+#
+# ############################################################################
+
+def conditional_probability(x, given, df):
+    """conditional probability function over categorical variables
+       p(x|given) = p(x,given)/p(given)
+        
+    Args:
+        x: the column variable of interest given the column 'given'
+        given: the variabe to fix constant
+        df: dataframe with columns [given, x]
+
+    Returns:
+        pd.DataFrame: the conditional probability of x given the column 'given'
+    """
+    return df.groupby([given])[x].apply(lambda g: g.value_counts()/len(g))
+
+
+def probs(x, given, df, how='index'): 
+    """Produces a Dense Matrix of the conditional probability of x given `y=given`
+
+    Args:
+        x: the column variable of interest given the column 'y'
+        given : the variabe to fix constant
+        df pd.DataFrame: dataframe
+        how (str, optional): One of 'column' or 'index'. Defaults to 'index'.
+
+    Returns:
+        pd.DataFrame: the conditional probability of x given the column 'y' 
+        as dense array like dataframe
+    """
+    assert how in ['index', 'columns'], "how must be one of 'index' or 'columns'"
+    res =  pd.crosstab(df[x], df[given], margins=True, normalize=how)
+    if how =='index': # normalize over columns so .sum(0) = 1 irrespective of `how`
+        return res.T
+    return res
 
 # ############################################################################
 #
@@ -488,9 +527,10 @@ def get_textual_columns(
     return text_cols
 
 
-def get_col(col, df):
-    # returns a dataframe with columns that contain `col` in their name
-    cols = df.columns[df.columns.map(lambda x: col in x)]
+def get_col(query, df: pd.DataFrame):
+    # returns a dataframe with columns that contain `query` in their name
+    # acts like a partial match over column names
+    cols = df.columns[df.columns.map(lambda x: query in x)]
     return df[cols]
 
 # ######################################################################
@@ -548,7 +588,7 @@ def get_preprocessing_pipeline(
     -----------------------------------------------------------------
     :param X: np.ndarray
     :param impute: whether to run imputing or not, default is `median`, 
-            and if columns are nan, set to 'constant'
+            and if columns are nan, set to `constant`
     :param use_scaler: string in None or
             ["minmax", "quantile", "zscale", "robust", "kbins"],
             selects scaling transformer, default None
@@ -2608,3 +2648,76 @@ class FeatureMixin(MIXIN_BASE):
             reuse_if_existing=True,
             memoize=memoize,
         )
+        
+    def get_matrix(self, column, kind='nodes'):
+        """get column matrix from nodes or edges features
+        
+        example:
+            g.get_col_matrix('product') -> gets all product columns as matrix df
+
+        Args:
+            column: column of interest
+            kind (str, optional): to get features from . Defaults to 'nodes'.
+
+        Returns:
+            pd.DataFrame: column matrix
+        """
+        x = self._get_feature(kind=kind)
+        return get_col(column, x)
+        
+
+    def conditional_graph(self, x, given, kind='nodes', *args, **kwargs):
+        """
+        conditional_graph -- p(x|given) = p(x, given) / p(given)
+        
+        returned dataframe sums to 1 on each column
+        -----------------------------------------------------------
+        :param x: target column
+        :param given: the dependent column
+        :param kind: 'nodes' or 'edges'
+        :param args/kwargs: additional arguments for g.bind(...)
+        :return: a graphistry instance with the conditional graph
+                edges are weighted by the conditional probability
+                edges are between x and given, keep in mind that 
+                g._edges.columns = [given, x, _probs]
+                
+        """
+
+        res = self.bind()
+        
+        if kind == 'nodes':
+            df = res._nodes
+        else:
+            df = res._edges
+        
+        condprobs = conditional_probability(x, given, df)
+        
+        cprob = pd.DataFrame(list(condprobs.index), columns=[given, x])
+        cprob['_probs'] = condprobs.values
+    
+        res = res.edges(cprob, x, given).bind(edge_weight='_probs', *args, **kwargs)
+        
+        return res
+    
+    def conditional_probs(self, x, given, kind='nodes', how='index'):
+        """Produces a Dense Matrix of the conditional probability of x given y
+
+        Args:
+            x: the column variable of interest given the column y=given
+            given : the variabe to fix constant
+            df pd.DataFrame: dataframe
+            how (str, optional): One of 'column' or 'index'. Defaults to 'index'.
+            kind (str, optional): 'nodes' or 'edges'. Defaults to 'nodes'.
+        Returns:
+            pd.DataFrame: the conditional probability of x given the column y
+            as dense array like dataframe
+        """
+        res = self.bind()
+        
+        if kind == 'nodes':
+            df = res._nodes    
+        else:
+            df = res._edges
+            
+        condprobs = probs(x, given, df, how=how) 
+        return condprobs
