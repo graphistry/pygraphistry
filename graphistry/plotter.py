@@ -6,11 +6,12 @@ from .feature_utils import FeatureMixin  # type: ignore
 from .dgl_utils import DGLGraphMixin  # type: ignore
 from .umap_utils import UMAPMixin  # type: ignore
 from .text_utils import SearchToGraphMixin  # type: ignore
+from .motif_utils import MotifMixin # type: ignore
 
 mixins = ([
     CosmosMixin, NeptuneMixin, GremlinMixin, LayoutsMixin, 
     SearchToGraphMixin, DGLGraphMixin, UMAPMixin, FeatureMixin,
-    ComputeMixin, PlotterBase, object
+    ComputeMixin, PlotterBase, MotifMixin, object
 ])
 
 
@@ -28,3 +29,5 @@ class Plotter(  # type: ignore
         GremlinMixin.__init__(self, *args, **kwargs)
         CosmosMixin.__init__(self, *args, **kwargs)
         NeptuneMixin.__init__(self, *args, **kwargs)
+        MotifMixin.__init__(self, *args, **kwargs)
+
