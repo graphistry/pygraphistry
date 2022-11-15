@@ -38,6 +38,7 @@ class MotifMixin:
         if not self._temporal:
             motif_edge_table = [] 
 
+        _idx = 0
         for i in range(len(partitions)-step+1):
             _nodes = partitions[i][src].tolist() + partitions[i][dst].tolist()
             _nodes = set(_nodes)
@@ -48,6 +49,7 @@ class MotifMixin:
                         src, dst)
 
                 if m is not None:
+                    print(m)
                     motif = MotifMixin.get_motifs(m)
                     if motif in motifs:
                         motifs[motif] += 1
@@ -57,7 +59,8 @@ class MotifMixin:
                     if not self._temporal:
                         _m = [motif+'_'+j.split('_')[0] for j in m[0]]
                         for _n in _m[1:]:
-                            motif_edge_table.append([_m[0], _n])
+                            motif_edge_table.append([_m[0], _n+'_'+str(_idx)])
+                    _idx += 1
         
         if self._temporal:
             return motifs
