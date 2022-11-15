@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 class MotifMixin:
     def __init__(self):
@@ -16,6 +17,15 @@ class MotifMixin:
         self._temporal = False
         if timestamp is not None:
             self._temporal = True
+        else:
+            self._temporal = False
+
+        # appending a dummy timestamp col
+        if not self._temporal:
+            timestamp = 'time'
+            accumulate = 1
+            step = 1
+            self._edges[timestamp] = 0
 
         partitions = MotifMixin.split(
                     self._edges, 
@@ -25,6 +35,9 @@ class MotifMixin:
 
         # fetching motifs
         motifs = {}
+        if not self._temporal:
+            motif_edge_table = [] 
+
         for i in range(len(partitions)-step+1):
             _nodes = partitions[i][src].tolist() + partitions[i][dst].tolist()
             _nodes = set(_nodes)
@@ -33,17 +46,29 @@ class MotifMixin:
                         partitions[i:i+step+1], 
                         v, 
                         src, dst)
+
                 if m is not None:
                     motif = MotifMixin.get_motifs(m)
                     if motif in motifs:
                         motifs[motif] += 1
                     else:
                         motifs[motif] = 1
-        return motifs
+
+                    if not self._temporal:
+                        _m = [motif+'_'+j.split('_')[0] for j in m[0]]
+                        for _n in _m[1:]:
+                            motif_edge_table.append([_m[0], _n])
+        
+        if self._temporal:
+            return motifs
+        else:
+            return self.edges(pd.DataFrame(motif_edge_table, columns=[src, dst]))
 
     @staticmethod
     def neighbors(graph, v, src, dst):
         connections = dict()
+
+        # TODO: remove iterrows
         for _, row in graph.iterrows():
             i, j = row[src], row[dst]          
 
