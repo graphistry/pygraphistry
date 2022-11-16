@@ -1,6 +1,22 @@
 import numpy as np
 import pandas as pd
 
+from .util import check_set_memoize
+
+TIME = '__time'
+
+
+# def reuse_neighborhood_graph(
+#     g: Plottable, memoize: bool, metadata: Any
+# ):  # noqa: C901
+#     return check_set_memoize(
+#         g,
+#         metadata,
+#         attribute="_feat_param_to_g",
+#         name="featurize",
+#         memoize=memoize,
+#     )
+
 class MotifMixin:
     def __init__(self):
         super().__init__()
@@ -22,11 +38,11 @@ class MotifMixin:
 
         # appending a dummy timestamp col
         if not self._temporal:
-            timestamp = 'time'
+            timestamp = TIME
             accumulate = 1
             step = 1
             self._edges[timestamp] = 0
-
+            
         partitions = MotifMixin.split(
                     self._edges, 
                     accumulate,
@@ -42,15 +58,16 @@ class MotifMixin:
         for i in range(len(partitions)-step+1):
             _nodes = partitions[i][src].tolist() + partitions[i][dst].tolist()
             _nodes = set(_nodes)
-            for v in _nodes:
+            for ego_node in _nodes:
                 m = MotifMixin.build_motifs(
                         partitions[i:i+step+1], 
-                        v, 
+                        ego_node, 
                         src, dst)
 
                 if m is not None:
-                    print(m)
                     motif = MotifMixin.get_motifs(m)
+                    print('-'*50)
+                    print(f'motif: {motif}')
                     if motif in motifs:
                         motifs[motif] += 1
                     else:
@@ -58,15 +75,21 @@ class MotifMixin:
 
                     if not self._temporal:
                         _m = [motif+'_'+j.split('_')[0] for j in m[0]]
+                        print(f'new: {_m}')
                         for _n in _m[1:]:
-                            motif_edge_table.append([_m[0], _n+'_'+str(_idx)])
+                            nsrc = _m[0]
+                            ndst = _n+'_'+str(_idx)
+                            print(f'src: {nsrc}, dst: {ndst}')
+                            motif_edge_table.append([nsrc, ndst])
                     _idx += 1
-        
+        print(f'Motive Count: {_idx}')
         if self._temporal:
             return motifs
         else:
-            return self.edges(pd.DataFrame(motif_edge_table, columns=[src, dst]))
+            g_new = self.edges(pd.DataFrame(motif_edge_table, columns=[src, dst]))
+            return g_new
 
+    #@reuse_motif
     @staticmethod
     def neighbors(graph, v, src, dst):
         connections = dict()
@@ -93,11 +116,11 @@ class MotifMixin:
             return []
     
     @staticmethod
-    def get_node_encoding(ids_no_ego,nodes_no_ego,lenght_ETNS):
+    def get_node_encoding(ids_no_ego,nodes_no_ego,length_ETNS):
         node_encoding = dict()
         for n in ids_no_ego:
             enc = []
-            for k in range(lenght_ETNS):
+            for k in range(length_ETNS):
                 if str(n)+"_"+str(k) in nodes_no_ego:
                     enc.append(1)
                 else:
@@ -106,16 +129,16 @@ class MotifMixin:
         return node_encoding
 
     @staticmethod
-    def build_motifs(partitions, v, src, dst):
+    def build_motifs(partitions, ego_node, src, dst):
 
-        # checking if neighbourhood of v is not 0
-        if len(MotifMixin.neighbors(partitions[0], v, src, dst)) > 0:
+        # checking if neighbourhood of ego_node is not 0
+        if len(MotifMixin.neighbors(partitions[0], ego_node, src, dst)) > 0:
 
             en_list = []
             
             for i in partitions:
                 en_list.append(
-                        [str(v)+"*"]+list(MotifMixin.neighbors(i, v, src, dst))
+                        [str(ego_node)+"*"]+list(MotifMixin.neighbors(i, ego_node, src, dst))
                 )
 
             for i in range(len(en_list)):
@@ -144,24 +167,24 @@ class MotifMixin:
             return None
     
     @staticmethod
-    def get_motifs(ETN):
-        nodes = set([j for i in ETN for j in i])
+    def get_motifs(motif):
+        nodes = set([j for i in motif for j in i])
 
         nodes_no_ego, ids_no_ego = [], []
-        lenght_ETNS = 0
+        length_ETNS = 0
         for n in nodes:
             if not ("*" in n):
                 nodes_no_ego.append(n)
                 if not(n.split("_")[0] in ids_no_ego):
                     ids_no_ego.append(n.split("_")[0])
             else:
-                ego = int(n.split("*")[0])
-                lenght_ETNS = lenght_ETNS + 1
+                #ego = int(n.split("*")[0])
+                length_ETNS = length_ETNS + 1
 
         node_encoding = MotifMixin.get_node_encoding(
                 ids_no_ego,
                 nodes_no_ego,
-                lenght_ETNS
+                length_ETNS
         )
     
         for k in node_encoding.keys():
@@ -173,9 +196,13 @@ class MotifMixin:
         return '0e'+''.join(e[2:] for e in binary_node_encodings)
 
     @staticmethod
-    def split(x, accumulate, timestamp):
-        times = x[timestamp]
-        pivot = times[0]
+    def split(edf: pd.DataFrame, accumulate, timestamp):
+        times = edf[timestamp]
+        print(f'times: {times}, {type(times)}')
+        if len(times)>1:
+            pivot = times[0]
+        else:
+            pivot = times
         partitions = []
         
         for i in range(len(times)):
@@ -183,4 +210,4 @@ class MotifMixin:
                 partitions += [i]
                 pivot = times[i]
 
-        return np.split(x, partitions)
+        return np.split(edf, partitions)
