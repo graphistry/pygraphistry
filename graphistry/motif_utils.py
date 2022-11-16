@@ -38,18 +38,16 @@ class MotifMixin:
         if not self._temporal:
             motif_edge_table = [] 
 
-        _idx = 0
         for i in range(len(partitions)-step+1):
             _nodes = partitions[i][src].tolist() + partitions[i][dst].tolist()
             _nodes = set(_nodes)
-            for v in _nodes:
+            for _idx, v in enumerate(_nodes):
                 m = MotifMixin.build_motifs(
                         partitions[i:i+step+1], 
                         v, 
                         src, dst)
 
                 if m is not None:
-                    print(m)
                     motif = MotifMixin.get_motifs(m)
                     if motif in motifs:
                         motifs[motif] += 1
@@ -57,41 +55,23 @@ class MotifMixin:
                         motifs[motif] = 1
 
                     if not self._temporal:
-                        _m = [motif+'_'+j.split('_')[0] for j in m[0]]
+                        _m = ["m"+str(_idx)+"_"+j.split('_')[0] for j in m[0]]
                         for _n in _m[1:]:
-                            motif_edge_table.append([_m[0], _n+'_'+str(_idx)])
-                    _idx += 1
+                            motif_edge_table.append([_m[0], _n, motif])
         
         if self._temporal:
             return motifs
         else:
-            return self.edges(pd.DataFrame(motif_edge_table, columns=[src, dst]))
+            return self.edges(pd.DataFrame(motif_edge_table, columns=[src, dst, "motifID"]))
 
     @staticmethod
     def neighbors(graph, v, src, dst):
+        graph = graph[[src, dst]]
         connections = dict()
+        g = graph.isin([v])
+        n = np.unique(graph[g.any(axis='columns')].to_numpy())
+        return [i for i in n if i != v]
 
-        # TODO: remove iterrows
-        for _, row in graph.iterrows():
-            i, j = row[src], row[dst]          
-
-            if i == v:
-                if i not in connections:
-                    connections[i] = [j]
-                else:
-                    connections[i] += [j]
-
-            if j == v:
-                if j not in connections:
-                    connections[j] = [i]
-                else:
-                    connections[j] += [i]
-        
-        if v in connections:
-            return connections[v]
-        else:
-            return []
-    
     @staticmethod
     def get_node_encoding(ids_no_ego,nodes_no_ego,lenght_ETNS):
         node_encoding = dict()
