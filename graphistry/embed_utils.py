@@ -1,16 +1,18 @@
-from attr import attr
-from matplotlib.font_manager import X11FontDirectories
+import pandas as pd
+
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import trange
-from .networks import RGCNEmbed
+from collections import Counter
+
 import dgl
 from dgl.dataloading import GraphDataLoader
 import torch.nn.functional as F
 
-import pandas as pd
+from .networks import RGCNEmbed
+
 
 class EmbedDistScore:
 
@@ -53,11 +55,16 @@ class HeterographEmbedModuleMixin(nn.Module):
         else:
             self.proto = self.protocol[proto]
 
-        nodes = self._nodes[self._node] #list(set(self._edges[src].tolist() + self._edges[dst].tolist()))
+
+        if self._node is not None:
+            nodes = self._nodes[self._node] #list(set(self._edges[src].tolist() + self._edges[dst].tolist()))
+        else:
+            nodes = pd.concat([self._edges[src], self._edges[dst]]).unique()
+        
         edges = self._edges
         edges = edges[edges[src].isin(nodes) & edges[dst].isin(nodes)]
-        relations = list(set(edges[relation].tolist()))
-        
+        relations = [r for r, count in Counter(edges[relation].tolist()).most_common()]
+
         # type2id 
         node2id = {n:idx for idx, n in enumerate(nodes)}
         relation2id = {r:idx for idx, r in enumerate(relations)}
@@ -70,10 +77,13 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         # temp 
         self.triplets_ = triplets
+        print('triplets', len(triplets))
 
         del s, r, t
         
-        num_nodes, num_rels = len(nodes), len(relations)
+        num_nodes, num_rels = len(node2id), len(relation2id)
+        print('nodes', num_nodes, 'relations', num_rels)
+        print('max id', max(node2id.values()), max(relation2id.values()))
 
         s, r, t = torch.tensor(triplets).T
         g_dgl = dgl.graph((s, t), num_nodes=num_nodes)
