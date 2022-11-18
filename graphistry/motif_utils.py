@@ -28,6 +28,7 @@ class MotifMixin:
             accumulate:int=None):
 
         src, dst = self._source, self._destination
+        motifID = "motifID"
         
         self._temporal = False
         if timestamp is not None:
@@ -41,8 +42,9 @@ class MotifMixin:
             accumulate = 1
             step = 1
             self._edges[timestamp] = 0
+            #print(self._edges)
             
-        partitions = MotifMixin.split(
+        partitions = MotifMixin._split_edges(
                     self._edges, 
                     accumulate,
                     timestamp,
@@ -58,15 +60,16 @@ class MotifMixin:
             _nodes = set(_nodes)
             
             for _idx, v in enumerate(_nodes):
-                m = MotifMixin.build_motifs(
+                m = MotifMixin._build_motifs(
                         partitions[i:i+step+1], 
                         v, 
                         src, dst)
 
                 if m is not None:
-                    motif = MotifMixin.get_motifs(m)
-                    print('-'*50)
-                    print(f'motif: {motif}')
+                    motif = MotifMixin._get_motifs(m)
+                    if motif not in motifs:
+                        print('-'*50)
+                        print(f'motif: {motif}')
                     if motif in motifs:
                         motifs[motif] += 1
                     else:
@@ -80,19 +83,18 @@ class MotifMixin:
         if self._temporal:
             return motifs
         else:
-            return self.edges(pd.DataFrame(motif_edge_table, columns=[src, dst, "motifID"]))
+            return self.edges(pd.DataFrame(motif_edge_table, columns=[src, dst, motifID]))
 
-    #@reuse_motif
     @staticmethod
-    def neighbors(graph, v, src, dst):
+    def _neighbors(graph, v, src, dst):
         graph = graph[[src, dst]]
-        connections = dict()
+        #connections = dict()
         g = graph.isin([v])
         n = np.unique(graph[g.any(axis='columns')].to_numpy())
         return [i for i in n if i != v]
 
     @staticmethod
-    def get_node_encoding(ids_no_ego,nodes_no_ego,length_ETNS):
+    def _get_node_motif_encoding(ids_no_ego, nodes_no_ego, length_ETNS):
         node_encoding = dict()
         for n in ids_no_ego:
             enc = []
@@ -105,16 +107,16 @@ class MotifMixin:
         return node_encoding
 
     @staticmethod
-    def build_motifs(partitions, ego_node, src, dst):
+    def _build_motifs(partitions, ego_node, src, dst):
 
         # checking if neighbourhood of ego_node is not 0
-        if len(MotifMixin.neighbors(partitions[0], ego_node, src, dst)) > 0:
+        if len(MotifMixin._neighbors(partitions[0], ego_node, src, dst)) > 0:
 
             en_list = []
             
             for i in partitions:
                 en_list.append(
-                        [str(ego_node)+"*"]+list(MotifMixin.neighbors(i, ego_node, src, dst))
+                        [str(ego_node)+"*"]+list(MotifMixin._neighbors(i, ego_node, src, dst))
                 )
 
             for i in range(len(en_list)):
@@ -143,7 +145,7 @@ class MotifMixin:
             return None
     
     @staticmethod
-    def get_motifs(motif):
+    def _get_motifs(motif):
         nodes = set([j for i in motif for j in i])
 
         nodes_no_ego, ids_no_ego = [], []
@@ -157,7 +159,7 @@ class MotifMixin:
                 #ego = int(n.split("*")[0])
                 length_ETNS = length_ETNS + 1
 
-        node_encoding = MotifMixin.get_node_encoding(
+        node_encoding = MotifMixin._get_node_motif_encoding(
                 ids_no_ego,
                 nodes_no_ego,
                 length_ETNS
@@ -172,18 +174,19 @@ class MotifMixin:
         return '0e'+''.join(e[2:] for e in binary_node_encodings)
 
     @staticmethod
-    def split(edf: pd.DataFrame, accumulate, timestamp):
+    def _split_edges(edf: pd.DataFrame, accumulate, timestamp):
         times = edf[timestamp]
-        print(f'times: {times}, {type(times)}')
-        if len(times)>1:
-            pivot = times[0]
-        else:
-            pivot = times
+        #print(f'times: {times}, {type(times)}')
+        #if len(times)>1:
+        pivot = times.iloc[0]
+        #else:
+        #    pivot = times
+            
         partitions = []
         
         for i in range(len(times)):
-            if not times[i] <= pivot + accumulate:
+            if not times.iloc[i] <= pivot + accumulate:
                 partitions += [i]
-                pivot = times[i]
+                pivot = times.iloc[i]
 
         return np.split(edf, partitions)
