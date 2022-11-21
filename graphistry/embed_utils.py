@@ -94,7 +94,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         del s, r, t
         
-        num_nodes, num_rels = len(nodes), len(relations)
+        num_nodes, num_rels = len(self._node2id), len(self._relation2id)
 
         s, r, t = torch.tensor(triplets).T
         g_dgl = dgl.graph(
@@ -259,8 +259,15 @@ class HeterographEmbedModuleMixin(nn.Module):
                     threshold,
                     infer="all"
         )
+
+        existing_links = self._edges[[self._source, self._relation, self._destination]]
+
+        all_links = pd.concat(
+                [existing_links, predicted_links],
+                ignore_index=True
+        ).drop_duplicates()
         
-        g_new = self.nodes(self._nodes).edges(predicted_links, self._source, self._destination)
+        g_new = self.nodes(self._nodes).edges(all_links, self._source, self._destination)
         #create a new graphistry graph
         if return_embeddings:
             return g_new, predicted_links, node_embeddings
