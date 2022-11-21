@@ -1,4 +1,3 @@
-from attr import attr
 from matplotlib.font_manager import X11FontDirectories
 import numpy as np
 import torch
@@ -39,22 +38,34 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'RotatE':  EmbedDistScore.RotatE
         }
 
-    def embed(self, src, dst, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, batch_size=32, train_split=1, *args, **kwargs):
-        self._src = src
-        self._dst = dst
-        self.relation=relation
+    def embed(self, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, batch_size=32, train_split=1, *args, **kwargs):
+        src, dst = self._source, self._destination
+        self._relation = relation
         self._use_feat = use_feat
-        if self._use_feat:
-            res = self.bind() #bind the node features to the graph
-            # todo decouple self from res
-            self = res = res.featurize(kind="nodes", X=X, *args, **kwargs)
 
         if callable(proto):
             self.proto = proto
         else:
             self.proto = self.protocol[proto]
+ 
+        if self._use_feat and self._nodes is not None:
+            res = self.bind() #bind the node features to the graph
+            # todo decouple self from res
+            self = res = res.featurize(kind="nodes", X=X, *args, **kwargs)
 
-        nodes = self._nodes[self._node] #list(set(self._edges[src].tolist() + self._edges[dst].tolist()))
+        if self._node is not None and self._nodes is not None:
+            nodes = self._nodes[self._node]
+        elif self._node is None and self._nodes is not None:
+            nodes = list(range(
+                        self._nodes.index.start,
+                        self._nodes.index.stop,
+                        self._nodes.index.step
+            ))
+        else:
+            nodes = list(set(
+                self._edges[src].tolist() + self._edges[dst].tolist()
+            ))
+            
         edges = self._edges
         edges = edges[edges[src].isin(nodes) & edges[dst].isin(nodes)]
         relations = list(set(edges[relation].tolist()))
@@ -78,7 +89,6 @@ class HeterographEmbedModuleMixin(nn.Module):
         )
         self.train_idx = train_dataset.indices
         self.test_idx = test_dataset.indices
-
 
         self.triplets_ = triplets
 
@@ -110,9 +120,10 @@ class HeterographEmbedModuleMixin(nn.Module):
 
             
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+        
+        pbar = trange(epochs, desc=None)
 
-        for e in range(epochs):
-            print(f'Epoch {e}')
+        for e in pbar:
             for data in g_dataloader:
                 model.train()
                 g, node_ids, edges, labels = data
@@ -123,8 +134,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
-
-                print(f"loss: {loss.item()}")
+                pbar.set_description(f"loss: {loss.item()}")
 
         self._embed_model = model
         model.eval()
@@ -218,7 +228,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                 
         # TODO: dropduplicates    
         predicted_links = pd.DataFrame(
-            predicted_links, columns = [self._src, self.relation, self._dst]
+            predicted_links, columns = [self._source, self._relation, self._destination]
         )
         return predicted_links, node_embeddings
 
@@ -243,14 +253,14 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         return result_df
 
-    def predict_link_all(self, threshold=0.5, return_embeddings=True):
+    def predict_link_all(self, threshold=0.99, return_embeddings=True):
         predicted_links, node_embeddings = self._predict(
                     torch.tensor(self.triplets_),
                     threshold,
                     infer="all"
         )
         
-        g_new = self.nodes(self._nodes).edges(predicted_links, self._src, self._dst)
+        g_new = self.nodes(self._nodes).edges(predicted_links, self._source, self._destination)
         #create a new graphistry graph
         if return_embeddings:
             return g_new, predicted_links, node_embeddings
