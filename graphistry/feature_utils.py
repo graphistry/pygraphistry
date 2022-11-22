@@ -1758,7 +1758,7 @@ class FastEncoder:
 
 
 def prune_weighted_edges_df_and_relabel_nodes(
-    wdf: pd.DataFrame, scale: float = 0.1, index_to_nodes_dict: Dict = None
+    wdf: pd.DataFrame, scale: float = 0.1, index_to_nodes_dict: Optional[Dict] = None
 ) -> pd.DataFrame:
     """
         Prune the weighted edge DataFrame so to return high

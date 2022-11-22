@@ -1,6 +1,6 @@
 import pyarrow as pa, requests, sys
 from functools import lru_cache
-from typing import Any, Tuple
+from typing import Any, Tuple, Optional
 from weakref import WeakKeyDictionary
 from .util import setup_logger
 logger = setup_logger(__name__)
@@ -120,7 +120,7 @@ class ArrowFileUploader():
     ###
 
     def create_and_post_file(
-        self, arr: pa.Table, file_id: str = None, file_opts: dict = {}, upload_url_opts: str = 'erase=true', memoize: bool = True
+        self, arr: pa.Table, file_id: Optional[str] = None, file_opts: dict = {}, upload_url_opts: str = 'erase=true', memoize: bool = True
     ) -> Tuple[str, dict]:
         """
             Create file and upload data for it.

@@ -165,7 +165,7 @@ def pandas_to_sparse_adjacency(df, src, dst, weight_col):
 # ##############################################################################
 
 def pandas_to_dgl_graph(
-    df: pd.DataFrame, src: str, dst: str, weight_col: str = None, device: str = "cpu"
+    df: pd.DataFrame, src: str, dst: str, weight_col: Optional[str] = None, device: str = "cpu"
 ):
     """Turns an edge DataFrame with named src and dst nodes, to DGL graph
     :eg
@@ -431,13 +431,13 @@ class DGLGraphMixin(MIXIN_BASE):
         X_edges: XSymbolic = None,
         y_nodes: YSymbolic = None,
         y_edges: YSymbolic = None,
-        weight_column: str = None,
+        weight_column: Optional[str] = None,
         reuse_if_existing=True,
         featurize_edges =True,
         use_node_scaler: str = "zscale",
-        use_node_scaler_target: str = None,
+        use_node_scaler_target: Optional[str] = None,
         use_edge_scaler: str = "zscale",
-        use_edge_scaler_target: str = None,
+        use_edge_scaler_target: Optional[str] = None,
         train_split: float = 0.8,
         device: str = "cpu",
         inplace: bool = False,
