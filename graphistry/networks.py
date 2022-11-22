@@ -184,6 +184,7 @@ class RGCNEmbed(nn.Module):
         super().__init__()
 
         nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        self.node_ids = torch.tensor(range(num_nodes))
 
         self.emb = nn.Embedding(num_nodes, d)
         hidden = d if not hidden else d + hidden
@@ -194,11 +195,11 @@ class RGCNEmbed(nn.Module):
 
         self.dropout = nn.Dropout(0.2)
 
-    def forward(self, g, node_ids, node_features=None):
+    def forward(self, g, node_features=None):
 
         nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
 
-        x = self.emb(node_ids)
+        x = self.emb(self.node_ids)
         x = self.rgc1(g, x, g.edata[dgl.ETYPE], g.edata['norm'])
         if node_features is not None:
             x = F.relu(torch.cat([x, node_features], dim=1))

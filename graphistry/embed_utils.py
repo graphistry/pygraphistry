@@ -95,7 +95,8 @@ class HeterographEmbedModuleMixin(nn.Module):
         del s, r, t
         
         num_nodes, num_rels = len(self._node2id), len(self._relation2id)
-
+        
+        # bug
         s, r, t = torch.tensor(triplets).T
         g_dgl = dgl.graph(
                 (s[self.train_idx], t[self.train_idx]), 
@@ -126,9 +127,9 @@ class HeterographEmbedModuleMixin(nn.Module):
         for e in pbar:
             for data in g_dataloader:
                 model.train()
-                g, node_ids, edges, labels = data
+                g, edges, labels = data
 
-                emb = model(g, node_ids)
+                emb = model(g)
                 loss = model.loss(emb, edges, labels)
                 optimizer.zero_grad()
                 loss.backward()
@@ -138,7 +139,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         self._embed_model = model
         model.eval()
-        self._embeddings = model(g_dgl, g_dgl.nodes()).detach().numpy()
+        self._embeddings = model(g_dgl).detach().numpy()
         return self
 
     def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
@@ -172,8 +173,9 @@ class HeterographEmbedModuleMixin(nn.Module):
 
 
     def _predict(self, test_triplets, threshold=0.5, directed=True, infer=None):
-
-        test_triplets = torch.tensor(test_triplets)
+        
+        if type(test_triplets) != torch.Tensor:
+            test_triplets = torch.tensor(test_triplets)
         triplets = torch.tensor(self.triplets_)
 
         s, r, o = triplets.T
@@ -186,7 +188,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         g.edata['norm'] = dgl.norm_by_dst(g).unsqueeze(-1)
         del s, r, o
 
-        node_embeddings = self._embed_model(g, nodes)
+        node_embeddings = self._embed_model(g)
 
         h_r = triplets[:, :2]
         t_r = torch.stack((triplets[:, 2], triplets[:, 1])).transpose(0, 1)
@@ -298,6 +300,7 @@ class HeteroEmbed(nn.Module):
         self.reg = reg
         self.proto = proto
         self._node_features = node_features
+
         if self._node_features is not None:
             self._node_features = torch.tensor(self._node_features.values, dtype=torch.float32)
             print("node_features shape", node_features.shape)
@@ -310,15 +313,10 @@ class HeteroEmbed(nn.Module):
                 gain=nn.init.calculate_gain('relu')
         )
 
-    def __call__(self, g, node_ids):
+    def __call__(self, g):
         # returns node embeddings
-        x = None
-        if self._node_features is not None:
-            #node_ids = torch.tensor([n for n in node_ids if n < len(self._node_features)])
-            x = self._node_features[node_ids]
-        return self.rgcn(g, node_ids, node_features=x)
+        return self.rgcn(g, node_features=self._node_features)
     
-
     def score(self, node_embedding, triplets):
         h, r, t = triplets.T
         h, r, t = node_embedding[h], self.relational_embedding[r], node_embedding[t]
@@ -345,6 +343,7 @@ class SubgraphIterator:
         self.sample_size = int(sample_size/2)
         self.eids = np.arange(g.num_edges())
         self.g = g
+        self.num_nodes = g.num_nodes()
 
     def __len__(self):
         return self.num_epochs
@@ -359,27 +358,23 @@ class SubgraphIterator:
         src, dst = self.g.find_edges(eids)
         rel = self.g.edata[dgl.ETYPE][eids].numpy()
 
-        uniq_v, _ = torch.unique(torch.cat((src, dst)), return_inverse=True)
-        num_nodes = len(uniq_v)
-
         triplets = np.stack((src, rel, dst)).T
         
         # negative sampling
         samples, labels = SubgraphIterator.sample_neg_(
                 triplets, 
-                num_nodes, 
+                self.num_nodes, 
                 self.sample_size  # does nothing
         )
 
         src, rel, dst = samples.T
 
         # might need to add bidirectional edges
-        sub_g = dgl.graph((src, dst), num_nodes=num_nodes)
+        sub_g = dgl.graph((src, dst), num_nodes=self.num_nodes)
         sub_g.edata[dgl.ETYPE] = rel
         sub_g.edata['norm'] = dgl.norm_by_dst(sub_g).unsqueeze(-1)
-        uniq_v = uniq_v.view(-1).long()
 
-        return sub_g, uniq_v, samples, labels
+        return sub_g, samples, labels
 
     @staticmethod
     def sample_neg_(triplets, num_nodes, sample_size):
