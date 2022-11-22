@@ -96,7 +96,6 @@ class HeterographEmbedModuleMixin(nn.Module):
         
         num_nodes, num_rels = len(self._node2id), len(self._relation2id)
         
-        # bug
         s, r, t = torch.tensor(triplets).T
         g_dgl = dgl.graph(
                 (s[self.train_idx], t[self.train_idx]), 
