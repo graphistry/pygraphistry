@@ -137,7 +137,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
         
         pbar = trange(epochs, desc=None)
-
+        
         score = 0
         for epoch in pbar:
             model.train()
@@ -155,7 +155,6 @@ class HeterographEmbedModuleMixin(nn.Module):
             self._embed_model = model
             self._embeddings = model(g_dgl).detach().numpy()
             score = self._eval(threshold=0.5)
-            
         return self
 
     def _calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
