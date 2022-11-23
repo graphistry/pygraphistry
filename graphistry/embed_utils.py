@@ -97,8 +97,6 @@ class HeterographEmbedModuleMixin(nn.Module):
         triplets = [[self._node2id[_s], self._relation2id[_r], self._node2id[_t]] for _s, _r, _t in zip(s, r, t)]
 
         # split idx
-        # train_dataset, val_dataset, test_dataset = get_dataloaders(triplets, seed=0, batch_size=batch_size)
-        # print(dir(train_dataset))
         train_size = int(train_split * len(triplets))
         test_size = len(triplets) - train_size
         train_dataset, test_dataset = torch.utils.data.random_split(
@@ -109,22 +107,15 @@ class HeterographEmbedModuleMixin(nn.Module):
         self.test_idx = test_dataset.indices
         
         self.triplets_ = triplets
-        print('triplets', len(triplets))
 
         del s, r, t
         
         num_nodes, num_rels = len(self._node2id), len(self._relation2id)
-        # print('nodes', num_nodes, 'relations', num_rels)
-        # print('max id', max(node2id.values()), max(relation2id.values()))
         s, r, t = torch.tensor(triplets).T
         g_dgl = dgl.graph(
                 (s[self.train_idx], t[self.train_idx]), 
                 num_nodes=num_nodes
         )
-        # g_dgl = dgl.graph(
-        #         (s, t), 
-        #         num_nodes=num_nodes
-        # )
         g_dgl.edata[dgl.ETYPE] = r[self.train_idx]
         g_dgl.edata['norm'] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
 
@@ -132,17 +123,11 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         # TODO: bidirectional connection
         g_iter = SubgraphIterator(g_dgl)
-        # sampler = dgl.dataloading.NeighborSampler(
-        #     [2,2]) #MultiLayerFullNeighborSampler(2)
         g_dataloader = GraphDataLoader(
                 g_iter, 
                 batch_size=batch_size, 
                 collate_fn=lambda x: x[0]
         )
-        # g_dataloader = dgl.dataloading.DataLoader(g_dgl, self.train_idx, graph_sampler=sampler, 
-        #                                           batch_size=batch_size, device='cpu', shuffle=True, drop_last=True
-        #                                           #collate_fn=lambda x: x[0]
-        #                                           )
 
         # init model and optimizer
         model = HeteroEmbed(num_nodes, num_rels, d, proto=self.proto, 
@@ -153,9 +138,9 @@ class HeterographEmbedModuleMixin(nn.Module):
         
         pbar = trange(epochs, desc=None)
 
+        score = 0
         for epoch in pbar:
             model.train()
-            score = 0
             for data in g_dataloader:
                 g, edges, labels = data
                 emb = model(g)
@@ -319,7 +304,7 @@ class HeterographEmbedModuleMixin(nn.Module):
     def _eval(self, threshold):
         if self.test_idx != []:
             triplets = torch.tensor(self.triplets_)[self.test_idx]
-            score = self.score(triplets)
+            score = self._score(triplets)
             return len(score[score > threshold]) / len(score) * 100
         else:
             #raise exception -> "train_split must be < 1 for _eval()"
