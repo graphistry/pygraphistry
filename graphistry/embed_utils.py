@@ -122,8 +122,9 @@ class HeterographEmbedModuleMixin(nn.Module):
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
         
         pbar = trange(epochs, desc=None)
-
-        for e in pbar:
+        
+        score = 0
+        for epoch in pbar:
             for data in g_dataloader:
                 model.train()
                 g, edges, labels = data
@@ -134,12 +135,12 @@ class HeterographEmbedModuleMixin(nn.Module):
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
-                pbar.set_description(f"loss: {loss.item()}")
+                pbar.set_description(f"loss: {loss.item()}, score: {score}")
 
-        self._embed_model = model
-        model.eval()
-        self._embeddings = model(g_dgl).detach().numpy()
-        return self
+            self._embed_model = model
+            self._embeddings = model(g_dgl).detach().numpy()
+            score = self._eval(threshold=0.5)
+            return self
 
     def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
         # TODO: simplify
@@ -274,18 +275,17 @@ class HeterographEmbedModuleMixin(nn.Module):
             return g_new, predicted_links, node_embeddings
         return g_new
     
-    def score(self, triplets):
+    def _score(self, triplets):
         emb = torch.tensor(self._embeddings)
         triplets = torch.tensor(triplets)
         score =  self._embed_model.score(emb, triplets)
         prob = torch.sigmoid(score)
         return prob.detach().numpy()
 
-    def eval(self, threshold):
+    def _eval(self, threshold):
         if self.test_idx != []:
-            s, r, d = torch.tensor(self.triplets_).T[self.test_idx]
-            triplets = torch.stack(s, r, d)
-            score = self.score(triplets)
+            triplets = torch.tensor(self.triplets_)[self.test_idx]
+            score = self._score(triplets)
             return len(score[score > threshold]) / len(score) * 100
         else:
             #raise exception -> "train_split must be < 1 for eval()"
