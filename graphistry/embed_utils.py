@@ -177,7 +177,6 @@ class HeterographEmbedModuleMixin(nn.Module):
 
     def _calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
         # TODO: simplify
-
         if infer == "all":
             s, r, o_ = test_triplet
         else:
@@ -190,8 +189,10 @@ class HeterographEmbedModuleMixin(nn.Module):
         delete_idx = torch.nonzero(delete_idx == 2).squeeze()
     
         delete_entity_idx = test_triplets[delete_idx, 2].view(-1).numpy()
+        print('delete_entity_idx', delete_entity_idx)
         perturb_entity_idx = np.array(list(set(np.arange(num_entity)) - set(delete_entity_idx)))
         perturb_entity_idx = torch.from_numpy(perturb_entity_idx).squeeze()
+        print('Perturbed', perturb_entity_idx)
 
         if infer == "all":
             perturb_entity_idx = torch.cat((perturb_entity_idx, torch.unsqueeze(o_, 0)))
@@ -202,10 +203,11 @@ class HeterographEmbedModuleMixin(nn.Module):
                 node_embeddings[perturb_entity_idx])
 
         score = torch.sigmoid(o)
+        print('score prob', score)
         return perturb_entity_idx[score > threshold]
 
 
-    def _predict(self, test_triplets, threshold=0.5, directed=True, infer=None):
+    def _predict(self, test_triplets, threshold=0.95, directed=True, infer=None):
         
         if type(test_triplets) != torch.Tensor:
             test_triplets = torch.tensor(test_triplets)
@@ -267,7 +269,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         )
         return predicted_links, node_embeddings
 
-    def predict_link(self, test_df, src, rel, threshold=0.5):
+    def predict_link(self, test_df, src, rel, threshold=0.95):
 
         nodes = [self._node2id[i] for i in test_df[src].tolist()]
         relations = [self._relation2id[i] for i in test_df[rel].tolist()]
@@ -318,10 +320,10 @@ class HeterographEmbedModuleMixin(nn.Module):
 
     def _eval(self, threshold):
         if self.test_idx != []:
-            s, r, d = torch.tensor(self.triplets_)[self.test_idx].T
-            triplets = torch.stack([s, r, d], dim=1)
+            triplets = torch.tensor(self.triplets_)[self.test_idx]#.T
+            #triplets = torch.stack([s, r, d], dim=1)
             score = self._score(triplets)
-            return len(score[score > threshold]) / len(score) * 100
+            return 100 * len(score[score >= threshold]) / len(score) 
         else:
             #raise exception -> "train_split must be < 1 for _eval()"
             print('train_split must be < 1 for _eval()')
