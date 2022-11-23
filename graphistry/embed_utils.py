@@ -154,7 +154,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
             self._embed_model = model
             self._embeddings = model(g_dgl).detach().numpy()
-            score = self._eval(threshold=0.5)
+            score = self._eval(threshold=0.9)
         return self
 
     def _calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
@@ -289,7 +289,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         else:
             all_links = predicted_links
 
-        g_new = self.nodes(self._nodes).edges(all_links, self._source, self._destination)
+        g_new = self.nodes(self._nodes, self._node).edges(all_links, self._source, self._destination)
         #create a new graphistry graph
         if return_embeddings:
             return g_new, predicted_links, node_embeddings
