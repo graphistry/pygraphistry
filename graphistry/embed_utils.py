@@ -80,8 +80,8 @@ class HeterographEmbedModuleMixin(nn.Module):
             ))
             print(f'not node but nodes: {nodes}')
         else:
+            nodes = pd.concat([self._edges[src], self._edges[dst]]).unique()
 
-        nodes = pd.concat([self._edges[src], self._edges[dst]]).unique()
         edges = self._edges
         edges = edges[edges[src].isin(nodes) & edges[dst].isin(nodes)]
         relations = [r for r, count in Counter(edges[relation].tolist()).most_common()]
