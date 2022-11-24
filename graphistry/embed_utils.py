@@ -1,19 +1,15 @@
-import pandas as pd
-
+from matplotlib.font_manager import X11FontDirectories
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import trange
-from collections import Counter
-
+from .networks import RGCNEmbed
 import dgl
-from dgl.data import split_dataset
 from dgl.dataloading import GraphDataLoader
-
 import torch.nn.functional as F
 
-from .networks import RGCNEmbed
+import pandas as pd
 
 import logging
 
@@ -34,18 +30,6 @@ class EmbedDistScore:
         return -(h * r - t).norm(p=1, dim=1)
  
     
-
-def get_dataloaders(dataset, seed, batch_size=32, use_ddp=False):
-    train_set, val_set, test_set = split_dataset(dataset,
-                                                 frac_list=[0.8, 0.1, 0.1],
-                                                 shuffle=True,
-                                                 random_state=seed)
-    train_loader = GraphDataLoader(train_set, use_ddp=use_ddp, batch_size=batch_size, shuffle=True)
-    test_loader = GraphDataLoader(test_set, batch_size=batch_size)
-    val_loader = GraphDataLoader(val_set, batch_size=batch_size)
-
-    return train_loader, test_loader, val_loader
-
 
 class HeterographEmbedModuleMixin(nn.Module):
     def __init__(self):
@@ -80,7 +64,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         Returns:
             self: graphistry instance
         """
-        
+
         src, dst = self._source, self._destination
         self._relation = relation
         self._use_feat = use_feat
@@ -95,7 +79,6 @@ class HeterographEmbedModuleMixin(nn.Module):
             # todo decouple self from res
             self = res = res.featurize(kind="nodes", X=X, *args, **kwargs)
 
-
         if self._node is not None and self._nodes is not None:
             nodes = self._nodes[self._node]
         elif self._node is None and self._nodes is not None:
@@ -104,14 +87,16 @@ class HeterographEmbedModuleMixin(nn.Module):
                         self._nodes.index.stop,
                         self._nodes.index.step
             ))
-            #print(f'not node but nodes: {nodes}')
-        else:
-            nodes = pd.concat([self._edges[src], self._edges[dst]]).unique()
 
+        else:
+            nodes = list(set(
+                self._edges[src].tolist() + self._edges[dst].tolist()
+            ))
+            
         edges = self._edges
         edges = edges[edges[src].isin(nodes) & edges[dst].isin(nodes)]
-        relations = [r for r, count in Counter(edges[relation].tolist()).most_common()]
-
+        relations = list(set(edges[relation].tolist()))
+        
         # type2id 
         self._node2id = {n:idx for idx, n in enumerate(nodes)}
         self._relation2id = {r:idx for idx, r in enumerate(relations)}
@@ -119,7 +104,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         self._id2node = {idx:n for idx, n in enumerate(nodes)}
         self._id2relation = {idx:r for idx, r in enumerate(relations)}
 
-        s, r, t = edges[src].tolist(), edges[relation].tolist(), edges[dst].tolist()
+        s, r, t = self._edges[src].tolist(), self._edges[relation].tolist(), self._edges[dst].tolist()
         triplets = [[self._node2id[_s], self._relation2id[_r], self._node2id[_t]] for _s, _r, _t in zip(s, r, t)]
 
         # split idx
@@ -131,12 +116,13 @@ class HeterographEmbedModuleMixin(nn.Module):
         )
         self.train_idx = train_dataset.indices
         self.test_idx = test_dataset.indices
-        
+
         self.triplets_ = triplets
 
         del s, r, t
         
         num_nodes, num_rels = len(self._node2id), len(self._relation2id)
+        
         s, r, t = torch.tensor(triplets).T
         g_dgl = dgl.graph(
                 (s[self.train_idx], t[self.train_idx]), 
@@ -166,15 +152,17 @@ class HeterographEmbedModuleMixin(nn.Module):
         
         score = 0
         for epoch in pbar:
-            model.train()
             for data in g_dataloader:
+                model.train()
                 g, edges, labels = data
+
                 emb = model(g)
                 loss = model.loss(emb, edges, labels)
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
+                pbar.set_description(f"loss: {loss.item()}, score: {score}")
 
             model.eval()
             self._embed_model = model
@@ -184,7 +172,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         return self
 
-    def _calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
+    def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
         # TODO: simplify
         if infer == "all":
             s, r, o_ = test_triplet
@@ -243,7 +231,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             # for [s, r] -> {d}
             if k not in visited:
 
-                links = self._calculate_prob(
+                links = self.calculate_prob(
                         test_triplet, 
                         test_triplets,
                         threshold, 
@@ -257,7 +245,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
             # for [d, r] -> {s}
             if kr not in visited and not directed:
-                links = self._calculate_prob(
+                links = self.calculate_prob(
                         test_triplet,
                         test_triplets,
                         threshold,
@@ -310,6 +298,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         return result_df
 
+
     def predict_links(self, threshold=0.99, return_embeddings=True, retain_old_edges=False):
         """predict links over entire graph given a threshold
 
@@ -324,6 +313,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             graph: (graphistry graph) or 
                     (graphistry graph, DataFrame of predictions and node embeddings) when return_embeddings=True
         """
+
         predicted_links, node_embeddings = self._predict(
                     torch.tensor(self.triplets_),
                     threshold,
@@ -331,8 +321,8 @@ class HeterographEmbedModuleMixin(nn.Module):
         )
 
         existing_links = self._edges[[self._source, self._relation, self._destination]]
-        
-        if retain_old_edges: 
+    
+        if retain_old_edges:
             all_links = pd.concat(
                 [existing_links, predicted_links],
                 ignore_index=True
@@ -341,6 +331,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             all_links = predicted_links
 
         g_new = self.nodes(self._nodes, self._node).edges(all_links, self._source, self._destination)
+
         #create a new graphistry graph
         if return_embeddings:
             return g_new, predicted_links, node_embeddings
@@ -431,7 +422,7 @@ class SubgraphIterator:
         triplets = np.stack((src, rel, dst)).T
         
         # negative sampling
-        samples, labels = SubgraphIterator.sample_neg(
+        samples, labels = SubgraphIterator.sample_neg_(
                 triplets, 
                 self.num_nodes, 
                 self.sample_size  # does nothing
@@ -447,7 +438,7 @@ class SubgraphIterator:
         return sub_g, samples, labels
 
     @staticmethod
-    def sample_neg(triplets, num_nodes, sample_size):
+    def sample_neg_(triplets, num_nodes, sample_size):
 
         # TODO: remove all numpy operations
 
