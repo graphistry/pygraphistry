@@ -15,6 +15,9 @@ import torch.nn.functional as F
 
 from .networks import RGCNEmbed
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 class EmbedDistScore:
 
@@ -54,7 +57,30 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'RotatE':  EmbedDistScore.RotatE
         }
 
-    def embed(self, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, batch_size=32, train_split=0.8, *args, **kwargs):
+    def embed(self, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, 
+              batch_size=32, train_split=0.8, *args, **kwargs):
+        """Embed a graph using a relational graph convolutional network (RGCN), 
+            and return a new graphistry graph with the embeddings as node attributes.
+
+        Args:
+            relation pd.column: column to use as relation between nodes
+            proto (str, optional): which metric to use, ['TransE', 'RotateE', 'DistMult'] or provide your own. 
+                Defaults to 'DistMult'.
+            d (int, optional): relation embedding dimension. Defaults to 32.
+            use_feat (bool, optional): whether to featurize nodes, if False will produce 
+                random embeddings and shape them during training.
+                Defaults to True.
+            X (List or pd.DataFrame, optional): Which columns in the nodes dataframe to 
+                featurize. Inherets args from graphistry.featurize(). 
+                Defaults to None.
+            epochs (int, optional): traing epoch. Defaults to 2.
+            batch_size (int, optional): batch size. Defaults to 32.
+            train_split (float, optional): train percentage, between 0, 1. Defaults to 0.8.
+
+        Returns:
+            self: graphistry instance
+        """
+        
         src, dst = self._source, self._destination
         self._relation = relation
         self._use_feat = use_feat
@@ -78,7 +104,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                         self._nodes.index.stop,
                         self._nodes.index.step
             ))
-            print(f'not node but nodes: {nodes}')
+            #print(f'not node but nodes: {nodes}')
         else:
             nodes = pd.concat([self._edges[src], self._edges[dst]]).unique()
 
@@ -128,7 +154,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                 batch_size=batch_size, 
                 collate_fn=lambda x: x[0]
         )
-
+        
         # init model and optimizer
         model = HeteroEmbed(num_nodes, num_rels, d, proto=self.proto, 
                     node_features=self._node_features)
@@ -150,11 +176,12 @@ class HeterographEmbedModuleMixin(nn.Module):
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
 
-                pbar.set_description(f"loss: {loss.item()}, score:{score}")
-
+            model.eval()
             self._embed_model = model
             self._embeddings = model(g_dgl).detach().numpy()
-            score = self._eval(threshold=0.9)
+            score = self._eval(threshold=0.95)
+            pbar.set_description(f"epoch: {epoch}, loss: {loss.item()}, score:{score}")
+
         return self
 
     def _calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
@@ -171,10 +198,8 @@ class HeterographEmbedModuleMixin(nn.Module):
         delete_idx = torch.nonzero(delete_idx == 2).squeeze()
     
         delete_entity_idx = test_triplets[delete_idx, 2].view(-1).numpy()
-        print('delete_entity_idx', delete_entity_idx)
         perturb_entity_idx = np.array(list(set(np.arange(num_entity)) - set(delete_entity_idx)))
         perturb_entity_idx = torch.from_numpy(perturb_entity_idx).squeeze()
-        print('Perturbed', perturb_entity_idx)
 
         if infer == "all":
             perturb_entity_idx = torch.cat((perturb_entity_idx, torch.unsqueeze(o_, 0)))
@@ -185,7 +210,6 @@ class HeterographEmbedModuleMixin(nn.Module):
                 node_embeddings[perturb_entity_idx])
 
         score = torch.sigmoid(o)
-        print('score prob', score)
         return perturb_entity_idx[score > threshold]
 
 
@@ -196,7 +220,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         triplets = torch.tensor(self.triplets_)
 
         s, r, o = triplets.T
-        nodes = torch.tensor(list(set(s.tolist() + o.tolist())))
+        #nodes = torch.tensor(list(set(s.tolist() + o.tolist())))
         edge_index = torch.stack([s, o])
 
         # make graph
@@ -245,13 +269,27 @@ class HeterographEmbedModuleMixin(nn.Module):
                 predicted_links += [[self._id2node[s.item()], self._id2relation[r.item()], 
                     self._id2node[i.item()]] for i in links]
                 
-        # TODO: dropduplicates    
+            
         predicted_links = pd.DataFrame(
             predicted_links, columns = [self._source, self._relation, self._destination]
         )
+        
         return predicted_links, node_embeddings
 
-    def predict_link(self, test_df, src, rel, threshold=0.95):
+
+    def predict_link(self, test_df: pd.DataFrame, src, rel, threshold: float=0.95):
+        """predict links from a test dataframe given src/dst & rel columns
+
+        Args:
+            test_df (pd.DataFrame): dataframe of test data
+            src : source column name
+            rel : relation column name
+            threshold (float, optional): probability threshold - confidence. 
+                Defaults to 0.95.
+
+        Returns:
+            pd.DataFrame: dataframe of predicted links
+        """
 
         nodes = [self._node2id[i] for i in test_df[src].tolist()]
         relations = [self._relation2id[i] for i in test_df[rel].tolist()]
@@ -272,7 +310,20 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         return result_df
 
-    def predict_link_all(self, threshold=0.99, return_embeddings=True, retain_old_edges=False):
+    def predict_links(self, threshold=0.99, return_embeddings=True, retain_old_edges=False):
+        """predict links over entire graph given a threshold
+
+        Args:
+            threshold (float, optional): Probability threshold. Defaults to 0.99.
+            return_embeddings (bool, optional): will return DataFrame of predictions and node embeddings. 
+                Defaults to True.
+            retain_old_edges (bool, optional): will include old edges in predicted graph. 
+                Defaults to False.
+
+        Returns:
+            graph: (graphistry graph) or 
+                    (graphistry graph, DataFrame of predictions and node embeddings) when return_embeddings=True
+        """
         predicted_links, node_embeddings = self._predict(
                     torch.tensor(self.triplets_),
                     threshold,
@@ -309,7 +360,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             return 100 * len(score[score >= threshold]) / len(score) 
         else:
             #raise exception -> "train_split must be < 1 for _eval()"
-            print('train_split must be < 1 for _eval()')
+            logger.warning('train_split must be < 1 for _eval()')
        
 
 class HeteroEmbed(nn.Module):
