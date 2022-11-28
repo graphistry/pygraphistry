@@ -668,15 +668,8 @@ class PyGraphistry(object):
         PyGraphistry.set_bolt_driver(bolt)
         # Reset token creds
         PyGraphistry.__reset_token_creds_in_memory()
-
-        # if 'login_type' in PyGraphistry._config:
-        #     login_type = PyGraphistry._config['login_type']
-        # else:
-        #     login_type = None
  
         if not (username is None) and not (password is None):
-            # PyGraphistry.__check_login_type(login_type, 'PWD')
-            # PyGraphistry._config['login_type'] = 'PWD'
             PyGraphistry.login(username, password, org_name)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
             PyGraphistry.authenticate()
@@ -685,9 +678,7 @@ class PyGraphistry(object):
         elif not (username is None) and password is None:
             raise Exception(MSG_REGISTER_MISSING_PASSWORD)
         elif not (personal_key_id is None) and not (personal_key_secret is None):
-            # PyGraphistry.__check_login_type(login_type, 'PKEY')
-            # PyGraphistry._config['login_type'] = 'PKEY'
-            PyGraphistry.pkey_login(personal_key_id, personal_key_secret)
+            PyGraphistry.pkey_login(personal_key_id, personal_key_secret, org_name=org_name)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
             PyGraphistry.authenticate()
         elif personal_key_id is None and not (personal_key_secret is None):
@@ -698,8 +689,6 @@ class PyGraphistry(object):
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         elif not (org_name is None) or is_sso_login:
             print(MSG_REGISTER_ENTER_SSO_LOGIN)
-            # PyGraphistry.__check_login_type(login_type, 'SSO', org_name, idp_name)
-            # PyGraphistry._config['login_type'] = 'SSO'
             PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
 
     @staticmethod

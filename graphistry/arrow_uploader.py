@@ -206,13 +206,15 @@ class ArrowUploader:
     def pkey_login(self, personal_key_id, personal_key_secret, org_name=None):
         # json_data = {'personal_key_id': personal_key_id, 'personal_key_secret': personal_key}
         json_data = {}
-        # if org_name:
-        #     json_data.update({"org_name": org_name})
+        if org_name:
+            json_data.update({"org_name": org_name})
 
         headers = {"Authorization": f'PersonalKey {personal_key_id}:{personal_key_secret}'}
+        
+        url = f'{self.server_base_path}/api/v2/auth/pkey/jwt/'
 
         out = requests.get(
-            f'{self.server_base_path}/api/v2/auth/pkey/jwt/',
+            url,
             verify=self.certificate_validation,
             json=json_data, headers=headers)
         return self._handle_login_response(out, org_name)
