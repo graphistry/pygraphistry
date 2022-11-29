@@ -85,7 +85,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             self.train_idx = train_dataset.indices
             self.test_idx = test_dataset.indices
 
-        self.triplets = triplets        
+        self.triplets = triplets
         self._num_nodes, self._num_rels = len(self._node2id), len(self._relation2id)
         print(f"--num_nodes: {self._num_nodes}, num_relationships: {self._num_rels}")
         
@@ -130,26 +130,25 @@ class HeterographEmbedModuleMixin(nn.Module):
             model.train()
             for data in g_dataloader:
                 g, edges, labels = data
-
                 emb = model(g)
                 loss = model.loss(emb, edges, labels)
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
-                pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}")
+                pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}%")
 
             model.eval()
             self._embed_model = model
             self._embeddings = model(self.g_dgl).detach().numpy()
-            score = self._eval(threshold=0.95)
-            pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}")
+            score = self._eval(threshold=0.5)
+            pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}%")
 
         return self
     
 
     def embed(self, relation, proto='DistMult', embedding_dim=32, use_feat=False, X=None, epochs=2, 
-              batch_size=32, train_split=0.8, lr=0.003, *args, **kwargs):
+              batch_size=32, train_split=0.8, lr=0.003, inplace=False, *args, **kwargs):
         """Embed a graph using a relational graph convolutional network (RGCN), 
             and return a new graphistry graph with the embeddings as node attributes.
 
@@ -164,6 +163,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             X (List or pd.DataFrame, optional): Which columns in the nodes dataframe to 
                 featurize. Inherets args from graphistry.featurize(). 
                 Defaults to None.
+            lr (float, optional): learning rate. Defaults to 0.003.
             epochs (int, optional): traing epoch. Defaults to 2.
             batch_size (int, optional): batch size. Defaults to 32.
             train_split (float, optional): train percentage, between 0, 1. Defaults to 0.8.
@@ -171,27 +171,31 @@ class HeterographEmbedModuleMixin(nn.Module):
         Returns:
             self: graphistry instance
         """
+        if inplace:
+            res = self
+        else:
+            res = self.bind()
+            
 
-        self._relation = relation
-        self._use_feat = use_feat
-        self._embed_dim = embedding_dim
-        self._train_split = train_split
+        res._relation = relation
+        res._use_feat = use_feat
+        res._embed_dim = embedding_dim
+        res._train_split = train_split
 
         if callable(proto):
-            self.proto = proto
+            res.proto = proto
         else:
-            self.proto = self.protocol[proto]
+            res.proto = res.protocol[proto]
  
-        if self._use_feat and self._nodes is not None:
-            res = self.bind() #bind the node features to the graph
+        if res._use_feat and res._nodes is not None:
             # todo decouple self from res
-            self = res = res.featurize(kind="nodes", X=X, *args, **kwargs)
+            res = res.featurize(kind="nodes", X=X, *args, **kwargs)
 
         if not hasattr(self, 'triplets'):
-            self._preprocess_embedding_data(train_split=train_split)  
-            self._build_graph()          
+            res._preprocess_embedding_data(train_split=train_split)  
+            res._build_graph()          
 
-        return self._train_embedding(epochs, batch_size, lr=lr)
+        return res._train_embedding(epochs, batch_size, lr=lr)
 
 
     def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
@@ -370,9 +374,14 @@ class HeterographEmbedModuleMixin(nn.Module):
 
     def _eval(self, threshold):
         if self.test_idx != []:
+            from time import time
+            t = time()
+            print("Evaluating...")
             triplets = torch.tensor(self.triplets)[self.test_idx]
             score = self._score(triplets)
-            return 100 * len(score[score >= threshold]) / len(score) 
+            score =  100 * len(score[score >= threshold]) / len(score) 
+            print(f"--took {(time()-t)/60:.2f} minutes to evaluate")
+            return score
         else:
             #raise exception -> "train_split must be < 1 for _eval()"
             logger.warning('train_split must be < 1 for _eval()')
@@ -388,7 +397,7 @@ class HeteroEmbed(nn.Module):
 
         if self.node_features is not None:
             self.node_features = torch.tensor(self.node_features.values, dtype=torch.float32)
-            print("node_features shape", node_features.shape)
+            print("--Using node features of shape", node_features.shape)
         hidden = self.node_features.shape[-1] if node_features is not None else None
         self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden)
         self.relational_embedding = nn.Parameter(torch.Tensor(num_rels, d))
