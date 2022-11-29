@@ -11,6 +11,9 @@ import torch.nn.functional as F
 
 import pandas as pd
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 class EmbedDistScore:
 
