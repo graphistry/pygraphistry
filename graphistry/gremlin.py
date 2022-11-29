@@ -825,11 +825,11 @@ class CosmosMixin(COSMOS_BASE):
 
     def cosmos(
         self,
-        COSMOS_ACCOUNT: str = None,
-        COSMOS_DB: str = None,
-        COSMOS_CONTAINER: str = None,
-        COSMOS_PRIMARY_KEY: str = None,
-        gremlin_client: Client = None
+        COSMOS_ACCOUNT: Optional[str] = None,
+        COSMOS_DB: Optional[str] = None,
+        COSMOS_CONTAINER: Optional[str] = None,
+        COSMOS_PRIMARY_KEY: Optional[str] = None,
+        gremlin_client: Optional[Client] = None
     ):
         """
            Provide credentials as arguments, as environment variables, or by providing a gremlinpython client
