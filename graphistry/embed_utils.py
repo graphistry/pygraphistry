@@ -173,17 +173,16 @@ class HeterographEmbedModuleMixin(nn.Module):
             self = res = res.featurize(kind="nodes", X=X, *args, **kwargs)
 
         if not hasattr(self, 'triplets'):
-            self._preprocess_embedding_data(train_split=train_split)
-            
-        s, r, t = torch.tensor(self.triplets).T
-        g_dgl = dgl.graph(
-                (s[self.train_idx], t[self.train_idx]), 
-                num_nodes=self._num_nodes
-        )
-        g_dgl.edata[dgl.ETYPE] = r[self.train_idx]
-        g_dgl.edata['norm'] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
+            self._preprocess_embedding_data(train_split=train_split)            
+            s, r, t = torch.tensor(self.triplets).T
+            g_dgl = dgl.graph(
+                    (s[self.train_idx], t[self.train_idx]), 
+                    num_nodes=self._num_nodes
+            )
+            g_dgl.edata[dgl.ETYPE] = r[self.train_idx]
+            g_dgl.edata['norm'] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
 
-        self.g_dgl = g_dgl
+            self.g_dgl = g_dgl
 
         return self._train_embedding(epochs, batch_size)
 
