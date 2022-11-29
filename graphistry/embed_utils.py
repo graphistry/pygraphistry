@@ -88,6 +88,18 @@ class HeterographEmbedModuleMixin(nn.Module):
         self._num_nodes, self._num_rels = len(self._node2id), len(self._relation2id)
         print(f"--num_nodes: {self._num_nodes}, num_relationships: {self._num_rels}")
         
+        
+    def _build_graph(self):
+        s, r, t = torch.tensor(self.triplets).T
+        g_dgl = dgl.graph(
+                (s[self.train_idx], t[self.train_idx]), 
+                num_nodes=self._num_nodes
+        )
+        g_dgl.edata[dgl.ETYPE] = r[self.train_idx]
+        g_dgl.edata['norm'] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
+
+        self.g_dgl = g_dgl
+        
     def _init_model(self, batch_size):
         g_iter = SubgraphIterator(self.g_dgl)
         g_dataloader = GraphDataLoader(
@@ -100,8 +112,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         model = HeteroEmbed(self._num_nodes, self._num_rels, self._embed_dim, proto=self.proto, 
                     node_features=self._node_features)
         return model, g_dataloader
-        
-
+    
     def _train_embedding(self, epochs, batch_size, lr=0.003):
         print('Training embedding')
         model, g_dataloader = self._init_model(batch_size)
@@ -131,8 +142,10 @@ class HeterographEmbedModuleMixin(nn.Module):
             self._embed_model = model
             self._embeddings = model(self.g_dgl).detach().numpy()
             score = self._eval(threshold=0.95)
-            
+            pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}")
+
         return self
+    
 
     def embed(self, relation, proto='DistMult', embedding_dim=32, use_feat=False, X=None, epochs=2, 
               batch_size=32, train_split=0.8, *args, **kwargs):
@@ -174,16 +187,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         if not hasattr(self, 'triplets'):
             self._preprocess_embedding_data(train_split=train_split)  
-                      
-            s, r, t = torch.tensor(self.triplets).T
-            g_dgl = dgl.graph(
-                    (s[self.train_idx], t[self.train_idx]), 
-                    num_nodes=self._num_nodes
-            )
-            g_dgl.edata[dgl.ETYPE] = r[self.train_idx]
-            g_dgl.edata['norm'] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
-
-            self.g_dgl = g_dgl
+            self._build_graph()          
 
         return self._train_embedding(epochs, batch_size)
 
@@ -378,12 +382,12 @@ class HeteroEmbed(nn.Module):
 
         self.reg = reg
         self.proto = proto
-        self._node_features = node_features
+        self.node_features = node_features
 
-        if self._node_features is not None:
-            self._node_features = torch.tensor(self._node_features.values, dtype=torch.float32)
+        if self.node_features is not None:
+            self.node_features = torch.tensor(self.node_features.values, dtype=torch.float32)
             print("node_features shape", node_features.shape)
-        hidden = self._node_features.shape[-1] if node_features is not None else None
+        hidden = self.node_features.shape[-1] if node_features is not None else None
         self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden)
         self.relational_embedding = nn.Parameter(torch.Tensor(num_rels, d))
 
@@ -394,7 +398,7 @@ class HeteroEmbed(nn.Module):
 
     def __call__(self, g):
         # returns node embeddings
-        return self.rgcn(g, node_features=self._node_features)
+        return self.rgcn(g, node_features=self.node_features)
     
     def score(self, node_embedding, triplets):
         h, r, t = triplets.T
