@@ -289,3 +289,62 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         with pytest.raises(Exception):
             au.token
+
+    @mock.patch('requests.post')
+    def test_sso_login_when_required_authentication(self, mock_post):
+
+        mock_resp = self._mock_response(
+            json_data={
+                'auth_url': 'https://sso-idp-host/authorize?state=xxuixld',
+                'state': 'xxuixld'
+        })
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+
+        with pytest.raises(Exception):
+            au.sso_login(org_name="mock-org", idp_name="mock-idp")
+
+        with pytest.raises(Exception):
+            au.sso_state == 'xxuixld'
+            au.auth_url == 'https://sso-idp-host/authorize?state=xxuixld'
+
+    @mock.patch('requests.post')
+    def test_sso_login_when_already_authenticated(self, mock_post):
+
+        mock_resp = self._mock_response(
+            json_data={
+                'state': 'xxuixld'
+        })
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+
+        with pytest.raises(Exception):
+            au.sso_login(org_name="mock-org", idp_name="mock-idp")
+
+        with pytest.raises(Exception):
+            assert au.sso_state == 'xxuixld'
+
+
+    @mock.patch('requests.post')
+    def test_sso_login_get_sso_token(self, mock_post):
+
+        mock_resp = self._mock_response(
+            json_data={
+                'token': '123',
+                'active_organization': {
+                    "slug": "mock-org",
+                    'is_found': True,
+                    'is_member': True
+                }
+        })
+        mock_post.return_value = mock_resp
+
+        au = ArrowUploader()
+
+        with pytest.raises(Exception):
+            au.sso_get_token(state='abcdwerd')
+
+        with pytest.raises(Exception):
+            assert au.token == '123'
