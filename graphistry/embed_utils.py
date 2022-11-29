@@ -41,93 +41,11 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'RotatE':  EmbedDistScore.RotatE
         }
         
-    def _init_model(self, batch_size):
-        g_iter = SubgraphIterator(self.g_dgl)
-        g_dataloader = GraphDataLoader(
-                g_iter, 
-                batch_size=batch_size, 
-                collate_fn=lambda x: x[0]
-        )
-        
-        # init model and optimizer
-        model = HeteroEmbed(self._num_nodes, self._num_rels, self._embed_dim, proto=self.proto, 
-                    node_features=self._node_features)
-        
-        return model, g_dataloader
-        
-
-    def _train_embedding(self, epochs, batch_size, lr=0.003):
-        
-        model, g_dataloader = self._init_model(batch_size)
-        if hasattr(self, '_embed_model'): 
-            model = self._embed_model               
-            print("Reusing previous model")
-            
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        
-        pbar = trange(epochs, desc=None)
-        
-        score = 0
-        for epoch in pbar:
-            model.train()
-            for data in g_dataloader:
-                g, edges, labels = data
-
-                emb = model(g)
-                loss = model.loss(emb, edges, labels)
-                optimizer.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
-                
-            pbar.set_description(f"loss: {loss.item()}, score: {score}")
-            model.eval()
-            self._embed_model = model
-            self._embeddings = model(self.g_dgl).detach().numpy()
-            score = self._eval(threshold=0.95)
-            pbar.set_description(f"epoch: {epoch}, loss: {loss.item()}, score:{score}")
-            
-        return self
-
-    def embed(self, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, 
-              batch_size=32, train_split=0.8, *args, **kwargs):
-        """Embed a graph using a relational graph convolutional network (RGCN), 
-            and return a new graphistry graph with the embeddings as node attributes.
-
-        Args:
-            relation pd.column: column to use as relation between nodes
-            proto (str, optional): which metric to use, ['TransE', 'RotateE', 'DistMult'] or provide your own. 
-                Defaults to 'DistMult'.
-            d (int, optional): relation embedding dimension. Defaults to 32.
-            use_feat (bool, optional): whether to featurize nodes, if False will produce 
-                random embeddings and shape them during training.
-                Defaults to True.
-            X (List or pd.DataFrame, optional): Which columns in the nodes dataframe to 
-                featurize. Inherets args from graphistry.featurize(). 
-                Defaults to None.
-            epochs (int, optional): traing epoch. Defaults to 2.
-            batch_size (int, optional): batch size. Defaults to 32.
-            train_split (float, optional): train percentage, between 0, 1. Defaults to 0.8.
-
-        Returns:
-            self: graphistry instance
-        """
-
+    def _preprocess_embedding_data(self, train_split=0.8):
+        print('preprocessing embedding data')
         src, dst = self._source, self._destination
-        self._relation = relation
-        self._use_feat = use_feat
-        self._embed_dim = d
-
-        if callable(proto):
-            self.proto = proto
-        else:
-            self.proto = self.protocol[proto]
- 
-        if self._use_feat and self._nodes is not None:
-            res = self.bind() #bind the node features to the graph
-            # todo decouple self from res
-            self = res = res.featurize(kind="nodes", X=X, *args, **kwargs)
-
+        relation = self._relation
+        
         if self._node is not None and self._nodes is not None:
             nodes = self._nodes[self._node]
         elif self._node is None and self._nodes is not None:
@@ -136,7 +54,6 @@ class HeterographEmbedModuleMixin(nn.Module):
                         self._nodes.index.stop,
                         self._nodes.index.step
             ))
-
         else:
             nodes = list(set(
                 self._edges[src].tolist() + self._edges[dst].tolist()
@@ -167,13 +84,98 @@ class HeterographEmbedModuleMixin(nn.Module):
             self.train_idx = train_dataset.indices
             self.test_idx = test_dataset.indices
 
-        self.triplets_ = triplets
-
-        del s, r, t
-        
+        self.triplets = triplets        
         self._num_nodes, self._num_rels = len(self._node2id), len(self._relation2id)
+        print(f"num_nodes: {self._num_nodes}, num_relationships: {self._num_rels}")
         
-        s, r, t = torch.tensor(triplets).T
+    def _init_model(self, batch_size):
+        g_iter = SubgraphIterator(self.g_dgl)
+        g_dataloader = GraphDataLoader(
+                g_iter, 
+                batch_size=batch_size, 
+                collate_fn=lambda x: x[0]
+        )
+        
+        # init model and optimizer
+        model = HeteroEmbed(self._num_nodes, self._num_rels, self._embed_dim, proto=self.proto, 
+                    node_features=self._node_features)
+        return model, g_dataloader
+        
+
+    def _train_embedding(self, epochs, batch_size, lr=0.003):
+        print('Training embedding')
+        model, g_dataloader = self._init_model(batch_size)
+        if hasattr(self, '_embed_model'): 
+            model = self._embed_model               
+            print("--Reusing previous model")
+        print(model)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        
+        pbar = trange(epochs, desc=None)
+        
+        score = 0
+        for epoch in pbar:
+            model.train()
+            for data in g_dataloader:
+                g, edges, labels = data
+
+                emb = model(g)
+                loss = model.loss(emb, edges, labels)
+                optimizer.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+                
+            model.eval()
+            self._embed_model = model
+            self._embeddings = model(self.g_dgl).detach().numpy()
+            score = self._eval(threshold=0.95)
+            pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}")
+        print(f"score: {score:.2f}")
+        return self
+
+    def embed(self, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, 
+              batch_size=32, train_split=0.8, *args, **kwargs):
+        """Embed a graph using a relational graph convolutional network (RGCN), 
+            and return a new graphistry graph with the embeddings as node attributes.
+
+        Args:
+            relation pd.column: column to use as relation between nodes
+            proto (str, optional): which metric to use, ['TransE', 'RotateE', 'DistMult'] or provide your own. 
+                Defaults to 'DistMult'.
+            d (int, optional): relation embedding dimension. Defaults to 32.
+            use_feat (bool, optional): whether to featurize nodes, if False will produce 
+                random embeddings and shape them during training.
+                Defaults to True.
+            X (List or pd.DataFrame, optional): Which columns in the nodes dataframe to 
+                featurize. Inherets args from graphistry.featurize(). 
+                Defaults to None.
+            epochs (int, optional): traing epoch. Defaults to 2.
+            batch_size (int, optional): batch size. Defaults to 32.
+            train_split (float, optional): train percentage, between 0, 1. Defaults to 0.8.
+
+        Returns:
+            self: graphistry instance
+        """
+
+        self._relation = relation
+        self._use_feat = use_feat
+        self._embed_dim = d
+
+        if callable(proto):
+            self.proto = proto
+        else:
+            self.proto = self.protocol[proto]
+ 
+        if self._use_feat and self._nodes is not None:
+            res = self.bind() #bind the node features to the graph
+            # todo decouple self from res
+            self = res = res.featurize(kind="nodes", X=X, *args, **kwargs)
+
+        if not hasattr(self, 'triplets'):
+            self._preprocess_embedding_data(train_split=train_split)
+            
+        s, r, t = torch.tensor(self.triplets).T
         g_dgl = dgl.graph(
                 (s[self.train_idx], t[self.train_idx]), 
                 num_nodes=self._num_nodes
@@ -219,7 +221,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         
         if type(test_triplets) != torch.Tensor:
             test_triplets = torch.tensor(test_triplets)
-        triplets = torch.tensor(self.triplets_)
+        triplets = torch.tensor(self.triplets)
 
         s, r, o = triplets.T
         #nodes = torch.tensor(list(set(s.tolist() + o.tolist())))
@@ -329,7 +331,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         """
 
         predicted_links, node_embeddings = self._predict(
-                    torch.tensor(self.triplets_),
+                    torch.tensor(self.triplets),
                     threshold,
                     infer="all"
         )
@@ -353,14 +355,16 @@ class HeterographEmbedModuleMixin(nn.Module):
     
     def _score(self, triplets):
         emb = torch.tensor(self._embeddings)
-        triplets = torch.tensor(triplets)
+        if type(triplets) != torch.Tensor:
+            triplets = torch.tensor(triplets)
+        #triplets = torch.tensor(triplets)
         score =  self._embed_model.score(emb, triplets)
         prob = torch.sigmoid(score)
         return prob.detach().numpy()
 
     def _eval(self, threshold):
         if self.test_idx != []:
-            triplets = torch.tensor(self.triplets_)[self.test_idx]
+            triplets = torch.tensor(self.triplets)[self.test_idx]
             score = self._score(triplets)
             return 100 * len(score[score >= threshold]) / len(score) 
         else:
