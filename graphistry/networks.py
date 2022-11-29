@@ -25,12 +25,12 @@ def lazy_import_networks():
 class GCN(nn.Module):
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        _, _, dglnn, _, _, _ = lazy_import_networks()
         self.conv1 = dglnn.GraphConv(in_feats, h_feats)
         self.conv2 = dglnn.GraphConv(h_feats, num_classes)
 
     def forward(self, g, in_feat):
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        _, _, _, _, _, F = lazy_import_networks()
         h = self.conv1(g, in_feat)
         h = F.relu(h)
         h = self.conv2(g, h)
@@ -50,7 +50,7 @@ class RGCN(nn.Module):
 
     def __init__(self, in_feats, hid_feats, out_feats, rel_names):
         super().__init__()
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()        
+        _, _, dglnn, _, _, _ = lazy_import_networks()        
         
         self.conv1 = dglnn.HeteroGraphConv(
             {rel: dglnn.GraphConv(in_feats, hid_feats) for rel in rel_names},
@@ -73,7 +73,7 @@ class RGCN(nn.Module):
 class HeteroClassifier(nn.Module):
     def __init__(self, in_dim, hidden_dim, n_classes, rel_names):
         super().__init__()
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        nn, _, _, _, _, _ = lazy_import_networks()
         self.rgcn = RGCN(in_dim, hidden_dim, hidden_dim, rel_names)
         self.classify = nn.Linear(hidden_dim, n_classes)
 
@@ -96,7 +96,7 @@ class MLPPredictor(nn.Module):
 
     def __init__(self, in_features, out_classes):
         super().__init__()
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        nn, _, _, _, _, _ = lazy_import_networks()
         self.W = nn.Linear(in_features * 2, out_classes)
 
     def apply_edges(self, edges):
@@ -118,7 +118,7 @@ class MLPPredictor(nn.Module):
 class SAGE(nn.Module):
     def __init__(self, in_feats, hid_feats, out_feats):
         super().__init__()
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        _, _, dglnn, _, _, _ = lazy_import_networks()
         self.conv1 = dglnn.SAGEConv(
             in_feats=in_feats, out_feats=hid_feats, aggregator_type="mean"
         )
@@ -137,7 +137,7 @@ class SAGE(nn.Module):
 
 class DotProductPredictor(nn.Module):
     def forward(self, graph, h):
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        _, _, _, fn, _, _ = lazy_import_networks()
 
         # h contains the node representations computed from the GNN defined
         # in the node classification section (Section 5.1).
@@ -149,9 +149,8 @@ class DotProductPredictor(nn.Module):
 
 class LinkPredModel(nn.Module):
     def __init__(self, in_features, hidden_features, out_features):
-        dgl, dglnn, fn, torch, F = lazy_import_networks()
         super().__init__()
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        #nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
         self.sage = SAGE(in_features, hidden_features, out_features)
         self.pred = DotProductPredictor()
 
@@ -162,7 +161,7 @@ class LinkPredModel(nn.Module):
 
 class LinkPredModelMultiOutput(nn.Module):
     def __init__(self, in_features, hidden_features, out_features, out_classes):
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        _, _, dglnn, _, _, _ = lazy_import_networks()
         super().__init__()
         self.sage = SAGE(in_features, hidden_features, out_features)
         self.pred = MLPPredictor(out_features, out_classes)
@@ -183,7 +182,7 @@ class RGCNEmbed(nn.Module):
     def __init__(self, d, num_nodes, num_rels, hidden=None):
         super().__init__()
 
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        nn, _, dglnn, _, torch, _ = lazy_import_networks()
         self.node_ids = torch.tensor(range(num_nodes))
 
         self.emb = nn.Embedding(num_nodes, d)
@@ -197,7 +196,7 @@ class RGCNEmbed(nn.Module):
 
     def forward(self, g, node_features=None):
 
-        nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+        _, dgl, _, _, torch, F = lazy_import_networks()
 
         x = self.emb(self.node_ids)
         x = self.rgc1(g, x, g.edata[dgl.ETYPE], g.edata['norm'])
