@@ -42,7 +42,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         }
         
     def _preprocess_embedding_data(self, train_split=0.8):
-        print('preprocessing embedding data')
+        print('Preprocessing embedding data')
         src, dst = self._source, self._destination
         relation = self._relation
         
@@ -86,7 +86,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         self.triplets = triplets        
         self._num_nodes, self._num_rels = len(self._node2id), len(self._relation2id)
-        print(f"num_nodes: {self._num_nodes}, num_relationships: {self._num_rels}")
+        print(f"--num_nodes: {self._num_nodes}, num_relationships: {self._num_rels}")
         
     def _init_model(self, batch_size):
         g_iter = SubgraphIterator(self.g_dgl)
@@ -108,7 +108,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         if hasattr(self, '_embed_model'): 
             model = self._embed_model               
             print("--Reusing previous model")
-        print(model)
+            
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         
         pbar = trange(epochs, desc=None)
@@ -125,16 +125,16 @@ class HeterographEmbedModuleMixin(nn.Module):
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
-                
+                pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}")
+
             model.eval()
             self._embed_model = model
             self._embeddings = model(self.g_dgl).detach().numpy()
             score = self._eval(threshold=0.95)
-            pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}")
-        print(f"score: {score:.2f}")
+            
         return self
 
-    def embed(self, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, 
+    def embed(self, relation, proto='DistMult', embedding_dim=32, use_feat=False, X=None, epochs=2, 
               batch_size=32, train_split=0.8, *args, **kwargs):
         """Embed a graph using a relational graph convolutional network (RGCN), 
             and return a new graphistry graph with the embeddings as node attributes.
@@ -160,7 +160,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         self._relation = relation
         self._use_feat = use_feat
-        self._embed_dim = d
+        self._embed_dim = embedding_dim
 
         if callable(proto):
             self.proto = proto
@@ -173,7 +173,8 @@ class HeterographEmbedModuleMixin(nn.Module):
             self = res = res.featurize(kind="nodes", X=X, *args, **kwargs)
 
         if not hasattr(self, 'triplets'):
-            self._preprocess_embedding_data(train_split=train_split)            
+            self._preprocess_embedding_data(train_split=train_split)  
+                      
             s, r, t = torch.tensor(self.triplets).T
             g_dgl = dgl.graph(
                     (s[self.train_idx], t[self.train_idx]), 
