@@ -365,7 +365,7 @@ def where_is_currency_column(df: pd.DataFrame, col: str):
             logger.warning(e)
             return False
 
-    mask = df[col].apply(lambda x: check_if_currency)
+    mask = df[col].apply(check_if_currency)
     return mask
 
 
