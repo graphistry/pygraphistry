@@ -74,7 +74,8 @@ class HeterographEmbedModuleMixin(nn.Module):
         triplets = [[self._node2id[_s], self._relation2id[_r], self._node2id[_t]] for _s, _r, _t in zip(s, r, t)]
 
         # split idx
-        if not hasattr(self, 'train_idx'):
+        if not hasattr(self, 'train_idx') or self._train_split != train_split:
+            print('--Splitting data')
             train_size = int(train_split * len(triplets))
             test_size = len(triplets) - train_size
             train_dataset, test_dataset = torch.utils.data.random_split(
@@ -113,7 +114,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                     node_features=self._node_features)
         return model, g_dataloader
     
-    def _train_embedding(self, epochs, batch_size, lr=0.003):
+    def _train_embedding(self, epochs, batch_size, lr):
         print('Training embedding')
         model, g_dataloader = self._init_model(batch_size)
         if hasattr(self, '_embed_model'): 
@@ -148,7 +149,7 @@ class HeterographEmbedModuleMixin(nn.Module):
     
 
     def embed(self, relation, proto='DistMult', embedding_dim=32, use_feat=False, X=None, epochs=2, 
-              batch_size=32, train_split=0.8, *args, **kwargs):
+              batch_size=32, train_split=0.8, lr=0.003, *args, **kwargs):
         """Embed a graph using a relational graph convolutional network (RGCN), 
             and return a new graphistry graph with the embeddings as node attributes.
 
@@ -174,6 +175,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         self._relation = relation
         self._use_feat = use_feat
         self._embed_dim = embedding_dim
+        self._train_split = train_split
 
         if callable(proto):
             self.proto = proto
@@ -189,7 +191,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             self._preprocess_embedding_data(train_split=train_split)  
             self._build_graph()          
 
-        return self._train_embedding(epochs, batch_size)
+        return self._train_embedding(epochs, batch_size, lr=lr)
 
 
     def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
