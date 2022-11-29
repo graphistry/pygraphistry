@@ -40,6 +40,54 @@ class HeterographEmbedModuleMixin(nn.Module):
                 'DistMult': EmbedDistScore.DistMult,
                 'RotatE':  EmbedDistScore.RotatE
         }
+        
+    def _init_model(self, batch_size):
+        g_iter = SubgraphIterator(self.g_dgl)
+        g_dataloader = GraphDataLoader(
+                g_iter, 
+                batch_size=batch_size, 
+                collate_fn=lambda x: x[0]
+        )
+        
+        # init model and optimizer
+        model = HeteroEmbed(self._num_nodes, self._num_rels, self._embed_dim, proto=self.proto, 
+                    node_features=self._node_features)
+        
+        return model, g_dataloader
+        
+
+    def _train_embedding(self, epochs, batch_size, lr=0.003):
+        
+        model, g_dataloader = self._init_model(batch_size)
+        if hasattr(self, '_embed_model'): 
+            model = self._embed_model               
+            print("Reusing previous model")
+            
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        
+        pbar = trange(epochs, desc=None)
+        
+        score = 0
+        for epoch in pbar:
+            model.train()
+            for data in g_dataloader:
+                g, edges, labels = data
+
+                emb = model(g)
+                loss = model.loss(emb, edges, labels)
+                optimizer.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+                
+            pbar.set_description(f"loss: {loss.item()}, score: {score}")
+            model.eval()
+            self._embed_model = model
+            self._embeddings = model(self.g_dgl).detach().numpy()
+            score = self._eval(threshold=0.95)
+            pbar.set_description(f"epoch: {epoch}, loss: {loss.item()}, score:{score}")
+            
+        return self
 
     def embed(self, relation, proto='DistMult', d=32, use_feat=True, X=None, epochs=2, 
               batch_size=32, train_split=0.8, *args, **kwargs):
@@ -68,6 +116,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         src, dst = self._source, self._destination
         self._relation = relation
         self._use_feat = use_feat
+        self._embed_dim = d
 
         if callable(proto):
             self.proto = proto
@@ -104,73 +153,38 @@ class HeterographEmbedModuleMixin(nn.Module):
         self._id2node = {idx:n for idx, n in enumerate(nodes)}
         self._id2relation = {idx:r for idx, r in enumerate(relations)}
 
-        s, r, t = self._edges[src].tolist(), self._edges[relation].tolist(), self._edges[dst].tolist()
+        s, r, t = edges[src].tolist(), edges[relation].tolist(), edges[dst].tolist()
         triplets = [[self._node2id[_s], self._relation2id[_r], self._node2id[_t]] for _s, _r, _t in zip(s, r, t)]
 
         # split idx
-        train_size = int(train_split * len(triplets))
-        test_size = len(triplets) - train_size
-        train_dataset, test_dataset = torch.utils.data.random_split(
-                torch.tensor(triplets), 
-                [train_size, test_size]
-        )
-        self.train_idx = train_dataset.indices
-        self.test_idx = test_dataset.indices
+        if not hasattr(self, 'train_idx'):
+            train_size = int(train_split * len(triplets))
+            test_size = len(triplets) - train_size
+            train_dataset, test_dataset = torch.utils.data.random_split(
+                    torch.tensor(triplets), 
+                    [train_size, test_size]
+            )
+            self.train_idx = train_dataset.indices
+            self.test_idx = test_dataset.indices
 
         self.triplets_ = triplets
 
         del s, r, t
         
-        num_nodes, num_rels = len(self._node2id), len(self._relation2id)
+        self._num_nodes, self._num_rels = len(self._node2id), len(self._relation2id)
         
         s, r, t = torch.tensor(triplets).T
         g_dgl = dgl.graph(
                 (s[self.train_idx], t[self.train_idx]), 
-                num_nodes=num_nodes
+                num_nodes=self._num_nodes
         )
         g_dgl.edata[dgl.ETYPE] = r[self.train_idx]
         g_dgl.edata['norm'] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
 
         self.g_dgl = g_dgl
 
-        # TODO: bidirectional connection
-        g_iter = SubgraphIterator(g_dgl)
-        g_dataloader = GraphDataLoader(
-                g_iter, 
-                batch_size=batch_size, 
-                collate_fn=lambda x: x[0]
-        )
-        
-        # init model and optimizer
-        model = HeteroEmbed(num_nodes, num_rels, d, proto=self.proto, 
-                    node_features=self._node_features)
+        return self._train_embedding(epochs, batch_size)
 
-            
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
-        
-        pbar = trange(epochs, desc=None)
-        
-        score = 0
-        for epoch in pbar:
-            for data in g_dataloader:
-                model.train()
-                g, edges, labels = data
-
-                emb = model(g)
-                loss = model.loss(emb, edges, labels)
-                optimizer.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
-                pbar.set_description(f"loss: {loss.item()}, score: {score}")
-
-            model.eval()
-            self._embed_model = model
-            self._embeddings = model(g_dgl).detach().numpy()
-            score = self._eval(threshold=0.95)
-            pbar.set_description(f"epoch: {epoch}, loss: {loss.item()}, score:{score}")
-
-        return self
 
     def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
         # TODO: simplify
