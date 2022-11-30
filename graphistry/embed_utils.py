@@ -114,7 +114,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                     node_features=self._node_features)
         return model, g_dataloader
     
-    def _train_embedding(self, epochs, batch_size, lr):
+    def _train_embedding(self, epochs, batch_size, lr, device):
         print('Training embedding')
         model, g_dataloader = self._init_model(batch_size)
         if hasattr(self, '_embed_model'): 
@@ -124,31 +124,38 @@ class HeterographEmbedModuleMixin(nn.Module):
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         
         pbar = trange(epochs, desc=None)
-        
+       
+        model.to(device)
+
         score = 0
         for epoch in pbar:
             model.train()
             for data in g_dataloader:
                 g, edges, labels = data
+
+                g = g.to(device)
+                edges = edges.to(device)
+                labels = labels.to(device)
+
                 emb = model(g)
                 loss = model.loss(emb, edges, labels)
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
-                pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}%")
+                pbar.set_description(f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {score:.4f}%")
 
             model.eval()
+            self._embeddings = model(self.g_dgl.to(device)).detach()
             self._embed_model = model
-            self._embeddings = model(self.g_dgl).detach().numpy()
             score = self._eval(threshold=0.5)
-            pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}%")
+            pbar.set_description(f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {score:.4f}%")
 
         return self
     
 
     def embed(self, relation, proto='DistMult', embedding_dim=32, use_feat=False, X=None, epochs=2, 
-            batch_size=32, train_split=0.8, lr=1e-2, inplace=False, *args, **kwargs):
+            batch_size=32, train_split=0.8, lr=1e-2, inplace=False, device="cpu", *args, **kwargs):
         """Embed a graph using a relational graph convolutional network (RGCN), 
             and return a new graphistry graph with the embeddings as node attributes.
 
@@ -195,7 +202,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             res._preprocess_embedding_data(train_split=train_split)  
             res._build_graph()          
 
-        return res._train_embedding(epochs, batch_size, lr=lr)
+        return res._train_embedding(epochs, batch_size, lr=lr, device)
 
 
     def calculate_prob(self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None):
@@ -370,7 +377,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         #triplets = torch.tensor(triplets)
         score =  self._embed_model.score(emb, triplets)
         prob = torch.sigmoid(score)
-        return prob.detach().numpy()
+        return prob.detach()
 
     def _eval(self, threshold):
         if self.test_idx != []:
@@ -414,7 +421,7 @@ class HeteroEmbed(nn.Module):
     def score(self, node_embedding, triplets):
         h, r, t = triplets.T
         h, r, t = node_embedding[h], self.relational_embedding[r], node_embedding[t]
-        return self.proto(h, r, t)
+        return self.prodevice=None, to(h, r, t)
 
     def loss(self, node_embedding, triplets, labels):
         score = self.score(node_embedding, triplets)
