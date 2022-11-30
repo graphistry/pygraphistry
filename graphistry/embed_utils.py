@@ -1,16 +1,16 @@
-from matplotlib.font_manager import X11FontDirectories
 import numpy as np
+import pandas as pd
+
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from tqdm import trange
-from .networks import RGCNEmbed
+
 import dgl
 from dgl.dataloading import GraphDataLoader
 import torch.nn.functional as F
 
-import pandas as pd
+from .networks import RGCNEmbed
 
+from tqdm import trange
 import logging
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         # init model and optimizer
         model = HeteroEmbed(self._num_nodes, self._num_rels, self._embed_dim, proto=self.proto, 
                     node_features=self._node_features)
+        
         return model, g_dataloader
     
     def _train_embedding(self, epochs, batch_size, lr):
@@ -141,14 +142,15 @@ class HeterographEmbedModuleMixin(nn.Module):
             model.eval()
             self._embed_model = model
             self._embeddings = model(self.g_dgl).detach().numpy()
-            score = self._eval(threshold=0.5)
-            pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}%")
+            if self._eval_flag:
+                score = self._eval(threshold=0.5)
+                pbar.set_description(f"epoch: {epoch}, loss: {loss.item():.4f}, score: {score:.2f}%")
 
         return self
     
 
     def embed(self, relation, proto='DistMult', embedding_dim=32, use_feat=False, X=None, epochs=2, 
-              batch_size=32, train_split=0.8, lr=0.003, inplace=False, *args, **kwargs):
+              batch_size=32, train_split=0.8, lr=0.003, evaluate=False, inplace=False, *args, **kwargs):
         """Embed a graph using a relational graph convolutional network (RGCN), 
             and return a new graphistry graph with the embeddings as node attributes.
 
@@ -164,6 +166,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                 featurize. Inherets args from graphistry.featurize(). 
                 Defaults to None.
             lr (float, optional): learning rate. Defaults to 0.003.
+            evaluate (bool, optional): whether to evaluate the model. Defaults to False.
             epochs (int, optional): traing epoch. Defaults to 2.
             batch_size (int, optional): batch size. Defaults to 32.
             train_split (float, optional): train percentage, between 0, 1. Defaults to 0.8.
@@ -181,6 +184,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         res._use_feat = use_feat
         res._embed_dim = embedding_dim
         res._train_split = train_split
+        res._eval_flag = evaluate 
 
         if callable(proto):
             res.proto = proto
