@@ -31,9 +31,9 @@ class HeterographEmbedModuleMixin(nn.Module):
         super().__init__()
 
         self.protocol = {
-                'TransE': EmbedDistScore.TransE,
-                'DistMult': EmbedDistScore.DistMult,
-                'RotatE':  EmbedDistScore.RotatE
+            'TransE': EmbedDistScore.TransE,
+            'DistMult': EmbedDistScore.DistMult,
+            'RotatE': EmbedDistScore.RotatE
         }
 
     def _preprocess_embedding_data(self, train_split=0.8):
@@ -45,9 +45,9 @@ class HeterographEmbedModuleMixin(nn.Module):
             nodes = self._nodes[self._node]
         elif self._node is None and self._nodes is not None:
             nodes = list(range(
-                        self._nodes.index.start,
-                        self._nodes.index.stop,
-                        self._nodes.index.step
+                self._nodes.index.start,
+                self._nodes.index.stop,
+                self._nodes.index.step
             ))
         else:
             nodes = list(set(
@@ -158,7 +158,6 @@ class HeterographEmbedModuleMixin(nn.Module):
             model.eval()
             self._embeddings = model(self.g_dgl.to(device)).detach()
             self._embed_model = model
-            self._embeddings = model(self.g_dgl).detach().numpy()
             if self._eval_flag:
                 score = self._eval(threshold=0.5)
                 pbar.set_description(f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {score:.2f}%")
