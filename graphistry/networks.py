@@ -184,7 +184,8 @@ class RGCNEmbed(nn.Module):
 
         nn, _, dglnn, _, torch, _ = lazy_import_networks()
         self.node_ids = torch.tensor(range(num_nodes))
-
+        
+        self.node_ids = self.node_ids.to('cuda')
         self.emb = nn.Embedding(num_nodes, d)
         hidden = d if not hidden else d + hidden
 
