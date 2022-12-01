@@ -101,7 +101,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         self.g_dgl = g_dgl
         
-    def _init_model(self, batch_size):
+    def _init_model(self, batch_size, device):
         g_iter = SubgraphIterator(self.g_dgl)
         g_dataloader = GraphDataLoader(
                 g_iter, 
@@ -109,15 +109,15 @@ class HeterographEmbedModuleMixin(nn.Module):
                 collate_fn=lambda x: x[0]
         )
         
-        # init model and optimizer
+        # init model 
         model = HeteroEmbed(self._num_nodes, self._num_rels, self._embed_dim, proto=self.proto, 
-                    node_features=self._node_features)
+                    node_features=self._node_features, device=device)
         
         return model, g_dataloader
     
     def _train_embedding(self, epochs, batch_size, lr, device):
         print('Training embedding')
-        model, g_dataloader = self._init_model(batch_size)
+        model, g_dataloader = self._init_model(batch_size, device)
         if hasattr(self, '_embed_model'): 
             model = self._embed_model               
             print("--Reusing previous model")
@@ -401,7 +401,7 @@ class HeterographEmbedModuleMixin(nn.Module):
        
 
 class HeteroEmbed(nn.Module):
-    def __init__(self, num_nodes, num_rels, d, proto, node_features=None, reg=0.01):
+    def __init__(self, num_nodes, num_rels, d, proto, node_features=None, device='cpu', reg=0.01):
         super().__init__()
 
         self.reg = reg
@@ -412,7 +412,7 @@ class HeteroEmbed(nn.Module):
             self.node_features = torch.tensor(self.node_features.values, dtype=torch.float32)
             print("--Using node features of shape", node_features.shape)
         hidden = self.node_features.shape[-1] if node_features is not None else None
-        self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden)
+        self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden, device=device)
         self.relational_embedding = nn.Parameter(torch.Tensor(num_rels, d))
 
         nn.init.xavier_uniform_(

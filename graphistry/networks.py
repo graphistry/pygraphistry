@@ -179,13 +179,13 @@ class LinkPredModelMultiOutput(nn.Module):
 
 
 class RGCNEmbed(nn.Module):
-    def __init__(self, d, num_nodes, num_rels, hidden=None):
+    def __init__(self, d, num_nodes, num_rels, hidden=None, device='cpu'):
         super().__init__()
 
         nn, _, dglnn, _, torch, _ = lazy_import_networks()
         self.node_ids = torch.tensor(range(num_nodes))
         
-        self.node_ids = self.node_ids.to('cuda')
+        self.node_ids = self.node_ids.to(device)
         self.emb = nn.Embedding(num_nodes, d)
         hidden = d if not hidden else d + hidden
 
