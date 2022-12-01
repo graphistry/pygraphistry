@@ -150,7 +150,7 @@ class HeterographEmbedModuleMixin(nn.Module):
     
 
     def embed(self, relation, proto='DistMult', embedding_dim=32, use_feat=False, X=None, epochs=2, 
-              batch_size=32, train_split=0.8, lr=0.003, evaluate=False, inplace=False, *args, **kwargs):
+              batch_size=32, train_split=0.8, lr=0.002, evaluate=False, inplace=False, *args, **kwargs):
         """Embed a graph using a relational graph convolutional network (RGCN), 
             and return a new graphistry graph with the embeddings as node attributes.
 
