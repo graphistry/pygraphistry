@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+
+* AI: RGCN demos - Infosec Jupyterthon 2022, SSH anomaly detection
+
 ## [0.28.4 - 2022-10-22]
 
 ### Added
