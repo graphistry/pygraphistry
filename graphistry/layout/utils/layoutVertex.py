@@ -1,4 +1,5 @@
 # DEPRECRATED: Non-vector operators over non-vectorized data
+from typing import Optional
 
 class LayoutVertex(object):
     """
@@ -13,7 +14,7 @@ class LayoutVertex(object):
         bar (float): the current barycenter of the vertex
     """
 
-    def __init__(self, layer: int = None, is_dummy = 0):
+    def __init__(self, layer: Optional[int] = None, is_dummy = 0):
         self.layer = layer  # layer number
         self.dummy = is_dummy
         self.root = None
