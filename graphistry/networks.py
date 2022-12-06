@@ -1,16 +1,5 @@
 from typing import TYPE_CHECKING
-import torch.nn as nn
 
-
-if TYPE_CHECKING:
-    import dgl
-    import dgl.nn as dglnn
-    import dgl.function as fn
-    import torch
-    import torch.nn as nn
-    import torch.nn.functional as F
-
-from . import constants as config
 
 def lazy_import_networks():
     import dgl
@@ -21,8 +10,16 @@ def lazy_import_networks():
     import torch.nn.functional as F
     return nn, dgl, dglnn, fn, torch, F
 
+if TYPE_CHECKING:
+    nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+    Module = nn.Module
+else:
+    Module = object
 
-class GCN(nn.Module):
+from . import constants as config
+
+
+class GCN(Module):
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
         _, _, dglnn, _, _, _ = lazy_import_networks()
@@ -37,7 +34,7 @@ class GCN(nn.Module):
         return h
 
 
-class RGCN(nn.Module):
+class RGCN(Module):
     """
         Heterograph where we gather message from neighbors along all edge types.
         You can use the module dgl.nn.pytorch.HeteroGraphConv (also available in MXNet and Tensorflow) to perform
@@ -70,7 +67,7 @@ class RGCN(nn.Module):
         return h
 
 
-class HeteroClassifier(nn.Module):
+class HeteroClassifier(Module):
     def __init__(self, in_dim, hidden_dim, n_classes, rel_names):
         super().__init__()
         nn, _, _, _, _, _ = lazy_import_networks()
@@ -90,7 +87,7 @@ class HeteroClassifier(nn.Module):
             return self.classify(hg)
 
 
-class MLPPredictor(nn.Module):
+class MLPPredictor(Module):
     """One can also write a prediction function that predicts a vector for each edge with an MLP.
     Such vector can be used in further downstream tasks, e.g. as logits of a categorical distribution."""
 
@@ -115,7 +112,7 @@ class MLPPredictor(nn.Module):
             return graph.edata["score"]
 
 
-class SAGE(nn.Module):
+class SAGE(Module):
     def __init__(self, in_feats, hid_feats, out_feats):
         super().__init__()
         _, _, dglnn, _, _, _ = lazy_import_networks()
@@ -135,7 +132,7 @@ class SAGE(nn.Module):
         return h
 
 
-class DotProductPredictor(nn.Module):
+class DotProductPredictor(Module):
     def forward(self, graph, h):
         _, _, _, fn, _, _ = lazy_import_networks()
 
@@ -147,7 +144,7 @@ class DotProductPredictor(nn.Module):
             return graph.edata["score"]
 
 
-class LinkPredModel(nn.Module):
+class LinkPredModel(Module):
     def __init__(self, in_features, hidden_features, out_features):
         super().__init__()
         #nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
@@ -159,7 +156,7 @@ class LinkPredModel(nn.Module):
         return self.pred(g, h)
 
 
-class LinkPredModelMultiOutput(nn.Module):
+class LinkPredModelMultiOutput(Module):
     def __init__(self, in_features, hidden_features, out_features, out_classes):
         _, _, dglnn, _, _, _ = lazy_import_networks()
         super().__init__()
@@ -178,7 +175,7 @@ class LinkPredModelMultiOutput(nn.Module):
         return self.embedding(g, h)
 
 
-class RGCNEmbed(nn.Module):
+class RGCNEmbed(Module):
     def __init__(self, d, num_nodes, num_rels, hidden=None, device='cpu'):
         super().__init__()
 
@@ -217,7 +214,7 @@ class RGCNEmbed(nn.Module):
 #MAE = metrics.mean_absolute_error
 #ACC = metrics.accuracy_score
    
-def train_link_pred(model, G, epochs=10000, use_cross_entropy_loss = False):
+def train_link_pred(model, G, epochs=100, use_cross_entropy_loss = False):
     nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
     # take the node features out
     node_features = G.ndata["feature"].float()
