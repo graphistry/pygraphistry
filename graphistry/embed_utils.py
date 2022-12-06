@@ -381,6 +381,13 @@ class HeterographEmbedModuleMixin(nn.Module):
             ).to(dtype=torch.long)
         )
         result_df = test_df.loc[pd.Series(score.detach().numpy()) >= threshold]
+        s, r, d = (
+                test_df[src].map(self._id2node), 
+                test_df[rel].map(self._id2relation), 
+                test_df[pred].map(self._id2node)
+        )
+        result_df = pd.concat([s, r, d], axis=1)
+        result_df.columns = [src, rel, pred]
         return result_df
     
     def predict_links(
