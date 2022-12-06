@@ -50,15 +50,9 @@ class HeterographEmbedModuleMixin(nn.Module):
         if self._node is not None and self._nodes is not None:
             nodes = self._nodes[self._node]
         elif self._node is None and self._nodes is not None:
-            nodes = list(range(
-                self._nodes.index.start,
-                self._nodes.index.stop,
-                self._nodes.index.step
-            ))
+            nodes = self._nodes.reset_index(drop=True).reset_index()['index']
         else:
-            nodes = list(set(
-                self._edges[src].tolist() + self._edges[dst].tolist()
-            ))
+            nodes = pd.Series(pd.concat([self._edges[src], self._edges[dst]]).unique())
 
         edges = self._edges
         edges = edges[edges[src].isin(nodes) & edges[dst].isin(nodes)]
@@ -230,7 +224,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             res.proto = proto
         else:
             res.proto = res.protocol[proto]
-
+        
         if res._use_feat and res._nodes is not None:
             # todo decouple self from res
             res = res.featurize(kind="nodes", X=X, *args, **kwargs)
