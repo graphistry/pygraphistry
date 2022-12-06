@@ -14,7 +14,7 @@ tt = torch.Tensor
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 ProtoSymbolic = Optional[Union[str, Callable[[tt, tt, tt], tt]]]
 
-#logging.StreamHandler.terminator = ""
+logging.StreamHandler.terminator = ""
 logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
 
@@ -340,7 +340,6 @@ class HeterographEmbedModuleMixin(nn.Module):
         )
         return predicted_links, node_embeddings
 
-<<<<<<< HEAD
     def predict_link(
         self,
         test_df: pd.DataFrame,
@@ -481,16 +480,16 @@ class HeteroEmbed(nn.Module):
             self.relational_embedding, gain=nn.init.calculate_gain("relu")
         )
 
-    def __call__(self, g):
+    def __call__(self, g:dgl.DGLHeteroGraph) -> torch.Tensor:
         # returns node embeddings
-        return self.rgcn(g, node_features=self.node_features)
+        return self.rgcn.forward(g, node_features=self.node_features)
 
-    def score(self, node_embedding, triplets):
+    def score(self, node_embedding:torch.Tensor, triplets:torch.Tensor) -> torch.Tensor:
         h, r, t = triplets.T
         h, r, t = (node_embedding[h], self.relational_embedding[r], node_embedding[t])
         return self.proto(h, r, t)
 
-    def loss(self, node_embedding, triplets, labels):
+    def loss(self, node_embedding:torch.Tensor, triplets:torch.Tensor, labels:torch.Tensor) -> torch.Tensor:
         score = self.score(node_embedding, triplets)
 
         # binary crossentropy loss
@@ -500,28 +499,29 @@ class HeteroEmbed(nn.Module):
         ne_ = torch.mean(node_embedding.pow(2))
         re_ = torch.mean(self.relational_embedding.pow(2))
         rl = ne_ + re_
+        
         return ce_loss + self.reg * rl
 
 
 class SubgraphIterator:
-    def __init__(self, g, sample_size=30000, num_epochs=1000):
-        self.num_epochs = num_epochs
+    def __init__(self, g:dgl.DGLHeteroGraph, sample_size:int=30000, num_steps:int=1000):
+        self.num_steps = num_steps
         self.sample_size = int(sample_size / 2)
         self.eids = np.arange(g.num_edges())
         self.g = g
         self.num_nodes = g.num_nodes()
 
     def __len__(self):
-        return self.num_epochs
+        return self.num_steps
 
-    def __getitem__(self, i):
+    def __getitem__(self, i:int):
         eids = torch.from_numpy(np.random.choice(self.eids, self.sample_size))
 
         src, dst = self.g.find_edges(eids)
         rel = self.g.edata[dgl.ETYPE][eids].numpy()
 
         triplets = np.stack((src, rel, dst)).T
-        samples, labels = SubgraphIterator.sample_neg_(
+        samples, labels = SubgraphIterator._sample_neg(
             triplets,
             self.num_nodes,
         )
@@ -536,8 +536,7 @@ class SubgraphIterator:
         return sub_g, samples, labels
 
     @staticmethod
-    def sample_neg_(triplets, num_nodes):
-
+    def _sample_neg(triplets:np.ndarray, num_nodes:int):
         triplets = torch.tensor(triplets)
         h, r, t = triplets.T
         h_o_t = torch.randint(high=2, size=h.size())
