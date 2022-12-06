@@ -423,9 +423,8 @@ class HeterographEmbedModuleMixin(nn.Module):
 
     def _eval(self, threshold):
         if self.test_idx != []:
-            from time import time
-
-            t = time()
+            #from time import time
+            #t = time()
             triplets = self.triplets[self.test_idx]
             score = self._score(triplets)
             score = 100 * len(score[score >= threshold]) / len(score)
