@@ -366,37 +366,23 @@ class HeterographEmbedModuleMixin(nn.Module):
         Returns:
             pd.DataFrame: dataframe of predicted links
         """
-
+        pred = 'predicted_destination'
         nodes = test_df[src].map(self._node2id)
         relations = test_df[rel].map(self._relation2id)
 
         all_nodes = self._node2id.values()
-        result = None
-        for s, r in zip(nodes, relations):
-            t_ = [[s, r, i] for i in all_nodes]
-            o = self._score(t_)
-            o = torch.tensor(t_)[o >= threshold]
-            result = np.concatenate(
-                    (result, o), axis=0
-            ) if result is not None else o
-
-        result_df = []
-        for i in result:
-            s, r, d = i
-            result_df += [
-                    [
-                        self._id2node[s],
-                        self._id2relation[r],
-                        self._id2node[d]
-                    ]
-            ]
-        result_df = pd.DataFrame(
-                result_df,
-                columns=[src, rel, "predicted_destination"]
+        test_df = pd.concat([nodes, relations], axis=1)
+        test_df[pred] = [all_nodes] * len(test_df)
+        test_df = test_df.explode(pred)
+        test_df = test_df[test_df[src] != test_df[pred]]
+        score = self._score(
+            torch.from_numpy(
+                test_df.to_numpy().astype(np.float32)
+            ).to(dtype=torch.long)
         )
-
+        result_df = test_df.loc[pd.Series(score.detach().numpy()) >= threshold]
         return result_df
-
+    
     def predict_links(
         self,
         threshold=0.99,

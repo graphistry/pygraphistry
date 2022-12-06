@@ -43,6 +43,19 @@ class TestEmbed(unittest.TestCase):
         self.assertEqual(g._embeddings.shape, (num_nodes, d))
         self.assertEqual(len(g._node_features), num_nodes)
 
+    def test_predict_link(self):
+        d = 4
+        test_df = pd.DataFrame([
+            [0, 1, 3],
+            [2, 0, 9]], 
+            columns=['src', 'rel', 'extra']
+        )
+        g = graph_no_feat.embed('rel', embedding_dim=d, epochs=1)
+        links = g.predict_link(test_df, 'src', 'rel', threshold=0)
+
+        self.assertEqual(links.shape[-1], 3)
+        self.assertIn("predicted_destination", links.columns)
+
 
 if __name__ == "__main__":
     unittest.main()
