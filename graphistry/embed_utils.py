@@ -8,8 +8,14 @@ import torch.nn.functional as F
 from .networks import RGCNEmbed
 from tqdm import trange
 import logging
-logger = logging.getLogger(__name__)
 
+logging.StreamHandler.terminator = ""
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+def log(msg):
+    # setting every logs to WARNING level
+    logger.log(msg=msg, level=30)
 
 class EmbedDistScore:
 
@@ -37,7 +43,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         }
 
     def _preprocess_embedding_data(self, train_split=0.8):
-        print('Preprocessing embedding data')
+        log('Preprocessing embedding data')
         src, dst = self._source, self._destination
         relation = self._relation
 
@@ -77,7 +83,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         # split idx
         if not hasattr(self, 'train_idx') or self._train_split != train_split:
-            print('--Splitting data')
+            log(msg='--Splitting data')
             train_size = int(train_split * len(triplets))
             test_size = len(triplets) - train_size
             train_dataset, test_dataset = torch.utils.data.random_split(
@@ -92,7 +98,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                 len(self._node2id),
                 len(self._relation2id)
         )
-        print(f"--num_nodes: {self._num_nodes}, \
+        log(f"--num_nodes: {self._num_nodes}, \
                 num_relationships: {self._num_rels}")
 
     def _build_graph(self):
@@ -127,11 +133,11 @@ class HeterographEmbedModuleMixin(nn.Module):
         return model, g_dataloader
 
     def _train_embedding(self, epochs, batch_size, lr, device):
-        print('Training embedding')
+        log('Training embedding')
         model, g_dataloader = self._init_model(batch_size, device)
         if hasattr(self, '_embed_model'):
             model = self._embed_model
-            print("--Reusing previous model")
+            log("--Reusing previous model")
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         pbar = trange(epochs, desc=None)
@@ -252,7 +258,6 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         subject_relation = test_triplet[:2]
         num_entity = len(node_embeddings)
-
         delete_idx = torch.sum(h_r == subject_relation, dim=1)
         delete_idx = torch.nonzero(delete_idx == 2).squeeze()
         delete_entity_idx = test_triplets[delete_idx, 2].view(-1).numpy()
@@ -456,7 +461,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         return g_new
 
     def _score(self, triplets):
-        emb = torch.tensor(self._embeddings)
+        emb = self._embeddings.clone().detach()
         if type(triplets) != torch.Tensor:
             triplets = torch.tensor(triplets)
         score = self._embed_model.score(emb, triplets)
@@ -467,14 +472,12 @@ class HeterographEmbedModuleMixin(nn.Module):
         if self.test_idx != []:
             from time import time
             t = time()
-            print("Evaluating...")
             triplets = torch.tensor(self.triplets)[self.test_idx]
             score = self._score(triplets)
             score = 100 * len(score[score >= threshold]) / len(score)
-            print(f"--took {(time()-t)/60:.2f} minutes to evaluate")
             return score
         else:
-            logger.warning('train_split must be < 1 for _eval()')
+            log('WARNING: train_split must be < 1 for _eval()')
 
 
 class HeteroEmbed(nn.Module):
@@ -499,7 +502,7 @@ class HeteroEmbed(nn.Module):
                     self.node_features.values,
                     dtype=torch.float32
             ).to(device)
-            print("--Using node features of shape", node_features.shape)
+            log(f"--Using node features of shape {str(node_features.shape)}")
         hidden = None
         if node_features is not None:
             hidden = self.node_features.shape[-1]
