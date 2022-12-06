@@ -82,7 +82,7 @@ def flatten_spatial_col(df : pd.DataFrame, col : str) -> pd.DataFrame:  # noqa: 
     for prop in ['x', 'y', 'z', 'srid', 'longtitude', 'latitude', 'height']:
         try:
             # v4.x + v5.x
-            s = df[col].apply(lambda v: getattr(v, prop, None))
+            s = df[col].apply(lambda v: getattr(v, prop, None))  # type: ignore
             if len(s.dropna()) > 0:
                 out_df[f'{col}_{prop}'] = s
         except:

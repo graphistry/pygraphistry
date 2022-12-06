@@ -11,6 +11,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * AI: RGCN demos - Infosec Jupyterthon 2022, SSH anomaly detection
 
+## [0.28.6 - 2022-29-22]
+
+### Added
+
+* Personal keys: `register(personal_key_id=..., personal_key_secret=...)`
+* SSO: `register()` (no user/pass), `register(idp_name=...)` (org-specific IDP)
+
+### Fixed
+
+* Type errors
+
 ## [0.28.4 - 2022-10-22]
 
 ### Added
