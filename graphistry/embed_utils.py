@@ -8,6 +8,10 @@ import torch.nn.functional as F
 from .networks import RGCNEmbed
 from tqdm import trange
 import logging
+from typing import Optional, Union, Callable, List
+
+XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
+ProtoSymbolic = Optional[Union[str, Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]]]
 
 logging.StreamHandler.terminator = ""
 logger = logging.getLogger(__name__)
@@ -163,48 +167,58 @@ class HeterographEmbedModuleMixin(nn.Module):
 
     def embed(
         self,
-        relation,
-        proto='DistMult',
-        embedding_dim=32,
-        use_feat=False,
-        X=None,
-        epochs=2,
-        batch_size=32,
-        train_split=0.8,
-        lr=1e-2,
-        inplace=False,
-        device="cpu",
-        evaluate=True,
+        relation:str,
+        proto:ProtoSymbolic='DistMult',
+        embedding_dim:Optional[int]=32,
+        use_feat:Optional[bool]=False,
+        X:XSymbolic=None,
+        epochs:Optional[int]=2,
+        batch_size:Optional[int]=32,
+        train_split:Optional[Union[float, int]]=0.8,
+        lr:Optional[float]=1e-2,
+        inplace:Optional[bool]=False,
+        device:Optional[Union[str, torch.device]]="cpu",
+        evaluate:Optional[bool]=True,
         *args,
         **kwargs
     ):
-
         """Embed a graph using a relational graph convolutional network (RGCN),
-            and return a new graphistry graph with the embeddings as node
-            attributes.
+        and return a new graphistry graph with the embeddings as node
+        attributes.
 
-        Args:
-            relation pd.column: column to use as relation between nodes
-            proto (str, optional): metric to use, ['TransE', 'RotateE',
-                'DistMult'] or provide your own. Defaults to 'DistMult'.
-            d (int, optional): relation embedding dimension. Defaults to 32.
-            use_feat (bool, optional): whether to featurize nodes, if False
-                will produce random embeddings and shape them during training.
-                Defaults to True.
-            X (List or pd.DataFrame, optional): Which columns in the nodes
-                dataframe to featurize. Inherets args from
-                graphistry.featurize()
-                Defaults to None.
-            lr (float, optional): learning rate. Defaults to 0.003.
-            evaluate (bool, optional): whether to evaluate the model.
-                Defaults to False.
-            epochs (int, optional): traing epoch. Defaults to 2.
-            batch_size (int, optional): batch size. Defaults to 32.
-            train_split (float, optional): train percentage, between 0, 1.
-                Defaults to 0.8.
 
-        Returns:
-            self: graphistry instance
+        Parameters
+        ----------
+        relation : str
+            column to use as relation between nodes
+        proto : ProtoSymbolic
+            metric to use, ['TransE', 'RotateE', 'DistMult'] or provide your own. Defaults to 'DistMult'.
+        embedding_dim : Optional[int]
+            relation embedding dimension. defaults to 32
+        use_feat : Optional[bool]
+            wether to featurize nodes, if False will produce random embeddings and shape them during training.
+            Defaults to True
+        X : XSymbolic
+            Which columns in the nodes dataframe to featurize. Inherets args from graphistry.featurize().
+            Defaults to None.
+        epochs : Optional[int]
+            Number of training epochs. Defaults to 2
+        batch_size : Optional[int]
+            batch_size. Defaults to 32
+        train_split : Optional[Union[float, int]]
+            train percentage, between 0, 1. Defaults to 0.8.
+        lr : Optional[float]
+            learning rate. Defaults to 0.002
+        inplace : Optional[bool]
+            inplace
+        device : Optional[Union[str, torch.device]]
+            accelarator. Defaults to "cpu"
+        evaluate : Optional[bool]
+            Whether to evaluate. Defaults to False.
+
+        Returns
+        -------
+            self : graphistry instance
         """
         if inplace:
             res = self
