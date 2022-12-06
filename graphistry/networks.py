@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING
+from . import constants as config
 
 
-def lazy_import_networks():
+def lazy_import_networks():  #noqa
     import dgl
     import dgl.nn as dglnn
     import dgl.function as fn
@@ -10,13 +11,12 @@ def lazy_import_networks():
     import torch.nn.functional as F
     return nn, dgl, dglnn, fn, torch, F
 
-if TYPE_CHECKING:
+
+if TYPE_CHECKING:  #noqa
     nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
     Module = nn.Module
 else:
     Module = object
-
-from . import constants as config
 
 
 class GCN(Module):
