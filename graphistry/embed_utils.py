@@ -10,30 +10,31 @@ from tqdm import trange
 import logging
 from typing import Optional, Union, Callable, List
 
+tt = torch.Tensor
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
-ProtoSymbolic = Optional[Union[str, Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]]]
+ProtoSymbolic = Optional[Union[str, Callable[[tt, tt, tt], tt]]]
 
-#logging.StreamHandler.terminator = ""
+logging.StreamHandler.terminator = ""
 logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
 
 
-def log(msg):
+def log(msg:str) -> None:
     # setting every logs to WARNING level
     logger.log(msg=msg, level=30)
 
 
 class EmbedDistScore:
     @staticmethod
-    def TransE(h, r, t):
+    def TransE(h:tt, r:tt, t:tt) -> tt:
         return (h + r - t).norm(p=1, dim=1)
 
     @staticmethod
-    def DistMult(h, r, t):
+    def DistMult(h:tt, r:tt, t:tt) -> tt:
         return (h * r * t).sum(dim=1)
 
     @staticmethod
-    def RotatE(h, r, t):
+    def RotatE(h:tt, r:tt, t:tt) -> tt:
         return -(h * r - t).norm(p=1, dim=1)
 
 
@@ -47,8 +48,8 @@ class HeterographEmbedModuleMixin(nn.Module):
             "RotatE": EmbedDistScore.RotatE,
         }
 
-    def _preprocess_embedding_data(self, train_split=0.8):
-        log("Preprocessing embedding data")
+    def _preprocess_embedding_data(self, train_split:Optional[Union[float, int]]=0.8) -> None:
+        log('Preprocessing embedding data')
         src, dst = self._source, self._destination
         relation = self._relation
 
@@ -95,7 +96,7 @@ class HeterographEmbedModuleMixin(nn.Module):
                 num_relationships: {self._num_rels}"
         )
 
-    def _build_graph(self):
+    def _build_graph(self) -> None:
         s, r, t = self.triplets.T
         g_dgl = dgl.graph(
             (s[self.train_idx], t[self.train_idx]), num_nodes=self._num_nodes
@@ -105,7 +106,7 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         self.g_dgl = g_dgl
 
-    def _init_model(self, batch_size, device):
+    def _init_model(self, batch_size:int, device:Union['str', torch.device]) -> Union[nn.Module, GraphDataLoader]:
         g_iter = SubgraphIterator(self.g_dgl)
         g_dataloader = GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
@@ -123,8 +124,8 @@ class HeterographEmbedModuleMixin(nn.Module):
 
         return model, g_dataloader
 
-    def _train_embedding(self, epochs, batch_size, lr, device):
-        log("Training embedding")
+    def _train_embedding(self, epochs:int, batch_size:int, lr:float, device:Union['str', torch.device]):
+        log('Training embedding')
         model, g_dataloader = self._init_model(batch_size, device)
         if hasattr(self, "_embed_model"):
             model = self._embed_model
@@ -339,18 +340,31 @@ class HeterographEmbedModuleMixin(nn.Module):
         )
         return predicted_links, node_embeddings
 
-    def predict_link(self, test_df: pd.DataFrame, src, rel, threshold: float = 0.95):
-        """predict links from a test dataframe given src/dst & rel columns
+    def predict_link(
+        self,
+        test_df: pd.DataFrame,
+        src:str,
+        rel:str,
+        threshold:Optional[float] = 0.95
+    ) -> pd.DataFrame:
+        """predict links from a test dataframe given src/dst and rel columns
 
-        Args:
-            test_df (pd.DataFrame): dataframe of test data
-            src : source column name
-            rel : relation column name
-            threshold (float, optional): probability threshold/confidence.
-                Defaults to 0.95.
+        Parameters
+        ----------
+        test_df : pd.DataFrame
+            dataframe of test data
+        src : str
+            source column name
+        rel : str
+            relation column name
+        threshold : Optional[float]
+            Probability threshold/confidence. Defaults to 0.95.
 
-        Returns:
-            pd.DataFrame: dataframe of predicted links
+        Returns
+        -------
+        pd.DataFrame
+            dataframe containing predicted links
+
         """
         pred = "predicted_destination"
         nodes = test_df[src].map(self._node2id)
@@ -413,7 +427,7 @@ class HeterographEmbedModuleMixin(nn.Module):
             return g_new, predicted_links, node_embeddings
         return g_new
 
-    def _score(self, triplets):
+    def _score(self, triplets:Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         emb = self._embeddings.clone().detach()
         if type(triplets) != torch.Tensor:
             triplets = torch.tensor(triplets)
@@ -421,7 +435,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         prob = torch.sigmoid(score)
         return prob.detach()
 
-    def _eval(self, threshold):
+    def _eval(self, threshold:float) -> float:
         if self.test_idx != []:
             #from time import time
             #t = time()
@@ -435,7 +449,14 @@ class HeterographEmbedModuleMixin(nn.Module):
 
 class HeteroEmbed(nn.Module):
     def __init__(
-        self, num_nodes, num_rels, d, proto, node_features=None, device="cpu", reg=0.01
+        self,
+        num_nodes:int,
+        num_rels:int,
+        d:int,
+        proto:Callable[[tt, tt, tt], tt],
+        node_features=None,
+        device:Optional[Union[torch.device, str]]='cpu',
+        reg:Optional[float]=0.01
     ):
         super().__init__()
 
@@ -458,16 +479,16 @@ class HeteroEmbed(nn.Module):
             self.relational_embedding, gain=nn.init.calculate_gain("relu")
         )
 
-    def __call__(self, g):
+    def __call__(self, g:dgl.DGLHeteroGraph) -> torch.Tensor:
         # returns node embeddings
-        return self.rgcn(g, node_features=self.node_features)
+        return self.rgcn.forward(g, node_features=self.node_features)
 
-    def score(self, node_embedding, triplets):
+    def score(self, node_embedding:torch.Tensor, triplets:torch.Tensor) -> torch.Tensor:
         h, r, t = triplets.T
         h, r, t = (node_embedding[h], self.relational_embedding[r], node_embedding[t])
         return self.proto(h, r, t)
 
-    def loss(self, node_embedding, triplets, labels):
+    def loss(self, node_embedding:torch.Tensor, triplets:torch.Tensor, labels:torch.Tensor) -> torch.Tensor:
         score = self.score(node_embedding, triplets)
 
         # binary crossentropy loss
@@ -477,28 +498,29 @@ class HeteroEmbed(nn.Module):
         ne_ = torch.mean(node_embedding.pow(2))
         re_ = torch.mean(self.relational_embedding.pow(2))
         rl = ne_ + re_
+        
         return ce_loss + self.reg * rl
 
 
 class SubgraphIterator:
-    def __init__(self, g, sample_size=30000, num_epochs=1000):
-        self.num_epochs = num_epochs
+    def __init__(self, g:dgl.DGLHeteroGraph, sample_size:int=30000, num_steps:int=1000):
+        self.num_steps = num_steps
         self.sample_size = int(sample_size / 2)
         self.eids = np.arange(g.num_edges())
         self.g = g
         self.num_nodes = g.num_nodes()
 
     def __len__(self):
-        return self.num_epochs
+        return self.num_steps
 
-    def __getitem__(self, i):
+    def __getitem__(self, i:int):
         eids = torch.from_numpy(np.random.choice(self.eids, self.sample_size))
 
         src, dst = self.g.find_edges(eids)
         rel = self.g.edata[dgl.ETYPE][eids].numpy()
 
         triplets = np.stack((src, rel, dst)).T
-        samples, labels = SubgraphIterator.sample_neg_(
+        samples, labels = SubgraphIterator._sample_neg(
             triplets,
             self.num_nodes,
         )
@@ -513,8 +535,7 @@ class SubgraphIterator:
         return sub_g, samples, labels
 
     @staticmethod
-    def sample_neg_(triplets, num_nodes):
-
+    def _sample_neg(triplets:np.ndarray, num_nodes:int):
         triplets = torch.tensor(triplets)
         h, r, t = triplets.T
         h_o_t = torch.randint(high=2, size=h.size())
