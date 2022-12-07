@@ -4,8 +4,12 @@ import unittest
 import graphistry
 import numpy as np
 
+from graphistry.embed_utils import lazy_embed_import_dep
+
 import logging
 logger = logging.getLogger(__name__)
+
+dependencies = lazy_embed_import_dep()
 
 edf = pd.DataFrame([[0, 1, 0], [1, 2, 0], [2, 0, 1]],
         columns=['src', 'dst', 'rel']
@@ -25,6 +29,7 @@ kwargs = {'n_topics': 6, 'cardinality_threshold':10, 'epochs': 1, 'sample_size':
 
 class TestEmbed(unittest.TestCase):
 
+    @pytest.mark.skipif(not lazy_embed_import_dep, reason="requires ai feature dependencies")
     def test_embed_out_basic(self):
         
         for name, g in graphs:
@@ -36,6 +41,7 @@ class TestEmbed(unittest.TestCase):
             self.assertEqual(g._kg_embeddings.shape,(num_nodes, d))
 
 
+    @pytest.mark.skipif(not lazy_embed_import_dep, reason="requires ai feature dependencies")
     def test_predict_link(self):
         test_df = pd.DataFrame([
             [0, 1, 3],
@@ -47,7 +53,9 @@ class TestEmbed(unittest.TestCase):
         
         self.assertEqual(links.shape[-1], 3)
         self.assertIn("predicted_destination", links.columns)
+
         
+    @pytest.mark.skipif(not lazy_embed_import_dep, reason="requires ai feature dependencies")
     def test_chaining(self):
         for name, g in graphs:
             logging.debug('name: %s test changing embedding dim with feats' % name)
