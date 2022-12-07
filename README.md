@@ -490,7 +490,7 @@ See `help(g.search_graph)` for options
       g3.plot()  # see resulting links
 
       # construct a test dataframe to predict over
-      test_df = pd.DataFrame([[src_id, relationship_id, dummy_id], [..]], columns = ['src', 'relationship', 'dst'])
+      test_df = pd.DataFrame([[src_1, relationship_1, dummy_id], [..]], columns = ['src', 'relationship', 'dst'])
       predicted_df = g2.predict_link(test_df, 'src', 'relationship')  # will predict all `dst` above threshold
     ```
 
