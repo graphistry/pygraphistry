@@ -19,7 +19,7 @@ else:
     Module = object
 
 
-class GCN(Module):
+class GCN(Module):  # type: ignore
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
         _, _, dglnn, _, _, _ = lazy_import_networks()
@@ -34,7 +34,7 @@ class GCN(Module):
         return h
 
 
-class RGCN(Module):
+class RGCN(Module):  # type: ignore
     """
         Heterograph where we gather message from neighbors along all edge types.
         You can use the module dgl.nn.pytorch.HeteroGraphConv (also available in MXNet and Tensorflow) to perform
@@ -67,7 +67,7 @@ class RGCN(Module):
         return h
 
 
-class HeteroClassifier(Module):
+class HeteroClassifier(Module):  # type: ignore
     def __init__(self, in_dim, hidden_dim, n_classes, rel_names):
         super().__init__()
         nn, _, _, _, _, _ = lazy_import_networks()
@@ -87,7 +87,7 @@ class HeteroClassifier(Module):
             return self.classify(hg)
 
 
-class MLPPredictor(Module):
+class MLPPredictor(Module):  # type: ignore
     """One can also write a prediction function that predicts a vector for each edge with an MLP.
     Such vector can be used in further downstream tasks, e.g. as logits of a categorical distribution."""
 
@@ -112,7 +112,7 @@ class MLPPredictor(Module):
             return graph.edata["score"]
 
 
-class SAGE(Module):
+class SAGE(Module):  # type: ignore
     def __init__(self, in_feats, hid_feats, out_feats):
         super().__init__()
         _, _, dglnn, _, _, _ = lazy_import_networks()
@@ -132,7 +132,7 @@ class SAGE(Module):
         return h
 
 
-class DotProductPredictor(Module):
+class DotProductPredictor(Module):  # type: ignore
     def forward(self, graph, h):
         _, _, _, fn, _, _ = lazy_import_networks()
 
@@ -144,7 +144,7 @@ class DotProductPredictor(Module):
             return graph.edata["score"]
 
 
-class LinkPredModel(Module):
+class LinkPredModel(Module):  # type: ignore
     def __init__(self, in_features, hidden_features, out_features):
         super().__init__()
         #nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
@@ -156,7 +156,7 @@ class LinkPredModel(Module):
         return self.pred(g, h)
 
 
-class LinkPredModelMultiOutput(Module):
+class LinkPredModelMultiOutput(Module):  # type: ignore
     def __init__(self, in_features, hidden_features, out_features, out_classes):
         _, _, dglnn, _, _, _ = lazy_import_networks()
         super().__init__()
@@ -175,7 +175,7 @@ class LinkPredModelMultiOutput(Module):
         return self.embedding(g, h)
 
 
-class RGCNEmbed(Module):
+class RGCNEmbed(Module):  # type: ignore
     def __init__(self, d, num_nodes, num_rels, hidden=None, device='cpu'):
         super().__init__()
 
@@ -204,6 +204,62 @@ class RGCNEmbed(Module):
             x = F.relu(x)
         x = self.rgc2(g, self.dropout(x), g.edata[dgl.ETYPE], g.edata['norm'])
         return self.dropout(x)
+
+
+class HeteroEmbed(Module):  # type: ignore
+    def __init__(
+        self,
+        num_nodes:int,
+        num_rels:int,
+        d:int,
+        proto,
+        node_features = None,
+        device = 'cpu',
+        reg = 0.01
+    ):
+        super().__init__()
+        nn, dgl, _, _, torch, F = lazy_import_networks()
+        self.reg = reg
+        self.proto = proto
+        self.node_features = node_features
+
+        if self.node_features is not None:
+            self.node_features = torch.tensor(
+                self.node_features.values, dtype=torch.float32
+            ).to(device)
+            print(f"--Using node features of shape {str(node_features.shape)}")  # type: ignore
+        hidden = None
+        if node_features is not None:
+            hidden = self.node_features.shape[-1]  # type: ignore
+        self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden, device=device)
+        self.relational_embedding = nn.Parameter(torch.Tensor(num_rels, d))
+
+        nn.init.xavier_uniform_(
+            self.relational_embedding, gain=nn.init.calculate_gain("relu")
+        )
+
+    def __call__(self, g):  # type: ignore
+        # returns node embeddings
+        return self.rgcn.forward(g, node_features=self.node_features)
+
+    def score(self, node_embedding, triplets):
+        h, r, t = triplets.T  # type: ignore
+        h, r, t = (node_embedding[h], self.relational_embedding[r], node_embedding[t])  # type: ignore
+        return self.proto(h, r, t)
+
+    def loss(self, node_embedding, triplets, labels):
+        _, _, _, _, torch, F = lazy_import_networks()
+        score = self.score(node_embedding, triplets)
+
+        # binary crossentropy loss
+        ce_loss = F.binary_cross_entropy_with_logits(score, labels)
+
+        # regularization loss
+        ne_ = torch.mean(node_embedding.pow(2))  # type: ignore
+        re_ = torch.mean(self.relational_embedding.pow(2))
+        rl = ne_ + re_
+        
+        return ce_loss + self.reg * rl
 
 
 ############################################################################################

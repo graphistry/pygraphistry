@@ -271,7 +271,7 @@ class SearchToGraphMixin(MIXIN_BASE):
             name = f'{g._name}-query:{query}'
         else:
             name = f'query:{query}'
-        g = g.name(name)
+        g = g.name(name)  # type: ignore
         return g
 
     def save_search_instance(self, savepath):
