@@ -1,21 +1,28 @@
+import logging
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn as nn
-import dgl
-from dgl.dataloading import GraphDataLoader
-import torch.nn.functional as F
-from .networks import RGCNEmbed
+from tqdm import trange  # type: ignore
+from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
+
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 
+def lazy_embed_import_dep():
+    try:
+        import torch
+        import torch.nn as nn
+        import dgl
+        from dgl.dataloading import GraphDataLoader
+        import torch.nn.functional as F
+        from .networks import HeteroEmbed
+        return torch, nn, dgl, GraphDataLoader, HeteroEmbed, F
 
-from tqdm import trange  # type: ignore
-import logging
-from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
+    except:
+        return None
 
 
 if TYPE_CHECKING:
+    torch, _, _, _, _, _ = lazy_embed_import_dep()
     TT = torch.Tensor
     MIXIN_BASE = ComputeMixin
 else:
@@ -72,6 +79,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         
 
     def _preprocess_embedding_data(self, res, train_split:Union[float, int] = 0.8) -> Plottable:
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         log('Preprocessing embedding data')
         src, dst = res._source, res._destination
         relation = res._relation
@@ -120,17 +128,27 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return res
 
     def _build_graph(self, res:Plottable) -> Plottable:
+        torch, _, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         s, r, t = res.triplets.T  # type: ignore
-        g_dgl = dgl.graph(
-            (s[res.train_idx], t[res.train_idx]), num_nodes=self._num_nodes  # type: ignore
-        )
-        g_dgl.edata[dgl.ETYPE] = r[res.train_idx]  # type: ignore
-        g_dgl.edata["norm"] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
 
+        if res.train_idx is not None:  # type: ignore
+            g_dgl = dgl.graph(
+                (s[res.train_idx], t[res.train_idx]), num_nodes=self._num_nodes  # type: ignore
+            )
+            g_dgl.edata[dgl.ETYPE] = r[res.train_idx]  # type: ignore
+
+        else:
+            g_dgl = dgl.graph(
+                (s, t), num_nodes=self._num_nodes  # type:ignore
+            )
+            g_dgl.edata[dgl.ETYPE] = r  # type: ignore
+
+        g_dgl.edata["norm"] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
         res.g_dgl = g_dgl  # type: ignore
         return res
 
-    def _init_model(self, res:Plottable, batch_size:int, sample_size:int, num_steps:int, device:Union['str', torch.device]) -> Tuple[nn.Module, GraphDataLoader]:
+    def _init_model(self, res:Plottable, batch_size:int, sample_size:int, num_steps:int, device):
+        torch, nn, dgl, GraphDataLoader, HeteroEmbed, F = lazy_embed_import_dep()
         g_iter = SubgraphIterator(res.g_dgl, sample_size, num_steps)  # type: ignore
         g_dataloader = GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
@@ -148,7 +166,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         return model, g_dataloader
 
-    def _train_embedding(self, res:Plottable, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device:Union['str', torch.device]) -> Plottable:
+    def _train_embedding(self, res:Plottable, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device) -> Plottable:
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)  # type: ignore
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:  # type: ignore
@@ -204,7 +223,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         num_steps:int = 50,
         lr:Optional[float] = 1e-2,
         inplace:Optional[bool] = False,
-        device:Optional[Union[str, torch.device]] = "cpu",
+        device:Optional['str'] = "cpu",
         evaluate:Optional[bool] = True,
         *args,
         **kwargs,
@@ -238,7 +257,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             learning rate. Defaults to 0.002
         inplace : Optional[bool]
             inplace
-        device : Optional[Union[str, torch.device]]
+        device : Optional[str]
             accelarator. Defaults to "cpu"
         evaluate : Optional[bool]
             Whether to evaluate. Defaults to False.
@@ -247,6 +266,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         -------
             self : graphistry instance
         """
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         if inplace:
             res = self
         else:
@@ -284,6 +304,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
     def calculate_prob(
         self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None
     ):
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         # TODO: simplify
         if infer == "all":
             s, r, o_ = test_triplet
@@ -313,6 +334,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return perturb_entity_idx[score > threshold]
 
     def _predict(self, test_triplets, threshold=0.95, directed=True, infer=None):
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
 
         if type(test_triplets) != torch.Tensor:
             test_triplets = torch.tensor(test_triplets)
@@ -400,6 +422,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             dataframe containing predicted links
 
         """
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         pred = "predicted_destination"
         nodes = test_df[src].map(self._node2id)
         relations = test_df[rel].map(self._relation2id)
@@ -448,6 +471,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         """
        
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         predicted_links, node_embeddings = self._predict(
             self.triplets, threshold, infer="all"
         )
@@ -469,6 +493,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return g_new
 
     def _score(self, triplets:Union[np.ndarray, TT]) -> TT:  # type: ignore
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         emb = self._kg_embeddings.clone().detach()
         if type(triplets) != torch.Tensor:
             triplets = torch.tensor(triplets)
@@ -477,6 +502,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return prob.detach()
 
     def _eval(self, threshold:float):
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         if self.test_idx != []:
             triplets = self.triplets[self.test_idx]  # type: ignore
             score = self._score(triplets)
@@ -486,62 +512,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             log("WARNING: train_split must be < 1 for _eval()")
 
 
-class HeteroEmbed(nn.Module):
-    def __init__(
-        self,
-        num_nodes:int,
-        num_rels:int,
-        d:int,
-        proto:Callable[[TT, TT, TT], TT],  # type: ignore
-        node_features:Optional[Union[pd.DataFrame, None]] = None,
-        device:Optional[Union[torch.device, str]] = 'cpu',
-        reg:Optional[float] = 0.01
-    ):
-        super().__init__()
-        self.reg = reg
-        self.proto = proto
-        self.node_features = node_features
-
-        if self.node_features is not None:
-            self.node_features = torch.tensor(
-                self.node_features.values, dtype=torch.float32
-            ).to(device)
-            log(f"--Using node features of shape {str(node_features.shape)}")  # type: ignore
-        hidden = None
-        if node_features is not None:
-            hidden = self.node_features.shape[-1]  # type: ignore
-        self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden, device=device)
-        self.relational_embedding = nn.Parameter(torch.Tensor(num_rels, d))
-
-        nn.init.xavier_uniform_(
-            self.relational_embedding, gain=nn.init.calculate_gain("relu")
-        )
-
-    def __call__(self, g: dgl.DGLHeteroGraph) -> TT:  # type: ignore
-        # returns node embeddings
-        return self.rgcn.forward(g, node_features=self.node_features)
-
-    def score(self, node_embedding:TT, triplets:TT) -> TT:  # type: ignore
-        h, r, t = triplets.T  # type: ignore
-        h, r, t = (node_embedding[h], self.relational_embedding[r], node_embedding[t])  # type: ignore
-        return self.proto(h, r, t)
-
-    def loss(self, node_embedding:TT, triplets:TT, labels:TT) -> TT:  # type: ignore
-        score = self.score(node_embedding, triplets)
-
-        # binary crossentropy loss
-        ce_loss = F.binary_cross_entropy_with_logits(score, labels)
-
-        # regularization loss
-        ne_ = torch.mean(node_embedding.pow(2))  # type: ignore
-        re_ = torch.mean(self.relational_embedding.pow(2))
-        rl = ne_ + re_
-        
-        return ce_loss + self.reg * rl
-
-
 class SubgraphIterator:
-    def __init__(self, g:dgl.DGLHeteroGraph, sample_size:int = 30000, num_steps:int = 1000):
+    def __init__(self, g, sample_size:int = 30000, num_steps:int = 1000):
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         self.num_steps = num_steps
         self.sample_size = int(sample_size / 2)
         self.eids = np.arange(g.num_edges())
@@ -552,6 +525,7 @@ class SubgraphIterator:
         return self.num_steps
 
     def __getitem__(self, i:int):
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         eids = torch.from_numpy(np.random.choice(self.eids, self.sample_size))
 
         src, dst = self.g.find_edges(eids)
@@ -574,6 +548,7 @@ class SubgraphIterator:
 
     @staticmethod
     def _sample_neg(triplets:np.ndarray, num_nodes:int) -> Tuple[TT, TT]:  # type: ignore
+        torch, nn, dgl, GraphDataLoader, _, F = lazy_embed_import_dep()
         triplets = torch.tensor(triplets)  # type: ignore
         h, r, t = triplets.T
         h_o_t = torch.randint(high=2, size=h.size())

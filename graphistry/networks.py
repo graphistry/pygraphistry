@@ -206,6 +206,62 @@ class RGCNEmbed(Module):  # type: ignore
         return self.dropout(x)
 
 
+class HeteroEmbed(Module):  # type: ignore
+    def __init__(
+        self,
+        num_nodes:int,
+        num_rels:int,
+        d:int,
+        proto,
+        node_features = None,
+        device = 'cpu',
+        reg = 0.01
+    ):
+        super().__init__()
+        nn, dgl, _, _, torch, F = lazy_import_networks()
+        self.reg = reg
+        self.proto = proto
+        self.node_features = node_features
+
+        if self.node_features is not None:
+            self.node_features = torch.tensor(
+                self.node_features.values, dtype=torch.float32
+            ).to(device)
+            print(f"--Using node features of shape {str(node_features.shape)}")  # type: ignore
+        hidden = None
+        if node_features is not None:
+            hidden = self.node_features.shape[-1]  # type: ignore
+        self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden, device=device)
+        self.relational_embedding = nn.Parameter(torch.Tensor(num_rels, d))
+
+        nn.init.xavier_uniform_(
+            self.relational_embedding, gain=nn.init.calculate_gain("relu")
+        )
+
+    def __call__(self, g):  # type: ignore
+        # returns node embeddings
+        return self.rgcn.forward(g, node_features=self.node_features)
+
+    def score(self, node_embedding, triplets):
+        h, r, t = triplets.T  # type: ignore
+        h, r, t = (node_embedding[h], self.relational_embedding[r], node_embedding[t])  # type: ignore
+        return self.proto(h, r, t)
+
+    def loss(self, node_embedding, triplets, labels):
+        _, _, _, _, torch, F = lazy_import_networks()
+        score = self.score(node_embedding, triplets)
+
+        # binary crossentropy loss
+        ce_loss = F.binary_cross_entropy_with_logits(score, labels)
+
+        # regularization loss
+        ne_ = torch.mean(node_embedding.pow(2))  # type: ignore
+        re_ = torch.mean(self.relational_embedding.pow(2))
+        rl = ne_ + re_
+        
+        return ce_loss + self.reg * rl
+
+
 ############################################################################################
 
 # training
