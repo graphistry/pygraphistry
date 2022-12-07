@@ -84,7 +84,7 @@ class Plottable(object):
     # embed utils
     _relation : Optional[str] = None
     _use_feat: bool = False
-    triplets: Optional[List] # actually torch.Tensor too
+    triplets: Optional[List]  # actually torch.Tensor too
     _kg_embed_dim: int = 32
     
 

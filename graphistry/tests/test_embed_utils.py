@@ -21,7 +21,7 @@ graph_with_feat_with_ids = graph_no_feat.nodes(ndf_with_ids, 'id')
 graphs = [('no_feat', graph_no_feat), ('with_feat_no_ids', graph_with_feat_no_ids), ('with_feat_with_ids', graph_with_feat_with_ids)]
 d = 4
 
-kwargs={'n_topics': 6, 'cardinality_threshold':10, 'epochs': 1, 'sample_size':10, 'num_steps':10}
+kwargs = {'n_topics': 6, 'cardinality_threshold':10, 'epochs': 1, 'sample_size':10, 'num_steps':10}
 
 class TestEmbed(unittest.TestCase):
 
@@ -52,14 +52,14 @@ class TestEmbed(unittest.TestCase):
         for name, g in graphs:
             logging.debug('name: %s test changing embedding dim with feats' % name)
             g = g.embed('rel', use_feat=True, embedding_dim=d, **kwargs)
-            g2 = g.embed('rel', use_feat=True, embedding_dim=2*d, **kwargs)
+            g2 = g.embed('rel', use_feat=True, embedding_dim=2 * d, **kwargs)
             self.assertNotEqual(g._kg_embeddings.shape, g2._kg_embeddings.shape)
 
         [g.reset_caches() for _, g in graphs]
         for name, g in graphs:
             logging.debug('name: %s test changing embedding dim without feats', name)
             g = g.embed('rel', use_feat=False, embedding_dim=d, **kwargs)
-            g2 = g.embed('rel', use_feat=False, embedding_dim=2*d, **kwargs)
+            g2 = g.embed('rel', use_feat=False, embedding_dim=2 * d, **kwargs)
             self.assertNotEqual(g._kg_embeddings.shape, g2._kg_embeddings.shape)
 
         [g.reset_caches() for _, g in graphs]

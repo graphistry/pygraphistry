@@ -59,7 +59,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             "RotatE": EmbedDistScore.RotatE,
         }
 
-    def _preprocess_embedding_data(self, res, train_split:Optional[Union[float, int]]=0.8) -> Plottable:
+    def _preprocess_embedding_data(self, res, train_split:Optional[Union[float, int]] = 0.8) -> Plottable:
         log('Preprocessing embedding data')
         src, dst = res._source, res._destination
         relation = res._relation
@@ -183,19 +183,19 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
     def embed(
         self,
         relation:str,
-        proto:ProtoSymbolic='DistMult',
-        embedding_dim:Optional[int]=32,
-        use_feat:Optional[bool]=False,
-        X:XSymbolic=None,
-        epochs:Optional[int]=2,
-        batch_size:Optional[int]=32,
-        train_split:Optional[Union[float, int]]=0.8,
-        sample_size:int=1000, 
-        num_steps:int=50,
-        lr:Optional[float]=1e-2,
-        inplace:Optional[bool]=False,
-        device:Optional[Union[str, torch.device]]="cpu",
-        evaluate:Optional[bool]=True,
+        proto:ProtoSymbolic = 'DistMult',
+        embedding_dim:Optional[int] = 32,
+        use_feat:Optional[bool] = False,
+        X:XSymbolic = None,
+        epochs:Optional[int] = 2,
+        batch_size:Optional[int] = 32,
+        train_split:Optional[Union[float, int]] = 0.8,
+        sample_size:int = 1000, 
+        num_steps:int = 50,
+        lr:Optional[float] = 1e-2,
+        inplace:Optional[bool] = False,
+        device:Optional[Union[str, torch.device]] = "cpu",
+        evaluate:Optional[bool] = True,
         *args,
         **kwargs,
     ) -> Plottable:
@@ -414,9 +414,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def predict_links(
         self, 
-        threshold:Optional[float]=0.99,
-        return_embeddings:Optional[bool]=True,
-        retain_old_edges:Optional[bool]=False
+        threshold:Optional[float] = 0.99,
+        return_embeddings:Optional[bool] = True,
+        retain_old_edges:Optional[bool] = False
     ) -> Union[Tuple[Plottable, pd.DataFrame, TT], Plottable]:
         """predict_links over entire graph given a threshold
 
@@ -485,9 +485,9 @@ class HeteroEmbed(nn.Module):
         num_rels:int,
         d:int,
         proto:Callable[[TT, TT, TT], TT],
-        node_features:Optional[Union[pd.DataFrame, None]]=None,
-        device:Optional[Union[torch.device, str]]='cpu',
-        reg:Optional[float]=0.01
+        node_features:Optional[Union[pd.DataFrame, None]] = None,
+        device:Optional[Union[torch.device, str]] = 'cpu',
+        reg:Optional[float] = 0.01
     ):
         super().__init__()
         self.reg = reg
@@ -533,7 +533,7 @@ class HeteroEmbed(nn.Module):
 
 
 class SubgraphIterator:
-    def __init__(self, g:dgl.DGLHeteroGraph, sample_size:int=30000, num_steps:int=1000):
+    def __init__(self, g:dgl.DGLHeteroGraph, sample_size:int = 30000, num_steps:int = 1000):
         self.num_steps = num_steps
         self.sample_size = int(sample_size / 2)
         self.eids = np.arange(g.num_edges())
