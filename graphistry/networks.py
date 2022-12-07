@@ -19,7 +19,7 @@ else:
     Module = object
 
 
-class GCN(Module):
+class GCN(Module):  # type: ignore
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
         _, _, dglnn, _, _, _ = lazy_import_networks()
@@ -34,7 +34,7 @@ class GCN(Module):
         return h
 
 
-class RGCN(Module):
+class RGCN(Module):  # type: ignore
     """
         Heterograph where we gather message from neighbors along all edge types.
         You can use the module dgl.nn.pytorch.HeteroGraphConv (also available in MXNet and Tensorflow) to perform
@@ -67,7 +67,7 @@ class RGCN(Module):
         return h
 
 
-class HeteroClassifier(Module):
+class HeteroClassifier(Module):  # type: ignore
     def __init__(self, in_dim, hidden_dim, n_classes, rel_names):
         super().__init__()
         nn, _, _, _, _, _ = lazy_import_networks()
@@ -87,7 +87,7 @@ class HeteroClassifier(Module):
             return self.classify(hg)
 
 
-class MLPPredictor(Module):
+class MLPPredictor(Module):  # type: ignore
     """One can also write a prediction function that predicts a vector for each edge with an MLP.
     Such vector can be used in further downstream tasks, e.g. as logits of a categorical distribution."""
 
@@ -112,7 +112,7 @@ class MLPPredictor(Module):
             return graph.edata["score"]
 
 
-class SAGE(Module):
+class SAGE(Module):  # type: ignore
     def __init__(self, in_feats, hid_feats, out_feats):
         super().__init__()
         _, _, dglnn, _, _, _ = lazy_import_networks()
@@ -132,7 +132,7 @@ class SAGE(Module):
         return h
 
 
-class DotProductPredictor(Module):
+class DotProductPredictor(Module):  # type: ignore
     def forward(self, graph, h):
         _, _, _, fn, _, _ = lazy_import_networks()
 
@@ -144,7 +144,7 @@ class DotProductPredictor(Module):
             return graph.edata["score"]
 
 
-class LinkPredModel(Module):
+class LinkPredModel(Module):  # type: ignore
     def __init__(self, in_features, hidden_features, out_features):
         super().__init__()
         #nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
@@ -156,7 +156,7 @@ class LinkPredModel(Module):
         return self.pred(g, h)
 
 
-class LinkPredModelMultiOutput(Module):
+class LinkPredModelMultiOutput(Module):  # type: ignore
     def __init__(self, in_features, hidden_features, out_features, out_classes):
         _, _, dglnn, _, _, _ = lazy_import_networks()
         super().__init__()
@@ -175,7 +175,7 @@ class LinkPredModelMultiOutput(Module):
         return self.embedding(g, h)
 
 
-class RGCNEmbed(Module):
+class RGCNEmbed(Module):  # type: ignore
     def __init__(self, d, num_nodes, num_rels, hidden=None, device='cpu'):
         super().__init__()
 
