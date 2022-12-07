@@ -511,7 +511,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def _eval(self, threshold:float):
         if self.test_idx is not None:
-            triplets = self.triplets[self.test_idx] # type: ignore
+            triplets = self.triplets[self.test_idx]  # type: ignore
             score = self._score(triplets)
             # print('score', score.shape)
             # print(score[score >= threshold].shape)

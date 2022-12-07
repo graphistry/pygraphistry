@@ -23,7 +23,7 @@ else:
     dglnn = Any
     fn = Any
     torch = Any
-    F = Any #= lazy_import_networks()
+    F = Any
     Module = object
 
 try:
