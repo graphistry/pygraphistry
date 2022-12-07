@@ -18,7 +18,7 @@ def lazy_embed_import_dep():
         return torch, nn, dgl, GraphDataLoader, HeteroEmbed, F, trange
 
     except:
-        return None
+        return None, None, None, None, None, None, None
 
 
 if TYPE_CHECKING:
