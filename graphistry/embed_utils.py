@@ -12,18 +12,18 @@ from .compute.ComputeMixin import ComputeMixin
 
 from tqdm import trange
 import logging
-from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any
+from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
 
 
 if TYPE_CHECKING:
-    tt = torch.Tensor
+    TT = torch.Tensor
     MIXIN_BASE = ComputeMixin
 else:
-    tt = Any
+    TT = Any
     MIXIN_BASE = object
 
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
-ProtoSymbolic = Optional[Union[str, Callable[[tt, tt, tt], tt]]]
+ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]
 
 logging.StreamHandler.terminator = ""
 logger = logging.getLogger(__name__)
@@ -37,15 +37,15 @@ def log(msg:str) -> None:
 
 class EmbedDistScore:
     @staticmethod
-    def TransE(h:tt, r:tt, t:tt) -> tt:
+    def TransE(h:TT, r:TT, t:TT) -> TT:
         return (h + r - t).norm(p=1, dim=1)
 
     @staticmethod
-    def DistMult(h:tt, r:tt, t:tt) -> tt:
+    def DistMult(h:TT, r:TT, t:TT) -> TT:
         return (h * r * t).sum(dim=1)
 
     @staticmethod
-    def RotatE(h:tt, r:tt, t:tt) -> tt:
+    def RotatE(h:TT, r:TT, t:TT) -> TT:
         return -(h * r - t).norm(p=1, dim=1)
 
 
@@ -68,14 +68,12 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             nodes = res._nodes[self._node]
         elif res._node is None and res._nodes is not None:
             nodes = res._nodes.reset_index(drop=True).reset_index()["index"]
-            print('None but not None', nodes)
+            #print('None but not None', nodes)
         else:
-            res = res.materialize_nodes()#pd.Series(pd.concat([res._edges[src], res._edges[dst]]).unique())
+            res = res.materialize_nodes()
             nodes = res._nodes[res._node]
-            print('Materialize nodes')
+            #print('Materialize nodes')
         
-        print('nodes', nodes)
-
         edges = res._edges
         edges = edges[edges[src].isin(nodes) & edges[dst].isin(nodes)]
         relations = edges[relation].unique()
@@ -108,12 +106,10 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         res.triplets = triplets
         res._num_nodes, res._num_rels = (len(res._node2id), len(res._relation2id))
         log(
-            f"--num_nodes: {res._num_nodes}, \
-                num_relationships: {res._num_rels}"
-        )
+            f"--num_nodes: {res._num_nodes}, num_relationships: {res._num_rels}")
         return res
 
-    def _build_graph(self, res) -> Plottable:
+    def _build_graph(self, res:Plottable) -> Plottable:
         s, r, t = res.triplets.T
         g_dgl = dgl.graph(
             (s[res.train_idx], t[res.train_idx]), num_nodes=self._num_nodes
@@ -124,7 +120,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         res.g_dgl = g_dgl
         return res
 
-    def _init_model(self, res, batch_size:int, sample_size:int, num_steps:int, device:Union['str', torch.device]) -> Union[nn.Module, GraphDataLoader]:
+    def _init_model(self, res:Plottable, batch_size:int, sample_size:int, num_steps:int, device:Union['str', torch.device]) -> Tuple[nn.Module, GraphDataLoader]:
         g_iter = SubgraphIterator(res.g_dgl, sample_size, num_steps)
         g_dataloader = GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
@@ -142,7 +138,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         return model, g_dataloader
 
-    def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device:Union['str', torch.device]):
+    def _train_embedding(self, res:Plottable, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device:Union['str', torch.device]) -> Plottable:
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
@@ -417,24 +413,31 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return result_df
 
     def predict_links(
-        self, threshold=0.99, return_embeddings=True, retain_old_edges=False
-    ):
-        """predict links over entire graph given a threshold
+        self, 
+        threshold:Optional[float]=0.99,
+        return_embeddings:Optional[bool]=True,
+        retain_old_edges:Optional[bool]=False
+    ) -> Union[Tuple[Plottable, pd.DataFrame, TT], Plottable]:
+        """predict_links over entire graph given a threshold
 
-        Args:
-            threshold (float, optional): Probability threshold.
-                Defaults to 0.99.
-            return_embeddings (bool, optional): will return DataFrame of
-                predictions and node embeddings. Defaults to True.
-            retain_old_edges (bool, optional): will include old edges in
-                predicted graph. Defaults to False.
+        Parameters
+        ----------
+        threshold : Optional[float]
+            Probability threshold. Defaults to 0.99.
+        return_embeddings : Optional[bool]
+            will return DataFrame of predictions and node_embeddings. Defaults
+            to True
+        retain_old_edges : Optional[bool]
+            will include old edges in predicted graph. Defaults to False.
 
-        Returns:
-            graph: (graphistry graph) or
-                    (graphistry graph, DataFrame of predictions and
-                    node embeddings) when return_embeddings=True
+        Returns
+        -------
+        Union[Tuple[Plottable, pd.DataFrame, TT], Plottable]
+            graphistry graph or (graphistry graph, DataFrame of predicted
+            links, node embeddings) when return_embeddings=True
+
         """
-
+       
         predicted_links, node_embeddings = self._predict(
             self.triplets, threshold, infer="all"
         )
@@ -455,7 +458,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             return g_new, predicted_links, node_embeddings
         return g_new
 
-    def _score(self, triplets:Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
+    def _score(self, triplets:Union[np.ndarray, TT]) -> TT:
         emb = self._kg_embeddings.clone().detach()
         if type(triplets) != torch.Tensor:
             triplets = torch.tensor(triplets)
@@ -481,13 +484,12 @@ class HeteroEmbed(nn.Module):
         num_nodes:int,
         num_rels:int,
         d:int,
-        proto:Callable[[tt, tt, tt], tt],
-        node_features=None,
+        proto:Callable[[TT, TT, TT], TT],
+        node_features:Optional[Union[pd.DataFrame, None]]=None,
         device:Optional[Union[torch.device, str]]='cpu',
         reg:Optional[float]=0.01
     ):
         super().__init__()
-
         self.reg = reg
         self.proto = proto
         self.node_features = node_features
@@ -507,16 +509,16 @@ class HeteroEmbed(nn.Module):
             self.relational_embedding, gain=nn.init.calculate_gain("relu")
         )
 
-    def __call__(self, g: dgl.DGLHeteroGraph) -> torch.Tensor:
+    def __call__(self, g: dgl.DGLHeteroGraph) -> TT:
         # returns node embeddings
         return self.rgcn.forward(g, node_features=self.node_features)
 
-    def score(self, node_embedding:torch.Tensor, triplets:torch.Tensor) -> torch.Tensor:
+    def score(self, node_embedding:TT, triplets:TT) -> TT:
         h, r, t = triplets.T
         h, r, t = (node_embedding[h], self.relational_embedding[r], node_embedding[t])
         return self.proto(h, r, t)
 
-    def loss(self, node_embedding:torch.Tensor, triplets:torch.Tensor, labels:torch.Tensor) -> torch.Tensor:
+    def loss(self, node_embedding:TT, triplets:TT, labels:TT) -> TT:
         score = self.score(node_embedding, triplets)
 
         # binary crossentropy loss
@@ -538,7 +540,7 @@ class SubgraphIterator:
         self.g = g
         self.num_nodes = g.num_nodes()
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.num_steps
 
     def __getitem__(self, i:int):
@@ -563,7 +565,7 @@ class SubgraphIterator:
         return sub_g, samples, labels
 
     @staticmethod
-    def _sample_neg(triplets:np.ndarray, num_nodes:int):
+    def _sample_neg(triplets:np.ndarray, num_nodes:int) -> Tuple[TT, TT]:
         triplets = torch.tensor(triplets)
         h, r, t = triplets.T
         h_o_t = torch.randint(high=2, size=h.size())
