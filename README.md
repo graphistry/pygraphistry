@@ -455,7 +455,7 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
                         model_name: str = "paraphrase-MiniLM-L6-v2")
                         
       results_df, query_vector = g2.search('my natural language query', ...)
-      print(results_df[['distance', 'text_col_1', ..., 'text_col_n']])  #sorted by relevancy
+      print(results_df[['_distance', 'col_1', ..., 'col_n']])  #sorted by relevancy
       
       # or see graph of matching entities and similarity edges (or optional original edges)
       g2.search_graph('my natural language query', ...).plot()
@@ -472,6 +472,43 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
     ```
     
 See `help(g.search_graph)` for options
+
+### Knowledge Graph Embeddings
+
+* Traing a RGCN model and predict:
+
+    ```python
+      edf = pd.read_csv(edges.csv)
+      g = graphistry.edges(edf, src, dst)
+      g2 = g.embed(relation='relationship_column_of_interest', **kwargs)
+
+      # predict links over all node_ids
+      g3 = g2.predict_links(threshold=0.95)  # score confidence on predicted links
+
+      # or return embeddings 
+      g3, predicted_links, node_embeddings = g2.predict_links(threshold=0.95, return_embeddings=True)
+
+      # construct a test dataframe to predict over
+      test_df = pd.DataFrame([[src_id, relationship_id, None], [..]], columns = ['src', 'relationship', 'dst'])
+      predicted_df = g2.predict_link(test_df, 'src', 'relationship')
+    ```
+
+* Train a RGCN model including auto-featurized node embeddings
+
+    ```python
+      edf = pd.read_csv(edges.csv)
+      ndf = pd.read_csv(nodes.csv)
+
+      g = graphistry.edges(edf, src, dst).nodes(ndf, node_column)
+
+      # inherets all the featurization kwargs from `g.featurize`
+      g2 = g.embed(relation='relationship_column_of_interest', use_feat=True, **kwargs)
+      
+      # predict links over all node_ids
+      g3 = g2.predict_links(threshold=0.95)  # score confidence on predicted links
+    ```
+
+See `help(g.embed)` for options
 
 
 ### Quickly configurable
