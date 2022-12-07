@@ -419,7 +419,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             test_df[pred].map(self._id2node),
         )
         result_df = pd.concat([s, r, d], axis=1)
-        result_df.columns = [src, rel, pred]
+        result_df.columns = [src, rel, pred]  # type: ignore
         return result_df
 
     def predict_links(
