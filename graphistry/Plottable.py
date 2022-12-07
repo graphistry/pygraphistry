@@ -82,10 +82,10 @@ class Plottable(object):
     DGL_graph: Optional[Any]
     
     # embed utils
-    _relation : Optional[str] = None
-    _use_feat: bool = False
+    _relation : Optional[str]
+    _use_feat: bool
     triplets: Optional[List]  # actually torch.Tensor too
-    _kg_embed_dim: int = 32
+    _kg_embed_dim: int
     
 
     def __init__(self, *args, **kwargs):

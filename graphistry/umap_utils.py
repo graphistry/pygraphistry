@@ -92,7 +92,7 @@ def resolve_umap_engine(
 
     raise ValueError(  # noqa
         f'engine expected to be "auto", '
-        '"umap_learn",or  "cuml" '
+        '"umap_learn", or  "cuml" '
         f"but received: {engine} :: {type(engine)}"
     )
 
@@ -159,7 +159,7 @@ class UMAPMixin(MIXIN_BASE):
     UMAP Mixin for automagic UMAPing
 
     """
-
+    # FIXME where is this used? 
     _umap_memoize: WeakValueDictionary = WeakValueDictionary()
 
     def __init__(self, *args, **kwargs):

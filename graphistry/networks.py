@@ -1,33 +1,46 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from . import constants as config
 
 
 def lazy_import_networks():  # noqa
-    import dgl
-    import dgl.nn as dglnn
-    import dgl.function as fn
-    import torch
-    import torch.nn as nn
-    import torch.nn.functional as F
-    return nn, dgl, dglnn, fn, torch, F
-
+    try:
+        import dgl
+        import dgl.nn as dglnn
+        import dgl.function as fn
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+        Module = nn.Module
+        return nn, dgl, dglnn, fn, torch, F, Module
+    except:
+        return Any, Any, Any, Any, Any, Any, Any
 
 if TYPE_CHECKING:  # noqa
-    nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
-    Module = nn.Module
+    nn, dgl, dglnn, fn, torch, F, Module = lazy_import_networks()
 else:
+    nn = Any 
+    dgl = Any
+    dglnn = Any
+    fn = Any
+    torch = Any
+    F = Any
     Module = object
 
+try:
+    import torch.nn as nn
+    Module = nn.Module
+except:
+    Module = object
 
 class GCN(Module):  # type: ignore
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
-        _, _, dglnn, _, _, _ = lazy_import_networks()
+        _, _, dglnn, _, _, _, _ = lazy_import_networks()
         self.conv1 = dglnn.GraphConv(in_feats, h_feats)
         self.conv2 = dglnn.GraphConv(h_feats, num_classes)
 
     def forward(self, g, in_feat):
-        _, _, _, _, _, F = lazy_import_networks()
+        _, _, _, _, _, F, _ = lazy_import_networks()
         h = self.conv1(g, in_feat)
         h = F.relu(h)
         h = self.conv2(g, h)
@@ -47,7 +60,7 @@ class RGCN(Module):  # type: ignore
 
     def __init__(self, in_feats, hid_feats, out_feats, rel_names):
         super().__init__()
-        _, _, dglnn, _, _, _ = lazy_import_networks()        
+        _, _, dglnn, _, _, _, _ = lazy_import_networks()        
         
         self.conv1 = dglnn.HeteroGraphConv(
             {rel: dglnn.GraphConv(in_feats, hid_feats) for rel in rel_names},
@@ -70,7 +83,7 @@ class RGCN(Module):  # type: ignore
 class HeteroClassifier(Module):  # type: ignore
     def __init__(self, in_dim, hidden_dim, n_classes, rel_names):
         super().__init__()
-        nn, _, _, _, _, _ = lazy_import_networks()
+        nn, _, _, _, _, _, _ = lazy_import_networks()
         self.rgcn = RGCN(in_dim, hidden_dim, hidden_dim, rel_names)
         self.classify = nn.Linear(hidden_dim, n_classes)
 
@@ -93,7 +106,7 @@ class MLPPredictor(Module):  # type: ignore
 
     def __init__(self, in_features, out_classes):
         super().__init__()
-        nn, _, _, _, _, _ = lazy_import_networks()
+        nn, _, _, _, _, _, _ = lazy_import_networks()
         self.W = nn.Linear(in_features * 2, out_classes)
 
     def apply_edges(self, edges):
@@ -115,7 +128,7 @@ class MLPPredictor(Module):  # type: ignore
 class SAGE(Module):  # type: ignore
     def __init__(self, in_feats, hid_feats, out_feats):
         super().__init__()
-        _, _, dglnn, _, _, _ = lazy_import_networks()
+        _, _, dglnn, _, _, _, _ = lazy_import_networks()
         self.conv1 = dglnn.SAGEConv(
             in_feats=in_feats, out_feats=hid_feats, aggregator_type="mean"
         )
@@ -134,7 +147,7 @@ class SAGE(Module):  # type: ignore
 
 class DotProductPredictor(Module):  # type: ignore
     def forward(self, graph, h):
-        _, _, _, fn, _, _ = lazy_import_networks()
+        _, _, _, fn, _, _, _ = lazy_import_networks()
 
         # h contains the node representations computed from the GNN defined
         # in the node classification section (Section 5.1).
@@ -158,7 +171,7 @@ class LinkPredModel(Module):  # type: ignore
 
 class LinkPredModelMultiOutput(Module):  # type: ignore
     def __init__(self, in_features, hidden_features, out_features, out_classes):
-        _, _, dglnn, _, _, _ = lazy_import_networks()
+        _, _, dglnn, _, _, _, _ = lazy_import_networks()
         super().__init__()
         self.sage = SAGE(in_features, hidden_features, out_features)
         self.pred = MLPPredictor(out_features, out_classes)
@@ -179,7 +192,7 @@ class RGCNEmbed(Module):  # type: ignore
     def __init__(self, d, num_nodes, num_rels, hidden=None, device='cpu'):
         super().__init__()
 
-        nn, _, dglnn, _, torch, _ = lazy_import_networks()
+        nn, _, dglnn, _, torch, _, _ = lazy_import_networks()
         self.node_ids = torch.tensor(range(num_nodes))
         
         self.node_ids = self.node_ids.to(device)
@@ -194,7 +207,7 @@ class RGCNEmbed(Module):  # type: ignore
 
     def forward(self, g, node_features=None):
 
-        _, dgl, _, _, torch, F = lazy_import_networks()
+        _, dgl, _, _, torch, F, _ = lazy_import_networks()
 
         x = self.emb(self.node_ids)
         x = self.rgc1(g, x, g.edata[dgl.ETYPE], g.edata['norm'])
@@ -209,16 +222,16 @@ class RGCNEmbed(Module):  # type: ignore
 class HeteroEmbed(Module):  # type: ignore
     def __init__(
         self,
-        num_nodes:int,
-        num_rels:int,
-        d:int,
+        num_nodes: int,
+        num_rels: int,
+        d: int,
         proto,
         node_features = None,
         device = 'cpu',
         reg = 0.01
     ):
         super().__init__()
-        nn, dgl, _, _, torch, F = lazy_import_networks()
+        nn, _, _, _, torch, _, _ = lazy_import_networks()
         self.reg = reg
         self.proto = proto
         self.node_features = node_features
@@ -245,10 +258,12 @@ class HeteroEmbed(Module):  # type: ignore
     def score(self, node_embedding, triplets):
         h, r, t = triplets.T  # type: ignore
         h, r, t = (node_embedding[h], self.relational_embedding[r], node_embedding[t])  # type: ignore
-        return self.proto(h, r, t)
+        score = self.proto(h, r, t)
+        #print(score.shape)
+        return score
 
     def loss(self, node_embedding, triplets, labels):
-        _, _, _, _, torch, F = lazy_import_networks()
+        _, _, _, _, torch, F, _ = lazy_import_networks()
         score = self.score(node_embedding, triplets)
 
         # binary crossentropy loss
@@ -271,7 +286,7 @@ class HeteroEmbed(Module):  # type: ignore
 #ACC = metrics.accuracy_score
    
 def train_link_pred(model, G, epochs=100, use_cross_entropy_loss = False):
-    nn, dgl, dglnn, fn, torch, F = lazy_import_networks()
+    _, _, _, _, torch, F, _ = lazy_import_networks()
     # take the node features out
     node_features = G.ndata["feature"].float()
     # we are predicting edges
