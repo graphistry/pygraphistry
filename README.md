@@ -475,7 +475,7 @@ See `help(g.search_graph)` for options
 
 ### Knowledge Graph Embeddings
 
-* Traing a RGCN model and predict:
+* Train a RGCN model and predict:
 
     ```python
       edf = pd.read_csv(edges.csv)
@@ -487,10 +487,11 @@ See `help(g.search_graph)` for options
 
       # or return embeddings 
       g3, predicted_links, node_embeddings = g2.predict_links(threshold=0.95, return_embeddings=True)
+      g3.plot()  # see resulting links
 
       # construct a test dataframe to predict over
-      test_df = pd.DataFrame([[src_id, relationship_id, None], [..]], columns = ['src', 'relationship', 'dst'])
-      predicted_df = g2.predict_link(test_df, 'src', 'relationship')
+      test_df = pd.DataFrame([[src_id, relationship_id, dummy_id], [..]], columns = ['src', 'relationship', 'dst'])
+      predicted_df = g2.predict_link(test_df, 'src', 'relationship')  # will predict all `dst` above threshold
     ```
 
 * Train a RGCN model including auto-featurized node embeddings
@@ -506,6 +507,7 @@ See `help(g.search_graph)` for options
       
       # predict links over all node_ids
       g3 = g2.predict_links(threshold=0.95)  # score confidence on predicted links
+      g3.plot()
     ```
 
 See `help(g.embed)` for options
