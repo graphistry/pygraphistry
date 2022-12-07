@@ -6,11 +6,22 @@ import dgl
 from dgl.dataloading import GraphDataLoader
 import torch.nn.functional as F
 from .networks import RGCNEmbed
+from .PlotterBase import Plottable
+from .compute.ComputeMixin import ComputeMixin
+
+
 from tqdm import trange
 import logging
-from typing import Optional, Union, Callable, List
+from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any
 
-tt = torch.Tensor
+
+if TYPE_CHECKING:
+    tt = torch.Tensor
+    MIXIN_BASE = ComputeMixin
+else:
+    tt = Any
+    MIXIN_BASE = object
+
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 ProtoSymbolic = Optional[Union[str, Callable[[tt, tt, tt], tt]]]
 
@@ -38,7 +49,7 @@ class EmbedDistScore:
         return -(h * r - t).norm(p=1, dim=1)
 
 
-class HeterographEmbedModuleMixin(nn.Module):
+class HeterographEmbedModuleMixin(MIXIN_BASE):
     def __init__(self):
         super().__init__()
 
@@ -48,87 +59,89 @@ class HeterographEmbedModuleMixin(nn.Module):
             "RotatE": EmbedDistScore.RotatE,
         }
 
-    def _preprocess_embedding_data(self, train_split:Optional[Union[float, int]]=0.8) -> None:
+    def _preprocess_embedding_data(self, res, train_split:Optional[Union[float, int]]=0.8) -> Plottable:
         log('Preprocessing embedding data')
-        src, dst = self._source, self._destination
-        relation = self._relation
+        src, dst = res._source, res._destination
+        relation = res._relation
 
-        if self._node is not None and self._nodes is not None:
-            nodes = self._nodes[self._node]
-        elif self._node is None and self._nodes is not None:
-            nodes = self._nodes.reset_index(drop=True).reset_index()["index"]
+        if res._node is not None and res._nodes is not None:
+            nodes = res._nodes[self._node]
+        elif res._node is None and res._nodes is not None:
+            nodes = res._nodes.reset_index(drop=True).reset_index()["index"]
         else:
-            nodes = pd.Series(pd.concat([self._edges[src], self._edges[dst]]).unique())
+            nodes = pd.Series(pd.concat([res._edges[src], res._edges[dst]]).unique())
 
-        edges = self._edges
+        edges = res._edges
         edges = edges[edges[src].isin(nodes) & edges[dst].isin(nodes)]
         relations = edges[relation].unique()
 
         # type2id
-        self._node2id = {n: idx for idx, n in enumerate(nodes)}
-        self._relation2id = {r: idx for idx, r in enumerate(relations)}
+        res._node2id = {n: idx for idx, n in enumerate(nodes)}
+        res._relation2id = {r: idx for idx, r in enumerate(relations)}
 
-        self._id2node = {idx: n for idx, n in enumerate(nodes)}
-        self._id2relation = {idx: r for idx, r in enumerate(relations)}
+        res._id2node = {idx: n for idx, n in enumerate(nodes)}
+        res._id2relation = {idx: r for idx, r in enumerate(relations)}
 
         s, r, t = (
-            edges[src].map(self._node2id),
-            edges[relation].map(self._relation2id),
-            edges[dst].map(self._node2id),
+            edges[src].map(res._node2id),
+            edges[relation].map(res._relation2id),
+            edges[dst].map(res._node2id),
         )
         triplets = torch.from_numpy(pd.concat([s, r, t], axis=1).to_numpy())
 
         # split idx
-        if not hasattr(self, "train_idx") or self._train_split != train_split:
+        if not hasattr(res, "train_idx") or res._train_split != train_split:
             log(msg="--Splitting data")
             train_size = int(train_split * len(triplets))
             test_size = len(triplets) - train_size
             train_dataset, test_dataset = torch.utils.data.random_split(
                 triplets, [train_size, test_size]
             )
-            self.train_idx = train_dataset.indices
-            self.test_idx = test_dataset.indices
+            res.train_idx = train_dataset.indices
+            res.test_idx = test_dataset.indices
 
-        self.triplets = triplets
-        self._num_nodes, self._num_rels = (len(self._node2id), len(self._relation2id))
+        res.triplets = triplets
+        res._num_nodes, res._num_rels = (len(res._node2id), len(res._relation2id))
         log(
-            f"--num_nodes: {self._num_nodes}, \
-                num_relationships: {self._num_rels}"
+            f"--num_nodes: {res._num_nodes}, \
+                num_relationships: {res._num_rels}"
         )
+        return res
 
-    def _build_graph(self) -> None:
-        s, r, t = self.triplets.T
+    def _build_graph(self, res) -> Plottable:
+        s, r, t = res.triplets.T
         g_dgl = dgl.graph(
-            (s[self.train_idx], t[self.train_idx]), num_nodes=self._num_nodes
+            (s[res.train_idx], t[res.train_idx]), num_nodes=self._num_nodes
         )
-        g_dgl.edata[dgl.ETYPE] = r[self.train_idx]
+        g_dgl.edata[dgl.ETYPE] = r[res.train_idx]
         g_dgl.edata["norm"] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
 
-        self.g_dgl = g_dgl
+        res.g_dgl = g_dgl
+        return res
 
-    def _init_model(self, batch_size:int, device:Union['str', torch.device]) -> Union[nn.Module, GraphDataLoader]:
-        g_iter = SubgraphIterator(self.g_dgl)
+    def _init_model(self, res, batch_size:int, device:Union['str', torch.device]) -> Union[nn.Module, GraphDataLoader]:
+        g_iter = SubgraphIterator(res.g_dgl)
         g_dataloader = GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
         )
 
         # init model
         model = HeteroEmbed(
-            self._num_nodes,
-            self._num_rels,
-            self._embed_dim,
-            proto=self.proto,
-            node_features=self._node_features,
+            res._num_nodes,
+            res._num_rels,
+            res._kg_embed_dim,
+            proto=res.proto,
+            node_features=res._node_features,
             device=device,
         )
 
         return model, g_dataloader
 
-    def _train_embedding(self, epochs:int, batch_size:int, lr:float, device:Union['str', torch.device]):
+    def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, device:Union['str', torch.device]):
         log('Training embedding')
-        model, g_dataloader = self._init_model(batch_size, device)
-        if hasattr(self, "_embed_model"):
-            model = self._embed_model
+        model, g_dataloader = res._init_model(res, batch_size, device)
+        if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
+            model = res._embed_model
             log("--Reusing previous model")
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -156,15 +169,15 @@ class HeterographEmbedModuleMixin(nn.Module):
                 )
 
             model.eval()
-            self._embeddings = model(self.g_dgl.to(device)).detach()
-            self._embed_model = model
-            if self._eval_flag:
-                score = self._eval(threshold=0.5)
+            res._kg_embeddings = model(res.g_dgl.to(device)).detach()
+            res._embed_model = model
+            if res._eval_flag:
+                score = res._eval(threshold=0.5)
                 pbar.set_description(
                     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {score:.2f}%"
                 )
 
-        return self
+        return res
 
     def embed(
         self,
@@ -182,7 +195,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         evaluate:Optional[bool]=True,
         *args,
         **kwargs,
-    ):
+    ) -> Plottable:
         """Embed a graph using a relational graph convolutional network (RGCN),
         and return a new graphistry graph with the embeddings as node
         attributes.
@@ -225,10 +238,18 @@ class HeterographEmbedModuleMixin(nn.Module):
             res = self
         else:
             res = self.bind()
-
-        res._relation = relation
-        res._use_feat = use_feat
-        res._embed_dim = embedding_dim
+        
+        requires_new_model = False
+        if res._relation != relation:
+            requires_new_model = True
+            res._relation = relation
+        if res._use_feat != use_feat:
+            requires_new_model = True
+            res._use_feat = use_feat
+        if res._kg_embed_dim != embedding_dim:
+            requires_new_model = True
+            res._kg_embed_dim = embedding_dim
+        res._build_new_embedding_model = requires_new_model
         res._train_split = train_split
         res._eval_flag = evaluate
 
@@ -241,11 +262,11 @@ class HeterographEmbedModuleMixin(nn.Module):
             # todo decouple self from res
             res = res.featurize(kind="nodes", X=X, *args, **kwargs)
 
-        if not hasattr(self, "triplets"):
-            res._preprocess_embedding_data(train_split=train_split)
-            res._build_graph()
+        if not hasattr(res, "triplets"):
+            res = res._preprocess_embedding_data(res, train_split=train_split)
+            res = res._build_graph(res)
 
-        return res._train_embedding(epochs, batch_size, lr=lr, device=device)
+        return res._train_embedding(res, epochs, batch_size, lr=lr, device=device)
 
     def calculate_prob(
         self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None
@@ -428,7 +449,7 @@ class HeterographEmbedModuleMixin(nn.Module):
         return g_new
 
     def _score(self, triplets:Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
-        emb = self._embeddings.clone().detach()
+        emb = self._kg_embeddings.clone().detach()
         if type(triplets) != torch.Tensor:
             triplets = torch.tensor(triplets)
         score = self._embed_model.score(emb, triplets)
