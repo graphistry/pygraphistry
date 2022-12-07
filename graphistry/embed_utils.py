@@ -10,7 +10,7 @@ from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 
 
-from tqdm import trange
+from tqdm import trange  # type: ignore
 import logging
 from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
 
@@ -23,7 +23,7 @@ else:
     MIXIN_BASE = object
 
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
-ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]
+ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]  # type: ignore
 
 logging.StreamHandler.terminator = ""
 logger = logging.getLogger(__name__)
@@ -37,16 +37,16 @@ def log(msg:str) -> None:
 
 class EmbedDistScore:
     @staticmethod
-    def TransE(h:TT, r:TT, t:TT) -> TT:
-        return (h + r - t).norm(p=1, dim=1)
+    def TransE(h:TT, r:TT, t:TT) -> TT:  # type: ignore
+        return (h + r - t).norm(p=1, dim=1)  # type: ignore
 
     @staticmethod
-    def DistMult(h:TT, r:TT, t:TT) -> TT:
-        return (h * r * t).sum(dim=1)
+    def DistMult(h:TT, r:TT, t:TT) -> TT:  # type: ignore
+        return (h * r * t).sum(dim=1)  # type: ignore
 
     @staticmethod
-    def RotatE(h:TT, r:TT, t:TT) -> TT:
-        return -(h * r - t).norm(p=1, dim=1)
+    def RotatE(h:TT, r:TT, t:TT) -> TT:  # type: ignore
+        return -(h * r - t).norm(p=1, dim=1)  # type: ignore
 
 
 class HeterographEmbedModuleMixin(MIXIN_BASE):
@@ -412,7 +412,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         score = self._score(
             torch.from_numpy(test_df.to_numpy().astype(np.float32)).to(dtype=torch.long)
         )
-        result_df = test_df.loc[pd.Series(score.detach().numpy()) >= threshold]
+        result_df = test_df.loc[pd.Series(score.detach().numpy()) >= threshold]  # type: ignore
         s, r, d = (
             test_df[src].map(self._id2node),
             test_df[rel].map(self._id2relation),
@@ -427,7 +427,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         threshold:Optional[float] = 0.99,
         return_embeddings:Optional[bool] = True,
         retain_old_edges:Optional[bool] = False
-    ) -> Union[Tuple[Plottable, pd.DataFrame, TT], Plottable]:
+    ) -> Union[Tuple[Plottable, pd.DataFrame, TT], Plottable]:  # type: ignore
         """predict_links over entire graph given a threshold
 
         Parameters
@@ -468,7 +468,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             return g_new, predicted_links, node_embeddings
         return g_new
 
-    def _score(self, triplets:Union[np.ndarray, TT]) -> TT:
+    def _score(self, triplets:Union[np.ndarray, TT]) -> TT:  # type: ignore
         emb = self._kg_embeddings.clone().detach()
         if type(triplets) != torch.Tensor:
             triplets = torch.tensor(triplets)
@@ -492,7 +492,7 @@ class HeteroEmbed(nn.Module):
         num_nodes:int,
         num_rels:int,
         d:int,
-        proto:Callable[[TT, TT, TT], TT],
+        proto:Callable[[TT, TT, TT], TT],  # type: ignore
         node_features:Optional[Union[pd.DataFrame, None]] = None,
         device:Optional[Union[torch.device, str]] = 'cpu',
         reg:Optional[float] = 0.01
@@ -509,7 +509,7 @@ class HeteroEmbed(nn.Module):
             log(f"--Using node features of shape {str(node_features.shape)}")  # type: ignore
         hidden = None
         if node_features is not None:
-            hidden = self.node_features.shape[-1]
+            hidden = self.node_features.shape[-1]  # type: ignore
         self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden, device=device)
         self.relational_embedding = nn.Parameter(torch.Tensor(num_rels, d))
 
@@ -517,23 +517,23 @@ class HeteroEmbed(nn.Module):
             self.relational_embedding, gain=nn.init.calculate_gain("relu")
         )
 
-    def __call__(self, g: dgl.DGLHeteroGraph) -> TT:
+    def __call__(self, g: dgl.DGLHeteroGraph) -> TT:  # type: ignore
         # returns node embeddings
         return self.rgcn.forward(g, node_features=self.node_features)
 
-    def score(self, node_embedding:TT, triplets:TT) -> TT:
-        h, r, t = triplets.T
-        h, r, t = (node_embedding[h], self.relational_embedding[r], node_embedding[t])
+    def score(self, node_embedding:TT, triplets:TT) -> TT:  # type: ignore
+        h, r, t = triplets.T  # type: ignore
+        h, r, t = (node_embedding[h], self.relational_embedding[r], node_embedding[t])  # type: ignore
         return self.proto(h, r, t)
 
-    def loss(self, node_embedding:TT, triplets:TT, labels:TT) -> TT:
+    def loss(self, node_embedding:TT, triplets:TT, labels:TT) -> TT:  # type: ignore
         score = self.score(node_embedding, triplets)
 
         # binary crossentropy loss
         ce_loss = F.binary_cross_entropy_with_logits(score, labels)
 
         # regularization loss
-        ne_ = torch.mean(node_embedding.pow(2))
+        ne_ = torch.mean(node_embedding.pow(2))  # type: ignore
         re_ = torch.mean(self.relational_embedding.pow(2))
         rl = ne_ + re_
         
@@ -563,7 +563,7 @@ class SubgraphIterator:
             self.num_nodes,
         )
 
-        src, rel, dst = samples.T
+        src, rel, dst = samples.T  # type: ignore
 
         # might need to add bidirectional edges
         sub_g = dgl.graph((src, dst), num_nodes=self.num_nodes)
@@ -573,7 +573,7 @@ class SubgraphIterator:
         return sub_g, samples, labels
 
     @staticmethod
-    def _sample_neg(triplets:np.ndarray, num_nodes:int) -> Tuple[TT, TT]:
+    def _sample_neg(triplets:np.ndarray, num_nodes:int) -> Tuple[TT, TT]:  # type: ignore
         triplets = torch.tensor(triplets)  # type: ignore
         h, r, t = triplets.T
         h_o_t = torch.randint(high=2, size=h.size())
