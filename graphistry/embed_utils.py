@@ -68,8 +68,13 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             nodes = res._nodes[self._node]
         elif res._node is None and res._nodes is not None:
             nodes = res._nodes.reset_index(drop=True).reset_index()["index"]
+            print('None but not None', nodes)
         else:
-            nodes = pd.Series(pd.concat([res._edges[src], res._edges[dst]]).unique())
+            res = res.materialize_nodes()#pd.Series(pd.concat([res._edges[src], res._edges[dst]]).unique())
+            nodes = res._nodes[res._node]
+            print('Materialize nodes')
+        
+        print('nodes', nodes)
 
         edges = res._edges
         edges = edges[edges[src].isin(nodes) & edges[dst].isin(nodes)]
@@ -119,8 +124,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         res.g_dgl = g_dgl
         return res
 
-    def _init_model(self, res, batch_size:int, device:Union['str', torch.device]) -> Union[nn.Module, GraphDataLoader]:
-        g_iter = SubgraphIterator(res.g_dgl)
+    def _init_model(self, res, batch_size:int, sample_size:int, num_steps:int, device:Union['str', torch.device]) -> Union[nn.Module, GraphDataLoader]:
+        g_iter = SubgraphIterator(res.g_dgl, sample_size, num_steps)
         g_dataloader = GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
         )
@@ -137,9 +142,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         return model, g_dataloader
 
-    def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, device:Union['str', torch.device]):
+    def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device:Union['str', torch.device]):
         log('Training embedding')
-        model, g_dataloader = res._init_model(res, batch_size, device)
+        model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
             model = res._embed_model
             log("--Reusing previous model")
@@ -189,6 +194,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         epochs:Optional[int]=2,
         batch_size:Optional[int]=32,
         train_split:Optional[Union[float, int]]=0.8,
+        sample_size:int=1000, 
+        num_steps:int=50,
         lr:Optional[float]=1e-2,
         inplace:Optional[bool]=False,
         device:Optional[Union[str, torch.device]]="cpu",
@@ -262,11 +269,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             # todo decouple self from res
             res = res.featurize(kind="nodes", X=X, *args, **kwargs)
 
-        if not hasattr(res, "triplets"):
+        if not hasattr(res, "triplets") or res._build_new_embedding_model:
             res = res._preprocess_embedding_data(res, train_split=train_split)
             res = res._build_graph(res)
 
-        return res._train_embedding(res, epochs, batch_size, lr=lr, device=device)
+        return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps,device=device)
 
     def calculate_prob(
         self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None
@@ -500,7 +507,7 @@ class HeteroEmbed(nn.Module):
             self.relational_embedding, gain=nn.init.calculate_gain("relu")
         )
 
-    def __call__(self, g:dgl.DGLHeteroGraph) -> torch.Tensor:
+    def __call__(self, g: dgl.DGLHeteroGraph) -> torch.Tensor:
         # returns node embeddings
         return self.rgcn.forward(g, node_features=self.node_features)
 
