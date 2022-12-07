@@ -2,6 +2,7 @@ import pytest
 import pandas as pd
 import unittest
 import graphistry
+import numpy as np
 
 import logging
 logger = logging.getLogger(__name__)
@@ -34,22 +35,6 @@ class TestEmbed(unittest.TestCase):
             self.assertEqual(set(g._edges[g._relation]), set(g._edges['rel']))
             self.assertEqual(g._kg_embeddings.shape,(num_nodes, d))
 
-        # g = graph_with_feat_no_ids.embed('rel', use_feat=True, embedding_dim=d, epochs=1)
-        # num_nodes = len(set(g._edges['src'] + g._edges['dst']))
-
-        # self.assertEqual(g._edges.shape, edf.shape)
-        # self.assertEqual(set(g._edges[g._relation]), set(graph_with_feat_no_ids._edges['rel']))
-        # self.assertEqual(g._kg_embeddings.shape, (num_nodes, d))
-        # self.assertEqual(len(g._node_features), num_nodes)
-
-
-        # g = graph_with_feat_with_ids.embed('rel', use_feat=True, embedding_dim=d, epochs=1)
-        # num_nodes = len(set(g._edges['src'] + g._edges['dst']))
-
-        # self.assertEqual(g._edges.shape, edf.shape)
-        # self.assertEqual(set(g._edges[g._relation]), set(graph_with_feat_with_ids._edges['rel']))
-        # self.assertEqual(g._kg_embeddings.shape, (num_nodes, d))
-        # self.assertEqual(len(g._node_features), num_nodes)
 
     def test_predict_link(self):
         test_df = pd.DataFrame([
@@ -83,6 +68,7 @@ class TestEmbed(unittest.TestCase):
             g = g.embed(relation='rel', use_feat=False, embedding_dim=d, **kwargs)
             g2 = g.embed(relation='src', use_feat=False, embedding_dim=d, **kwargs)
             self.assertEqual(g._kg_embeddings.shape, g2._kg_embeddings.shape)
+            self.assertNotEqual(np.linalg.norm(g._kg_embeddings - g2._kg_embeddings), 0)
 
         [g.reset_caches() for _, g in graphs]
         for name, g in graphs:
@@ -90,7 +76,7 @@ class TestEmbed(unittest.TestCase):
             g = g.embed(relation='rel', use_feat=False, embedding_dim=d, **kwargs)
             g2 = g.embed(relation='rel', use_feat=True, embedding_dim=d, **kwargs)
             self.assertEqual(g._kg_embeddings.shape, g2._kg_embeddings.shape)
-
+            self.assertNotEqual(np.linalg.norm(g._kg_embeddings - g2._kg_embeddings), 0)
 
 
 if __name__ == "__main__":
