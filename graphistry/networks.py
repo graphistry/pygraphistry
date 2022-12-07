@@ -13,7 +13,7 @@ def lazy_import_networks():  # noqa
         Module = nn.Module
         return nn, dgl, dglnn, fn, torch, F, Module
     except:
-        return Any, Any, Any, Any, Any, Any, Any
+        return Any, Any, Any, Any, Any, Any, object
 
 if TYPE_CHECKING:  # noqa
     nn, dgl, dglnn, fn, torch, F, Module = lazy_import_networks()
@@ -27,10 +27,28 @@ else:
     Module = object
 
 try:
-    import torch.nn as nn
-    Module = nn.Module
+    import torch.nn as nn  # noqa
+    Module = nn.Module  # noqa
 except:
     Module = object
+
+
+# class GNN_MIXIN():
+#     def __init__(self) -> None:    
+#         pass    
+
+
+# #@memoize
+# def get_GNN_concretized():
+   
+#     import torch.nn as nn
+#     Module = nn.Module
+#     class GNN(GNN_MIXIN, Module):
+#             def __init__(self):
+#                 super().__init__()
+
+#     return GNN
+
 
 class GCN(Module):  # type: ignore
     def __init__(self, in_feats, h_feats, num_classes):

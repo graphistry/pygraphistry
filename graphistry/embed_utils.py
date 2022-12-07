@@ -171,7 +171,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return model, g_dataloader
 
     def _train_embedding(self, res:Plottable, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device) -> Plottable:
-        _, torch, nn, dgl, GraphDataLoader, _, F, trange = lazy_embed_import_dep()
+        _, torch, nn, _, _, _, _, trange = lazy_embed_import_dep()
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)  # type: ignore
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:  # type: ignore
