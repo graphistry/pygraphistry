@@ -16,7 +16,7 @@ def lazy_import_networks():  # noqa
         return Any, Any, Any, Any, Any, Any, Any
 
 if TYPE_CHECKING:  # noqa
-    nn, dgl, dglnn, fn, torch, F, Module = lazy_import_networks()
+    _, dgl, dglnn, fn, torch, F, Module = lazy_import_networks()
 else:
     nn = Any 
     dgl = Any
