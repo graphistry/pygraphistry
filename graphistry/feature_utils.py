@@ -456,7 +456,7 @@ def check_if_textual_column(
         mean_n_words = n_words.mean()
         if mean_n_words >= min_words:
             logger.info(
-                f"\n\tColumn `{col}` looks textual with mean number"
+                f"\n\tColumn `{col}` looks textual with mean number "
                 f"of words {mean_n_words:.2f}"
             )
             return True
