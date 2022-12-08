@@ -446,9 +446,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             torch.from_numpy(test_df.to_numpy().astype(np.float32)).to(dtype=torch.long)
         )
         if anomalous:
-            result_df = test_df.loc[pd.Series(score.detach().numpy()) <= threshold]
+            result_df = test_df.loc[score.detach().numpy() <= threshold]  # type: ignore
         else:
-            result_df = test_df.loc[pd.Series(score.detach().numpy()) >= threshold]  # type: ignore
+            result_df = test_df.loc[score.detach().numpy() >= threshold]  # type: ignore
         s, r, d = (
             test_df[src].map(self._id2node),
             test_df[rel].map(self._id2relation),
