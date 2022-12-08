@@ -15,11 +15,9 @@ def lazy_embed_import_dep():
         import torch.nn.functional as F
         from .networks import HeteroEmbed
         from tqdm import trange  # type: ignore
-        #print('GOOD')
         return True, torch, nn, dgl, GraphDataLoader, HeteroEmbed, F, trange
 
     except:
-        #print('ERROR')
         return False, None, None, None, None, None, None, None
 
 
@@ -63,7 +61,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
     def __init__(self):
         super().__init__()
 
-        self.protocol = {
+        self._protocol = {
             "TransE": EmbedDistScore.TransE,
             "DistMult": EmbedDistScore.DistMult,
             "RotatE": EmbedDistScore.RotatE,
@@ -297,7 +295,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         if callable(proto):
             res.proto = proto  # type: ignore
         else:
-            res.proto = res.protocol[proto]  # type: ignore
+            res.proto = res._protocol[proto]  # type: ignore
 
         if res._use_feat and res._nodes is not None:
             res = res.featurize(kind="nodes", X=X, *args, **kwargs)  # type: ignore
@@ -308,8 +306,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps,device=device)  # type: ignore
 
-    def calculate_prob(
-        self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None
+    def _calculate_prob(
+        self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None, anomalous=False
     ):
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
         # TODO: simplify
@@ -338,9 +336,13 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         )
 
         score = torch.sigmoid(o)
-        return perturb_entity_idx[score > threshold]
+        if anomalous:
+            return perturb_entity_idx[score < threshold]
+        else:
+            return perturb_entity_idx[score > threshold]
 
-    def _predict(self, test_triplets, threshold=0.95, directed=True, infer=None):
+
+    def _predict(self, test_triplets, threshold=0.95, directed=True, infer=None, anomalous=False):
         _, torch, _, dgl, _, _, _, _ = lazy_embed_import_dep()
 
         if type(test_triplets) != torch.Tensor:
@@ -370,8 +372,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             # for [s, r] -> {d}
             if k not in visited:
 
-                links = self.calculate_prob(
-                    test_triplet, test_triplets, threshold, h_r, node_embeddings, infer
+                links = self._calculate_prob(
+                    test_triplet, test_triplets, threshold, h_r, node_embeddings, infer, anomalous
                 )
                 visited[k] = ""
                 predicted_links += [
@@ -385,7 +387,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
             # for [d, r] -> {s}
             if kr not in visited and not directed:
-                links = self.calculate_prob(
+                links = self._calculate_prob(
                     test_triplet, test_triplets, threshold, t_r, node_embeddings, infer
                 )
                 visited[k] = ""
@@ -408,7 +410,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         test_df: pd.DataFrame,
         src:str,
         rel:str,
-        threshold:Optional[float] = 0.95
+        threshold:Optional[float] = 0.95, 
+        anomalous=False
     ) -> pd.DataFrame:
         """predict links from a test dataframe given src/dst and rel columns
 
@@ -417,7 +420,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         test_df : pd.DataFrame
             dataframe of test data
         src : str
-            source column name
+            source or destination column name
         rel : str
             relation column name
         threshold : Optional[float]
@@ -442,7 +445,10 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         score = self._score(
             torch.from_numpy(test_df.to_numpy().astype(np.float32)).to(dtype=torch.long)
         )
-        result_df = test_df.loc[pd.Series(score.detach().numpy()) >= threshold]  # type: ignore
+        if anomalous:
+            result_df = test_df.loc[pd.Series(score.detach().numpy()) <= threshold]
+        else:
+            result_df = test_df.loc[pd.Series(score.detach().numpy()) >= threshold]  # type: ignore
         s, r, d = (
             test_df[src].map(self._id2node),
             test_df[rel].map(self._id2relation),
@@ -454,9 +460,10 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def predict_links(
         self, 
-        threshold:Optional[float] = 0.99,
-        return_embeddings:Optional[bool] = True,
-        retain_old_edges:Optional[bool] = False
+        threshold: Optional[float] = 0.99,
+        anomalous: Optional[bool] = False,
+        return_embeddings: Optional[bool] = True,
+        retain_old_edges: Optional[bool] = False
     ) -> Union[Tuple[Plottable, pd.DataFrame, TT], Plottable]:  # type: ignore
         """predict_links over entire graph given a threshold
 
@@ -478,9 +485,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         """
        
-        _, torch, nn, dgl, GraphDataLoader, _, F, _ = lazy_embed_import_dep()
         predicted_links, node_embeddings = self._predict(
-            self.triplets, threshold, infer="all"
+            self.triplets, threshold, infer="all", anomalous=anomalous
         )
 
         existing_links = self._edges[[self._source, self._relation, self._destination]]
@@ -499,17 +505,16 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             return g_new, predicted_links, node_embeddings
         return g_new
 
-    def _score(self, triplets:Union[np.ndarray, TT]) -> TT:  # type: ignore
+    def _score(self, triplets: Union[np.ndarray, TT]) -> TT:  # type: ignore
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
         emb = self._kg_embeddings.clone().detach()
         if type(triplets) != torch.Tensor:
             triplets = torch.tensor(triplets)
         score = self._embed_model.score(emb, triplets)
         prob = torch.sigmoid(score)
-        #print('prob', prob.shape)
         return prob.detach()
 
-    def _eval(self, threshold:float):
+    def _eval(self, threshold: float):
         if self.test_idx is not None:
             triplets = self.triplets[self.test_idx]  # type: ignore
             score = self._score(triplets)

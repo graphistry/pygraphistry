@@ -483,12 +483,15 @@ See `help(g.search_graph)` for options
       g2 = g.embed(relation='relationship_column_of_interest', **kwargs)
 
       # predict links over all node_ids
-      g3 = g2.predict_links(threshold=0.95)  # score confidence on predicted links
-
+      g3 = g2.predict_links(threshold=0.97)  # score high confidence predicted edges
+      
       # or return embeddings 
-      g3, predicted_links, node_embeddings = g2.predict_links(threshold=0.95, return_embeddings=True)
-      g3.plot()  # see resulting links
+      g3, predicted_links, node_embeddings = g2.predict_links(return_embeddings=True, threshold=0.97)
+      g3.plot()  # see resulting graph
 
+      # likewise, score anomolous edges by setting the flag `anomalous` to True and low confidence
+      g4 = g2.predict_links(threshold=0.05, anomalous=True)  # score low confidence predicted edges
+      
       # construct a test dataframe to predict over
       test_df = pd.DataFrame([[src_1, relationship_1, dummy_id], [..]], columns = ['src', 'relationship', 'dst'])
       predicted_df = g2.predict_link(test_df, 'src', 'relationship')  # will predict all `dst` above threshold
@@ -506,7 +509,7 @@ See `help(g.search_graph)` for options
       g2 = g.embed(relation='relationship_column_of_interest', use_feat=True, **kwargs)
       
       # predict links over all node_ids
-      g3 = g2.predict_links(threshold=0.95)  # score confidence on predicted links
+      g3 = g2.predict_links(threshold=0.97)  # score confidence on predicted links
       g3.plot()
     ```
 
