@@ -165,7 +165,6 @@ class PlotterBase(Plottable):
         self._bolt_driver : any = None
         self._tigergraph : any = None
 
-
         self._node_embedding = None
         self._node_encoder = None
         self._node_features = None
@@ -196,6 +195,12 @@ class PlotterBase(Plottable):
         self._adjacency = None
         self._entity_to_index = None
         self._index_to_entity = None
+        
+        # KG embeddings
+        self._relation : Optional[str] = None
+        self._use_feat: bool = False
+        self.triplets: Optional[List] = None # actually torch.Tensor too
+        self._kg_embed_dim: int = 128
 
 
     def __repr__(self):
