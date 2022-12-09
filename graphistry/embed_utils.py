@@ -135,13 +135,13 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         if res.train_idx is not None:  # type: ignore
             g_dgl = dgl.graph(
-                (s[res.train_idx], t[res.train_idx]), num_nodes=self._num_nodes  # type: ignore
+                (s[res.train_idx], t[res.train_idx]), num_nodes=res._num_nodes  # type: ignore
             )
             g_dgl.edata[dgl.ETYPE] = r[res.train_idx]  # type: ignore
 
         else:
             g_dgl = dgl.graph(
-                (s, t), num_nodes=self._num_nodes  # type:ignore
+                (s, t), num_nodes=res._num_nodes  # type:ignore
             )
             g_dgl.edata[dgl.ETYPE] = r  # type: ignore
 
@@ -272,7 +272,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         -------
             self : graphistry instance
         """
-        #_, torch, nn, dgl, GraphDataLoader, _, F, _ = lazy_embed_import_dep()
         if inplace:
             res = self
         else:
@@ -342,23 +341,26 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             return perturb_entity_idx[score > threshold]
 
 
-    def _predict(self, test_triplets, threshold=0.95, directed=True, infer=None, anomalous=False):
+    def _predict(self, test_triplets, threshold=0.5, directed=True, infer=None, anomalous=False):
         _, torch, _, dgl, _, _, _, _ = lazy_embed_import_dep()
 
         if type(test_triplets) != torch.Tensor:
             test_triplets = torch.tensor(test_triplets)
+
         triplets = self.triplets
 
-        s, r, o = triplets.T
-        edge_index = torch.stack([s, o])
+        # s, r, o = triplets.T
+        # edge_index = torch.stack([s, o])
 
-        # make graph
-        g = dgl.graph((s, o), num_nodes=edge_index.max() + 1)
-        g.edata[dgl.ETYPE] = r
-        g.edata["norm"] = dgl.norm_by_dst(g).unsqueeze(-1)
-        del s, r, o
+        # # make graph
+        # g = dgl.graph((s, o), num_nodes=edge_index.max() + 1)
+        # g.edata[dgl.ETYPE] = r
+        # g.edata["norm"] = dgl.norm_by_dst(g).unsqueeze(-1)
+        # del s, r, o
 
-        node_embeddings = self._embed_model(g)
+        #node_embeddings = self._embed_model(g)
+        
+        node_embeddings = self._kg_embeddings
 
         h_r = triplets[:, :2]
         t_r = torch.stack((triplets[:, 2], triplets[:, 1])).transpose(0, 1)
@@ -410,6 +412,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         test_df: pd.DataFrame,
         src:str,
         rel:str,
+        dst:str = None,
         threshold:Optional[float] = 0.95, 
         anomalous=False
     ) -> pd.DataFrame:
@@ -425,6 +428,10 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             relation column name
         threshold : Optional[float]
             Probability threshold/confidence. Defaults to 0.95.
+        anomalous : Optional[bool]
+            will return anomalous links, ie links with scores lower than threshold. 
+            Defaults to False.    
+
 
         Returns
         -------
@@ -433,8 +440,12 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         """
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
+        
         pred = "predicted_destination"
+        #if src is not None:
         nodes = test_df[src].map(self._node2id)
+        #if dst is not None:
+        #    nodes = test_df[dst].map(self._node2id)
         relations = test_df[rel].map(self._relation2id)
 
         all_nodes = self._node2id.values()
@@ -442,9 +453,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         test_df[pred] = [all_nodes] * len(test_df)
         test_df = test_df.explode(pred)
         test_df = test_df[test_df[src] != test_df[pred]]
+        # score triplets
         score = self._score(
             torch.from_numpy(test_df.to_numpy().astype(np.float32)).to(dtype=torch.long)
         )
+        
         if anomalous:
             result_df = test_df.loc[score.detach().numpy() <= threshold]  # type: ignore
         else:
@@ -458,11 +471,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         result_df.columns = [src, rel, pred]  # type: ignore
         return result_df
 
-    def predict_links(
+    def predict_link_all(
         self, 
-        threshold: Optional[float] = 0.99,
+        threshold: Optional[float] = 0.5,
         anomalous: Optional[bool] = False,
-        return_embeddings: Optional[bool] = True,
+        return_embeddings: Optional[bool] = False,
         retain_old_edges: Optional[bool] = False
     ) -> Union[Tuple[Plottable, pd.DataFrame, TT], Plottable]:  # type: ignore
         """predict_links over entire graph given a threshold
@@ -470,16 +483,19 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         Parameters
         ----------
         threshold : Optional[float]
-            Probability threshold. Defaults to 0.99.
+            Probability threshold. Defaults to 0.5
+        anomalous : Optional[bool]
+            will return anomalous links, ie links with scores lower than threshold. 
+            Defaults to False.    
         return_embeddings : Optional[bool]
             will return DataFrame of predictions and node_embeddings. Defaults
-            to True
+            to False.
         retain_old_edges : Optional[bool]
             will include old edges in predicted graph. Defaults to False.
 
         Returns
         -------
-        Union[Tuple[Plottable, pd.DataFrame, TT], Plottable]
+        Union[Tuple[Plottable, pd.DataFrame, torch.Tensor], Plottable]:
             graphistry graph or (graphistry graph, DataFrame of predicted
             links, node embeddings) when return_embeddings=True
 
@@ -498,8 +514,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         else:
             all_links = predicted_links
 
-        g_new = self.nodes(self._nodes, self._node)
-        g_new = g_new.edges(all_links, self._source, self._destination)
+        g_new = self.nodes(self._nodes, self._node).edges(all_links, self._source, self._destination)
 
         if return_embeddings:
             return g_new, predicted_links, node_embeddings
