@@ -86,6 +86,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         self._build_new_embedding_model = None
         self.proto = None
+        self._device = "cpu"
 
     def _preprocess_embedding_data(self, res, train_split:Union[float, int] = 0.8) -> Plottable:
         _, torch, _, _, _, _, F, _ = lazy_embed_import_dep()
@@ -154,6 +155,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         res.g_dgl = g_dgl
         return res
 
+
     def _init_model(self, res, batch_size:int, sample_size:int, num_steps:int, device):
         _, _, _, _, GraphDataLoader, HeteroEmbed, _, _ = lazy_embed_import_dep()
         g_iter = SubgraphIterator(res.g_dgl, sample_size, num_steps)
@@ -215,6 +217,15 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 )
 
         return res
+
+    @property
+    def gcn_node_embeddings(self):
+        _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
+        g_dgl = self.g_dgl.to(self._device)
+        em = self._embed_model(g_dgl).detach()
+        del g_dgl
+        torch.cuda.empty_cache()
+        return em
 
     def embed(
         self,
@@ -296,6 +307,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         res._build_new_embedding_model = requires_new_model
         res._train_split = train_split
         res._eval_flag = evaluate
+        res._device = device
 
         if callable(proto):
             res.proto = proto
@@ -311,106 +323,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps,device=device)
 
-    def _calculate_prob(
-        self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None, anomalous=False
-    ):
-        _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
-        # TODO: simplify
-        if infer == "all":
-            s, r, o_ = test_triplet
-        else:
-            s, r = test_triplet
 
-        subject_relation = test_triplet[:2]
-        num_entity = len(node_embeddings)
-        delete_idx = torch.sum(h_r == subject_relation, dim=1)
-        delete_idx = torch.nonzero(delete_idx == 2).squeeze()
-        delete_entity_idx = test_triplets[delete_idx, 2].view(-1).numpy()
-        perturb_entity_idx = np.array(
-            list(set(np.arange(num_entity)) - set(delete_entity_idx))
-        )
-        perturb_entity_idx = torch.from_numpy(perturb_entity_idx).squeeze()
-
-        if infer == "all":
-            perturb_entity_idx = torch.cat((perturb_entity_idx, torch.unsqueeze(o_, 0)))
-
-        o = self.proto(
-            node_embeddings[s],
-            self._embed_model.relational_embedding[r],
-            node_embeddings[perturb_entity_idx],
-        )
-
-        score = torch.sigmoid(o)
-        if anomalous:
-            return perturb_entity_idx[score < threshold]
-        else:
-            return perturb_entity_idx[score > threshold]
-
-
-    def _predict(self, test_triplets, threshold=0.95, directed=True, infer=None, anomalous=False):
-        _, torch, _, dgl, _, _, _, _ = lazy_embed_import_dep()
-
-        if type(test_triplets) != torch.Tensor:
-            test_triplets = torch.tensor(test_triplets)
-        triplets = self.triplets
-
-        s, r, o = triplets.T
-        edge_index = torch.stack([s, o])
-
-        # make graph
-        g = dgl.graph((s, o), num_nodes=edge_index.max() + 1)
-        g.edata[dgl.ETYPE] = r
-        g.edata["norm"] = dgl.norm_by_dst(g).unsqueeze(-1)
-        del s, r, o
-
-        node_embeddings = self._embed_model(g)
-
-        h_r = triplets[:, :2]
-        t_r = torch.stack((triplets[:, 2], triplets[:, 1])).transpose(0, 1)
-
-        visited, predicted_links = {}, []
-        for test_triplet in test_triplets:
-            s, r, o_ = test_triplet
-            k = "".join([str(s), "_", str(r)])
-            kr = "".join([str(r), "_", str(s)])
-
-            # for [s, r] -> {d}
-            if k not in visited:
-
-                links = self._calculate_prob(
-                    test_triplet, test_triplets, threshold, h_r, node_embeddings, infer, anomalous
-                )
-                visited[k] = ""
-                predicted_links += [
-                    [
-                        self._id2node[s.item()],
-                        self._id2relation[r.item()],
-                        self._id2node[i.item()],
-                    ]
-                    for i in links
-                ]
-
-            # for [d, r] -> {s}
-            if kr not in visited and not directed:
-                links = self._calculate_prob(
-                    test_triplet, test_triplets, threshold, t_r, node_embeddings, infer
-                )
-                visited[k] = ""
-                predicted_links += [
-                    [
-                        self._id2node[s.item()],
-                        self._id2relation[r.item()],
-                        self._id2node[i.item()],
-                    ]
-                    for i in links
-                ]
-
-        predicted_links = pd.DataFrame(
-            predicted_links, columns=[self._source, self._relation, self._destination]
-        )
-        return predicted_links, node_embeddings
-
-    def predict_link(
+    def predict_links(
         self,
         test_df: pd.DataFrame,
         src:str,
@@ -463,39 +377,64 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         result_df.columns = [src, rel, pred]  # type: ignore
         return result_df
 
-    def predict_links(
+    def predict_links_all(
         self, 
-        threshold: Optional[float] = 0.99,
+        threshold: Optional[float] = 0.95,
         anomalous: Optional[bool] = False,
-        return_embeddings: Optional[bool] = True,
         retain_old_edges: Optional[bool] = False
-    ) -> Union[Tuple[Plottable, pd.DataFrame, TT], Plottable]:  # type: ignore
+    ) -> Plottable:  # type: ignore
         """predict_links over entire graph given a threshold
 
         Parameters
         ----------
         threshold : Optional[float]
             Probability threshold. Defaults to 0.99.
-        return_embeddings : Optional[bool]
-            will return DataFrame of predictions and node_embeddings. Defaults
-            to True
         retain_old_edges : Optional[bool]
             will include old edges in predicted graph. Defaults to False.
+        anomalous : Optional[False]
+            will return the edges < threshold or low confidence edges(anomaly).
 
         Returns
         -------
-        Union[Tuple[Plottable, pd.DataFrame, TT], Plottable]
-            graphistry graph or (graphistry graph, DataFrame of predicted
-            links, node embeddings) when return_embeddings=True
+        Plottable
+            graphistry graph containing predicted_edges/[old_edges + predicted_edges]
 
         """
-       
-        predicted_links, node_embeddings = self._predict(
-            self.triplets, threshold, infer="all", anomalous=anomalous
-        )
+        _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
+        h_r = pd.DataFrame(self.triplets.numpy())  # type: ignore
+        t_r = h_r.copy()
+        t_r[[0,1,2]] = t_r[[2,1,0]]
 
+        all_nodes = set(self._node2id.values())
+
+        def fetch_triplets_for_inference(x_r):
+            existing_collapsed = pd.DataFrame(
+                x_r.groupby(by=[0, 1])[2].apply(set)
+            ).reset_index()
+
+            non_existing_collapsed = existing_collapsed[2].map(lambda x: set(all_nodes).difference(x))
+            triplets_for_inference = pd.concat(
+                [
+                    existing_collapsed[[0, 1]], 
+                    non_existing_collapsed
+                ], axis=1
+            ).explode(2)
+            return triplets_for_inference
+
+        triplets = pd.concat([fetch_triplets_for_inference(h_r), fetch_triplets_for_inference(t_r)], axis=0)
+        # drop if source_id == destination_id and converting bi directional to unidirectional
+        triplets = triplets[triplets[0] < triplets[2]]
+        triplets = triplets.drop_duplicates().to_numpy().astype(np.int64)
+
+        scores = self._score(triplets)
+        if anomalous:
+            predicted_links = triplets[scores < threshold]  # type: ignore
+        else:
+            predicted_links = triplets[scores > threshold]  # type: ignore
+
+        predicted_links = pd.DataFrame(predicted_links, columns=[self._source, self._relation, self._destination])
         existing_links = self._edges[[self._source, self._relation, self._destination]]
-
+        
         if retain_old_edges:
             all_links = pd.concat(
                 [existing_links, predicted_links], ignore_index=True
@@ -505,9 +444,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         g_new = self.nodes(self._nodes, self._node)
         g_new = g_new.edges(all_links, self._source, self._destination)
-
-        if return_embeddings:
-            return g_new, predicted_links, node_embeddings
         return g_new
 
     def _score(self, triplets: Union[np.ndarray, TT]) -> TT:  # type: ignore
