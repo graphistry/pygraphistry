@@ -14,7 +14,7 @@ def lazy_embed_import_dep():
         from dgl.dataloading import GraphDataLoader
         import torch.nn.functional as F
         from .networks import HeteroEmbed
-        from tqdm import trange  # type: ignore
+        from tqdm import trange
         return True, torch, nn, dgl, GraphDataLoader, HeteroEmbed, F, trange
 
     except:
@@ -35,7 +35,6 @@ ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]  # type: ignore
 
 logging.StreamHandler.terminator = ""
 logger = logging.getLogger(__name__)
-#logger.setLevel(logging.DEBUG)
 
 
 def log(msg:str) -> None:
@@ -80,7 +79,13 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         self.train_idx = None
         self.test_idx = None
-        
+
+        self._num_nodes = None
+        self._train_split = None
+        self._eval_flag = None
+
+        self._build_new_embedding_model = None
+        self.proto = None
 
     def _preprocess_embedding_data(self, res, train_split:Union[float, int] = 0.8) -> Plottable:
         _, torch, _, _, _, _, F, _ = lazy_embed_import_dep()
@@ -119,7 +124,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             log(msg="--Splitting data")
             train_size = int(train_split * len(triplets))
             test_size = len(triplets) - train_size
-            train_dataset, test_dataset = torch.utils.data.random_split(triplets, [train_size, test_size])  # type: ignore
+            train_dataset, test_dataset = torch.utils.data.random_split(triplets, [train_size, test_size])
             res.train_idx = train_dataset.indices
             res.test_idx = test_dataset.indices
 
@@ -129,50 +134,50 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             f"--num_nodes: {res._num_nodes}, num_relationships: {res._num_rels}")
         return res
 
-    def _build_graph(self, res:Plottable) -> Plottable:
+    def _build_graph(self, res) -> Plottable:
         _, _, _, dgl, _, _, _, _ = lazy_embed_import_dep()
-        s, r, t = res.triplets.T  # type: ignore
+        s, r, t = res.triplets.T
 
-        if res.train_idx is not None:  # type: ignore
+        if res.train_idx is not None:
             g_dgl = dgl.graph(
-                (s[res.train_idx], t[res.train_idx]), num_nodes=self._num_nodes  # type: ignore
+                (s[res.train_idx], t[res.train_idx]), num_nodes=self._num_nodes
             )
-            g_dgl.edata[dgl.ETYPE] = r[res.train_idx]  # type: ignore
+            g_dgl.edata[dgl.ETYPE] = r[res.train_idx]
 
         else:
             g_dgl = dgl.graph(
-                (s, t), num_nodes=self._num_nodes  # type:ignore
+                (s, t), num_nodes=self._num_nodes
             )
-            g_dgl.edata[dgl.ETYPE] = r  # type: ignore
+            g_dgl.edata[dgl.ETYPE] = r
 
         g_dgl.edata["norm"] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
-        res.g_dgl = g_dgl  # type: ignore
+        res.g_dgl = g_dgl
         return res
 
-    def _init_model(self, res:Plottable, batch_size:int, sample_size:int, num_steps:int, device):
+    def _init_model(self, res, batch_size:int, sample_size:int, num_steps:int, device):
         _, _, _, _, GraphDataLoader, HeteroEmbed, _, _ = lazy_embed_import_dep()
-        g_iter = SubgraphIterator(res.g_dgl, sample_size, num_steps)  # type: ignore
+        g_iter = SubgraphIterator(res.g_dgl, sample_size, num_steps)
         g_dataloader = GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
         )
 
         # init model
         model = HeteroEmbed(
-            res._num_nodes,  # type: ignore
-            res._num_rels,   # type: ignore
+            res._num_nodes,
+            res._num_rels,
             res._kg_embed_dim,
-            proto=res.proto,  # type: ignore
+            proto=res.proto,
             node_features=res._node_features,
             device=device,
         )
 
         return model, g_dataloader
 
-    def _train_embedding(self, res:Plottable, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device) -> Plottable:
+    def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device) -> Plottable:
         _, torch, nn, _, _, _, _, trange = lazy_embed_import_dep()
         log('Training embedding')
-        model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)  # type: ignore
-        if hasattr(res, "_embed_model") and not res._build_new_embedding_model:  # type: ignore
+        model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
+        if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
             model = res._embed_model
             log("--Reusing previous model")
 
@@ -201,10 +206,10 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 )
 
             model.eval()
-            res._kg_embeddings = model(res.g_dgl.to(device)).detach()  # type: ignore
-            res._embed_model = model  # type: ignore
-            if res._eval_flag and self.train_idx is not None:  # type: ignore
-                score = res._eval(threshold=0.5)  # type: ignore
+            res._kg_embeddings = model(res.g_dgl.to(device)).detach()
+            res._embed_model = model
+            if res._eval_flag and self.train_idx is not None:
+                score = res._eval(threshold=0.5)
                 pbar.set_description(
                     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
                 )
@@ -215,18 +220,18 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         self,
         relation:str,
         proto: ProtoSymbolic = 'DistMult',
-        embedding_dim: Optional[int] = 32,
-        use_feat: Optional[bool] = False,
+        embedding_dim: int = 32,
+        use_feat: bool = False,
         X: XSymbolic = None,
-        epochs: Optional[int] = 2,
-        batch_size: Optional[int] = 32,
-        train_split: Optional[Union[float, int]] = 0.8,
+        epochs: int = 2,
+        batch_size: int = 32,
+        train_split: Union[float, int] = 0.8,
         sample_size: int = 1000, 
         num_steps: int = 50,
-        lr: Optional[float] = 1e-2,
+        lr: float = 1e-2,
         inplace: Optional[bool] = False,
         device: Optional['str'] = "cpu",
-        evaluate: Optional[bool] = True,
+        evaluate: bool = True,
         *args,
         **kwargs,
     ) -> Plottable:
@@ -241,31 +246,31 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             column to use as relation between nodes
         proto : ProtoSymbolic
             metric to use, ['TransE', 'RotateE', 'DistMult'] or provide your own. Defaults to 'DistMult'.
-        embedding_dim : Optional[int]
+        embedding_dim : int
             relation embedding dimension. defaults to 32
-        use_feat : Optional[bool]
+        use_feat : bool
             wether to featurize nodes, if False will produce random embeddings and shape them during training.
             Defaults to True
         X : XSymbolic
             Which columns in the nodes dataframe to featurize. Inherets args from graphistry.featurize().
             Defaults to None.
-        epochs : Optional[int]
+        epochs : int
             Number of training epochs. Defaults to 2
-        batch_size : Optional[int]
+        batch_size : int
             batch_size. Defaults to 32
-        train_split : Optional[Union[float, int]]
+        train_split : Union[float, int]
             train percentage, between 0, 1. Defaults to 0.8.
         sample_size : int
             sample size. Defaults to 1000
         num_steps : int
             num_steps. Defaults to 50
-        lr : Optional[float]
+        lr : float
             learning rate. Defaults to 0.002
         inplace : Optional[bool]
             inplace
         device : Optional[str]
             accelarator. Defaults to "cpu"
-        evaluate : Optional[bool]
+        evaluate : bool
             Whether to evaluate. Defaults to False.
 
         Returns
@@ -284,27 +289,27 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             res._relation = relation
         if res._use_feat != use_feat:
             requires_new_model = True
-            res._use_feat = use_feat  # type: ignore
+            res._use_feat = use_feat
         if res._kg_embed_dim != embedding_dim:
             requires_new_model = True
-            res._kg_embed_dim = embedding_dim  # type: ignore
-        res._build_new_embedding_model = requires_new_model  # type: ignore
-        res._train_split = train_split  # type: ignore
-        res._eval_flag = evaluate  # type: ignore
+            res._kg_embed_dim = embedding_dim
+        res._build_new_embedding_model = requires_new_model
+        res._train_split = train_split
+        res._eval_flag = evaluate
 
         if callable(proto):
-            res.proto = proto  # type: ignore
+            res.proto = proto
         else:
-            res.proto = res._protocol[proto]  # type: ignore
+            res.proto = res._protocol[proto]
 
         if res._use_feat and res._nodes is not None:
             res = res.featurize(kind="nodes", X=X, *args, **kwargs)  # type: ignore
 
-        if not hasattr(res, "triplets") or res._build_new_embedding_model:  # type: ignore
+        if not hasattr(res, "triplets") or res._build_new_embedding_model:
             res = res._preprocess_embedding_data(res, train_split=train_split)  # type: ignore
             res = res._build_graph(res)  # type: ignore
 
-        return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps,device=device)  # type: ignore
+        return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps,device=device)
 
     def _calculate_prob(
         self, test_triplet, test_triplets, threshold, h_r, node_embeddings, infer=None, anomalous=False
@@ -518,8 +523,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         if self.test_idx is not None:
             triplets = self.triplets[self.test_idx]  # type: ignore
             score = self._score(triplets)
-            # print('score', score.shape)
-            # print(score[score >= threshold].shape)
             score = len(score[score >= threshold]) / len(score)  # type: ignore
             return score
         else:
@@ -562,7 +565,7 @@ class SubgraphIterator:
     @staticmethod
     def _sample_neg(triplets:np.ndarray, num_nodes:int) -> Tuple[TT, TT]:  # type: ignore
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
-        triplets = torch.tensor(triplets)  # type: ignore
+        triplets = torch.tensor(triplets)
         h, r, t = triplets.T
         h_o_t = torch.randint(high=2, size=h.size())
 
@@ -573,7 +576,7 @@ class SubgraphIterator:
         neg_t = torch.where(h_o_t == 1, random_t, t)
         neg_triplets = torch.stack((neg_h, r, neg_t), dim=1)
 
-        all_triplets = torch.cat((triplets, neg_triplets), dim=0)  # type: ignore
+        all_triplets = torch.cat((triplets, neg_triplets), dim=0)
         labels = torch.zeros((all_triplets.size()[0]))
         labels[: triplets.shape[0]] = 1
         return all_triplets, labels
