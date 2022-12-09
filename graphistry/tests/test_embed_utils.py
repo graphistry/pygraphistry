@@ -42,14 +42,14 @@ class TestEmbed(unittest.TestCase):
 
 
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
-    def test_predict_link(self):
+    def test_predict_links(self):
         test_df = pd.DataFrame([
             [0, 1, 3],
             [2, 0, 9]], 
             columns=['src', 'rel', 'extra']
         )
         g = graph_no_feat.embed('rel', embedding_dim=d, **kwargs)
-        links = g.predict_link(test_df, 'src', 'rel', threshold=0)
+        links = g.predict_links(test_df, 'src', 'rel', threshold=0)
         
         self.assertEqual(links.shape[-1], 3)
         self.assertIn("predicted_destination", links.columns)

@@ -9,10 +9,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-* AI: `g.embed(..)` code for fast Knowledge Graph embeddings from raw dataframes
+* AI: `g.embed(..)` code for fast knowledge graph embedding (2-layer RGCN) and its usage for link scoring and prediction
 * AI: automatic naming of graphistry objects during `g.search_graph(query)` -> `g._name = query`
-### Added
-
 * AI: RGCN demos - Infosec Jupyterthon 2022, SSH anomaly detection
 
 ## [0.28.6 - 2022-29-22]
