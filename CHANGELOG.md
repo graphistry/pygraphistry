@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Fixed
+
+* GIB: Add missing import during group-in-a-box cudf layout of 0-degree nodes
+
 ## [0.28.6 - 2022-29-22]
 
 ### Added
