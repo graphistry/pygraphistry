@@ -199,7 +199,7 @@ def partitioned_layout(
         if combined_nodes.y.isna().any():
             updates['y'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(combined_nodes)), dtype='float32')
     elif engine == Engine.CUDF:
-        import cupy as cp
+        import cudf, cupy as cp
         if combined_nodes.x.isna().any():
             updates['x'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))
         if combined_nodes.y.isna().any():
