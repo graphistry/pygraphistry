@@ -129,7 +129,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             res._train_idx = train_dataset.indices
             res._test_idx = test_dataset.indices
 
-        res.triplets = triplets
+        res._triplets = triplets
         res._num_nodes, res._num_rels = (len(res._node2id), len(res._relation2id))
         log(
             f"--num_nodes: {res._num_nodes}, num_relationships: {res._num_rels}")
@@ -137,7 +137,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def _build_graph(self, res) -> Plottable:
         _, _, _, dgl, _, _, _, _ = lazy_embed_import_dep()
-        s, r, t = res.triplets.T
+        s, r, t = res._triplets.T
 
         if res._train_idx is not None:
             g_dgl = dgl.graph(
@@ -317,7 +317,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         if res._use_feat and res._nodes is not None:
             res = res.featurize(kind="nodes", X=X, *args, **kwargs)  # type: ignore
 
-        if not hasattr(res, "triplets") or res._build_new_embedding_model:
+        if not hasattr(res, "_triplets") or res._build_new_embedding_model:
             res = res._preprocess_embedding_data(res, train_split=train_split)  # type: ignore
             res = res._build_graph(res)  # type: ignore
 
@@ -326,9 +326,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def predict_links(
         self, 
-        source: Union[pd.Series, None] = None,
-        relation: Union[pd.Series, None] = None,
-        destination: Union[pd.Series, None] = None,
+        source: Union[list, None] = None,
+        relation: Union[list, None] = None,
+        destination: Union[list, None] = None,
         threshold: Optional[float] = 0.5,
         anomalous: Optional[bool] = False,
         retain_old_edges: Optional[bool] = False
@@ -337,11 +337,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         Parameters
         ----------
-        source: pd.Series
+        source: list
             Targeted source nodes. Defaults to None(all).
-        relation: pd.Series
+        relation: list
             Targeted relations. Defaults to None(all).
-        destination: pd.Series
+        destination: list
             Targeted destinations. Defaults to None(all).
         threshold : Optional[float]
             Probability threshold. Defaults to 0.5
@@ -363,19 +363,22 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         all_relations = self._relation2id.values()
 
         if source is None:
-            source = pd.Series(all_nodes)
+            src = pd.Series(all_nodes)
         else:
-            source = source.map(self._node2id)
+            src = pd.Series(source)
+            src = src.map(self._node2id)
 
         if relation is None:
-            relation = pd.Series(all_relations)
+            rel = pd.Series(all_relations)
         else:
-            relation.map(self._relation2id)
+            rel = pd.Series(relation)
+            rel = rel.map(self._relation2id)
 
         if destination is None:
-            destination = pd.Series(all_nodes)
+            dst = pd.Series(all_nodes)
         else:
-            destination = destination.map(self._node2id)
+            dst = pd.Series(destination)
+            dst = dst.map(self._node2id)
 
         def fetch_triplets_for_inference(source, relation, destination):
             source = pd.DataFrame(source.unique(), columns=['source'])
@@ -390,7 +393,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             # TODO: remove bidirectional edges with fixed relation
             return triplets.drop_duplicates().reset_index(drop=True)
 
-        triplets = fetch_triplets_for_inference(source, relation, destination)
+        triplets = fetch_triplets_for_inference(src, rel, dst)
         triplets = triplets.to_numpy().astype(np.int64)
         log(f"{triplets.shape[0]} triplets for inference")
         
@@ -438,7 +441,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         """
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
-        h_r = pd.DataFrame(self.triplets.numpy())  # type: ignore
+        h_r = pd.DataFrame(self._triplets.numpy())  # type: ignore
         t_r = h_r.copy()
         t_r[[0,1,2]] = t_r[[2,1,0]]
 
@@ -508,7 +511,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def _eval(self, threshold: float):
         if self._test_idx is not None:
-            triplets = self.triplets[self._test_idx]  # type: ignore
+            triplets = self._triplets[self._test_idx]  # type: ignore
             score = self._score(triplets)
             score = len(score[score >= threshold]) / len(score)  # type: ignore
             return score

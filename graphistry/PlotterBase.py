@@ -199,7 +199,7 @@ class PlotterBase(Plottable):
         # KG embeddings
         self._relation : Optional[str] = None
         self._use_feat: bool = False
-        self.triplets: Optional[List] = None 
+        self._triplets: Optional[List] = None 
         self._kg_embed_dim: int = 128
 
 
