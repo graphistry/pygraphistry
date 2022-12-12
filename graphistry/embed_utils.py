@@ -1,7 +1,7 @@
 import logging
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
+from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple, TypedDict
 
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
@@ -66,11 +66,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             "RotatE": EmbedDistScore.RotatE,
         }
 
-        self._node2id = {}
-        self._relation2id = {}
-        self._id2node = {}
-        self._id2relation = {}
-        self._relation = None
+        self._node2id: TypedDict = {}
+        self._relation2id: TypedDict = {}
+        self._id2node: TypedDict = {}
+        self._id2relation: TypedDict = {}
+        self._relation: str = None
         self._use_feat = False
         self._kg_embed_dim = None
         self._kg_embeddings = None
@@ -379,6 +379,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def predict_links_all(
         self, 
+        source,
+        relation,
+        destination,
         threshold: Optional[float] = 0.95,
         anomalous: Optional[bool] = False,
         retain_old_edges: Optional[bool] = False
@@ -405,26 +408,32 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         t_r = h_r.copy()
         t_r[[0,1,2]] = t_r[[2,1,0]]
 
-        all_nodes = set(self._node2id.values())
+        all_nodes = self._node2id.values()
+        all_relations = self._relation2id.values()
 
-        def fetch_triplets_for_inference(x_r):
-            existing_collapsed = pd.DataFrame(
-                x_r.groupby(by=[0, 1])[2].apply(set)
-            ).reset_index()
+        def fetch_triplets_for_inference(source, relation, destination):
 
-            non_existing_collapsed = existing_collapsed[2].map(lambda x: set(all_nodes).difference(x))
-            triplets_for_inference = pd.concat(
-                [
-                    existing_collapsed[[0, 1]], 
-                    non_existing_collapsed
-                ], axis=1
-            ).explode(2)
-            return triplets_for_inference
+            if source is None:
+                source = pd.Series(all_nodes)
 
-        triplets = pd.concat([fetch_triplets_for_inference(h_r), fetch_triplets_for_inference(t_r)], axis=0)
-        # drop if source_id == destination_id and converting bi directional to unidirectional
-        triplets = triplets[triplets[0] < triplets[2]]
-        triplets = triplets.drop_duplicates().to_numpy().astype(np.int64)
+            if relations is None:
+                relations = pd.Series(all_relations)
+
+            if destination is None:
+                destination = pd.Series(all_nodes)
+            
+            source = pd.DataFrame(source.unique(), columns=['source'])
+            source['relation'] = [relation.unique()] * source.shape[0]
+            source_with_relation = source.explode('relation')
+            source_with_relation['destination'] = [destination.unique()] * source_with_relation.shape[0]
+            triplets = source_with_relation.explode('destination')
+
+            # removing source == destination
+            triplets = triplets[triplets['source'] != triplets['destination']]
+            return triplets.drop_duplicates().reset_index(drop=True)
+
+        triplets = fetch_triplets_for_inference(source, relation, destination)
+        triplets = triplets.to_numpy().astype(np.int64)
 
         scores = self._score(triplets)
         if anomalous:
