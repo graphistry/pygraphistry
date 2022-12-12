@@ -224,7 +224,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
         g_dgl = self.g_dgl.to(self._device)
         em = self._embed_model(g_dgl).detach()
-        del g_dgl
         torch.cuda.empty_cache()
         return em
 
@@ -324,6 +323,41 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps,device=device)  # type: ignore
 
 
+    def _score_triplets(self, triplets, anomalous=False, threshold=0.5, retain_old_edges=False):
+        """Score triplets using the trained model."""
+        
+        log(f"{triplets.shape[0]} triplets for inference")
+        ############################################################
+        # the bees knees 
+        scores = self._score(triplets)
+        ############################################################
+
+        if anomalous:
+            predicted_links = triplets[scores < threshold]  # type: ignore
+            this_score = scores[scores < threshold]  # type: ignore
+        else:
+            predicted_links = triplets[scores > threshold]  # type: ignore
+            this_score = scores[scores > threshold]  # type: ignore
+
+        predicted_links = pd.DataFrame(predicted_links, columns=[self._source, self._relation, self._destination])
+        predicted_links[self._source] = predicted_links[self._source].map(self._id2node)
+        predicted_links[self._relation] = predicted_links[self._relation].map(self._id2relation)
+        predicted_links[self._destination] = predicted_links[self._destination].map(self._id2node)
+
+        predicted_links['score'] = this_score.detach().numpy()
+        existing_links = self._edges[[self._source, self._relation, self._destination]]
+
+        if retain_old_edges:
+            all_links = pd.concat(
+                [existing_links, predicted_links], ignore_index=True
+            ).drop_duplicates()
+        else:
+            all_links = predicted_links
+
+        g_new = self.nodes(self._nodes, self._node).edges(all_links, self._source, self._destination)
+        return g_new
+
+
     def predict_links(
         self, 
         source: Union[list, None] = None,
@@ -357,7 +391,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             where score >= threshold if anamalous if False else score <= threshold.
             
         """
-        _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
 
         all_nodes = self._node2id.values()
         all_relations = self._relation2id.values()
@@ -395,27 +428,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         triplets = fetch_triplets_for_inference(src, rel, dst)
         triplets = triplets.to_numpy().astype(np.int64)
-        log(f"{triplets.shape[0]} triplets for inference")
         
-        ############################################################
-        # the bees knees 
-        scores = self._score(triplets)
-        ############################################################
-
-        if anomalous:
-            predicted_links = triplets[scores < threshold]  # type: ignore
-            this_score = scores[scores < threshold]  # type: ignore
-        else:
-            predicted_links = triplets[scores > threshold]  # type: ignore
-            this_score = scores[scores > threshold]  # type: ignore
-
-        predicted_links = pd.DataFrame(predicted_links, columns=[self._source, self._relation, self._destination])
-        predicted_links[self._source] = predicted_links[self._source].map(self._id2node)
-        predicted_links[self._relation] = predicted_links[self._relation].map(self._id2relation)
-        predicted_links[self._destination] = predicted_links[self._destination].map(self._id2node)
-        predicted_links['score'] = this_score.detach().numpy()
-        return predicted_links
-
+        return self._score_triplets(triplets, threshold, anomalous, retain_old_edges)
+ 
 
     def predict_links_all(
         self, 
@@ -440,7 +455,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             graphistry graph instance containing all predicted/anomalous links.
 
         """
-        _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
         h_r = pd.DataFrame(self._triplets.numpy())  # type: ignore
         t_r = h_r.copy()
         t_r[[0,1,2]] = t_r[[2,1,0]]
@@ -467,37 +481,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         triplets = triplets[triplets[0] < triplets[2]]
         triplets = triplets.drop_duplicates().to_numpy().astype(np.int64)
 
-        log(f"{triplets.shape[0]} triplets for inference")
-
-        ############################################################
-        # the bees knees 
-        scores = self._score(triplets)
-        ############################################################
-
-        if anomalous:
-            predicted_links = triplets[scores < threshold]  # type: ignore
-            this_score = scores[scores < threshold]  # type: ignore
-        else:
-            predicted_links = triplets[scores > threshold]  # type: ignore
-            this_score = scores[scores > threshold]  # type: ignore
-
-        predicted_links = pd.DataFrame(predicted_links, columns=[self._source, self._relation, self._destination])
-        predicted_links[self._source] = predicted_links[self._source].map(self._id2node)
-        predicted_links[self._relation] = predicted_links[self._relation].map(self._id2relation)
-        predicted_links[self._destination] = predicted_links[self._destination].map(self._id2node)
-
-        predicted_links['score'] = this_score.detach().numpy()
-        existing_links = self._edges[[self._source, self._relation, self._destination]]
-
-        if retain_old_edges:
-            all_links = pd.concat(
-                [existing_links, predicted_links], ignore_index=True
-            ).drop_duplicates()
-        else:
-            all_links = predicted_links
-
-        g_new = self.nodes(self._nodes, self._node).edges(all_links, self._source, self._destination)
-        return g_new
+        return self._score_triplets(triplets, threshold, anomalous, retain_old_edges)
         
 
     def _score(self, triplets: Union[np.ndarray, TT]) -> TT:  # type: ignore
@@ -508,6 +492,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         score = self._embed_model.score(emb, triplets)
         prob = torch.sigmoid(score)
         return prob.detach()
+
 
     def _eval(self, threshold: float):
         if self._test_idx is not None:
