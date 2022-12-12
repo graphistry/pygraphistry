@@ -326,9 +326,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def predict_links(
         self, 
-        source: pd.Series = None,
-        relation: pd.Series = None,
-        destination: pd.Series = None,
+        source: Union[pd.Series, None] = None,
+        relation: Union[pd.Series, None] = None,
+        destination: Union[pd.Series, None] = None,
         threshold: Optional[float] = 0.5,
         anomalous: Optional[bool] = False,
         retain_old_edges: Optional[bool] = False
