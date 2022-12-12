@@ -1,7 +1,7 @@
 import logging
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple, TypedDict
+from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
 
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
@@ -66,26 +66,26 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             "RotatE": EmbedDistScore.RotatE,
         }
 
-        self._node2id: TypedDict = {}
-        self._relation2id: TypedDict = {}
-        self._id2node: TypedDict = {}
-        self._id2relation: TypedDict = {}
+        self._node2id = {}
+        self._relation2id = {}
+        self._id2node = {}
+        self._id2relation = {}
         self._relation: str = None
-        self._use_feat = False
+        self._use_feat: bool = False
         self._kg_embed_dim = None
         self._kg_embeddings = None
         
         self._embed_model = None
 
-        self.train_idx = None
-        self.test_idx = None
+        self._train_idx = None
+        self._test_idx = None
 
         self._num_nodes = None
         self._train_split = None
         self._eval_flag = None
 
         self._build_new_embedding_model = None
-        self.proto = None
+        self._proto = None
         self._device = "cpu"
 
     def _preprocess_embedding_data(self, res, train_split:Union[float, int] = 0.8) -> Plottable:
@@ -121,13 +121,13 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         triplets = torch.from_numpy(pd.concat([s, r, t], axis=1).to_numpy())
 
         # split idx
-        if res.train_idx is None or res._train_split != train_split:
+        if res._train_idx is None or res._train_split != train_split:
             log(msg="--Splitting data")
             train_size = int(train_split * len(triplets))
             test_size = len(triplets) - train_size
             train_dataset, test_dataset = torch.utils.data.random_split(triplets, [train_size, test_size])
-            res.train_idx = train_dataset.indices
-            res.test_idx = test_dataset.indices
+            res._train_idx = train_dataset.indices
+            res._test_idx = test_dataset.indices
 
         res.triplets = triplets
         res._num_nodes, res._num_rels = (len(res._node2id), len(res._relation2id))
@@ -139,15 +139,16 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         _, _, _, dgl, _, _, _, _ = lazy_embed_import_dep()
         s, r, t = res.triplets.T
 
-        if res.train_idx is not None:
+        if res._train_idx is not None:
             g_dgl = dgl.graph(
-                (s[res.train_idx], t[res.train_idx]), num_nodes=self._num_nodes
+                (s[res._train_idx], t[res._train_idx]), num_nodes=res._num_nodes  # type: ignore
+
             )
-            g_dgl.edata[dgl.ETYPE] = r[res.train_idx]
+            g_dgl.edata[dgl.ETYPE] = r[res._train_idx]
 
         else:
             g_dgl = dgl.graph(
-                (s, t), num_nodes=self._num_nodes
+                (s, t), num_nodes=res._num_nodes  # type:ignore
             )
             g_dgl.edata[dgl.ETYPE] = r
 
@@ -168,7 +169,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             res._num_nodes,
             res._num_rels,
             res._kg_embed_dim,
-            proto=res.proto,
+            proto=res._proto,
             node_features=res._node_features,
             device=device,
         )
@@ -210,7 +211,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             model.eval()
             res._kg_embeddings = model(res.g_dgl.to(device)).detach()
             res._embed_model = model
-            if res._eval_flag and self.train_idx is not None:
+            if res._eval_flag and self._train_idx is not None:
                 score = res._eval(threshold=0.5)
                 pbar.set_description(
                     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
@@ -288,7 +289,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         -------
             self : graphistry instance
         """
-        #_, torch, nn, dgl, GraphDataLoader, _, F, _ = lazy_embed_import_dep()
         if inplace:
             res = self
         else:
@@ -310,9 +310,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         res._device = device
 
         if callable(proto):
-            res.proto = proto
+            res._proto = proto
         else:
-            res.proto = res._protocol[proto]
+            res._proto = res._protocol[proto]
 
         if res._use_feat and res._nodes is not None:
             res = res.featurize(kind="nodes", X=X, *args, **kwargs)  # type: ignore
@@ -321,68 +321,102 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             res = res._preprocess_embedding_data(res, train_split=train_split)  # type: ignore
             res = res._build_graph(res)  # type: ignore
 
-        return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps,device=device)
+        return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps,device=device)  # type: ignore
 
 
     def predict_links(
-        self,
-        test_df: pd.DataFrame,
-        src:str,
-        rel:str,
-        threshold:Optional[float] = 0.95, 
-        anomalous=False
-    ) -> pd.DataFrame:
-        """predict links from a test dataframe given src/dst and rel columns
+        self, 
+        source: pd.Series = None,
+        relation: pd.Series = None,
+        destination: pd.Series = None,
+        threshold: Optional[float] = 0.5,
+        anomalous: Optional[bool] = False,
+        retain_old_edges: Optional[bool] = False
+    ) -> Plottable:  # type: ignore
+        """predict_links over all the combinations of given source, relation, destinations.
 
         Parameters
         ----------
-        test_df : pd.DataFrame
-            dataframe of test data
-        src : str
-            source or destination column name
-        rel : str
-            relation column name
+        source: pd.Series
+            Targeted source nodes. Defaults to None(all).
+        relation: pd.Series
+            Targeted relations. Defaults to None(all).
+        destination: pd.Series
+            Targeted destinations. Defaults to None(all).
         threshold : Optional[float]
-            Probability threshold/confidence. Defaults to 0.95.
+            Probability threshold. Defaults to 0.5
+        retain_old_edges : Optional[bool]
+            will include old edges in predicted graph. Defaults to False.
+        anomalous : Optional[False]
+            will return the edges < threshold or low confidence edges(anomaly).
 
         Returns
         -------
-        pd.DataFrame
-            dataframe containing predicted links
-
+        pd.Dataframe
+            containing the corresponding source, relation, destination and score column
+            where score >= threshold if anamalous if False else score <= threshold.
+            
         """
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
-        pred = "predicted_destination"
-        nodes = test_df[src].map(self._node2id)
-        relations = test_df[rel].map(self._relation2id)
 
         all_nodes = self._node2id.values()
-        test_df = pd.concat([nodes, relations], axis=1)
-        test_df[pred] = [all_nodes] * len(test_df)
-        test_df = test_df.explode(pred)
-        test_df = test_df[test_df[src] != test_df[pred]]
-        score = self._score(
-            torch.from_numpy(test_df.to_numpy().astype(np.float32)).to(dtype=torch.long)
-        )
-        if anomalous:
-            result_df = test_df.loc[score.detach().numpy() <= threshold]  # type: ignore
+        all_relations = self._relation2id.values()
+
+        if source is None:
+            source = pd.Series(all_nodes)
         else:
-            result_df = test_df.loc[score.detach().numpy() >= threshold]  # type: ignore
-        s, r, d = (
-            test_df[src].map(self._id2node),
-            test_df[rel].map(self._id2relation),
-            test_df[pred].map(self._id2node),
-        )
-        result_df = pd.concat([s, r, d], axis=1)
-        result_df.columns = [src, rel, pred]  # type: ignore
-        return result_df
+            source = source.map(self._node2id)
+
+        if relation is None:
+            relation = pd.Series(all_relations)
+        else:
+            relation.map(self._relation2id)
+
+        if destination is None:
+            destination = pd.Series(all_nodes)
+        else:
+            destination = destination.map(self._node2id)
+
+        def fetch_triplets_for_inference(source, relation, destination):
+            source = pd.DataFrame(source.unique(), columns=['source'])
+            source['relation'] = [relation.unique()] * source.shape[0]
+
+            source_with_relation = source.explode('relation')
+            source_with_relation['destination'] = [destination.unique()] * source_with_relation.shape[0]
+
+            triplets = source_with_relation.explode('destination')
+            triplets = triplets[triplets['source'] != triplets['destination']]
+
+            # TODO: remove bidirectional edges with fixed relation
+            return triplets.drop_duplicates().reset_index(drop=True)
+
+        triplets = fetch_triplets_for_inference(source, relation, destination)
+        triplets = triplets.to_numpy().astype(np.int64)
+        log(f"{triplets.shape[0]} triplets for inference")
+        
+        ############################################################
+        # the bees knees 
+        scores = self._score(triplets)
+        ############################################################
+
+        if anomalous:
+            predicted_links = triplets[scores < threshold]  # type: ignore
+            this_score = scores[scores < threshold]  # type: ignore
+        else:
+            predicted_links = triplets[scores > threshold]  # type: ignore
+            this_score = scores[scores > threshold]  # type: ignore
+
+        predicted_links = pd.DataFrame(predicted_links, columns=[self._source, self._relation, self._destination])
+        predicted_links[self._source] = predicted_links[self._source].map(self._id2node)
+        predicted_links[self._relation] = predicted_links[self._relation].map(self._id2relation)
+        predicted_links[self._destination] = predicted_links[self._destination].map(self._id2node)
+        predicted_links['score'] = this_score.detach().numpy()
+        return predicted_links
+
 
     def predict_links_all(
         self, 
-        source,
-        relation,
-        destination,
-        threshold: Optional[float] = 0.95,
+        threshold: Optional[float] = 0.5,
         anomalous: Optional[bool] = False,
         retain_old_edges: Optional[bool] = False
     ) -> Plottable:  # type: ignore
@@ -391,16 +425,16 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         Parameters
         ----------
         threshold : Optional[float]
-            Probability threshold. Defaults to 0.99.
-        retain_old_edges : Optional[bool]
-            will include old edges in predicted graph. Defaults to False.
+            Probability threshold. Defaults to 0.5
         anomalous : Optional[False]
             will return the edges < threshold or low confidence edges(anomaly).
+        retain_old_edges : Optional[bool]
+            will include old edges in predicted graph. Defaults to False.
 
         Returns
         -------
         Plottable
-            graphistry graph containing predicted_edges/[old_edges + predicted_edges]
+            graphistry graph instance containing all predicted/anomalous links.
 
         """
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
@@ -408,42 +442,50 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         t_r = h_r.copy()
         t_r[[0,1,2]] = t_r[[2,1,0]]
 
-        all_nodes = self._node2id.values()
-        all_relations = self._relation2id.values()
+        all_nodes = set(self._node2id.values())
 
-        def fetch_triplets_for_inference(source, relation, destination):
+        def fetch_triplets_for_inference(x_r):
+            existing_collapsed = pd.DataFrame(
+                x_r.groupby(by=[0, 1])[2].apply(set)
+            ).reset_index()
 
-            if source is None:
-                source = pd.Series(all_nodes)
+            non_existing_collapsed = existing_collapsed[2].map(lambda x: set(all_nodes).difference(x))
+            triplets_for_inference = pd.concat(
+                [
+                    existing_collapsed[[0, 1]], 
+                    non_existing_collapsed
+                ], axis=1
+            ).explode(2)
 
-            if relations is None:
-                relations = pd.Series(all_relations)
+            return triplets_for_inference
 
-            if destination is None:
-                destination = pd.Series(all_nodes)
-            
-            source = pd.DataFrame(source.unique(), columns=['source'])
-            source['relation'] = [relation.unique()] * source.shape[0]
-            source_with_relation = source.explode('relation')
-            source_with_relation['destination'] = [destination.unique()] * source_with_relation.shape[0]
-            triplets = source_with_relation.explode('destination')
+        triplets = pd.concat([fetch_triplets_for_inference(h_r), fetch_triplets_for_inference(t_r)], axis=0)
+        # drop if source_id == destination_id and converting bi directional to unidirectional
+        triplets = triplets[triplets[0] < triplets[2]]
+        triplets = triplets.drop_duplicates().to_numpy().astype(np.int64)
 
-            # removing source == destination
-            triplets = triplets[triplets['source'] != triplets['destination']]
-            return triplets.drop_duplicates().reset_index(drop=True)
+        log(f"{triplets.shape[0]} triplets for inference")
 
-        triplets = fetch_triplets_for_inference(source, relation, destination)
-        triplets = triplets.to_numpy().astype(np.int64)
-
+        ############################################################
+        # the bees knees 
         scores = self._score(triplets)
+        ############################################################
+
         if anomalous:
             predicted_links = triplets[scores < threshold]  # type: ignore
+            this_score = scores[scores < threshold]  # type: ignore
         else:
             predicted_links = triplets[scores > threshold]  # type: ignore
+            this_score = scores[scores > threshold]  # type: ignore
 
         predicted_links = pd.DataFrame(predicted_links, columns=[self._source, self._relation, self._destination])
+        predicted_links[self._source] = predicted_links[self._source].map(self._id2node)
+        predicted_links[self._relation] = predicted_links[self._relation].map(self._id2relation)
+        predicted_links[self._destination] = predicted_links[self._destination].map(self._id2node)
+
+        predicted_links['score'] = this_score.detach().numpy()
         existing_links = self._edges[[self._source, self._relation, self._destination]]
-        
+
         if retain_old_edges:
             all_links = pd.concat(
                 [existing_links, predicted_links], ignore_index=True
@@ -451,9 +493,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         else:
             all_links = predicted_links
 
-        g_new = self.nodes(self._nodes, self._node)
-        g_new = g_new.edges(all_links, self._source, self._destination)
+        g_new = self.nodes(self._nodes, self._node).edges(all_links, self._source, self._destination)
         return g_new
+        
 
     def _score(self, triplets: Union[np.ndarray, TT]) -> TT:  # type: ignore
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
@@ -465,8 +507,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return prob.detach()
 
     def _eval(self, threshold: float):
-        if self.test_idx is not None:
-            triplets = self.triplets[self.test_idx]  # type: ignore
+        if self._test_idx is not None:
+            triplets = self.triplets[self._test_idx]  # type: ignore
             score = self._score(triplets)
             score = len(score[score >= threshold]) / len(score)  # type: ignore
             return score

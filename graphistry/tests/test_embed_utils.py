@@ -43,16 +43,13 @@ class TestEmbed(unittest.TestCase):
 
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
     def test_predict_links(self):
-        test_df = pd.DataFrame([
-            [0, 1, 3],
-            [2, 0, 9]], 
-            columns=['src', 'rel', 'extra']
-        )
+        source = pd.Series([0,2])
+        relation = None
+        destination = pd.Series([1])
         g = graph_no_feat.embed('rel', embedding_dim=d, **kwargs)
-        links = g.predict_links(test_df, 'src', 'rel', threshold=0)
+        links = g.predict_links(source, relation, destination, threshold=0)
         
-        self.assertEqual(links.shape[-1], 3)
-        self.assertIn("predicted_destination", links.columns)
+        self.assertIn("score", links.columns)
 
         
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
