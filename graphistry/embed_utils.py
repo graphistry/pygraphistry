@@ -211,7 +211,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             model.eval()
             res._kg_embeddings = model(res.g_dgl.to(device)).detach()
             res._embed_model = model
-            if res._eval_flag and self._train_idx is not None:
+            if res._eval_flag and res._train_idx is not None:
                 score = res._eval(threshold=0.5)
                 pbar.set_description(
                     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
@@ -320,10 +320,10 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             res = res._preprocess_embedding_data(res, train_split=train_split)  # type: ignore
             res = res._build_graph(res)  # type: ignore
 
-        return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps,device=device)  # type: ignore
+        return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps, device=device)  # type: ignore
 
 
-    def _score_triplets(self, triplets, anomalous=False, threshold=0.5, retain_old_edges=False):
+    def _score_triplets(self, triplets, threshold=0.5, anomalous=False, retain_old_edges=False):
         """Score triplets using the trained model."""
         
         log(f"{triplets.shape[0]} triplets for inference")
@@ -345,9 +345,9 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         predicted_links[self._destination] = predicted_links[self._destination].map(self._id2node)
 
         predicted_links['score'] = this_score.detach().numpy()
-        existing_links = self._edges[[self._source, self._relation, self._destination]]
 
         if retain_old_edges:
+            existing_links = self._edges[[self._source, self._relation, self._destination]]
             all_links = pd.concat(
                 [existing_links, predicted_links], ignore_index=True
             ).drop_duplicates()
@@ -386,7 +386,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
         Returns
         -------
-        pd.Dataframe
+        Graphistry Instance
             containing the corresponding source, relation, destination and score column
             where score >= threshold if anamalous if False else score <= threshold.
             

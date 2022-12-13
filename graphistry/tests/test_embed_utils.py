@@ -31,7 +31,6 @@ class TestEmbed(unittest.TestCase):
 
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
     def test_embed_out_basic(self):
-        
         for name, g in graphs:
             g = g.embed('rel', embedding_dim=d, **kwargs)
             num_nodes = len(set(g._edges['src'] + g._edges['dst']))
@@ -47,9 +46,16 @@ class TestEmbed(unittest.TestCase):
         relation = None
         destination = pd.Series([1])
         g = graph_no_feat.embed('rel', embedding_dim=d, **kwargs)
-        links = g.predict_links(source, relation, destination, threshold=0)
-        
-        self.assertIn("score", links.columns)
+        g_new = g.predict_links(source, relation, destination, threshold=0)
+        self.assertTrue( g_new._edges.shape[0] > 0)
+        self.assertIn("score", g_new._edges.columns)
+    
+    @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
+    def test_predict_links_all(self):
+        g = graph_no_feat.embed('rel', embedding_dim=d, **kwargs)
+        g_new = g.predict_links_all(threshold=0)
+        self.assertTrue( g_new._edges.shape[0] > 0)
+        self.assertIn("score", g_new._edges.columns)
 
         
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
