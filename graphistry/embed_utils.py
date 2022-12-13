@@ -348,6 +348,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         predicted_links[self._destination] = predicted_links[self._destination].map(self._id2node)
 
         predicted_links['score'] = this_score.detach().numpy()
+        predicted_links.sort_values(by='score', ascending=False, inplace=True)
+        
         log(f"{predicted_links.shape[0]} triplets scored at threshold {threshold:.2f}")
 
         if retain_old_edges:
