@@ -323,7 +323,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps, device=device)  # type: ignore
 
 
-    def _score_triplets(self, triplets, threshold=0.5, anomalous=False, retain_old_edges=False):
+    def _score_triplets(self, triplets, threshold=0.5, anomalous=False, retain_old_edges=False, return_dataframe=False):
         """Score triplets using the trained model."""
         
         log(f"{triplets.shape[0]} triplets for inference")
@@ -331,20 +331,24 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         # the bees knees 
         scores = self._score(triplets)
         ############################################################
-
-        if anomalous:
-            predicted_links = triplets[scores < threshold]  # type: ignore
-            this_score = scores[scores < threshold]  # type: ignore
+        if len(triplets)>1:
+            if anomalous:
+                predicted_links = triplets[scores < threshold]  # type: ignore
+                this_score = scores[scores < threshold]  # type: ignore
+            else:
+                predicted_links = triplets[scores > threshold]  # type: ignore
+                this_score = scores[scores > threshold]  # type: ignore
         else:
-            predicted_links = triplets[scores > threshold]  # type: ignore
-            this_score = scores[scores > threshold]  # type: ignore
-
+            predicted_links = triplets
+            this_score = scores
+            
         predicted_links = pd.DataFrame(predicted_links, columns=[self._source, self._relation, self._destination])
         predicted_links[self._source] = predicted_links[self._source].map(self._id2node)
         predicted_links[self._relation] = predicted_links[self._relation].map(self._id2relation)
         predicted_links[self._destination] = predicted_links[self._destination].map(self._id2node)
 
         predicted_links['score'] = this_score.detach().numpy()
+        log(f"{predicted_links.shape[0]} triplets scored at threshold {threshold:.2f}")
 
         if retain_old_edges:
             existing_links = self._edges[[self._source, self._relation, self._destination]]
@@ -353,11 +357,15 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             ).drop_duplicates()
         else:
             all_links = predicted_links
-
-        g_new = self.nodes(self._nodes, self._node).edges(all_links, self._source, self._destination)
-        return g_new
-
-
+            
+        
+        if return_dataframe:
+            return all_links
+        else:
+            g_new = self.nodes(self._nodes, self._node).edges(all_links, self._source, self._destination)
+            return g_new
+        
+        
     def predict_links(
         self, 
         source: Union[list, None] = None,
@@ -365,7 +373,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         destination: Union[list, None] = None,
         threshold: Optional[float] = 0.5,
         anomalous: Optional[bool] = False,
-        retain_old_edges: Optional[bool] = False
+        retain_old_edges: Optional[bool] = False,
+        return_dataframe: Optional[bool] = False
     ) -> Plottable:  # type: ignore
         """predict_links over all the combinations of given source, relation, destinations.
 
@@ -381,6 +390,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             Probability threshold. Defaults to 0.5
         retain_old_edges : Optional[bool]
             will include old edges in predicted graph. Defaults to False.
+        return_dataframe : Optional[bool]
+            will return a dataframe instead of a graphistry instance. Defaults to False.
         anomalous : Optional[False]
             will return the edges < threshold or low confidence edges(anomaly).
 
@@ -388,7 +399,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         -------
         Graphistry Instance
             containing the corresponding source, relation, destination and score column
-            where score >= threshold if anamalous if False else score <= threshold.
+            where score >= threshold if anamalous if False else score <= threshold, or a dataframe
             
         """
 
@@ -429,14 +440,15 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         triplets = fetch_triplets_for_inference(src, rel, dst)
         triplets = triplets.to_numpy().astype(np.int64)
         
-        return self._score_triplets(triplets, threshold, anomalous, retain_old_edges)
+        return self._score_triplets(triplets, threshold, anomalous, retain_old_edges, return_dataframe)
  
 
     def predict_links_all(
         self, 
         threshold: Optional[float] = 0.5,
         anomalous: Optional[bool] = False,
-        retain_old_edges: Optional[bool] = False
+        retain_old_edges: Optional[bool] = False,
+        return_dataframe: Optional[bool] = False
     ) -> Plottable:  # type: ignore
         """predict_links over entire graph given a threshold
 
@@ -448,11 +460,13 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             will return the edges < threshold or low confidence edges(anomaly).
         retain_old_edges : Optional[bool]
             will include old edges in predicted graph. Defaults to False.
+        return_dataframe: Optional[bool]
+            will return a dataframe instead of a graphistry instance. Defaults to False.
 
         Returns
         -------
         Plottable
-            graphistry graph instance containing all predicted/anomalous links.
+            graphistry graph instance containing all predicted/anomalous links or dataframe
 
         """
         h_r = pd.DataFrame(self._triplets.numpy())  # type: ignore
@@ -481,7 +495,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         triplets = triplets[triplets[0] < triplets[2]]
         triplets = triplets.drop_duplicates().to_numpy().astype(np.int64)
 
-        return self._score_triplets(triplets, threshold, anomalous, retain_old_edges)
+        return self._score_triplets(triplets, threshold, anomalous, retain_old_edges, return_dataframe)
         
 
     def _score(self, triplets: Union[np.ndarray, TT]) -> TT:  # type: ignore
