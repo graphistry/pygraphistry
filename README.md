@@ -484,13 +484,16 @@ See `help(g.search_graph)` for options
 
       # predict links over all nodes
       g3 = g2.predict_links_all(threshold=0.95)  # score high confidence predicted edges
-      
+      g3.plot()
+
       # likewise, score anomolous edges by setting the flag `anomalous` to True and low confidence
-      g4 = g2.predict_links(threshold=0.05, anomalous=True)  # score low confidence predicted edges
-      
+      g4 = g2.predict_links_all(threshold=0.05, anomalous=True)  # score low confidence predicted edges
+      g4.plot()
+
       # predict over any set of entities and/or relations. 
       # Set any `source`, `destination` or `relation` to `None` to predict over all of them.
-      g3 = g2.predict_links(source=['entity_k'], 
+      # if all are None, it is better to use `g.predict_links_all` for speed.
+      g5 = g2.predict_links(source=['entity_k'], 
                       relation=['relationship_1', 'relationship_4', ..], 
                       destination=['entity_l', 'entity_m', ..], 
                       threshold=0.9,  # score threshold
@@ -508,7 +511,7 @@ See `help(g.search_graph)` for options
 
       # inherets all the featurization `kwargs` from `g.featurize` 
       g2 = g.embed(relation='relationship_column_of_interest', use_feat=True, **kwargs)
-      g2.plot()
+      g2.predict_links_all(threshold=0.95).plot()
 
       # 
     ```
