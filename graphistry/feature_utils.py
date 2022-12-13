@@ -246,7 +246,7 @@ def features_without_target(
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
     elif isinstance(y, List):
-        remove_cols = y
+        remove_cols = y  # noqa
     elif isinstance(y, str):
         remove_cols = [y]
     else:

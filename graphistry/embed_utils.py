@@ -220,7 +220,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return res
 
     @property
-    def gcn_node_embeddings(self):
+    def _gcn_node_embeddings(self):
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
         g_dgl = self.g_dgl.to(self._device)
         em = self._embed_model(g_dgl).detach()
@@ -350,7 +350,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         predicted_links['score'] = this_score.detach().numpy()
         predicted_links.sort_values(by='score', ascending=False, inplace=True)
         
-        log(f"--{predicted_links.shape[0]} triplets scored at threshold {threshold:.2f}")
+        log(f"-- {predicted_links.shape[0]} triplets scored at threshold {threshold:.2f}")
 
         if retain_old_edges:
             existing_links = self._edges[[self._source, self._relation, self._destination]]
