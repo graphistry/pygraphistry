@@ -331,7 +331,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         # the bees knees 
         scores = self._score(triplets)
         ############################################################
-        if len(triplets)>1:
+        if len(triplets) > 1:
             if anomalous:
                 predicted_links = triplets[scores < threshold]  # type: ignore
                 this_score = scores[scores < threshold]  # type: ignore
