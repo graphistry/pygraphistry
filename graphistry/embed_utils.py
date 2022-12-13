@@ -323,7 +323,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps, device=device)  # type: ignore
 
 
-    def _score_triplets(self, triplets, threshold=0.5, anomalous=False, retain_old_edges=False, return_dataframe=False):
+    def _score_triplets(self, triplets, threshold, anomalous, retain_old_edges, return_dataframe):
         """Score triplets using the trained model."""
         
         log(f"{triplets.shape[0]} triplets for inference")
@@ -350,7 +350,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         predicted_links['score'] = this_score.detach().numpy()
         predicted_links.sort_values(by='score', ascending=False, inplace=True)
         
-        log(f"{predicted_links.shape[0]} triplets scored at threshold {threshold:.2f}")
+        log(f"--{predicted_links.shape[0]} triplets scored at threshold {threshold:.2f}")
 
         if retain_old_edges:
             existing_links = self._edges[[self._source, self._relation, self._destination]]

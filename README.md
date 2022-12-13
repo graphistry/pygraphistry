@@ -482,38 +482,38 @@ See `help(g.search_graph)` for options
       g = graphistry.edges(edf, src, dst)
       g2 = g.embed(relation='relationship_column_of_interest', **kwargs)
 
-      # predict links over all node_ids
-      g3 = g2.predict_links(threshold=0.97)  # score high confidence predicted edges
+      # predict links over all nodes
+      g3 = g2.predict_links_all(threshold=0.95)  # score high confidence predicted edges
       
-      # or return embeddings 
-      g3, predicted_links, node_embeddings = g2.predict_links(return_embeddings=True, threshold=0.97)
-      g3.plot()  # see resulting graph
-
       # likewise, score anomolous edges by setting the flag `anomalous` to True and low confidence
       g4 = g2.predict_links(threshold=0.05, anomalous=True)  # score low confidence predicted edges
       
-      # construct a test dataframe to predict over
-      test_df = pd.DataFrame([[src_1, relationship_1, dummy_id], [..]], columns = ['src', 'relationship', 'dst'])
-      predicted_df = g2.predict_link(test_df, 'src', 'relationship')  # will predict all `dst` above threshold
+      # predict over any set of entities and/or relations. 
+      # Set any `source`, `destination` or `relation` to `None` to predict over all of them.
+      g3 = g2.predict_links(source=['entity_k'], 
+                      relation=['relationship_1', 'relationship_4', ..], 
+                      destination=['entity_l', 'entity_m', ..], 
+                      threshold=0.9,  # score threshold
+                      return_dataframe=False)  # set to `True` to return dataframe 
+
     ```
 
 * Train a RGCN model including auto-featurized node embeddings
 
     ```python
       edf = pd.read_csv(edges.csv)
-      ndf = pd.read_csv(nodes.csv)
+      ndf = pd.read_csv(nodes.csv)  # adding node dataframe
 
       g = graphistry.edges(edf, src, dst).nodes(ndf, node_column)
 
-      # inherets all the featurization kwargs from `g.featurize`
+      # inherets all the featurization `kwargs` from `g.featurize` 
       g2 = g.embed(relation='relationship_column_of_interest', use_feat=True, **kwargs)
-      
-      # predict links over all node_ids
-      g3 = g2.predict_links(threshold=0.97)  # score confidence on predicted links
-      g3.plot()
+      g2.plot()
+
+      # 
     ```
 
-See `help(g.embed)` for options
+See `help(g.embed)`, `help(g.predict_links)` , `help(g.predict_links_all)` for options
 
 
 ### Quickly configurable
