@@ -246,7 +246,7 @@ def features_without_target(
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
     elif isinstance(y, List):
-        remove_cols = y  # noqa
+        remove_cols = [ str(i) for i in y]  # noqa
     elif isinstance(y, str):
         remove_cols = [y]
     else:
@@ -477,6 +477,7 @@ def get_textual_columns(
     :return: list of columns names
     """
     text_cols = []
+    df.columns = [ str(i) for i in df.columns]
     for col in df.columns:
         if check_if_textual_column(
             df, col, confidence=0.35, min_words=min_words
