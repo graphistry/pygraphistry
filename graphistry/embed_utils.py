@@ -70,8 +70,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         self._relation2id = {}
         self._id2node = {}
         self._id2relation = {}
-        self._relation: str = None
-        self._use_feat: bool = False
+        self._relation = None
+        self._use_feat = False
         self._kg_embed_dim = None
         self._kg_embeddings = None
         
