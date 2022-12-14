@@ -476,9 +476,9 @@ def get_textual_columns(
     :param df: DataFrame
     :return: list of columns names
     """
-    text_cols = []
-    df.columns = [ str(i) for i in df.columns]
-    for col in df.columns:
+    text_cols: list[str] = []
+    columns: list[str] = [ str(i) for i in df.columns]
+    for col in columns:
         if check_if_textual_column(
             df, col, confidence=0.35, min_words=min_words
         ):
