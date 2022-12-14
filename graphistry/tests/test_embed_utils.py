@@ -46,9 +46,15 @@ class TestEmbed(unittest.TestCase):
         relation = None
         destination = pd.Series([1])
         g = graph_no_feat.embed('rel', embedding_dim=d, **kwargs)
-        g_new = g.predict_links(source, relation, destination, threshold=0)
-        self.assertTrue( g_new._edges.shape[0] > 0)
-        self.assertIn("score", g_new._edges.columns)
+        for anom in [True, False]:
+            for thresh in [0.1, 0.5, 0.9]:
+                g_new = g.predict_links(source, relation, destination, threshold=thresh, anomalous=anom)
+                self.assertTrue( g_new._edges.shape[0] > 0)
+                self.assertIn("score", g_new._edges.columns)
+            
+        # g_new = g.predict_links(source, relation, destination, threshold=0)
+        # self.assertTrue( g_new._edges.shape[0] > 0)
+        # self.assertIn("score", g_new._edges.columns)
     
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
     def test_predict_links_all(self):

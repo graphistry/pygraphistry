@@ -450,9 +450,9 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       g = graphistry.nodes(ndf, 'node').edges(edf, 'src', 'dst')
       
       g2 = g.featurize(X = ['text_col_1', .., 'text_col_n'], kind='nodes',
-                        min_words=0,  # forces all named columns as textual ones
-                        #encode text as paraphrase embeddings, supports any sbert/Huggingface model
-                        model_name: str = "paraphrase-MiniLM-L6-v2")
+                        min_words = 0,  # forces all named columns as textual ones
+                        #encode text as paraphrase embeddings, supports any sbert model
+                        model_name = "paraphrase-MiniLM-L6-v2")
                         
       results_df, query_vector = g2.search('my natural language query', ...)
       print(results_df[['_distance', 'col_1', ..., 'col_n']])  #sorted by relevancy
