@@ -436,7 +436,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             triplets = source_with_relation.explode('destination')
             triplets = triplets[triplets['source'] != triplets['destination']]
 
-            # TODO: remove bidirectional edges with fixed relation
             return triplets.drop_duplicates().reset_index(drop=True)
 
         triplets = fetch_triplets_for_inference(src, rel, dst)
@@ -493,7 +492,6 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             return triplets_for_inference
 
         triplets = pd.concat([fetch_triplets_for_inference(h_r), fetch_triplets_for_inference(t_r)], axis=0)
-        # drop if source_id == destination_id and converting bi directional to unidirectional
         triplets = triplets[triplets[0] < triplets[2]]
         triplets = triplets.drop_duplicates().to_numpy().astype(np.int64)
 
@@ -546,7 +544,6 @@ class SubgraphIterator:
 
         src, rel, dst = samples.T  # type: ignore
 
-        # might need to add bidirectional edges
         sub_g = dgl.graph((src, dst), num_nodes=self.num_nodes)
         sub_g.edata[dgl.ETYPE] = rel
         sub_g.edata["norm"] = dgl.norm_by_dst(sub_g).unsqueeze(-1)
