@@ -197,7 +197,6 @@ def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
     if X is None:
         return df
     elif isinstance(X, str):
-        print(X)
         return df[[X]]
     elif isinstance(X, list):
         return df[X]
@@ -221,7 +220,7 @@ def safe_divide(a, b):
 
 
 def features_without_target(
-    df: pd.DataFrame, y: Optional[Union[List[str], str, pd.DataFrame]] = None
+    df: pd.DataFrame, y: Optional[Union[List, str, pd.DataFrame]] = None
 ) -> pd.DataFrame:
     """
         Checks if y DataFrame column name is in df, and removes it
@@ -247,7 +246,7 @@ def features_without_target(
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
     elif isinstance(y, List):
-        remove_cols = y
+        remove_cols = y  # noqa
     elif isinstance(y, str):
         remove_cols = [y]
     else:
@@ -366,7 +365,7 @@ def where_is_currency_column(df: pd.DataFrame, col: str):
             logger.warning(e)
             return False
 
-    mask = df[col].apply(lambda x: check_if_currency)
+    mask = df[col].apply(check_if_currency)
     return mask
 
 
@@ -415,45 +414,6 @@ def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
                     bad_cols.append(col)
     return bad_cols
 
-# ############################################################################
-#
-#      Conditional Probability
-#
-# ############################################################################
-
-def conditional_probability(x, given, df):
-    """conditional probability function over categorical variables
-       p(x|given) = p(x,given)/p(given)
-        
-    Args:
-        x: the column variable of interest given the column 'given'
-        given: the variabe to fix constant
-        df: dataframe with columns [given, x]
-
-    Returns:
-        pd.DataFrame: the conditional probability of x given the column 'given'
-    """
-    return df.groupby([given])[x].apply(lambda g: g.value_counts()/len(g))
-
-
-def probs(x, given, df, how='index'): 
-    """Produces a Dense Matrix of the conditional probability of x given `y=given`
-
-    Args:
-        x: the column variable of interest given the column 'y'
-        given : the variabe to fix constant
-        df pd.DataFrame: dataframe
-        how (str, optional): One of 'column' or 'index'. Defaults to 'index'.
-
-    Returns:
-        pd.DataFrame: the conditional probability of x given the column 'y' 
-        as dense array like dataframe
-    """
-    assert how in ['index', 'columns'], "how must be one of 'index' or 'columns'"
-    res =  pd.crosstab(df[x], df[given], margins=True, normalize=how)
-    if how =='index': # normalize over columns so .sum(0) = 1 irrespective of `how`
-        return res.T
-    return res
 
 # ############################################################################
 #
@@ -464,7 +424,7 @@ def probs(x, given, df, how='index'):
 
 def check_if_textual_column(
     df: pd.DataFrame,
-    col: str,
+    col,
     confidence: float = 0.35,
     min_words: float = 2.5,
 ) -> bool:
@@ -496,7 +456,7 @@ def check_if_textual_column(
         mean_n_words = n_words.mean()
         if mean_n_words >= min_words:
             logger.info(
-                f"\n\tColumn `{col}` looks textual with mean number"
+                f"\n\tColumn `{col}` looks textual with mean number "
                 f"of words {mean_n_words:.2f}"
             )
             return True
@@ -508,7 +468,7 @@ def check_if_textual_column(
 
 def get_textual_columns(
     df: pd.DataFrame, min_words: float = 2.5
-) -> List[str]:
+) -> List:
     """
         Collects columns from df that it deems are textual.
     _____________________________________________________________________
@@ -516,7 +476,7 @@ def get_textual_columns(
     :param df: DataFrame
     :return: list of columns names
     """
-    text_cols = []
+    text_cols: List = []
     for col in df.columns:
         if check_if_textual_column(
             df, col, confidence=0.35, min_words=min_words
@@ -526,12 +486,6 @@ def get_textual_columns(
         logger.debug("No Textual Columns were found")
     return text_cols
 
-
-def get_col(query, df: pd.DataFrame):
-    # returns a dataframe with columns that contain `query` in their name
-    # acts like a partial match over column names
-    cols = df.columns[df.columns.map(lambda x: query in x)]
-    return df[cols]
 
 # ######################################################################
 #
@@ -574,7 +528,7 @@ def identity(x):
 
 def get_preprocessing_pipeline(
     use_scaler: str = "robust",
-    impute: str = 'median',
+    impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
@@ -587,8 +541,7 @@ def get_preprocessing_pipeline(
         using different scaling transformers.
     -----------------------------------------------------------------
     :param X: np.ndarray
-    :param impute: whether to run imputing or not, default is `median`, 
-            and if columns are nan, set to `constant`
+    :param impute: whether to run imputing or not
     :param use_scaler: string in None or
             ["minmax", "quantile", "zscale", "robust", "kbins"],
             selects scaling transformer, default None
@@ -606,8 +559,10 @@ def get_preprocessing_pipeline(
     :return: scaled array, imputer instances or None, scaler instance or None
     """
     from sklearn.preprocessing import (
+        FunctionTransformer,
         KBinsDiscretizer,
         MinMaxScaler,
+        MultiLabelBinarizer,
         QuantileTransformer,
         RobustScaler,
         StandardScaler,
@@ -623,16 +578,13 @@ def get_preprocessing_pipeline(
     ]
     available_quantile_distributions = ["normal", "uniform"]
 
+    imputer = identity
     if impute:
-        logger.debug(f"Imputing Values using `{impute}` strategy")
-        # impute values -- 
-        # if strategy is not 'constant' it will remove np.nan columns
-        # breaking subsequent encoding...
-        imputer = SimpleImputer(missing_values=np.nan, strategy=impute)
-    else:
-        imputer = 'passthrough'
-    
-    scaler = MockTransformer()
+        logger.debug("Imputing Values using “median” strategy")
+        # impute values
+        imputer = SimpleImputer(missing_values=np.nan, strategy="median")
+    scaler = identity
+
     if use_scaler == "minmax":
         # scale the resulting values column-wise between min and max
         # column values and sets them between 0 and 1
@@ -657,7 +609,7 @@ def get_preprocessing_pipeline(
         )
     else:
         logger.error(
-            f"`scaling` must be one of {available_preprocessors} "
+            f"`scaling` must be on of {available_preprocessors} "
             f"or {None}, got {scaler}.\nData is not scaled"
         )
     logger.debug(f"Using {use_scaler} scaling")
@@ -675,7 +627,6 @@ def fit_pipeline(
      which helps for when transformer pipeline is scaling or imputer
      which sometime introduce small negative numbers,
      and umap metrics like Hellinger need to be positive
-     
     :param X, DataFrame to transform.
     :param transformer: Pipeline object to fit and transform
     :param keep_n_decimals: Int of how many decimal places to keep in
@@ -685,7 +636,6 @@ def fit_pipeline(
     index = X.index
 
     X = transformer.fit_transform(X)
-
     if keep_n_decimals:
         X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
 
@@ -695,7 +645,7 @@ def fit_pipeline(
 def impute_and_scale_df(
     df: pd.DataFrame,
     use_scaler: str = "robust",
-    impute: str = 'median',
+    impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
@@ -806,7 +756,7 @@ def smart_scaler(
     y_enc,
     use_scaler,
     use_scaler_target,
-    impute: str = 'median',
+    impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
@@ -876,15 +826,6 @@ class callThrough:
     def __call__(self, *args, **kwargs):
         return self.x
 
-class MockTransformer:
-    def __init__(self):
-        pass
-    
-    def transform(self, X, y=None):
-        return X, y
-
-    def fit(self, X, y=None):
-        return X, y
 
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
@@ -920,6 +861,8 @@ def process_dirty_dataframes(
     cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
+    similarity: Optional[str] = None,  # "ngram",
+    categories: Optional[str] = "auto",
     multilabel: bool = False,
 ) -> Tuple[
     pd.DataFrame,
@@ -1010,10 +953,10 @@ def process_dirty_dataframes(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold_target,
             high_card_cat_transformer=GapEncoder(n_topics_target)
-            # if not similarity
-            # else SimilarityEncoder(
-            #     similarity=similarity, categories=categories, n_prototypes=2
-            # ),  # Similarity
+            if not similarity
+            else SimilarityEncoder(
+                similarity=similarity, categories=categories, n_prototypes=2
+            ),  # Similarity
         )
 
         y_enc = label_encoder.fit_transform(y)
@@ -1068,9 +1011,9 @@ def process_nodes_dataframes(
     min_df: int = 3,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
-    #similarity: Optional[str] = None,
-    #categories: Optional[str] = "auto",
-    impute: str = 'median',
+    similarity: Optional[str] = None,
+    categories: Optional[str] = "auto",
+    impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
@@ -1187,6 +1130,8 @@ def process_nodes_dataframes(
         cardinality_threshold_target=cardinality_threshold_target,
         n_topics=n_topics,
         n_topics_target=n_topics_target,
+        similarity=similarity,
+        categories=categories,
         multilabel=multilabel
     )
 
@@ -1343,7 +1288,7 @@ def process_edge_dataframes(
     model_name: str = "paraphrase-MiniLM-L6-v2",
     similarity: Optional[str] = None,
     categories: Optional[str] = "auto",
-    impute: str = 'median',
+    impute: bool = True,
     n_quantiles: int = 10,
     output_distribution: str = "normal",
     quantile_range=(25, 75),
@@ -1462,8 +1407,8 @@ def process_edge_dataframes(
         min_df=min_df,
         min_words=min_words,
         model_name=model_name,
-        #similarity=similarity,
-        #$categories=categories,
+        similarity=similarity,
+        categories=categories,
         feature_engine=feature_engine,
     )
 
@@ -1559,6 +1504,8 @@ def transform_dirty(
     from sklearn.preprocessing import MultiLabelBinarizer
     logger.debug(f"-{name} Encoder:")
     logger.debug(f"\t{data_encoder}\n")
+    # print(f"-{name} Encoder:")
+    # print(f"\t{data_encoder}\n")
     try:
         logger.debug(f"{data_encoder.get_feature_names_in}")
     except Exception as e:
@@ -1574,6 +1521,8 @@ def transform_dirty(
     else:
         X = data_encoder.transform(df)
     # ###################################
+    # X = data_encoder.transform(df)
+
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.shape}")
     X = make_array(X)
     with warnings.catch_warnings():
@@ -1793,17 +1742,23 @@ class FastEncoder:
 
         return X, y, scaling_pipeline, scaling_pipeline_target
 
-
+    # def get_column(self, column, kind='nodes'):
+    #     if kind=='nodes':
+    #         X = self._nodes
+    #     elif kind=='edges':
+            
+    #     transformed_columns = X.columns[X.columns.map(lambda x: True if column in x else False)]]
+        # return X[transformed_columns]
 
 # ######################################################################################################################
 #
-#  The Graph Encoder Methods
+#
 #
 # ######################################################################################################################
 
 
 def prune_weighted_edges_df_and_relabel_nodes(
-    wdf: pd.DataFrame, scale: float = 0.1, index_to_nodes_dict: Dict = None
+    wdf: pd.DataFrame, scale: float = 0.1, index_to_nodes_dict: Optional[Dict] = None
 ) -> pd.DataFrame:
     """
         Prune the weighted edge DataFrame so to return high
@@ -1926,7 +1881,7 @@ class FeatureMixin(MIXIN_BASE):
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[str] = None,
         categories: Optional[str] = "auto",
-        impute: str = 'median',
+        impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -1985,8 +1940,8 @@ class FeatureMixin(MIXIN_BASE):
             #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
-            #similarity=similarity,
-            #categories=categories,
+            similarity=similarity,
+            categories=categories,
             impute=impute,
             n_quantiles=n_quantiles,
             quantile_range=quantile_range,
@@ -2056,7 +2011,7 @@ class FeatureMixin(MIXIN_BASE):
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[str] = "ngram",
         categories: Optional[str] = "auto",
-        impute: str = 'median',
+        impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -2179,7 +2134,7 @@ class FeatureMixin(MIXIN_BASE):
         use_scaler,
         use_scaler_target,
         set_scaler=False,
-        impute: str = 'median',
+        impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -2267,7 +2222,7 @@ class FeatureMixin(MIXIN_BASE):
         min_df: int = 3,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
-        impute: str = 'median',
+        impute: bool = True,
         n_quantiles: int = 100,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -2357,8 +2312,9 @@ class FeatureMixin(MIXIN_BASE):
                 eg: max_df = 0.2,
         :param min_df:  if use_ngrams=True, set min word count to consider in vocabulary
                 eg: min_df = 3    
-        :param impute: Whether to impute missing values using impute as strategy, default 'median'
-                if input has a column of np.nan's, set `impute='constant'`
+        :param categories: Optional[str] in ["auto", "k-means", "most_frequent"], decides which 
+                category to select in Similarity Encoding, default 'auto'
+        :param impute: Whether to impute missing values, default True
         :param n_quantiles: if use_scaler = 'quantile',
                 sets the quantile bin size.
         :param output_distribution: if use_scaler = 'quantile',
@@ -2441,8 +2397,8 @@ class FeatureMixin(MIXIN_BASE):
                 #confidence=confidence,  # deprecated
                 min_words=min_words,
                 model_name=model_name,
-                similarity=similarity,  
-                categories=categories,  
+                similarity=similarity,  # deprecated
+                categories=categories,  # deprecated
                 impute=impute,
                 n_quantiles=n_quantiles,
                 quantile_range=quantile_range,
@@ -2478,13 +2434,14 @@ class FeatureMixin(MIXIN_BASE):
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
+        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[
             str
         ] = None,  # turn this on to 'ngram' in favor of Similarity Encoder
         categories: Optional[str] = "auto",
-        impute: str = 'median',
+        impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -2572,13 +2529,14 @@ class FeatureMixin(MIXIN_BASE):
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
+        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[
             str
-        ] = None,  # turn this off in favor of Gap Encoder, or on to 'ngram'
+        ] = None,  # turn this off in favor of Gap Encoder
         categories: Optional[str] = "auto",
-        impute: str = 'median', 
+        impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
@@ -2648,76 +2606,3 @@ class FeatureMixin(MIXIN_BASE):
             reuse_if_existing=True,
             memoize=memoize,
         )
-        
-    def get_matrix(self, column, kind='nodes'):
-        """get column matrix from nodes or edges features
-        
-        example:
-            g.get_col_matrix('product') -> gets all product columns as matrix df
-
-        Args:
-            column: column of interest
-            kind (str, optional): to get features from . Defaults to 'nodes'.
-
-        Returns:
-            pd.DataFrame: column matrix
-        """
-        x = self._get_feature(kind=kind)
-        return get_col(column, x)
-        
-
-    def conditional_graph(self, x, given, kind='nodes', *args, **kwargs):
-        """
-        conditional_graph -- p(x|given) = p(x, given) / p(given)
-        
-        returned dataframe sums to 1 on each column
-        -----------------------------------------------------------
-        :param x: target column
-        :param given: the dependent column
-        :param kind: 'nodes' or 'edges'
-        :param args/kwargs: additional arguments for g.bind(...)
-        :return: a graphistry instance with the conditional graph
-                edges are weighted by the conditional probability
-                edges are between x and given, keep in mind that 
-                g._edges.columns = [given, x, _probs]
-                
-        """
-
-        res = self.bind()
-        
-        if kind == 'nodes':
-            df = res._nodes
-        else:
-            df = res._edges
-        
-        condprobs = conditional_probability(x, given, df)
-        
-        cprob = pd.DataFrame(list(condprobs.index), columns=[given, x])
-        cprob['_probs'] = condprobs.values
-    
-        res = res.edges(cprob, x, given).bind(edge_weight='_probs', *args, **kwargs)
-        
-        return res
-    
-    def conditional_probs(self, x, given, kind='nodes', how='index'):
-        """Produces a Dense Matrix of the conditional probability of x given y
-
-        Args:
-            x: the column variable of interest given the column y=given
-            given : the variabe to fix constant
-            df pd.DataFrame: dataframe
-            how (str, optional): One of 'column' or 'index'. Defaults to 'index'.
-            kind (str, optional): 'nodes' or 'edges'. Defaults to 'nodes'.
-        Returns:
-            pd.DataFrame: the conditional probability of x given the column y
-            as dense array like dataframe
-        """
-        res = self.bind()
-        
-        if kind == 'nodes':
-            df = res._nodes    
-        else:
-            df = res._edges
-            
-        condprobs = probs(x, given, df, how=how) 
-        return condprobs

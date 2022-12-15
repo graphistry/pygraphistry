@@ -7,18 +7,18 @@ logger = setup_logger("graphistry.features", verbose=VERBOSE, fullpath=TRACE)
 # ###############################################################
 UNK = "UNK"
 LENGTH_PRINT = 80
-################# Encoded Global Models #################
+# ################ Encoded Global Models #################
 EMBEDDING_MODEL_PATH = "embedding.model"
 TOPIC_MODEL_PATH = "topic.model"
 NGRAMS_MODEL_PATH = "ngrams.model"
 SEARCH_MODEL_PATH = "search.model"
 
-################# Actual Models #################
-## add specific instances of models here
+# ################ Actual Models #################
+#  add specific instances of models here
 
 
-################################################################################
-################## graphistry featurization config constants #################
+# ###############################################################################
+# ################# graphistry featurization config constants #################
 N_TOPICS = 42
 N_TOPICS_TARGET = 10
 HIGH_CARD = 4e7  # forces one hot encoding
@@ -52,25 +52,25 @@ KEEP_N_DECIMALS = 5
 BATCH_SIZE = 1000
 NO_SCALER = None
 EXTRA_COLS_NEEDED = ["x", "y", "_n"]
-################################################################
+# ###############################################################
 
-################################################################
-################## enrichments
+# ###############################################################
+# ################# enrichments
 NMF_PATH = "nmf"
 TIME_TOPIC = "time_topic"
 TRANSLATED = "translated"
 TRANSLATIONS = "translations"
 SENTIMENT = "sentiment"
 
-################################################################
-############# The Search key
+# ###############################################################
+# ############ The Search key
 SEARCH = "search"
-############# Embeddings keys
+# ############ Embeddings keys
 TOPIC = "topic"  # topic model embeddings
 EMBEDDING = "embedding"  # multilingual embeddings
 QA = "qa"
 NGRAMS = "ngrams"
-############# Embedding Models
+# ############ Embedding Models
 PARAPHRASE_SMALL_MODEL = "sentence-transformers/paraphrase-albert-small-v2"
 PARAPHRASE_MULTILINGUAL_MODEL = (
     "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
