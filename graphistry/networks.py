@@ -1,6 +1,9 @@
 from typing import TYPE_CHECKING, Any
 from . import constants as config
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 def lazy_import_networks():  # noqa
     try:
@@ -32,22 +35,6 @@ try:
 except:
     Module = object
 
-
-# class GNN_MIXIN():
-#     def __init__(self) -> None:    
-#         pass    
-
-
-# #@memoize
-# def get_GNN_concretized():
-   
-#     import torch.nn as nn
-#     Module = nn.Module
-#     class GNN(GNN_MIXIN, Module):
-#             def __init__(self):
-#                 super().__init__()
-
-#     return GNN
 
 
 class GCN(Module):  # type: ignore
@@ -258,7 +245,7 @@ class HeteroEmbed(Module):  # type: ignore
             self.node_features = torch.tensor(
                 self.node_features.values, dtype=torch.float32
             ).to(device)
-            print(f"--Using node features of shape {str(node_features.shape)}")  # type: ignore
+            logger.info(f"--Using node features of shape {str(node_features.shape)}")  # type: ignore
         hidden = None
         if node_features is not None:
             hidden = self.node_features.shape[-1]  # type: ignore
@@ -277,7 +264,6 @@ class HeteroEmbed(Module):  # type: ignore
         h, r, t = triplets.T  # type: ignore
         h, r, t = (node_embedding[h], self.relational_embedding[r], node_embedding[t])  # type: ignore
         score = self.proto(h, r, t)
-        #print(score.shape)
         return score
 
     def loss(self, node_embedding, triplets, labels):
