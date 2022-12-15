@@ -220,7 +220,7 @@ def safe_divide(a, b):
 
 
 def features_without_target(
-    df: pd.DataFrame, y: Optional[Union[List[str], str, pd.DataFrame]] = None
+    df: pd.DataFrame, y: Optional[Union[List, str, pd.DataFrame]] = None
 ) -> pd.DataFrame:
     """
         Checks if y DataFrame column name is in df, and removes it
@@ -424,7 +424,7 @@ def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
 
 def check_if_textual_column(
     df: pd.DataFrame,
-    col: str,
+    col,
     confidence: float = 0.35,
     min_words: float = 2.5,
 ) -> bool:
