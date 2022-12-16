@@ -2601,20 +2601,20 @@ class FeatureMixin(MIXIN_BASE):
         )
 
     def _features_by_col(self, column_part: str, kind: str):
-        if kind=='nodes' and hasattr(self, '_node_features'):
+        if kind == 'nodes' and hasattr(self, '_node_features'):
             X = self._node_features
-        elif kind=='edges' and hasattr(self, '_edge_features'):
+        elif kind == 'edges' and hasattr(self, '_edge_features'):
             X = self._edge_features
         else:
-            raise ValueError(f'make sure to call `featurize` or `umap` before calling `get_features_by_cols`')
-            
+            raise ValueError('make sure to call `featurize` or `umap` before calling `get_features_by_cols`')
+        
         transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]
         return X[transformed_columns]
     
-    def get_features_by_cols(self, columns: Union[List, str], kind: str='nodes'):
+    def get_features_by_cols(self, columns: Union[List, str], kind: str = 'nodes'):
         """Returns feature matrix with only the columns that contain the string `column_part` in their name.
         
-            `X = g.get_features_by_cols(['featrue1', 'feature2'])`
+            `X = g.get_features_by_cols(['feature1', 'feature2'])`
             will retrieve a feature matrix with only the columns that contain the string 
             `feature1` or `feature2` in their name.
             
