@@ -2608,8 +2608,8 @@ class FeatureMixin(MIXIN_BASE):
         else:
             raise ValueError('make sure to call `featurize` or `umap` before calling `get_features_by_cols`')
         
-        transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]
-        return X[transformed_columns]
+        transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]  # type: ignore
+        return X[transformed_columns]  # type: ignore
     
     def get_features_by_cols(self, columns: Union[List, str], kind: str = 'nodes'):
         """Returns feature matrix with only the columns that contain the string `column_part` in their name.
@@ -2633,6 +2633,6 @@ class FeatureMixin(MIXIN_BASE):
         """
         if isinstance(columns, str):
             columns = [columns]
-        X = pd.concat([self._features_by_col(col, kind=kind) for col in columns], axis=1)
-        X = X.loc[:, ~X.columns.duplicated()]
+        X = pd.concat([self._features_by_col(col, kind=kind) for col in columns], axis=1)  # type: ignore
+        X = X.loc[:, ~X.columns.duplicated()]  # type: ignore
         return X
