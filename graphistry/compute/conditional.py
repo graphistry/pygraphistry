@@ -32,7 +32,7 @@ def conditional_probability(x, given, df: pd.DataFrame):
     Returns:
         pd.DataFrame: the conditional probability of x given the column 'given'
     """
-    return df.groupby([given])[x].apply(lambda g: g.value_counts()/len(g))
+    return df.groupby([given])[x].apply(lambda g: g.value_counts()/len(g))  # type: ignore
 
 
 def probs(x, given, df: pd.DataFrame, how='index'): 
@@ -50,11 +50,9 @@ def probs(x, given, df: pd.DataFrame, how='index'):
     """
     assert how in ['index', 'columns'], "how must be one of 'index' or 'columns'"
     res =  pd.crosstab(df[x], df[given], margins=True, normalize=how)
-    if how == 'index': # normalize over columns so .sum(0) = 1 irrespective of `how`
+    if how == 'index':  # normalize over columns so .sum(0) = 1 irrespective of `how`
         return res.T
     return res
-
-
 
 class ConditionalMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
