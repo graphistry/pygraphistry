@@ -32,7 +32,8 @@ def conditional_probability(x, given, df: pd.DataFrame):
     Returns:
         pd.DataFrame: the conditional probability of x given the column 'given'
     """
-    return df.groupby([given])[x].apply(lambda g: g.value_counts()/len(g))  # type: ignore
+    
+    return df.groupby([ given ])[ x ].apply(lambda g : g.value_counts()/len(g))  # type: ignore
 
 
 def probs(x, given, df: pd.DataFrame, how='index'): 
