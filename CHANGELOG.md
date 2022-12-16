@@ -6,6 +6,12 @@ The changelog format is based on [Keep a Changelog](https://keepachangelog.com/e
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
 ## [Development]
+
+### Added
+* graphistry.features.py: easy import of featurization kwargs for `g.umap(**kwargs)` and `g.featurize(**kwargs)`
+* methods: `g.get_features_by_cols` returns featurized submatrix with `col_part` in their columns
+* AI Demos folder: OSINT, CYBER demos
+
 ### Added
 
 * AI: full text & semantic search (`g.search(..)` and `g.search_graph(..).plot()`)

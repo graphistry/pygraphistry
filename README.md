@@ -371,13 +371,13 @@ Automatically and intelligently transform text, numbers, booleans, and other for
 
    ```python
     # graphistry
-    from graphistry.features import search_model, topic_model, ngrams_model, ModelDict, default_parameters
+    from graphistry.features import search_model, topic_model, ngrams_model, ModelDict, default_featurize_parameters
 
     g = graphistry.nodes(df)
-    g2 = g.umap(X=[..], y=[..], **search_model)
+    g2 = g.umap(X=[..], y=[..], **search_model)  
 
     # set custom encoding model 
-    new_model = ModelDict(message='encoding new model parameters is easy', **default_parameters)
+    new_model = ModelDict(message='encoding new model parameters is easy', **default_featurize_parameters)
     new_model.update(dict(kind='edges', 
                       model_name='sbert/hf/a_cool_transformer_model', 
                       use_scaler_target='kbins', 

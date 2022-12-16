@@ -161,7 +161,7 @@ default_featurize_parameters = dict(
 
 # Ngrams Model over features
 ngrams_model = ModelDict("Ngrams Model", verbose=True, **default_featurize_parameters)
-ngrams_model.update(dict(use_ngrams=True, min_words=LOW_WORD_COUNT))
+ngrams_model.update(dict(use_ngrams=True, min_words=HIGH_CARD))
 
 # Topic Model over features
 topic_model = ModelDict("Topic Model", verbose=True, **default_featurize_parameters)
