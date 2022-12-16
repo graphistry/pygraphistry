@@ -19,7 +19,7 @@ core_requires = [
 ]
 
 stubs = [
-  'pandas-stubs', 'types-requests'
+  'pandas-stubs', 'types-requests', 'ipython'
 ]
 
 dev_extras = {
