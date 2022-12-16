@@ -22,7 +22,7 @@ else:
 
 def conditional_probability(x, given, df: pd.DataFrame):
     """conditional probability function over categorical variables
-       p(x|given) = p(x,given)/p(given)
+       p(x | given) = p(x, given)/p(given)
         
     Args:
         x: the column variable of interest given the column 'given'
@@ -50,7 +50,7 @@ def probs(x, given, df: pd.DataFrame, how='index'):
     """
     assert how in ['index', 'columns'], "how must be one of 'index' or 'columns'"
     res =  pd.crosstab(df[x], df[given], margins=True, normalize=how)
-    if how ==  'index': # normalize over columns so .sum(0) = 1 irrespective of `how`
+    if how == 'index': # normalize over columns so .sum(0) = 1 irrespective of `how`
         return res.T
     return res
 

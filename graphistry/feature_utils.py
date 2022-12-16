@@ -2636,6 +2636,3 @@ class FeatureMixin(MIXIN_BASE):
         X = pd.concat([self._features_by_col(col, kind=kind) for col in columns], axis=1)  # type: ignore
         X = X.loc[:, ~X.columns.duplicated()]  # type: ignore
         return X
-
-
-
