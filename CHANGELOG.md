@@ -9,7 +9,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 * graphistry.features.py: easy import of featurization kwargs for `g.umap(**kwargs)` and `g.featurize(**kwargs)`
-* methods: `g.get_features_by_cols` returns featurized submatrix with `col_part` in their columns
+* methods graphistry.feature_utils.py: `g.get_features_by_cols` returns featurized submatrix with `col_part` in their columns
+* methods graphistry.compute.conditional.py: `g.conditional_graph` and `g.conditional_probs` assessing conditional probs and graph
 * AI Demos folder: OSINT, CYBER demos
 
 ### Added
