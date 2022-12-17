@@ -33,6 +33,5 @@ class TestConditional(unittest.TestCase):
                 assert len(df) > 0, 'no probabilities'
                 assert all(df.sum()>0), 'probabilities need to be non-zero'
 
-
 if __name__ == "__main__":
     unittest.main()
