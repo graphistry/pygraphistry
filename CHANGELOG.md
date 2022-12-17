@@ -12,9 +12,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * methods graphistry.feature_utils.py: `g.get_features_by_cols` returns featurized submatrix with `col_part` in their columns
 * methods graphistry.compute.conditional.py: `g.conditional_graph` and `g.conditional_probs` assessing conditional probs and graph
 * AI Demos folder: OSINT, CYBER demos
-
-### Added
-
 * AI: full text & semantic search (`g.search(..)` and `g.search_graph(..).plot()`)
 * Featurization: support for dataframe columns that are list of lists -> multilabel targets
                   set using `g.featurize(y=['list_of_lists_column'], multilabel=True,...)`
