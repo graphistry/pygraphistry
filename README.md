@@ -376,16 +376,18 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     g = graphistry.nodes(df)
     g2 = g.umap(X=[..], y=[..], **search_model)  
 
-    # set custom encoding model 
+    # set custom encoding model with any feature kwargs
     new_model = ModelDict(message='encoding new model parameters is easy', **default_featurize_parameters)
-    new_model.update(dict(kind='edges', 
+    new_model.update(dict(
+                      y=[...],
+                      kind='edges', 
                       model_name='sbert/hf/a_cool_transformer_model', 
                       use_scaler_target='kbins', 
                       n_bins=11, 
                       strategy='normal'))
     print(new_model)
 
-    g3 = g.umap(X=[..], y=[..], **new_model)
+    g3 = g.umap(X=[..], **new_model)
     # compare g2 vs g3 or add to different pipelines
     # ...
     ```
