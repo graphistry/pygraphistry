@@ -32,7 +32,4 @@ class TestConditional(unittest.TestCase):
                 df = g.conditional_probs(src, dst, kind=kind, how=how)
                 assert len(df) > 0, 'no probabilities'
                 assert df.sum(0) == 1.0, 'probabilities do not sum to 1'
-        
-
-
-
+                
