@@ -31,7 +31,8 @@ class TestConditional(unittest.TestCase):
             for how in ['index', 'columns']:
                 df = g.conditional_probs(src, dst, kind=kind, how=how)
                 assert len(df) > 0, 'no probabilities'
-                assert all(df.sum()>0), 'probabilities need to be non-zero'
+                assert all(df.sum() > 0), 'probabilities need to be non-zero'
+
 
 if __name__ == "__main__":
     unittest.main()
