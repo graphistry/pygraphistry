@@ -515,7 +515,7 @@ class Embedding:
         index = self.index[mask]  # type: ignore
         res = self.vectors[mask]
         res = pd.DataFrame(res, index=index, columns=self.columns)  # type: ignore
-        return res
+        return res  # type: ignore
 
     def fit_transform(self, n_dim: int):
         self.fit(n_dim)
