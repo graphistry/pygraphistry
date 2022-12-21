@@ -308,8 +308,8 @@ class TestHypergraphPlain(NoAuthTestCase):
         default_h_edges = graphistry.hypergraph(nans_df)["edges"]
         self.assertEqual(len(default_h_edges), len(expected_hits))
 
-    def test_hyper_evil(self):
-        graphistry.hypergraph(squareEvil)
+    # def test_hyper_evil(self):
+    #     graphistry.hypergraph(squareEvil)
 
     def test_hyper_to_pa_vanilla(self):
 
