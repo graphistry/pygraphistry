@@ -22,6 +22,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.28.6 - 2022-29-22]
 
+
 ### Added
 
 * Personal keys: `register(personal_key_id=..., personal_key_secret=...)`
