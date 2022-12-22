@@ -1,24 +1,24 @@
-from typing import Any, List, Optional, Union
+from typing import Union, Tuple
 
-import matplotlib.font_manager
-import matplotlib.pyplot as plt
 import pandas as pd
-import numpy as np
+import logging
 
-from sklearn import neighbors
-from sklearn.covariance import EllipticEnvelope
-from sklearn.svm import OneClassSVM
+try: 
+    import matplotlib.font_manager
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from sklearn import neighbors
+    from sklearn.covariance import EllipticEnvelope
+    from sklearn.svm import OneClassSVM
+except:
+    plt = None
+    np = None
+    neighbors = None
+    EllipticEnvelope = None
+    OneClassSVM = None
 
-# import shap
-# import dr_explainer as dre # pip install cluster-shapley
 
-import random
-
-from .util import setup_logger
-from .constants import VERBOSE, TRACE
-
-
-logger = setup_logger(__name__, VERBOSE, TRACE)
+logger = logging.getLogger(__name__)
 
 
 # #####################################################################################################################
@@ -28,15 +28,34 @@ logger = setup_logger(__name__, VERBOSE, TRACE)
 # #####################################################################################################################
 
 
-def get_outliers(embedding, df, outlier_fraction=0.2):
+def get_outliers(embedding: Union[np.ndarray, pd.DataFrame], df: pd.DataFrame, outlier_fraction: float=0.2):
+    """get outliers using sklearn's LocalOutlierFactor
+
+    Args:
+        embedding (Union[np.ndarray, pd.DataFrame]): umap embedding
+        df (pd.DataFrame): dataframe for enrichment
+        outlier_fraction (float, optional): fraction of outliers parameter. Defaults to 0.2.
+
+    Returns:
+        Tuple: tuple of outlying dataframe, outlier scores, and outlier classifier
+    """
     outlier_clf = neighbors.LocalOutlierFactor(contamination=outlier_fraction)
     outlier_scores = outlier_clf.fit_predict(embedding)
+    df['outlier'] = outlier_scores
     outlying = df[outlier_scores == -1]
 
     return outlying, outlier_scores, outlier_clf
 
 
-def get_embedding_extent(embedding):
+def get_embedding_extent(embedding: Union[np.ndarray, pd.DataFrame]):
+    """helper function to get the extent of the embedding
+
+    Args:
+        embedding (Union[np.ndarray, pd.DataFrame]): umap embedding
+
+    Returns:
+        Tuple: tuple of min and max x and y
+    """
     mminx, mmaxx = embedding.T[0].min(), embedding.T[0].max()
     mminy, mmaxy = embedding.T[1].min(), embedding.T[1].max()
 
@@ -49,15 +68,31 @@ def get_embedding_extent(embedding):
 
 
 def plot_outliers(
-    embedding,
-    classifiers,
-    name,
+    embedding: Union[np.ndarray, pd.DataFrame],
+    classifiers: dict,
+    name: str,
     xy_extent=((0, 10), (0, 10)),
     figsize=(7, 4),
     xy=(1, 1),
     xytext=(2, 2),
     border=1,
 ):
+    """
+    Plot the decision function for several outliers detection algorithms.
+        Although embedding can be any size, it is expected to be 2D umap coordinates
+        
+    Args:
+        embedding (np.ndarray): embedding of the data
+        classifiers (dict): dict of classifiers to use, with keys as names and values as sklearn classifiers    
+        name (str): name of the dataset
+        xy_extent (tuple): extent of the plot
+        figsize (tuple): size of the plot
+        xy (tuple): xy position of the legend
+        xytext (tuple): xy position of the legend text
+        border (int): border around the plot
+    returns:
+        fig (matplotlib.figure.Figure): figure of the plot and axes
+    """
     colors = ["m", "r", "b", "g"]
     legend1 = {}
     if xy_extent is None:
@@ -133,18 +168,35 @@ def plot_outliers(
 
 
 def detect_outliers(
-    embedding,
-    name="data",
-    contamination=0.25,
-    gamma=0.35,
-    xy_extent=None,
+    embedding: Union[np.ndarray, pd.DataFrame],
+    name:str="data",
+    contamination:float=0.25,
+    gamma:float=0.35,
+    xy_extent:Tuple=None,
     xy=(8, 3),
     xytext=(5, 1),
     figsize=(17, 10),
     border=1,
-):
+): 
+    """Train and plot outlier detection algorithms on embedding.
+    
+    example adapted from https://scikit-learn.org/stable/auto_examples/neighbors/plot_lof_outlier_detection.html
+
+    Args:
+        embedding (Union[np.ndarray, pd.DataFrame]): embedding of the data
+        name (str, optional): optional name. Defaults to "data".
+        contamination (float, optional): contamination parameter. Defaults to 0.25.
+        gamma (float, optional): gamma parameter for OneClassSVM. Defaults to 0.35.
+        xy_extent (Tuple, optional): _description_. Defaults to None.
+        xy (tuple, optional): _description_. Defaults to (8, 3).
+        xytext (tuple, optional): _description_. Defaults to (5, 1).
+        figsize (tuple, optional): _description_. Defaults to (17, 10).
+        border (int, optional): _description_. Defaults to 1.
+
+    Returns:
+        Tuple: Tuple of fit classifier dicts, fig, plot axes
+    """
     # xy_extent = ((0,10), (-2, 10))
-    # example from https://scikit-learn.org/stable/auto_examples/neighbors/plot_lof_outlier_detection.html
     # assumes umap has been run on g and finds decision boundary in projection.
     # trains a set of outlier and unsupervised models on the embedding.
     # Define "classifiers" to be used
