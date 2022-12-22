@@ -11,11 +11,11 @@ try:
     from sklearn.covariance import EllipticEnvelope
     from sklearn.svm import OneClassSVM
 except:
-    plt = None
-    np = None
-    neighbors = None
-    EllipticEnvelope = None
-    OneClassSVM = None
+    plt = None  # type: ignore
+    np = None  # type: ignore
+    neighbors = None  # type: ignore
+    EllipticEnvelope = None  # type: ignore
+    OneClassSVM = None  # type: ignore
 
 
 logger = logging.getLogger(__name__)
@@ -169,10 +169,10 @@ def plot_outliers(
 
 def detect_outliers(
     embedding: Union[np.ndarray, pd.DataFrame],
-    name:str = "data",
-    contamination:float = 0.25,
-    gamma:float = 0.35,
-    xy_extent:Tuple = None,
+    name: str = "data",
+    contamination: float = 0.25,
+    gamma: float = 0.35,
+    xy_extent: Union[Tuple, None] = None,
     xy = (8, 3),
     xytext = (5, 1),
     figsize = (17, 10),
