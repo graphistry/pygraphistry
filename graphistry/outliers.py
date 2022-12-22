@@ -187,11 +187,11 @@ def detect_outliers(
         name (str, optional): optional name. Defaults to "data".
         contamination (float, optional): contamination parameter. Defaults to 0.25.
         gamma (float, optional): gamma parameter for OneClassSVM. Defaults to 0.35.
-        xy_extent (Tuple, optional): _description_. Defaults to None.
-        xy (tuple, optional): _description_. Defaults to (8, 3).
-        xytext (tuple, optional): _description_. Defaults to (5, 1).
-        figsize (tuple, optional): _description_. Defaults to (17, 10).
-        border (int, optional): _description_. Defaults to 1.
+        xy_extent (Tuple, optional): if given, sets extent one wishes to plot (ie, zoom in). Defaults to None.
+        xy (tuple, optional): annotation pointer (to center of outlier or any other point). Defaults to (8, 3).
+        xytext (tuple, optional): annotation text coordinates. Defaults to (5, 1).
+        figsize (tuple, optional): size of figure. Defaults to (17, 10).
+        border (int, optional): border around extent. Defaults to 1.
 
     Returns:
         Tuple: Tuple of fit classifier dicts, fig, plot axes
