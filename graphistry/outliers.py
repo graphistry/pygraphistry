@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # #####################################################################################################################
 
 
-def get_outliers(embedding: Union[np.ndarray, pd.DataFrame], df: pd.DataFrame, outlier_fraction: float=0.2):
+def get_outliers(embedding: Union[np.ndarray, pd.DataFrame], df: pd.DataFrame, outlier_fraction: float = 0.2):
     """get outliers using sklearn's LocalOutlierFactor
 
     Args:
@@ -71,11 +71,11 @@ def plot_outliers(
     embedding: Union[np.ndarray, pd.DataFrame],
     classifiers: dict,
     name: str,
-    xy_extent=((0, 10), (0, 10)),
-    figsize=(7, 4),
-    xy=(1, 1),
-    xytext=(2, 2),
-    border=1,
+    xy_extent = ((0, 10), (0, 10)),
+    figsize = (7, 4),
+    xy = (1, 1),
+    xytext = (2, 2),
+    border = 1,
 ):
     """
     Plot the decision function for several outliers detection algorithms.
@@ -169,14 +169,14 @@ def plot_outliers(
 
 def detect_outliers(
     embedding: Union[np.ndarray, pd.DataFrame],
-    name:str="data",
-    contamination:float=0.25,
-    gamma:float=0.35,
-    xy_extent:Tuple=None,
-    xy=(8, 3),
-    xytext=(5, 1),
-    figsize=(17, 10),
-    border=1,
+    name:str = "data",
+    contamination:float = 0.25,
+    gamma:float = 0.35,
+    xy_extent:Tuple = None,
+    xy = (8, 3),
+    xytext = (5, 1),
+    figsize = (17, 10),
+    border = 1,
 ): 
     """Train and plot outlier detection algorithms on embedding.
     
