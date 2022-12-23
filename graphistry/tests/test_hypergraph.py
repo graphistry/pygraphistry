@@ -309,7 +309,10 @@ class TestHypergraphPlain(NoAuthTestCase):
         self.assertEqual(len(default_h_edges), len(expected_hits))
 
     def test_hyper_evil(self):
-        graphistry.hypergraph(squareEvil)
+        import pytest
+        with pytest.warns(RuntimeWarning):
+            #categorical astype(str) throws a warning
+            graphistry.hypergraph(squareEvil)
 
     def test_hyper_to_pa_vanilla(self):
 
