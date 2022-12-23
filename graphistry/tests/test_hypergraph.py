@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime as dt, logging, pandas as pd, pyarrow as pa
+import pytest
 
 import graphistry, graphistry.plotter
 from common import NoAuthTestCase
@@ -308,11 +309,10 @@ class TestHypergraphPlain(NoAuthTestCase):
         default_h_edges = graphistry.hypergraph(nans_df)["edges"]
         self.assertEqual(len(default_h_edges), len(expected_hits))
 
+    #categorical astype(str) throws a warning
+    @pytest.mark.filterwarnings("ignore:invalid value encountered in cast")
     def test_hyper_evil(self):
-        import pytest
-        with pytest.warns(RuntimeWarning):
-            #categorical astype(str) throws a warning
-            graphistry.hypergraph(squareEvil)
+        graphistry.hypergraph(squareEvil)
 
     def test_hyper_to_pa_vanilla(self):
 
