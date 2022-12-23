@@ -40,6 +40,8 @@ def get_outliers(embedding: Union[np.ndarray, pd.DataFrame], df: pd.DataFrame, o
         Tuple: tuple of outlying dataframe, outlier scores, and outlier classifier
     """
     outlier_clf = neighbors.LocalOutlierFactor(contamination=outlier_fraction)
+    if isinstance(embedding, pd.DataFrame):
+        embedding = embedding.values
     outlier_scores = outlier_clf.fit_predict(embedding)
     df['outlier'] = outlier_scores
     outlying = df[outlier_scores == -1]
@@ -129,6 +131,8 @@ def plot_outliers(
     # Plot the results (= shape of the data points cloud)
     plt.figure(1, figsize=figsize)  # two clusters
     plt.title(f"Outlier detection: {name}")
+    if isinstance(embedding, pd.DataFrame):
+        embedding = embedding.values
     plt.scatter(embedding[:, 0], embedding[:, 1], color="black", s=22, alpha=0.75)  # type: ignore
     bbox_args = dict(boxstyle="round", fc="0.8")
     arrow_args = dict(arrowstyle="->")
