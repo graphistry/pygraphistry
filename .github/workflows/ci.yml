@@ -157,7 +157,7 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-umap-learn-core.sh
 
-  test-full-umap:
+  test-full-ai:
 
     needs: [ test-minimal-python ]
     runs-on: ubuntu-latest
@@ -208,6 +208,12 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         ./bin/test-umap-learn-core.sh
+
+    - name: Full embed tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-embed.sh
+
 
   test-neo4j:
 

@@ -18,3 +18,4 @@ python -B -m pytest -vv \
     --ignore=graphistry/tests/test_feature_utils.py \
     --ignore=graphistry/tests/test_umap_utils.py \
     --ignore=graphistry/tests/test_dgl_utils.py \
+    --ignore=graphistry/tests/test_embed_utils.py \

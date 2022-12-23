@@ -135,7 +135,7 @@ def format_entities_from_col(
         base_df = base_df.persist()
         logger.debug('base_df1: %s', base_df.compute())
 
-    missing_cols : List[str] = [ c for c in meta.columns if c not in base_df ]
+    missing_cols : List = [ c for c in meta.columns if c not in base_df ]
     base_df = base_df.assign(**{
         c: np.nan
         for c in missing_cols
