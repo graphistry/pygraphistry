@@ -214,20 +214,13 @@ class DGLGraphMixin(MIXIN_BASE):
         Automagic DGL models from Graphistry Instances.
         
     """
-    def __init__(
-        self,
-    ):
-        """
-        :param train_split: split percent between train and test, set in mask on dgl edata/ndata
-        :param device: Whether to put on cpu or gpu. Can always envoke .to(gpu) on returned DGL graph later, Default 'cpu'
-        """
-
+    def __init__(self):
         self.dgl_initialized = False
 
     def dgl_lazy_init(self, train_split: float = 0.8, device: str = "cpu"):
         """
         Initialize DGL graph lazily
-        :return:
+        :return:  
         """
 
         if not self.dgl_initialized:
@@ -270,7 +263,7 @@ class DGLGraphMixin(MIXIN_BASE):
         self._MASK = mask   # type: ignore
         self._edges = edf[mask]   # type: ignore
 
-        # print(f'new EDGES: length: {len(self._edges)}')
+        logger.debug(f'new EDGES: length: {len(self._edges)}')
 
         self._prune_edge_target()
         n_final = len(self._edges)
@@ -302,7 +295,7 @@ class DGLGraphMixin(MIXIN_BASE):
                 f"Nodes DataFrame has duplicate entries for column {node_column}"
             )
         # now check that self._entity_to_index is in 1-1 to with self.ndf[node_column]
-        #nodes = self._nodes[node_column]
+        # nodes = self._nodes[node_column]
         res = nodes.isin(self._entity_to_index)
         if res.sum() != len(nodes):
             logger.warning(
@@ -360,9 +353,6 @@ class DGLGraphMixin(MIXIN_BASE):
         feature_engine: FeatureEngine = "auto",
         *args,
         **kwargs,
-        # X: pd.DataFrame,
-        # y: pd.DataFrame,
-        # use_scaler: str = None,
     ):
         logger.info("Running Node Featurization for DGL Graph")
         # logger.debug(f"=*=*=Input shapes are data: {X.shape}, target: {y.shape}")
@@ -371,10 +361,6 @@ class DGLGraphMixin(MIXIN_BASE):
             feature_engine=resolve_feature_engine(feature_engine),
             *args,
             **kwargs
-            # X=X,
-            # y=y,
-            # use_scaler=use_scaler,
-            #feature_engine=resolve_feature_engine(feature_engine),
         )
 
         logger.debug(
@@ -395,10 +381,6 @@ class DGLGraphMixin(MIXIN_BASE):
         feature_engine: FeatureEngine = "auto",
         *args,
         **kwargs
-        # X: pd.DataFrame,
-        # y: pd.DataFrame,
-        # use_scaler: str = None,
-        # feature_engine: FeatureEngine = "auto",
     ):
         logger.info("Running Edge Featurization for DGL Graph")
 
@@ -406,10 +388,6 @@ class DGLGraphMixin(MIXIN_BASE):
             feature_engine=resolve_feature_engine(feature_engine),
             *args,
             **kwargs
-            # X=X,
-            # y=y,
-            # use_scaler=use_scaler,
-            # feature_engine=resolve_feature_engine(feature_engine),
         )
         
         logger.debug(
@@ -432,11 +410,11 @@ class DGLGraphMixin(MIXIN_BASE):
         y_nodes: YSymbolic = None,
         y_edges: YSymbolic = None,
         weight_column: Optional[str] = None,
-        reuse_if_existing=True,
-        featurize_edges =True,
-        use_node_scaler: str = "zscale",
+        reuse_if_existing: bool = True,
+        featurize_edges: bool = True,
+        use_node_scaler: Optional[str] = None,
         use_node_scaler_target: Optional[str] = None,
-        use_edge_scaler: str = "zscale",
+        use_edge_scaler: Optional[str] = None,
         use_edge_scaler_target: Optional[str] = None,
         train_split: float = 0.8,
         device: str = "cpu",
@@ -459,8 +437,8 @@ class DGLGraphMixin(MIXIN_BASE):
         :param weight_column: Optional Weight column if explicit edges table exists with said weights.
                 Otherwise, weight_column is inhereted by UMAP.
         :param train_split: Randomly assigns a train and test mask according to the split value, default 80%.
-        :param use_node_scaler: selects which scaling to use on featurized nodes dataframe. Default `robust`
-        :param use_edge_scaler: selects which scaling to use on featurized edges dataframe. Default `robust`
+        :param use_node_scaler: selects which scaling to use on featurized nodes dataframe. Default None
+        :param use_edge_scaler: selects which scaling to use on featurized edges dataframe. Default None
         :param device: device to run model, default `cpu`, with `gpu` the other choice. Can be handled in outer scope.
         :param inplace: default, False, whether to return Graphistry instance in place or not.
 
@@ -511,7 +489,6 @@ class DGLGraphMixin(MIXIN_BASE):
         res = res._featurize_nodes_to_dgl(
             res,
             **kwargs_nodes
-            #X_nodes_resolved, y_nodes_resolved, use_node_scaler
         )
         
         kwargs_edges = self.convert_kwargs(X=X_edges_resolved, y=y_edges_resolved,
@@ -522,7 +499,6 @@ class DGLGraphMixin(MIXIN_BASE):
             res = res._featurize_edges_to_dgl(
                 res,
                 **kwargs_edges
-                #X_edges_resolved, y_edges_resolved, use_edge_scaler
             )
         if not inplace:
             return res
@@ -555,156 +531,155 @@ class DGLGraphMixin(MIXIN_BASE):
 
 
 # if __name__ == "__main__":
-    # import graphistry
-    # from graphistry.networks import LinkPredModelMultiOutput
-    # from graphistry.ai_utils import setup_logger
-    # from data import get_botnet_dataframe
-    #
-    # import torch
-    # import torch.nn.functional as F
-    #
-    # logger = setup_logger("Main in DGL_utils", verbose=False)
-    #
-    # edf = get_botnet_dataframe(15000)
-    # edf = edf.drop_duplicates()
-    # src, dst = "to_node", "from_node"
-    # edf["to_node"] = edf.SrcAddr
-    # edf["from_node"] = edf.DstAddr
-    #
-    # good_cols_without_label = [
-    #     "Dur",
-    #     "Proto",
-    #     "Sport",
-    #     "Dport",
-    #     "State",
-    #     "TotPkts",
-    #     "TotBytes",
-    #     "SrcBytes",
-    #     "to_node",
-    #     "from_node",
-    # ]
-    #
-    # good_cols_without_label_or_edges = [
-    #     "Dur",
-    #     "Proto",
-    #     "Sport",
-    #     "Dport",
-    #     "State",
-    #     "TotPkts",
-    #     "TotBytes",
-    #     "SrcBytes",
-    # ]
-    #
-    # node_cols = ["Dur", "TotPkts", "TotBytes", "SrcBytes", "ip"]
-    #
-    # use_cols = ["Dur", "TotPkts", "TotBytes", "SrcBytes"]
-    #
-    # T = edf.Label.apply(
-    #     lambda x: 1 if "Botnet" in x else 0
-    # )  # simple indicator, useful for slicing later df.loc[T==1]
-    #
-    # y_edges = pd.DataFrame(
-    #     {"Label": edf.Label.values}, index=edf.index
-    # )  # must include index or g._MASK will through error
-    #
-    # # we can make an effective node_df using edf
-    # tdf = edf.groupby(["to_node"], as_index=False).mean().assign(ip=lambda x: x.to_node)
-    # fdf = (
-    #     edf.groupby(["from_node"], as_index=False)
-    #     .mean()
-    #     .assign(ip=lambda x: x.from_node)
-    # )
-    # ndf = pd.concat([tdf, fdf], axis=0)
-    # ndf = ndf.fillna(0)
-    #
-    # ndf = ndf[node_cols]
-    # ndf = ndf.drop_duplicates(subset=["ip"])
-    #
-    # src, dst = "from_node", "to_node"
-    # g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
-    #
-    # g2 = g.build_gnn(
-    #     "ip",
-    #     y_edges=y_edges,
-    #     use_edge_columns=good_cols_without_label,
-    #     use_node_columns=use_cols,
-    #     use_node_scaler="robust",
-    #     use_edge_scaler="robust",
-    # )
-    # # the DGL graph
-    # G = g2.DGL_graph
-    #
-    # # to get a sense of the different parts in training loop above
-    # # labels = torch.tensor(T.values, dtype=torch.float)
-    # train_mask = G.edata["train_mask"]
-    # test_mask = G.edata["test_mask"]
-    #
-    # # define the model
-    # n_feat = G.ndata["feature"].shape[1]
-    # latent_dim = 32
-    # n_output_feats = (
-    #     16  # this is equal to the latent dim output of the SAGE net, not n_targets
-    # )
-    #
-    # node_features = G.ndata["feature"].float()
-    # edge_label = G.edata["target"]
-    # n_targets = edge_label.shape[1]
-    # labels = edge_label.argmax(1)
-    # train_mask = G.edata["train_mask"]
-    #
-    # # instantiate model
-    # model = LinkPredModelMultiOutput(
-    #     n_feat, latent_dim, n_output_feats, n_targets
-    # )  # 1) #LinkPredModel(n_feat, latent_dim, n_output_feats)
-    #
-    # pred = model(G, node_features)  # the untrained graph
-    #
-    # print(
-    #     f"output of model should have same length as the number of edges: {pred.shape[0]}"
-    # )
-    # print(f"number of edges: {G.num_edges()}")
-    # assert G.num_edges() == pred.shape[0], "something went wrong"
-    #
-    # # the optimizer does all the backprop
-    # opt = torch.optim.Adam(model.parameters())
-    #
-    # def evaluate(model, graph, features, labels, mask):
-    #     model.eval()
-    #     with torch.no_grad():
-    #         logits = model(graph, features)
-    #         logits = logits[mask]
-    #         labels = labels[mask]
-    #         _, indices = torch.max(logits, dim=1)
-    #         correct = torch.sum(indices == labels.argmax(1))
-    #         return correct.item() * 1.0 / len(labels)
-    #
-    # use_cross_entropy_loss = True
-    # # train the model
-    # for epoch in range(2000):
-    #     logits = model(G, node_features)
-    #
-    #     if use_cross_entropy_loss:
-    #         loss = F.cross_entropy(logits[train_mask], edge_label[train_mask])
-    #     else:
-    #         loss = ((logits[train_mask] - edge_label[train_mask]) ** 2).mean()
-    #
-    #     pred = logits.argmax(1)
-    #     acc = sum(pred[test_mask] == labels[test_mask]) / len(pred[test_mask])
-    #
-    #     opt.zero_grad()
-    #     loss.backward()
-    #     opt.step()
-    #     if epoch % 100 == 0:
-    #         print(
-    #             f"epoch: {epoch} --------\nloss: {loss.item():.4f}\n\taccuracy: {acc:.4f}"
-    #         )
-    #
-    # # trained comparison
-    # logits = model(G, node_features)
-    # pred = logits.argmax(1)
-    #
-    # accuracy = sum(pred[test_mask] == labels[test_mask]) / len(
-    #     pred[test_mask]
-    # )  # does pretty well!
-    # print("-" * 60)
-    # print(f"Final Accuracy: {100 * accuracy:.2f}%")
+#     import graphistry
+#     from graphistry.networks import LinkPredModelMultiOutput
+#     #from graphistry.util import setup_logger
+    
+#     import torch
+#     import torch.nn.functional as F
+    
+#     #logger = setup_logger("Main in DGL_utils", verbose=True)
+    
+#     edf = edf = pd.read_csv('https://gist.githubusercontent.com/silkspace/33bde3e69ae24fee1298a66d1e00b467/raw/dc66bd6f1687270be7098f94b3929d6a055b4438/malware_bots.csv', index_col=0)
+#     edf = edf.drop_duplicates()
+#     edf = edf.sample(100000).reset_index(drop=True)
+#     src, dst = "to_node", "from_node"
+#     edf["to_node"] = edf.SrcAddr
+#     edf["from_node"] = edf.DstAddr
+    
+#     good_cols_without_label = [
+#         "Dur",
+#         "Proto",
+#         "Sport",
+#         "Dport",
+#         "State",
+#         "TotPkts",
+#         "TotBytes",
+#         "SrcBytes",
+#         "to_node",
+#         "from_node",
+#     ]
+    
+#     good_cols_without_label_or_edges = [
+#         "Dur",
+#         "Proto",
+#         "Sport",
+#         "Dport",
+#         "State",
+#         "TotPkts",
+#         "TotBytes",
+#         "SrcBytes",
+#     ]
+    
+#     node_cols = ["Dur", "TotPkts", "TotBytes", "SrcBytes", "ip"]
+    
+#     use_cols = ["Dur", "TotPkts", "TotBytes", "SrcBytes"]
+    
+#     T = edf.Label.apply(
+#         lambda x: 1 if "Botnet" in x else 0
+#     )  # simple indicator, useful for slicing later df.loc[T==1]
+    
+#     y_edges = pd.DataFrame(
+#         {"Label": edf.Label.values}, index=edf.index
+#     )  # must include index or g._MASK will through error
+    
+#     # we can make an effective node_df using edf
+#     tdf = edf.groupby(["to_node"], as_index=False).mean().assign(ip=lambda x: x.to_node)
+#     fdf = (
+#         edf.groupby(["from_node"], as_index=False)
+#         .mean()
+#         .assign(ip=lambda x: x.from_node)
+#     )
+#     ndf = pd.concat([tdf, fdf], axis=0)
+#     ndf = ndf.fillna(0)
+    
+#     ndf = ndf[node_cols]
+#     ndf = ndf.drop_duplicates(subset=["ip"])
+    
+#     src, dst = "from_node", "to_node"
+#     g = graphistry.edges(edf, src, dst).nodes(ndf, "ip")
+    
+#     g2 = g.build_gnn(
+#         y_edges=y_edges,
+#         X_edges=good_cols_without_label_or_edges,
+#         X_nodes=use_cols,
+#         use_node_scaler="zscale",
+#         use_edge_scaler="zscale",
+#     )
+#     # the DGL graph
+#     G = g2.DGL_graph
+#     print('G', G)
+#     # to get a sense of the different parts in training loop above
+#     # labels = torch.tensor(T.values, dtype=torch.float)
+#     train_mask = G.edata["train_mask"]
+#     test_mask = G.edata["test_mask"]
+    
+#     # define the model
+#     n_feat = G.ndata["feature"].shape[1]
+#     latent_dim = 32
+#     n_output_feats = (
+#         16  # this is equal to the latent dim output of the SAGE net, not n_targets
+#     )
+    
+#     node_features = G.ndata["feature"].float()
+#     edge_label = G.edata["target"]
+#     n_targets = edge_label.shape[1]
+#     labels = edge_label.argmax(1)
+#     train_mask = G.edata["train_mask"]
+    
+#     # instantiate model
+#     model = LinkPredModelMultiOutput(
+#         n_feat, latent_dim, n_output_feats, n_targets
+#     )  # 1) #LinkPredModel(n_feat, latent_dim, n_output_feats)
+    
+#     pred = model(G, node_features)  # the untrained graph
+    
+#     print(
+#         f"output of model should have same length as the number of edges: {pred.shape[0]}"
+#     )
+#     print(f"number of edges: {G.num_edges()}")
+#     assert G.num_edges() == pred.shape[0], "something went wrong"
+    
+#     # the optimizer does all the backprop
+#     opt = torch.optim.Adam(model.parameters())
+    
+#     def evaluate(model, graph, features, labels, mask):
+#         model.eval()
+#         with torch.no_grad():
+#             logits = model(graph, features)
+#             logits = logits[mask]
+#             labels = labels[mask]
+#             _, indices = torch.max(logits, dim=1)
+#             correct = torch.sum(indices == labels.argmax(1))
+#             return correct.item() * 1.0 / len(labels)
+    
+#     use_cross_entropy_loss = False
+#     # train the model
+#     for epoch in range(2000):
+#         logits = model(G, node_features)
+    
+#         if use_cross_entropy_loss:
+#             loss = F.cross_entropy(logits[train_mask], edge_label[train_mask])
+#         else:
+#             loss = ((logits[train_mask] - edge_label[train_mask]) ** 2).mean()
+    
+#         pred = logits.argmax(1)
+#         acc = sum(pred[test_mask] == labels[test_mask]) / len(pred[test_mask])
+    
+#         opt.zero_grad()
+#         loss.backward()
+#         opt.step()
+#         if epoch % 100 == 0:
+#             print(
+#                 f"epoch: {epoch} --------\nloss: {loss.item():.4f}\n\taccuracy: {acc:.4f}"
+#             )
+    
+#     # trained comparison
+#     logits = model(G, node_features)
+#     pred = logits.argmax(1)
+    
+#     accuracy = sum(pred[test_mask] == labels[test_mask]) / len(
+#         pred[test_mask]
+#     )  # does pretty well, more data gets it up to 90+%, like RFRegressor!
+#     print("-" * 60)
+#     print(f"Final Accuracy: {100 * accuracy:.2f}%")

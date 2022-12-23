@@ -337,9 +337,9 @@ class ArrowUploader:
                         logger.debug("@ArrowUploader.sso_get_token, org_name: {}".format(json_response['data']['active_organization']['slug']))
                         self.org_name = json_response['data']['active_organization']['slug']
 
-        except Exception:
-            logger.error('Error: %s', out, exc_info=True)
-            # raise
+        except Exception as e:
+            logger.error('Unexpected SSO authentication error: %s', out, exc_info=True)
+            raise e
             
         return self
 

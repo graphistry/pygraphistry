@@ -150,7 +150,7 @@ def get_mod(v):
 # if a col has spatials:
 #   - all: flatten into new primitive cols
 #   - some: stringify
-def flatten_spatial(df : pd.DataFrame, col : str) -> pd.DataFrame:
+def flatten_spatial(df : pd.DataFrame, col) -> pd.DataFrame:
 
     #4.x
     any_spatial4 = (df[col].apply(get_mod) == 'neo4j.spatial').any()  # type: ignore

@@ -220,7 +220,7 @@ def safe_divide(a, b):
 
 
 def features_without_target(
-    df: pd.DataFrame, y: Optional[Union[List[str], str, pd.DataFrame]] = None
+    df: pd.DataFrame, y: Optional[Union[List, str, pd.DataFrame]] = None
 ) -> pd.DataFrame:
     """
         Checks if y DataFrame column name is in df, and removes it
@@ -246,7 +246,7 @@ def features_without_target(
         if y.name and (y.name in df.columns):
             remove_cols = [y.name]
     elif isinstance(y, List):
-        remove_cols = y
+        remove_cols = y  # noqa
     elif isinstance(y, str):
         remove_cols = [y]
     else:
@@ -424,7 +424,7 @@ def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
 
 def check_if_textual_column(
     df: pd.DataFrame,
-    col: str,
+    col,
     confidence: float = 0.35,
     min_words: float = 2.5,
 ) -> bool:
@@ -456,7 +456,7 @@ def check_if_textual_column(
         mean_n_words = n_words.mean()
         if mean_n_words >= min_words:
             logger.info(
-                f"\n\tColumn `{col}` looks textual with mean number"
+                f"\n\tColumn `{col}` looks textual with mean number "
                 f"of words {mean_n_words:.2f}"
             )
             return True
@@ -468,7 +468,7 @@ def check_if_textual_column(
 
 def get_textual_columns(
     df: pd.DataFrame, min_words: float = 2.5
-) -> List[str]:
+) -> List:
     """
         Collects columns from df that it deems are textual.
     _____________________________________________________________________
@@ -476,7 +476,7 @@ def get_textual_columns(
     :param df: DataFrame
     :return: list of columns names
     """
-    text_cols = []
+    text_cols: List = []
     for col in df.columns:
         if check_if_textual_column(
             df, col, confidence=0.35, min_words=min_words
@@ -514,8 +514,8 @@ class Embedding:
         mask = self.index.isin(ids)
         index = self.index[mask]  # type: ignore
         res = self.vectors[mask]
-        res = pd.DataFrame(res, index=index, columns=self.columns)
-        return res
+        res = pd.DataFrame(res, index=index, columns=self.columns)  # type: ignore
+        return res  # type: ignore
 
     def fit_transform(self, n_dim: int):
         self.fit(n_dim)
@@ -1742,13 +1742,6 @@ class FastEncoder:
 
         return X, y, scaling_pipeline, scaling_pipeline_target
 
-    # def get_column(self, column, kind='nodes'):
-    #     if kind=='nodes':
-    #         X = self._nodes
-    #     elif kind=='edges':
-            
-    #     transformed_columns = X.columns[X.columns.map(lambda x: True if column in x else False)]]
-        # return X[transformed_columns]
 
 # ######################################################################################################################
 #
@@ -2606,3 +2599,40 @@ class FeatureMixin(MIXIN_BASE):
             reuse_if_existing=True,
             memoize=memoize,
         )
+
+    def _features_by_col(self, column_part: str, kind: str):
+        if kind == 'nodes' and hasattr(self, '_node_features'):
+            X = self._node_features
+        elif kind == 'edges' and hasattr(self, '_edge_features'):
+            X = self._edge_features
+        else:
+            raise ValueError('make sure to call `featurize` or `umap` before calling `get_features_by_cols`')
+        
+        transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]  # type: ignore
+        return X[transformed_columns]  # type: ignore
+    
+    def get_features_by_cols(self, columns: Union[List, str], kind: str = 'nodes'):
+        """Returns feature matrix with only the columns that contain the string `column_part` in their name.
+        
+            `X = g.get_features_by_cols(['feature1', 'feature2'])`
+            will retrieve a feature matrix with only the columns that contain the string 
+            `feature1` or `feature2` in their name.
+            
+            example:
+                res = g2.get_features_by_cols(['172', 'percent'])
+                res.columns
+                    => ['ip_172.56.104.67', 'ip_172.58.129.252', 'item_percent']
+
+        Args:
+            columns (Union[List, str]): list of column names or a single column name that may exist in columns 
+                of the feature matrix.
+            kind (str, optional): Node or Edge features. Defaults to 'nodes'.
+
+        Returns:
+            pd.DataFrame: feature matrix with only the columns that contain the string `column_part` in their name.
+        """
+        if isinstance(columns, str):
+            columns = [columns]
+        X = pd.concat([self._features_by_col(col, kind=kind) for col in columns], axis=1)  # type: ignore
+        X = X.loc[:, ~X.columns.duplicated()]  # type: ignore
+        return X
