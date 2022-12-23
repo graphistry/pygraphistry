@@ -476,9 +476,9 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       g = graphistry.nodes(ndf, 'node').edges(edf, 'src', 'dst')
       
       g2 = g.featurize(X = ['text_col_1', .., 'text_col_n'], kind='nodes',
-                        min_words=0,  # forces all named columns as textual ones
-                        #encode text as paraphrase embeddings, supports any sbert/Huggingface model
-                        model_name: str = "paraphrase-MiniLM-L6-v2")
+                        min_words = 0,  # forces all named columns as textual ones
+                        #encode text as paraphrase embeddings, supports any sbert model
+                        model_name = "paraphrase-MiniLM-L6-v2")
                         
       results_df, query_vector = g2.search('my natural language query', ...)
       
@@ -500,6 +500,59 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
     ```
     
 See `help(g.search_graph)` for options
+
+### Knowledge Graph Embeddings
+
+* Train a RGCN model and predict:
+
+    ```python
+      edf = pd.read_csv(edges.csv)
+      g = graphistry.edges(edf, src, dst)
+      g2 = g.embed(relation='relationship_column_of_interest', **kwargs)
+
+      # predict links over all nodes
+      g3 = g2.predict_links_all(threshold=0.95)  # score high confidence predicted edges
+      g3.plot()
+
+      # predict over any set of entities and/or relations. 
+      # Set any `source`, `destination` or `relation` to `None` to predict over all of them.
+      # if all are None, it is better to use `g.predict_links_all` for speed.
+      g4 = g2.predict_links(source=['entity_k'], 
+                      relation=['relationship_1', 'relationship_4', ..], 
+                      destination=['entity_l', 'entity_m', ..], 
+                      threshold=0.9,  # score threshold
+                      return_dataframe=False)  # set to `True` to return dataframe, or just access via `g5._edges`
+    ```
+
+* Detect Anamolous Behavior (example use cases such as Cyber, Fraud, etc)
+
+    ```python
+      # Score anomolous edges by setting the flag `anomalous` to True and set confidence threshold low
+      g5 = g.predict_links_all(threshold=0.05, anomalous=True)  # score low confidence predicted edges
+      g5.plot()
+
+      g6 = g.predict_links(source=['ip_address_1', 'user_id_3'], 
+                      relation=['attempt_logon', 'phishing', ..], 
+                      destination=['user_id_1', 'active_directory', ..], 
+                      anomalous=True,
+                      threshold=0.05)
+      g6.plot()
+    ```
+
+* Train a RGCN model including auto-featurized node embeddings
+
+    ```python
+      edf = pd.read_csv(edges.csv)
+      ndf = pd.read_csv(nodes.csv)  # adding node dataframe
+
+      g = graphistry.edges(edf, src, dst).nodes(ndf, node_column)
+
+      # inherets all the featurization `kwargs` from `g.featurize` 
+      g2 = g.embed(relation='relationship_column_of_interest', use_feat=True, **kwargs)
+      g2.predict_links_all(threshold=0.95).plot()
+    ```
+
+See `help(g.embed)`, `help(g.predict_links)` , `help(g.predict_links_all)` for options
 
 
 ### Quickly configurable

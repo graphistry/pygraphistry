@@ -8,19 +8,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Added
-* graphistry.features.py: easy import of featurization kwargs for `g.umap(**kwargs)` and `g.featurize(**kwargs)`
-* methods graphistry.feature_utils.py: `g.get_features_by_cols` returns featurized submatrix with `col_part` in their columns
-* methods graphistry.compute.conditional.py: `g.conditional_graph` and `g.conditional_probs` assessing conditional probs and graph
+* AI: Easy import of featurization kwargs for `g.umap(**kwargs)` and `g.featurize(**kwargs)`
+* AI: `g.get_features_by_cols` returns featurized submatrix with `col_part` in their columns
+* AI: `g.conditional_graph` and `g.conditional_probs` assessing conditional probs and graph
 * AI Demos folder: OSINT, CYBER demos
-* AI: full text & semantic search (`g.search(..)` and `g.search_graph(..).plot()`)
-* Featurization: support for dataframe columns that are list of lists -> multilabel targets
+* AI: Full text & semantic search (`g.search(..)` and `g.search_graph(..).plot()`)
+* AI: Featurization: support for dataframe columns that are list of lists -> multilabel targets
                   set using `g.featurize(y=['list_of_lists_column'], multilabel=True,...)`
+* AI: `g.embed(..)` code for fast knowledge graph embedding (2-layer RGCN) and its usage for link scoring and prediction
+* AI: Exposes public methods `g.predict_links(..)` and `g.predict_links_all()`
+* AI: automatic naming of graphistry objects during `g.search_graph(query)` -> `g._name = query`
+* AI: RGCN demos - Infosec Jupyterthon 2022, SSH anomaly detection
 
 ### Fixed
 
 * GIB: Add missing import during group-in-a-box cudf layout of 0-degree nodes
+* Tests: SSO login tests catch more unexpected exns
 
 ## [0.28.6 - 2022-29-22]
+
 
 ### Added
 

@@ -58,6 +58,7 @@ nitpick_ignore = [
     ('py:class', 'graphistry.dgl_utils.DGLGraphMixin'),
     ('py:class', 'graphistry.umap_utils.UMAPMixin'),
     ('py:class', 'graphistry.text_utils.SearchToGraphMixin'),
+    ('py:class', 'graphistry.embed_utils.HeterographEmbedModuleMixin'),
     ('py:class', 'graphistry.PlotterBase.PlotterBase'),
     ('py:class', 'IGraph graph'),
     ('py:class', 'igraph'),

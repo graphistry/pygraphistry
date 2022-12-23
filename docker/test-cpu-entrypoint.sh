@@ -15,6 +15,9 @@ fi
 echo "=== env ==="
 python --version
 python -m pip --version
+pip show mypy
+pip show pandas
+pip show numpy
 env
 
 echo "=== Linting ==="

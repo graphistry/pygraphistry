@@ -80,6 +80,13 @@ class Plottable(object):
     _index_to_entity : dict
 
     DGL_graph: Optional[Any]
+    
+    # embed utils
+    _relation : Optional[str]
+    _use_feat: bool
+    triplets: Optional[List]  # actually torch.Tensor too
+    _kg_embed_dim: int
+    
 
     def __init__(self, *args, **kwargs):
         #raise RuntimeError('should not happen')

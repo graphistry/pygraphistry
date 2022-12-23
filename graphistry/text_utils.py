@@ -267,6 +267,12 @@ class SearchToGraphMixin(MIXIN_BASE):
         logger.info(f" - Returning {tdf.shape[0]} unique nodes given scale {scale} and thresh {thresh}")
         
         g = res.edges(edges, src, dst).nodes(tdf, node)
+        
+        if g._name is not None:
+            name = f'{g._name}-query:{query}'
+        else:
+            name = f'query:{query}'
+        g = g.name(name)  # type: ignore
         return g
 
     def save_search_instance(self, savepath):
