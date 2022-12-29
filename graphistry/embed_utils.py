@@ -153,13 +153,13 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             g_dgl.edata[dgl.ETYPE] = r
 
         g_dgl.edata["norm"] = dgl.norm_by_dst(g_dgl).unsqueeze(-1)
-        res.g_dgl = g_dgl
+        res._kg_dgl = g_dgl
         return res
 
 
     def _init_model(self, res, batch_size:int, sample_size:int, num_steps:int, device):
         _, _, _, _, GraphDataLoader, HeteroEmbed, _, _ = lazy_embed_import_dep()
-        g_iter = SubgraphIterator(res.g_dgl, sample_size, num_steps)
+        g_iter = SubgraphIterator(res._kg_dgl, sample_size, num_steps)
         g_dataloader = GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
         )
@@ -209,7 +209,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 )
 
             model.eval()
-            res._kg_embeddings = model(res.g_dgl.to(device)).detach()
+            res._kg_embeddings = model(res._kg_dgl.to(device)).detach()
             res._embed_model = model
             if res._eval_flag and res._train_idx is not None:
                 score = res._eval(threshold=0.5)
@@ -222,7 +222,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
     @property
     def _gcn_node_embeddings(self):
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
-        g_dgl = self.g_dgl.to(self._device)
+        g_dgl = self._kg_dgl.to(self._device)
         em = self._embed_model(g_dgl).detach()
         torch.cuda.empty_cache()
         return em
