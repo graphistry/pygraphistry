@@ -74,7 +74,7 @@ def is_legacy_cuml():
         return False
 
 
-UMAPEngineConcrete = Literal[CUML, UMAP_LEARN]
+UMAPEngineConcrete = Literal[f'{CUML}', f'{UMAP_LEARN}']
 UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
 
 
@@ -105,7 +105,6 @@ umap_kwargs_probs = {
     "n_components": 2,
     "metric": "hellinger",  # info metric, can't use on
     # textual encodings since they contain negative values...
-    # unless scaling min max etc
     "n_neighbors": 15,
     "min_dist": 0.3,
     "verbose": True,
