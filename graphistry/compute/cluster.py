@@ -20,9 +20,9 @@ def cluster(g, dbscan, kind='nodes'):
     """
         Fits clustering on UMAP embeddings
     """
-    if kind=='nodes':
+    if kind == 'nodes':
         df = g._node_embedding
-    elif kind=='edges':
+    elif kind == 'edges':
         df = g._edge_embedding
     else:
         raise ValueError('kind must be one of nodes or edges')
@@ -30,14 +30,14 @@ def cluster(g, dbscan, kind='nodes'):
     dbscan.fit(df)
     labels = dbscan.labels_
     
-    if kind=='nodes':    
+    if kind == 'nodes':    
         g._nodes['_cluster'] = labels
-    elif kind=='edges':
+    elif kind == 'edges':
         g._edges['_cluster'] = labels
     else:
         raise ValueError('kind must be one of nodes or edges')
     
-    kind = 'node' if kind=='nodes' else 'edge'
+    kind = 'node' if kind == 'nodes' else 'edge'
     setattr(g, f'_{kind}_dbscan', dbscan)
     
     return g
