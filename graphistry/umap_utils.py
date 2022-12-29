@@ -86,10 +86,10 @@ def resolve_umap_engine(
     if engine in ["auto"]:
         has_cuml_dependancy_, _, cuml = lazy_cuml_import_has_dependancy()
         if has_cuml_dependancy_:
-            return CUML
+            return 'cuml'
         has_umap_dependancy_, _, _ = lazy_umap_import_has_dependancy()
         if has_umap_dependancy_:
-            return UMAP_LEARN
+            return 'umap_learn'
 
     raise ValueError(  # noqa
         f'engine expected to be "auto", '
