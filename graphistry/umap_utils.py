@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 import pandas as pd
 
 from . import constants as config
+from .constants import CUML, UMAP_LEARN
 from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
                             prune_weighted_edges_df_and_relabel_nodes,
                             resolve_feature_engine)
@@ -73,22 +74,22 @@ def is_legacy_cuml():
         return False
 
 
-UMAPEngineConcrete = Literal["cuml", "umap_learn"]
+UMAPEngineConcrete = Literal[CUML, UMAP_LEARN]
 UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
 
 
 def resolve_umap_engine(
     engine: UMAPEngine,
 ) -> UMAPEngineConcrete:  # noqa
-    if engine in ["cuml", "umap_learn"]:
+    if engine in [CUML, UMAP_LEARN]:
         return engine  # type: ignore
     if engine in ["auto"]:
         has_cuml_dependancy_, _, cuml = lazy_cuml_import_has_dependancy()
         if has_cuml_dependancy_:
-            return "cuml"
+            return CUML
         has_umap_dependancy_, _, _ = lazy_umap_import_has_dependancy()
         if has_umap_dependancy_:
-            return "umap_learn"
+            return UMAP_LEARN
 
     raise ValueError(  # noqa
         f'engine expected to be "auto", '
@@ -180,9 +181,9 @@ class UMAPMixin(MIXIN_BASE):
     ):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
-        if engine_resolved == "umap_learn":
+        if engine_resolved == UMAP_LEARN:
             _, _, umap_engine = lazy_umap_import_has_dependancy()
-        elif engine_resolved == "cuml":
+        elif engine_resolved == CUML:
             _, _, umap_engine = lazy_cuml_import_has_dependancy()
         else:
             raise ValueError(
@@ -193,7 +194,7 @@ class UMAPMixin(MIXIN_BASE):
             umap_kwargs = dict(
                 {
                     "n_components": n_components,
-                    **({"metric": metric} if engine_resolved == "umap_learn" else {}),
+                    **({"metric": metric} if engine_resolved == UMAP_LEARN else {}),
                     "n_neighbors": n_neighbors,
                     "min_dist": min_dist,
                     "spread": spread,
@@ -238,7 +239,7 @@ class UMAPMixin(MIXIN_BASE):
         logger.info("-" * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
 
-        if self.engine == "cuml" and is_legacy_cuml():
+        if self.engine == CUML and is_legacy_cuml():
             from cuml.neighbors import NearestNeighbors
 
             knn = NearestNeighbors(n_neighbors=self.n_neighbors)
@@ -431,9 +432,9 @@ class UMAPMixin(MIXIN_BASE):
                 default True.
         :return: self, with attributes set with new data
         """
-        if engine == "umap_learn":
+        if engine == UMAP_LEARN:
             assert_imported()
-        elif engine == "cuml":
+        elif engine == CUML:
             assert_imported_cuml()
 
         umap_kwargs = dict(
@@ -563,7 +564,7 @@ class UMAPMixin(MIXIN_BASE):
             res, kind, encode_position, encode_weight, play
         )  # noqa: E501
 
-        if res.engine == "cuml" and is_legacy_cuml():
+        if res.engine == CUML and is_legacy_cuml():
             res = res.prune_self_edges()
 
         if not inplace:
