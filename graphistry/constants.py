@@ -17,11 +17,16 @@ DISTANCE = '_distance'  # for text search db column
 # ###############################################################
 # consistent clf pipelining and constructor methods across files
 DGL_GRAPH = "DGL_graph"
+KG_GRAPH = '_kg_graph'
 FEATURE = "feature"
 TARGET = "target"
 LABEL = "label"
 LABEL_NODES = "node_label"
 LABEL_EDGES = "edge_label"
+
+# ENGINES
+CUML = 'cuml'
+UMAP_LEARN = 'umap_learn'
 
 TRAIN_MASK = "train_mask"
 TEST_MASK = "test_mask"
