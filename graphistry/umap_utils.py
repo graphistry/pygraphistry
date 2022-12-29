@@ -74,7 +74,7 @@ def is_legacy_cuml():
         return False
 
 
-UMAPEngineConcrete = Literal[f'{CUML}', f'{UMAP_LEARN}']
+UMAPEngineConcrete = Literal['cuml', 'umap_learn']
 UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
 
 
