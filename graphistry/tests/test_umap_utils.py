@@ -102,14 +102,6 @@ class TestUMAPFitTransform(unittest.TestCase):
         self.EMBe = g2._edge_embedding
         self.embe, self.xe, self.ye = g2.transform_umap(edge_df22, ydf=edge2_target_df, kind='edges')
 
-    # @pytest.mark.skipif(not has_dependancy, reason="requires umap feature dependencies")
-    # def test_allclose_fit_transform_on_same_data(self):
-    #     check_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
-    #     check_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
-
-    #     check_allclose_fit_transform_on_same_data(self.EMB, self.emb, None, None)
-    #     check_allclose_fit_transform_on_same_data(self.EMBe, self.embe, None, None)
-
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_columns_match(self):
         assert all(self.X.columns == self.x.columns), 'Node Feature Columns do not match'
@@ -195,6 +187,7 @@ class TestUMAPMethods(unittest.TestCase):
                         model_name=model_avg_name,
                         feature_engine=feature_engine,
                         n_neighbors=2,
+                        dbscan=False
                     )
 
                     self.cases_test_graph(g2, kind=kind, df=df)
@@ -272,7 +265,8 @@ class TestUMAPAIMethods(TestUMAPMethods):
                                     engine='umap_learn',
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality,
-                                    n_neighbors=3)
+                                    n_neighbors=3, 
+                                    dbscan=False)
 
                                 self.cases_test_graph(g2, kind=kind, df=df)
 
