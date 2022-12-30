@@ -2,7 +2,6 @@ import pandas as pd
 import unittest
 import pytest
 import graphistry
-import pandas as pd
 
 
 from graphistry.compute.cluster import lazy_dbscan_import_has_dependency
@@ -37,7 +36,7 @@ class TestComputeCluster(unittest.TestCase):
         g = graphistry.bind(source='src', destination='dst').edges(edf).nodes(ndf)
         for kind in ['nodes', 'edges']:
             g = g.featurize(kind=kind).dbscan(kind=kind)        
-            if kind=='nodes':
+            if kind == 'nodes':
                 self.assertTrue(g._node_dbscan is not None)
                 self.assertTrue('_cluster' in g._nodes)
             else:
@@ -46,6 +45,7 @@ class TestComputeCluster(unittest.TestCase):
         
         
         
-if __name__=='__main__':
+if __name__ == '__main__':
     unittest.main()
+
     

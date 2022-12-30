@@ -53,12 +53,11 @@ def cluster(g, dbscan, kind='nodes', cols=None, umap=True):
     else: 
         df = g.get_features_by_cols(cols, kind)
 
-    if umap and cols is None: 
+    if umap and cols is None and g._umap is not None: 
         df = g._get_embedding(kind)
     
     #print(df.head())
 
-    
     dbscan.fit(df)
     labels = dbscan.labels_
     
