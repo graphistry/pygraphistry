@@ -115,26 +115,37 @@ class ClusterMixin(MIXIN_BASE):
         """DBSCAN clustering on cpu or gpu infered automatically 
         
         Examples:
-            # cluster by feature embeddings
-            g2 = g.featurize().dbscan(kind='nodes', eps=1., min_samples=1, **kwargs)
-            print(g2._nodes['_cluster'])
-            
-            # cluster by a given set of feature column attributes 
-            # 'column_attribute1=ip_172' and 'column_attribute2=location', for example
-            g2 = g.featurize().dbscan(cols=['ip_172', 'location'], **kwargs)
+            g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
             
             # cluster by UMAP embeddings
-            g2 = g.umap().dbscan()
-            
+            kind = 'nodes' | 'edges'
+            g2 = g.umap(kind=kind).dbscan(kind=kind)
+            print(g2._nodes['_cluster']) | print(g2._edges['_cluster'])
+
             # dbscan with fixed parameters is default in umap
             g2 = g.umap(dbscan=True)
             
-            # with greater control over parameters via chaining,
-            g2 = g.umap().dbscan(eps=1.0, min_samples=2, **kwargs)
+            # and with greater control over parameters via chaining,
+            g2 = g.umap().dbscan(eps=1.2, min_samples=2, **kwargs)
+            
+            # cluster by feature embeddings
+            g2 = g.featurize().dbscan(**kwargs)
+            
+            # cluster by a given set of feature column attributes 
+            g2 = g.featurize().dbscan(cols=['ip_172', 'location', 'alert'], **kwargs)
+            
+            # equivalent to above (ie, cols != None and umap=True will still use features dataframe, rather than UMAP embeddings)
+            g2 = g.umap().dbscan(cols=['ip_172', 'location', 'alert'], umap=True | False, **kwargs)
+            
+            g2.plot() # color by `_cluster`
 
+        Useful:
+            Enriching the graph with cluster labels from UMAP is useful for visualizing clusters in the graph by color, size, etc.
+            see https://github.com/graphistry/pygraphistry/blob/master/demos/ai/cyber/cyber-redteam-umap-demo.ipynb
+                        
         Args:
             kind: 'nodes' or 'edges'
-            cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features by fragments of interest, e.g. ['ip172', 'location', 'asn', 'warnings']
+            cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features by fragments of interest, e.g. ['ip_172', 'location', 'ssh', 'warnings']
             umap: whether to use UMAP embeddings or features dataframe
             eps: The maximum distance between two samples for them to be considered as in the same neighborhood.
             min_samples: The number of samples in a neighborhood for a point to be considered as a core point. This includes the point itself.
@@ -145,5 +156,5 @@ class ClusterMixin(MIXIN_BASE):
         
         return res
 
-    def _is_cudf(self, df):
-        return 'cudf' in str(type(df))
+    # def _is_cudf(self, df):
+    #     return 'cudf' in str(type(df))
