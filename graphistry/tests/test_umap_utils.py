@@ -321,12 +321,12 @@ class TestUMAPAIMethods(TestUMAPMethods):
     )
     def test_chaining_nodes(self):
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.umap()
+        g2 = g.umap(dbscan=False)
 
         logger.debug('======= g.umap() done ======')
         g3a = g2.featurize()
         logger.debug('======= g3a.featurize() done ======')
-        g3 = g3a.umap()
+        g3 = g3a.umap(dbscan=False)
         logger.debug('======= g3.umap() done ======')
         assert g2._node_features.shape == g3._node_features.shape
         # since g3 has feature params with x and y.
@@ -346,8 +346,8 @@ class TestUMAPAIMethods(TestUMAPMethods):
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(kind='edges')
-            g3 = g.featurize(kind='edges').umap(kind='edges')
+            g2 = g.umap(kind='edges', dbscan=False)
+            g3 = g.featurize(kind='edges').umap(kind='edges', dbscan=False)
             
         assert all(g2._feature_params['edges']['X'] == g3._feature_params['edges']['X'])
         assert all(g2._feature_params['edges']['y'] == g3._feature_params['edges']['y'])  # None
