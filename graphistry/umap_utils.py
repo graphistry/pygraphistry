@@ -229,6 +229,14 @@ class UMAPMixin(MIXIN_BASE):
                 "as it is not one dimensional"
             )
             return None
+    
+    def _get_embedding(self, kind='nodes'):
+        if kind == 'nodes':
+            return self._node_embedding
+        elif kind == 'edges':
+            return self._edge_embedding
+        else:
+            raise ValueError('kind must be one of nodes or edges')
 
     def umap_fit(self, X: pd.DataFrame, y: Union[pd.DataFrame, None] = None):
         if self._umap is None:

@@ -23,7 +23,7 @@ def lazy_dbscan_import_has_dependency():
         from sklearn.cluster import DBSCAN
     except ImportError:
         has_min_dependency = False
-        logger.warning('Please install sklearn for CPU DBSCAN')
+        logger.info('Please install sklearn for CPU DBSCAN')
 
     has_cuml_dependency = True
     cuDBSCAN = None
@@ -31,24 +31,11 @@ def lazy_dbscan_import_has_dependency():
         from cuml import DBSCAN as cuDBSCAN
     except ImportError:
         has_cuml_dependency = False
-        logger.warning('Please install cuml for GPU DBSCAN')
+        logger.info('Please install cuml for GPU DBSCAN')
     
     return has_min_dependency, DBSCAN, has_cuml_dependency, cuDBSCAN
 
-    
-    
-def get_umap_embedding_df(g, kind='nodes'):
-    """
-        Returns a dataframe with the UMAP embeddings from the graphistry graph
-    """
-    if kind == 'nodes':
-        df = g._node_embedding
-    elif kind == 'edges':
-        df = g._edge_embedding
-    else:
-        raise ValueError('kind must be one of nodes or edges')
-        
-    return df
+
     
 def cluster(g, dbscan, kind='nodes', cols=None, umap=True):
     """
@@ -67,9 +54,9 @@ def cluster(g, dbscan, kind='nodes', cols=None, umap=True):
         df = g.get_features_by_cols(cols, kind)
 
     if umap and cols is None: 
-        df = get_umap_embedding_df(g, kind)
+        df = g._get_embedding(kind)
     
-    print(df.head())
+    #print(df.head())
 
     
     dbscan.fit(df)
@@ -106,10 +93,22 @@ class ClusterMixin(MIXIN_BASE):
     def dbscan(self, kind = 'nodes', cols = None, umap = True, eps: float = 1., min_samples: int = 1, **kwargs):
         """DBSCAN clustering on cpu or gpu infered by umap's .engine flag
         
+            g2 = g.featurize().dbscan(kind='nodes', cols=None, umap=True, eps=1., min_samples=1, **kwargs)
+            print(g2._nodes['_cluster'])
+            
+            # cluster by 'ip172' and 'location', for example
+            g2 = g.featurize().dbscan(cols=['column_attribute1', 'column_attribute2'], **kwargs)
+            
+            # cluster by UMAP embeddings
+            g2 = g.umap().dbscan()
+
         Args:
             kind: 'nodes' or 'edges'
             cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features by fragments of interest, e.g. ['ip172', 'location', 'asn', 'warnings']
             umap: whether to use UMAP embeddings or features dataframe
+            eps: The maximum distance between two samples for them to be considered as in the same neighborhood.
+            min_samples: The number of samples (or total integer weight) in a neighborhood for a point to be considered as a core point. This includes the point itself.
+            
         """
         res = self.bind()
         res = res._cluster_dbscan(res, kind=kind, cols=cols, umap=umap, eps=eps, min_samples=min_samples, **kwargs)
