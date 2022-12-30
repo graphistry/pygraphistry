@@ -102,21 +102,22 @@ class ClusterMixin(MIXIN_BASE):
             DBSCAN clustering on cpu or gpu infered by umap's .engine flag
         """
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import_has_dependency()
-        self.engine = resolve_cpu_gpu_engine("auto")
         
-        dbscan = cuDBSCAN(eps=eps, min_samples=min_samples, **kwargs) if self.engine == CUML else DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
+        res.engine = resolve_cpu_gpu_engine("auto")
+        
+        dbscan = cuDBSCAN(eps=eps, min_samples=min_samples, **kwargs) if res.engine == CUML else DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
         res = cluster(res, dbscan, kind=kind, cols=cols, umap=umap)
 
         return res
     
     
     def dbscan(self, kind = 'nodes', cols = None, umap = True, eps: float = 1., min_samples: int = 1, **kwargs):
-        """DBSCAN clustering on cpu or gpu infered by umap's .engine flag
+        """DBSCAN clustering on cpu or gpu infered automatically 
         
             g2 = g.featurize().dbscan(kind='nodes', cols=None, umap=True, eps=1., min_samples=1, **kwargs)
             print(g2._nodes['_cluster'])
             
-            # cluster by 'ip172' and 'location', for example
+            # cluster by 'column_attribute1=ip172' and 'column_attribute2=location', for example
             g2 = g.featurize().dbscan(cols=['column_attribute1', 'column_attribute2'], **kwargs)
             
             # cluster by UMAP embeddings
