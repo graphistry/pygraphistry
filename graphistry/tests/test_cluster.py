@@ -44,7 +44,6 @@ class TestComputeCluster(unittest.TestCase):
                 self.assertTrue('_cluster' in g._edges)
         
         
-        
 if __name__ == '__main__':
     unittest.main()
 
