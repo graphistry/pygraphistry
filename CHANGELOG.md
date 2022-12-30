@@ -7,13 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Changed
+* AI: moves public `g.g_dgl` from KG `embed` method to private method `g._kg_dgl`
+
 ### Added
 * AI: DBSCAN -- `g.featurize().dbscan()` and `g.umap().dbscan()` with options to use UMAP embedding, feature matrix, or subset of feature matrix via `g.dbscan(cols=[...])`
 * AI: Demo cleanup using ModelDict & new features
-* AI: moves public `g.g_dgl` from KG `embed` method to private method `g._kg_dgl`
 * Tests: dbscan tests
-
-### Added
 * AI: Easy import of featurization kwargs for `g.umap(**kwargs)` and `g.featurize(**kwargs)`
 * AI: `g.get_features_by_cols` returns featurized submatrix with `col_part` in their columns
 * AI: `g.conditional_graph` and `g.conditional_probs` assessing conditional probs and graph
