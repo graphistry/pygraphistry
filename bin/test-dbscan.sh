@@ -12,4 +12,4 @@ python -m pytest --version
 python -B -m pytest -vv \
     graphistry/tests/test_cluster.py
 
-#chmod +x bin/test-embed.sh
+#chmod +x bin/test-dbscan.sh
