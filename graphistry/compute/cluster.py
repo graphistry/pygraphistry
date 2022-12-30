@@ -128,7 +128,7 @@ class ClusterMixin(MIXIN_BASE):
             cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features by fragments of interest, e.g. ['ip172', 'location', 'asn', 'warnings']
             umap: whether to use UMAP embeddings or features dataframe
             eps: The maximum distance between two samples for them to be considered as in the same neighborhood.
-            min_samples: The number of samples (or total integer weight) in a neighborhood for a point to be considered as a core point. This includes the point itself.
+            min_samples: The number of samples in a neighborhood for a point to be considered as a core point. This includes the point itself.
             
         """
         res = self.bind()
