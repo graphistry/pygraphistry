@@ -575,7 +575,7 @@ class UMAPMixin(MIXIN_BASE):
             res = res.prune_self_edges()
 
         if dbscan:
-            res = res.dbscan(kind=kind, umap=True)
+            res = res.dbscan(kind=kind, umap=True)  # type: ignore
 
         if not inplace:
             return res
