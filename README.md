@@ -482,7 +482,7 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
                         
       results_df, query_vector = g2.search('my natural language query', ...)
       
-      print(results_df[['_distance', 'text_col_1', ..., 'text_col_n']])  #sorted by relevancy
+      print(results_df[['_distance', ..., 'text_col_n']])  #sorted by relevancy
       
       # or see graph of matching entities and similarity edges (or optional original edges)
       g2.search_graph('my natural language query', ...).plot()
