@@ -559,28 +559,28 @@ See `help(g.embed)`, `help(g.predict_links)` , `help(g.predict_links_all)` for o
 * Enrich UMAP embeddings or featurization dataframe with GPU or CPU DBSCAN
 
     ```python
-            g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
-            
-            # cluster by UMAP embeddings
-            kind = 'nodes' | 'edges'
-            g2 = g.umap(kind=kind).dbscan(kind=kind)
-            print(g2._nodes['_cluster']) | print(g2._edges['_cluster'])
+      g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
+      
+      # cluster by UMAP embeddings
+      kind = 'nodes' | 'edges'
+      g2 = g.umap(kind=kind).dbscan(kind=kind)
+      print(g2._nodes['_cluster']) | print(g2._edges['_cluster'])
 
-            # dbscan with fixed parameters is default in umap
-            g2 = g.umap(dbscan=True)
-            
-            # and with greater control over parameters via chaining,
-            g2 = g.umap().dbscan(eps=1.2, min_samples=2, **kwargs)
-            
-            # cluster by feature embeddings
-            g2 = g.featurize().dbscan(**kwargs)
-            
-            # cluster by a given set of feature column attributes 
-            g2 = g.featurize().dbscan(cols=['ip_172', 'location', 'alert'], **kwargs)
-            
-            # equivalent to above (ie, cols != None and umap=True will still use features dataframe, rather than UMAP embeddings)
-            g2 = g.umap().dbscan(cols=['ip_172', 'location', 'alert'], umap=True | False, **kwargs)
-            g2.plot() # color by `_cluster`
+      # dbscan with fixed parameters is default in umap
+      g2 = g.umap(dbscan=True)
+      
+      # and with greater control over parameters via chaining,
+      g2 = g.umap().dbscan(eps=1.2, min_samples=2, **kwargs)
+      
+      # cluster by feature embeddings
+      g2 = g.featurize().dbscan(**kwargs)
+      
+      # cluster by a given set of feature column attributes 
+      g2 = g.featurize().dbscan(cols=['ip_172', 'location', 'alert'], **kwargs)
+      
+      # equivalent to above (ie, cols != None and umap=True will still use features dataframe, rather than UMAP embeddings)
+      g2 = g.umap().dbscan(cols=['ip_172', 'location', 'alert'], umap=True | False, **kwargs)
+      g2.plot() # color by `_cluster`
     ```
 
 See `help(g.dbscan)` for options
