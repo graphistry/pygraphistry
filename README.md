@@ -521,7 +521,7 @@ See `help(g.search_graph)` for options
                       relation=['relationship_1', 'relationship_4', ..], 
                       destination=['entity_l', 'entity_m', ..], 
                       threshold=0.9,  # score threshold
-                      return_dataframe=False)  # set to `True` to return dataframe, or just access via `g5._edges`
+                      return_dataframe=False)  # set to `True` to return dataframe, or just access via `g4._edges`
     ```
 
 * Detect Anamolous Behavior (example use cases such as Cyber, Fraud, etc)
@@ -583,7 +583,7 @@ See `help(g.embed)`, `help(g.predict_links)` , `help(g.predict_links_all)` for o
             g2.plot() # color by `_cluster`
     ```
 
-
+See `help(g.dbscan)` for options
 
 ### Quickly configurable
 
