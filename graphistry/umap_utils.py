@@ -84,7 +84,7 @@ def resolve_umap_engine(
     if engine in [CUML, UMAP_LEARN]:
         return engine  # type: ignore
     if engine in ["auto"]:
-        has_cuml_dependancy_, _, cuml = lazy_cuml_import_has_dependancy()
+        has_cuml_dependancy_, _, _ = lazy_cuml_import_has_dependancy()
         if has_cuml_dependancy_:
             return 'cuml'
         has_umap_dependancy_, _, _ = lazy_umap_import_has_dependancy()
@@ -390,6 +390,7 @@ class UMAPMixin(MIXIN_BASE):
         play: Optional[int] = 0,
         encode_position: bool = True,
         encode_weight: bool = True,
+        dbscan: bool = True,
         engine: UMAPEngine = "auto",
         inplace: bool = False,
         feature_engine: str = "auto",
@@ -411,8 +412,8 @@ class UMAPMixin(MIXIN_BASE):
                 implicit UMAP, default True.
         :param encode_position: whether to set default plotting bindings
                 -- positions x,y from umap for .plot()
-        :param X: either an ndarray of features, or column names to featurize
-        :param y: either an ndarray of targets, or column names to featurize
+        :param X: either a dataframe ndarray of features, or column names to featurize
+        :param y: either an dataframe ndarray of targets, or column names to featurize
                 targets
         :param scale: multiplicative scale for pruning weighted edge DataFrame
                 gotten from UMAP, between [0, ..) with high end meaning keep
@@ -432,9 +433,10 @@ class UMAPMixin(MIXIN_BASE):
                 en/latest/parameters.html] documentation for more.
         :param suffix: optional suffix to add to x, y attributes of umap.
         :param play: Graphistry play parameter, default 0, how much to evolve
-                the network during clustering
+                the network during clustering. 0 preserves the original UMAP layout.
+        :param dbscan: whether to run DBSCAN on the UMAP embedding, default True.
         :param engine: selects which engine to use to calculate UMAP:
-                NotImplemented yet, default UMAP-LEARN
+                default "auto" will use cuML if available, otherwise UMAP-LEARN.
         :param memoize: whether to memoize the results of this method,
                 default True.
         :return: self, with attributes set with new data
@@ -463,7 +465,6 @@ class UMAPMixin(MIXIN_BASE):
             res = self.bind()
 
         res.umap_lazy_init(engine=engine, suffix=suffix)
-        # res.suffix = suffix
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
@@ -471,8 +472,7 @@ class UMAPMixin(MIXIN_BASE):
         featurize_kwargs = self._set_features(
             res, X, y, kind, feature_engine, {**featurize_kwargs, "memoize": memoize}
         )
-        # umap_kwargs = {**umap_kwargs,
-        # 'featurize_kwargs': featurize_kwargs or {}}
+
 
         if kind == "nodes":
             if res._node is None:
@@ -573,6 +573,9 @@ class UMAPMixin(MIXIN_BASE):
 
         if res.engine == CUML and is_legacy_cuml():
             res = res.prune_self_edges()
+
+        if dbscan:
+            res = res.dbscan(kind=kind, umap=True)
 
         if not inplace:
             return res

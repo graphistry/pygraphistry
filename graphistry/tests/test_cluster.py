@@ -23,15 +23,17 @@ class TestComputeCluster(unittest.TestCase):
     
     @pytest.mark.skipif(not has_dbscan, reason="requires ai dependencies")
     def test_umap_cluster(self):
+        g = graphistry.nodes(ndf).edges(edf, 'src', 'dst')
         for kind in ['nodes', 'edges']:
-            g = graphistry.nodes(ndf).edges(edf, 'src', 'dst')
-            g = g.umap(kind=kind, n_topics=2).dbscan(kind=kind)
-            self._condition(g, kind)    
-
+            g2 = g.umap(kind=kind, n_topics=2, dbscan=False).dbscan(kind=kind)
+            self._condition(g2, kind)
+            g3 = g.umap(kind=kind, n_topics=2, dbscan=True)
+            self._condition(g3, kind)
+            self.assertEqual(g2._nodes['_cluster'].tolist(), g3._nodes['_cluster'].tolist())
 
     @pytest.mark.skipif(not has_dbscan, reason="requires ai dependencies")
-    def test_featurize_edge_cluster(self):
-        g = graphistry.edges(edf, 'src', 'dst').nodes(ndf)
+    def test_featurize_cluster(self):
+        g = graphistry.nodes(ndf).edges(edf, 'src', 'dst')
         for kind in ['nodes', 'edges']:
             g = g.featurize(kind=kind, n_topics=2).dbscan(kind=kind)
             self._condition(g, kind)
@@ -40,4 +42,4 @@ class TestComputeCluster(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
     
-1
+
