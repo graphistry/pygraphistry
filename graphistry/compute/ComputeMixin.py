@@ -347,6 +347,9 @@ class ComputeMixin(MIXIN_BASE):
         :param node: start `node` to begin traversal
         :param attribute: the given `attribute` to collapse over within `column`
         :param column: the `column` of nodes DataFrame that contains `attribute` to collapse over
+        :param self_edges: whether to include self edges in the collapsed graph
+        :param unwrap: whether to unwrap the collapsed graph into a single node
+        :param verbose: whether to print out collapse summary information
 
         :returns:A new Graphistry instance with nodes and edges DataFrame containing collapsed nodes and edges given by column attribute -- nodes and edges DataFrames contain six new columns `collapse_{node | edges}` and `final_{node | edges}`, while original (node, src, dst) columns are left untouched
         :rtype: Plottable
