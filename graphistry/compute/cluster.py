@@ -14,6 +14,9 @@ if TYPE_CHECKING:
     MIXIN_BASE = Plottable
 else:
     MIXIN_BASE = object
+    
+DBSCANEngineConcrete = Literal['cuml', 'umap_learn']
+DBSCANEngine = Literal[DBSCANEngineConcrete, "auto"]
 
 
 def lazy_dbscan_import_has_dependency():
@@ -36,6 +39,25 @@ def lazy_dbscan_import_has_dependency():
     return has_min_dependency, DBSCAN, has_cuml_dependency, cuDBSCAN
 
 
+
+def resolve_cpu_gpu_engine(
+    engine: DBSCANEngine,
+) -> DBSCANEngineConcrete:  # noqa
+    if engine in [CUML, UMAP_LEARN]:
+        return engine  # type: ignore
+    if engine in ["auto"]:
+        has_min_dependency, _, has_cuml_dependency, _ = lazy_dbscan_import_has_dependency()
+        if has_cuml_dependency:
+            return CUML
+        if has_min_dependency:
+            return UMAP_LEARN
+
+    raise ValueError(  # noqa
+        f'engine expected to be "auto", '
+        '"umap_learn", or  "cuml" '
+        f"but received: {engine} :: {type(engine)}"
+    )
+
     
 def cluster(g, dbscan, kind='nodes', cols=None, umap=True):
     """
@@ -56,8 +78,6 @@ def cluster(g, dbscan, kind='nodes', cols=None, umap=True):
     if umap and cols is None and g._umap is not None: 
         df = g._get_embedding(kind)
     
-    #print(df.head())
-
     dbscan.fit(df)
     labels = dbscan.labels_
     
@@ -82,6 +102,7 @@ class ClusterMixin(MIXIN_BASE):
             DBSCAN clustering on cpu or gpu infered by umap's .engine flag
         """
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import_has_dependency()
+        self.engine = resolve_cpu_gpu_engine("auto")
         
         dbscan = cuDBSCAN(eps=eps, min_samples=min_samples, **kwargs) if self.engine == CUML else DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
         res = cluster(res, dbscan, kind=kind, cols=cols, umap=umap)
