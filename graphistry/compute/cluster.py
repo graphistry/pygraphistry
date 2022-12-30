@@ -114,14 +114,23 @@ class ClusterMixin(MIXIN_BASE):
     def dbscan(self, kind = 'nodes', cols = None, umap = True, eps: float = 1., min_samples: int = 1, **kwargs):
         """DBSCAN clustering on cpu or gpu infered automatically 
         
-            g2 = g.featurize().dbscan(kind='nodes', cols=None, umap=True, eps=1., min_samples=1, **kwargs)
+        Examples:
+            # cluster by feature embeddings
+            g2 = g.featurize().dbscan(kind='nodes', eps=1., min_samples=1, **kwargs)
             print(g2._nodes['_cluster'])
             
-            # cluster by 'column_attribute1=ip172' and 'column_attribute2=location', for example
-            g2 = g.featurize().dbscan(cols=['column_attribute1', 'column_attribute2'], **kwargs)
+            # cluster by a given set of feature column attributes 
+            # 'column_attribute1=ip_172' and 'column_attribute2=location', for example
+            g2 = g.featurize().dbscan(cols=['ip_172', 'location'], **kwargs)
             
             # cluster by UMAP embeddings
             g2 = g.umap().dbscan()
+            
+            # dbscan with fixed parameters is default in umap
+            g2 = g.umap(dbscan=True)
+            
+            # with greater control over parameters via chaining,
+            g2 = g.umap().dbscan(eps=1.0, min_samples=2, **kwargs)
 
         Args:
             kind: 'nodes' or 'edges'
