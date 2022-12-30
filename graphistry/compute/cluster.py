@@ -48,9 +48,9 @@ def resolve_cpu_gpu_engine(
     if engine in ["auto"]:
         has_min_dependency, _, has_cuml_dependency, _ = lazy_dbscan_import_has_dependency()
         if has_cuml_dependency:
-            return CUML
+            return 'cuml'
         if has_min_dependency:
-            return UMAP_LEARN
+            return 'umap_learn'
 
     raise ValueError(  # noqa
         f'engine expected to be "auto", '
