@@ -79,7 +79,7 @@ def get_model_matrix(g, kind, cols, umap):
     return df
     
 
-def dbscan_fit(g, dbscan, kind='nodes', cols=None, umap=True):
+def dbscan_fit(g, dbscan, kind='nodes', cols=None, use_umap_embedding=True):
     """
         Fits clustering on UMAP embeddings if umap is True, otherwise on the features dataframe
         
@@ -89,7 +89,7 @@ def dbscan_fit(g, dbscan, kind='nodes', cols=None, umap=True):
             cols: list of columns to use for clustering given `g.featurize` has been run
             umap: whether to use UMAP embeddings or features dataframe
     """
-    df = get_model_matrix(g, kind, cols, umap)
+    df = get_model_matrix(g, kind, cols, use_umap_embedding)
 
     dbscan.fit(df)
     labels = dbscan.labels_
@@ -97,7 +97,7 @@ def dbscan_fit(g, dbscan, kind='nodes', cols=None, umap=True):
     if kind == 'nodes':    
         g._nodes = g._nodes.assign(_dbscan = labels)
     elif kind == 'edges':
-        g._nodes = g._edges.assign(_dbscan = labels)
+        g._edges = g._edges.assign(_dbscan = labels)
     else:
         raise ValueError('kind must be one of `nodes` or `edges`')
     
@@ -141,23 +141,23 @@ class ClusterMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         pass
     
-    def _cluster_dbscan(self, res, kind, cols, umap, eps, min_samples, **kwargs):
+    def _cluster_dbscan(self, res, kind, cols, use_umap_embedding, eps, min_samples, **kwargs):
         """
             DBSCAN clustering on cpu or gpu infered by .engine flag
         """
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import_has_dependency()
         
         res.engine = resolve_cpu_gpu_engine("auto")
-        res._kwargs_dbscan = ModelDict('latest dbscan kwargs', kind=kind, cols=cols, umap=umap, eps=eps, min_samples=min_samples, **kwargs)
+        res._kwargs_dbscan = ModelDict('latest dbscan kwargs', kind=kind, cols=cols, umap=use_umap_embedding, eps=eps, min_samples=min_samples, **kwargs)
         
         dbscan = cuDBSCAN(eps=eps, min_samples=min_samples, **kwargs) if res.engine == CUML else DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
         
-        res = dbscan_fit(res, dbscan, kind=kind, cols=cols, umap=umap)
+        res = dbscan_fit(res, dbscan, kind=kind, cols=cols, use_umap_embedding=use_umap_embedding)
 
         return res
     
     
-    def dbscan(self, kind = 'nodes', cols = None, umap = True, eps: float = 1., min_samples: int = 1, **kwargs):
+    def dbscan(self, kind = 'nodes', cols = None, use_umap_embedding = True, eps: float = 1., min_samples: int = 1, **kwargs):
         """DBSCAN clustering on cpu or gpu infered automatically 
         
         Examples:
@@ -194,14 +194,14 @@ class ClusterMixin(MIXIN_BASE):
             kind: 'nodes' or 'edges'
             cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features by 
                 fragments of interest, e.g. ['ip_172', 'location', 'ssh', 'warnings']
-            umap: whether to use UMAP embeddings or features dataframe
+            use_umap_embedding: whether to use UMAP embeddings or features dataframe to cluster DBSCAN
             eps: The maximum distance between two samples for them to be considered as in the same neighborhood.
             min_samples: The number of samples in a neighborhood for a point to be considered as a core point. 
                 This includes the point itself.
             
         """
         res = self.bind()
-        res = res._cluster_dbscan(res, kind=kind, cols=cols, umap=umap, eps=eps, min_samples=min_samples, **kwargs)
+        res = res._cluster_dbscan(res, kind=kind, cols=cols, use_umap_embedding=use_umap_embedding, eps=eps, min_samples=min_samples, **kwargs)
         
         return res
     
@@ -214,7 +214,26 @@ class ClusterMixin(MIXIN_BASE):
                 g2 = g.featurize().dbscan()
                 
             predict:
-                labels = g2.transform_dbscan(ndf)
+                emb, X, y, ndf = g2.transform_dbscan(ndf, return_graph=False)
+                # or 
+                g3 = g2.transform_dbscan(ndf, ndf, return_graph=True)
+                g3.plot()
+                
+        likewise for umap:
+            fit:
+                g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
+                g2 = g.umap().dbscan()
+                
+            predict:
+                emb, X, y, ndf = g2.transform_dbscan(ndf, return_graph=False)
+                # or
+                g3 = g2.transform_dbscan(ndf, ndf, return_graph=True)
+                g3.plot()
+                
+        args:
+            df: dataframe to transform
+            ydf: optional labels dataframe
+            kind: 'nodes' or 'edges'
         
         """
         
@@ -227,12 +246,12 @@ class ClusterMixin(MIXIN_BASE):
             dbscan = res._node_dbscan if kind == 'nodes' else res._edge_dbscan
             
             emb = None
-            if umap:
+            if umap and cols is None:
                 emb, X, y = res.transform_umap(df, ydf, kind=kind, return_graph=False)
             else:
-                  X, _ = res.transform(df, ydf, kind=kind)
-            if cols is not None:
-                X = get_matrix_by_column_parts(X, cols)
+                X, y = res.transform(df, ydf, kind=kind, return_graph=False)
+                if cols is not None:
+                    X = get_matrix_by_column_parts(X, cols)
     
             if umap:
                 X_ = emb
@@ -240,22 +259,43 @@ class ClusterMixin(MIXIN_BASE):
                 X_ = X
                 
             labels = dbscan_predict(X_, dbscan)
-            df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)
+            if umap:
+                df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)
+            else:
+                df = df.assign(_dbscan=labels)
+
             return emb, X, y, df
         else:
             raise Exception('No dbscan model found. Please run `g.dbscan()` first')
         
-    def transform_dbscan(self, df, y=None, eps=30, use_umap_embedding=True, n_nearest=None, kind='nodes', return_graph=True):
-        """Transforms a dataframe to one with a new column '_cluster' containing the DBSCAN cluster labels on the minibatch
-            if return_graph is True, then a graph is returned with the minibatch added to the existing graph
-            if return_graph is False, then the enriched minibatch dataframe, features, and UMAP embedding are returned
+    def transform_dbscan(self, df: pd.DataFrame, y: pd.DataFrame = None, 
+                         eps: Union[float, str]='auto', 
+                         use_umap_embedding:bool=True, 
+                         sample:int=None, 
+                         kind:str='nodes', 
+                         return_graph=True):
+        """
+        Transforms a minibatch dataframe to one with a new column '_cluster' containing the DBSCAN cluster labels on the minibatch
+            and generates a graph with the minibatch and the original graph, with edges between the minibatch and the original graph inferred
+            works for 
+            
+        args:
+            df: dataframe to transform
+            y: optional labels dataframe
+            eps: The maximum distance between two samples for them to be considered as in the same neighborhood.
+                smaller values will result in less edges between the minibatch and the original graph. 
+                Default 'auto', infers eps from the mean distance and std of new points to the original graph
+            use_umap_embedding: whether to use UMAP embeddings or features dataframe when running DBSCAN
+            n_nearest: number of nearest neighbors to use for DBSCAN
+            kind: 'nodes' or 'edges'
+            return_graph: whether to return a graph or the minibatch enriched with cluster labels, default True
             
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind)
         if return_graph:
             res = self.bind()
-            g = infer_graph(res, emb, X, y, df, use_umap=use_umap_embedding, eps=eps, sample=n_nearest) 
+            g = infer_graph(res, emb, X, y, df, use_umap_embedding=use_umap_embedding, eps=eps, sample=sample) 
             return g
-        return emb, X, df
+        return emb, X, y, df
     
     
