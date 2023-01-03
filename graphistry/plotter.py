@@ -12,7 +12,6 @@ from .compute.conditional import ConditionalMixin  # type: ignore
 
 
 mixins = ([
-<<<<<<< HEAD
     CosmosMixin, NeptuneMixin, GremlinMixin, LayoutsMixin,
     DGLGraphMixin, UMAPMixin, FeatureMixin, SearchToGraphMixin, 
     HeterographEmbedModuleMixin, ComputeMixin, PlotterBase, object
