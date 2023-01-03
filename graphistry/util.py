@@ -15,18 +15,24 @@ from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
 
 # #####################################
-def setup_logger(name, verbose=VERBOSE, fullpath=TRACE):
-    if fullpath:
-        FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
-    else:
-        FORMAT = " %(message)s\n"
-    logging.basicConfig(format=FORMAT)
-    logger = logging.getLogger(f'graphistry.{name}')
-    if verbose is None:
-        logger.setLevel(logging.ERROR)
-    else:
-        logger.setLevel(logging.INFO if verbose else logging.DEBUG)
+
+def global_logger():
+    logger = logging.getLogger()
     return logger
+
+def setup_logger(name, verbose=VERBOSE, fullpath=TRACE):
+    #if fullpath:
+    #    FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
+    #else:
+    #    FORMAT = " %(message)s\n"
+    #logging.basicConfig(format=FORMAT)
+    #logger = logging.getLogger()#f'graphistry.{name}')
+    #if verbose is None:
+    #    logger.setLevel(logging.ERROR)
+    #else:
+    #    logger.setLevel(logging.INFO if verbose else logging.DEBUG)
+    #return logger
+    return global_logger()
 
 
 # #####################################

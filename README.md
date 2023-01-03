@@ -358,14 +358,40 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     g = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
 
     # other pydata libraries
-    X = g._node_features
-    y = g._node_target
+    X = g._node_features  # g._get_feature('nodes')
+    y = g._node_target  # g._get_target('nodes')
     from sklearn.ensemble import RandomForestRegressor
     model = RandomForestRegressor().fit(X, y) #assumes train/test split
     new_df = pandas.read_csv(...)
     X_new, _ = g.transform(new_df, None, kind='nodes')
     preds = model.predict(X_new)
     ```
+
+ * Encode model definitions and compare models against each other
+
+   ```python
+    # graphistry
+    from graphistry.features import search_model, topic_model, ngrams_model, ModelDict, default_featurize_parameters
+
+    g = graphistry.nodes(df)
+    g2 = g.umap(X=[..], y=[..], **search_model)  
+
+    # set custom encoding model with any feature kwargs
+    new_model = ModelDict(message='encoding new model parameters is easy', **default_featurize_parameters)
+    new_model.update(dict(
+                      y=[...],
+                      kind='edges', 
+                      model_name='sbert/hf/a_cool_transformer_model', 
+                      use_scaler_target='kbins', 
+                      n_bins=11, 
+                      strategy='normal'))
+    print(new_model)
+
+    g3 = g.umap(X=[..], **new_model)
+    # compare g2 vs g3 or add to different pipelines
+    # ...
+    ```
+
 
 See `help(g.featurize)` for more options
 
@@ -455,11 +481,13 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
                         model_name = "paraphrase-MiniLM-L6-v2")
                         
       results_df, query_vector = g2.search('my natural language query', ...)
-      print(results_df[['_distance', 'col_1', ..., 'col_n']])  #sorted by relevancy
+
+      print(results_df[['_distance', 'text_col_1', ..., 'text_col_n']])  #sorted by relevancy
       
       # or see graph of matching entities and similarity edges (or optional original edges)
       g2.search_graph('my natural language query', ...).plot()
     ```
+
     
 * If edges are not given, `g.umap(..)` will supply them: 
 

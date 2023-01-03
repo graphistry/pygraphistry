@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 import pandas as pd
+import random
 from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
 
 from .PlotterBase import Plottable
@@ -552,19 +553,22 @@ class SubgraphIterator:
 
     @staticmethod
     def _sample_neg(triplets:np.ndarray, num_nodes:int) -> Tuple[TT, TT]:  # type: ignore
+
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
-        triplets = torch.tensor(triplets)
-        h, r, t = triplets.T
-        h_o_t = torch.randint(high=2, size=h.size())
+        nodes = set(range(num_nodes))
+        pos_triplets = pd.DataFrame(triplets, columns=['source', 'relation', 'destination']).drop_duplicates()
+        pos_triplets_groupby = pd.DataFrame(pos_triplets.groupby(['source', 'relation'])['destination'].apply(set)).reset_index()
 
-        random_h = torch.randint(high=num_nodes, size=h.size())
-        random_t = torch.randint(high=num_nodes, size=h.size())
+        neg_triplets_groupby = pd.DataFrame(
+            pos_triplets_groupby['destination'].apply(lambda x : set(random.sample(nodes.difference(x), len(x))))
+        ).reset_index(drop=True)
+        neg_triplets = pd.concat([pos_triplets_groupby[['source', 'relation']], neg_triplets_groupby], axis=1).explode('destination')
 
-        neg_h = torch.where(h_o_t == 0, random_h, h)
-        neg_t = torch.where(h_o_t == 1, random_t, t)
-        neg_triplets = torch.stack((neg_h, r, neg_t), dim=1)
+        pos_triplets['labels'] = 1
+        neg_triplets['labels'] = 0
 
-        all_triplets = torch.cat((triplets, neg_triplets), dim=0)
-        labels = torch.zeros((all_triplets.size()[0]))
-        labels[: triplets.shape[0]] = 1
-        return all_triplets, labels
+        all_triplets_with_labels = pd.concat([pos_triplets, neg_triplets]).astype('int64')
+        all_triplets = torch.from_numpy(all_triplets_with_labels[['source', 'relation', 'destination']].to_numpy())
+        all_labels = torch.from_numpy(all_triplets_with_labels['labels'].to_numpy()).to(torch.float32)
+
+        return all_triplets, all_labels

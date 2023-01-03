@@ -188,7 +188,7 @@ class SearchToGraphMixin(MIXIN_BASE):
                 
             logger.info(f"-- Word Match: [[ {query} ]]")
             return (
-                pd.concat([search_to_df(query, col, self._nodes) for col in cols]),
+                pd.concat([search_to_df(query, col, self._nodes, as_string=True) for col in cols]),
                 None
             )
         else:
@@ -230,6 +230,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         edf = edges = res._edges
         rdf = df = res._nodes
         node = res._node
+        indices = rdf[node]
         src = res._source
         dst = res._destination
         if query != "":
@@ -256,7 +257,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         except:  # for explicit edges
             pass
         
-        found_indices = pd.concat([edges[src], edges[dst]], axis=0).unique()
+        found_indices = pd.concat([edges[src], edges[dst], indices], axis=0).unique()
         try:
             tdf = rdf.iloc[found_indices]
         except:  # for explicit relabeled nodes
@@ -276,6 +277,7 @@ class SearchToGraphMixin(MIXIN_BASE):
 
     def save_search_instance(self, savepath):
         from joblib import dump  # type: ignore   # need to make this onnx or similar
+        self.build_index()
         search = self.search_index
         del self.search_index  # can't pickle Annoy
         dump(self, savepath)

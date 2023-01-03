@@ -9,7 +9,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 
 ### Added
-
+* AI: Easy import of featurization kwargs for `g.umap(**kwargs)` and `g.featurize(**kwargs)`
+* AI: `g.get_features_by_cols` returns featurized submatrix with `col_part` in their columns
+* AI: `g.conditional_graph` and `g.conditional_probs` assessing conditional probs and graph
+* AI Demos folder: OSINT, CYBER demos
+* AI: Full text & semantic search (`g.search(..)` and `g.search_graph(..).plot()`)
+* AI: Featurization: support for dataframe columns that are list of lists -> multilabel targets
+                  set using `g.featurize(y=['list_of_lists_column'], multilabel=True,...)`
 * AI: `g.embed(..)` code for fast knowledge graph embedding (2-layer RGCN) and its usage for link scoring and prediction
 * AI: Exposes public methods `g.predict_links(..)` and `g.predict_links_all()`
 * AI: automatic naming of graphistry objects during `g.search_graph(query)` -> `g._name = query`
