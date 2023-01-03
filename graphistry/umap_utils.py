@@ -11,6 +11,7 @@ from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
                             resolve_feature_engine)
 from .PlotterBase import Plottable, WeakValueDictionary
 from .util import check_set_memoize, setup_logger
+from .ai_utils import infer_graph
 
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
@@ -268,7 +269,7 @@ class UMAPMixin(MIXIN_BASE):
         logger.info(f" - or {X.shape[0]/mins:.2f} rows per minute")
         return self
 
-    def umap_fit_transform(self, X: pd.DataFrame, y: Union[pd.DataFrame, None] = None):
+    def _umap_fit_transform(self, X: pd.DataFrame, y: Union[pd.DataFrame, None] = None):
         if self._umap is None:
             raise ValueError("UMAP is not initialized")
         self.umap_fit(X, y)
@@ -277,15 +278,19 @@ class UMAPMixin(MIXIN_BASE):
         return emb
 
     def transform_umap(  # noqa: E303
-        self, df: pd.DataFrame, ydf: pd.DataFrame, kind: str = "nodes"
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        self, df: pd.DataFrame, ydf=None, kind: str = "nodes", use_umap=True, eps=1, n_nearest=None, return_graph=True
+    ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
         try:
-            logger.debug(f"Going into Transform umap {df.shape}, {ydf.shape}")
+            logger.debug(f"Going into Transform umap {df.shape}")
         except:
             pass
         x, y = self.transform(df, ydf, kind=kind)
         emb = self._umap.transform(x)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
+        if return_graph:
+            res = self.bind()
+            g = infer_graph(res, df, x, emb, y, use_umap=use_umap, eps=eps, sample=n_nearest) 
+            return g
         return emb, x, y
 
     def _bundle_embedding(self, emb, index):
@@ -331,7 +336,7 @@ class UMAPMixin(MIXIN_BASE):
             fresh_res._umap = old_res._umap  # this saves the day!
             return fresh_res
 
-        emb = res.umap_fit_transform(X_, y_)
+        emb = res._umap_fit_transform(X_, y_)
         res._xy = emb
         return res
 
@@ -549,7 +554,7 @@ class UMAPMixin(MIXIN_BASE):
             )
             if X is not None and isinstance(X, pd.DataFrame):
                 logger.info("New Matrix `X` passed in for UMAP-ing")
-                xy = res.umap_fit_transform(X, y)
+                xy = res._umap_fit_transform(X, y)
                 res._xy = xy
                 res._weighted_edges_df = prune_weighted_edges_df_and_relabel_nodes(
                     res._weighted_edges_df, scale=scale

@@ -1,9 +1,12 @@
 import pandas as pd
+import numpy as np
 
 import graphistry
-from .util import setup_logger
 
-logger = setup_logger(__name__)
+from .constants import N_TREES, DISTANCE
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 
 # #################################################################################################
@@ -126,4 +129,150 @@ def get_graphistry_from_milieu_search(
     )  # get all node entries that show up in edge graph
     ntdf = ndf[ndf[node_col].isin(gcols)]
     g = graphistry.edges(tdf, src, dst).nodes(ntdf, node_col)
+    return g
+
+# #########################################################################################################################
+#
+#  Graphistry Vector Search Index
+#
+##########################################################################################################################
+
+def build_annoy_index(X, angular, n_trees=None):
+    """ Builds an Annoy Index for fast vector search
+
+    Args:
+        X (_type_): _description_
+        angular (_type_): _description_
+        n_trees (_type_, optional): _description_. Defaults to None.
+
+    Returns:
+        _type_: _description_
+    """
+    from annoy import AnnoyIndex  # type: ignore
+
+    logger.info(f"Building Index of size {X.shape}")
+
+    if angular:
+        logger.info('-using angular metric')
+        metric = 'angular'
+    else:
+        logger.info('-using euclidean metric')
+        metric = 'euclidean'
+        
+    search_index = AnnoyIndex(X.shape[1], metric)
+    # Add all the feature vectors to the search index
+    for i in range(len(X)):
+        search_index.add_item(i, X.values[i])
+    if n_trees is None:
+        n_trees = N_TREES
+
+    logger.info(f'-building index with {n_trees} trees')
+    search_index.build(n_trees)
+    return search_index
+
+def query_by_vector(vect, df, search_index, top_n):
+    indices, distances = search_index.get_nns_by_vector(
+        vect.values[0], top_n, include_distances=True
+    )
+    
+    results = df.iloc[indices]
+    results[DISTANCE] = distances
+    results = results.sort_values(by=[DISTANCE])
+
+    return results
+
+
+
+
+
+# #########################################################################################################################
+#
+#  Graphistry Graph Inference
+#
+##########################################################################################################################
+
+
+def infer_graph(res, emb, X, y, df, use_umap, eps=1, sample=None):
+    """
+        Infer a graph from a graphistry object
+        
+        args:
+            res: graphistry object
+            df: outside minibatch dataframe to add to existing graph
+            X: minibatch transformed dataframe
+            emb: minibatch UMAP embedding
+            kind: 'nodes' or 'edges'
+            eps: distance threshold for a minibatchh point to cluster to existing graph
+            n_nearest: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges. 
+    """
+    # if we have node features in this mini_batch, we can 
+    if use_umap and emb is not None: #would conflict if node_features is of shape (n, 2)
+        X_ = res._node_embedding
+        W = emb
+    else:
+        X_ = res._node_features
+        W = X
+    Y = res._node_target
+    
+    assert df.shape[0] == X.shape[0], 'minibatches df and X must have same number of rows since f(df) = X'
+    
+    new_edges = []
+    # if umap, need to add '_n' as node id to df, adding new indices to existing graph
+    df['_n'] = range(X.shape[0], X.shape[0]+df.shape[0])
+    df['_batch'] = 1 # 1 for minibatch, 0 for existing graph
+    node = res._node
+    NDF = res._nodes
+    NDF['_batch'] = 0
+    EDF = res._edges
+    EDF['_batch'] = 0
+    src = res._source
+    dst = res._destination
+    
+    old_edges = []
+    old_nodes = []
+    mdists=[]
+    
+    #vsearch = build_search_index(X_, angular=False)
+    
+    for i in range(W.shape[0]):
+        record_df = df.iloc[i, :]
+        diff = X_ - W.iloc[i, :]
+        dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
+
+        mdist = dist.mean()
+        mdists.append(mdist)
+        for nn in np.where(dist < eps)[0]:
+            this_ndf = NDF.iloc[nn, :]
+            if sample:
+                local_edges = EDF[(EDF[src] == this_ndf[node]) | (EDF[dst] == this_ndf[node])]
+                if not local_edges.empty:
+                    old_edges.append(local_edges.sample(sample, replace=True))
+            new_edges.append([this_ndf[node], record_df[node], 1, 1])
+            old_nodes.append(this_ndf)
+    
+    print('mean dist', np.mean(mdist))
+
+    new_edges = pd.DataFrame(new_edges, columns=[src, dst, '_weight', '_batch'])
+    if sample:
+        new_edges = pd.concat([new_edges, pd.concat(old_edges, axis=0).assign(_batch=0)], axis=0)
+    new_edges = new_edges.drop_duplicates()
+        
+    old_nodes = pd.DataFrame(old_nodes).drop_duplicates(subset=[node])
+    old_emb = X_.loc[old_nodes.index]
+    new_emb = pd.concat([W, old_emb], axis=0)
+
+    new_nodes = pd.concat([df, old_nodes], axis=0)#.reset_index(drop=True) # append minibatch at top
+    
+    # #########################################################
+    g = res.nodes(new_nodes, node).edges(new_edges, src, dst)
+    
+    if use_umap:
+        g._node_embedding = new_emb
+        g._node_features = X_
+    else:
+        g._node_features = new_emb
+        g._node_embedding = X_
+    
+    g._node_targets = pd.concat([y, Y.loc[old_nodes.index]]) if y is not None else Y
+    
     return g

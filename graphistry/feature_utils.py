@@ -1815,6 +1815,19 @@ def reuse_featurization(
         memoize=memoize,
     )
 
+def get_matrix_by_column_part(X: pd.DataFrame, column_part: str) -> pd.DataFrame:
+    """Get the feature matrix by column part existing in column names."""
+    transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]  # type: ignore
+    return X[transformed_columns] 
+
+def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Union[list, str]) -> pd.DataFrame:
+    """Get the feature matrix by column parts list existing in column names."""
+    if isinstance(column_parts, str):
+        column_parts = [column_parts]
+    res = pd.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)  # type: ignore
+    res = res.loc[:, ~res.columns.duplicated()]  # type: ignore
+    return res
+
 
 class FeatureMixin(MIXIN_BASE):
     """
@@ -2109,15 +2122,21 @@ class FeatureMixin(MIXIN_BASE):
                 "before being able to transform data"
             )
 
-    def transform(self, df, ydf, kind):
+    def transform(self, df, ydf=None, kind='nodes', return_graph=False, eps=1, n_nearest=None):
         """Transform new data"""
         if kind == "nodes":
-            return self._transform("_node_encoder", df, ydf)
+            X, y = self._transform("_node_encoder", df, ydf)
         elif kind == "edges":
-            return self._transform("_edge_encoder", df, ydf)
+            X, y = self._transform("_edge_encoder", df, ydf)
         else:
             logger.debug("kind must be one of `nodes`,"
                          f"`edges`, found {kind}")
+        if return_graph:
+            res = self.bind()
+            emb = None
+            g = infer_graph(res, emb, X, y, df, use_umap=False, eps=eps, n_nearest=n_nearest) 
+            return g
+        return X, y
 
     def scale(
         self,
@@ -2600,18 +2619,8 @@ class FeatureMixin(MIXIN_BASE):
             memoize=memoize,
         )
 
-    def _features_by_col(self, column_part: str, kind: str):
-        if kind == 'nodes' and hasattr(self, '_node_features'):
-            X = self._node_features
-        elif kind == 'edges' and hasattr(self, '_edge_features'):
-            X = self._edge_features
-        else:
-            raise ValueError('make sure to call `featurize` or `umap` before calling `get_features_by_cols`')
-        
-        transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]  # type: ignore
-        return X[transformed_columns]  # type: ignore
     
-    def get_features_by_cols(self, columns: Union[List, str], kind: str = 'nodes'):
+    def get_features_by_cols(self, columns: Union[List, str], kind: str = 'nodes', target=False):
         """Returns feature matrix with only the columns that contain the string `column_part` in their name.
         
             `X = g.get_features_by_cols(['feature1', 'feature2'])`
@@ -2627,12 +2636,14 @@ class FeatureMixin(MIXIN_BASE):
             columns (Union[List, str]): list of column names or a single column name that may exist in columns 
                 of the feature matrix.
             kind (str, optional): Node or Edge features. Defaults to 'nodes'.
+            target (bool, optional): If True, returns the target matrix. Defaults to False.
 
         Returns:
             pd.DataFrame: feature matrix with only the columns that contain the string `column_part` in their name.
         """
-        if isinstance(columns, str):
-            columns = [columns]
-        X = pd.concat([self._features_by_col(col, kind=kind) for col in columns], axis=1)  # type: ignore
-        X = X.loc[:, ~X.columns.duplicated()]  # type: ignore
-        return X
+        if target:
+            X = self._get_target(kind)
+        else:
+            X = self._get_feature(kind)
+
+        return get_matrix_by_column_parts(X, columns)
