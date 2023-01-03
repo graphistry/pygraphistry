@@ -2123,8 +2123,20 @@ class FeatureMixin(MIXIN_BASE):
                 "before being able to transform data"
             )
 
-    def transform(self, df, ydf=None, kind='nodes', return_graph=False, eps=1, n_nearest=None):
-        """Transform new data"""
+    def transform(self, df, ydf=None, kind='nodes', return_graph=True, eps='auto', sample=None):
+        """Transform new data and append to existing graph.
+        
+            args:
+                df: pd.DataFrame, raw data to transform
+                ydf: pd.DataFrame, optional
+                kind: str  # one of `nodes`, `edges`
+                return_graph: bool, if True, will return a graph with inferred edges
+                eps: float, if return_graph is True, will use this value for eps in NN search, or 'auto' to infer a good value
+                sample: int, if return_graph is True, will use sample value for NN search over existing edges
+            returns:
+                X: pd.DataFrame, transformed data if return_graph is False
+                    or a graph with inferred edges if return_graph is True
+        """
         if kind == "nodes":
             X, y = self._transform("_node_encoder", df, ydf)
         elif kind == "edges":
@@ -2134,8 +2146,8 @@ class FeatureMixin(MIXIN_BASE):
                          f"`edges`, found {kind}")
         if return_graph:
             res = self.bind()
-            emb = None
-            g = infer_graph(res, emb, X, y, df, use_umap=False, eps=eps, n_nearest=n_nearest) 
+            emb = None  # will not be able to decide umap coordinates, but will be able to infer graph from existing edges
+            g = infer_graph(res, emb, X, y, df, use_umap_embedding=False, eps=eps, sample=sample) 
             return g
         return X, y
 

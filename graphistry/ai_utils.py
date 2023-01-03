@@ -190,7 +190,7 @@ def query_by_vector(vect, df, search_index, top_n):
 ##########################################################################################################################
 
 
-def infer_graph(res, emb, X, y, df, use_umap, eps=1, sample=None):
+def infer_graph(res, emb, X, y, df, use_umap_embedding=False, eps='auto', sample=None):
     """
         Infer a graph from a graphistry object
         
@@ -200,21 +200,28 @@ def infer_graph(res, emb, X, y, df, use_umap, eps=1, sample=None):
             X: minibatch transformed dataframe
             emb: minibatch UMAP embedding
             kind: 'nodes' or 'edges'
-            eps: distance threshold for a minibatchh point to cluster to existing graph
+            eps: if 'auto' will find a good epsilon from the data; distance threshold for a minibatchh point to cluster to existing graph
             n_nearest: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges. 
     """
     # if we have node features in this mini_batch, we can 
-    if use_umap and emb is not None: #would conflict if node_features is of shape (n, 2)
+    if use_umap_embedding and emb is not None: #would conflict if node_features is of shape (n, 2)
         X_ = res._node_embedding
         W = emb
-    else:
+        F = res._node_features
+        EMB = X_
+    else: # can still be umap, but want to do the inference on the higher dimensional features
         X_ = res._node_features
         W = X
+        F = X_
+        EMB = res._node_embedding
+        
     Y = res._node_target
     
     assert df.shape[0] == X.shape[0], 'minibatches df and X must have same number of rows since f(df) = X'
+    if emb is not None:
+        assert emb.shape[0] == df.shape[0], 'minibatches emb and X must have same number of rows since h(df) = emb'
+        df = df.assign(x=emb.x, y=emb.y)  # add x and y to df for graphistry instance
     
-    new_edges = []
     # if umap, need to add '_n' as node id to df, adding new indices to existing graph
     df['_n'] = range(X.shape[0], X.shape[0]+df.shape[0])
     df['_batch'] = 1 # 1 for minibatch, 0 for existing graph
@@ -226,6 +233,7 @@ def infer_graph(res, emb, X, y, df, use_umap, eps=1, sample=None):
     src = res._source
     dst = res._destination
     
+    new_edges = []
     old_edges = []
     old_nodes = []
     mdists=[]
@@ -233,44 +241,68 @@ def infer_graph(res, emb, X, y, df, use_umap, eps=1, sample=None):
     #vsearch = build_search_index(X_, angular=False)
     
     for i in range(W.shape[0]):
-        record_df = df.iloc[i, :]
+        #record_df = df.iloc[i, :]
         diff = X_ - W.iloc[i, :]
         dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
-
-        mdist = dist.mean()
-        mdists.append(mdist)
-        for nn in np.where(dist < eps)[0]:
-            this_ndf = NDF.iloc[nn, :]
+        mdists.append(dist)
+    
+    m, std = np.mean(mdists), np.std(mdists)
+    #logger.info(f'--Mean distance to existing nodes {m} +/- {std}')
+    print(f'--Mean distance to existing nodes {m:.2f} +/- {std:.2f}')
+    if eps == 'auto':
+        eps = np.min([np.abs(m - 2*std), m])
+    print(f'{eps:.2f} epsilon for min distance threshold')
+    
+    for i, dist in enumerate(mdists):
+        record_df = df.iloc[i, :]
+        for j in np.where(dist < eps)[0]:
+            this_ndf = NDF.iloc[j, :]
             if sample:
                 local_edges = EDF[(EDF[src] == this_ndf[node]) | (EDF[dst] == this_ndf[node])]
                 if not local_edges.empty:
                     old_edges.append(local_edges.sample(sample, replace=True))
             new_edges.append([this_ndf[node], record_df[node], 1, 1])
             old_nodes.append(this_ndf)
-    
-    print('mean dist', np.mean(mdist))
+
 
     new_edges = pd.DataFrame(new_edges, columns=[src, dst, '_weight', '_batch'])
-    if sample:
-        new_edges = pd.concat([new_edges, pd.concat(old_edges, axis=0).assign(_batch=0)], axis=0)
-    new_edges = new_edges.drop_duplicates()
+    print(len(new_edges), 'new edges')
+    
+    all_nodes = []
+    if len(old_edges):
+        old_edges = pd.concat(old_edges, axis=0).assign(_batch=0)
+        all_nodes = old_edges[src].append(old_edges[dst]).append(new_edges[src]).append(new_edges[dst])
         
-    old_nodes = pd.DataFrame(old_nodes).drop_duplicates(subset=[node])
-    old_emb = X_.loc[old_nodes.index]
-    new_emb = pd.concat([W, old_emb], axis=0)
+    if sample:
+        new_edges = pd.concat([new_edges, old_edges], axis=0)
+        print('sampled', len(new_edges), 'new edges')
+    new_edges = new_edges.drop_duplicates()
+    print(len(new_edges), 'new edges after dropping duplicates')
 
-    new_nodes = pd.concat([df, old_nodes], axis=0)#.reset_index(drop=True) # append minibatch at top
+    if len(old_nodes):
+        old_nodes = pd.DataFrame(old_nodes)#.drop_duplicates(subset=[node])
+        old_nodes = pd.concat([old_nodes, NDF[NDF[node].isin(all_nodes)]], axis=0).drop_duplicates(subset=[node])
+    print(f'Old nodes {len(old_nodes)}')
+    
+    old_emb = None
+    if EMB is not None:
+        old_emb = EMB.loc[old_nodes.index]
+    new_emb = None
+    if emb is not None:
+        new_emb = pd.concat([emb, old_emb], axis=0)
+    print(f'Old emb {old_emb.shape if old_emb is not None else None}')
+    
+    new_features = pd.concat([X, F.loc[old_nodes.index]], axis=0)
+
+    new_nodes = pd.concat([df, old_nodes], axis=0)  # append minibatch at top
+    
+    new_targets = pd.concat([y, Y.loc[old_nodes.index]]) if y is not None else Y
     
     # #########################################################
     g = res.nodes(new_nodes, node).edges(new_edges, src, dst)
     
-    if use_umap:
-        g._node_embedding = new_emb
-        g._node_features = X_
-    else:
-        g._node_features = new_emb
-        g._node_embedding = X_
-    
-    g._node_targets = pd.concat([y, Y.loc[old_nodes.index]]) if y is not None else Y
+    g._node_embedding = new_emb
+    g._node_features = new_features
+    g._node_targets = new_targets
     
     return g

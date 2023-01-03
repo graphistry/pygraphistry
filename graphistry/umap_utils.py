@@ -278,20 +278,20 @@ class UMAPMixin(MIXIN_BASE):
         return emb
 
     def transform_umap(  # noqa: E303
-        self, df: pd.DataFrame, ydf=None, kind: str = "nodes", use_umap=True, eps=1, n_nearest=None, return_graph=True
+        self, df: pd.DataFrame, ydf=None, kind: str = "nodes", eps='auto', sample=None, return_graph=True, use_umap_embedding=False
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
         try:
             logger.debug(f"Going into Transform umap {df.shape}")
         except:
             pass
-        x, y = self.transform(df, ydf, kind=kind)
-        emb = self._umap.transform(x)  # type: ignore
+        X, y = self.transform(df, ydf, kind=kind, return_graph=False)
+        emb = self._umap.transform(X)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph:
             res = self.bind()
-            g = infer_graph(res, df, x, emb, y, use_umap=use_umap, eps=eps, sample=n_nearest) 
+            g = infer_graph(res, emb, X, y, df, use_umap_embedding=use_umap_embedding, eps=eps, sample=sample) 
             return g
-        return emb, x, y
+        return emb, X, y
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
@@ -580,7 +580,7 @@ class UMAPMixin(MIXIN_BASE):
             res = res.prune_self_edges()
 
         if dbscan:
-            res = res.dbscan(kind=kind, umap=True)  # type: ignore
+            res = res.dbscan(kind=kind, use_umap_embedding=True)  # type: ignore
 
         if not inplace:
             return res
