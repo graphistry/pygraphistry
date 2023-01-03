@@ -170,6 +170,7 @@ def build_annoy_index(X, angular, n_trees=None):
     search_index.build(n_trees)
     return search_index
 
+
 def query_by_vector(vect, df, search_index, top_n):
     indices, distances = search_index.get_nns_by_vector(
         vect.values[0], top_n, include_distances=True
@@ -180,9 +181,6 @@ def query_by_vector(vect, df, search_index, top_n):
     results = results.sort_values(by=[DISTANCE])
 
     return results
-
-
-
 
 
 # #########################################################################################################################
