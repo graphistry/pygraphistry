@@ -4,8 +4,11 @@ import numpy as np
 import pandas as pd
 
 from .feature_utils import FeatureMixin
-from .ai_utils import search_to_df, setup_logger
-from .constants import WEIGHT, N_TREES, DISTANCE, VERBOSE, TRACE
+from .ai_utils import search_to_df, build_annoy_index, query_by_vector
+from .constants import WEIGHT, DISTANCE
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 from typing import (
     Hashable,
@@ -20,12 +23,11 @@ from typing import (
 )  # noqa
 
 
-logger = setup_logger(__name__, verbose=VERBOSE, fullpath=TRACE)
-
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
 else:
     MIXIN_BASE = object
+
 
 class SearchToGraphMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs) -> None:
@@ -35,7 +37,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         # assert self._umap is not None, 'Umap needs to be fit first, run g.umap(..) to fit a model'
         assert (
             self._get_feature('nodes') is not None
-        ), "Graphistry Instance is not fit, run g.featurize(kind='nodes', ..) to fit a model' \
+        ), "Graphistry Instance is not fit, run g.featurize(kind='nodes', ..) to fit a model ' \
         'if you have nodes & edges dataframe or g.umap(kind='nodes', ..) if you only have nodes dataframe"
 
     def assert_features_line_up_with_nodes(self):
@@ -44,49 +46,27 @@ class SearchToGraphMixin(MIXIN_BASE):
         a, b = ndf.shape[0], X.shape[0]
         assert a == b, 'Nodes dataframe and feature vectors are not same size, '\
         f'found nodes: {a}, feats: {b}. Did you mutate nodes between fit?'
+        
+    def _build_search_index(self, X, angular=False, n_trees=None):
+        # builds local index from X
+        return build_annoy_index(X, angular, n_trees)
 
     def build_index(self, angular=False, n_trees=None):
-        from annoy import AnnoyIndex  # type: ignore
         # builds local index
         self.assert_fitted()
         self.assert_features_line_up_with_nodes()
         
         X = self._get_feature('nodes')
 
-        logger.info(f"Building Index of size {X.shape}")
+        self.search_index = self._build_search_index(X, angular, n_trees)
 
-        if angular:
-            logger.info('-using angular metric')
-            metric = 'angular'
-        else:
-            logger.info('-using euclidean metric')
-            metric = 'euclidean'
-            
-        search_index = AnnoyIndex(X.shape[1], metric)
-        # Add all the feature vectors to the search index
-        for i in range(len(X)):
-            search_index.add_item(i, X.values[i])
-        if n_trees is None:
-            n_trees = N_TREES
-
-        logger.info(f'-building index with {n_trees} trees')
-        search_index.build(n_trees)
-
-        self.search_index = search_index
 
     def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float):
         # Use the loaded featurizers to transform the dataframe
         vect, _ = self.transform(qdf, None, kind="nodes")
-        
-        indices, distances = self.search_index.get_nns_by_vector(
-            vect.values[0], top_n, include_distances=True
-        )
-        
-        results = self._nodes.iloc[indices]
-        results[DISTANCE] = distances
-        results = results.query(f"{DISTANCE} < {thresh}")
 
-        results = results.sort_values(by=[DISTANCE])
+        results = query_by_vector(vect, self._nodes, self.search_index, top_n)        
+        results = results.query(f"{DISTANCE} < {thresh}")
 
         return results, vect
     

@@ -23,6 +23,7 @@ from graphistry.compute.ComputeMixin import ComputeMixin
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
+from .ai_utils import infer_graph
 
 # add this inside classes and have a method that can set log level
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)
