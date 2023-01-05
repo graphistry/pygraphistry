@@ -278,7 +278,7 @@ class UMAPMixin(MIXIN_BASE):
         return emb
 
     def transform_umap(  # noqa: E303
-        self, df: pd.DataFrame, ydf=None, kind: str = "nodes", eps='auto', sample=None, return_graph=True, use_umap_embedding=False
+        self, df: pd.DataFrame, ydf=None, kind: str = "nodes", eps='auto', sample=None, return_graph=True, fit_umap_embedding=False
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
         try:
             logger.debug(f"Going into Transform umap {df.shape}")
@@ -289,19 +289,18 @@ class UMAPMixin(MIXIN_BASE):
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph:
             res = self.bind()
-            g = infer_graph(res, emb, X, y, df, use_umap_embedding=use_umap_embedding, eps=eps, sample=sample) 
+            g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=fit_umap_embedding, eps=eps, sample=sample) 
             return g
         return emb, X, y
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
-        if emb.shape[1] == 2:
-            emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
-        else:
+        columns = [config.X, config.Y]
+        if emb.shape[1] > 2:
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1] - 2)
             ]
-            emb = pd.DataFrame(emb, columns=columns, index=index)
+        emb = pd.DataFrame(emb, columns=columns, index=index)
         return emb
 
     def _process_umap(
@@ -480,6 +479,7 @@ class UMAPMixin(MIXIN_BASE):
 
 
         if kind == "nodes":
+            index = res._nodes.index
             if res._node is None:
 
                 logger.debug("-Writing new node name")
@@ -489,6 +489,8 @@ class UMAPMixin(MIXIN_BASE):
                     .rename(columns={"index": config.IMPLICIT_NODE_ID}),
                     config.IMPLICIT_NODE_ID,
                 )
+                res._nodes.index = index
+                #print(res.)
 
             nodes = res._nodes[res._node].values
             index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
@@ -580,7 +582,7 @@ class UMAPMixin(MIXIN_BASE):
             res = res.prune_self_edges()
 
         if dbscan:
-            res = res.dbscan(kind=kind, use_umap_embedding=True)  # type: ignore
+            res = res.dbscan(kind=kind, fit_umap_embedding=True)  # type: ignore
 
         if not inplace:
             return res
