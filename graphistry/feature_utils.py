@@ -1555,10 +1555,9 @@ def transform(
         text_cols,
     ) = res
 
-    # feature_columns = X_enc.columns
-    # feature_columns_target = y_enc.columns
     logger.info("-" * 90)
-
+    
+    index = df.index
     y = pd.DataFrame([])
     T = pd.DataFrame([])
     # encode nodes
@@ -1616,11 +1615,11 @@ def transform(
 
     if scaling_pipeline and not X.empty:
         logger.info("--Scaling Features")
-        X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns)
+        X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=index)
     if scaling_pipeline_target and not y.empty:
         logger.info(f"--Scaling Target {scaling_pipeline_target}")
         y = pd.DataFrame(
-            scaling_pipeline_target.transform(y), columns=y.columns
+            scaling_pipeline_target.transform(y), columns=y.columns, index=index
         )
 
     return X, y
@@ -2147,7 +2146,7 @@ class FeatureMixin(MIXIN_BASE):
         if return_graph:
             res = self.bind()
             emb = None  # will not be able to decide umap coordinates, but will be able to infer graph from existing edges
-            g = infer_graph(res, emb, X, y, df, use_umap_embedding=False, eps=eps, sample=sample) 
+            g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=False, eps=eps, sample=sample) 
             return g
         return X, y
 
