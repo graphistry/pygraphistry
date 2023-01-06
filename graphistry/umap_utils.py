@@ -203,6 +203,8 @@ class UMAPMixin(MIXIN_BASE):
                     "negative_sample_rate": negative_sample_rate,
                 }
             )
+            
+            print('umap_kwargs', umap_kwargs)
 
             self.n_components = n_components
             self.metric = metric
@@ -278,7 +280,11 @@ class UMAPMixin(MIXIN_BASE):
         return emb
 
     def transform_umap(  # noqa: E303
-        self, df: pd.DataFrame, ydf=None, kind: str = "nodes", eps='auto', sample=None, return_graph=True, fit_umap_embedding=False
+        self, df: pd.DataFrame, ydf: pd.DataFrame = None, kind: str = "nodes", 
+        eps='auto', 
+        sample=None, 
+        return_graph=True, 
+        fit_umap_embedding=False
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
         try:
             logger.debug(f"Going into Transform umap {df.shape}")
@@ -298,8 +304,10 @@ class UMAPMixin(MIXIN_BASE):
         columns = [config.X, config.Y]
         if emb.shape[1] > 2:
             columns = [config.X, config.Y] + [
-                f"umap_{k}" for k in range(2, emb.shape[1] - 2)
+                f"umap_{k}" for k in range(2, emb.shape[1])
             ]
+        print('emb.shape', emb.shape)
+        print('columns', columns, len(columns))
         emb = pd.DataFrame(emb, columns=columns, index=index)
         return emb
 
@@ -460,6 +468,7 @@ class UMAPMixin(MIXIN_BASE):
             repulsion_strength=repulsion_strength,
             negative_sample_rate=negative_sample_rate,
             engine=engine,
+            suffix=suffix,
         )
         logger.debug("umap_kwargs: %s", umap_kwargs)
 
@@ -468,7 +477,7 @@ class UMAPMixin(MIXIN_BASE):
         else:
             res = self.bind()
 
-        res.umap_lazy_init(engine=engine, suffix=suffix)
+        res.umap_lazy_init(**umap_kwargs)
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
