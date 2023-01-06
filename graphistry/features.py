@@ -21,8 +21,8 @@ SEARCH_MODEL_PATH = "search.model"
 # ################# graphistry featurization config constants #################
 N_TOPICS = 42
 N_TOPICS_TARGET = 10
-HIGH_CARD = 4e7  # forces one hot encoding
-MID_CARD = 2e3  # todo: forces hashing
+HIGH_CARD = 1e9  # forces one hot encoding
+MID_CARD = 1e3  # todo: force hashing
 LOW_CARD = 2
 
 CARD_THRESH = 40
@@ -88,7 +88,7 @@ SPLIT_HIGH = 0.5
 
 # #############################################################################
 class ModelDict(UserDict):
-    """Helper class to print out model names
+    """Helper class to print out model names and keep track of updates
 
     Args:
         message: description of model
@@ -160,55 +160,74 @@ default_featurize_parameters = dict(
 # customize the default parameters for each model you want to test
 
 # Ngrams Model over features
-ngrams_model = ModelDict("Ngrams Model", verbose=True, **default_featurize_parameters)
-ngrams_model.update(dict(use_ngrams=True, min_words=HIGH_CARD))
+ngrams_model = ModelDict("Ngrams Model", 
+                         use_ngrams=True, 
+                         min_words=HIGH_CARD, 
+                         verbose=True)
+#ngrams_model.update(dict(use_ngrams=True, min_words=HIGH_CARD))
 
 # Topic Model over features
-topic_model = ModelDict("Topic Model", verbose=True, **default_featurize_parameters)
-topic_model.update(
-    dict(
-        cardinality_threshold=LOW_CARD,  # force topic model
-        cardinality_threshold_target=LOW_CARD,  # force topic model
-        n_topics=N_TOPICS,
-        n_topics_target=N_TOPICS_TARGET,
-        min_words=HIGH_CARD,  # make sure it doesn't turn into sentence model, but rather topic models
-    )
-)
+topic_model = ModelDict("Reliable Topic Models on Features and Target",         
+                        cardinality_threshold=LOW_CARD,  # force topic model
+                        cardinality_threshold_target=LOW_CARD,  # force topic model
+                        n_topics=N_TOPICS,
+                        n_topics_target=N_TOPICS_TARGET,
+                        min_words=HIGH_CARD,  # make sure it doesn't turn into sentence model, but rather topic models
+                        verbose=True
+                        )
+#**default_featurize_parameters)
+# topic_model.update(
+#     dict(
+#         cardinality_threshold=LOW_CARD,  # force topic model
+#         cardinality_threshold_target=LOW_CARD,  # force topic model
+#         n_topics=N_TOPICS,
+#         n_topics_target=N_TOPICS_TARGET,
+#         min_words=HIGH_CARD,  # make sure it doesn't turn into sentence model, but rather topic models
+#     )
+# )
 
 # useful for text data that you want to paraphrase
-embedding_model = ModelDict(
-    f"{PARAPHRASE_SMALL_MODEL} Embedding Model",
-    verbose=True,
-    **default_featurize_parameters,
+embedding_model = ModelDict(f"{PARAPHRASE_SMALL_MODEL} sbert Embedding Model",
+                        min_words=FORCE_EMBEDDING_ALL_COLUMNS,
+                        model_name=PARAPHRASE_SMALL_MODEL,  # if we need multilingual support, use PARAPHRASE_MULTILINGUAL_MODEL
+                        verbose=True,
+    #**default_featurize_parameters,
 )
-embedding_model.update(
-    dict(
-        min_words=FORCE_EMBEDDING_ALL_COLUMNS,
-        model_name=PARAPHRASE_SMALL_MODEL,  # if we need multilingual support, use PARAPHRASE_MULTILINGUAL_MODEL
-    )
-)
+# embedding_model.update(
+#     dict(
+#         min_words=FORCE_EMBEDDING_ALL_COLUMNS,
+#         model_name=PARAPHRASE_SMALL_MODEL,  # if we need multilingual support, use PARAPHRASE_MULTILINGUAL_MODEL
+#     )
+# )
 
 # useful for when search input is much smaller than the encoded documents
 search_model = ModelDict(
-    f"{MSMARCO2} Search Model", verbose=True, **default_featurize_parameters
+                        f"{MSMARCO2} Search Model", 
+                        verbose=True, 
+                        min_words=FORCE_EMBEDDING_ALL_COLUMNS,
+                        model_name=MSMARCO2,
+    #**default_featurize_parameters
 )
-search_model.update(
-    dict(
-        min_words=FORCE_EMBEDDING_ALL_COLUMNS,
-        model_name=MSMARCO2,
-    )
-)
+# search_model.update(
+#     dict(
+#         min_words=FORCE_EMBEDDING_ALL_COLUMNS,
+#         model_name=MSMARCO2,
+#     )
+# )
 
 # Question Answering encodings for search
 qa_model = ModelDict(
-    f"{QA_SMALL_MODEL} QA Model", verbose=True, **default_featurize_parameters
+                    f"{QA_SMALL_MODEL} QA Model", 
+                    min_words=FORCE_EMBEDDING_ALL_COLUMNS,
+                    model_name=QA_SMALL_MODEL,
+                    verbose=True,                 
 )
-qa_model.update(
-    dict(
-        min_words=FORCE_EMBEDDING_ALL_COLUMNS,
-        model_name=QA_SMALL_MODEL,
-    )
-)
+# qa_model.update(
+#     dict(
+#         min_words=FORCE_EMBEDDING_ALL_COLUMNS,
+#         model_name=QA_SMALL_MODEL,
+#     )
+# )
 
 
 BASE_MODELS = {
