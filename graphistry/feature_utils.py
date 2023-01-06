@@ -1899,7 +1899,7 @@ class FeatureMixin(MIXIN_BASE):
         feature_engine: FeatureEngineConcrete = "pandas",
         memoize: bool = True,
     ):
-        res = self.copy()
+        res = self.bind()  # was self.copy() but changing to test
         ndf = res._nodes
         node = res._node
 
@@ -1927,6 +1927,8 @@ class FeatureMixin(MIXIN_BASE):
         y_resolved = resolve_y(ndf, y)
 
         feature_engine = resolve_feature_engine(feature_engine)
+        
+        from .features import ModelDict
 
         fkwargs = dict(
             X=X_resolved,
@@ -1978,7 +1980,7 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = remove_internal_namespace_if_present(X_resolved)
 
         keys_to_remove = ["X", "y", "remove_node_column"]
-        nfkwargs = {}
+        nfkwargs = dict()
         for key, value in fkwargs.items():
             if key not in keys_to_remove:
                 nfkwargs[key] = value
@@ -2112,6 +2114,11 @@ class FeatureMixin(MIXIN_BASE):
         res._edge_encoder = encoder
 
         return res
+    
+    def _infer_edges(self, emb, X, y, df, eps='auto', sample=None, infer_on_umap_embedding=False, **kwargs):
+        res = self.bind()  # will not be able to decide umap coordinates, but will be able to infer graph from existing edges
+        g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, eps=eps, sample=sample) 
+        return g
 
     def _transform(self, encoder: str, df: pd.DataFrame, ydf: pd.DataFrame):
         if getattr(self, encoder) is not None:
@@ -2144,9 +2151,8 @@ class FeatureMixin(MIXIN_BASE):
             logger.debug("kind must be one of `nodes`,"
                          f"`edges`, found {kind}")
         if return_graph:
-            res = self.bind()
             emb = None  # will not be able to decide umap coordinates, but will be able to infer graph from existing edges
-            g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=False, eps=eps, sample=sample) 
+            g = self._infer_edges(emb, X, y, df, infer_on_umap_embedding=False, eps=eps, sample=sample) 
             return g
         return X, y
 

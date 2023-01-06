@@ -10,10 +10,11 @@ from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
                             prune_weighted_edges_df_and_relabel_nodes,
                             resolve_feature_engine)
 from .PlotterBase import Plottable, WeakValueDictionary
-from .util import check_set_memoize, setup_logger
-from .ai_utils import infer_graph
+from .util import check_set_memoize
 
-logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+import logging
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
@@ -294,9 +295,8 @@ class UMAPMixin(MIXIN_BASE):
         emb = self._umap.transform(X)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph:
-            res = self.bind()
-            g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=fit_umap_embedding, eps=eps, sample=sample) 
-            return g
+            g = self._infer_edges(emb, X, y, df, infer_on_umap_embedding=fit_umap_embedding, eps=eps, sample=sample) 
+            return g        
         return emb, X, y
 
     def _bundle_embedding(self, emb, index):
@@ -306,8 +306,8 @@ class UMAPMixin(MIXIN_BASE):
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1])
             ]
-        print('emb.shape', emb.shape)
-        print('columns', columns, len(columns))
+        # print('emb.shape', emb.shape)
+        # print('columns', columns, len(columns))
         emb = pd.DataFrame(emb, columns=columns, index=index)
         return emb
 

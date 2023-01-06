@@ -2,7 +2,7 @@ import logging
 import pandas as pd
 import numpy as np
 
-from typing import Any, List, Union, TYPE_CHECKING
+from typing import Any, List, Union, TYPE_CHECKING, Tuple, Optional, Dict, Callable
 from typing_extensions import Literal
 from collections import Counter
 
@@ -11,7 +11,6 @@ from graphistry.Plottable import Plottable
 from graphistry.constants import CUML, UMAP_LEARN  # noqa type: ignore
 from graphistry.features import ModelDict
 from graphistry.feature_utils import get_matrix_by_column_parts
-from graphistry.ai_utils import infer_graph
 
 logger = logging.getLogger("compute.cluster")
 
@@ -274,7 +273,7 @@ class ClusterMixin(MIXIN_BASE):
                          fit_umap_embedding:bool=False, 
                          sample:int=None, 
                          kind:str='nodes', 
-                         return_graph=True):
+                         return_graph=True)-> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
         """
         Transforms a minibatch dataframe to one with a new column '_cluster' containing the DBSCAN cluster labels on the minibatch
             and generates a graph with the minibatch and the original graph, with edges between the minibatch and the original graph inferred
@@ -298,8 +297,7 @@ class ClusterMixin(MIXIN_BASE):
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind)
         if return_graph:
-            res = self.bind()
-            g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=fit_umap_embedding, eps=eps, sample=sample) 
+            g = self._infer_edges(emb, X, y, df, infer_on_umap_embedding=False, eps=eps, sample=sample) 
             return g
         return emb, X, y, df
     

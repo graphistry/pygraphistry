@@ -204,7 +204,7 @@ def infer_graph(res, emb, X, y, df, infer_on_umap_embedding=False, eps='auto', s
             n_nearest: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges. 
     """
 
-    new_index = df.index
+    #new_index = df.index
     if infer_on_umap_embedding and emb is not None:
         X_previously_fit = res._node_embedding
         X_new = emb
