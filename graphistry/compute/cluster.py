@@ -141,23 +141,23 @@ class ClusterMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         pass
     
-    def _cluster_dbscan(self, res, kind, cols, use_umap_embedding, eps, min_samples, **kwargs):
+    def _cluster_dbscan(self, res, kind, cols, fit_umap_embedding, eps, min_samples, **kwargs):
         """
             DBSCAN clustering on cpu or gpu infered by .engine flag
         """
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import_has_dependency()
         
         res.engine = resolve_cpu_gpu_engine("auto")
-        res._kwargs_dbscan = ModelDict('latest dbscan kwargs', kind=kind, cols=cols, umap=use_umap_embedding, eps=eps, min_samples=min_samples, **kwargs)
+        res._kwargs_dbscan = ModelDict('latest dbscan kwargs', kind=kind, cols=cols, umap=fit_umap_embedding, eps=eps, min_samples=min_samples, **kwargs)
         
         dbscan = cuDBSCAN(eps=eps, min_samples=min_samples, **kwargs) if res.engine == CUML else DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
         
-        res = dbscan_fit(res, dbscan, kind=kind, cols=cols, use_umap_embedding=use_umap_embedding)
+        res = dbscan_fit(res, dbscan, kind=kind, cols=cols, use_umap_embedding=fit_umap_embedding)
 
         return res
     
     
-    def dbscan(self, kind = 'nodes', cols = None, use_umap_embedding = True, eps: float = 1., min_samples: int = 1, **kwargs):
+    def dbscan(self, eps: float = 0.2, min_samples: int = 1, cols = None, kind = 'nodes', fit_umap_embedding = True, **kwargs):
         """DBSCAN clustering on cpu or gpu infered automatically 
         
         Examples:
@@ -166,7 +166,7 @@ class ClusterMixin(MIXIN_BASE):
             # cluster by UMAP embeddings
             kind = 'nodes' | 'edges'
             g2 = g.umap(kind=kind).dbscan(kind=kind)
-            print(g2._nodes['_cluster']) | print(g2._edges['_cluster'])
+            print(g2._nodes['_dbscan']) | print(g2._edges['_dbscan'])
 
             # dbscan with fixed parameters is default in umap
             g2 = g.umap(dbscan=True)
@@ -183,7 +183,7 @@ class ClusterMixin(MIXIN_BASE):
             # equivalent to above (ie, cols != None and umap=True will still use features dataframe, rather than UMAP embeddings)
             g2 = g.umap().dbscan(cols=['ip_172', 'location', 'alert'], umap=True | False, **kwargs)
             
-            g2.plot() # color by `_cluster`
+            g2.plot() # color by `_dbscan`
 
         Useful:
             Enriching the graph with cluster labels from UMAP is useful for visualizing clusters in the graph by color, size, etc, 
@@ -191,22 +191,23 @@ class ClusterMixin(MIXIN_BASE):
              https://github.com/graphistry/pygraphistry/blob/master/demos/ai/cyber/cyber-redteam-umap-demo.ipynb
                         
         Args:
-            kind: 'nodes' or 'edges'
+            eps float: The maximum distance between two samples for them to be considered as in the same neighborhood.
+            kind str: 'nodes' or 'edges'
             cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features by 
                 fragments of interest, e.g. ['ip_172', 'location', 'ssh', 'warnings']
-            use_umap_embedding: whether to use UMAP embeddings or features dataframe to cluster DBSCAN
-            eps: The maximum distance between two samples for them to be considered as in the same neighborhood.
+            fit_umap_embedding bool: whether to use UMAP embeddings or features dataframe to cluster DBSCAN
             min_samples: The number of samples in a neighborhood for a point to be considered as a core point. 
                 This includes the point itself.
             
         """
         res = self.bind()
-        res = res._cluster_dbscan(res, kind=kind, cols=cols, use_umap_embedding=use_umap_embedding, eps=eps, min_samples=min_samples, **kwargs)
+        res = res._cluster_dbscan(res, kind=kind, cols=cols, fit_umap_embedding=fit_umap_embedding, eps=eps, min_samples=min_samples, **kwargs)
         
         return res
     
     def _transform_dbscan(self, df: pd.DataFrame, ydf=None, kind: str='nodes') -> pd.DataFrame:
-        """Transforms a dataframe to one with a new column '_cluster' containing the DBSCAN cluster labels
+        """
+        Transforms a dataframe to one with a new column '_dbscan' containing the DBSCAN cluster labels
             and returns feature[cols] or UMAP embedding
         Examples:
             fit: 
@@ -216,7 +217,7 @@ class ClusterMixin(MIXIN_BASE):
             predict:
                 emb, X, y, ndf = g2.transform_dbscan(ndf, return_graph=False)
                 # or 
-                g3 = g2.transform_dbscan(ndf, ndf, return_graph=True)
+                g3 = g2.transform_dbscan(ndf, return_graph=True)
                 g3.plot()
                 
         likewise for umap:
@@ -227,7 +228,7 @@ class ClusterMixin(MIXIN_BASE):
             predict:
                 emb, X, y, ndf = g2.transform_dbscan(ndf, return_graph=False)
                 # or
-                g3 = g2.transform_dbscan(ndf, ndf, return_graph=True)
+                g3 = g2.transform_dbscan(ndf, return_graph=True)
                 g3.plot()
                 
         args:
@@ -270,7 +271,7 @@ class ClusterMixin(MIXIN_BASE):
         
     def transform_dbscan(self, df: pd.DataFrame, y: pd.DataFrame = None, 
                          eps: Union[float, str]='auto', 
-                         use_umap_embedding:bool=True, 
+                         fit_umap_embedding:bool=False, 
                          sample:int=None, 
                          kind:str='nodes', 
                          return_graph=True):
@@ -285,16 +286,20 @@ class ClusterMixin(MIXIN_BASE):
             eps: The maximum distance between two samples for them to be considered as in the same neighborhood.
                 smaller values will result in less edges between the minibatch and the original graph. 
                 Default 'auto', infers eps from the mean distance and std of new points to the original graph
-            use_umap_embedding: whether to use UMAP embeddings or features dataframe when running DBSCAN
-            n_nearest: number of nearest neighbors to use for DBSCAN
+            fit_umap_embedding: whether to use UMAP embeddings or features dataframe when inferring edges between 
+                the minibatch and the original graph. Default False, uses the features dataframe
+            sample: number of samples to use when inferring edges between the minibatch and the original graph, 
+                if None, will only use closest point to the minibatch. If greater than 0, will sample the closest `sample` points 
+                in existing graph to pull in more edges. Default None
             kind: 'nodes' or 'edges'
-            return_graph: whether to return a graph or the minibatch enriched with cluster labels, default True
+            return_graph: whether to return a graph or the (emb, X, y, minibatch enriched with DBSCAN labels), default True
+        
             
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind)
         if return_graph:
             res = self.bind()
-            g = infer_graph(res, emb, X, y, df, use_umap_embedding=use_umap_embedding, eps=eps, sample=sample) 
+            g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=fit_umap_embedding, eps=eps, sample=sample) 
             return g
         return emb, X, y, df
     
