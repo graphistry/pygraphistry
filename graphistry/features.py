@@ -57,11 +57,11 @@ EXTRA_COLS_NEEDED = ["x", "y", "_n"]
 UMAP_DIM = 2
 N_NEIGHBORS = 15
 MIN_DIST = 0.1
-SPREAD=0.5,
-LOCAL_CONNECTIVITY=1,
-REPULSION_STRENGTH=1,
-NEGATIVE_SAMPLING_RATE=5,
-METRIC = "euclidean",
+SPREAD = (0.5,)
+LOCAL_CONNECTIVITY = (1,)
+REPULSION_STRENGTH = (1,)
+NEGATIVE_SAMPLING_RATE = (5,)
+METRIC = ("euclidean",)
 
 
 # ###############################################################
@@ -97,9 +97,8 @@ SPLIT_MEDIUM = 0.2
 SPLIT_HIGH = 0.5
 
 
-
-
-default_featurize_parameters = ModelDict('Featurize Parameters',
+default_featurize_parameters = ModelDict(
+    "Featurize Parameters",
     kind="nodes",
     use_scaler=NO_SCALER,
     use_scaler_target=NO_SCALER,
@@ -132,18 +131,19 @@ default_featurize_parameters = ModelDict('Featurize Parameters',
 )
 
 
-default_umap_parameters = ModelDict('Umap Parameters',  
-                {
-                    "n_components": UMAP_DIM,
-                    **({"metric": METRIC} if True else {}),
-                    "n_neighbors": N_NEIGHBORS,
-                    "min_dist": MIN_DIST,
-                    "spread": SPREAD,
-                    "local_connectivity": LOCAL_CONNECTIVITY,
-                    "repulsion_strength": REPULSION_STRENGTH,
-                    "negative_sample_rate": NEGATIVE_SAMPLING_RATE,
-                }
-            )
+default_umap_parameters = ModelDict(
+    "Umap Parameters",
+    {
+        "n_components": UMAP_DIM,
+        **({"metric": METRIC} if True else {}),
+        "n_neighbors": N_NEIGHBORS,
+        "min_dist": MIN_DIST,
+        "spread": SPREAD,
+        "local_connectivity": LOCAL_CONNECTIVITY,
+        "repulsion_strength": REPULSION_STRENGTH,
+        "negative_sample_rate": NEGATIVE_SAMPLING_RATE,
+    },
+)
 
 # #############################################################################
 # Create useful presets for the user
@@ -201,8 +201,7 @@ BASE_MODELS = {
 
 
 if __name__ == "__main__":
-    """ python3 -m graphistry.features -m 'my awesome edge encoded model' -p '{"kind":"edges"}'
-    """
+    """python3 -m graphistry.features -m 'my awesome edge encoded model' -p '{"kind":"edges"}'"""
     import argparse
     import json
 

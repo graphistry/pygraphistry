@@ -1986,12 +1986,12 @@ class FeatureMixin(MIXIN_BASE):
             if key not in keys_to_remove:
                 nfkwargs[key] = value
 
-        print('-'*80) if verbose else None
+        print('-' * 80) if verbose else None
         print("** Featuring nodes") if verbose else None
-        #############################################################
+        # ############################################################
         encoder = FastEncoder(X_resolved, y_resolved, kind="nodes")
         encoder.fit(**nfkwargs)
-        ############################################################
+        # ###########################################################
 
         # if changing, also update fresh_res
         res._node_features = encoder.X
