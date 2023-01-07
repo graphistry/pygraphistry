@@ -261,16 +261,27 @@ class TestUMAPFitTransform(unittest.TestCase):
     def test_umap_kwargs(self):
         umap_kwargs = dict(
             {
-                "n_components": n_components,
-                **({"metric": metric} if engine_resolved == UMAP_LEARN else {}),
-                "n_neighbors": n_neighbors,
-                "min_dist": min_dist,
-                "spread": spread,
-                "local_connectivity": local_connectivity,
-                "repulsion_strength": repulsion_strength,
-                "negative_sample_rate": negative_sample_rate,
+                "n_components": 2,
+                "metric": 'euclidean',
+                "n_neighbors": 3,
+                "min_dist": 1,
+                "spread": 1,
+                "local_connectivity": 1,
+                "repulsion_strength": 1,
+                "negative_sample_rate": 5,
             }
         )
+        umap_kwargs2 = {k:v+1 for k, v in umap_kwargs.items()}
+        g = graphistry.nodes(ndf_reddit)
+        g2 = g.umap(**umap_kwargs)
+        g3 = g.umap(**umap_kwargs2)
+        assert g2._umap_params == umap_kwargs, f"Umap params do not match, found {g2._umap_params} vs {umap_kwargs} "
+        assert g3._umap_params == umap_kwargs2, f"Umap params do not match, found {g3._umap_params} vs {umap_kwargs2} "
+        g4 = g2.transform_umap(ndf_reddit)
+        assert g4._umap_params == umap_kwargs, f"Umap params do not match, found {g4._umap_params} vs {umap_kwargs} "
+        g5 = g3.transform_umap(ndf_reddit)
+        assert g5._umap_params == umap_kwargs2, f"Umap params do not match, found {g5._umap_params} vs {umap_kwargs2} "
+        
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_transform_umap(self):
