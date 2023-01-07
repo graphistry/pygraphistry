@@ -243,7 +243,8 @@ class ClusterMixin(MIXIN_BASE):
 
     def _transform_dbscan(
         self, df: pd.DataFrame, ydf=None, kind: str = "nodes"
-    ) -> pd.DataFrame:
+    ) -> Union[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        
         """
         Transforms a dataframe to one with a new column '_dbscan' containing the DBSCAN cluster labels
             and returns feature[cols] or UMAP embedding
@@ -342,7 +343,7 @@ class ClusterMixin(MIXIN_BASE):
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind)
         if return_graph:
-            g = self._infer_edges(
+            g = self._infer_edges(  # type: ignore
                 emb, X, y, df, infer_on_umap_embedding=fit_umap_embedding, eps=eps, sample=sample
             )
             return g
