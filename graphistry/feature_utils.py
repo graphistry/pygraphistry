@@ -1274,7 +1274,7 @@ def process_edge_dataframes(
     src: str,
     dst: str,
     cardinality_threshold: int = 40,
-    cardinality_threshold_target: int = 100,
+    cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
@@ -1284,7 +1284,6 @@ def process_edge_dataframes(
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
     min_df: int = 3,
-    #confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     similarity: Optional[str] = None,
@@ -1822,6 +1821,8 @@ def get_matrix_by_column_part(X: pd.DataFrame, column_part: str) -> pd.DataFrame
 
 def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Union[list, str]) -> pd.DataFrame:
     """Get the feature matrix by column parts list existing in column names."""
+    if column_parts is None:
+        return X
     if isinstance(column_parts, str):
         column_parts = [column_parts]
     res = pd.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)  # type: ignore
@@ -1842,7 +1843,7 @@ class FeatureMixin(MIXIN_BASE):
         g = graphistry.edges(df, 'src', 'dst')
         g2 = g.featurize(kind='edges')
 
-    or chain them,
+    or chain them for both nodes and edges,
         g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node_column')
         g2 = g.featurize().featurize(kind='edges')
 
@@ -1870,10 +1871,10 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "zscale",
-        use_scaler_target: Optional[str] = "kbins",
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
         cardinality_threshold: int = 40,
-        cardinality_threshold_target: int = 120,
+        cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         multilabel: bool = False,
@@ -1882,7 +1883,6 @@ class FeatureMixin(MIXIN_BASE):
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[str] = None,
@@ -1898,6 +1898,7 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         feature_engine: FeatureEngineConcrete = "pandas",
         memoize: bool = True,
+        verbose: bool = False,
     ):
         res = self.bind()  # was self.copy() but changing to test
         ndf = res._nodes
@@ -1930,7 +1931,7 @@ class FeatureMixin(MIXIN_BASE):
         
         from .features import ModelDict
 
-        fkwargs = dict(
+        fkwargs = ModelDict("Featurize Params",
             X=X_resolved,
             y=y_resolved,
             use_scaler=use_scaler,
@@ -1945,7 +1946,6 @@ class FeatureMixin(MIXIN_BASE):
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
             similarity=similarity,
@@ -1969,6 +1969,7 @@ class FeatureMixin(MIXIN_BASE):
 
         old_res = reuse_featurization(res, memoize, fkwargs)
         if old_res:
+            print("--- [[ RE-USING NODE FEATURIZATION ]]") if verbose else None
             logger.info("--- [[ RE-USING NODE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
             for attr in ["_node_features", "_node_target", "_node_encoder"]:
@@ -1985,6 +1986,8 @@ class FeatureMixin(MIXIN_BASE):
             if key not in keys_to_remove:
                 nfkwargs[key] = value
 
+        print('-'*80) if verbose else None
+        print("** Featuring nodes") if verbose else None
         #############################################################
         encoder = FastEncoder(X_resolved, y_resolved, kind="nodes")
         encoder.fit(**nfkwargs)
@@ -2003,17 +2006,16 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "zscale",
-        use_scaler_target: Optional[str] = "kbins",
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
         cardinality_threshold: int = 40,
-        cardinality_threshold_target: int = 20,
+        cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        #confidence: float = 0.35,
         min_words: float = 2.5,
         multilabel: bool = False,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -2029,6 +2031,7 @@ class FeatureMixin(MIXIN_BASE):
         keep_n_decimals: int = 5,
         feature_engine: FeatureEngineConcrete = "pandas",
         memoize: bool = True,
+        verbose: bool = False,
     ):
 
         res = self.copy()
@@ -2061,7 +2064,6 @@ class FeatureMixin(MIXIN_BASE):
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
             similarity=similarity,
@@ -2103,6 +2105,7 @@ class FeatureMixin(MIXIN_BASE):
             if key not in keys_to_remove:
                 nfkwargs[key] = value
 
+        print("** Featuring edges") if verbose else None
         ###############################################################
         encoder = FastEncoder(X_resolved, y_resolved, kind="edges")
         encoder.fit(src=res._source, dst=res._destination, **nfkwargs)
@@ -2115,9 +2118,9 @@ class FeatureMixin(MIXIN_BASE):
 
         return res
     
-    def _infer_edges(self, emb, X, y, df, eps='auto', sample=None, infer_on_umap_embedding=False, **kwargs):
+    def _infer_edges(self, emb, X, y, df, eps='auto', sample=None, infer_on_umap_embedding=False, verbose=False, **kwargs):
         res = self.bind()  # will not be able to decide umap coordinates, but will be able to infer graph from existing edges
-        g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, eps=eps, sample=sample) 
+        g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, eps=eps, sample=sample, verbose=verbose, **kwargs) 
         return g
 
     def _transform(self, encoder: str, df: pd.DataFrame, ydf: pd.DataFrame):
@@ -2129,7 +2132,7 @@ class FeatureMixin(MIXIN_BASE):
                 "before being able to transform data"
             )
 
-    def transform(self, df, ydf=None, kind='nodes', return_graph=True, eps='auto', sample=None):
+    def transform(self, df, ydf=None, kind='nodes', return_graph=True, eps='auto', sample=None, verbose=False):
         """Transform new data and append to existing graph.
         
             args:
@@ -2138,6 +2141,7 @@ class FeatureMixin(MIXIN_BASE):
                 kind: str  # one of `nodes`, `edges`
                 return_graph: bool, if True, will return a graph with inferred edges
                 eps: float, if return_graph is True, will use this value for eps in NN search, or 'auto' to infer a good value
+                    eps represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
                 sample: int, if return_graph is True, will use sample value for NN search over existing edges
             returns:
                 X: pd.DataFrame, transformed data if return_graph is False
@@ -2152,7 +2156,7 @@ class FeatureMixin(MIXIN_BASE):
                          f"`edges`, found {kind}")
         if return_graph:
             emb = None  # will not be able to decide umap coordinates, but will be able to infer graph from existing edges
-            g = self._infer_edges(emb, X, y, df, infer_on_umap_embedding=False, eps=eps, sample=sample) 
+            g = self._infer_edges(emb, X, y, df, infer_on_umap_embedding=False, eps=eps, sample=sample, verbose=verbose) 
             return g
         return X, y
 
@@ -2173,6 +2177,17 @@ class FeatureMixin(MIXIN_BASE):
         strategy: str = "uniform",
         keep_n_decimals: int = 5,
     ):
+        """Scale data using the same scalers as used in the featurization step.
+        
+            example usage:
+                g = graphistry.nodes(df)
+                g2 = g.umap().scale(df, ydf, kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
+
+                # scaled data
+                X = g2._node_features
+                y = g2._node_target  
+                
+        """
 
         if kind == "nodes" and hasattr(self, "_node_encoder"):  # type: ignore
             if self._node_encoder is not None:  # type: ignore
@@ -2250,7 +2265,7 @@ class FeatureMixin(MIXIN_BASE):
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        min_words: float = 2.5,
+        min_words: float = 4.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         impute: bool = True,
         n_quantiles: int = 100,
@@ -2268,6 +2283,7 @@ class FeatureMixin(MIXIN_BASE):
         inplace: bool = False,
         feature_engine: FeatureEngine = "auto",
         memoize: bool = True,
+        verbose: bool = False,
     ):
         r"""
             Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
@@ -2328,20 +2344,21 @@ class FeatureMixin(MIXIN_BASE):
                 but at cost of encoding time. If faster encoding is needed,
                 `average_word_embeddings_komninos` is useful
                 and produces less semantically relevant vectors.
-                Please see www.huggingface.co or sentence_transformer
+                Please see sentence_transformer
                 (https://www.sbert.net/) library for all available models.
         :param multilabel: if True, will encode a *single* target column composed of
                 lists of lists as multilabel outputs. 
                 This only works with y=['a_single_col'], default False
         :param embedding: If True, produces a random node embedding of size `n_topics`
-                default, False.
+                default, False. If no node features are provided, will produce random embeddings 
+                (for GNN models, for example)
         :param use_ngrams: If True, will encode textual columns as TfIdf Vectors,
                 default, False.
         :param ngram_range: if use_ngrams=True, can set ngram_range, eg: tuple = (1, 3)
         :param max_df:  if use_ngrams=True, set max word frequency to consider in vocabulary
                 eg: max_df = 0.2,
         :param min_df:  if use_ngrams=True, set min word count to consider in vocabulary
-                eg: min_df = 3    
+                eg: min_df = 3 or 0.00001
         :param categories: Optional[str] in ["auto", "k-means", "most_frequent"], decides which 
                 category to select in Similarity Encoding, default 'auto'
         :param impute: Whether to impute missing values, default True
@@ -2366,7 +2383,7 @@ class FeatureMixin(MIXIN_BASE):
                 not, default False.
         :param memoize: whether to store and reuse results across runs,
                 default True.
-        :return: self, with new attributes set by the featurization process.
+        :return: graphistry instance with new attributes set by the featurization process.
         """
         assert_imported()
         if inplace:
@@ -2392,11 +2409,10 @@ class FeatureMixin(MIXIN_BASE):
                 ngram_range=ngram_range,
                 max_df=max_df,
                 min_df=min_df,
-                #confidence=confidence,  # deprecated
                 min_words=min_words,
                 model_name=model_name,
-                similarity=similarity,  # deprecated
-                categories=categories,  # deprecated
+                similarity=similarity,  
+                categories=categories,
                 impute=impute,
                 n_quantiles=n_quantiles,
                 quantile_range=quantile_range,
@@ -2408,6 +2424,7 @@ class FeatureMixin(MIXIN_BASE):
                 remove_node_column=remove_node_column,
                 feature_engine=feature_engine,
                 memoize=memoize,
+                verbose=verbose
             )
         elif kind == "edges":
             res = res._featurize_edges(
@@ -2424,11 +2441,10 @@ class FeatureMixin(MIXIN_BASE):
                 ngram_range=ngram_range,
                 max_df=max_df,
                 min_df=min_df,
-                #confidence=confidence,  # deprecated
                 min_words=min_words,
                 model_name=model_name,
-                similarity=similarity,  # deprecated
-                categories=categories,  # deprecated
+                similarity=similarity, 
+                categories=categories,
                 impute=impute,
                 n_quantiles=n_quantiles,
                 quantile_range=quantile_range,
@@ -2439,6 +2455,7 @@ class FeatureMixin(MIXIN_BASE):
                 keep_n_decimals=keep_n_decimals,
                 feature_engine=feature_engine,
                 memoize=memoize,
+                verbose=verbose
             )
         else:
             logger.warning(
@@ -2452,19 +2469,18 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "zscale",
-        use_scaler_target: Optional[str] = "kbins",
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         multilabel: bool = False,
-        embedding=False,
+        embedding: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[
@@ -2483,6 +2499,7 @@ class FeatureMixin(MIXIN_BASE):
         feature_engine: FeatureEngineConcrete = "pandas",
         reuse_if_existing=False,
         memoize: bool = True,
+        verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, MIXIN_BASE]:
         """
         helper method gets node feature and target matrix if X, y
@@ -2533,6 +2550,7 @@ class FeatureMixin(MIXIN_BASE):
             remove_node_column=remove_node_column,
             feature_engine=feature_engine,
             memoize=memoize,
+            verbose=verbose,
         )
 
         assert res._node_features is not None  # ensure no infinite loop
@@ -2548,10 +2566,10 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "robust",
-        use_scaler_target: Optional[str] = "kbins",
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
         cardinality_threshold: int = 40,
-        cardinality_threshold_target: int = 20,
+        cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         multilabel: bool = False,
@@ -2559,7 +2577,6 @@ class FeatureMixin(MIXIN_BASE):
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[
@@ -2577,6 +2594,7 @@ class FeatureMixin(MIXIN_BASE):
         feature_engine: FeatureEngineConcrete = "pandas",
         reuse_if_existing=False,
         memoize: bool = True,
+        verbose: bool = False,
     ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
         """
         helper method gets edge feature and target matrix if X, y
@@ -2626,6 +2644,7 @@ class FeatureMixin(MIXIN_BASE):
             keep_n_decimals=keep_n_decimals,
             feature_engine=feature_engine,
             memoize=memoize,
+            verbose=verbose,
         )
 
         assert res._edge_features is not None  # ensure no infinite loop
@@ -2638,21 +2657,29 @@ class FeatureMixin(MIXIN_BASE):
         )
 
     
-    def get_features_by_cols(self, columns: Union[List, str], kind: str = 'nodes', target=False):
+    def get_features_by_cols(self, columns: Union[List, str] = None, kind: str = 'nodes', target: bool = False):
         """Returns feature matrix with only the columns that contain the string `column_part` in their name.
         
             `X = g.get_features_by_cols(['feature1', 'feature2'])`
             will retrieve a feature matrix with only the columns that contain the string 
             `feature1` or `feature2` in their name.
+            Most useful for topic modeling, where the column names are of the form `topic_0`, `topic_1`, etc.
+            Can retrieve unique columns in original dataframe, or actual topic features like [ip_part, shoes, preference_x, etc].
+            
+            Powerful way to retrieve features from a featurized graph by column or (top) features of interest.
             
             example:
-                res = g2.get_features_by_cols(['172', 'percent'])
-                res.columns
+                X = g2.get_features_by_cols(['172', 'percent'])
+                X.columns
                     => ['ip_172.56.104.67', 'ip_172.58.129.252', 'item_percent']
+                # or in targets
+                y = g2.get_features_by_cols(['total', 'percent'], target=True)
+                y.columns
+                    => ['basket_price_total', 'conversion_percent', 'CTR_percent', 'CVR_percent']
 
         Args:
             columns (Union[List, str]): list of column names or a single column name that may exist in columns 
-                of the feature matrix.
+                of the feature matrix. If None, returns original feature matrix
             kind (str, optional): Node or Edge features. Defaults to 'nodes'.
             target (bool, optional): If True, returns the target matrix. Defaults to False.
 

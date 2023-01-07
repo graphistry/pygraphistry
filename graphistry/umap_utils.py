@@ -221,8 +221,8 @@ class UMAPMixin(MIXIN_BASE):
             res.engine = engine_resolved
             res._suffix = suffix
             
-            res._umap_params = dict(# ModelDict(f'Umap Parameters', 
-                                          **umap_kwargs)
+            res._umap_params = dict(**umap_kwargs)  # ModelDict(f'Umap Parameters', 
+                                          
             # finally set the flag
             res._umap_initialized = True
         return res
@@ -359,7 +359,7 @@ class UMAPMixin(MIXIN_BASE):
             return fresh_res
         
         print('** Fitting UMAP') if verbose else None
-        res._umap_initialized=False
+        res._umap_initialized = False
         res = res.umap_lazy_init(res, **umap_kwargs_pure)
         
         emb = res._umap_fit_transform(X_, y_)
@@ -431,46 +431,47 @@ class UMAPMixin(MIXIN_BASE):
     ):
         """
             UMAP the featurized node or edges data,
-            or pass in your own X, y (optional).
+            or pass in your own X, y (optional) dataframes.
 
-        :param kind: `nodes` or `edges` or None.
+        kind: `nodes` or `edges` or None.
                 If None, expects explicit X, y (optional) matrices,
                 and will Not associate them to nodes or edges.
                 If X, y (optional) is given, with kind = [nodes, edges],
                 it will associate new matrices to nodes or edges attributes.
-        :param feature_engine: How to encode data
+        feature_engine: How to encode data
                 ("none", "auto", "pandas", "dirty_cat", "torch")
-        :param encode_weight: if True, will set new edges_df from
+        encode_weight: if True, will set new edges_df from
                 implicit UMAP, default True.
-        :param encode_position: whether to set default plotting bindings
+        encode_position: whether to set default plotting bindings
                 -- positions x,y from umap for .plot()
-        :param X: either a dataframe ndarray of features, or column names to featurize
-        :param y: either an dataframe ndarray of targets, or column names to featurize
+        X: either a dataframe ndarray of features, or column names to featurize
+        y: either an dataframe ndarray of targets, or column names to featurize
                 targets
-        :param scale: multiplicative scale for pruning weighted edge DataFrame
+        scale: multiplicative scale for pruning weighted edge DataFrame
                 gotten from UMAP, between [0, ..) with high end meaning keep
                 all edges
-        :param n_neighbors: UMAP number of nearest neighbors to include for
+        n_neighbors: UMAP number of nearest neighbors to include for
                 UMAP connectivity, lower makes more compact layouts. Minimum 2
-        :param min_dist: UMAP float between 0 and 1, lower makes more compact
+        min_dist: UMAP float between 0 and 1, lower makes more compact
                 layouts.
-        :param spread: UMAP spread of values for relaxation
-        :param local_connectivity: UMAP connectivity parameter
-        :param repulsion_strength: UMAP repulsion strength
-        :param negative_sample_rate: UMAP negative sampling rate
-        :param n_components: number of components in the UMAP projection,
+        spread: UMAP spread of values for relaxation
+        local_connectivity: UMAP connectivity parameter
+        repulsion_strength: UMAP repulsion strength
+        negative_sample_rate: UMAP negative sampling rate
+        n_components: number of components in the UMAP projection,
                 default 2
-        :param metric: UMAP metric, default 'euclidean'.
+        metric: UMAP metric, default 'euclidean'.
                 see (UMAP-LEARN)[https://umap-learn.readthedocs.io/
                 en/latest/parameters.html] documentation for more.
-        :param suffix: optional suffix to add to x, y attributes of umap.
-        :param play: Graphistry play parameter, default 0, how much to evolve
+        suffix: optional suffix to add to x, y attributes of umap.
+        play: Graphistry play parameter, default 0, how much to evolve
                 the network during clustering. 0 preserves the original UMAP layout.
-        :param dbscan: whether to run DBSCAN on the UMAP embedding, default True.
-        :param engine: selects which engine to use to calculate UMAP:
+        dbscan: whether to run DBSCAN on the UMAP embedding, default True.
+        engine: selects which engine to use to calculate UMAP:
                 default "auto" will use cuML if available, otherwise UMAP-LEARN.
-        :param memoize: whether to memoize the results of this method,
+        memoize: whether to memoize the results of this method,
                 default True.
+        verbose: whether to print out extra information, default False.
         :return: self, with attributes set with new data
         """
         if engine == UMAP_LEARN:

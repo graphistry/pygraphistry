@@ -10,6 +10,7 @@ import uuid
 import warnings
 from functools import lru_cache
 from typing import Any
+from collections import UserDict
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
@@ -77,6 +78,11 @@ def hash_memoize_helper(v: Any) -> str:
         for k2, v2 in v.items():
             rolling += f'{k2}:{hash_memoize_helper(v2)},'
         rolling += '}'
+    elif isinstance(v, ModelDict):
+        rolling = '{'
+        for k2, v2 in v.items():
+            rolling += f'{k2}:{hash_memoize_helper(v2)},'
+        rolling += '}'
     elif isinstance(v, list):
         rolling = '['
         for i in v:
@@ -123,7 +129,7 @@ def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = Tr
     hashed = None
     weakref = getattr(g, attribute)
     try:
-        hashed = hash_memoize(metadata)
+        hashed = hash_memoize(dict(data=metadata))
     except TypeError:
         logger.warning(
             f'! Failed {name} speedup attempt. Continuing without memoization speedups.'
@@ -279,6 +285,53 @@ def deprecated(message):
         return deprecated_func
 
     return deprecated_decorator
+
+
+# #############################################################################
+# MODEL Parameter HELPERS
+def get_timestamp():
+    import datetime
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+class ModelDict(UserDict):
+    """Helper class to print out model names and keep track of updates
+
+    Args:
+        message: description of model
+        verbose: print out model names, logging happens regardless
+    """
+
+    def __init__(self, message, verbose=True, timestamp=False, *args, **kwargs):
+        self._message = message
+        self._verbose = verbose
+        self._timestamp = timestamp
+        L = len(message) if timestamp is False else max(len(message), len(get_timestamp())+1)
+        self._print_length = min(80, L)
+        self._updates = []
+        super().__init__(*args, **kwargs)
+        
+    def print(self, message):
+        if self._timestamp:
+            message = f"{message}\n{get_timestamp()}"
+        if self._verbose:
+            print("_" * self._print_length)
+            print()
+            print(message)
+            print("_" * self._print_length)
+            print()
+
+    def __repr__(self):
+        #logger.info(self._message)
+        self.print(self._message)
+        return super().__repr__()
+
+    def update(self, *args, **kwargs):
+        self._updates.append(args[0])
+        if len(self._updates) > 1:  # don't take first update since its the init/default
+            self._message += (
+                "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
+            )
+        return super().update(*args, **kwargs)
 
 
 #
