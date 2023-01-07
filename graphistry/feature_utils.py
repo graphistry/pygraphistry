@@ -2657,7 +2657,7 @@ class FeatureMixin(MIXIN_BASE):
         )
 
     
-    def get_features_by_cols(self, columns: Union[List, str] = None, kind: str = 'nodes', target: bool = False):
+    def get_features_by_cols(self, columns: Union[List, str, None] = None, kind: str = 'nodes', target: bool = False):
         """Returns feature matrix with only the columns that contain the string `column_part` in their name.
         
             `X = g.get_features_by_cols(['feature1', 'feature2'])`
