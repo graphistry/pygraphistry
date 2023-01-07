@@ -2010,9 +2010,9 @@ class FeatureMixin(MIXIN_BASE):
 
         # if changing, also update fresh_res
         res._node_features = encoder.X
-        res._node_features_raw = encoder.X  #.copy()
+        res._node_features_raw = encoder.X  # .copy()
         res._node_target = encoder.y
-        res._node_target_raw = encoder.y  #.copy()
+        res._node_target_raw = encoder.y  # .copy()
         res._node_encoder = encoder  # now this does
         
         # all the work `._node_encoder.transform(df, y)` etc
@@ -2130,9 +2130,9 @@ class FeatureMixin(MIXIN_BASE):
 
         # if editing, should also update fresh_res
         res._edge_features = encoder.X
-        res._edge_features_raw = encoder.X  #.copy()
+        res._edge_features_raw = encoder.X  # .copy()
         res._edge_target = encoder.y
-        res._edge_target_raw = encoder.y  #.copy()
+        res._edge_target_raw = encoder.y  # .copy()
         res._edge_encoder = encoder
 
         return res
