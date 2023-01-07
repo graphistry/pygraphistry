@@ -273,7 +273,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         )
         
         
-        umap_kwargs2 = { k : v+1 for k, v in umap_kwargs.items()}
+        umap_kwargs2  =  { k : v+1 for k , v in umap_kwargs.items() }
         g = graphistry.nodes(ndf_reddit)
         g2 = g.umap(**umap_kwargs)
         g3 = g.umap(**umap_kwargs2)
