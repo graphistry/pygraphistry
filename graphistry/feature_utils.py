@@ -1834,7 +1834,7 @@ def get_matrix_by_column_part(X: pd.DataFrame, column_part: str) -> pd.DataFrame
     transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]  # type: ignore
     return X[transformed_columns] 
 
-def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Union[list, str]) -> pd.DataFrame:
+def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Optional[Union[list, str]]) -> pd.DataFrame:
     """Get the feature matrix by column parts list existing in column names."""
     if column_parts is None:
         return X
@@ -2699,7 +2699,7 @@ class FeatureMixin(MIXIN_BASE):
         )
 
     
-    def get_features_by_cols(self, columns: Optional[Union[List, str]] = None, kind: str = 'nodes', target: bool = False):
+    def get_features_by_cols(self, columns: Optional[Union[List, str]] = None, kind: str = 'nodes', target: bool = False) -> pd.DataFrame:
         """Returns feature matrix with only the columns that contain the string `column_part` in their name.
         
             `X = g.get_features_by_cols(['feature1', 'feature2'])`
