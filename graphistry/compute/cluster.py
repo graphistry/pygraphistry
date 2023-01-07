@@ -311,7 +311,7 @@ class ClusterMixin(MIXIN_BASE):
     def transform_dbscan(
         self,
         df: pd.DataFrame,
-        y: Union[pd.DataFrame, None] = None,
+        y: Optional[pd.DataFrame] = None,
         eps: Union[float, str] = "auto",
         fit_umap_embedding: bool = False,
         sample: Optional[int] = None,
