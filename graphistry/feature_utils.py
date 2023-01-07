@@ -2560,7 +2560,7 @@ class FeatureMixin(MIXIN_BASE):
             res._node_target = None
 
         if reuse_if_existing and res._node_features is not None:
-            # logger.info('-Reusing Existing Featurization')
+            logger.info('-Reusing Existing Node Featurization')
             return res._node_features, res._node_target, res
 
         res = res._featurize_nodes(
@@ -2578,7 +2578,6 @@ class FeatureMixin(MIXIN_BASE):
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
             similarity=similarity,
@@ -2656,7 +2655,7 @@ class FeatureMixin(MIXIN_BASE):
             res._edge_target = None
 
         if reuse_if_existing and res._edge_features is not None:
-            # logger.info('-Reusing Existing Featurization')
+            logger.info('-Reusing Existing Edge Featurization')
             return res._edge_features, res._edge_target, res
 
         res = res._featurize_edges(
@@ -2673,7 +2672,6 @@ class FeatureMixin(MIXIN_BASE):
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
             similarity=similarity,
@@ -2701,7 +2699,7 @@ class FeatureMixin(MIXIN_BASE):
         )
 
     
-    def get_features_by_cols(self, columns: Union[List, str, None] = None, kind: str = 'nodes', target: bool = False):
+    def get_features_by_cols(self, columns: Optional[Union[List, str]] = None, kind: str = 'nodes', target: bool = False):
         """Returns feature matrix with only the columns that contain the string `column_part` in their name.
         
             `X = g.get_features_by_cols(['feature1', 'feature2'])`
