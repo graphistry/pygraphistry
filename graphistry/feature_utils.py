@@ -2153,7 +2153,7 @@ class FeatureMixin(MIXIN_BASE):
 
     def transform(self, df: pd.DataFrame, 
                   y: Union[pd.DataFrame, None] = None, 
-                  kind: str ='nodes', 
+                  kind: str = 'nodes', 
                   return_graph: bool = True, 
                   eps: Union[str, float, int] = 'auto', sample = None, 
                   verbose = False):
@@ -2232,7 +2232,7 @@ class FeatureMixin(MIXIN_BASE):
                     or a graph with inferred edges if return_graph is True,
         """
                 
-        if df is None: # use the original data
+        if df is None:  # use the original data
             # df = self._nodes if kind == "nodes" else self._edges
             X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)
         else:
