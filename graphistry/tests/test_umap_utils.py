@@ -22,9 +22,12 @@ from graphistry.tests.test_feature_utils import (
     edge2_target_df,
     model_avg_name,
     lazy_import_has_min_dependancy,
-    check_allclose_fit_transform_on_same_data
+    check_allclose_fit_transform_on_same_data,
 )
-from graphistry.umap_utils import lazy_umap_import_has_dependancy, lazy_cuml_import_has_dependancy
+from graphistry.umap_utils import (
+    lazy_umap_import_has_dependancy,
+    lazy_cuml_import_has_dependancy,
+)
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
 has_cuml, _, _ = lazy_cuml_import_has_dependancy()
@@ -32,7 +35,7 @@ has_umap, _, _ = lazy_umap_import_has_dependancy()
 
 logger = logging.getLogger(__name__)
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 triangleEdges = pd.DataFrame(
@@ -70,132 +73,225 @@ class TestUMAPFitTransform(unittest.TestCase):
 
         g = graphistry.nodes(ndf_reddit)
         self.gn = g
-        
+
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(y=double_target_reddit, 
-                        use_ngrams=True, 
-                        ngram_range=(1, 2), 
-                        use_scaler='robust', 
-                        cardinality_threshold=2)
-            
+            g2 = g.umap(
+                y=double_target_reddit,
+                use_ngrams=True,
+                ngram_range=(1, 2),
+                use_scaler="robust",
+                cardinality_threshold=2,
+            )
+
         self.g2 = g2
         fenc = g2._node_encoder
         self.X, self.Y = fenc.X, fenc.y
         self.EMB = g2._node_embedding
-        self.emb, self.x, self.y = g2.transform_umap(ndf_reddit, ydf=double_target_reddit, kind='nodes', return_graph=False)
-        self.g3 = g2.transform_umap(ndf_reddit, ydf=double_target_reddit, kind='nodes', return_graph=True)
-        
+        self.emb, self.x, self.y = g2.transform_umap(
+            ndf_reddit, ydf=double_target_reddit, kind="nodes", return_graph=False
+        )
+        self.g3 = g2.transform_umap(
+            ndf_reddit, ydf=double_target_reddit, kind="nodes", return_graph=True
+        )
+
         # do the same for edges
         edge_df22 = edge_df2.copy()
-        edge_df22['rando'] = np.random.rand(edge_df2.shape[0])
-        g = graphistry.edges(edge_df22, 'src', 'dst')
+        edge_df22["rando"] = np.random.rand(edge_df2.shape[0])
+        g = graphistry.edges(edge_df22, "src", "dst")
         self.ge = g
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(y=edge2_target_df, kind='edges',
-                 use_ngrams=True, 
-                 ngram_range=(1, 2),
-                 use_scaler=None,
-                 use_scaler_target=None,
-                 cardinality_threshold=2, n_topics=4)
-        
+            g2 = g.umap(
+                y=edge2_target_df,
+                kind="edges",
+                use_ngrams=True,
+                ngram_range=(1, 2),
+                use_scaler=None,
+                use_scaler_target=None,
+                cardinality_threshold=2,
+                n_topics=4,
+            )
+
         fenc = g2._edge_encoder
         self.Xe, self.Ye = fenc.X, fenc.y
         self.EMBe = g2._edge_embedding
-        self.embe, self.xe, self.ye = g2.transform_umap(edge_df22, ydf=edge2_target_df, kind='edges', return_graph=False)
+        self.embe, self.xe, self.ye = g2.transform_umap(
+            edge_df22, ydf=edge2_target_df, kind="edges", return_graph=False
+        )
         self.g2e = g2
-        self.g3e = g2.transform_umap(edge_df22, ydf=edge2_target_df, kind='edges', return_graph=True)
+        self.g3e = g2.transform_umap(
+            edge_df22, ydf=edge2_target_df, kind="edges", return_graph=True
+        )
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_columns_match(self):
-        assert all(self.X.columns == self.x.columns), 'Node Feature Columns do not match'
-        assert all(self.Y.columns == self.y.columns), 'Node Target Columns do not match'
-        assert all(self.Xe.columns == self.xe.columns), 'Edge Feature Columns do not match'
-        assert all(self.Ye.columns == self.ye.columns), 'Edge Target Columns do not match'
+        assert all(
+            self.X.columns == self.x.columns
+        ), "Node Feature Columns do not match"
+        assert all(self.Y.columns == self.y.columns), "Node Target Columns do not match"
+        assert all(
+            self.Xe.columns == self.xe.columns
+        ), "Edge Feature Columns do not match"
+        assert all(
+            self.Ye.columns == self.ye.columns
+        ), "Edge Target Columns do not match"
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_index_match(self):
         # nodes
-        assert all(self.gn._nodes.index == self.g2._nodes.index), 'Node Indexes do not match'
-        assert all(self.gn._nodes.index == self.EMB.index), 'Emb Indexes do not match'
-        assert all(self.gn._nodes.index == self.emb.index), 'Transformed Emb Indexes do not match'
-        assert all(self.gn._nodes.index == self.X.index), 'Transformed Node features Indexes do not match'
-        assert all(self.gn._nodes.index == self.y.index), 'Transformed Node target Indexes do not match'
-        
-        # edges  
-        assert all(self.ge._edges.index == self.g2e._edges.index), 'Edge Indexes do not match'
-        assert all(self.ge._edges.index == self.EMBe.index), 'Edge Emb Indexes do not match'
-        assert all(self.ge._edges.index == self.embe.index), 'Edge Transformed Emb Indexes do not match'
-        assert all(self.ge._edges.index == self.Xe.index), 'Edge Transformed features Indexes do not match'
-        assert all(self.ge._edges.index == self.ye.index), 'Edge Transformed target Indexes do not match'
-        
+        assert all(
+            self.gn._nodes.index == self.g2._nodes.index
+        ), "Node Indexes do not match"
+        assert all(self.gn._nodes.index == self.EMB.index), "Emb Indexes do not match"
+        assert all(
+            self.gn._nodes.index == self.emb.index
+        ), "Transformed Emb Indexes do not match"
+        assert all(
+            self.gn._nodes.index == self.X.index
+        ), "Transformed Node features Indexes do not match"
+        assert all(
+            self.gn._nodes.index == self.y.index
+        ), "Transformed Node target Indexes do not match"
+
+        # edges
+        assert all(
+            self.ge._edges.index == self.g2e._edges.index
+        ), "Edge Indexes do not match"
+        assert all(
+            self.ge._edges.index == self.EMBe.index
+        ), "Edge Emb Indexes do not match"
+        assert all(
+            self.ge._edges.index == self.embe.index
+        ), "Edge Transformed Emb Indexes do not match"
+        assert all(
+            self.ge._edges.index == self.Xe.index
+        ), "Edge Transformed features Indexes do not match"
+        assert all(
+            self.ge._edges.index == self.ye.index
+        ), "Edge Transformed target Indexes do not match"
+
         # make sure the indexes match at transform time internally as well
-        assert all(self.X.index == self.x.index), 'Node Feature Indexes do not match'
-        assert all(self.Y.index == self.y.index), 'Node Target Indexes do not match'
-        assert all(self.Xe.index == self.xe.index), 'Edge Feature Indexes do not match'
-        assert all(self.Ye.index == self.ye.index), 'Edge Target Indexes do not match'
+        assert all(self.X.index == self.x.index), "Node Feature Indexes do not match"
+        assert all(self.Y.index == self.y.index), "Node Target Indexes do not match"
+        assert all(self.Xe.index == self.xe.index), "Edge Feature Indexes do not match"
+        assert all(self.Ye.index == self.ye.index), "Edge Target Indexes do not match"
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_index_match_in_infered_graph(self):
         # nodes
-        assert all(self.g3._nodes.index == self.g2._nodes.index), 'Node Indexes do not match'
-        assert all(self.g3._nodes.index == self.EMB.index), 'Emb Indexes do not match'
-        assert all(self.g3._nodes.index == self.emb.index), 'Transformed Emb Indexes do not match'
-        assert all(self.g3._nodes.index == self.X.index), 'Transformed Node features Indexes do not match'
-        assert all(self.g3._nodes.index == self.y.index), 'Transformed Node target Indexes do not match'
+        assert all(
+            self.g3._nodes.index == self.g2._nodes.index
+        ), "Node Indexes do not match"
+        assert all(self.g3._nodes.index == self.EMB.index), "Emb Indexes do not match"
+        assert all(
+            self.g3._nodes.index == self.emb.index
+        ), "Transformed Emb Indexes do not match"
+        assert all(
+            self.g3._nodes.index == self.X.index
+        ), "Transformed Node features Indexes do not match"
+        assert all(
+            self.g3._nodes.index == self.y.index
+        ), "Transformed Node target Indexes do not match"
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_nodes_index_match_in_infered_graph(self):
-        # edges  
+        # edges
         ndf_infered = self.g3._nodes
-        assert all(ndf_infered.index == self.EMBe.index), 'Edge Emb Indexes do not match'
-        assert all(ndf_infered.index == self.embe.index), 'Edge Transformed Emb Indexes do not match'
-        assert all(ndf_infered.index == self.Xe.index), 'Edge Transformed features Indexes do not match'
-        assert all(ndf_infered.index == self.ye.index), 'Edge Transformed target Indexes do not match'
-        
+        assert all(
+            ndf_infered.index == self.EMBe.index
+        ), "Edge Emb Indexes do not match"
+        assert all(
+            ndf_infered.index == self.embe.index
+        ), "Edge Transformed Emb Indexes do not match"
+        assert all(
+            ndf_infered.index == self.Xe.index
+        ), "Edge Transformed features Indexes do not match"
+        assert all(
+            ndf_infered.index == self.ye.index
+        ), "Edge Transformed target Indexes do not match"
+
         # now test in set featurize method calls
-        assert all(self.g3._node_features.index == ndf_infered.index), 'Edge Feature Indexes do not match'
-        assert all(self.g3._node_embedding.index == ndf_infered.index), 'Edge Emb Indexes do not match'
-        assert all(self.g3._node_target.index == ndf_infered.index), 'Edge Transformed Emb Indexes do not match'
+        assert all(
+            self.g3._node_features.index == ndf_infered.index
+        ), "Edge Feature Indexes do not match"
+        assert all(
+            self.g3._node_embedding.index == ndf_infered.index
+        ), "Edge Emb Indexes do not match"
+        assert all(
+            self.g3._node_target.index == ndf_infered.index
+        ), "Edge Transformed Emb Indexes do not match"
         # assert all(self.g3e._edges.index == edf_infered.index), 'Edge Transformed features Indexes do not match'
         # assert all(self.g3e._edges.index == edf_infered.index), 'Edge Transformed target Indexes do not match'
-        
+
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_edges_index_match_in_infered_graph(self):
-        # edges  
+        # edges
         edf_infered = self.g3e._edges
-        assert all(edf_infered.index == self.EMBe.index), 'Edge Emb Indexes do not match'
-        assert all(edf_infered.index == self.embe.index), 'Edge Transformed Emb Indexes do not match'
-        assert all(edf_infered.index == self.Xe.index), 'Edge Transformed features Indexes do not match'
-        assert all(edf_infered.index == self.ye.index), 'Edge Transformed target Indexes do not match'
-        
-        assert all(self.g3e._edge_features.index == edf_infered.index), 'Edge Feature Indexes do not match'
-        assert all(self.g3e._edge_embedding.index == edf_infered.index), 'Edge Emb Indexes do not match'
-        assert all(self.g3e._edge_target.index == edf_infered.index), 'Edge Transformed Emb Indexes do not match'
+        assert all(
+            edf_infered.index == self.EMBe.index
+        ), "Edge Emb Indexes do not match"
+        assert all(
+            edf_infered.index == self.embe.index
+        ), "Edge Transformed Emb Indexes do not match"
+        assert all(
+            edf_infered.index == self.Xe.index
+        ), "Edge Transformed features Indexes do not match"
+        assert all(
+            edf_infered.index == self.ye.index
+        ), "Edge Transformed target Indexes do not match"
+
+        assert all(
+            self.g3e._edge_features.index == edf_infered.index
+        ), "Edge Feature Indexes do not match"
+        assert all(
+            self.g3e._edge_embedding.index == edf_infered.index
+        ), "Edge Emb Indexes do not match"
+        assert all(
+            self.g3e._edge_target.index == edf_infered.index
+        ), "Edge Transformed Emb Indexes do not match"
         # assert all(self.g3e._edges.index == edf_infered.index), 'Edge Transformed features Indexes do not match'
         # assert all(self.g3e._edges.index == edf_infered.index), 'Edge Transformed target Indexes do not match'
-    
-    
+
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_kwargs(self):
+        umap_kwargs = dict(
+            {
+                "n_components": n_components,
+                **({"metric": metric} if engine_resolved == UMAP_LEARN else {}),
+                "n_neighbors": n_neighbors,
+                "min_dist": min_dist,
+                "spread": spread,
+                "local_connectivity": local_connectivity,
+                "repulsion_strength": repulsion_strength,
+                "negative_sample_rate": negative_sample_rate,
+            }
+        )
+
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_transform_umap(self):
         np.random.seed(41)
-        
+
         train = ndf_reddit.sample(frac=0.8, random_state=42)
         test = ndf_reddit.drop(train.index)
-        
+
         # just process train
         g = graphistry.nodes(train)
         g2 = g.umap()
         g3 = g2.transform_umap(train)
-        assert 2 * g2._node_embedding.shape[0] == g3._node_embedding.shape[0], 'Node Embedding Lengths do not match, found {} and {}'.format(g2._node_embedding.shape[0], g3._node_embedding.shape[0])
+        assert (
+            2 * g2._node_embedding.shape[0] == g3._node_embedding.shape[0]
+        ), "Node Embedding Lengths do not match, found {} and {}".format(
+            g2._node_embedding.shape[0], g3._node_embedding.shape[0]
+        )
         # now feed it args
-        eps=['auto', 10]
-        sample=[None, 2] 
-        return_graph=[True, False]
+        eps = ["auto", 10]
+        sample = [None, 2]
+        return_graph = [True, False]
         fit_umap_embedding = [True, False]
         for ep in eps:
             g4 = g2.transform_umap(test, eps=ep)
@@ -229,13 +325,18 @@ class TestUMAPMethods(unittest.TestCase):
         for attribute in attributes:
             self.assertTrue(hasattr(g, attribute), msg.format(attribute))
             self.assertTrue(getattr(g, attribute) is not None, msg2.format(attribute))
-            if 'df' in attribute:
-                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
-            if 'node_' in attribute:
-                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
-            if 'edge_' in attribute:
-                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
-
+            if "df" in attribute:
+                self.assertIsInstance(
+                    getattr(g, attribute), pd.DataFrame, msg.format(attribute)
+                )
+            if "node_" in attribute:
+                self.assertIsInstance(
+                    getattr(g, attribute), pd.DataFrame, msg.format(attribute)
+                )
+            if "edge_" in attribute:
+                self.assertIsInstance(
+                    getattr(g, attribute), pd.DataFrame, msg.format(attribute)
+                )
 
     def cases_check_node_attributes(self, g):
         attributes = [
@@ -298,7 +399,7 @@ class TestUMAPMethods(unittest.TestCase):
                         model_name=model_avg_name,
                         feature_engine=feature_engine,
                         n_neighbors=2,
-                        dbscan=False
+                        dbscan=False,
                     )
 
                     self.cases_test_graph(g2, kind=kind, df=df)
@@ -331,7 +432,9 @@ class TestUMAPMethods(unittest.TestCase):
             df=triangleEdges,
         )
 
-    @pytest.mark.skipif(not has_dependancy or not has_umap, reason="requires umap feature dependencies")
+    @pytest.mark.skipif(
+        not has_dependancy or not has_umap, reason="requires umap feature dependencies"
+    )
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
             g2 = g.umap(kind=kind, feature_engine="none")
@@ -344,7 +447,9 @@ class TestUMAPMethods(unittest.TestCase):
                     f"{kind} -- scale: {scale}: resulting edges dataframe shape: {shape}"
                 )
                 logger.debug("-" * 80)
-                self.assertGreaterEqual(shape[0], last_shape)  # should return more and more edges
+                self.assertGreaterEqual(
+                    shape[0], last_shape
+                )  # should return more and more edges
                 last_shape = shape[0]
 
 
@@ -356,28 +461,36 @@ class TestUMAPAIMethods(TestUMAPMethods):
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
-            for scaler in ['kbins', 'robust']:
+            for scaler in ["kbins", "robust"]:
                 for cardinality in [2, 200]:
                     for use_ngram in [True, False]:
                         for use_col in use_cols:
                             for target in targets:
                                 logger.debug("*" * 90)
-                                value = [scaler, cardinality, use_ngram, target, use_col]
+                                value = [
+                                    scaler,
+                                    cardinality,
+                                    use_ngram,
+                                    target,
+                                    use_col,
+                                ]
                                 logger.debug(f"{value}")
                                 logger.debug("-" * 80)
-                            
-                                g2 = g.umap(kind=kind,
+
+                                g2 = g.umap(
+                                    kind=kind,
                                     X=use_col,
                                     y=target,
                                     model_name=model_avg_name,
                                     use_scaler=scaler,
                                     use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
-                                    engine='umap_learn',
+                                    engine="umap_learn",
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality,
-                                    n_neighbors=3, 
-                                    dbscan=False)
+                                    n_neighbors=3,
+                                    dbscan=False,
+                                )
 
                                 self.cases_test_graph(g2, kind=kind, df=df)
 
@@ -410,8 +523,8 @@ class TestUMAPAIMethods(TestUMAPMethods):
     )
     def test_edge_umap(self):
         g = graphistry.edges(edge_df2, "src", "dst")
-        targets = [None, 'label']
-        use_cols = [None, 'title']
+        targets = [None, "label"]
+        use_cols = [None, "title"]
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -434,19 +547,22 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g = graphistry.nodes(ndf_reddit)
         g2 = g.umap(dbscan=False)
 
-        logger.debug('======= g.umap() done ======')
+        logger.debug("======= g.umap() done ======")
         g3a = g2.featurize()
-        logger.debug('======= g3a.featurize() done ======')
+        logger.debug("======= g3a.featurize() done ======")
         g3 = g3a.umap(dbscan=False)
-        logger.debug('======= g3.umap() done ======')
+        logger.debug("======= g3.umap() done ======")
         assert g2._node_features.shape == g3._node_features.shape
         # since g3 has feature params with x and y.
-        g3._feature_params['nodes']['X'].pop('x')
-        g3._feature_params['nodes']['X'].pop('y')
-        assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X'])
-        assert g2._feature_params['nodes']['y'].shape == g3._feature_params['nodes']['y'].shape  # None
+        g3._feature_params["nodes"]["X"].pop("x")
+        g3._feature_params["nodes"]["X"].pop("y")
+        assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
+        assert (
+            g2._feature_params["nodes"]["y"].shape
+            == g3._feature_params["nodes"]["y"].shape
+        )  # None
         assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
-        
+
     @pytest.mark.skipif(
         not has_dependancy or not has_umap,
         reason="requires ai+umap feature dependencies",
@@ -457,11 +573,13 @@ class TestUMAPAIMethods(TestUMAPMethods):
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(kind='edges', dbscan=False)
-            g3 = g.featurize(kind='edges').umap(kind='edges', dbscan=False)
-            
-        assert all(g2._feature_params['edges']['X'] == g3._feature_params['edges']['X'])
-        assert all(g2._feature_params['edges']['y'] == g3._feature_params['edges']['y'])  # None
+            g2 = g.umap(kind="edges", dbscan=False)
+            g3 = g.featurize(kind="edges").umap(kind="edges", dbscan=False)
+
+        assert all(g2._feature_params["edges"]["X"] == g3._feature_params["edges"]["X"])
+        assert all(
+            g2._feature_params["edges"]["y"] == g3._feature_params["edges"]["y"]
+        )  # None
         assert all(g2._edge_features == g3._edge_features)
 
     @pytest.mark.skipif(
@@ -471,19 +589,32 @@ class TestUMAPAIMethods(TestUMAPMethods):
     def test_feature_kwargs_yield_different_values_using_umap_api(self):
         g = graphistry.nodes(ndf_reddit)
         n_topics_target = 6
-    
+
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
 
-            g2 = g.umap(X="type", y="label", cardinality_threshold_target=3, n_topics_target=n_topics_target)  # makes a GapEncoded Target
-            g3 = g.umap(X="type", y="label", cardinality_threshold_target=30000)  # makes a one-hot-encoded target
-            
-        assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X']), "features should be the same"
-        assert all(g2._feature_params['nodes']['y'] != g3._feature_params['nodes']['y']), "targets in memoize should be different"  # None
-        assert g2._node_target.shape[1] != g3._node_target.shape[1], 'Targets should be different'
-        assert g2._node_target.shape[1] == n_topics_target, 'Targets '
+            g2 = g.umap(
+                X="type",
+                y="label",
+                cardinality_threshold_target=3,
+                n_topics_target=n_topics_target,
+            )  # makes a GapEncoded Target
+            g3 = g.umap(
+                X="type", y="label", cardinality_threshold_target=30000
+            )  # makes a one-hot-encoded target
+
+        assert all(
+            g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"]
+        ), "features should be the same"
+        assert all(
+            g2._feature_params["nodes"]["y"] != g3._feature_params["nodes"]["y"]
+        ), "targets in memoize should be different"  # None
+        assert (
+            g2._node_target.shape[1] != g3._node_target.shape[1]
+        ), "Targets should be different"
+        assert g2._node_target.shape[1] == n_topics_target, "Targets "
 
     @pytest.mark.skipif(
         not has_dependancy or not has_umap,
@@ -504,8 +635,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                 self.assertGreaterEqual(shape[0], last_shape)
                 last_shape = shape[0]
 
-            
-        
+
 @pytest.mark.skipif(
     not has_dependancy or not has_cuml,
     reason="requires cuml feature dependencies",
@@ -518,27 +648,35 @@ class TestCUMLMethods(TestUMAPMethods):
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
-            for scaler in ['kbins', 'robust']:
+            for scaler in ["kbins", "robust"]:
                 for cardinality in [2, 200]:
                     for use_ngram in [True, False]:
                         for use_col in use_cols:
                             for target in targets:
                                 logger.debug("*" * 90)
-                                value = [scaler, cardinality, use_ngram, target, use_col]
+                                value = [
+                                    scaler,
+                                    cardinality,
+                                    use_ngram,
+                                    target,
+                                    use_col,
+                                ]
                                 logger.debug(f"{value}")
                                 logger.debug("-" * 80)
-                            
-                                g2 = g.umap(kind=kind,
+
+                                g2 = g.umap(
+                                    kind=kind,
                                     X=use_col,
                                     y=target,
                                     model_name=model_avg_name,
                                     use_scaler=scaler,
                                     use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
-                                    engine='cuml',
+                                    engine="cuml",
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality,
-                                    n_neighbors=3)
+                                    n_neighbors=3,
+                                )
 
                                 self.cases_test_graph(g2, kind=kind, df=df)
 
@@ -571,8 +709,8 @@ class TestCUMLMethods(TestUMAPMethods):
     )
     def test_edge_umap(self):
         g = graphistry.edges(edge_df2, "src", "dst")
-        targets = [None, 'label']
-        use_cols = [None, 'title']
+        targets = [None, "label"]
+        use_cols = [None, "title"]
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -595,19 +733,22 @@ class TestCUMLMethods(TestUMAPMethods):
         g = graphistry.nodes(ndf_reddit)
         g2 = g.umap()
 
-        logger.debug('======= g.umap() done ======')
+        logger.debug("======= g.umap() done ======")
         g3a = g2.featurize()
-        logger.debug('======= g3a.featurize() done ======')
+        logger.debug("======= g3a.featurize() done ======")
         g3 = g3a.umap()
-        logger.debug('======= g3.umap() done ======')
+        logger.debug("======= g3.umap() done ======")
         assert g2._node_features.shape == g3._node_features.shape
         # since g3 has feature params with x and y.
-        g3._feature_params['nodes']['X'].pop('x')
-        g3._feature_params['nodes']['X'].pop('y')
-        assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X'])
-        assert g2._feature_params['nodes']['y'].shape == g3._feature_params['nodes']['y'].shape  # None
+        g3._feature_params["nodes"]["X"].pop("x")
+        g3._feature_params["nodes"]["X"].pop("y")
+        assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
+        assert (
+            g2._feature_params["nodes"]["y"].shape
+            == g3._feature_params["nodes"]["y"].shape
+        )  # None
         assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
-        
+
     @pytest.mark.skipif(
         not has_dependancy or not has_cuml,
         reason="requires cuml feature dependencies",
@@ -618,11 +759,13 @@ class TestCUMLMethods(TestUMAPMethods):
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(kind='edges')
-            g3 = g.featurize(kind='edges').umap(kind='edges')
-            
-        assert all(g2._feature_params['edges']['X'] == g3._feature_params['edges']['X'])
-        assert all(g2._feature_params['edges']['y'] == g3._feature_params['edges']['y'])  # None
+            g2 = g.umap(kind="edges")
+            g3 = g.featurize(kind="edges").umap(kind="edges")
+
+        assert all(g2._feature_params["edges"]["X"] == g3._feature_params["edges"]["X"])
+        assert all(
+            g2._feature_params["edges"]["y"] == g3._feature_params["edges"]["y"]
+        )  # None
         assert all(g2._edge_features == g3._edge_features)
 
     @pytest.mark.skipif(
@@ -632,19 +775,32 @@ class TestCUMLMethods(TestUMAPMethods):
     def test_feature_kwargs_yield_different_values_using_umap_api(self):
         g = graphistry.nodes(ndf_reddit)
         n_topics_target = 6
-    
+
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
 
-            g2 = g.umap(X="type", y="label", cardinality_threshold_target=3, n_topics_target=n_topics_target)  # makes a GapEncoded Target
-            g3 = g.umap(X="type", y="label", cardinality_threshold_target=30000)  # makes a one-hot-encoded target
-            
-        assert all(g2._feature_params['nodes']['X'] == g3._feature_params['nodes']['X']), "features should be the same"
-        assert all(g2._feature_params['nodes']['y'] != g3._feature_params['nodes']['y']), "targets in memoize should be different"  # None
-        assert g2._node_target.shape[1] != g3._node_target.shape[1], 'Targets should be different'
-        assert g2._node_target.shape[1] == n_topics_target, 'Targets '
+            g2 = g.umap(
+                X="type",
+                y="label",
+                cardinality_threshold_target=3,
+                n_topics_target=n_topics_target,
+            )  # makes a GapEncoded Target
+            g3 = g.umap(
+                X="type", y="label", cardinality_threshold_target=30000
+            )  # makes a one-hot-encoded target
+
+        assert all(
+            g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"]
+        ), "features should be the same"
+        assert all(
+            g2._feature_params["nodes"]["y"] != g3._feature_params["nodes"]["y"]
+        ), "targets in memoize should be different"  # None
+        assert (
+            g2._node_target.shape[1] != g3._node_target.shape[1]
+        ), "Targets should be different"
+        assert g2._node_target.shape[1] == n_topics_target, "Targets "
 
     @pytest.mark.skipif(
         not has_dependancy or not has_umap,
