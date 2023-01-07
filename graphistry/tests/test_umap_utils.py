@@ -276,18 +276,18 @@ class TestUMAPFitTransform(unittest.TestCase):
         g3 = g.umap(**umap_kwargs2)
         assert (
             g2._umap_params == umap_kwargs
-        ), f"Umap params do not match, found {g2._umap_params} vs {umap_kwargs} "
+        ), f"Umap params do not match, found {g2._umap_params} vs {umap_kwargs}"
         assert (
             g3._umap_params == umap_kwargs2
-        ), f"Umap params do not match, found {g3._umap_params} vs {umap_kwargs2} "
+        ), f"Umap params do not match, found {g3._umap_params} vs {umap_kwargs2}"
         g4 = g2.transform_umap(ndf_reddit)
         assert (
             g4._umap_params == umap_kwargs
-        ), f"Umap params do not match, found {g4._umap_params} vs {umap_kwargs} "
+        ), f"Umap params do not match, found {g4._umap_params} vs {umap_kwargs}"
         g5 = g3.transform_umap(ndf_reddit)
         assert (
             g5._umap_params == umap_kwargs2
-        ), f"Umap params do not match, found {g5._umap_params} vs {umap_kwargs2} "
+        ), f"Umap params do not match, found {g5._umap_params} vs {umap_kwargs2}"
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_transform_umap(self):
@@ -575,8 +575,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g3._feature_params["nodes"]["X"].pop("y")
         assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
         assert (
-            g2._feature_params["nodes"]["y"].shape
-            == g3._feature_params["nodes"]["y"].shape
+            g2._feature_params["nodes"]["y"].shape == g3._feature_params["nodes"]["y"].shape
         )  # None
         assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
 
@@ -761,8 +760,7 @@ class TestCUMLMethods(TestUMAPMethods):
         g3._feature_params["nodes"]["X"].pop("y")
         assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
         assert (
-            g2._feature_params["nodes"]["y"].shape
-            == g3._feature_params["nodes"]["y"].shape
+            g2._feature_params["nodes"]["y"].shape == g3._feature_params["nodes"]["y"].shape
         )  # None
         assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
 
