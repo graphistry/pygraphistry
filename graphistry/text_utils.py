@@ -5,18 +5,8 @@ from .ai_utils import search_to_df, build_annoy_index, query_by_vector
 from .constants import WEIGHT, DISTANCE
 from logging import getLogger
 
-logger = getLogger(__name__)
-
 from typing import (
-    Hashable,
-    List,
-    Union,
-    Dict,
-    Any,
-    Optional,
-    Tuple,
     TYPE_CHECKING,
-    Type,
 )  # noqa
 
 
@@ -25,6 +15,7 @@ if TYPE_CHECKING:
 else:
     MIXIN_BASE = object
 
+logger = getLogger(__name__)
 
 class SearchToGraphMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs) -> None:

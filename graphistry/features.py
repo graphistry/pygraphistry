@@ -1,6 +1,6 @@
-from collections import UserDict
 from .util import setup_logger
 from .constants import VERBOSE, TRACE
+from .util import ModelDict
 
 logger = setup_logger("graphistry.features", verbose=VERBOSE, fullpath=TRACE)
 
@@ -53,6 +53,16 @@ BATCH_SIZE = 1000
 NO_SCALER = None
 EXTRA_COLS_NEEDED = ["x", "y", "_n"]
 # ###############################################################
+# ################# graphistry umap config constants #################
+UMAP_DIM = 2
+N_NEIGHBORS = 15
+MIN_DIST = 0.1
+SPREAD=0.5,
+LOCAL_CONNECTIVITY=1,
+REPULSION_STRENGTH=1,
+NEGATIVE_SAMPLING_RATE=5,
+METRIC = "euclidean",
+
 
 # ###############################################################
 # ################# enrichments
@@ -86,42 +96,10 @@ SPLIT_LOW = 0.1
 SPLIT_MEDIUM = 0.2
 SPLIT_HIGH = 0.5
 
-# #############################################################################
-class ModelDict(UserDict):
-    """Helper class to print out model names and keep track of updates
-
-    Args:
-        message: description of model
-        verbose: print out model names, logging happens regardless
-    """
-
-    def __init__(self, message, verbose=True, *args, **kwargs):
-        self._message = message
-        self._verbose = verbose
-        self._print_length = min(LENGTH_PRINT, len(message))
-        self._updates = []
-        super().__init__(*args, **kwargs)
-
-    def __repr__(self):
-        logger.info(self._message)
-        if self._verbose:
-            print("_" * self._print_length)
-            print()
-            print(self._message)
-            print("_" * self._print_length)
-            print()
-        return super().__repr__()
-
-    def update(self, *args, **kwargs):
-        self._updates.append(args[0])
-        if len(self._updates) > 1:  # don't take first update since its the init/default
-            self._message += (
-                "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
-            )
-        return super().update(*args, **kwargs)
 
 
-default_featurize_parameters = dict(
+
+default_featurize_parameters = ModelDict('Featurize Parameters',
     kind="nodes",
     use_scaler=NO_SCALER,
     use_scaler_target=NO_SCALER,
@@ -154,80 +132,63 @@ default_featurize_parameters = dict(
 )
 
 
+default_umap_parameters = ModelDict('Umap Parameters',  
+                {
+                    "n_components": UMAP_DIM,
+                    **({"metric": METRIC} if True else {}),
+                    "n_neighbors": N_NEIGHBORS,
+                    "min_dist": MIN_DIST,
+                    "spread": SPREAD,
+                    "local_connectivity": LOCAL_CONNECTIVITY,
+                    "repulsion_strength": REPULSION_STRENGTH,
+                    "negative_sample_rate": NEGATIVE_SAMPLING_RATE,
+                }
+            )
+
 # #############################################################################
 # Create useful presets for the user
 # makes naming and encoding models consistently and testing different models against eachother easy
 # customize the default parameters for each model you want to test
 
 # Ngrams Model over features
-ngrams_model = ModelDict("Ngrams Model", 
-                         use_ngrams=True, 
-                         min_words=HIGH_CARD, 
-                         verbose=True)
-#ngrams_model.update(dict(use_ngrams=True, min_words=HIGH_CARD))
+ngrams_model = ModelDict(
+    "Ngrams Model", use_ngrams=True, min_words=HIGH_CARD, verbose=True
+)
 
 # Topic Model over features
-topic_model = ModelDict("Reliable Topic Models on Features and Target",         
-                        cardinality_threshold=LOW_CARD,  # force topic model
-                        cardinality_threshold_target=LOW_CARD,  # force topic model
-                        n_topics=N_TOPICS,
-                        n_topics_target=N_TOPICS_TARGET,
-                        min_words=HIGH_CARD,  # make sure it doesn't turn into sentence model, but rather topic models
-                        verbose=True
-                        )
-#**default_featurize_parameters)
-# topic_model.update(
-#     dict(
-#         cardinality_threshold=LOW_CARD,  # force topic model
-#         cardinality_threshold_target=LOW_CARD,  # force topic model
-#         n_topics=N_TOPICS,
-#         n_topics_target=N_TOPICS_TARGET,
-#         min_words=HIGH_CARD,  # make sure it doesn't turn into sentence model, but rather topic models
-#     )
-# )
+topic_model = ModelDict(
+    "Reliable Topic Models on Features and Target",
+    cardinality_threshold=LOW_CARD,  # force topic model
+    cardinality_threshold_target=LOW_CARD,  # force topic model
+    n_topics=N_TOPICS,
+    n_topics_target=N_TOPICS_TARGET,
+    min_words=HIGH_CARD,  # make sure it doesn't turn into sentence model, but rather topic models
+    verbose=True,
+)
 
 # useful for text data that you want to paraphrase
-embedding_model = ModelDict(f"{PARAPHRASE_SMALL_MODEL} sbert Embedding Model",
-                        min_words=FORCE_EMBEDDING_ALL_COLUMNS,
-                        model_name=PARAPHRASE_SMALL_MODEL,  # if we need multilingual support, use PARAPHRASE_MULTILINGUAL_MODEL
-                        verbose=True,
-    #**default_featurize_parameters,
+embedding_model = ModelDict(
+    f"{PARAPHRASE_SMALL_MODEL} sbert Embedding Model",
+    min_words=FORCE_EMBEDDING_ALL_COLUMNS,
+    model_name=PARAPHRASE_SMALL_MODEL,  # if we need multilingual support, use PARAPHRASE_MULTILINGUAL_MODEL
+    verbose=True,
 )
-# embedding_model.update(
-#     dict(
-#         min_words=FORCE_EMBEDDING_ALL_COLUMNS,
-#         model_name=PARAPHRASE_SMALL_MODEL,  # if we need multilingual support, use PARAPHRASE_MULTILINGUAL_MODEL
-#     )
-# )
 
 # useful for when search input is much smaller than the encoded documents
 search_model = ModelDict(
-                        f"{MSMARCO2} Search Model", 
-                        verbose=True, 
-                        min_words=FORCE_EMBEDDING_ALL_COLUMNS,
-                        model_name=MSMARCO2,
-    #**default_featurize_parameters
+    f"{MSMARCO2} Search Model",
+    verbose=True,
+    min_words=FORCE_EMBEDDING_ALL_COLUMNS,
+    model_name=MSMARCO2,
 )
-# search_model.update(
-#     dict(
-#         min_words=FORCE_EMBEDDING_ALL_COLUMNS,
-#         model_name=MSMARCO2,
-#     )
-# )
 
 # Question Answering encodings for search
 qa_model = ModelDict(
-                    f"{QA_SMALL_MODEL} QA Model", 
-                    min_words=FORCE_EMBEDDING_ALL_COLUMNS,
-                    model_name=QA_SMALL_MODEL,
-                    verbose=True,                 
+    f"{QA_SMALL_MODEL} QA Model",
+    min_words=FORCE_EMBEDDING_ALL_COLUMNS,
+    model_name=QA_SMALL_MODEL,
+    verbose=True,
 )
-# qa_model.update(
-#     dict(
-#         min_words=FORCE_EMBEDDING_ALL_COLUMNS,
-#         model_name=QA_SMALL_MODEL,
-#     )
-# )
 
 
 BASE_MODELS = {
@@ -240,7 +201,8 @@ BASE_MODELS = {
 
 
 if __name__ == "__main__":
-    # python3 -m graphistry.features -m 'my awesome edge encoded model' -p '{"kind":"edges"}'
+    """ python3 -m graphistry.features -m 'my awesome edge encoded model' -p '{"kind":"edges"}'
+    """
     import argparse
     import json
 

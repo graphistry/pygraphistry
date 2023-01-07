@@ -193,7 +193,7 @@ def query_by_vector(vect, df, search_index, top_n):
 
 
 def infer_graph(
-    res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None
+    res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None, verbose=False
 ):
     """
     Infer a graph from a graphistry object
@@ -212,9 +212,11 @@ def infer_graph(
     if infer_on_umap_embedding and emb is not None:
         X_previously_fit = res._node_embedding
         X_new = emb
+        print("Infering edges over UMAP embedding") if verbose else None
     else:  # can still be umap, but want to do the inference on the higher dimensional features
         X_previously_fit = res._node_features
         X_new = X
+        print("Infering edges over features") if verbose else None
 
     FEATS = res._node_features
     EMB = res._node_embedding
@@ -313,6 +315,10 @@ def infer_graph(
     new_features = pd.concat([X, FEATS.loc[old_nodes.index]], axis=0)
 
     new_nodes = pd.concat([df, old_nodes], axis=0)  # append minibatch at top
+    print('-' * 80) if verbose else None
+    print("Final graph has", len(new_nodes), "nodes") if verbose else None
+    print("-Batch has", len(df), "nodes") if verbose else None
+    print("-Brought in ", len(old_nodes), "nodes") if verbose else None
 
     new_targets = pd.concat([y, Y.loc[old_nodes.index]]) if y is not None else Y
 
