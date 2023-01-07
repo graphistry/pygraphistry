@@ -2142,7 +2142,7 @@ class FeatureMixin(MIXIN_BASE):
         g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, eps=eps, sample=sample, verbose=verbose, **kwargs) 
         return g
 
-    def _transform(self, encoder: str, df: pd.DataFrame, ydf: pd.DataFrame):
+    def _transform(self, encoder: str, df: pd.DataFrame, ydf: Optional[pd.DataFrame]):
         if getattr(self, encoder) is not None:
             return getattr(self, encoder).transform(df, ydf)
         else:
@@ -2187,7 +2187,7 @@ class FeatureMixin(MIXIN_BASE):
     def scale(
         self,
         df: pd.DataFrame,
-        y: pd.DataFrame = None,
+        y: Optional[pd.DataFrame] = None,
         kind: str = "nodes",
         use_scaler: Union[str, None] = None,
         use_scaler_target: Union[str, None] = None,
