@@ -166,6 +166,7 @@ class UMAPMixin(MIXIN_BASE):
 
     def __init__(self, *args, **kwargs):
         self._umap_initialized = False
+        #self.engine = self.engine if hasattr(self, "engine") else None
 
     def umap_lazy_init(
         self,
@@ -197,7 +198,7 @@ class UMAPMixin(MIXIN_BASE):
             umap_kwargs = dict(
                 {
                     "n_components": n_components,
-                    **({"metric": metric} if engine_resolved == UMAP_LEARN else {}),  # noqa
+                    **({"metric": metric} if engine_resolved == UMAP_LEARN else {}),  # type: ignore
                     "n_neighbors": n_neighbors,
                     "min_dist": min_dist,
                     "spread": spread,
@@ -258,21 +259,20 @@ class UMAPMixin(MIXIN_BASE):
         logger.info("-" * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
 
-        if self.engine == CUML and is_legacy_cuml():  # noqa
+        if self.engine == CUML and is_legacy_cuml():  # type: ignore
             from cuml.neighbors import NearestNeighbors
 
-            knn = NearestNeighbors(n_neighbors=self._n_neighbors)  # noqa
+            knn = NearestNeighbors(n_neighbors=self._n_neighbors)  # type: ignore
             cc = self._umap.fit(X, y, knn_graph=knn)
             knn.fit(cc.embedding_)
             self._umap.graph_ = knn.kneighbors_graph(cc.embedding_)
-            self._weighted_adjacency = self._umap.graph_
-
         else:
             self._umap.fit(X, y)
-            self._weighted_adjacency = self._umap.graph_
+            
+        self._weighted_adjacency = self._umap.graph_
         # if changing, also update fresh_res
         self._weighted_edges_df = umap_graph_to_weighted_edges(
-            self._umap.graph_, self.engine, is_legacy_cuml()  # noqa
+            self._umap.graph_, self.engine, is_legacy_cuml()  # type: ignore
         )
 
         mins = (time() - t) / 60
