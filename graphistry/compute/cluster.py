@@ -314,12 +314,12 @@ class ClusterMixin(MIXIN_BASE):
         y: Union[pd.DataFrame, None] = None,
         eps: Union[float, str] = "auto",
         fit_umap_embedding: bool = False,
-        sample: int = None,
+        sample: Optional[int] = None,
         kind: str = "nodes",
         return_graph=True,
-    ) -> Union[
-        Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable
-    ]:
+     ): #-> Union[
+    #     Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable
+    # ]:
         """
         Transforms a minibatch dataframe to one with a new column '_dbscan' containing the DBSCAN cluster labels on the minibatch
             and generates a graph with the minibatch and the original graph, with edges between the minibatch and the original graph inferred
