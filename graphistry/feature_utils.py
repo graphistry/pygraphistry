@@ -544,7 +544,7 @@ def get_preprocessing_pipeline(
     :param X: np.ndarray
     :param impute: whether to run imputing or not
     :param use_scaler: string in None or
-            ["minmax", "quantile", "zscale", "robust", "kbins"],
+            ["minmax", "quantile", "standard", "robust", "kbins"],
             selects scaling transformer, default None
     :param n_quantiles: if use_scaler = 'quantile',
             sets the quantile bin size.
@@ -573,7 +573,7 @@ def get_preprocessing_pipeline(
     available_preprocessors = [
         "minmax",
         "quantile",
-        "zscale",
+        "standard",
         "robust",
         "kbins",
     ]
@@ -600,7 +600,7 @@ def get_preprocessing_pipeline(
         scaler = QuantileTransformer(
             n_quantiles=n_quantiles, output_distribution=output_distribution
         )
-    elif use_scaler == "zscale":
+    elif use_scaler == "standard":
         scaler = StandardScaler()
     elif use_scaler == "robust":
         scaler = RobustScaler(quantile_range=quantile_range)
@@ -884,7 +884,7 @@ def process_dirty_dataframes(
             threshold, encoder is OneHot, above, it is GapEncoder
     :param n_topics: number of topics for GapEncoder, default 42
     :param use_scaler: None or string in
-            ['minmax', 'zscale', 'robust', 'quantile']
+            ['minmax', 'standard', 'robust', 'quantile']
     :param similarity: one of 'ngram', 'levenshtein-ratio', 'jaro',
             or'jaro-winkler'}) – The type of pairwise string similarity
             to use. If None or False, uses a SuperVectorizer
@@ -1042,7 +1042,7 @@ def process_nodes_dataframes(
     :param df: pandas DataFrame of data
     :param y: pandas DataFrame of targets
     :param use_scaler: None or string in
-            ['minmax', 'zscale', 'robust', 'quantile']
+            ['minmax', 'standard', 'robust', 'quantile']
     :param n_topics: number of topics in Gap Encoder
     :param use_scaler:
     :param confidence: Number between 0 and 1, will pass
@@ -1319,7 +1319,7 @@ def process_edge_dataframes(
     :param src: source column to select in edf
     :param dst: destination column to select in edf
     :param use_scaler: None or string in
-        ['minmax', 'zscale', 'robust', 'quantile']
+        ['minmax', 'standard', 'robust', 'quantile']
     :return: Encoded data matrix and target (if not None),
         the data encoders, and the label encoder.
     """
@@ -1713,33 +1713,48 @@ class FastEncoder:
         self.fit(src=src, dst=dst, *args, **kwargs)
         return self.X, self.y
 
-    def scale(self, df, ydf=None, set_scaler=False, *args, **kwargs):
-        # pretty hacky but gets job done --
-        """Fits new scaling functions on df, ydf via args-kwargs
-        (ie use downstream as X_train, X_test ,... or batch 
-        when different scaling on the outputs is required)
+    def scale(self, X=None, y=None, set_scaler=False, *args, **kwargs):
+        """Fits new scaling functions on df, y via args-kwargs
+        
+            example:
+                g = graphistry.nodes(df)
+                g2 = g.umap()
+                
+                X, y = g2.scale(X, y, use_scaler='minmax', use_scaler_target='kbins', n_bins=5)
+        
+            args:
+                X: pd.DataFrame of features
+                y: pd.DataFrame of target features
+                kind: str, one of 'nodes' or 'edges'
+                set_scaler: bool, if True, will set the new scaler as the default for the encoder   
+                *args, **kwargs: passed to smart_scaler
+            returns:
+                scaled X, y
         """
         # pop off the previous scaler so that .transform won't use it
         self.res[4] = None
         self.res[5] = None
-
-        X, y = self.transform(df, ydf)  # these are the raw transforms,
+                
         logger.info("-Fitting new scaler on raw features")
         X, y, scaling_pipeline, scaling_pipeline_target = smart_scaler(
             X_enc=X, y_enc=y, *args, **kwargs
         )
+        
+        def _set(res, scaling_pipeline, scaling_pipeline_target):
+            logger.info("--Setting fit scaler to self")
+            res.res[4] = scaling_pipeline
+            res.res[5] = scaling_pipeline_target
+            res.scaling_pipeline = scaling_pipeline
+            res.scaling_pipeline_target = scaling_pipeline_target
+            return res
 
         if set_scaler:
-            logger.info("--Setting fit scaler to self")
-            self.res[4] = scaling_pipeline
-            self.res[5] = scaling_pipeline_target
-            self.scaling_pipeline = scaling_pipeline
-            self.scaling_pipeline_target = scaling_pipeline_target
+            self = _set(self, scaling_pipeline, scaling_pipeline_target)
         else:  # add the original back
             self.res[4] = self.scaling_pipeline
             self.res[5] = self.scaling_pipeline_target
-
-        return X, y, scaling_pipeline, scaling_pipeline_target
+            
+        return X, y
 
 
 # ######################################################################################################################
@@ -1995,7 +2010,9 @@ class FeatureMixin(MIXIN_BASE):
 
         # if changing, also update fresh_res
         res._node_features = encoder.X
+        res._node_features_raw = encoder.X#.copy()
         res._node_target = encoder.y
+        res._node_target_raw = encoder.y#.copy()
         res._node_encoder = encoder  # now this does
         
         # all the work `._node_encoder.transform(df, y)` etc
@@ -2113,7 +2130,9 @@ class FeatureMixin(MIXIN_BASE):
 
         # if editing, should also update fresh_res
         res._edge_features = encoder.X
+        res._edge_features_raw = encoder.X#.copy()
         res._edge_target = encoder.y
+        res._edge_target_raw = encoder.y#.copy()
         res._edge_encoder = encoder
 
         return res
@@ -2132,7 +2151,12 @@ class FeatureMixin(MIXIN_BASE):
                 "before being able to transform data"
             )
 
-    def transform(self, df, ydf=None, kind='nodes', return_graph=True, eps='auto', sample=None, verbose=False):
+    def transform(self, df: pd.DataFrame, 
+                  y: Union[pd.DataFrame, None] = None, 
+                  kind: str ='nodes', 
+                  return_graph: bool = True, 
+                  eps: Union[str, float, int] = 'auto', sample = None, 
+                  verbose = False):
         """Transform new data and append to existing graph.
         
             args:
@@ -2148,9 +2172,9 @@ class FeatureMixin(MIXIN_BASE):
                     or a graph with inferred edges if return_graph is True
         """
         if kind == "nodes":
-            X, y = self._transform("_node_encoder", df, ydf)
+            X, y = self._transform("_node_encoder", df, y)
         elif kind == "edges":
-            X, y = self._transform("_edge_encoder", df, ydf)
+            X, y = self._transform("_edge_encoder", df, y)
         else:
             logger.debug("kind must be one of `nodes`,"
                          f"`edges`, found {kind}")
@@ -2162,12 +2186,11 @@ class FeatureMixin(MIXIN_BASE):
 
     def scale(
         self,
-        df,
-        ydf,
-        kind,
-        use_scaler,
-        use_scaler_target,
-        set_scaler=False,
+        df: pd.DataFrame,
+        y: pd.DataFrame = None,
+        kind: str = "nodes",
+        use_scaler: Union[str, None] = None,
+        use_scaler_target: Union[str, None] = None,
         impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
@@ -2175,30 +2198,54 @@ class FeatureMixin(MIXIN_BASE):
         n_bins: int = 2,
         encode: str = "ordinal",
         strategy: str = "uniform",
+        set_scaler: bool = False,
         keep_n_decimals: int = 5,
     ):
         """Scale data using the same scalers as used in the featurization step.
         
             example usage:
                 g = graphistry.nodes(df)
-                g2 = g.umap().scale(df, ydf, kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
+                g2 = g.umap().scale(eps=0.2, sample=None, kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
 
                 # scaled data
+                g3 = g.scale( kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
                 X = g2._node_features
                 y = g2._node_target  
                 
+            args:
+                df: pd.DataFrame, raw data to transform
+                y: pd.DataFrame, optional
+                kind: str  # one of `nodes`, `edges`
+                use_scaler: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
+                use_scaler_target: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
+                impute: bool, if True, will impute missing values
+                n_quantiles: int, number of quantiles to use for quantile scaler
+                output_distribution: str, one of `normal`, `uniform`, `lognormal` 
+                quantile_range: tuple, range of quantiles to use for quantile scaler
+                n_bins: int, number of bins to use for KBinsDiscretizer
+                encode: str, one of `ordinal`, `onehot`, `onehot-dense`, `binary`    
+                strategy: str, one of `uniform`, `quantile`, `kmeans`
+                set_scaler: bool, if True, will set the scaler to the new scaler
+                keep_n_decimals: int, number of decimals to keep after scaling
+            returns:
+                (X, y) transformed data if return_graph is False
+                    or a graph with inferred edges if return_graph is True,
         """
+                
+        if df is None: # use the original data
+            # df = self._nodes if kind == "nodes" else self._edges
+            X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)
+        else:
+            X, y = self.transform(df, y, kind=kind, return_graph=False)
 
         if kind == "nodes" and hasattr(self, "_node_encoder"):  # type: ignore
             if self._node_encoder is not None:  # type: ignore
                 (
                     X,
-                    y,
-                    scaling_pipeline,
-                    scaling_pipeline_target,
+                    y
                 ) = self._node_encoder.scale(
-                    df,
-                    ydf,
+                    X,
+                    y,
                     set_scaler=set_scaler,
                     use_scaler=use_scaler,
                     use_scaler_target=use_scaler_target,
@@ -2222,12 +2269,10 @@ class FeatureMixin(MIXIN_BASE):
             if self._edge_encoder is not None:  # type: ignore
                 (
                     X,
-                    y,
-                    scaling_pipeline,
-                    scaling_pipeline_target,
+                    y
                 ) = self._edge_encoder.scale(
-                    df,
-                    ydf,
+                    X,
+                    y,
                     set_scaler=set_scaler,
                     use_scaler=use_scaler,
                     use_scaler_target=use_scaler_target,
@@ -2245,8 +2290,7 @@ class FeatureMixin(MIXIN_BASE):
                     'Please run g.featurize(kind="edges", *args, **kwargs) '
                     'first before scaling matrices and targets is possible.'
                 )
-
-        return X, y, scaling_pipeline, scaling_pipeline_target
+        return X, y
 
     def featurize(
         self,
@@ -2301,11 +2345,11 @@ class FeatureMixin(MIXIN_BASE):
         :param use_scaler: selects which scaler (and automatically imputes
                 missing values using mean strategy)
                 to scale the data. Options are;
-                "minmax", "quantile", "zscale", "robust",
+                "minmax", "quantile", "standard", "robust",
                 "kbins", default None.
                 Please see scikits-learn documentation
                 https://scikit-learn.org/stable/modules/preprocessing.html
-                Here 'zscale' corresponds to 'StandardScaler' in scikits.
+                Here 'standard' corresponds to 'StandardScaler' in scikits.
         :param cardinality_threshold: dirty_cat threshold on cardinality of
                 categorical labels across columns.
                 If value is greater than threshold, will run GapEncoder
