@@ -243,7 +243,7 @@ class ClusterMixin(MIXIN_BASE):
 
     def _transform_dbscan(
         self, df: pd.DataFrame, ydf=None, kind: str = "nodes"
-    ) -> Union[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> Tuple[Union[pd.DataFrame, None], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         
         """
         Transforms a dataframe to one with a new column '_dbscan' containing the DBSCAN cluster labels
@@ -298,20 +298,20 @@ class ClusterMixin(MIXIN_BASE):
             else:
                 X_ = X
 
-            labels = dbscan_predict(X_, dbscan)
+            labels = dbscan_predict(X_, dbscan)  # type: ignore
             if umap:
-                df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)
+                df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)  # type: ignore
             else:
                 df = df.assign(_dbscan=labels)
 
-            return emb, X, y, df
+            return emb, X, y, df  # type: ignore
         else:
             raise Exception("No dbscan model found. Please run `g.dbscan()` first")
 
     def transform_dbscan(
         self,
         df: pd.DataFrame,
-        y: pd.DataFrame = None,
+        y: Union[pd.DataFrame, None] = None,
         eps: Union[float, str] = "auto",
         fit_umap_embedding: bool = False,
         sample: int = None,
@@ -321,9 +321,9 @@ class ClusterMixin(MIXIN_BASE):
         Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable
     ]:
         """
-        Transforms a minibatch dataframe to one with a new column '_cluster' containing the DBSCAN cluster labels on the minibatch
+        Transforms a minibatch dataframe to one with a new column '_dbscan' containing the DBSCAN cluster labels on the minibatch
             and generates a graph with the minibatch and the original graph, with edges between the minibatch and the original graph inferred
-            works for
+            from the umap embedding or features dataframe.
 
         args:
             df: dataframe to transform
@@ -337,8 +337,7 @@ class ClusterMixin(MIXIN_BASE):
                 if None, will only use closest point to the minibatch. If greater than 0, will sample the closest `sample` points
                 in existing graph to pull in more edges. Default None
             kind: 'nodes' or 'edges'
-            return_graph: whether to return a graph or the (emb, X, y, minibatch enriched with DBSCAN labels), default True
-
+            return_graph: whether to return a graph or the (emb, X, y, minibatch df enriched with DBSCAN labels), default True
 
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind)
