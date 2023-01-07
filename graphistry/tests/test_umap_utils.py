@@ -271,6 +271,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 "negative_sample_rate": 5,
             }
         )
+        
         umap_kwargs2 = {k:v+1 for k, v in umap_kwargs.items()}
         g = graphistry.nodes(ndf_reddit)
         g2 = g.umap(**umap_kwargs)
@@ -569,8 +570,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g3._feature_params["nodes"]["X"].pop("y")
         assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
         assert (
-            g2._feature_params["nodes"]["y"].shape
-            == g3._feature_params["nodes"]["y"].shape
+            g2._feature_params["nodes"]["y"].shape == g3._feature_params["nodes"]["y"].shape
         )  # None
         assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
 
@@ -755,8 +755,7 @@ class TestCUMLMethods(TestUMAPMethods):
         g3._feature_params["nodes"]["X"].pop("y")
         assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
         assert (
-            g2._feature_params["nodes"]["y"].shape
-            == g3._feature_params["nodes"]["y"].shape
+            g2._feature_params["nodes"]["y"].shape == g3._feature_params["nodes"]["y"].shape
         )  # None
         assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
 
