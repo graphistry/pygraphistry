@@ -197,7 +197,7 @@ class UMAPMixin(MIXIN_BASE):
             umap_kwargs = dict(
                 {
                     "n_components": n_components,
-                    **({"metric": metric} if engine_resolved == UMAP_LEARN else {}),
+                    **({"metric": metric} if engine_resolved == UMAP_LEARN else {}),  # noqa
                     "n_neighbors": n_neighbors,
                     "min_dist": min_dist,
                     "spread": spread,
@@ -258,10 +258,10 @@ class UMAPMixin(MIXIN_BASE):
         logger.info("-" * 90)
         logger.info(f"Starting UMAP-ing data of shape {X.shape}")
 
-        if self.engine == CUML and is_legacy_cuml():
+        if self.engine == CUML and is_legacy_cuml():  # noqa
             from cuml.neighbors import NearestNeighbors
 
-            knn = NearestNeighbors(n_neighbors=self._n_neighbors)
+            knn = NearestNeighbors(n_neighbors=self._n_neighbors)  # noqa
             cc = self._umap.fit(X, y, knn_graph=knn)
             knn.fit(cc.embedding_)
             self._umap.graph_ = knn.kneighbors_graph(cc.embedding_)
@@ -272,7 +272,7 @@ class UMAPMixin(MIXIN_BASE):
             self._weighted_adjacency = self._umap.graph_
         # if changing, also update fresh_res
         self._weighted_edges_df = umap_graph_to_weighted_edges(
-            self._umap.graph_, self.engine, is_legacy_cuml()
+            self._umap.graph_, self.engine, is_legacy_cuml()  # noqa
         )
 
         mins = (time() - t) / 60
@@ -289,7 +289,7 @@ class UMAPMixin(MIXIN_BASE):
         return emb
 
     def transform_umap(  # noqa: E303
-        self, df: pd.DataFrame, ydf: pd.DataFrame = None, kind: str = "nodes", 
+        self, df: pd.DataFrame, ydf: Union[pd.DataFrame, None] = None, kind: str = "nodes", 
         eps='auto', 
         sample=None, 
         return_graph=True, 
@@ -498,7 +498,7 @@ class UMAPMixin(MIXIN_BASE):
         else:
             res = self.bind()
 
-        res = res.umap_lazy_init(res, **umap_kwargs)
+        res = res.umap_lazy_init(res, **umap_kwargs)  # type: ignore
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
@@ -607,7 +607,7 @@ class UMAPMixin(MIXIN_BASE):
             res, kind, encode_position, encode_weight, play
         )  # noqa: E501
 
-        if res.engine == CUML and is_legacy_cuml():
+        if res.engine == CUML and is_legacy_cuml():  # type: ignore
             res = res.prune_self_edges()
 
         if dbscan:

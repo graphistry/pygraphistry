@@ -89,7 +89,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         self._device = "cpu"
 
     def _preprocess_embedding_data(self, res, train_split:Union[float, int] = 0.8) -> Plottable:
-        _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
+        #_, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
         import torch
         log('Preprocessing embedding data')
         src, dst = res._source, res._destination
