@@ -140,9 +140,9 @@ edge_df2['dst'] = np.random.random_integers(0, 120, size=len(edge_df2))
 edge2_target_df = pd.DataFrame({'label': edge_df2.label})
 
 # #############################################################################################################
-what = ['whatever', 'on what', 'what do', 'what do you', 'what do you think', \
-        'to what', 'but what', 'what is', 'what it', 'what kind', 'what kind of', \
-        'of what', 'know what', 'what are', 'what are the', 'what to', 'what to do', \
+what = ['whatever', 'on what', 'what do', 'what do you', 'what do you think', 
+        'to what', 'but what', 'what is', 'what it', 'what kind', 'what kind of', 
+        'of what', 'know what', 'what are', 'what are the', 'what to', 'what to do', 
         'from what', 'with what', 'and what', 'what you', 'whats', 'know what to', 'don know what', 'what the']
 freedom = ['title: dyslexics, experience, language',
        'label: languagelearning, agile, leaves',
