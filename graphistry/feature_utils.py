@@ -1571,7 +1571,7 @@ def transform(
 
     logger.info("-" * 90)
     
-    index = df.index
+    # index = df.index
     y = pd.DataFrame([])
     T = pd.DataFrame([])
     # encode nodes
