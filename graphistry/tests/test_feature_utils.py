@@ -139,8 +139,11 @@ edge_df2['src'] = np.random.random_integers(0, 120, size=len(edge_df2))
 edge_df2['dst'] = np.random.random_integers(0, 120, size=len(edge_df2))
 edge2_target_df = pd.DataFrame({'label': edge_df2.label})
 
-## ################################################
-what = ['whatever', 'on what', 'what do', 'what do you', 'what do you think', 'to what', 'but what', 'what is', 'what it', 'what kind', 'what kind of', 'of what', 'know what', 'what are', 'what are the', 'what to', 'what to do', 'from what', 'with what', 'and what', 'what you', 'whats', 'know what to', 'don know what', 'what the']
+# #############################################################################################################
+what = ['whatever', 'on what', 'what do', 'what do you', 'what do you think', \
+        'to what', 'but what', 'what is', 'what it', 'what kind', 'what kind of', \
+        'of what', 'know what', 'what are', 'what are the', 'what to', 'what to do', \
+        'from what', 'with what', 'and what', 'what you', 'whats', 'know what to', 'don know what', 'what the']
 freedom = ['title: dyslexics, experience, language',
        'label: languagelearning, agile, leaves',
        'title: freedom, finally, moved']
@@ -175,14 +178,12 @@ class TestFeaturizeGetMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self) -> None:
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.featurize( # ngrams
-                y=double_target_reddit,
+        g2 = g.featurize(y=double_target_reddit,  # ngrams
                 use_ngrams=True,
                 ngram_range=(1, 4)
                 )
         
-        g3 = g.featurize( # topic model
-                        **topic_model
+        g3 = g.featurize(**topic_model  # topic model       
         )
         self.g = g
         self.g2 = g2
@@ -191,7 +192,7 @@ class TestFeaturizeGetMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_get_col_matrix(self):
         # no edges so this should be None
-        assert self.g2.get_features_by_cols(kind='edges') == None
+        assert self.g2.get_features_by_cols(kind='edges') is None
         
         # test target methods
         assert all(self.g2.get_features_by_cols(target=True).columns == self.g2._node_target.columns)
