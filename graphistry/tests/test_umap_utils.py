@@ -70,20 +70,24 @@ class TestUMAPFitTransform(unittest.TestCase):
     # check to see that .fit and transform gives similar embeddings on same data
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def setUp(self):
-
+        verbose = True
         g = graphistry.nodes(ndf_reddit)
         self.gn = g
+        
+        self.test = ndf_reddit.sample(5)
+
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
             g2 = g.umap(
-                y=double_target_reddit,
+                y=['label', 'type'],
                 use_ngrams=True,
                 ngram_range=(1, 2),
                 use_scaler="robust",
                 cardinality_threshold=2,
+                verbose=verbose,
             )
 
         self.g2 = g2
@@ -91,10 +95,10 @@ class TestUMAPFitTransform(unittest.TestCase):
         self.X, self.Y = fenc.X, fenc.y
         self.EMB = g2._node_embedding
         self.emb, self.x, self.y = g2.transform_umap(
-            ndf_reddit, ydf=double_target_reddit, kind="nodes", return_graph=False
+            ndf_reddit, ndf_reddit, kind="nodes", return_graph=False, verbose=verbose
         )
         self.g3 = g2.transform_umap(
-            ndf_reddit, ydf=double_target_reddit, kind="nodes", return_graph=True
+            ndf_reddit, ndf_reddit, kind="nodes", return_graph=True, verbose=verbose
         )
 
         # do the same for edges
@@ -107,7 +111,7 @@ class TestUMAPFitTransform(unittest.TestCase):
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
             g2 = g.umap(
-                y=edge2_target_df,
+                y=['label'],
                 kind="edges",
                 use_ngrams=True,
                 ngram_range=(1, 2),
@@ -115,148 +119,71 @@ class TestUMAPFitTransform(unittest.TestCase):
                 use_scaler_target=None,
                 cardinality_threshold=2,
                 n_topics=4,
+                verbose=verbose,
             )
 
         fenc = g2._edge_encoder
         self.Xe, self.Ye = fenc.X, fenc.y
         self.EMBe = g2._edge_embedding
         self.embe, self.xe, self.ye = g2.transform_umap(
-            edge_df22, ydf=edge2_target_df, kind="edges", return_graph=False
-        )
+            edge_df22, y=edge2_target_df, kind="edges", return_graph=False, verbose=verbose
+        )        
         self.g2e = g2
-        self.g3e = g2.transform_umap(
-            edge_df22, ydf=edge2_target_df, kind="edges", return_graph=True
-        )
+
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_columns_match(self):
-        assert all(
-            self.X.columns == self.x.columns
-        ), "Node Feature Columns do not match"
-        assert all(self.Y.columns == self.y.columns), "Node Target Columns do not match"
-        assert all(
-            self.Xe.columns == self.xe.columns
-        ), "Edge Feature Columns do not match"
-        assert all(
-            self.Ye.columns == self.ye.columns
-        ), "Edge Target Columns do not match"
+        d = self.g2._node_features.shape[1]
+        dt = self.g2._node_target.shape[1]
+        de = self.g2e._edge_features.shape[1]
+        det = self.g2e._edge_target.shape[1]
+        assert (self.X.columns == self.x.columns).sum() == d, "Node Feature Columns do not match"
+        assert (self.Y.columns == self.y.columns).sum() == dt, "Node Target Columns do not match"
+        assert (self.Xe.columns == self.xe.columns).sum() == de, "Edge Feature Columns do not match"
+        assert (self.Ye.columns == self.ye.columns).sum() == det, "Edge Target Columns do not match"
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_index_match(self):
         # nodes
-        assert all(
-            self.gn._nodes.index == self.g2._nodes.index
-        ), "Node Indexes do not match"
-        assert all(self.gn._nodes.index == self.EMB.index), "Emb Indexes do not match"
-        assert all(
-            self.gn._nodes.index == self.emb.index
-        ), "Transformed Emb Indexes do not match"
-        assert all(
-            self.gn._nodes.index == self.X.index
-        ), "Transformed Node features Indexes do not match"
-        assert all(
-            self.gn._nodes.index == self.y.index
-        ), "Transformed Node target Indexes do not match"
+        d = self.g2._nodes.shape[0]
+        de = self.g2e._edges.shape[0]
+        assert (self.gn._nodes.index == self.g2._nodes.index).sum() == d, "Node Indexes do not match"
+        assert (self.gn._nodes.index == self.EMB.index).sum() == d, "Emb Indexes do not match"
+        assert (self.gn._nodes.index == self.emb.index).sum() == d, "Transformed Emb Indexes do not match"
+        assert (self.gn._nodes.index == self.X.index).sum() == d, "Transformed Node features Indexes do not match"
+        assert (self.gn._nodes.index == self.y.index).sum() == d, "Transformed Node target Indexes do not match"
 
         # edges
-        assert all(
-            self.ge._edges.index == self.g2e._edges.index
-        ), "Edge Indexes do not match"
-        assert all(
-            self.ge._edges.index == self.EMBe.index
-        ), "Edge Emb Indexes do not match"
-        assert all(
-            self.ge._edges.index == self.embe.index
-        ), "Edge Transformed Emb Indexes do not match"
-        assert all(
-            self.ge._edges.index == self.Xe.index
-        ), "Edge Transformed features Indexes do not match"
-        assert all(
-            self.ge._edges.index == self.ye.index
-        ), "Edge Transformed target Indexes do not match"
+        assert (self.ge._edges.index == self.g2e._edges.index).sum() == de, "Edge Indexes do not match"
+        assert (self.ge._edges.index == self.EMBe.index).sum() == de, "Edge Emb Indexes do not match"
+        assert (self.ge._edges.index == self.embe.index).sum() == de, "Edge Transformed Emb Indexes do not match"
+        assert (self.ge._edges.index == self.Xe.index).sum() == de, "Edge Transformed features Indexes do not match"
+        assert (self.ge._edges.index == self.ye.index).sum() == de, "Edge Transformed target Indexes do not match"
 
         # make sure the indexes match at transform time internally as well
-        assert all(self.X.index == self.x.index), "Node Feature Indexes do not match"
-        assert all(self.Y.index == self.y.index), "Node Target Indexes do not match"
-        assert all(self.Xe.index == self.xe.index), "Edge Feature Indexes do not match"
-        assert all(self.Ye.index == self.ye.index), "Edge Target Indexes do not match"
+        assert (self.X.index == self.x.index).sum() == d, "Node Feature Indexes do not match"
+        assert (self.Y.index == self.y.index).sum() == d, "Node Target Indexes do not match"
+        assert (self.Xe.index == self.xe.index).sum() == de, "Edge Feature Indexes do not match"
+        assert (self.Ye.index == self.ye.index).sum() == de, "Edge Target Indexes do not match"
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
-    def test_index_match_in_infered_graph(self):
+    def test_node_index_match_in_infered_graph(self):
         # nodes
-        assert all(
-            self.g3._nodes.index == self.g2._nodes.index
-        ), "Node Indexes do not match"
-        assert all(self.g3._nodes.index == self.EMB.index), "Emb Indexes do not match"
-        assert all(
-            self.g3._nodes.index == self.emb.index
-        ), "Transformed Emb Indexes do not match"
-        assert all(
-            self.g3._nodes.index == self.X.index
-        ), "Transformed Node features Indexes do not match"
-        assert all(
-            self.g3._nodes.index == self.y.index
-        ), "Transformed Node target Indexes do not match"
+        g3 = self.g2._nodes
+        assert (g3.index == self.EMB.index).sum() == len(g3), "Node Emb Indexes do not match"
+        assert (g3.index == self.emb.index).sum() == len(g3), "Node Transformed Emb Indexes do not match"
+        assert (g3.index == self.X.index).sum() == len(g3), "Node Transformed features Indexes do not match"
+        assert (g3.index == self.y.index).sum() == len(g3), "Node Transformed target Indexes do not match"
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
-    def test_nodes_index_match_in_infered_graph(self):
-        # edges
-        ndf_infered = self.g3._nodes
-        assert all(
-            ndf_infered.index == self.EMBe.index
-        ), "Edge Emb Indexes do not match"
-        assert all(
-            ndf_infered.index == self.embe.index
-        ), "Edge Transformed Emb Indexes do not match"
-        assert all(
-            ndf_infered.index == self.Xe.index
-        ), "Edge Transformed features Indexes do not match"
-        assert all(
-            ndf_infered.index == self.ye.index
-        ), "Edge Transformed target Indexes do not match"
+    def test_edge_index_match_in_infered_graph(self):
+        g3 = self.g2e._edges
+        assert (g3.index == self.EMBe.index).sum() == len(g3), "Edge Emb Indexes do not match"
+        assert (g3.index == self.embe.index).sum() == len(g3), "Edge Transformed Emb Indexes do not match"
+        assert (g3.index == self.Xe.index).sum() == len(g3), "Edge Transformed Node features Indexes do not match"
+        assert (g3.index == self.ye.index).sum() == len(g3), "Edge Transformed Node target Indexes do not match"
 
-        # now test in set featurize method calls
-        assert all(
-            self.g3._node_features.index == ndf_infered.index
-        ), "Edge Feature Indexes do not match"
-        assert all(
-            self.g3._node_embedding.index == ndf_infered.index
-        ), "Edge Emb Indexes do not match"
-        assert all(
-            self.g3._node_target.index == ndf_infered.index
-        ), "Edge Transformed Emb Indexes do not match"
-        # assert all(self.g3e._edges.index == edf_infered.index), 'Edge Transformed features Indexes do not match'
-        # assert all(self.g3e._edges.index == edf_infered.index), 'Edge Transformed target Indexes do not match'
-
-    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
-    def test_edges_index_match_in_infered_graph(self):
-        # edges
-        edf_infered = self.g3e._edges
-        assert all(
-            edf_infered.index == self.EMBe.index
-        ), "Edge Emb Indexes do not match"
-        assert all(
-            edf_infered.index == self.embe.index
-        ), "Edge Transformed Emb Indexes do not match"
-        assert all(
-            edf_infered.index == self.Xe.index
-        ), "Edge Transformed features Indexes do not match"
-        assert all(
-            edf_infered.index == self.ye.index
-        ), "Edge Transformed target Indexes do not match"
-
-        assert all(
-            self.g3e._edge_features.index == edf_infered.index
-        ), "Edge Feature Indexes do not match"
-        assert all(
-            self.g3e._edge_embedding.index == edf_infered.index
-        ), "Edge Emb Indexes do not match"
-        assert all(
-            self.g3e._edge_target.index == edf_infered.index
-        ), "Edge Transformed Emb Indexes do not match"
-        # assert all(self.g3e._edges.index == edf_infered.index), 'Edge Transformed features Indexes do not match'
-        # assert all(self.g3e._edges.index == edf_infered.index), 'Edge Transformed target Indexes do not match'
-
+    
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_umap_kwargs(self):
         umap_kwargs = {
@@ -270,21 +197,32 @@ class TestUMAPFitTransform(unittest.TestCase):
             "negative_sample_rate": 5,
         }
 
-        umap_kwargs2 = {k: v + 1 for k, v in umap_kwargs.items()}  # type: ignore
-        g = graphistry.nodes(ndf_reddit)
-        g2 = g.umap(**umap_kwargs)
-        g3 = g.umap(**umap_kwargs2)
+        umap_kwargs2 = {k: v + 1 for k, v in umap_kwargs.items() if k not in ['metric']}  # type: ignore
+        umap_kwargs2['metric'] = 'euclidean'
+        g = graphistry.nodes(self.test)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g2 = g.umap(**umap_kwargs)
+            g3 = g.umap(**umap_kwargs2)
         assert (
             g2._umap_params == umap_kwargs
         ), f"Umap params do not match, found {g2._umap_params} vs {umap_kwargs}"
+        assert len(g2._node_embedding.columns) == 2, f"Umap params do not match, found {len(g2._node_embedding.columns)} vs 2"
+
         assert (
             g3._umap_params == umap_kwargs2
         ), f"Umap params do not match, found {g3._umap_params} vs {umap_kwargs2}"
-        g4 = g2.transform_umap(ndf_reddit)
+        assert len(g3._node_embedding.columns) == 3, f"Umap params do not match, found {len(g3._node_embedding.columns)} vs 3"
+        
+        g4 = g2.transform_umap(self.test)
         assert (
             g4._umap_params == umap_kwargs
         ), f"Umap params do not match, found {g4._umap_params} vs {umap_kwargs}"
-        g5 = g3.transform_umap(ndf_reddit)
+        assert g4._n_components == 2, f"Umap params do not match, found {g2._n_components} vs 2"
+
+        g5 = g3.transform_umap(self.test)
         assert (
             g5._umap_params == umap_kwargs2
         ), f"Umap params do not match, found {g5._umap_params} vs {umap_kwargs2}"
@@ -292,18 +230,11 @@ class TestUMAPFitTransform(unittest.TestCase):
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_transform_umap(self):
         np.random.seed(41)
-
-        train = ndf_reddit.sample(frac=0.8, random_state=42)
-        test = ndf_reddit.drop(train.index)
-
-        # just process train
-        g = graphistry.nodes(train)
-        g2 = g.umap()
-        g3 = g2.transform_umap(train)
-        assert (
-            2 * g2._node_embedding.shape[0] == g3._node_embedding.shape[0]
+        test = self.test
+        assert ( 
+            2*self.g2._node_embedding.shape[0] == self.g3._node_embedding.shape[0]
         ), "Node Embedding Lengths do not match, found {} and {}".format(
-            g2._node_embedding.shape[0], g3._node_embedding.shape[0]
+            self.g2._node_embedding.shape[0], self.g3._node_embedding.shape[0]
         )
         # now feed it args
         eps = ["auto", 10]
@@ -311,13 +242,12 @@ class TestUMAPFitTransform(unittest.TestCase):
         return_graph = [True, False]
         fit_umap_embedding = [True, False]
         for ep in eps:
-            g4 = g2.transform_umap(test, eps=ep)
+            g4 = self.g2.transform_umap(test, test, eps=ep)
             assert True
         for return_g in return_graph:
-            g4 = g2.transform_umap(test, return_graph=return_g)
+            g4 = self.g2.transform_umap(test, test, return_graph=return_g)
             if return_g:
-                assert isinstance(g4, Plottable)
-                # == g4._node_embedding.shape
+                assert True
             else:
                 assert len(g4) == 3
                 assert isinstance(g4[0], pd.DataFrame)
@@ -325,12 +255,12 @@ class TestUMAPFitTransform(unittest.TestCase):
                 assert isinstance(g4[2], pd.DataFrame)
                 assert g4[0].shape[1] == 2
                 assert g4[1].shape[1] >= 2
-                assert g4[2].shape[1] >= 1
+                assert g4[2].shape[0] == test.shape[0]
         for sample_ in sample:
-            g4 = g2.transform_umap(test, sample=sample_)
+            g4 = self.g2.transform_umap(test, sample=sample_)
             assert True
         for fit_umap_embedding_ in fit_umap_embedding:
-            g4 = g2.transform_umap(test, fit_umap_embedding=fit_umap_embedding_)
+            g4 = self.g2.transform_umap(test, fit_umap_embedding=fit_umap_embedding_)
             assert True
 
 

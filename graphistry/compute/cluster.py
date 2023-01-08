@@ -67,16 +67,27 @@ def resolve_cpu_gpu_engine(
     )
 
 
-def get_model_matrix(g, kind, cols, umap):
+def get_model_matrix(g, kind, cols, umap, target):
+    """
+        Allows for a single function to get the model matrix for both nodes and edges as well as targets, embeddings, and features
+
+    Args:
+        g (_type_): _description_
+        kind (_type_): _description_
+        cols (_type_): _description_
+        umap (_type_): _description_
+        target (_type_): _description_
+
+    Returns:
+        _type_: dataframe of model matrix given the inputs
+    """
     assert kind in ["nodes", "edges"]
     assert (
         hasattr(g, "_node_encoder") if kind == "nodes" else hasattr(g, "_edge_encoder")
     )
 
-    if cols is None:
-        df = g._get_feature(kind)
-    else:
-        df = g.get_features_by_cols(cols, kind)
+
+    df = g.get_features_by_cols(cols, kind=kind, target=target)
 
     if umap and cols is None and g._umap is not None:
         df = g._get_embedding(kind)
@@ -84,9 +95,10 @@ def get_model_matrix(g, kind, cols, umap):
     return df
 
 
-def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True):
+def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, target=False):
     """
     Fits clustering on UMAP embeddings if umap is True, otherwise on the features dataframe
+        or target dataframe if target is True.
 
     args:
         g: graphistry graph
@@ -94,7 +106,10 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True):
         cols: list of columns to use for clustering given `g.featurize` has been run
         umap: whether to use UMAP embeddings or features dataframe
     """
-    df = get_model_matrix(g, kind, cols, use_umap_embedding)
+    df = get_model_matrix(g, kind, cols, use_umap_embedding, target)
+    
+    if df.empty:
+        raise ValueError("No features found for clustering")
 
     dbscan.fit(df)
     labels = dbscan.labels_
@@ -147,7 +162,7 @@ class ClusterMixin(MIXIN_BASE):
         pass
 
     def _cluster_dbscan(
-        self, res, kind, cols, fit_umap_embedding, eps, min_samples, **kwargs
+        self, res, kind, cols, fit_umap_embedding, target, eps, min_samples, *args, **kwargs
     ):
         """
         DBSCAN clustering on cpu or gpu infered by .engine flag
@@ -159,9 +174,11 @@ class ClusterMixin(MIXIN_BASE):
             "latest dbscan kwargs",
             kind=kind,
             cols=cols,
+            target=target,
             umap=fit_umap_embedding,
             eps=eps,
             min_samples=min_samples,
+            *args,
             **kwargs,
         )
 
@@ -184,6 +201,7 @@ class ClusterMixin(MIXIN_BASE):
         cols=None,
         kind="nodes",
         fit_umap_embedding=True,
+        target=False,
         **kwargs,
     ):
         """DBSCAN clustering on cpu or gpu infered automatically
@@ -234,6 +252,7 @@ class ClusterMixin(MIXIN_BASE):
             kind=kind,
             cols=cols,
             fit_umap_embedding=fit_umap_embedding,
+            target=target,
             eps=eps,
             min_samples=min_samples,
             **kwargs,

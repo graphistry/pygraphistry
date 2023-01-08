@@ -181,6 +181,7 @@ class UMAPMixin(MIXIN_BASE):
         metric: str = "euclidean",
         engine: UMAPEngine = "auto",
         suffix: str = "",
+        verbose: bool = False,
     ):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
@@ -207,7 +208,7 @@ class UMAPMixin(MIXIN_BASE):
                     "negative_sample_rate": negative_sample_rate,
                 }
             )
-            print('umap_kwargs init: ', umap_kwargs['n_components'])
+            #print('umap_kwargs init n_components: ', umap_kwargs['n_components']) if verbose else None
             
             #print('umap_kwargs', umap_kwargs)
             res._n_components = n_components
@@ -288,25 +289,26 @@ class UMAPMixin(MIXIN_BASE):
         emb = self._bundle_embedding(emb, index=X.index)
         return emb
 
-    def transform_umap(  # noqa: E303
-        self, df: pd.DataFrame, ydf: Union[pd.DataFrame, None] = None, kind: str = "nodes", 
-        eps='auto', 
-        sample=None, 
-        return_graph=True, 
-        fit_umap_embedding=False,
-        verbose=False
+    def transform_umap(self, df: pd.DataFrame, 
+                    y: Optional[pd.DataFrame] = None, 
+                    kind: str = 'nodes', 
+                    eps: Union[str, float, int] = 'auto', 
+                    sample: Optional[int] = None, 
+                    return_graph: bool = True,
+                    fit_umap_embedding: bool = False,
+                    verbose=False
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
         try:
             logger.debug(f"Going into Transform umap {df.shape}")
         except:
             pass
-        X, y = self.transform(df, ydf, kind=kind, return_graph=False, verbose=verbose)
+        X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
         emb = self._umap.transform(X)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph:
-            g = self._infer_edges(emb, X, y, df, infer_on_umap_embedding=fit_umap_embedding, eps=eps, sample=sample) 
+            g = self._infer_edges(emb, X, y_, df, infer_on_umap_embedding=fit_umap_embedding, eps=eps, sample=sample) 
             return g        
-        return emb, X, y
+        return emb, X, y_
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
@@ -360,7 +362,7 @@ class UMAPMixin(MIXIN_BASE):
         
         print('** Fitting UMAP') if verbose else None
         res._umap_initialized = False
-        res = res.umap_lazy_init(res, **umap_kwargs_pure)
+        res = res.umap_lazy_init(res, verbose=verbose, **umap_kwargs_pure)
         
         emb = res._umap_fit_transform(X_, y_)
         res._xy = emb
@@ -498,7 +500,7 @@ class UMAPMixin(MIXIN_BASE):
         else:
             res = self.bind()
 
-        res = res.umap_lazy_init(res, **umap_kwargs)  # type: ignore
+        res = res.umap_lazy_init(res, verbose=verbose, **umap_kwargs)  # type: ignore
 
         logger.debug("umap input X :: %s", X)
         logger.debug("umap input y :: %s", y)
