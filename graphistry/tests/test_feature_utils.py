@@ -19,6 +19,9 @@ from graphistry.feature_utils import (
     FastEncoder
 )
 
+from graphistry.features import topic_model, ngrams_model
+
+np.random.seed(137)
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
@@ -127,7 +130,7 @@ good_cols_reddit = text_cols_reddit + meta_cols_reddit
 target_names_node = [['label'], ['label', 'type']]
 # test also sending in a dataframe for target
 double_target_reddit = pd.DataFrame(
-    {"label": ndf_reddit.label.values, "type": ndf_reddit["type"].values}
+    {"label": ndf_reddit.label.values, "type": ndf_reddit["type"].values}, index=ndf_reddit.index
 )
 single_target_reddit = pd.DataFrame({"label": ndf_reddit.label.values})
 
@@ -136,6 +139,11 @@ edge_df2['src'] = np.random.random_integers(0, 120, size=len(edge_df2))
 edge_df2['dst'] = np.random.random_integers(0, 120, size=len(edge_df2))
 edge2_target_df = pd.DataFrame({'label': edge_df2.label})
 
+## ################################################
+what = ['whatever', 'on what', 'what do', 'what do you', 'what do you think', 'to what', 'but what', 'what is', 'what it', 'what kind', 'what kind of', 'of what', 'know what', 'what are', 'what are the', 'what to', 'what to do', 'from what', 'with what', 'and what', 'what you', 'whats', 'know what to', 'don know what', 'what the']
+freedom = ['title: dyslexics, experience, language',
+       'label: languagelearning, agile, leaves',
+       'title: freedom, finally, moved']
 # ################################################
 # data to test textual and numeric DataFrame
 # ndf_stocks, price_df_stocks = get_stocks_dataframe()
@@ -161,6 +169,46 @@ def check_allclose_fit_transform_on_same_data(X, x, Y=None, y=None):
             if name == 'Target' and Y is not None and y is not None:
                 allclose_stats(Y, y, value, name)
 
+
+class TestFeaturizeGetMethods(unittest.TestCase):
+    
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def setUp(self) -> None:
+        g = graphistry.nodes(ndf_reddit)
+        g2 = g.featurize( # ngrams
+                y=double_target_reddit,
+                use_ngrams=True,
+                ngram_range=(1, 4)
+                )
+        
+        g3 = g.featurize( # topic model
+                        **topic_model
+        )
+        self.g = g
+        self.g2 = g2
+        self.g3 = g3
+        
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_get_col_matrix(self):
+        # no edges so this should be None
+        assert self.g2.get_features_by_cols(kind='edges') == None
+        
+        # test target methods
+        assert all(self.g2.get_features_by_cols(target=True).columns == self.g2._node_target.columns)
+        assert self.g2.get_features_by_cols('Anxiety', target=True).shape[0] == len(self.g2._node_target)
+        # test str vs list 
+        assert (self.g2.get_features_by_cols('Anxiety', target=True) == self.g2.get_features_by_cols(['Anxiety'], target=True)).all().values[0]
+
+        assert list(self.g2.get_features_by_cols(['Anxiety', 'education', 'computer'], target=True).columns) == ['label_Anxiety', 'label_education', 'label_computervision']
+    
+        # test feature methods
+        # ngrams
+        assert (self.g2.get_features_by_cols().columns == self.g2._node_features.columns).all()
+        assert list(self.g2.get_features_by_cols('what').columns) == what, list(self.g2.get_features_by_cols('what').columns)
+        
+        # topic
+        assert all(self.g3.get_features_by_cols().columns == self.g3._node_features.columns)
+        assert list(self.g3.get_features_by_cols(['language', 'freedom']).columns) == freedom, self.g3.get_features_by_cols(['language', 'freedom']).columns
 
 class TestFastEncoder(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
