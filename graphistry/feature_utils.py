@@ -1027,6 +1027,8 @@ def process_nodes_dataframes(
 ) -> Tuple[
     pd.DataFrame,
     Any,
+    pd.DataFrame,
+    Any,
     SuperVectorizer,
     SuperVectorizer,
     Optional[Pipeline],
@@ -1155,7 +1157,7 @@ def process_nodes_dataframes(
         f"--The entire Encoding process took {(time()-t)/60:.2f} minutes"
     )
 
-    X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
+    X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
         X_enc,
         y_enc,
         use_scaler,
@@ -1173,6 +1175,8 @@ def process_nodes_dataframes(
     return (
         X_enc,
         y_enc,
+        X_encs,
+        y_encs,
         data_encoder,
         label_encoder,
         scaling_pipeline,
@@ -1300,6 +1304,8 @@ def process_edge_dataframes(
 ) -> Tuple[
     pd.DataFrame,
     pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
     List[Any],
     Any,
     Optional[Pipeline],
@@ -1354,7 +1360,7 @@ def process_edge_dataframes(
         # add the two datasets together
         X_enc = pd.concat([T, X_enc], axis=1)
         # then scale them
-        X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
+        X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
             X_enc,
             y_enc,
             use_scaler,
@@ -1374,6 +1380,8 @@ def process_edge_dataframes(
         return (
             X_enc,
             y_enc,
+            X_encs,
+            y_encs,
             [mlb_pairwise_edge_encoder, data_encoder],
             label_encoder,
             scaling_pipeline,
@@ -1385,6 +1393,8 @@ def process_edge_dataframes(
     (
         X_enc,
         y_enc,
+        _,
+        _,
         data_encoder,
         label_encoder,
         _,
@@ -1426,7 +1436,7 @@ def process_edge_dataframes(
         f" {(time()-t)/60:.2f} minutes"
     )
 
-    X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(
+    X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(
         X_enc,
         y_enc,
         use_scaler,
@@ -1444,6 +1454,8 @@ def process_edge_dataframes(
     res = (
         X_enc,
         y_enc,
+        X_encs,
+        y_encs,
         [mlb_pairwise_edge_encoder, data_encoder],
         label_encoder,
         scaling_pipeline,
@@ -1501,7 +1513,7 @@ def transform_dirty(
     data_encoder: Union[SuperVectorizer, FunctionTransformer],  # type: ignore
     name: str = "",
 ) -> pd.DataFrame:
-    from sklearn.preprocessing import MultiLabelBinarizer
+    # from sklearn.preprocessing import MultiLabelBinarizer
     logger.debug(f"-{name} Encoder:")
     logger.debug(f"\t{data_encoder}\n")
     # print(f"-{name} Encoder:")
@@ -1516,7 +1528,8 @@ def transform_dirty(
     # #####################################  for dirty_cat 0.3.0
     use_columns = getattr(data_encoder, 'columns_', [])
     if len(use_columns):
-        X = data_encoder.transform(df[use_columns])
+        #print(f"Using columns: {use_columns}")
+        X = data_encoder.transform(df[df.columns.intersection(use_columns)])
     # #####################################  with dirty_cat 0.2.0
     else:
         X = data_encoder.transform(df)
@@ -1544,12 +1557,14 @@ def transform(
     # this function aligns with what is computed during
     # processing nodes or edges.
     (
-        X_enc,
-        y_enc,
+        _,
+        _,
+        _,
+        _,
         data_encoder,
         label_encoder,
-        scaling_pipeline,
-        scaling_pipeline_target,
+        _,
+        _,
         text_model,
         text_cols,
     ) = res
@@ -1612,14 +1627,14 @@ def transform(
     logger.info(f"--Features matrix shape: {X.shape}")
     logger.info(f"--Target matrix shape: {y.shape}")
 
-    if scaling_pipeline and not X.empty:
-        logger.info("--Scaling Features")
-        X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=index)
-    if scaling_pipeline_target and not y.empty:
-        logger.info(f"--Scaling Target {scaling_pipeline_target}")
-        y = pd.DataFrame(
-            scaling_pipeline_target.transform(y), columns=y.columns, index=index
-        )
+    # if scaling_pipeline and not X.empty:
+    #     logger.info("--Scaling Features")
+    #     X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=index)
+    # if scaling_pipeline_target and not y.empty:
+    #     logger.info(f"--Scaling Target {scaling_pipeline_target}")
+    #     y = pd.DataFrame(
+    #         scaling_pipeline_target.transform(y), columns=y.columns, index=index
+    #     )
 
     return X, y
 
@@ -1675,6 +1690,8 @@ class FastEncoder:
         [
             X_enc,
             y_enc,
+            X_encs,
+            y_encs,
             data_encoder,
             label_encoder,
             scaling_pipeline,
@@ -1688,8 +1705,10 @@ class FastEncoder:
         # label_encoder.target_names_in = self.target_names_in
         self.feature_columns = X_enc.columns
         self.feature_columns_target = y_enc.columns
-        self.X = X_enc
-        self.y = y_enc
+        self.X = X_encs
+        self.y = y_encs
+        self.X_orignal = X_enc
+        self.y_orignal = y_enc
         self.data_encoder = data_encoder  # is list for edges
         self.label_encoder = label_encoder
         self.scaling_pipeline = scaling_pipeline
@@ -1706,14 +1725,33 @@ class FastEncoder:
         self._set_result(res)
 
     def transform(self, df, ydf=None):
+        "Raw transform, no scaling."
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
         return X, y
+    
+    def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target):
+        """Transform with scaling fit durning fit."""
+        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
+        if scaling_pipeline is not None:
+            print("scaling")
+            X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
+        if scaling_pipeline_target is not None:
+            print("scaling target")
+            y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns, index=y.index)
+        return X, y
+    
+    def transform_scaled(self, df, ydf=None, scaling_pipeline=None, scaling_pipeline_target=None):
+        if scaling_pipeline is None:
+            scaling_pipeline = self.scaling_pipeline
+        if scaling_pipeline_target is None:
+            scaling_pipeline_target = self.scaling_pipeline_target
+        return self._transform_scaled(df, ydf, scaling_pipeline, scaling_pipeline_target)
 
     def fit_transform(self, src=None, dst=None, *args, **kwargs):
         self.fit(src=src, dst=dst, *args, **kwargs)
         return self.X, self.y
 
-    def scale(self, X=None, y=None, set_scaler=False, *args, **kwargs):
+    def scale(self, X=None, y=None, return_pipeline=False, *args, **kwargs):
         """Fits new scaling functions on df, y via args-kwargs
         
             example:
@@ -1726,34 +1764,16 @@ class FastEncoder:
                 X: pd.DataFrame of features
                 y: pd.DataFrame of target features
                 kind: str, one of 'nodes' or 'edges'
-                set_scaler: bool, if True, will set the new scaler as the default for the encoder   
                 *args, **kwargs: passed to smart_scaler
             returns:
                 scaled X, y
         """
-        # pop off the previous scaler so that .transform won't use it
-        self.res[4] = None
-        self.res[5] = None
-                
         logger.info("-Fitting new scaler on raw features")
         X, y, scaling_pipeline, scaling_pipeline_target = smart_scaler(
             X_enc=X, y_enc=y, *args, **kwargs
         )
-        
-        def _set(res, scaling_pipeline, scaling_pipeline_target):
-            logger.info("--Setting fit scaler to self")
-            res.res[4] = scaling_pipeline
-            res.res[5] = scaling_pipeline_target
-            res.scaling_pipeline = scaling_pipeline
-            res.scaling_pipeline_target = scaling_pipeline_target
-            return res
-
-        if set_scaler:
-            self = _set(self, scaling_pipeline, scaling_pipeline_target)
-        else:  # add the original back
-            self.res[4] = self.scaling_pipeline
-            self.res[5] = self.scaling_pipeline_target
-            
+        if return_pipeline:
+            return X, y, scaling_pipeline, scaling_pipeline_target
         return X, y
 
 
@@ -2010,9 +2030,9 @@ class FeatureMixin(MIXIN_BASE):
 
         # if changing, also update fresh_res
         res._node_features = encoder.X
-        res._node_features_raw = encoder.X  # .copy()
+        res._node_features_raw = encoder.X_orignal  # .copy()
         res._node_target = encoder.y
-        res._node_target_raw = encoder.y  # .copy()
+        res._node_target_raw = encoder.y_orignal  # .copy()
         res._node_encoder = encoder  # now this does
         
         # all the work `._node_encoder.transform(df, y)` etc
@@ -2142,8 +2162,10 @@ class FeatureMixin(MIXIN_BASE):
         g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, eps=eps, sample=sample, verbose=verbose, **kwargs) 
         return g
 
-    def _transform(self, encoder: str, df: pd.DataFrame, ydf: Optional[pd.DataFrame]):
+    def _transform(self, encoder: str, df: pd.DataFrame, ydf: Optional[pd.DataFrame], scaled):
         if getattr(self, encoder) is not None:
+            if scaled:
+                return getattr(self, encoder).transform_scaled(df, ydf)
             return getattr(self, encoder).transform(df, ydf)
         else:
             logger.debug(
@@ -2152,12 +2174,15 @@ class FeatureMixin(MIXIN_BASE):
             )
 
     def transform(self, df: pd.DataFrame, 
-                  y: Union[pd.DataFrame, None] = None, 
+                  y: Optional[pd.DataFrame] = None, 
                   kind: str = 'nodes', 
-                  return_graph: bool = True, 
-                  eps: Union[str, float, int] = 'auto', sample = None, 
-                  verbose = False):
-        """Transform new data and append to existing graph.
+                  eps: Union[str, float, int] = 'auto', 
+                  sample: Optional[int] = None, 
+                  return_graph: bool = True,
+                  scaled: bool = True,
+                  verbose: bool = False):
+        """
+            Transform new data and append to existing graph, or return dataframes
         
             args:
                 df: pd.DataFrame, raw data to transform
@@ -2172,17 +2197,17 @@ class FeatureMixin(MIXIN_BASE):
                     or a graph with inferred edges if return_graph is True
         """
         if kind == "nodes":
-            X, y = self._transform("_node_encoder", df, y)
+            X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
         elif kind == "edges":
-            X, y = self._transform("_edge_encoder", df, y)
+            X, y_ = self._transform("_edge_encoder", df, y, scaled=scaled)
         else:
             logger.debug("kind must be one of `nodes`,"
                          f"`edges`, found {kind}")
         if return_graph:
             emb = None  # will not be able to decide umap coordinates, but will be able to infer graph from existing edges
-            g = self._infer_edges(emb, X, y, df, infer_on_umap_embedding=False, eps=eps, sample=sample, verbose=verbose) 
+            g = self._infer_edges(emb, X, y_, df, infer_on_umap_embedding=False, eps=eps, sample=sample, verbose=verbose) 
             return g
-        return X, y
+        return X, y_
 
     def scale(
         self,
@@ -2198,7 +2223,6 @@ class FeatureMixin(MIXIN_BASE):
         n_bins: int = 2,
         encode: str = "ordinal",
         strategy: str = "uniform",
-        set_scaler: bool = False,
         keep_n_decimals: int = 5,
     ):
         """Scale data using the same scalers as used in the featurization step.
@@ -2225,7 +2249,6 @@ class FeatureMixin(MIXIN_BASE):
                 n_bins: int, number of bins to use for KBinsDiscretizer
                 encode: str, one of `ordinal`, `onehot`, `onehot-dense`, `binary`    
                 strategy: str, one of `uniform`, `quantile`, `kmeans`
-                set_scaler: bool, if True, will set the scaler to the new scaler
                 keep_n_decimals: int, number of decimals to keep after scaling
             returns:
                 (X, y) transformed data if return_graph is False
@@ -2236,7 +2259,7 @@ class FeatureMixin(MIXIN_BASE):
             # df = self._nodes if kind == "nodes" else self._edges
             X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)
         else:
-            X, y = self.transform(df, y, kind=kind, return_graph=False)
+            X, y = self.transform(df, y, kind=kind, return_graph=False, scaled=False)
 
         if kind == "nodes" and hasattr(self, "_node_encoder"):  # type: ignore
             if self._node_encoder is not None:  # type: ignore
@@ -2246,7 +2269,6 @@ class FeatureMixin(MIXIN_BASE):
                 ) = self._node_encoder.scale(
                     X,
                     y,
-                    set_scaler=set_scaler,
                     use_scaler=use_scaler,
                     use_scaler_target=use_scaler_target,
                     impute=impute,
@@ -2273,7 +2295,6 @@ class FeatureMixin(MIXIN_BASE):
                 ) = self._edge_encoder.scale(
                     X,
                     y,
-                    set_scaler=set_scaler,
                     use_scaler=use_scaler,
                     use_scaler_target=use_scaler_target,
                     impute=impute,

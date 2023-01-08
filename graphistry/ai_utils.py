@@ -207,7 +207,7 @@ def infer_graph(
         eps: if 'auto' will find a good epsilon from the data; distance threshold for a minibatchh point to cluster to existing graph
         n_nearest: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges.
     """
-
+    print('*Infering graph from existing graphistry object') if verbose else None
     # new_index = df.index
     if infer_on_umap_embedding and emb is not None:
         X_previously_fit = res._node_embedding
@@ -219,8 +219,10 @@ def infer_graph(
         print("Infering edges over features") if verbose else None
 
     FEATS = res._node_features
-    EMB = res._node_embedding
-    Y = res._node_target
+    if FEATS is None:
+        raise ValueError("Must have node features to infer edges")
+    EMB = res._node_embedding if res._node_embedding is not None else FEATS.index
+    Y = res._node_target if res._node_target is not None else FEATS.index
 
     assert (
         df.shape[0] == X.shape[0]
@@ -290,19 +292,22 @@ def infer_graph(
             .append(old_edges[dst])
             .append(new_edges[src])
             .append(new_edges[dst])
-        )
+        ).drop_duplicates()
+        print(len(all_nodes), "nodes in new graph") if verbose else None
 
     if sample:
-        new_edges = pd.concat([new_edges, old_edges], axis=0)
-        # print('sampled', len(new_edges), 'new edges')
+        new_edges = pd.concat([new_edges, old_edges], axis=0).drop_duplicates()
+        print('sampled', len(old_edges.drop_duplicates()), 'previous old edges') if verbose else None
     new_edges = new_edges.drop_duplicates()
-    # print(len(new_edges), 'new edges after dropping duplicates')
+    print(len(new_edges), 'total edges pairs after dropping duplicates') if verbose else None
 
     if len(old_nodes):
         old_nodes = pd.DataFrame(old_nodes)
         old_nodes = pd.concat(
             [old_nodes, NDF[NDF[node].isin(all_nodes)]], axis=0
         ).drop_duplicates(subset=[node])
+    else:
+        old_nodes = NDF[NDF[node].isin(all_nodes)]
 
     old_emb = None
     if EMB is not None:
