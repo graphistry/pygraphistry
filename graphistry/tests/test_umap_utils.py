@@ -232,7 +232,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         np.random.seed(41)
         test = self.test
         assert ( 
-            2*self.g2._node_embedding.shape[0] == self.g3._node_embedding.shape[0]
+            2 * self.g2._node_embedding.shape[0] == self.g3._node_embedding.shape[0]
         ), "Node Embedding Lengths do not match, found {} and {}".format(
             self.g2._node_embedding.shape[0], self.g3._node_embedding.shape[0]
         )
