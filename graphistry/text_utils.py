@@ -52,7 +52,7 @@ class SearchToGraphMixin(MIXIN_BASE):
 
     def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float):
         # Use the loaded featurizers to transform the dataframe
-        vect, _ = self.transform(qdf, None, kind="nodes")
+        vect, _ = self.transform(qdf, None, kind="nodes", return_graph=False)
 
         results = query_by_vector(vect, self._nodes, self.search_index, top_n)
         results = results.query(f"{DISTANCE} < {thresh}")
@@ -213,7 +213,9 @@ class SearchToGraphMixin(MIXIN_BASE):
             res = self.bind()
 
         edf = edges = res._edges
+        #print('shape of edges', edf.shape)
         rdf = df = res._nodes
+        #print('shape of nodes', rdf.shape)
         node = res._node
         indices = rdf[node]
         src = res._source
@@ -262,7 +264,6 @@ class SearchToGraphMixin(MIXIN_BASE):
 
     def save_search_instance(self, savepath):
         from joblib import dump  # type: ignore   # need to make this onnx or similar
-
         self.build_index()
         search = self.search_index
         del self.search_index  # can't pickle Annoy

@@ -1070,7 +1070,7 @@ def process_nodes_dataframes(
         X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(
             df, y
         )
-        X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
+        X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
             X_enc,
             y_enc,
             use_scaler,
@@ -1092,6 +1092,8 @@ def process_nodes_dataframes(
         return (
             X_enc,
             y_enc,
+            X_encs,
+            y_encs,
             data_encoder,
             label_encoder,
             scaling_pipeline,
