@@ -42,7 +42,9 @@ def lazy_cuml_import_has_dependancy():
         import warnings
 
         warnings.filterwarnings("ignore")
-        import cuml  # type: ignore
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            import cuml  # type: ignore
 
         return True, "ok", cuml
     except ModuleNotFoundError as e:
@@ -50,14 +52,14 @@ def lazy_cuml_import_has_dependancy():
 
 
 def assert_imported():
-    has_dependancy_, import_exn, umap_learn = lazy_umap_import_has_dependancy()
+    has_dependancy_, import_exn, _ = lazy_umap_import_has_dependancy()
     if not has_dependancy_:
         logger.error("UMAP not found, trying running " "`pip install graphistry[ai]`")
         raise import_exn
 
 
 def assert_imported_cuml():
-    has_cuml_dependancy_, import_cuml_exn, cuml = lazy_cuml_import_has_dependancy()
+    has_cuml_dependancy_, import_cuml_exn, _ = lazy_cuml_import_has_dependancy()
     if not has_cuml_dependancy_:
         logger.warning("cuML not found, trying running " "`pip install cuml`")
         raise import_cuml_exn
@@ -424,7 +426,7 @@ class UMAPMixin(MIXIN_BASE):
         play: Optional[int] = 0,
         encode_position: bool = True,
         encode_weight: bool = True,
-        dbscan: bool = True,
+        dbscan: bool = False,
         engine: UMAPEngine = "auto",
         inplace: bool = False,
         feature_engine: str = "auto",

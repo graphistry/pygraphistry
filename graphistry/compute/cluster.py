@@ -106,12 +106,12 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
         cols: list of columns to use for clustering given `g.featurize` has been run
         umap: whether to use UMAP embeddings or features dataframe
     """
-    df = get_model_matrix(g, kind, cols, use_umap_embedding, target)
+    X = get_model_matrix(g, kind, cols, use_umap_embedding, target)
     
-    if df.empty:
+    if X.empty:
         raise ValueError("No features found for clustering")
 
-    dbscan.fit(df)
+    dbscan.fit(X)
     labels = dbscan.labels_
 
     if kind == "nodes":
@@ -131,6 +131,8 @@ def dbscan_predict(X: pd.DataFrame, model):
     """
     DBSCAN has no predict per se, so we reverse engineer one here
     from https://stackoverflow.com/questions/27822752/scikit-learn-predicting-new-points-with-dbscan
+    
+    
     """
     n_samples = X.shape[0]
 
@@ -149,12 +151,12 @@ def dbscan_predict(X: pd.DataFrame, model):
     return y_new
 
 
-def dbscan_predict2(g, kind="nodes", cols=None, umap=True):
-    X = g._get_feature(kind)
-    dbscan = g._node_dbscan if kind == "nodes" else g._edge_dbscan
+# def dbscan_predict2(g, kind="nodes", cols=None, umap=True):
+#     X = g._get_feature(kind)
+#     dbscan = g._node_dbscan if kind == "nodes" else g._edge_dbscan
 
-    preds = dbscan_predict(X, dbscan)
-    return X, preds
+#     preds = dbscan_predict(X, dbscan)
+#     return X, preds
 
 
 class ClusterMixin(MIXIN_BASE):
@@ -361,10 +363,9 @@ class ClusterMixin(MIXIN_BASE):
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind)
         if return_graph and kind not in ["edges"]:
-            g = self._infer_edges(  # type: ignore
-                emb, X, y, df, infer_on_umap_embedding=fit_umap_embedding, 
-                eps=eps, sample=sample, n_neighbors=n_neighbors,
-                verbose=verbose
+            g = self._infer_edges(emb, X, y, df, eps=eps, sample=sample, n_neighbors=n_neighbors,
+                                    infer_on_umap_embedding=fit_umap_embedding, 
+                                    verbose=verbose
             )
             return g
         return emb, X, y, df

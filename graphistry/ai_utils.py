@@ -4,6 +4,7 @@ import numpy as np
 import graphistry
 
 from .constants import N_TREES, DISTANCE
+from .features import N_NEIGHBORS
 from logging import getLogger
 
 logger = getLogger(__name__)
@@ -174,6 +175,17 @@ def build_annoy_index(X, angular, n_trees=None):
 
 
 def query_by_vector(vect, df, search_index, top_n):
+    """ Query by vector using annoy index and append distance to results
+    
+        it is assumed len(vect) == len(df) == len(search_index)
+        args:
+            vect: query vector
+            df: dataframe to query
+            search_index: annoy index
+            top_n: number of results to return
+        returns:
+            sorted dataframe with top_n results and distance
+    """
     indices, distances = search_index.get_nns_by_vector(
         vect.values[0], top_n, include_distances=True
     )
@@ -208,12 +220,14 @@ def infer_graph(
         sample: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges.
         n_neighbors: number of nearest neighbors to include per batch point
     """
+    #enhanced = is_notebook()
+    
     print("-" * 50) if verbose else None
     
     if n_neighbors is None and emb is not None:
         n_neighbors = res._umap_params['n_neighbors']
     elif n_neighbors is None and emb is None:
-        n_neighbors = 4
+        n_neighbors = N_NEIGHBORS
 
     if infer_on_umap_embedding and emb is not None:
         X_previously_fit = res._node_embedding
@@ -271,7 +285,7 @@ def infer_graph(
     logger.info(f"--Mean distance to existing nodes  {m:.2f} +/- {std:.2f}")
     print(f' Mean distance to existing nodes {m:.2f} +/- {std:.2f}') if verbose else None
     if eps == "auto":
-        eps = np.min([np.abs(m - std), m])
+        eps = np.min([np.abs(m - 2*std), np.abs(m - std), m])
     logger.info(
         f"-epsilon = {eps:.2f} max distance threshold to be considered a neighbor"
     )
@@ -294,7 +308,7 @@ def infer_graph(
             new_edges.append([this_ndf[node], record_df[node], 1, 1])
             old_nodes.append(this_ndf)
             
-    print(' ', np.mean(nn), f'neighbors per node within epsilon {eps}') if verbose else None
+    print(f'{np.mean(nn):.2f} neighbors per node within epsilon {eps:.2f}') if verbose else None
     
     new_edges = pd.DataFrame(new_edges, columns=[src, dst, "_weight", "_batch"])
 
