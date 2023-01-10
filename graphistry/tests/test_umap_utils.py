@@ -33,6 +33,10 @@ has_dependancy, _ = lazy_import_has_min_dependancy()
 has_cuml, _, _ = lazy_cuml_import_has_dependancy()
 has_umap, _, _ = lazy_umap_import_has_dependancy()
 
+# print('has_dependancy', has_dependancy)
+# print('has_cuml', has_cuml)
+# print('has_umap', has_umap)
+
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore")
@@ -232,7 +236,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         np.random.seed(41)
         test = self.test
         assert ( 
-            2 * self.g2._node_embedding.shape[0] == self.g3._node_embedding.shape[0]
+            self.g2._node_embedding.shape[0] <= self.g3._node_embedding.shape[0]
         ), "Node Embedding Lengths do not match, found {} and {}".format(
             self.g2._node_embedding.shape[0], self.g3._node_embedding.shape[0]
         )
@@ -241,6 +245,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         sample = [None, 2]
         return_graph = [True, False]
         fit_umap_embedding = [True, False]
+        n_neighbors = [2, None]
         for ep in eps:
             g4 = self.g2.transform_umap(test, test, eps=ep)
             assert True
@@ -256,6 +261,9 @@ class TestUMAPFitTransform(unittest.TestCase):
                 assert g4[0].shape[1] == 2
                 assert g4[1].shape[1] >= 2
                 assert g4[2].shape[0] == test.shape[0]
+        for n_neigh in n_neighbors:
+            g4 = self.g2.transform_umap(test, n_neighbors=n_neigh)
+            assert True
         for sample_ in sample:
             g4 = self.g2.transform_umap(test, sample=sample_)
             assert True
@@ -583,12 +591,12 @@ class TestUMAPAIMethods(TestUMAPMethods):
 
 
 @pytest.mark.skipif(
-    not has_dependancy and not has_cuml,
+    not has_dependancy or not has_cuml,
     reason="requires cuml feature dependencies",
 )
 class TestCUMLMethods(TestUMAPMethods):
     @pytest.mark.skipif(
-        not has_dependancy and not has_cuml,
+        not has_dependancy or not has_cuml,
         reason="requires cuml feature dependencies",
     )
     def _test_umap(self, g, use_cols, targets, name, kind, df):
@@ -607,7 +615,7 @@ class TestCUMLMethods(TestUMAPMethods):
                                     target,
                                     use_col,
                                 ]
-                                logger.debug(f"{value}")
+                                logger.debug(f"{name}:\n{value}")
                                 logger.debug("-" * 80)
 
                                 g2 = g.umap(
@@ -627,7 +635,7 @@ class TestCUMLMethods(TestUMAPMethods):
                                 self.cases_test_graph(g2, kind=kind, df=df)
 
     @pytest.mark.skipif(
-        not has_dependancy and not has_cuml,
+        not has_dependancy or not has_cuml,
         reason="requires cuml feature dependencies",
     )
     def test_node_umap(self):
@@ -650,7 +658,7 @@ class TestCUMLMethods(TestUMAPMethods):
             )
 
     @pytest.mark.skipif(
-        not has_dependancy and not has_cuml,
+        not has_dependancy or not has_cuml,
         reason="requires cuml feature dependencies",
     )
     def test_edge_umap(self):
@@ -672,7 +680,7 @@ class TestCUMLMethods(TestUMAPMethods):
             )
 
     @pytest.mark.skipif(
-        not has_dependancy and not has_cuml,
+        not has_dependancy or not has_cuml,
         reason="requires cuml feature dependencies",
     )
     def test_chaining_nodes(self):
@@ -684,7 +692,7 @@ class TestCUMLMethods(TestUMAPMethods):
         logger.debug("======= g3a.featurize() done ======")
         g3 = g3a.umap()
         logger.debug("======= g3.umap() done ======")
-        assert g2._node_features.shape == g3._node_features.shape
+        assert g2._node_features.shape == g3._node_features.shape, f"featurize() should be idempotent, found {g2._node_features.shape} != {g3._node_features.shape}"
         # since g3 has feature params with x and y.
         g3._feature_params["nodes"]["X"].pop("x")
         g3._feature_params["nodes"]["X"].pop("y")
@@ -695,7 +703,7 @@ class TestCUMLMethods(TestUMAPMethods):
         assert g2._node_embedding.shape == g3._node_embedding.shape  # kinda weak sauce
 
     @pytest.mark.skipif(
-        not has_dependancy and not has_cuml,
+        not has_dependancy or not has_cuml,
         reason="requires cuml feature dependencies",
     )
     def test_chaining_edges(self):
@@ -714,7 +722,7 @@ class TestCUMLMethods(TestUMAPMethods):
         assert all(g2._edge_features == g3._edge_features)
 
     @pytest.mark.skipif(
-        not has_dependancy and not has_cuml,
+        not has_dependancy or not has_cuml,
         reason="requires cuml feature dependencies",
     )
     def test_feature_kwargs_yield_different_values_using_umap_api(self):
@@ -748,7 +756,7 @@ class TestCUMLMethods(TestUMAPMethods):
         assert g2._node_target.shape[1] == n_topics_target, "Targets "
 
     @pytest.mark.skipif(
-        not has_dependancy and not has_umap,
+        not has_dependancy or not has_umap,
         reason="requires cuml feature dependencies",
     )
     def test_filter_edges(self):

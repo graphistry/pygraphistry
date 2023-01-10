@@ -1893,15 +1893,15 @@ class FeatureMixin(MIXIN_BASE):
         pass
 
     def _get_feature(self, kind):
-        kind = kind.replace('s', '')
-        assert kind in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
-        x = getattr(self, f'_{kind}_features')
+        kind2 = kind.replace('s', '')
+        assert kind2 in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
+        x = getattr(self, f'_{kind2}_features')
         return x
     
     def _get_target(self, kind):
-        kind = kind.replace('s', '')
-        assert kind in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
-        x = getattr(self, f'_{kind}_target')
+        kind2 = kind.replace('s', '')
+        assert kind2 in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
+        x = getattr(self, f'_{kind2}_target')
         return x
     
     def _featurize_nodes(
@@ -2152,9 +2152,9 @@ class FeatureMixin(MIXIN_BASE):
 
         # if editing, should also update fresh_res
         res._edge_features = encoder.X
-        res._edge_features_raw = encoder.X  # .copy()
+        res._edge_features_raw = encoder.X_orignal  # .copy()
         res._edge_target = encoder.y
-        res._edge_target_raw = encoder.y  # .copy()
+        res._edge_target_raw = encoder.y_orignal  # .copy()
         res._edge_encoder = encoder
 
         return res
@@ -2194,7 +2194,10 @@ class FeatureMixin(MIXIN_BASE):
                 return_graph: bool, if True, will return a graph with inferred edges
                 eps: float, if return_graph is True, will use this value for eps in NN search, or 'auto' to infer a good value
                     eps represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
-                sample: int, if return_graph is True, will use sample value for NN search over existing edges
+                sample: int, if return_graph is True, will use sample edges of existing graph to fill out the new graph
+                n_neighbors: int, optional (default = 15), if return_graph is True, will use this value for n_neighbors in NN search
+                scaled: bool, if True, will use scaled transformation of data set during featurization
+                verbose: bool, if True, will print metadata about the graph construction
             returns:
                 X: pd.DataFrame, transformed data if return_graph is False
                     or a graph with inferred edges if return_graph is True
@@ -2208,10 +2211,10 @@ class FeatureMixin(MIXIN_BASE):
                          f"`edges`, found {kind}")
             
         if return_graph and kind not in ["edges"]:
-            emb = None  # will not be able to infer graph from umap coordinates, but will be able to infer graph from existing edges
-            g = self._infer_edges(emb, X, y_, df, 
+            emb = None  # will not be able to infer graph from umap coordinates, 
+            # but will be able to infer graph from features of existing edges
+            g = self._infer_edges(emb, X, y_, df, eps=eps, sample=sample, n_neighbors=n_neighbors,
                                   infer_on_umap_embedding=False, 
-                                  eps=eps, sample=sample, n_neighbors=n_neighbors,
                                   verbose=verbose) 
             return g
         return X, y_
@@ -2236,17 +2239,12 @@ class FeatureMixin(MIXIN_BASE):
         
             example usage:
                 g = graphistry.nodes(df)
-                g2 = g.umap().scale(eps=0.2, sample=None, kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
+                X, y = g.umap().scale(kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
 
-                # scaled data
-                g3 = g.scale( kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
-                X = g2._node_features
-                y = g2._node_target  
-                
             args:
                 df: pd.DataFrame, raw data to transform
-                y: pd.DataFrame, optional
-                kind: str  # one of `nodes`, `edges`
+                y: pd.DataFrame, optional target data
+                kind: str, one of `nodes`, `edges`
                 use_scaler: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
                 use_scaler_target: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
                 impute: bool, if True, will impute missing values
@@ -2263,7 +2261,6 @@ class FeatureMixin(MIXIN_BASE):
         """
                 
         if df is None:  # use the original data
-            # df = self._nodes if kind == "nodes" else self._edges
             X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)
         else:
             X, y = self.transform(df, y, kind=kind, return_graph=False, scaled=False)
@@ -2354,6 +2351,7 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         inplace: bool = False,
         feature_engine: FeatureEngine = "auto",
+        dbscan: bool = False,
         memoize: bool = True,
         verbose: bool = False,
     ):
@@ -2534,6 +2532,10 @@ class FeatureMixin(MIXIN_BASE):
                 f"One may only featurize `nodes` or `edges`, got {kind}"
             )
             return self
+        
+        if dbscan:
+            res = res.dbscan(kind=kind, fit_umap_embedding=False)  # type: ignore
+
         if not inplace:
             return res
 

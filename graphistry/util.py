@@ -314,13 +314,13 @@ class ModelDict(UserDict):
         verbose: print out model names, logging happens regardless
     """
 
-    def __init__(self, message, verbose=True, timestamp=False, *args, **kwargs):
+    def __init__(self, message, verbose=True, _timestamp=False, *args, **kwargs):
         self._message = message
         self._verbose = verbose
-        self._timestamp = timestamp
+        self._timestamp = _timestamp  # do no use this inside the class, as it will trigger memoization. Only use outside of class.
         L = (
             len(message)
-            if timestamp is False
+            if _timestamp is False
             else max(len(message), len(get_timestamp()) + 1)
         )
         self._print_length = min(80, L)
@@ -342,6 +342,14 @@ class ModelDict(UserDict):
         self.print(self._message)
         return super().__repr__()
 
+    def __setitem__(self, key, value):
+        self._updates.append(key)
+        if len(self._updates) > 1:
+             self._message += (
+                "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
+            )
+        return super().__setitem__(key, value)
+
     def update(self, *args, **kwargs):
         self._updates.append(args[0])
         if len(self._updates) > 1:  # don't take first update since its the init/default
@@ -350,6 +358,29 @@ class ModelDict(UserDict):
             )
         return super().update(*args, **kwargs)
 
+
+def is_notebook():
+    """Check if running in a notebook"""
+    try:
+        from IPython import get_ipython
+
+        if "IPKernelApp" not in get_ipython().config:  # pragma: no cover
+            raise ImportError("console")
+            return False
+        if "VSCODE_PID" in os.environ:  # pragma: no cover
+            raise ImportError("vscode")
+            return False
+    except:
+        return False
+    else:  # pragma: no cover
+        return True
+    
+    
+def printmd(string, color=None, size=20):
+    """Print markdown string in notebook"""
+    from IPython.display import Markdown, display
+    colorstr = "<span style='color:{};font-weight:200;font-size:{}px'>{}</span>".format(color, size, string)
+    display(Markdown(colorstr))
 
 #
 # def inspect_decorator(func, args, kwargs):
