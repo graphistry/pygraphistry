@@ -208,7 +208,7 @@ def infer_graph(
         sample: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges.
         n_neighbors: number of nearest neighbors to include per batch point
     """
-    print("-"*50) if verbose else None
+    print("-" * 50) if verbose else None
     
     if n_neighbors is None and emb is not None:
         n_neighbors = res._umap_params['n_neighbors']
@@ -224,7 +224,7 @@ def infer_graph(
         X_new = X
         print("Infering edges over features embedding") if verbose else None
 
-    print("-"*45) if verbose else None
+    print("-" * 45) if verbose else None
 
     FEATS = res._node_features
     if FEATS is None:
@@ -347,5 +347,5 @@ def infer_graph(
     g._node_features = new_features
     g._node_targets = new_targets
     
-    print("-"*50) if verbose else None
+    print("-" * 50) if verbose else None
     return g
