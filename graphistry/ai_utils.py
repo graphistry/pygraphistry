@@ -193,7 +193,7 @@ def query_by_vector(vect, df, search_index, top_n):
 
 
 def infer_graph(
-    res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None, verbose=False
+    res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None, n_neighbors=None, verbose=False, 
 ):
     """
     Infer a graph from a graphistry object
@@ -205,10 +205,16 @@ def infer_graph(
         emb: minibatch UMAP embedding
         kind: 'nodes' or 'edges'
         eps: if 'auto' will find a good epsilon from the data; distance threshold for a minibatchh point to cluster to existing graph
-        n_nearest: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges.
+        sample: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges.
+        n_neighbors: number of nearest neighbors to include per batch point
     """
-    print('*Infering graph from existing graphistry object') if verbose else None
-    # new_index = df.index
+    print("-"*50) if verbose else None
+    
+    if n_neighbors is None and emb is not None:
+        n_neighbors = res._umap_params['n_neighbors']
+    elif n_neighbors is None and emb is None:
+        n_neighbors = 4
+
     if infer_on_umap_embedding and emb is not None:
         X_previously_fit = res._node_embedding
         X_new = emb
@@ -216,7 +222,9 @@ def infer_graph(
     else:  # can still be umap, but want to do the inference on the higher dimensional features
         X_previously_fit = res._node_features
         X_new = X
-        print("Infering edges over features") if verbose else None
+        print("Infering edges over features embedding") if verbose else None
+
+    print("-"*45) if verbose else None
 
     FEATS = res._node_features
     if FEATS is None:
@@ -255,23 +263,27 @@ def infer_graph(
     # vsearch = build_search_index(X_previously_fit, angular=False)
 
     for i in range(X_new.shape[0]):
-        # record_df = df.iloc[i, :]
         diff = X_previously_fit - X_new.iloc[i, :]
         dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
         mdists.append(dist)
 
     m, std = np.mean(mdists), np.std(mdists)
     logger.info(f"--Mean distance to existing nodes  {m:.2f} +/- {std:.2f}")
-    # print(f'--Mean distance to existing nodes {m:.2f} +/- {std:.2f}')
+    print(f' Mean distance to existing nodes {m:.2f} +/- {std:.2f}') if verbose else None
     if eps == "auto":
-        eps = np.min([np.abs(m - 2 * std), m])
+        eps = np.min([np.abs(m - std), m])
     logger.info(
-        f"{eps:.2f} epsilon for max distance threshold to be considered a neighbor"
+        f"-epsilon = {eps:.2f} max distance threshold to be considered a neighbor"
     )
-
+    print(f' epsilon = {eps:.2f}; max distance threshold to be considered a neighbor') if verbose else None
+    
+    print(f'Finding {n_neighbors} nearest neighbors') if verbose else None
+    nn = []
     for i, dist in enumerate(mdists):
         record_df = df.iloc[i, :]
-        for j in np.where(dist < eps)[0]:
+        nearest = np.where(dist < eps)[0]
+        nn.append(len(nearest))
+        for j in nearest[:n_neighbors]:  # add n_neighbors nearest neighbors, if any, super speedup hack
             this_ndf = NDF.iloc[j, :]
             if sample:
                 local_edges = EDF[
@@ -281,7 +293,9 @@ def infer_graph(
                     old_edges.append(local_edges.sample(sample, replace=True))
             new_edges.append([this_ndf[node], record_df[node], 1, 1])
             old_nodes.append(this_ndf)
-
+            
+    print(' ', np.mean(nn), f'neighbors per node within epsilon {eps}') if verbose else None
+    
     new_edges = pd.DataFrame(new_edges, columns=[src, dst, "_weight", "_batch"])
 
     all_nodes = []
@@ -293,13 +307,13 @@ def infer_graph(
             .append(new_edges[src])
             .append(new_edges[dst])
         ).drop_duplicates()
-        print(len(all_nodes), "nodes in new graph") if verbose else None
+        print(' ', len(all_nodes), "nodes in new graph") if verbose else None
 
     if sample:
         new_edges = pd.concat([new_edges, old_edges], axis=0).drop_duplicates()
-        print('sampled', len(old_edges.drop_duplicates()), 'previous old edges') if verbose else None
+        print(' Sampled', len(old_edges.drop_duplicates()), 'previous old edges') if verbose else None
     new_edges = new_edges.drop_duplicates()
-    print(len(new_edges), 'total edges pairs after dropping duplicates') if verbose else None
+    print('', len(new_edges), 'total edges pairs after dropping duplicates') if verbose else None
 
     if len(old_nodes):
         old_nodes = pd.DataFrame(old_nodes)
@@ -320,10 +334,9 @@ def infer_graph(
     new_features = pd.concat([X, FEATS.loc[old_nodes.index]], axis=0)
 
     new_nodes = pd.concat([df, old_nodes], axis=0)  # append minibatch at top
-    print('-' * 80) if verbose else None
-    print("Final graph has", len(new_nodes), "nodes") if verbose else None
-    print("-Batch has", len(df), "nodes") if verbose else None
-    print("-Brought in ", len(old_nodes), "nodes") if verbose else None
+    print("** Final graph has", len(new_nodes), "nodes") if verbose else None
+    print(" - Batch has", len(df), "nodes") if verbose else None
+    print(" - Brought in", len(old_nodes), "nodes") if verbose else None
 
     new_targets = pd.concat([y, Y.loc[old_nodes.index]]) if y is not None else Y
 
@@ -333,5 +346,6 @@ def infer_graph(
     g._node_embedding = new_emb
     g._node_features = new_features
     g._node_targets = new_targets
-
+    
+    print("-"*50) if verbose else None
     return g
