@@ -294,6 +294,7 @@ class UMAPMixin(MIXIN_BASE):
                     kind: str = 'nodes', 
                     eps: Union[str, float, int] = 'auto', 
                     sample: Optional[int] = None, 
+                    n_neighbors: Optional[int] = None,
                     return_graph: bool = True,
                     fit_umap_embedding: bool = False,
                     verbose=False
@@ -305,8 +306,11 @@ class UMAPMixin(MIXIN_BASE):
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
         emb = self._umap.transform(X)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
-        if return_graph:
-            g = self._infer_edges(emb, X, y_, df, infer_on_umap_embedding=fit_umap_embedding, eps=eps, sample=sample) 
+        if return_graph and kind not in ["edges"]:
+            g = self._infer_edges(emb, X, y_, df, 
+                                  infer_on_umap_embedding=fit_umap_embedding, 
+                                  eps=eps, sample=sample, n_neighbors=n_neighbors,
+                                  verbose=verbose) 
             return g        
         return emb, X, y_
 
@@ -317,8 +321,6 @@ class UMAPMixin(MIXIN_BASE):
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1])
             ]
-        # print('emb.shape', emb.shape)
-        # print('columns', columns, len(columns))
         emb = pd.DataFrame(emb, columns=columns, index=index)
         return emb
 
@@ -337,7 +339,6 @@ class UMAPMixin(MIXIN_BASE):
         Returns res mutated with new _xy
         """
         umap_kwargs_pure = umap_kwargs.copy()
-        #res._umap = self._umap
 
         logger.debug("process_umap before kwargs: %s", umap_kwargs)
         umap_kwargs.update({"kind": kind, "X": X_, "y": y_})
@@ -350,7 +351,7 @@ class UMAPMixin(MIXIN_BASE):
         if old_res:
             print(" --- [[ RE-USING UMAP ]]") if verbose else None
             logger.info(" --- [[ RE-USING UMAP ]]")
-            print('umap_kwargs', umap_kwargs['n_components']) if verbose else None
+            print('umap_kwargs n_components', umap_kwargs['n_components']) if verbose else None
             fresh_res = copy.copy(res)
             for attr in ["_xy", "_weighted_edges_df", "_weighted_adjacency"]:
                 setattr(fresh_res, attr, getattr(old_res, attr))

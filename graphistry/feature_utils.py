@@ -2180,6 +2180,7 @@ class FeatureMixin(MIXIN_BASE):
                   kind: str = 'nodes', 
                   eps: Union[str, float, int] = 'auto', 
                   sample: Optional[int] = None, 
+                  n_neighbors: Optional[int] = None,
                   return_graph: bool = True,
                   scaled: bool = True,
                   verbose: bool = False):
@@ -2205,9 +2206,13 @@ class FeatureMixin(MIXIN_BASE):
         else:
             logger.debug("kind must be one of `nodes`,"
                          f"`edges`, found {kind}")
-        if return_graph:
-            emb = None  # will not be able to decide umap coordinates, but will be able to infer graph from existing edges
-            g = self._infer_edges(emb, X, y_, df, infer_on_umap_embedding=False, eps=eps, sample=sample, verbose=verbose) 
+            
+        if return_graph and kind not in ["edges"]:
+            emb = None  # will not be able to infer graph from umap coordinates, but will be able to infer graph from existing edges
+            g = self._infer_edges(emb, X, y_, df, 
+                                  infer_on_umap_embedding=False, 
+                                  eps=eps, sample=sample, n_neighbors=n_neighbors,
+                                  verbose=verbose) 
             return g
         return X, y_
 

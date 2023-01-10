@@ -318,7 +318,7 @@ class ClusterMixin(MIXIN_BASE):
                 X_ = X
 
             labels = dbscan_predict(X_, dbscan)  # type: ignore
-            if umap:
+            if umap and cols is None:
                 df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)  # type: ignore
             else:
                 df = df.assign(_dbscan=labels)
@@ -334,8 +334,10 @@ class ClusterMixin(MIXIN_BASE):
         eps: Union[float, str] = "auto",
         fit_umap_embedding: bool = False,
         sample: Optional[int] = None,
+        n_neighbors: Optional[int] = None,
         kind: str = "nodes",
         return_graph=True,
+        verbose=False,
         ):  # type: ignore
         """
         Transforms a minibatch dataframe to one with a new column '_dbscan' containing the DBSCAN cluster labels on the minibatch
@@ -358,9 +360,11 @@ class ClusterMixin(MIXIN_BASE):
 
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind)
-        if return_graph:
+        if return_graph and kind not in ["edges"]:
             g = self._infer_edges(  # type: ignore
-                emb, X, y, df, infer_on_umap_embedding=fit_umap_embedding, eps=eps, sample=sample
+                emb, X, y, df, infer_on_umap_embedding=fit_umap_embedding, 
+                eps=eps, sample=sample, n_neighbors=n_neighbors,
+                verbose=verbose
             )
             return g
         return emb, X, y, df
