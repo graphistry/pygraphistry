@@ -95,7 +95,7 @@ def get_model_matrix(g, kind, cols, umap, target):
     return df
 
 
-def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, target=False):
+def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, target=False, verbose=False):
     """
     Fits clustering on UMAP embeddings if umap is True, otherwise on the features dataframe
         or target dataframe if target is True.
@@ -113,7 +113,7 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
 
     dbscan.fit(X)
     labels = dbscan.labels_
-
+    
     if kind == "nodes":
         g._nodes = g._nodes.assign(_dbscan=labels)
     elif kind == "edges":
@@ -123,6 +123,13 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
 
     kind = "node" if kind == "nodes" else "edge"
     setattr(g, f"_{kind}_dbscan", dbscan)
+
+    if verbose:
+        cnt = Counter(labels)
+        message = f"DBSCAN found {len(cnt)} clusters with {cnt[-1]} outliers"
+        print('-'*len(message))
+        print(message)
+        print(f"--fit on size {X.shape} data")
 
     return g
 
@@ -164,7 +171,7 @@ class ClusterMixin(MIXIN_BASE):
         pass
 
     def _cluster_dbscan(
-        self, res, kind, cols, fit_umap_embedding, target, eps, min_samples, *args, **kwargs
+        self, res, kind, cols, fit_umap_embedding, target, eps, min_samples, verbose, *args, **kwargs
     ):
         """
         DBSCAN clustering on cpu or gpu infered by .engine flag
@@ -189,10 +196,11 @@ class ClusterMixin(MIXIN_BASE):
             if res.engine == CUML
             else DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
         )
+        print(f"DBSCAN engine: {res.engine}") if verbose else None
 
         res = dbscan_fit(
-            res, dbscan, kind=kind, cols=cols, use_umap_embedding=fit_umap_embedding
-        )
+            res, dbscan, kind=kind, cols=cols, use_umap_embedding=fit_umap_embedding, verbose=True
+            )
 
         return res
 
@@ -204,6 +212,7 @@ class ClusterMixin(MIXIN_BASE):
         kind="nodes",
         fit_umap_embedding=True,
         target=False,
+        verbose=True,
         **kwargs,
     ):
         """DBSCAN clustering on cpu or gpu infered automatically
@@ -257,6 +266,7 @@ class ClusterMixin(MIXIN_BASE):
             target=target,
             eps=eps,
             min_samples=min_samples,
+            verbose=verbose,
             **kwargs,
         )
 

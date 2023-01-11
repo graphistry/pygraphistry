@@ -265,6 +265,7 @@ class TestUMAPFitTransform(unittest.TestCase):
             g4 = self.g2.transform_umap(test, n_neighbors=n_neigh)
             assert True
         for sample_ in sample:
+            print("sample", sample_)
             g4 = self.g2.transform_umap(test, sample=sample_)
             assert True
         for fit_umap_embedding_ in fit_umap_embedding:
