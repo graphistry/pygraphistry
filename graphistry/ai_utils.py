@@ -205,7 +205,7 @@ def query_by_vector(vect, df, search_index, top_n):
 
 
 def infer_graph(
-    res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None, n_neighbors=None, verbose=False, 
+    res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None, n_neighbors: int=7, verbose=False, 
 ):
     """
     Infer a graph from a graphistry object
@@ -218,21 +218,12 @@ def infer_graph(
         kind: 'nodes' or 'edges'
         eps: if 'auto' will find a good epsilon from the data; distance threshold for a minibatchh point to cluster to existing graph
         sample: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges.
-        n_neighbors: number of nearest neighbors to include per batch point
+        n_neighbors, int: number of nearest neighbors to include per batch point within epsilon
     """
     #enhanced = is_notebook()
     
     print("-" * 50) if verbose else None
     
-    if n_neighbors is None and emb is not None:
-        if getattr(res, '_umap_params', None) is not None:
-            if getattr(res._umap_params, 'n_neighbors', None) is not None:
-                n_neighbors = res._umap_params['n_neighbors']
-            else:
-                n_neighbors = N_NEIGHBORS
-    elif n_neighbors is None and emb is None:
-        n_neighbors = N_NEIGHBORS
-
     if infer_on_umap_embedding and emb is not None:
         X_previously_fit = res._node_embedding
         X_new = emb
