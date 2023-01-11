@@ -1520,11 +1520,11 @@ def transform_dirty(
     logger.debug(f"\t{data_encoder}\n")
     # print(f"-{name} Encoder:")
     # print(f"\t{data_encoder}\n")
-    try:
-        logger.debug(f"{data_encoder.get_feature_names_in}")
-    except Exception as e:
-        logger.warning(e)
-        pass
+    # try:
+    #     logger.debug(f"{data_encoder.get_feature_names_in}")
+    # except Exception as e:
+    #     logger.warning(e)
+    #     pass
     logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
 
     # #####################################  for dirty_cat 0.3.0

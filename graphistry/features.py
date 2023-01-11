@@ -30,6 +30,7 @@ CARD_THRESH_TARGET = 400
 
 FORCE_EMBEDDING_ALL_COLUMNS = 0  # min_words
 HIGH_WORD_COUNT = 1024
+MID_WORD_COUNT = 128
 LOW_WORD_COUNT = 3
 
 NGRAMS_RANGE = (1, 3)
@@ -42,7 +43,6 @@ IMPUTE = "median"  # set to
 N_QUANTILES = 100
 OUTPUT_DISTRIBUTION = "normal"
 QUANTILES_RANGE = (25, 75)
-N_BINS = 10
 ENCODE = "ordinal"  # kbins, onehot, ordinal, label
 STRATEGY = "uniform"  # uniform, quantile, kmeans
 SIMILARITY = None  # 'ngram' , default None uses Gap
@@ -57,11 +57,11 @@ EXTRA_COLS_NEEDED = ["x", "y", "_n"]
 UMAP_DIM = 2
 N_NEIGHBORS = 15
 MIN_DIST = 0.1
-SPREAD = (0.5,)
-LOCAL_CONNECTIVITY = (1,)
-REPULSION_STRENGTH = (1,)
-NEGATIVE_SAMPLING_RATE = (5,)
-METRIC = ("euclidean",)
+SPREAD = 0.5
+LOCAL_CONNECTIVITY = 1
+REPULSION_STRENGTH = 1
+NEGATIVE_SAMPLING_RATE = 5
+METRIC = "euclidean"
 
 
 # ###############################################################
@@ -96,6 +96,8 @@ SPLIT_LOW = 0.1
 SPLIT_MEDIUM = 0.2
 SPLIT_HIGH = 0.5
 
+# #############################################################################
+# Model Training {params}
 
 default_featurize_parameters = ModelDict(
     "Featurize Parameters",
@@ -143,6 +145,36 @@ default_umap_parameters = ModelDict(
         "repulsion_strength": REPULSION_STRENGTH,
         "negative_sample_rate": NEGATIVE_SAMPLING_RATE,
     },
+)
+
+
+umap_hellinger = ModelDict(
+        "Umap Parameters Hellinger",    
+    {
+        "n_components": UMAP_DIM,
+        "metric": "hellinger",  # info metric, can't use on
+        # textual encodings since they contain negative values...
+        "n_neighbors": 15,
+        "min_dist": 0.3,
+        "spread": 0.5,
+        "local_connectivity": 1,
+        "repulsion_strength": 1,
+        "negative_sample_rate": 5,
+    }
+)
+
+umap_euclidean = ModelDict(
+        "Umap Parameters Euclidean",
+    {
+        "n_components": UMAP_DIM,
+        "metric": "euclidean",
+        "n_neighbors": 12,
+        "min_dist": 0.1,
+        "spread": 0.5,
+        "local_connectivity": 1,
+        "repulsion_strength": 1,
+        "negative_sample_rate": 5,
+    }
 )
 
 # #############################################################################

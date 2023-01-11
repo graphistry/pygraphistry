@@ -285,7 +285,7 @@ def infer_graph(
     logger.info(f"--Mean distance to existing nodes  {m:.2f} +/- {std:.2f}")
     print(f' Mean distance to existing nodes {m:.2f} +/- {std:.2f}') if verbose else None
     if eps == "auto":
-        eps = np.min([np.abs(m - 2*std), np.abs(m - std), m])
+        eps = np.min([np.abs(m - 2 * std), np.abs(m - std), m])
     logger.info(
         f"-epsilon = {eps:.2f} max distance threshold to be considered a neighbor"
     )
@@ -315,12 +315,7 @@ def infer_graph(
     all_nodes = []
     if len(old_edges):
         old_edges = pd.concat(old_edges, axis=0).assign(_batch=0)
-        all_nodes = (
-            old_edges[src]
-            .append(old_edges[dst])
-            .append(new_edges[src])
-            .append(new_edges[dst])
-        ).drop_duplicates()
+        all_nodes = pd.concat([old_edges[src], old_edges[dst], new_edges[src], new_edges[dst]]).drop_duplicates()
         print(' ', len(all_nodes), "nodes in new graph") if verbose else None
 
     if sample:

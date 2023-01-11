@@ -342,13 +342,20 @@ class ModelDict(UserDict):
         self.print(self._message)
         return super().__repr__()
 
-    def __setitem__(self, key, value):
-        self._updates.append(key)
-        if len(self._updates) > 1:
-             self._message += (
-                "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
-            )
-        return super().__setitem__(key, value)
+    # def __setitem__(self, key, value):
+    #     #targs = {key: value}
+    #     self.update({key: value})
+    
+    # def __setattr__(self, key, value):
+    #     if hasattr(self, '_updates') is False:
+    #         self._updates = []
+    #     self._updates.append({key: value})
+    #     if len(self._updates) > 1:  # don't take first update since its the init/default
+    #         self._message += (
+    #             "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
+    #         )
+    #     return super().__setattr__(key, value) 
+
 
     def update(self, *args, **kwargs):
         self._updates.append(args[0])
