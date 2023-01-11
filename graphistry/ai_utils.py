@@ -205,7 +205,7 @@ def query_by_vector(vect, df, search_index, top_n):
 
 
 def infer_graph(
-    res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None, n_neighbors: int = 7, verbose=False, 
+    res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None, n_neighbors=7, verbose=False, 
 ):
     """
     Infer a graph from a graphistry object
@@ -218,7 +218,10 @@ def infer_graph(
         kind: 'nodes' or 'edges'
         eps: if 'auto' will find a good epsilon from the data; distance threshold for a minibatchh point to cluster to existing graph
         sample: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges.
-        n_neighbors, int: number of nearest neighbors to include per batch point within epsilon
+            This sets the global stickiness of the graph, and is a good way to control the number of edges incuded from the old graph.
+        n_neighbors, int: number of nearest neighbors to include per batch point within epsilon.
+            This sets the local stickiness of the graph, and is a good way to control the number of edges between 
+            an added point and the existing graph.
     """
     #enhanced = is_notebook()
     
