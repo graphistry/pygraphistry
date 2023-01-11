@@ -364,8 +364,8 @@ class ClusterMixin(MIXIN_BASE):
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind)
         if return_graph and kind not in ["edges"]:
             g = self._infer_edges(emb, X, y, df, eps=eps, sample=sample, n_neighbors=n_neighbors,
-                                    infer_on_umap_embedding=fit_umap_embedding, 
-                                    verbose=verbose
+                infer_on_umap_embedding=fit_umap_embedding, 
+                verbose=verbose
             )
             return g
         return emb, X, y, df

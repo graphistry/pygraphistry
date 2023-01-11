@@ -285,7 +285,7 @@ def infer_graph(
     logger.info(f"--Mean distance to existing nodes  {m:.2f} +/- {std:.2f}")
     print(f' Mean distance to existing nodes {m:.2f} +/- {std:.2f}') if verbose else None
     if eps == "auto":
-        eps = np.min([np.abs(m - 2*std), np.abs(m - std), m])
+        eps = np.min([np.abs(m - 2 * std), np.abs(m - std), m])
     logger.info(
         f"-epsilon = {eps:.2f} max distance threshold to be considered a neighbor"
     )

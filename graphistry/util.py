@@ -345,7 +345,7 @@ class ModelDict(UserDict):
     def __setitem__(self, key, value):
         self._updates.append(key)
         if len(self._updates) > 1:
-             self._message += (
+            self._message += (
                 "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
             )
         return super().__setitem__(key, value)
