@@ -286,7 +286,8 @@ class TestFeatureProcessors(unittest.TestCase):
                 2,
                 4000,
             ]:  # last one should skip encoding, and throw all to dirty_cat
-                X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
+
+                X_enc, y_enc, X_encs, y_encs, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
                     ndf_reddit,
                     y=double_target_reddit,
                     use_scaler=None,
@@ -431,7 +432,7 @@ class TestFeatureMethods(unittest.TestCase):
         g2 = g.featurize(y='label', kind='edges', use_scaler=None, use_scaler_target=None)
         scalers = ['quantile', 'zscale', 'kbins', 'robust', 'minmax']
         for scaler in scalers:
-            a, b, c, d = g2.scale(edge_df2, edge2_target_df, kind='edges', use_scaler=scaler, use_scaler_target=np.random.choice(scalers))
+            X, y = g2.scale(edge_df2, edge2_target_df, kind='edges', use_scaler=scaler, use_scaler_target=np.random.choice(scalers))
 
 
 
