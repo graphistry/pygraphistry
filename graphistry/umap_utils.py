@@ -184,27 +184,29 @@ class UMAPMixin(MIXIN_BASE):
                 }
             )
         
+        print('lazy init')
         print(umap_kwargs) if verbose else None
         # set new umap kwargs
         res._umap_params = umap_kwargs  
 
-        if not self._umap_initialized:
-            #print('umap_kwargs init n_components: ', umap_kwargs['n_components']) if verbose else None
-            print('Init Umap Params') if verbose else None
-            res._n_components = n_components
-            res._metric = metric
-            res._n_neighbors = n_neighbors
-            res._min_dist = min_dist
-            res._spread = spread
-            res._local_connectivity = local_connectivity
-            res._repulsion_strength = repulsion_strength
-            res._negative_sample_rate = negative_sample_rate
-            res._umap = umap_engine.UMAP(**umap_kwargs)
-            res.engine = engine_resolved
-            res._suffix = suffix
-                                                      
-            # finally set the flag
-            res._umap_initialized = True
+        # if not self._umap_initialized:
+        #     #print('umap_kwargs init n_components: ', umap_kwargs['n_components']) if verbose else None
+        #     print('Init Umap Params') if verbose else None
+        res._n_components = n_components
+        res._metric = metric
+        res._n_neighbors = n_neighbors
+        res._min_dist = min_dist
+        res._spread = spread
+        res._local_connectivity = local_connectivity
+        res._repulsion_strength = repulsion_strength
+        res._negative_sample_rate = negative_sample_rate
+        res._umap = umap_engine.UMAP(**umap_kwargs)
+        res.engine = engine_resolved
+        res._suffix = suffix
+                                                    
+        # finally set the flag
+        res._umap_initialized = True  # this doesn't matter, as we always re-init
+        
         return res
 
 
@@ -316,21 +318,21 @@ class UMAPMixin(MIXIN_BASE):
         """
         Returns res mutated with new _xy
         """
-        from .features import ModelDict
-        umap_kwargs_pure = ModelDict("UMAP Parameters", umap_kwargs.copy())
+        #from .features import ModelDict
+        umap_kwargs_pure = umap_kwargs.copy()
 
         logger.debug("process_umap before kwargs: %s", umap_kwargs)
         umap_kwargs.update({"kind": kind, "X": X_, "y": y_})
-        umap_kwargs = {**umap_kwargs, "featurize_kwargs": featurize_kwargs or {}}
-        logger.debug("process_umap after kwargs: %s", umap_kwargs)
+        umap_kwargs_reuse = {**umap_kwargs, "featurize_kwargs": featurize_kwargs or {}}
+        logger.debug("process_umap after kwargs: %s", umap_kwargs_reuse)
 
         old_res = reuse_umap(
-            res, memoize, {**umap_kwargs, "featurize_kwargs": featurize_kwargs or {}}
+            res, memoize, {**umap_kwargs_reuse, "featurize_kwargs": featurize_kwargs or {}}
         )
         if old_res:
             print(" --- [[ RE-USING UMAP ]]") if verbose else None
             logger.info(" --- [[ RE-USING UMAP ]]")
-            print('umap_kwargs n_components', umap_kwargs['n_components']) if verbose else None
+            print('umap previous n_components', umap_kwargs['n_components']) if verbose else None
             fresh_res = copy.copy(res)
             for attr in ["_xy", "_weighted_edges_df", "_weighted_adjacency"]:
                 setattr(fresh_res, attr, getattr(old_res, attr))
@@ -341,7 +343,7 @@ class UMAPMixin(MIXIN_BASE):
             return fresh_res
         
         print('** Fitting UMAP') if verbose else None
-        res._umap_initialized = False
+        #res._umap_initialized = False
         res = res.umap_lazy_init(res, verbose=verbose, **umap_kwargs_pure)
         
         emb = res._umap_fit_transform(X_, y_, verbose=verbose)
