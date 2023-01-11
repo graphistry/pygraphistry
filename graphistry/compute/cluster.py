@@ -127,7 +127,7 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
     if verbose:
         cnt = Counter(labels)
         message = f"DBSCAN found {len(cnt)} clusters with {cnt[-1]} outliers"
-        print('-'*len(message))
+        print('-' * len(message))
         print(message)
         print(f"--fit on size {X.shape} data")
 

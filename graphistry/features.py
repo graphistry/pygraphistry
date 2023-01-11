@@ -133,10 +133,8 @@ default_featurize_parameters = ModelDict(
 )
 
 
-default_umap_parameters = ModelDict(
-    "Umap Parameters",
-    {
-        "n_components": UMAP_DIM,
+default_umap_parameters = ModelDict("Umap Parameters",
+        {"n_components": UMAP_DIM,
         **({"metric": METRIC} if True else {}),
         "n_neighbors": N_NEIGHBORS,
         "min_dist": MIN_DIST,
@@ -144,14 +142,12 @@ default_umap_parameters = ModelDict(
         "local_connectivity": LOCAL_CONNECTIVITY,
         "repulsion_strength": REPULSION_STRENGTH,
         "negative_sample_rate": NEGATIVE_SAMPLING_RATE,
-    },
+    }
 )
 
 
-umap_hellinger = ModelDict(
-        "Umap Parameters Hellinger",    
-    {
-        "n_components": UMAP_DIM,
+umap_hellinger = ModelDict("Umap Parameters Hellinger",    
+        {"n_components": UMAP_DIM,
         "metric": "hellinger",  # info metric, can't use on
         # textual encodings since they contain negative values...
         "n_neighbors": 15,
@@ -159,22 +155,20 @@ umap_hellinger = ModelDict(
         "spread": 0.5,
         "local_connectivity": 1,
         "repulsion_strength": 1,
-        "negative_sample_rate": 5,
-    }
+        "negative_sample_rate": 5
+        }
 )
 
-umap_euclidean = ModelDict(
-        "Umap Parameters Euclidean",
-    {
-        "n_components": UMAP_DIM,
+umap_euclidean = ModelDict("Umap Parameters Euclidean",
+        {"n_components": UMAP_DIM,
         "metric": "euclidean",
         "n_neighbors": 12,
         "min_dist": 0.1,
         "spread": 0.5,
         "local_connectivity": 1,
         "repulsion_strength": 1,
-        "negative_sample_rate": 5,
-    }
+        "negative_sample_rate": 5
+        }
 )
 
 # #############################################################################
