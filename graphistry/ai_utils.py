@@ -226,7 +226,10 @@ def infer_graph(
     
     if n_neighbors is None and emb is not None:
         if getattr(res, '_umap_params', None) is not None:
-            n_neighbors = res._umap_params['n_neighbors']
+            if getattr(res._umap_params, 'n_neighbors', None) is not None:
+                n_neighbors = res._umap_params['n_neighbors']
+            else:
+                n_neighbors = N_NEIGHBORS
     elif n_neighbors is None and emb is None:
         n_neighbors = N_NEIGHBORS
 
