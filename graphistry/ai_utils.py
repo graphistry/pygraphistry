@@ -225,7 +225,8 @@ def infer_graph(
     print("-" * 50) if verbose else None
     
     if n_neighbors is None and emb is not None:
-        n_neighbors = res._umap_params['n_neighbors']
+        if getattr(res, '_umap_params', None) is not None:
+            n_neighbors = res._umap_params['n_neighbors']
     elif n_neighbors is None and emb is None:
         n_neighbors = N_NEIGHBORS
 
