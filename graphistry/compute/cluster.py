@@ -115,9 +115,9 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
     labels = dbscan.labels_
 
     if kind == "nodes":
-        g._nodes = g._nodes.assign(_dbscan=labels)
+        g._nodes = g._nodes.assign(_cluster=labels)
     elif kind == "edges":
-        g._edges = g._edges.assign(_dbscan=labels)
+        g._edges = g._edges.assign(_cluster=labels)
     else:
         raise ValueError("kind must be one of `nodes` or `edges`")
 
@@ -248,6 +248,7 @@ class ClusterMixin(MIXIN_BASE):
                 This includes the point itself.
 
         """
+
         res = self.bind()
         res = res._cluster_dbscan(
             res,
