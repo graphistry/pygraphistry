@@ -126,7 +126,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             log(msg="--Splitting data")
             train_size = int(train_split * len(triplets))
             test_size = len(triplets) - train_size
-            train_dataset, test_dataset = torch.utils.data.random_split(triplets, [train_size, test_size])
+            train_dataset, test_dataset = torch.utils.data.random_split(triplets, [train_size, test_size])  # type: ignore
             res._train_idx = train_dataset.indices
             res._test_idx = test_dataset.indices
 
