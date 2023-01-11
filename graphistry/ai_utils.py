@@ -205,7 +205,7 @@ def query_by_vector(vect, df, search_index, top_n):
 
 
 def infer_graph(
-    res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None, n_neighbors: int=7, verbose=False, 
+    res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None, n_neighbors: int = 7, verbose=False, 
 ):
     """
     Infer a graph from a graphistry object
