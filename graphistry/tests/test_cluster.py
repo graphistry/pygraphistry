@@ -29,7 +29,10 @@ class TestComputeCluster(unittest.TestCase):
             self._condition(g2, kind)
             g3 = g.umap(kind=kind, n_topics=2, dbscan=True)
             self._condition(g3, kind)
-            self.assertEqual(g2._nodes['_cluster'].tolist(), g3._nodes['_cluster'].tolist())
+            if kind == 'nodes':
+                self.assertEqual(g2._nodes['_cluster'].tolist(), g3._nodes['_cluster'].tolist())
+            else:
+                self.assertEqual(g2._edges['_cluster'].tolist(), g3._edges['_cluster'].tolist())
 
     @pytest.mark.skipif(not has_dbscan, reason="requires ai dependencies")
     def test_featurize_cluster(self):
