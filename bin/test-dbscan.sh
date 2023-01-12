@@ -10,6 +10,6 @@ set -ex
 python -m pytest --version
 
 python -B -m pytest -vv \
-    graphistry/tests/test_cluster.py
+    graphistry/tests/test_compute_cluster.py
 
 #chmod +x bin/test-dbscan.sh
