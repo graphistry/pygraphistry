@@ -2234,6 +2234,7 @@ class FeatureMixin(MIXIN_BASE):
         encode: str = "ordinal",
         strategy: str = "uniform",
         keep_n_decimals: int = 5,
+        return_scalers: bool = False,
     ):
         """Scale data using the same scalers as used in the featurization step.
         
@@ -2255,9 +2256,11 @@ class FeatureMixin(MIXIN_BASE):
                 encode: str, one of `ordinal`, `onehot`, `onehot-dense`, `binary`    
                 strategy: str, one of `uniform`, `quantile`, `kmeans`
                 keep_n_decimals: int, number of decimals to keep after scaling
+                return_scalers: bool, if True, will return the scalers used to scale the data
             returns:
                 (X, y) transformed data if return_graph is False
                     or a graph with inferred edges if return_graph is True,
+                or (X, y, scaler, scaler_target) if return_scalers is True
         """
                 
         if df is None:  # use the original data
@@ -2269,7 +2272,9 @@ class FeatureMixin(MIXIN_BASE):
             if self._node_encoder is not None:  # type: ignore
                 (
                     X,
-                    y
+                    y,
+                    scaler,
+                    scaler_target
                 ) = self._node_encoder.scale(
                     X,
                     y,
@@ -2283,6 +2288,7 @@ class FeatureMixin(MIXIN_BASE):
                     encode=encode,
                     strategy=strategy,
                     keep_n_decimals=keep_n_decimals,
+                    return_pipeline=True
                 )  # type: ignore
             else:
                 raise AttributeError(
@@ -2295,7 +2301,10 @@ class FeatureMixin(MIXIN_BASE):
             if self._edge_encoder is not None:  # type: ignore
                 (
                     X,
-                    y
+                    y,
+                    scaler,
+                    scaler_target
+
                 ) = self._edge_encoder.scale(
                     X,
                     y,
@@ -2309,13 +2318,17 @@ class FeatureMixin(MIXIN_BASE):
                     encode=encode,
                     strategy=strategy,
                     keep_n_decimals=keep_n_decimals,
+                    return_pipeline=True
                 )  # type: ignore
             else:
                 raise AttributeError(
                     'Please run g.featurize(kind="edges", *args, **kwargs) '
                     'first before scaling matrices and targets is possible.'
                 )
+        if return_scalers:
+            return X, y, scaler, scaler_target
         return X, y
+
 
     def featurize(
         self,

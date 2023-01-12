@@ -422,7 +422,10 @@ class TestFeatureMethods(unittest.TestCase):
         g2 = g.featurize(X="title", y='label', use_scaler=None, use_scaler_target=None)
         scalers = ['quantile', 'zscale', 'kbins', 'robust', 'minmax']
         for scaler in scalers:
-            a, b, c, d = g2.scale(ndf_reddit, single_target_reddit, kind='nodes', use_scaler=scaler, use_scaler_target=np.random.choice(scalers), return_pipeline=True)
+            a, b, c, d = g2.scale(ndf_reddit, single_target_reddit, kind='nodes', 
+                                  use_scaler=scaler, 
+                                  use_scaler_target=np.random.choice(scalers), 
+                                  return_scalers=True)
 
         
 
