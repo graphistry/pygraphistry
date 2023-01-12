@@ -15,6 +15,9 @@ IMPLICIT_NODE_ID = (
 )
 # for text search db column
 DISTANCE = '_distance'
+# Scalers
+SCALERS = ['quantile', 'standard', 'kbins', 'robust', 'minmax']
+
 # dbscan reserved namespace
 DBSCAN = '_dbscan'
 DBSCAN_PARAMS = '_dbscan_params'
