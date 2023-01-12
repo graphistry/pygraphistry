@@ -437,7 +437,7 @@ class TestFeatureMethods(unittest.TestCase):
             X, y, c, d = g2.scale(edge_df2, edge2_target_df, kind='edges', 
                                   use_scaler=scaler, 
                                   use_scaler_target=np.random.choice(SCALERS), 
-                                  return_pipeline=True)
+                                  return_scalers=True)
 
 
 
