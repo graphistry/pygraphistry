@@ -115,9 +115,9 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
     labels = dbscan.labels_
     
     if kind == "nodes":
-        g._nodes = g._nodes.assign(_cluster=labels)
+        g._nodes = g._nodes.assign(_dbscan=labels)
     elif kind == "edges":
-        g._edges = g._edges.assign(_cluster=labels)
+        g._edges = g._edges.assign(_dbscan=labels)
     else:
         raise ValueError("kind must be one of `nodes` or `edges`")
 
