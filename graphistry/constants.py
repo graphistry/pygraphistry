@@ -1,5 +1,5 @@
 # ###############################################################
-VERBOSE = True  # set to true for info, false for debug, None for none
+VERBOSE = None  # set to true for info, false for debug, None for none
 TRACE = False  # set to true for full trace of functions
 # ###############################################################
 # source and destination labels for consistent pipeline-ing across files
@@ -13,10 +13,15 @@ Y = "y"
 IMPLICIT_NODE_ID = (
     "_n"  # for g.featurize(..).umap(..) -> g.weighted_edges_from_nodes_df
 )
-DISTANCE = '_distance'  # for text search db column
+# for text search db column
+DISTANCE = '_distance'
+# dbscan reserved namespace
+DBSCAN = '_dbscan'
+DBSCAN_PARAMS = '_dbscan_params'
+
 # ###############################################################
 # consistent clf pipelining and constructor methods across files
-DGL_GRAPH = "DGL_graph"
+DGL_GRAPH = "DGL_graph"  # TODO: change to _dgl_graph ? 
 KG_GRAPH = '_kg_graph'
 FEATURE = "feature"
 TARGET = "target"
@@ -43,11 +48,9 @@ N_HASHERS_DEFAULT = 100
 # scikit-learn params
 SKLEARN = "sklearn"
 
-
 # #############################################################
 # Caching and other internals
 CACHE_COERCION_SIZE = 100
-
 
 # #############################################################
 # Annoy defaults

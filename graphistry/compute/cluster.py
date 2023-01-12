@@ -8,7 +8,7 @@ from collections import Counter
 
 from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
-from graphistry.constants import CUML, UMAP_LEARN  # noqa type: ignore
+from graphistry.constants import CUML, UMAP_LEARN, DBSCAN, DBSCAN_PARAMS  # noqa type: ignore
 from graphistry.features import ModelDict
 from graphistry.feature_utils import get_matrix_by_column_parts
 
@@ -90,7 +90,10 @@ def get_model_matrix(g, kind, cols, umap, target):
     df = g.get_features_by_cols(cols, kind=kind, target=target)
 
     if umap and cols is None and g._umap is not None:
-        df = g._get_embedding(kind)
+        df = g._get_embedding(kind)            
+        
+    
+    print('\n df:', df.shape, df.columns)
 
     return df
 
@@ -127,9 +130,10 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
     if verbose:
         cnt = Counter(labels)
         message = f"DBSCAN found {len(cnt)} clusters with {cnt[-1]} outliers"
+        print()
         print('-' * len(message))
         print(message)
-        print(f"--fit on size {X.shape} data")
+        print(f"--fit on {'umap embeddings' if use_umap_embedding else 'feature embeddings'} of size {X.shape}")
 
     return g
 
@@ -179,14 +183,15 @@ class ClusterMixin(MIXIN_BASE):
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import_has_dependency()
 
         res.engine = resolve_cpu_gpu_engine("auto")
-        res._kwargs_dbscan = ModelDict(
-            "latest dbscan kwargs",
+        res._dbscan_params = ModelDict(
+            "latest DBSCAN params",
             kind=kind,
             cols=cols,
             target=target,
-            umap=fit_umap_embedding,
+            fit_umap_embedding=fit_umap_embedding,
             eps=eps,
             min_samples=min_samples,
+            verbose=verbose,
             *args,
             **kwargs,
         )
@@ -196,7 +201,7 @@ class ClusterMixin(MIXIN_BASE):
             if res.engine == CUML
             else DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
         )
-        print(f"DBSCAN engine: {res.engine}") if verbose else None
+        #print(f"DBSCAN engine: {res.engine}") if verbose else None
 
         res = dbscan_fit(
             res, dbscan, kind=kind, cols=cols, use_umap_embedding=fit_umap_embedding, verbose=True
@@ -212,10 +217,11 @@ class ClusterMixin(MIXIN_BASE):
         kind="nodes",
         fit_umap_embedding=True,
         target=False,
-        verbose=True,
+        verbose=False,
+        *args,
         **kwargs,
     ):
-        """DBSCAN clustering on cpu or gpu infered automatically
+        """DBSCAN clustering on cpu or gpu infered automatically. 
 
         Examples:
             g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
@@ -225,7 +231,7 @@ class ClusterMixin(MIXIN_BASE):
             g2 = g.umap(kind=kind).dbscan(kind=kind)
             print(g2._nodes['_dbscan']) | print(g2._edges['_dbscan'])
 
-            # dbscan with fixed parameters is default in umap
+            # dbscan with fixed parameters in umap
             g2 = g.umap(dbscan=True)
 
             # and with greater control over parameters via chaining,
@@ -240,7 +246,7 @@ class ClusterMixin(MIXIN_BASE):
             # equivalent to above (ie, cols != None and umap=True will still use features dataframe, rather than UMAP embeddings)
             g2 = g.umap().dbscan(cols=['ip_172', 'location', 'alert'], umap=True | False, **kwargs)
 
-            g2.plot() # color by `_dbscan`
+            g2.plot() # colored by `_dbscan` column
 
         Useful:
             Enriching the graph with cluster labels from UMAP is useful for visualizing clusters in the graph by color, size, etc,
@@ -268,52 +274,21 @@ class ClusterMixin(MIXIN_BASE):
             eps=eps,
             min_samples=min_samples,
             verbose=verbose,
+            *args,
             **kwargs,
-        )
+        ).bind(point_color=DBSCAN)
 
         return res
 
     def _transform_dbscan(
-        self, df: pd.DataFrame, ydf=None, kind: str = "nodes"
+        self, df: pd.DataFrame, ydf, kind, verbose
     ) -> Tuple[Union[pd.DataFrame, None], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         
-        """
-        Transforms a dataframe to one with a new column '_dbscan' containing the DBSCAN cluster labels
-            and returns feature[cols] or UMAP embedding
-        Examples:
-            fit:
-                g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
-                g2 = g.featurize().dbscan()
-
-            predict:
-                emb, X, y, ndf = g2.transform_dbscan(ndf, return_graph=False)
-                # or
-                g3 = g2.transform_dbscan(ndf, return_graph=True)
-                g3.plot()
-
-        likewise for umap:
-            fit:
-                g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
-                g2 = g.umap().dbscan()
-
-            predict:
-                emb, X, y, ndf = g2.transform_dbscan(ndf, return_graph=False)
-                # or
-                g3 = g2.transform_dbscan(ndf, return_graph=True)
-                g3.plot()
-
-        args:
-            df: dataframe to transform
-            ydf: optional labels dataframe
-            kind: 'nodes' or 'edges'
-
-        """
-
         res = self.bind()
-        if hasattr(res, "_kwargs_dbscan"):
+        if hasattr(res, "_dbscan_params"):
             # Assume that we are transforming to last fit of dbscan
-            cols = res._kwargs_dbscan["cols"]
-            umap = res._kwargs_dbscan["umap"]
+            cols = res._dbscan_params["cols"]
+            umap = res._dbscan_params["fit_umap_embedding"]
 
             dbscan = res._node_dbscan if kind == "nodes" else res._edge_dbscan
 
@@ -335,6 +310,9 @@ class ClusterMixin(MIXIN_BASE):
                 df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)  # type: ignore
             else:
                 df = df.assign(_dbscan=labels)
+            
+            if verbose:
+                print(f"Transformed DBSCAN: {len(df[DBSCAN].unique())} clusters")
 
             return emb, X, y, df  # type: ignore
         else:
@@ -345,7 +323,7 @@ class ClusterMixin(MIXIN_BASE):
         df: pd.DataFrame,
         y: Optional[pd.DataFrame] = None,
         eps: Union[float, str] = "auto",
-        fit_umap_embedding: bool = False,
+        infer_umap_embedding: bool = False,
         sample: Optional[int] = None,
         n_neighbors: Optional[int] = None,
         kind: str = "nodes",
@@ -353,9 +331,33 @@ class ClusterMixin(MIXIN_BASE):
         verbose=False,
         ):  # type: ignore
         """
-        Transforms a minibatch dataframe to one with a new column '_dbscan' containing the DBSCAN cluster labels on the minibatch
-            and generates a graph with the minibatch and the original graph, with edges between the minibatch and the original graph inferred
-            from the umap embedding or features dataframe.
+        Transforms a minibatch dataframe to one with a new column '_dbscan' containing the DBSCAN cluster 
+        labels on the minibatch and generates a graph with the minibatch and the original graph, with edges 
+        between the minibatch and the original graph inferred from the umap embedding or features dataframe.
+        Graph nodes | edges will be colored by '_dbscan' column.
+            
+            Examples:
+                fit:
+                    g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
+                    g2 = g.featurize().dbscan()
+
+                predict:
+                    emb, X, y, ndf = g2.transform_dbscan(ndf, return_graph=False)
+                    # or
+                    g3 = g2.transform_dbscan(ndf, return_graph=True)
+                    g3.plot()
+
+            likewise for umap:
+                fit:
+                    g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
+                    g2 = g.umap().dbscan()
+
+                predict:
+                    emb, X, y, ndf = g2.transform_dbscan(ndf, return_graph=False)
+                    # or
+                    g3 = g2.transform_dbscan(ndf, return_graph=True)
+                    g3.plot()
+
 
         args:
             df: dataframe to transform
@@ -370,13 +372,14 @@ class ClusterMixin(MIXIN_BASE):
                 in existing graph to pull in more edges. Default None
             kind: 'nodes' or 'edges'
             return_graph: whether to return a graph or the (emb, X, y, minibatch df enriched with DBSCAN labels), default True
+                infered graph supports kind='nodes' only. 
+            verbose: whether to print out progress, default False
 
         """
-        emb, X, y, df = self._transform_dbscan(df, y, kind=kind)
+        emb, X, y, df = self._transform_dbscan(df, y, kind=kind, verbose=verbose)
         if return_graph and kind not in ["edges"]:
             g = self._infer_edges(emb, X, y, df, eps=eps, sample=sample, n_neighbors=n_neighbors,  # type: ignore
-                infer_on_umap_embedding=fit_umap_embedding, 
-                verbose=verbose
-            )
+                infer_on_umap_embedding=infer_umap_embedding
+                ).bind(point_color=DBSCAN)
             return g
         return emb, X, y, df
