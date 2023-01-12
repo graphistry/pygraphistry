@@ -2230,7 +2230,7 @@ class FeatureMixin(MIXIN_BASE):
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
-        n_bins: int = 2,
+        n_bins: int = 10,
         encode: str = "ordinal",
         strategy: str = "uniform",
         keep_n_decimals: int = 5,
@@ -2304,7 +2304,6 @@ class FeatureMixin(MIXIN_BASE):
                     y,
                     scaler,
                     scaler_target
-
                 ) = self._edge_encoder.scale(
                     X,
                     y,
