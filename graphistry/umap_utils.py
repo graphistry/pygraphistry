@@ -346,6 +346,7 @@ class UMAPMixin(MIXIN_BASE):
             fresh_res._umap_params = umap_kwargs_pure
             return fresh_res
         
+        print('-' * 60) if verbose else None
         print('** Fitting UMAP') if verbose else None
         #res._umap_initialized = False
         res = res.umap_lazy_init(res, verbose=verbose, **umap_kwargs_pure)
