@@ -184,6 +184,10 @@ class UMAPMixin(MIXIN_BASE):
                 }
             )
         
+        if getattr(res, '_umap_params', None) == umap_kwargs:
+            print('Same umap params as last time, skipping new init')
+            return res
+        
         print('lazy init')
         print(umap_kwargs) if verbose else None
         # set new umap kwargs

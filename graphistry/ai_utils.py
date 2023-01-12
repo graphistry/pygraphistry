@@ -214,14 +214,15 @@ def infer_graph(
         res: graphistry object
         df: outside minibatch dataframe to add to existing graph
         X: minibatch transformed dataframe
-        emb: minibatch UMAP embedding
-        kind: 'nodes' or 'edges'
-        eps: if 'auto' will find a good epsilon from the data; distance threshold for a minibatchh point to cluster to existing graph
+        emb: minibatch UMAP embedding distance threshold for a minibatch point to cluster to existing graph
+        eps: if 'auto' will find a good epsilon from the data; distance threshold for a minibatch point to cluster to existing graph
         sample: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges.
             This sets the global stickiness of the graph, and is a good way to control the number of edges incuded from the old graph.
         n_neighbors, int: number of nearest neighbors to include per batch point within epsilon.
             This sets the local stickiness of the graph, and is a good way to control the number of edges between 
             an added point and the existing graph.
+    returns:
+        graphistry Plottable object
     """
     #enhanced = is_notebook()
     
@@ -283,7 +284,7 @@ def infer_graph(
     logger.info(f"--Mean distance to existing nodes  {m:.2f} +/- {std:.2f}")
     print(f' Mean distance to existing nodes {m:.2f} +/- {std:.2f}') if verbose else None
     if eps == "auto":
-        eps = np.min([np.abs(m - 2 * std), np.abs(m - std), m])
+        eps = np.min([np.abs(m - std), m])
     logger.info(
         f"-epsilon = {eps:.2f} max distance threshold to be considered a neighbor"
     )
