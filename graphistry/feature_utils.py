@@ -1735,10 +1735,10 @@ class FastEncoder:
         """Transform with scaling fit durning fit."""
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
         if scaling_pipeline is not None:
-            print("scaling")
+            #print("scaling")
             X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
         if scaling_pipeline_target is not None:
-            print("scaling target")
+            #print("scaling target")
             y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns, index=y.index)
         return X, y
     
@@ -1758,15 +1758,21 @@ class FastEncoder:
         
             example:
                 g = graphistry.nodes(df)
-                g2 = g.umap()
+                # set a scaling strategy for features and targets -- umap uses those and produces different results depending.
+                g2 = g.umap(use_scaler='standard', use_scaler_target=None)
                 
-                X, y = g2.scale(X, y, use_scaler='minmax', use_scaler_target='kbins', n_bins=5)
-        
+                # later if you want to scale new data, you can do so
+                X, y = g2.transform(df, df, scaled=False)  # unscaled transformer output
+                # now scale with new settings
+                X_scaled, y_scaled = g2.scale(X, y, use_scaler='minmax', use_scaler_target='kbins', n_bins=5)
+                # fit some other pipeline
+                clf.fit(X_scaled, y_scaled)
+                
             args:
                 X: pd.DataFrame of features
                 y: pd.DataFrame of target features
                 kind: str, one of 'nodes' or 'edges'
-                *args, **kwargs: passed to smart_scaler
+                *args, **kwargs: passed to smart_scaler pipeline
             returns:
                 scaled X, y
         """
@@ -2240,7 +2246,19 @@ class FeatureMixin(MIXIN_BASE):
         
             example usage:
                 g = graphistry.nodes(df)
-                X, y = g.umap().scale(kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
+                X, y = g.featurize().scale(kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
+                
+                # or 
+                g = graphistry.nodes(df)
+                # set a scaling strategy for features and targets -- umap uses those and produces different results depending.
+                g2 = g.umap(use_scaler='standard', use_scaler_target=None)
+                
+                # later if you want to scale new data, you can do so
+                X, y = g2.transform(df, df, scale=False)
+                X_scaled, y_scaled = g2.scale(X, y, use_scaler='minmax', use_scaler_target='kbins', n_bins=5)
+                # fit some other pipeline
+                clf.fit(X_scaled, y_scaled)
+
 
             args:
                 df: pd.DataFrame, raw data to transform
@@ -2741,26 +2759,36 @@ class FeatureMixin(MIXIN_BASE):
         )
 
     
-    def get_features_by_cols(self, columns: Optional[Union[List, str]] = None, kind: str = 'nodes', target: bool = False) -> pd.DataFrame:
-        """Returns feature matrix with only the columns that contain the string `column_part` in their name.
-        
-            `X = g.get_features_by_cols(['feature1', 'feature2'])`
+    def get_matrix(self, columns: Optional[Union[List, str]] = None, kind: str = 'nodes', target: bool = False) -> pd.DataFrame:
+        """Returns feature matrix, and if columns are specified, returns matrix with only the columns that contain 
+            the string `column_part` in their name.
+
+            `X = g.get_matrix(['feature1', 'feature2'])`
             will retrieve a feature matrix with only the columns that contain the string 
             `feature1` or `feature2` in their name.
-            Most useful for topic modeling, where the column names are of the form `topic_0`, `topic_1`, etc.
+
+            Most useful for topic modeling, where the column names are of the form `topic_0: descriptor`, `topic_1: descriptor`, etc.
             Can retrieve unique columns in original dataframe, or actual topic features like [ip_part, shoes, preference_x, etc].
             
             Powerful way to retrieve features from a featurized graph by column or (top) features of interest.
             
             example:
-                X = g2.get_features_by_cols(['172', 'percent'])
+                # get the full feature matrices
+                X = g.get_matrix()
+                y = g.get_matrix(target=True)
+            
+                # get subset of features, or topics, given topic model encoding
+                X = g2.get_matrix(['172', 'percent'])
                 X.columns
                     => ['ip_172.56.104.67', 'ip_172.58.129.252', 'item_percent']
                 # or in targets
-                y = g2.get_features_by_cols(['total', 'percent'], target=True)
+                y = g2.get_matrix(['total', 'percent'], target=True)
                 y.columns
                     => ['basket_price_total', 'conversion_percent', 'CTR_percent', 'CVR_percent']
 
+                # not as useful for sbert features. 
+            Caveats:
+                - if you have a column name that is a substring of another column name, you may get unexpected results.
         Args:
             columns (Union[List, str]): list of column names or a single column name that may exist in columns 
                 of the feature matrix. If None, returns original feature matrix
