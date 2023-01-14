@@ -193,24 +193,24 @@ class TestFeaturizeGetMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_get_col_matrix(self):
         # no edges so this should be None
-        assert self.g2.get_features_by_cols(kind='edges') is None
+        assert self.g2.get_matrix(kind='edges') is None
         
         # test target methods
-        assert all(self.g2.get_features_by_cols(target=True).columns == self.g2._node_target.columns)
-        assert self.g2.get_features_by_cols('Anxiety', target=True).shape[0] == len(self.g2._node_target)
+        assert all(self.g2.get_matrix(target=True).columns == self.g2._node_target.columns)
+        assert self.g2.get_matrix('Anxiety', target=True).shape[0] == len(self.g2._node_target)
         # test str vs list 
-        assert (self.g2.get_features_by_cols('Anxiety', target=True) == self.g2.get_features_by_cols(['Anxiety'], target=True)).all().values[0]
+        assert (self.g2.get_matrix('Anxiety', target=True) == self.g2.get_matrix(['Anxiety'], target=True)).all().values[0]
 
-        # assert list(self.g2.get_features_by_cols(['Anxiety', 'education', 'computer'], target=True).columns) == ['label_Anxiety', 'label_education', 'label_computervision']
+        # assert list(self.g2.get_matrix(['Anxiety', 'education', 'computer'], target=True).columns) == ['label_Anxiety', 'label_education', 'label_computervision']
     
         # test feature methods
         # ngrams
-        assert (self.g2.get_features_by_cols().columns == self.g2._node_features.columns).all()
-        assert list(self.g2.get_features_by_cols('what').columns) == what, list(self.g2.get_features_by_cols('what').columns)
+        assert (self.g2.get_matrix().columns == self.g2._node_features.columns).all()
+        assert list(self.g2.get_matrix('what').columns) == what, list(self.g2.get_matrix('what').columns)
         
         # topic
-        assert all(self.g3.get_features_by_cols().columns == self.g3._node_features.columns)
-        assert list(self.g3.get_features_by_cols(['language', 'freedom']).columns) == freedom, self.g3.get_features_by_cols(['language', 'freedom']).columns
+        assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
+        assert list(self.g3.get_matrix(['language', 'freedom']).columns) == freedom, self.g3.get_matrix(['language', 'freedom']).columns
 
 class TestFastEncoder(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
@@ -426,8 +426,6 @@ class TestFeatureMethods(unittest.TestCase):
                                   use_scaler=scaler, 
                                   use_scaler_target=np.random.choice(SCALERS), 
                                   return_scalers=True)
-
-        
 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_scaling(self):
