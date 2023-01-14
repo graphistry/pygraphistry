@@ -72,29 +72,26 @@ def get_model_matrix(g, kind, cols, umap, target):
         Allows for a single function to get the model matrix for both nodes and edges as well as targets, embeddings, and features
 
     Args:
-        g (_type_): _description_
-        kind (_type_): _description_
-        cols (_type_): _description_
-        umap (_type_): _description_
-        target (_type_): _description_
+        g: graphistry graph
+        kind: 'nodes' or 'edges'
+        cols: list of columns to use for clustering given `g.featurize` has been run
+        umap: whether to use UMAP embeddings or features dataframe
+        target: whether to use the target dataframe or features dataframe
 
     Returns:
-        _type_: dataframe of model matrix given the inputs
+        pd.DataFrame: dataframe of model matrix given the inputs
     """
     assert kind in ["nodes", "edges"]
     assert (
         hasattr(g, "_node_encoder") if kind == "nodes" else hasattr(g, "_edge_encoder")
     )
 
-
-    df = g.get_features_by_cols(cols, kind=kind, target=target)
+    df = g.get_matrix(cols, kind=kind, target=target)
 
     if umap and cols is None and g._umap is not None:
         df = g._get_embedding(kind)            
         
-    
-    print('\n df:', df.shape, df.columns)
-
+    #print('\n df:', df.shape, df.columns)
     return df
 
 
@@ -276,7 +273,8 @@ class ClusterMixin(MIXIN_BASE):
             verbose=verbose,
             *args,
             **kwargs,
-        ).bind(point_color=DBSCAN)
+        )
+        res = res.encode_point_color(column=DBSCAN, as_categorical=True)
 
         return res
 
@@ -380,6 +378,7 @@ class ClusterMixin(MIXIN_BASE):
         if return_graph and kind not in ["edges"]:
             g = self._infer_edges(emb, X, y, df, eps=eps, sample=sample, n_neighbors=n_neighbors,  # type: ignore
                 infer_on_umap_embedding=infer_umap_embedding
-                ).bind(point_color=DBSCAN)
+                )
+            g = g.encode_point_color(column=DBSCAN, as_categorical=True)
             return g
         return emb, X, y, df

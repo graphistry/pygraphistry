@@ -141,8 +141,9 @@ class UMAPMixin(MIXIN_BASE):
     _umap_memoize: WeakValueDictionary = WeakValueDictionary()
 
     def __init__(self, *args, **kwargs):
-        self._umap_initialized = False
+        #self._umap_initialized = False
         #self.engine = self.engine if hasattr(self, "engine") else None
+        pass
 
     def umap_lazy_init(
         self,
@@ -185,17 +186,14 @@ class UMAPMixin(MIXIN_BASE):
             )
         
         if getattr(res, '_umap_params', None) == umap_kwargs:
-            print('Same umap params as last time, skipping new init')
+            print('Same umap params as last time, skipping new init') if verbose else None
             return res
         
-        print('lazy init')
+        print('lazy init') if verbose else None
         print(umap_kwargs) if verbose else None
         # set new umap kwargs
         res._umap_params = umap_kwargs  
 
-        # if not self._umap_initialized:
-        #     #print('umap_kwargs init n_components: ', umap_kwargs['n_components']) if verbose else None
-        #     print('Init Umap Params') if verbose else None
         res._n_components = n_components
         res._metric = metric
         res._n_neighbors = n_neighbors
@@ -207,10 +205,7 @@ class UMAPMixin(MIXIN_BASE):
         res._umap = umap_engine.UMAP(**umap_kwargs)
         res.engine = engine_resolved
         res._suffix = suffix
-                                                    
-        # finally set the flag
-        res._umap_initialized = True  # this doesn't matter, as we always re-init
-        
+                                                            
         return res
 
 
@@ -342,13 +337,12 @@ class UMAPMixin(MIXIN_BASE):
                 setattr(fresh_res, attr, getattr(old_res, attr))
             # have to set _raw_data attribute on umap?
             fresh_res._umap = old_res._umap  # this saves the day!
-            fresh_res._umap_initialized = True
+            #fresh_res._umap_initialized = True
             fresh_res._umap_params = umap_kwargs_pure
             return fresh_res
         
         print('-' * 60) if verbose else None
         print('** Fitting UMAP') if verbose else None
-        #res._umap_initialized = False
         res = res.umap_lazy_init(res, verbose=verbose, **umap_kwargs_pure)
         
         emb = res._umap_fit_transform(X_, y_, verbose=verbose)
