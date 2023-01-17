@@ -272,22 +272,34 @@ class UMAPMixin(MIXIN_BASE):
                     y: Optional[pd.DataFrame] = None, 
                     kind: str = 'nodes', 
                     eps: Union[str, float, int] = 'auto', 
+                    merge_policy: bool = False,
                     sample: Optional[int] = None, 
-                    n_neighbors: Optional[int] = None,
+                    n_neighbors: int = 7,
                     return_graph: bool = True,
                     fit_umap_embedding: bool = False,
                     verbose=False
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
-        try:
-            logger.debug(f"Going into Transform umap {df.shape}")
-        except:
-            pass
+        """Transforms data into UMAP embedding
+        
+        args:
+            df: Dataframe to transform
+            y: Target column
+            kind: One of `nodes` or `edges`
+            eps: Epsilon for DBSCAN
+            merge_policy: if True, use previous graph, adding new batch to existing graph's neighbors
+                useful to contextualize new data against existing graph. If False, `sample` is irrelevant.
+            sample: Sample number of existing graph's neighbors to use for contextualization -- helps make denser graphs
+            n_neighbors: Number of neighbors to use for contextualization
+            return_graph: Whether to return a graph or just the embeddings
+            fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data
+            verbose: Whether to print information about the graph inference
+        """
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
         emb = self._umap.transform(X)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
             g = self._infer_edges(emb, X, y_, df, 
-                                  infer_on_umap_embedding=fit_umap_embedding, 
+                                  infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=eps, sample=sample, n_neighbors=n_neighbors,
                                   verbose=verbose) 
             return g        
