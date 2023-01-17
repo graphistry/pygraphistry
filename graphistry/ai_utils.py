@@ -3,7 +3,7 @@ import numpy as np
 
 import graphistry
 
-from .constants import N_TREES, DISTANCE
+from .constants import N_TREES, DISTANCE, WEIGHT, BATCH
 from .features import N_NEIGHBORS
 from logging import getLogger
 
@@ -256,18 +256,19 @@ def infer_graph(
 
     # if umap, need to add '_n' as node id to df, adding new indices to existing graph
     numeric_indices = range(
-        X_previously_fit.shape[0], X_previously_fit.shape[0] + df.shape[0]
+        X_previously_fit.shape[0], X_previously_fit.shape[0] + X_new.shape[0]
     )
     df["_n"] = numeric_indices
-    df["_batch"] = 1  # 1 for minibatch, 0 for existing graph
+    df[BATCH] = 1  # 1 for minibatch, 0 for existing graph
     node = res._node
     NDF = res._nodes
-    NDF["_batch"] = 0
+    NDF[BATCH] = 0
     EDF = res._edges
-    EDF["_batch"] = 0
+    EDF[BATCH] = 0
     src = res._source
     dst = res._destination
 
+    #new_nodes = []
     new_edges = []
     old_edges = []
     old_nodes = []
@@ -304,12 +305,15 @@ def infer_graph(
                 ]
                 if not local_edges.empty:
                     old_edges.append(local_edges.sample(sample, replace=True))
-            new_edges.append([this_ndf[node], record_df[node], 1, 1])
+                    
+            weight = min(1/(dist[j]+1e-3), 1)
+            new_edges.append([this_ndf[node], record_df[node], weight, 1])
             old_nodes.append(this_ndf)
+            #new_nodes.extend([record_df, this_ndf])
             
     print(f'{np.mean(nn):.2f} neighbors per node within epsilon {eps:.2f}') if verbose else None
     
-    new_edges = pd.DataFrame(new_edges, columns=[src, dst, "_weight", "_batch"])
+    new_edges = pd.DataFrame(new_edges, columns=[src, dst, WEIGHT, BATCH])
 
     all_nodes = []
     if len(old_edges):
@@ -354,6 +358,117 @@ def infer_graph(
     g._node_embedding = new_emb
     g._node_features = new_features
     g._node_targets = new_targets
+    
+    print("-" * 50) if verbose else None
+    return g
+
+
+
+def infer_self_graph(res, 
+    emb, X, y, df, infer_on_umap_embedding=False, eps="auto", n_neighbors=7, verbose=False, 
+):
+    """
+    Infer a graph from a graphistry object
+
+    args:
+        df: outside minibatch dataframe to add to existing graph
+        X: minibatch transformed dataframe
+        emb: minibatch UMAP embedding distance threshold for a minibatch point to cluster to existing graph
+        eps: if 'auto' will find a good epsilon from the data; distance threshold for a minibatch point to cluster to existing graph
+        sample: number of nearest neighbors to add from existing graphs edges, if None, ignores existing edges.
+            This sets the global stickiness of the graph, and is a good way to control the number of edges incuded from the old graph.
+        n_neighbors, int: number of nearest neighbors to include per batch point within epsilon.
+            This sets the local stickiness of the graph, and is a good way to control the number of edges between 
+            an added point and the existing graph.
+    returns:
+        graphistry Plottable object
+    """
+    #enhanced = is_notebook()
+    
+    print("-" * 50) if verbose else None
+    
+    if infer_on_umap_embedding and emb is not None:
+        X_previously_fit = emb
+        X_new = emb
+        print("Infering edges over UMAP embedding") if verbose else None
+    else:  # can still be umap, but want to do the inference on the higher dimensional features
+        X_previously_fit = X
+        X_new = X
+        print("Infering edges over features embedding") if verbose else None
+
+    print("-" * 45) if verbose else None
+
+    assert (
+        df.shape[0] == X.shape[0]
+    ), "minibatches df and X must have same number of rows since f(df) = X"
+    if emb is not None:
+        assert (
+            emb.shape[0] == df.shape[0]
+        ), "minibatches emb and X must have same number of rows since h(df) = emb"
+        df = df.assign(x=emb.x, y=emb.y)  # add x and y to df for graphistry instance
+    else: # if umap has been fit, but only transforming over features, need to add x and y or breaks plot binds of res
+        df['x'] = np.random.random(df.shape[0])
+        df['y'] = np.random.random(df.shape[0])
+
+    # if umap, need to add '_n' as node id to df, adding new indices to existing graph
+    numeric_indices = np.arange(
+        X_previously_fit.shape[0]  #, X_previously_fit.shape[0] + X_new.shape[0]
+    , dtype=np.float64)
+    df["_n"] = numeric_indices
+    df[BATCH] = 1  # 1 for minibatch, 0 for existing graph, should all be `1` 
+    node = res._node
+    src = res._source
+    dst = res._destination
+    
+    old_nodes = []
+    new_edges = []
+    mdists = []
+
+    # vsearch = build_search_index(X_previously_fit, angular=False)
+
+    for i in range(X_new.shape[0]):
+        diff = X_previously_fit - X_new.iloc[i, :]
+        dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
+        mdists.append(dist)
+
+    m, std = np.mean(mdists), np.std(mdists)
+    logger.info(f"--Mean distance to existing nodes  {m:.2f} +/- {std:.2f}")
+    print(f' Mean distance to existing nodes {m:.2f} +/- {std:.2f}') if verbose else None
+    if eps == "auto":
+        eps = np.min([np.abs(m - std), m])
+    logger.info(
+        f" epsilon = {eps:.2f} max distance threshold to be considered a neighbor"
+    )
+    print(f' epsilon = {eps:.2f}; max distance threshold to be considered a neighbor') if verbose else None
+    
+    print(f'Finding {n_neighbors} nearest neighbors') if verbose else None
+    nn = []
+    for i, dist in enumerate(mdists):
+        record_df = df.iloc[i, :]
+        nearest = np.where(dist < eps)[0]
+        nn.append(len(nearest))
+        #new_nodes.append(record_df)
+        for j in nearest[:n_neighbors]:  # add n_neighbors nearest neighbors, if any, super speedup hack
+            if i != j:
+                this_ndf = df.iloc[j, :]
+                weight = min(1/(dist[j] + 1e-3), 1)
+                new_edges.append([this_ndf[node], record_df[node], weight, 1])
+                old_nodes.append(this_ndf)
+            
+    print(f'{np.mean(nn):.2f} neighbors per node within epsilon {eps:.2f}') if verbose else None
+    
+    print('', len(new_edges), 'total edges pairs') if verbose else None
+
+    new_edges = pd.DataFrame(new_edges, columns=[src, dst, WEIGHT, BATCH])
+    new_edges = new_edges.drop_duplicates()
+    print('', len(new_edges), 'total edges pairs after dropping duplicates') if verbose else None
+
+    # #########################################################
+    g = res.nodes(df, node).edges(new_edges, src, dst)
+
+    g._node_embedding = emb
+    g._node_features = X
+    g._node_targets = y
     
     print("-" * 50) if verbose else None
     return g
