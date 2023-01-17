@@ -274,7 +274,7 @@ class ClusterMixin(MIXIN_BASE):
             *args,
             **kwargs,
         )
-        res = res.encode_point_color(column=DBSCAN, as_categorical=True)
+        #res = res.encode_point_color(column=DBSCAN, as_categorical=True)
 
         return res
 
@@ -379,6 +379,6 @@ class ClusterMixin(MIXIN_BASE):
             g = self._infer_edges(emb, X, y, df, eps=eps, sample=sample, n_neighbors=n_neighbors,  # type: ignore
                 infer_on_umap_embedding=infer_umap_embedding
                 )
-            g = g.encode_point_color(column=DBSCAN, as_categorical=True)
+            #g = g.encode_point_color(column=DBSCAN, as_categorical=True)
             return g
         return emb, X, y, df
