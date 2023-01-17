@@ -23,7 +23,7 @@ from graphistry.compute.ComputeMixin import ComputeMixin
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
-from .ai_utils import infer_graph
+from .ai_utils import infer_graph, infer_self_graph
 
 # add this inside classes and have a method that can set log level
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)
@@ -1757,6 +1757,9 @@ class FastEncoder:
         """Fits new scaling functions on df, y via args-kwargs
         
             example:
+                from graphisty.features import SCALERS, SCALER_OPTIONS
+                print(SCALERS)
+                
                 g = graphistry.nodes(df)
                 # set a scaling strategy for features and targets -- umap uses those and produces different results depending.
                 g2 = g.umap(use_scaler='standard', use_scaler_target=None)
@@ -2165,9 +2168,15 @@ class FeatureMixin(MIXIN_BASE):
 
         return res
     
-    def _infer_edges(self, emb, X, y, df, eps='auto', sample=None, infer_on_umap_embedding=False, verbose=False, **kwargs):
-        res = self.bind()  # will not be able to decide umap coordinates, but will be able to infer graph from existing edges
-        g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, eps=eps, sample=sample, verbose=verbose, **kwargs) 
+    def _infer_edges(self, emb, X, y, df, eps='auto', n_neighbors=4, sample=None, infer_on_umap_embedding=False, 
+                     verbose=False, merge_policy=False, **kwargs):
+        res = self.bind()
+        if merge_policy:
+            g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, 
+                            n_neighbors=n_neighbors, eps=eps, sample=sample, verbose=verbose, **kwargs) 
+        else:
+            g = infer_self_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, 
+                                 n_neighbors=n_neighbors, eps=eps, verbose=verbose, **kwargs)
         return g
 
     def _transform(self, encoder: str, df: pd.DataFrame, ydf: Optional[pd.DataFrame], scaled):
@@ -2185,6 +2194,7 @@ class FeatureMixin(MIXIN_BASE):
                   y: Optional[pd.DataFrame] = None, 
                   kind: str = 'nodes', 
                   eps: Union[str, float, int] = 'auto', 
+                  merge_policy: bool = False,
                   sample: Optional[int] = None, 
                   n_neighbors: Optional[int] = None,
                   return_graph: bool = True,
@@ -2197,7 +2207,9 @@ class FeatureMixin(MIXIN_BASE):
                 df: pd.DataFrame, raw data to transform
                 ydf: pd.DataFrame, optional
                 kind: str  # one of `nodes`, `edges`
-                return_graph: bool, if True, will return a graph with inferred edges
+                return_graph: bool, if True, will return a graph with inferred edges.
+                merge_policy: bool, if True, adds batch to existing graph nodes via nearest neighbors. 
+                    If False, will infer edges only between nodes in the batch.
                 eps: float, if return_graph is True, will use this value for eps in NN search, or 'auto' to infer a good value
                     eps represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
                 sample: int, if return_graph is True, will use sample edges of existing graph to fill out the new graph
@@ -2205,8 +2217,8 @@ class FeatureMixin(MIXIN_BASE):
                 scaled: bool, if True, will use scaled transformation of data set during featurization
                 verbose: bool, if True, will print metadata about the graph construction
             returns:
-                X: pd.DataFrame, transformed data if return_graph is False
-                    or a graph with inferred edges if return_graph is True
+                X, y: pd.DataFrame, transformed data if return_graph is False
+                    or a graphistry Plottable with inferred edges if return_graph is True
         """
         if kind == "nodes":
             X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
@@ -2220,8 +2232,8 @@ class FeatureMixin(MIXIN_BASE):
             emb = None  # will not be able to infer graph from umap coordinates, 
             # but will be able to infer graph from features of existing edges
             g = self._infer_edges(emb, X, y_, df, eps=eps, sample=sample, n_neighbors=n_neighbors,
-                                  infer_on_umap_embedding=False, 
-                                  verbose=verbose) 
+                                  infer_on_umap_embedding=False, merge_policy=merge_policy,
+                                  verbose=verbose)
             return g
         return X, y_
 
