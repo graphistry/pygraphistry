@@ -412,8 +412,9 @@ def infer_self_graph(res,
 
     #  if umap, need to add '_n' as node id to df, adding new indices to existing graph
     numeric_indices = np.arange(
-        X_previously_fit.shape[0],  #, X_previously_fit.shape[0] + X_new.shape[0]
-        dtype=np.float64)
+        X_previously_fit.shape[0],  # X_previously_fit.shape[0] + X_new.shape[0]
+        dtype=np.float64  # this seems off but works
+        )
     df["_n"] = numeric_indices
     df[BATCH] = 1  # 1 for minibatch, 0 for existing graph, should all be `1` 
     node = res._node
@@ -447,7 +448,6 @@ def infer_self_graph(res,
         record_df = df.iloc[i, :]
         nearest = np.where(dist < eps)[0]
         nn.append(len(nearest))
-        #new_nodes.append(record_df)
         for j in nearest[:n_neighbors]:  # add n_neighbors nearest neighbors, if any, super speedup hack
             if i != j:
                 this_ndf = df.iloc[j, :]
