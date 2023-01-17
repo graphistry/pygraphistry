@@ -306,7 +306,7 @@ def infer_graph(
                 if not local_edges.empty:
                     old_edges.append(local_edges.sample(sample, replace=True))
                     
-            weight = min(1/(dist[j]+1e-3), 1)
+            weight = min(1 / (dist[j] + 1e-3), 1)
             new_edges.append([this_ndf[node], record_df[node], weight, 1])
             old_nodes.append(this_ndf)
             #new_nodes.extend([record_df, this_ndf])
@@ -406,14 +406,14 @@ def infer_self_graph(res,
             emb.shape[0] == df.shape[0]
         ), "minibatches emb and X must have same number of rows since h(df) = emb"
         df = df.assign(x=emb.x, y=emb.y)  # add x and y to df for graphistry instance
-    else: # if umap has been fit, but only transforming over features, need to add x and y or breaks plot binds of res
+    else:  # if umap has been fit, but only transforming over features, need to add x and y or breaks plot binds of res
         df['x'] = np.random.random(df.shape[0])
         df['y'] = np.random.random(df.shape[0])
 
-    # if umap, need to add '_n' as node id to df, adding new indices to existing graph
+    #  if umap, need to add '_n' as node id to df, adding new indices to existing graph
     numeric_indices = np.arange(
-        X_previously_fit.shape[0]  #, X_previously_fit.shape[0] + X_new.shape[0]
-    , dtype=np.float64)
+        X_previously_fit.shape[0],  #, X_previously_fit.shape[0] + X_new.shape[0]
+        dtype=np.float64)
     df["_n"] = numeric_indices
     df[BATCH] = 1  # 1 for minibatch, 0 for existing graph, should all be `1` 
     node = res._node
@@ -451,7 +451,7 @@ def infer_self_graph(res,
         for j in nearest[:n_neighbors]:  # add n_neighbors nearest neighbors, if any, super speedup hack
             if i != j:
                 this_ndf = df.iloc[j, :]
-                weight = min(1/(dist[j] + 1e-3), 1)
+                weight = min(1 / (dist[j] + 1e-3), 1)
                 new_edges.append([this_ndf[node], record_df[node], weight, 1])
                 old_nodes.append(this_ndf)
             
