@@ -7,6 +7,7 @@ SRC = "_src_implicit"
 DST = "_dst_implicit"
 NODE = '_n_implicit'  # Is this being use anymore??
 WEIGHT = "_weight"
+BATCH = "_batch"
 # for UMAP reserved namespace
 X = "x"
 Y = "y"
