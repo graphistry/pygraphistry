@@ -37,24 +37,42 @@ NGRAMS_RANGE = (1, 3)
 MAX_DF = 0.2
 MIN_DF = 3
 
-N_BINS = 10
 KBINS_SCALER = "kbins"
+STANDARD = 'standard'
+ROBUST = 'robust'
+MINMAX = 'minmax'
+QUANTILE = 'quantile'
+# for Optuna
+ERROR = "error"
+
+SCALERS = [STANDARD, ROBUST, MINMAX, KBINS_SCALER, QUANTILE]
+NO_SCALER = None
+# Scaler options
+N_BINS = 10
 IMPUTE = "median"  # set to
 N_QUANTILES = 100
 OUTPUT_DISTRIBUTION = "normal"
-QUANTILES_RANGE = (25, 75)
+QUANTILES_RANGE = (5, 95)
 ENCODE = "ordinal"  # kbins, onehot, ordinal, label
 STRATEGY = "uniform"  # uniform, quantile, kmeans
 SIMILARITY = None  # 'ngram' , default None uses Gap
 CATEGORIES = "auto"
-KEEP_N_DECIMALS = 5
+SCALER_OPTIONS = {'impute': ['median', None], 'n_quantiles': [10,100], 'output_distribution': ['normal', 'uniform'],
+                  'quantile_range': QUANTILES_RANGE, 
+                  'encode': ['kbins', 'onehot', 'ordinal', 'label'], 
+                  'strategy': ['uniform', 'quantile', 'kmeans'],
+                  'similarity':[None, 'ngram'], 'categories': CATEGORIES, 'n_bins': [2, 100], 
+                  'use_scaler': SCALERS, 'use_scaler_target': SCALERS
+}
 
+# precision in decimal places
+KEEP_N_DECIMALS = 5 # TODO: check to see if this takes a lot of time
+BATCH_SIZE_SMALL = 32
 BATCH_SIZE = 1000
-NO_SCALER = None
 EXTRA_COLS_NEEDED = ["x", "y", "_n"]
 # ###############################################################
 # ################# graphistry umap config constants #################
-UMAP_DIM = 2
+N_COMPONENTS = 2
 N_NEIGHBORS = 15
 MIN_DIST = 0.1
 SPREAD = 0.5
@@ -63,6 +81,10 @@ REPULSION_STRENGTH = 1
 NEGATIVE_SAMPLING_RATE = 5
 METRIC = "euclidean"
 
+UMAP_OPTIONS = {'n_components': [2, 10], 'n_neighbors': [2, 30], 'min_dist': [0.01, 0.99], 'spread': [0.5, 5], 'local_connectivity': [1, 30],
+                'repulsion_strength': [1, 10], 'negative_sampling_rate': [5, 20], 
+                'metric': ['euclidean', 'cosine', 'manhattan', 'l1', 'l2', 'cityblock', 'braycurtis', 'canberra', 'chebyshev', 'correlation', 'dice', 'hamming', 'jaccard', 'kulsinski', 'mahalanobis', 'matching', 'minkowski', 'rogerstanimoto', 'russellrao', 'seuclidean', 'sokalmichener', 'sokalsneath', 'sqeuclidean', 'yule']
+}
 
 # ###############################################################
 # ################# enrichments
@@ -82,12 +104,14 @@ QA = "qa"
 NGRAMS = "ngrams"
 # ############ Embedding Models
 PARAPHRASE_SMALL_MODEL = "sentence-transformers/paraphrase-albert-small-v2"
-PARAPHRASE_MULTILINGUAL_MODEL = (
-    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-)
+PARAPHRASE_MULTILINGUAL_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 MSMARCO2 = "sentence-transformers/msmarco-distilbert-base-v2"  # 768
 MSMARCO3 = "sentence-transformers/msmarco-distilbert-base-v3"  # 512
 QA_SMALL_MODEL = "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
+LLM_SMALL = "sentence-transformers/llm-en-dim128"
+LLM_LARGE = "sentence-transformers/llm-en-dim512"
+
+EMBEDDING_MODELS = [PARAPHRASE_SMALL_MODEL, PARAPHRASE_MULTILINGUAL_MODEL, MSMARCO2, MSMARCO3, QA_SMALL_MODEL, LLM_SMALL, LLM_LARGE]
 # #############################################################################
 # Model Training Constants
 # Used for seeding random state
@@ -95,6 +119,26 @@ RANDOM_STATE = 42
 SPLIT_LOW = 0.1
 SPLIT_MEDIUM = 0.2
 SPLIT_HIGH = 0.5
+
+# #############################################################################
+# model training options
+
+FEATURE_OPTIONS = {
+    'kind': ['nodes', 'edges'],
+    'cardinality_threshold': [1, HIGH_CARD],
+    'cardinality_threshold_target': [1, HIGH_CARD],
+    'n_topics': [4, 100],
+    'n_topics_target': [4, 100],
+    'multilabel': [True, False],
+    'embedding': [True, False],
+    'use_ngrams': [True, False],
+    'ngram_range': (1, 5),
+    'max_df': [0.1, 0.9],
+    'min_df': [1, 10],
+    'min_words': [0, 100],
+    'model_name': [MSMARCO2, MSMARCO3, PARAPHRASE_SMALL_MODEL, PARAPHRASE_MULTILINGUAL_MODEL, QA_SMALL_MODEL],
+}
+
 
 # #############################################################################
 # Model Training {params}
@@ -134,7 +178,7 @@ default_featurize_parameters = ModelDict(
 
 
 default_umap_parameters = ModelDict("Umap Parameters",
-        {"n_components": UMAP_DIM,
+        {"n_components": N_COMPONENTS,
         **({"metric": METRIC} if True else {}),
         "n_neighbors": N_NEIGHBORS,
         "min_dist": MIN_DIST,
@@ -147,7 +191,7 @@ default_umap_parameters = ModelDict("Umap Parameters",
 
 
 umap_hellinger = ModelDict("Umap Parameters Hellinger",    
-        {"n_components": UMAP_DIM,
+        {"n_components": N_COMPONENTS,
         "metric": "hellinger",  # info metric, can't use on
         # textual encodings since they contain negative values...
         "n_neighbors": 15,
@@ -160,7 +204,7 @@ umap_hellinger = ModelDict("Umap Parameters Hellinger",
 )
 
 umap_euclidean = ModelDict("Umap Parameters Euclidean",
-        {"n_components": UMAP_DIM,
+        {"n_components": N_COMPONENTS,
         "metric": "euclidean",
         "n_neighbors": 12,
         "min_dist": 0.1,
