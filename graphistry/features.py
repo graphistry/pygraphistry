@@ -66,7 +66,7 @@ SCALER_OPTIONS = {'impute': ['median', None], 'n_quantiles': [10,100], 'output_d
 }
 
 # precision in decimal places
-KEEP_N_DECIMALS = 5 # TODO: check to see if this takes a lot of time
+KEEP_N_DECIMALS = 5  # TODO: check to see if this takes a lot of time
 BATCH_SIZE_SMALL = 32
 BATCH_SIZE = 1000
 EXTRA_COLS_NEEDED = ["x", "y", "_n"]
