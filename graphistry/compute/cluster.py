@@ -198,10 +198,9 @@ class ClusterMixin(MIXIN_BASE):
             if res.engine == CUML
             else DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
         )
-        #print(f"DBSCAN engine: {res.engine}") if verbose else None
 
         res = dbscan_fit(
-            res, dbscan, kind=kind, cols=cols, use_umap_embedding=fit_umap_embedding, verbose=True
+            res, dbscan, kind=kind, cols=cols, use_umap_embedding=fit_umap_embedding, verbose=verbose
             )
 
         return res
