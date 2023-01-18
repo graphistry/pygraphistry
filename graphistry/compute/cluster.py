@@ -207,7 +207,7 @@ class ClusterMixin(MIXIN_BASE):
 
     def dbscan(
         self,
-        eps: float = 0.2,
+        min_dist: float = 0.2,
         min_samples: int = 1,
         cols=None,
         kind="nodes",
@@ -267,7 +267,7 @@ class ClusterMixin(MIXIN_BASE):
             cols=cols,
             fit_umap_embedding=fit_umap_embedding,
             target=target,
-            eps=eps,
+            eps=min_dist,
             min_samples=min_samples,
             verbose=verbose,
             *args,
@@ -286,6 +286,7 @@ class ClusterMixin(MIXIN_BASE):
             # Assume that we are transforming to last fit of dbscan
             cols = res._dbscan_params["cols"]
             umap = res._dbscan_params["fit_umap_embedding"]
+            target = res._dbscan_params["target"]
 
             dbscan = res._node_dbscan if kind == "nodes" else res._edge_dbscan
 
@@ -294,13 +295,16 @@ class ClusterMixin(MIXIN_BASE):
                 emb, X, y = res.transform_umap(df, ydf, kind=kind, return_graph=False)
             else:
                 X, y = res.transform(df, ydf, kind=kind, return_graph=False)
-                if cols is not None:
-                    X = get_matrix_by_column_parts(X, cols)
+            XX = X
+            if target:
+                XX = y
+            if cols is not None:
+                XX = get_matrix_by_column_parts(XX, cols)
 
             if umap:
                 X_ = emb
             else:
-                X_ = X
+                X_ = XX
 
             labels = dbscan_predict(X_, dbscan)  # type: ignore
             if umap and cols is None:
@@ -319,13 +323,13 @@ class ClusterMixin(MIXIN_BASE):
         self,
         df: pd.DataFrame,
         y: Optional[pd.DataFrame] = None,
-        eps: Union[float, str] = "auto",
+        min_dist: Union[float, str] = "auto",
         infer_umap_embedding: bool = False,
         sample: Optional[int] = None,
         n_neighbors: Optional[int] = None,
         kind: str = "nodes",
-        return_graph=True,
-        verbose=False,
+        return_graph: bool = True,
+        verbose: bool = False,
         ):  # type: ignore
         """
         Transforms a minibatch dataframe to one with a new column '_dbscan' containing the DBSCAN cluster 
@@ -339,7 +343,7 @@ class ClusterMixin(MIXIN_BASE):
                     g2 = g.featurize().dbscan()
 
                 predict:
-                    emb, X, y, ndf = g2.transform_dbscan(ndf, return_graph=False)
+                    emb, X, _, ndf = g2.transform_dbscan(ndf, return_graph=False)
                     # or
                     g3 = g2.transform_dbscan(ndf, return_graph=True)
                     g3.plot()
@@ -347,12 +351,12 @@ class ClusterMixin(MIXIN_BASE):
             likewise for umap:
                 fit:
                     g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
-                    g2 = g.umap().dbscan()
+                    g2 = g.umap(X=.., y=..).dbscan()
 
                 predict:
-                    emb, X, y, ndf = g2.transform_dbscan(ndf, return_graph=False)
+                    emb, X, y, ndf = g2.transform_dbscan(ndf, ndf, return_graph=False)
                     # or
-                    g3 = g2.transform_dbscan(ndf, return_graph=True)
+                    g3 = g2.transform_dbscan(ndf, ndf, return_graph=True)
                     g3.plot()
 
 
@@ -375,7 +379,7 @@ class ClusterMixin(MIXIN_BASE):
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind, verbose=verbose)
         if return_graph and kind not in ["edges"]:
-            g = self._infer_edges(emb, X, y, df, eps=eps, sample=sample, n_neighbors=n_neighbors,  # type: ignore
+            g = self._infer_edges(emb, X, y, df, eps=min_dist, sample=sample, n_neighbors=n_neighbors,  # type: ignore
                 infer_on_umap_embedding=infer_umap_embedding
                 )
             #g = g.encode_point_color(column=DBSCAN, as_categorical=True)
