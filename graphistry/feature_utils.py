@@ -2583,7 +2583,7 @@ class FeatureMixin(MIXIN_BASE):
             return self
         
         if dbscan:  # this adds columns to the dataframe, will break tests of pure featurization & umap, so set to False in those
-            res = res.dbscan(min_dist=min_dist, n_neighbors=n_neighbors, kind=kind, fit_umap_embedding=False, verbose=verbose)  # type: ignore
+            res = res.dbscan(min_dist=min_dist, kind=kind, fit_umap_embedding=False, verbose=verbose)  # type: ignore
 
         if not inplace:
             return res
