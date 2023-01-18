@@ -377,8 +377,6 @@ def infer_graph(
     return hydrate_graph(res, new_nodes, new_edges, node, src, dst, new_emb, new_features, new_targets)
 
 
-
-
 def infer_self_graph(res, 
     emb, X, y, df, infer_on_umap_embedding=False, eps="auto", n_neighbors=7, verbose=False, 
 ):
@@ -479,4 +477,3 @@ def infer_self_graph(res,
     # #########################################################
     print("-" * 50) if verbose else None
     return hydrate_graph(res, df, new_edges, node, src, dst, emb, X, y)
-
