@@ -189,8 +189,6 @@ class ClusterMixin(MIXIN_BASE):
             min_dist=min_dist,
             min_samples=min_samples,
             verbose=verbose,
-            *args,
-            **kwargs,
         )
 
         dbscan = (
