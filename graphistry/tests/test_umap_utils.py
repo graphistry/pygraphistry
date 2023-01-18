@@ -241,13 +241,13 @@ class TestUMAPFitTransform(unittest.TestCase):
             self.g2._node_embedding.shape[0], self.g3._node_embedding.shape[0]
         )
         # now feed it args
-        eps = ["auto", 10]
+        min_dist = ["auto", 10]
         sample = [None, 2]
         return_graph = [True, False]
         fit_umap_embedding = [True, False]
         n_neighbors = [2, None]
-        for ep in eps:
-            g4 = self.g2.transform_umap(test, test, eps=ep)
+        for ep in min_dist:
+            g4 = self.g2.transform_umap(test, test, min_dist=ep)
             assert True
         for return_g in return_graph:
             g4 = self.g2.transform_umap(test, test, return_graph=return_g)
