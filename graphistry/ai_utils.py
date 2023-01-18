@@ -203,6 +203,27 @@ def query_by_vector(vect, df, search_index, top_n):
 #
 ##########################################################################################################################
 
+def edgelist_to_weighted_adjacency(g, weights=None):
+    """ Convert edgelist to weighted adjacency matrix in sparse coo_matrix"""
+    import scipy.sparse as ss
+    import numpy as np
+    res = g._edges[[g._source, g._destination]].values.astype(np.int64)
+    rows, cols = res.T[0], res.T[1]
+    if weights is None:
+        weights = np.ones(len(rows))
+    M = ss.coo_matrix((weights, (rows, cols)))
+    return M.tocsr()
+
+def hydrate_graph(res, new_nodes, new_edges, node, src, dst, new_emb, new_features, new_targets):
+    # #########################################################
+    g = res.nodes(new_nodes, node).edges(new_edges, src, dst)
+
+    g._weighted_adjacency = edgelist_to_weighted_adjacency(g)
+    g._node_embedding = new_emb
+    g._node_features = new_features
+    g._node_targets = new_targets
+    return g
+    
 
 def infer_graph(
     res, emb, X, y, df, infer_on_umap_embedding=False, eps="auto", sample=None, n_neighbors=7, verbose=False, 
@@ -289,9 +310,9 @@ def infer_graph(
     logger.info(
         f"-epsilon = {eps:.2f} max distance threshold to be considered a neighbor"
     )
-    print(f' epsilon = {eps:.2f}; max distance threshold to be considered a neighbor') if verbose else None
+    print(f' Max distance threshold; epsilon = {eps:.2f}') if verbose else None
     
-    print(f'Finding {n_neighbors} nearest neighbors') if verbose else None
+    print(f' Finding {n_neighbors} nearest neighbors') if verbose else None
     nn = []
     for i, dist in enumerate(mdists):
         record_df = df.iloc[i, :]
@@ -311,7 +332,7 @@ def infer_graph(
             old_nodes.append(this_ndf)
             #new_nodes.extend([record_df, this_ndf])
             
-    print(f'{np.mean(nn):.2f} neighbors per node within epsilon {eps:.2f}') if verbose else None
+    print(f' {np.mean(nn):.2f} neighbors per node within epsilon {eps:.2f}') if verbose else None
     
     new_edges = pd.DataFrame(new_edges, columns=[src, dst, WEIGHT, BATCH])
 
@@ -319,7 +340,7 @@ def infer_graph(
     if len(old_edges):
         old_edges = pd.concat(old_edges, axis=0).assign(_batch=0)
         all_nodes = pd.concat([old_edges[src], old_edges[dst], new_edges[src], new_edges[dst]]).drop_duplicates()
-        print(' ', len(all_nodes), "nodes in new graph") if verbose else None
+        print('', len(all_nodes), "nodes in new graph") if verbose else None
 
     if sample:
         new_edges = pd.concat([new_edges, old_edges], axis=0).drop_duplicates()
@@ -352,15 +373,9 @@ def infer_graph(
 
     new_targets = pd.concat([y, Y.loc[old_nodes.index]]) if y is not None else Y
 
-    # #########################################################
-    g = res.nodes(new_nodes, node).edges(new_edges, src, dst)
-
-    g._node_embedding = new_emb
-    g._node_features = new_features
-    g._node_targets = new_targets
-    
     print("-" * 50) if verbose else None
-    return g
+    return hydrate_graph(res, new_nodes, new_edges, node, src, dst, new_emb, new_features, new_targets)
+
 
 
 
@@ -440,9 +455,9 @@ def infer_self_graph(res,
     logger.info(
         f" epsilon = {eps:.2f} max distance threshold to be considered a neighbor"
     )
-    print(f' epsilon = {eps:.2f}; max distance threshold to be considered a neighbor') if verbose else None
+    print(f' Max distance threshold; epsilon = {eps:.2f}') if verbose else None
     
-    print(f'Finding {n_neighbors} nearest neighbors') if verbose else None
+    print(f' Finding {n_neighbors} nearest neighbors') if verbose else None
     nn = []
     for i, dist in enumerate(mdists):
         record_df = df.iloc[i, :]
@@ -455,20 +470,13 @@ def infer_self_graph(res,
                 new_edges.append([this_ndf[node], record_df[node], weight, 1])
                 old_nodes.append(this_ndf)
             
-    print(f'{np.mean(nn):.2f} neighbors per node within epsilon {eps:.2f}') if verbose else None
+    print(f' {np.mean(nn):.2f} neighbors per node within epsilon {eps:.2f}') if verbose else None
     
-    print('', len(new_edges), 'total edges pairs') if verbose else None
-
     new_edges = pd.DataFrame(new_edges, columns=[src, dst, WEIGHT, BATCH])
     new_edges = new_edges.drop_duplicates()
     print('', len(new_edges), 'total edges pairs after dropping duplicates') if verbose else None
-
+    print("** Final graph has", len(df), "nodes") if verbose else None
     # #########################################################
-    g = res.nodes(df, node).edges(new_edges, src, dst)
-
-    g._node_embedding = emb
-    g._node_features = X
-    g._node_targets = y
-    
     print("-" * 50) if verbose else None
-    return g
+    return hydrate_graph(res, df, new_edges, node, src, dst, emb, X, y)
+
