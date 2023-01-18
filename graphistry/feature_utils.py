@@ -2212,7 +2212,7 @@ class FeatureMixin(MIXIN_BASE):
                 return_graph: bool, if True, will return a graph with inferred edges.
                 merge_policy: bool, if True, adds batch to existing graph nodes via nearest neighbors. 
                     If False, will infer edges only between nodes in the batch.
-                eps: float, if return_graph is True, will use this value for eps in NN search, or 'auto' to infer a good value
+                min_dist: float, if return_graph is True, will use this value for eps in NN search, or 'auto' to infer a good value
                     eps represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
                 sample: int, if return_graph is True, will use sample edges of existing graph to fill out the new graph
                 n_neighbors: int, optional (default = 15), if return_graph is True, will use this value for n_neighbors in NN search
@@ -2583,7 +2583,7 @@ class FeatureMixin(MIXIN_BASE):
             return self
         
         if dbscan:  # this adds columns to the dataframe, will break tests of pure featurization & umap, so set to False in those
-            res = res.dbscan(eps=min_dist, n_neighbors=n_neighbors, kind=kind, fit_umap_embedding=False, verbose=verbose)  # type: ignore
+            res = res.dbscan(min_dist=min_dist, n_neighbors=n_neighbors, kind=kind, fit_umap_embedding=False, verbose=verbose)  # type: ignore
 
         if not inplace:
             return res
