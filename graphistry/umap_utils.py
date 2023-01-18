@@ -285,7 +285,7 @@ class UMAPMixin(MIXIN_BASE):
             df: Dataframe to transform
             y: Target column
             kind: One of `nodes` or `edges`
-            eps: Epsilon for DBSCAN
+            min_dist: Epsilon for DBSCAN
             merge_policy: if True, use previous graph, adding new batch to existing graph's neighbors
                 useful to contextualize new data against existing graph. If False, `sample` is irrelevant.
             sample: Sample number of existing graph's neighbors to use for contextualization -- helps make denser graphs
@@ -615,7 +615,7 @@ class UMAPMixin(MIXIN_BASE):
             res = res.prune_self_edges()
 
         if dbscan:
-            res = res.dbscan(eps=min_dist, n_neighbors=n_neighbors, kind=kind, fit_umap_embedding=True, verbose=verbose)  # type: ignore
+            res = res.dbscan(min_dist=min_dist, n_neighbors=n_neighbors, kind=kind, fit_umap_embedding=True, verbose=verbose)  # type: ignore
 
         if not inplace:
             return res

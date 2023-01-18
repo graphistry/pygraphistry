@@ -217,7 +217,7 @@ class ClusterMixin(MIXIN_BASE):
         *args,
         **kwargs,
     ):
-        """DBSCAN clustering on cpu or gpu infered automatically. 
+        """DBSCAN clustering on cpu or gpu infered automatically. Adds a `_dbscan` column to nodes or edges.
 
         Examples:
             g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
@@ -227,22 +227,24 @@ class ClusterMixin(MIXIN_BASE):
             g2 = g.umap(kind=kind).dbscan(kind=kind)
             print(g2._nodes['_dbscan']) | print(g2._edges['_dbscan'])
 
-            # dbscan with fixed parameters in umap
-            g2 = g.umap(dbscan=True)
+            # dbscan in umap or featurize API
+            g2 = g.umap(dbscan=True, min_dist=1.2, min_samples=2, **kwargs)
+            # or, here dbscan is infered from features, not umap embeddings
+            g2 = g.featurize(dbscan=True, min_dist=1.2, min_samples=2, **kwargs)
 
-            # and with greater control over parameters via chaining,
-            g2 = g.umap().dbscan(eps=1.2, min_samples=2, **kwargs)
+            # and via chaining,
+            g2 = g.umap().dbscan(min_dist=1.2, min_samples=2, **kwargs)
 
             # cluster by feature embeddings
             g2 = g.featurize().dbscan(**kwargs)
 
-            # cluster by a given set of feature column attributes
-            g2 = g.featurize().dbscan(cols=['ip_172', 'location', 'alert'], **kwargs)
+            # cluster by a given set of feature column attributes, or with target=True
+            g2 = g.featurize().dbscan(cols=['ip_172', 'location', 'alert'], target=False, **kwargs)
 
             # equivalent to above (ie, cols != None and umap=True will still use features dataframe, rather than UMAP embeddings)
             g2 = g.umap().dbscan(cols=['ip_172', 'location', 'alert'], umap=True | False, **kwargs)
 
-            g2.plot() # colored by `_dbscan` column
+            g2.plot() # color by `_dbscan` column
 
         Useful:
             Enriching the graph with cluster labels from UMAP is useful for visualizing clusters in the graph by color, size, etc,
@@ -250,13 +252,14 @@ class ClusterMixin(MIXIN_BASE):
              https://github.com/graphistry/pygraphistry/blob/master/demos/ai/cyber/cyber-redteam-umap-demo.ipynb
 
         Args:
-            eps float: The maximum distance between two samples for them to be considered as in the same neighborhood.
+            min_dist float: The maximum distance between two samples for them to be considered as in the same neighborhood.
             kind str: 'nodes' or 'edges'
-            cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features by
+            cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features or targets by
                 fragments of interest, e.g. ['ip_172', 'location', 'ssh', 'warnings']
             fit_umap_embedding bool: whether to use UMAP embeddings or features dataframe to cluster DBSCAN
             min_samples: The number of samples in a neighborhood for a point to be considered as a core point.
                 This includes the point itself.
+            target: whether to use the target column as the clustering feature
 
         """
 
@@ -267,7 +270,7 @@ class ClusterMixin(MIXIN_BASE):
             cols=cols,
             fit_umap_embedding=fit_umap_embedding,
             target=target,
-            eps=min_dist,
+            min_dist=min_dist,
             min_samples=min_samples,
             verbose=verbose,
             *args,
@@ -363,9 +366,9 @@ class ClusterMixin(MIXIN_BASE):
         args:
             df: dataframe to transform
             y: optional labels dataframe
-            eps: The maximum distance between two samples for them to be considered as in the same neighborhood.
+            min_dist: The maximum distance between two samples for them to be considered as in the same neighborhood.
                 smaller values will result in less edges between the minibatch and the original graph.
-                Default 'auto', infers eps from the mean distance and std of new points to the original graph
+                Default 'auto', infers min_dist from the mean distance and std of new points to the original graph
             fit_umap_embedding: whether to use UMAP embeddings or features dataframe when inferring edges between
                 the minibatch and the original graph. Default False, uses the features dataframe
             sample: number of samples to use when inferring edges between the minibatch and the original graph,
