@@ -276,7 +276,7 @@ class UMAPMixin(MIXIN_BASE):
                     sample: Optional[int] = None, 
                     n_neighbors: int = 7,
                     return_graph: bool = True,
-                    fit_umap_embedding: bool = False,
+                    fit_umap_embedding: bool = True,
                     verbose=False
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
         """Transforms data into UMAP embedding
@@ -517,7 +517,6 @@ class UMAPMixin(MIXIN_BASE):
         if kind == "nodes":
             index = res._nodes.index
             if res._node is None:
-
                 logger.debug("-Writing new node name")
                 res = res.nodes(  # type: ignore
                     res._nodes.reset_index(drop=True)
@@ -616,7 +615,7 @@ class UMAPMixin(MIXIN_BASE):
             res = res.prune_self_edges()
 
         if dbscan:
-            res = res.dbscan(kind=kind, fit_umap_embedding=True, verbose=verbose)  # type: ignore
+            res = res.dbscan(eps=min_dist, n_neighbors=n_neighbors, kind=kind, fit_umap_embedding=True, verbose=verbose)  # type: ignore
 
         if not inplace:
             return res
