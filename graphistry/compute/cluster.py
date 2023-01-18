@@ -172,7 +172,7 @@ class ClusterMixin(MIXIN_BASE):
         pass
 
     def _cluster_dbscan(
-        self, res, kind, cols, fit_umap_embedding, target, eps, min_samples, verbose, *args, **kwargs
+        self, res, kind, cols, fit_umap_embedding, target, min_dist, min_samples, verbose, *args, **kwargs
     ):
         """
         DBSCAN clustering on cpu or gpu infered by .engine flag
@@ -186,7 +186,7 @@ class ClusterMixin(MIXIN_BASE):
             cols=cols,
             target=target,
             fit_umap_embedding=fit_umap_embedding,
-            eps=eps,
+            min_dist=min_dist,
             min_samples=min_samples,
             verbose=verbose,
             *args,
@@ -194,9 +194,9 @@ class ClusterMixin(MIXIN_BASE):
         )
 
         dbscan = (
-            cuDBSCAN(eps=eps, min_samples=min_samples, **kwargs)
+            cuDBSCAN(eps=min_dist, min_samples=min_samples, **kwargs)
             if res.engine == CUML
-            else DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
+            else DBSCAN(eps=min_dist, min_samples=min_samples, **kwargs)
         )
 
         res = dbscan_fit(
