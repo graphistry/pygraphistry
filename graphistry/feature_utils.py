@@ -2172,9 +2172,11 @@ class FeatureMixin(MIXIN_BASE):
                      verbose=False, merge_policy=False, **kwargs):
         res = self.bind()
         if merge_policy:
+            # useful to cluster onto existing graph
             g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, 
                             n_neighbors=n_neighbors, eps=eps, sample=sample, verbose=verbose, **kwargs) 
         else:
+            # useful to cluster onto self
             g = infer_self_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, 
                                  n_neighbors=n_neighbors, eps=eps, verbose=verbose, **kwargs)
         return g
@@ -2575,8 +2577,8 @@ class FeatureMixin(MIXIN_BASE):
             )
             return self
         
-        if dbscan:
-            res = res.dbscan(kind=kind, fit_umap_embedding=False)  # type: ignore
+        if dbscan:  # this adds columns to the dataframe, will break tests of pure featurization & umap, so set to False in those
+            res = res.dbscan(eps=min_dist, n_neighbors=n_neighbors, kind=kind, fit_umap_embedding=False, verbose=verbose)  # type: ignore
 
         if not inplace:
             return res
