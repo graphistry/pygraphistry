@@ -346,7 +346,7 @@ def infer_graph(
         new_edges = pd.concat([new_edges, old_edges], axis=0).drop_duplicates()
         print(' Sampled', len(old_edges.drop_duplicates()), 'previous old edges') if verbose else None
     new_edges = new_edges.drop_duplicates()
-    print('', len(new_edges), 'total edges pairs after dropping duplicates') if verbose else None
+    print('', len(new_edges), 'total edges after dropping duplicates') if verbose else None
 
     if len(old_nodes):
         old_nodes = pd.DataFrame(old_nodes)
@@ -367,7 +367,7 @@ def infer_graph(
     new_features = pd.concat([X, FEATS.loc[old_nodes.index]], axis=0)
 
     new_nodes = pd.concat([df, old_nodes], axis=0)  # append minibatch at top
-    print("** Final graph has", len(new_nodes), "nodes") if verbose else None
+    print(" ** Final graph has", len(new_nodes), "nodes") if verbose else None
     print(" - Batch has", len(df), "nodes") if verbose else None
     print(" - Brought in", len(old_nodes), "nodes") if verbose else None
 
@@ -474,8 +474,8 @@ def infer_self_graph(res,
     
     new_edges = pd.DataFrame(new_edges, columns=[src, dst, WEIGHT, BATCH])
     new_edges = new_edges.drop_duplicates()
-    print('', len(new_edges), 'total edges pairs after dropping duplicates') if verbose else None
-    print("** Final graph has", len(df), "nodes") if verbose else None
+    print('', len(new_edges), 'total edges after dropping duplicates') if verbose else None
+    print(" ** Final graph has", len(df), "nodes") if verbose else None
     # #########################################################
     print("-" * 50) if verbose else None
     return hydrate_graph(res, df, new_edges, node, src, dst, emb, X, y)

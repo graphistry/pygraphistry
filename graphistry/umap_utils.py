@@ -271,7 +271,7 @@ class UMAPMixin(MIXIN_BASE):
     def transform_umap(self, df: pd.DataFrame, 
                     y: Optional[pd.DataFrame] = None, 
                     kind: str = 'nodes', 
-                    eps: Union[str, float, int] = 'auto', 
+                    min_dist: Union[str, float, int] = 'auto', 
                     merge_policy: bool = False,
                     sample: Optional[int] = None, 
                     n_neighbors: int = 7,
@@ -300,7 +300,7 @@ class UMAPMixin(MIXIN_BASE):
         if return_graph and kind not in ["edges"]:
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
-                                  eps=eps, sample=sample, n_neighbors=n_neighbors,
+                                  eps=min_dist, sample=sample, n_neighbors=n_neighbors,
                                   verbose=verbose) 
             return g        
         return emb, X, y_

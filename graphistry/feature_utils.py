@@ -2195,7 +2195,7 @@ class FeatureMixin(MIXIN_BASE):
     def transform(self, df: pd.DataFrame, 
                   y: Optional[pd.DataFrame] = None, 
                   kind: str = 'nodes', 
-                  eps: Union[str, float, int] = 'auto', 
+                  min_dist: Union[str, float, int] = 'auto', 
                   merge_policy: bool = False,
                   sample: Optional[int] = None, 
                   n_neighbors: Optional[int] = None,
@@ -2233,7 +2233,7 @@ class FeatureMixin(MIXIN_BASE):
         if return_graph and kind not in ["edges"]:
             emb = None  # will not be able to infer graph from umap coordinates, 
             # but will be able to infer graph from features of existing edges
-            g = self._infer_edges(emb, X, y_, df, eps=eps, sample=sample, n_neighbors=n_neighbors,
+            g = self._infer_edges(emb, X, y_, df, eps=min_dist, sample=sample, n_neighbors=n_neighbors,
                                   infer_on_umap_embedding=False, merge_policy=merge_policy,
                                   verbose=verbose)
             return g
@@ -2396,6 +2396,8 @@ class FeatureMixin(MIXIN_BASE):
         inplace: bool = False,
         feature_engine: FeatureEngine = "auto",
         dbscan: bool = False,
+        min_dist: float = 0.5,  # DBSCAN eps
+        n_neighbors: int = 5,  # DBSCAN min_samples
         memoize: bool = True,
         verbose: bool = False,
     ):
@@ -2493,6 +2495,9 @@ class FeatureMixin(MIXIN_BASE):
         :param keep_n_decimals: number of decimals to keep                
         :param remove_node_column: whether to remove node column so it is
                 not featurized, default True.
+        :param dbscan: whether to run DBSCAN, default False.
+        :param min_dist: DBSCAN eps parameter, default 0.5.
+        :param min_samples: DBSCAN min_samples parameter, default 5.
         :param inplace: whether to not return new graphistry instance or
                 not, default False.
         :param memoize: whether to store and reuse results across runs,
