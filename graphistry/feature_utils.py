@@ -2045,7 +2045,6 @@ class FeatureMixin(MIXIN_BASE):
         res._node_target = encoder.y
         res._node_target_raw = encoder.y_orignal  # .copy()
         res._node_encoder = encoder  # now this does
-        
         # all the work `._node_encoder.transform(df, y)` etc
 
         return res
@@ -2296,7 +2295,7 @@ class FeatureMixin(MIXIN_BASE):
         """
                 
         if df is None:  # use the original data
-            X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)
+            X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)  # type: ignore
         else:
             X, y = self.transform(df, y, kind=kind, return_graph=False, scaled=False)
 
