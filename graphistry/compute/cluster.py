@@ -131,6 +131,7 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
         print('-' * len(message))
         print(message)
         print(f"--fit on {'umap embeddings' if use_umap_embedding else 'feature embeddings'} of size {X.shape}")
+        print('-' * len(message))
 
     return g
 
