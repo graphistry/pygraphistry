@@ -272,12 +272,12 @@ class UMAPMixin(MIXIN_BASE):
                     y: Optional[pd.DataFrame] = None, 
                     kind: str = 'nodes', 
                     min_dist: Union[str, float, int] = 'auto', 
+                    n_neighbors: int = 7,
                     merge_policy: bool = False,
                     sample: Optional[int] = None, 
-                    n_neighbors: int = 7,
                     return_graph: bool = True,
                     fit_umap_embedding: bool = True,
-                    verbose=False
+                    verbose: bool = False
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
         """Transforms data into UMAP embedding
         
@@ -285,11 +285,11 @@ class UMAPMixin(MIXIN_BASE):
             df: Dataframe to transform
             y: Target column
             kind: One of `nodes` or `edges`
-            min_dist: Epsilon for DBSCAN
+            min_dist: Epsilon for including neighbors in infer_graph
+            n_neighbors: Number of neighbors to use for contextualization
             merge_policy: if True, use previous graph, adding new batch to existing graph's neighbors
                 useful to contextualize new data against existing graph. If False, `sample` is irrelevant.
             sample: Sample number of existing graph's neighbors to use for contextualization -- helps make denser graphs
-            n_neighbors: Number of neighbors to use for contextualization
             return_graph: Whether to return a graph or just the embeddings
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data
             verbose: Whether to print information about the graph inference

@@ -223,6 +223,7 @@ def hydrate_graph(res, new_nodes, new_edges, node, src, dst, new_emb, new_featur
     g._node_embedding = new_emb
     g._node_features = new_features
     g._node_targets = new_targets
+    g = g.settings(url_params={'play': 0})
     return g
     
 

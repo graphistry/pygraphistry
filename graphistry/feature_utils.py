@@ -2196,9 +2196,9 @@ class FeatureMixin(MIXIN_BASE):
                   y: Optional[pd.DataFrame] = None, 
                   kind: str = 'nodes', 
                   min_dist: Union[str, float, int] = 'auto', 
+                  n_neighbors: int = 7,
                   merge_policy: bool = False,
                   sample: Optional[int] = None, 
-                  n_neighbors: Optional[int] = None,
                   return_graph: bool = True,
                   scaled: bool = True,
                   verbose: bool = False):
@@ -2211,13 +2211,13 @@ class FeatureMixin(MIXIN_BASE):
                 kind: str  # one of `nodes`, `edges`
                 return_graph: bool, if True, will return a graph with inferred edges.
                 merge_policy: bool, if True, adds batch to existing graph nodes via nearest neighbors. 
-                    If False, will infer edges only between nodes in the batch.
-                min_dist: float, if return_graph is True, will use this value for eps in NN search, or 'auto' to infer a good value
-                    eps represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
+                    If False, will infer edges only between nodes in the batch, default False
+                min_dist: float, if return_graph is True, will use this value in NN search, or 'auto' to infer a good value
+                    min_dist represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
                 sample: int, if return_graph is True, will use sample edges of existing graph to fill out the new graph
-                n_neighbors: int, optional (default = 15), if return_graph is True, will use this value for n_neighbors in NN search
-                scaled: bool, if True, will use scaled transformation of data set during featurization
-                verbose: bool, if True, will print metadata about the graph construction
+                n_neighbors: int, if return_graph is True, will use this value for n_neighbors in Nearest Neighbors search
+                scaled: bool, if True, will use scaled transformation of data set during featurization, default True
+                verbose: bool, if True, will print metadata about the graph construction, default False
             returns:
                 X, y: pd.DataFrame, transformed data if return_graph is False
                     or a graphistry Plottable with inferred edges if return_graph is True
@@ -2241,7 +2241,7 @@ class FeatureMixin(MIXIN_BASE):
 
     def scale(
         self,
-        df: pd.DataFrame,
+        df: Optional[pd.DataFrame] = None,
         y: Optional[pd.DataFrame] = None,
         kind: str = "nodes",
         use_scaler: Union[str, None] = None,
@@ -2275,7 +2275,7 @@ class FeatureMixin(MIXIN_BASE):
 
 
             args:
-                df: pd.DataFrame, raw data to transform
+                df: pd.DataFrame, raw data to transform, if None, will use data from featurization fit
                 y: pd.DataFrame, optional target data
                 kind: str, one of `nodes`, `edges`
                 use_scaler: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
@@ -2383,13 +2383,11 @@ class FeatureMixin(MIXIN_BASE):
         impute: bool = True,
         n_quantiles: int = 100,
         output_distribution: str = "normal",
-        quantile_range=(25, 75),
+        quantile_range = (25, 75),
         n_bins: int = 10,
         encode: str = "ordinal",
         strategy: str = "uniform",
-        similarity: Optional[
-            str
-        ] = None,  # turn this off in favor of Gap Encoder
+        similarity: Optional[str] = None,  # turn this off in favor of Gap Encoder
         categories: Optional[str] = "auto",
         keep_n_decimals: int = 5,
         remove_node_column: bool = True,
@@ -2397,7 +2395,7 @@ class FeatureMixin(MIXIN_BASE):
         feature_engine: FeatureEngine = "auto",
         dbscan: bool = False,
         min_dist: float = 0.5,  # DBSCAN eps
-        n_neighbors: int = 5,  # DBSCAN min_samples
+        min_samples: int = 1,  # DBSCAN min_samples
         memoize: bool = True,
         verbose: bool = False,
     ):
@@ -2484,7 +2482,7 @@ class FeatureMixin(MIXIN_BASE):
                 can return distribution as ["normal", "uniform"]
         :param quantile_range: if use_scaler = 'robust'|'quantile', 
                 sets the quantile range.
-        :param n_bins: number of bins to use in kbins discretizer
+        :param n_bins: number of bins to use in kbins discretizer, default 10
         :param encode: encoding for KBinsDiscretizer, can be one of
                 `onehot`, `onehot-dense`, `ordinal`, default 'ordinal'
         :param strategy: strategy for KBinsDiscretizer, can be one of
@@ -2492,12 +2490,12 @@ class FeatureMixin(MIXIN_BASE):
         :param n_quantiles: if use_scaler = "quantile", sets the number of quantiles, default=100
         :param output_distribution: if use_scaler="quantile"|"robust", 
                 choose from ["normal", "uniform"]
-        :param keep_n_decimals: number of decimals to keep                
-        :param remove_node_column: whether to remove node column so it is
-                not featurized, default True.
         :param dbscan: whether to run DBSCAN, default False.
         :param min_dist: DBSCAN eps parameter, default 0.5.
         :param min_samples: DBSCAN min_samples parameter, default 5.
+        :param keep_n_decimals: number of decimals to keep                
+        :param remove_node_column: whether to remove node column so it is
+                not featurized, default True.
         :param inplace: whether to not return new graphistry instance or
                 not, default False.
         :param memoize: whether to store and reuse results across runs,
@@ -2583,7 +2581,7 @@ class FeatureMixin(MIXIN_BASE):
             return self
         
         if dbscan:  # this adds columns to the dataframe, will break tests of pure featurization & umap, so set to False in those
-            res = res.dbscan(min_dist=min_dist, kind=kind, fit_umap_embedding=False, verbose=verbose)  # type: ignore
+            res = res.dbscan(min_dist=min_dist, min_samples=min_samples, kind=kind, fit_umap_embedding=False, verbose=verbose)  # type: ignore
 
         if not inplace:
             return res
