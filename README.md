@@ -564,7 +564,7 @@ See `help(g.search_graph)` for options
       g2.predict_links_all(threshold=0.95).plot()
     ```
 
-See `help(g.embed)`, `help(g.predict_links)` , `help(g.predict_links_all)` for options
+See `help(g.embed)`, `help(g.predict_links)` , or `help(g.predict_links_all)` for options
 
 ### DBSCAN 
 
