@@ -397,7 +397,7 @@ See `help(g.featurize)` for more options
 
 ### [sklearn-based UMAP](https://umap-learn.readthedocs.io/en/latest/), [cuML-based UMAP](https://docs.rapids.ai/api/cuml/stable/api.html?highlight=umap#cuml.UMAP)
 
-* Reduce dimensionality and plot a similarity graph from feature vectors:
+* Reduce dimensionality by plotting a similarity graph from feature vectors:
 
     ```python
       # automatic feature engineering, UMAP
