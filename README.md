@@ -363,7 +363,7 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     from sklearn.ensemble import RandomForestRegressor
     model = RandomForestRegressor().fit(X, y)  # assumes train/test split
     new_df = pandas.read_csv(...)  # mini batch
-    X_new, _ = g.transform(new_df, None, kind='nodes')
+    X_new, _ = g.transform(new_df, None, kind='nodes', return_graph=False)
     preds = model.predict(X_new)
     ```
 
