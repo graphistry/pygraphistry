@@ -403,7 +403,7 @@ See `help(g.featurize)` for more options
       # automatic feature engineering, UMAP
       g = graphistry.nodes(df).umap()
       
-      # plot the similarity graph even though there was no explicit edge_dataframe passed in -- it is created during UMAP.
+      # plot the similarity graph without any explicit edge_dataframe passed in -- it is created during UMAP.
       g.plot()
     ```
 
