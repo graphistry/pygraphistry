@@ -1734,11 +1734,9 @@ class FastEncoder:
     def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target):
         """Transform with scaling fit durning fit."""
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
-        if scaling_pipeline is not None:
-            #print("scaling")
+        if scaling_pipeline is not None and not X.empty:
             X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
-        if scaling_pipeline_target is not None:
-            #print("scaling target")
+        if scaling_pipeline_target is not None and y is not None and not y.empty:
             y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns, index=y.index)
         return X, y
     
