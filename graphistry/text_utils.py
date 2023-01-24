@@ -246,15 +246,15 @@ class SearchToGraphMixin(MIXIN_BASE):
         emb = None
         try:
             tdf = rdf.iloc[found_indices]
-            feats = res._node_features.iloc[found_indices]
+            feats = res._node_features.iloc[found_indices]  # type: ignore
             if res._umap is not None:
-                emb = res._node_embedding.iloc[found_indices]
+                emb = res._node_embedding.iloc[found_indices]  # type: ignore
         except Exception as e:  # for explicit relabeled nodes
             logger.exception(e)
             tdf = rdf[df[node].isin(found_indices)]
-            feats = res._node_features.loc[tdf.index]
+            feats = res._node_features.loc[tdf.index]  # type: ignore
             if res._umap is not None:
-                emb = res._node_embedding[df[node].isin(found_indices)]
+                emb = res._node_embedding[df[node].isin(found_indices)]  # type: ignore
         logger.info(f" - Returning edge dataframe of size {edges.shape[0]}")
         # get all the unique nodes
         logger.info(
@@ -262,6 +262,7 @@ class SearchToGraphMixin(MIXIN_BASE):
         )
 
         g = res.edges(edges, src, dst).nodes(tdf, node)
+        # add them back so they sync with .dbscan etc calls
         g._node_features = feats
         g._node_embedding = emb
 
