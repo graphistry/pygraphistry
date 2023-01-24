@@ -358,12 +358,12 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     g = g.umap()  # UMAP, GNNs, use features if already provided, otherwise will compute
 
     # other pydata libraries
-    X = g._node_features  # g._get_feature('nodes')
-    y = g._node_target  # g._get_target('nodes')
+    X = g._node_features  # g._get_feature('nodes') or g.get_matrix()
+    y = g._node_target  # g._get_target('nodes') or g.get_matrix(target=True)
     from sklearn.ensemble import RandomForestRegressor
-    model = RandomForestRegressor().fit(X, y) #assumes train/test split
-    new_df = pandas.read_csv(...)
-    X_new, _ = g.transform(new_df, None, kind='nodes')
+    model = RandomForestRegressor().fit(X, y)  # assumes train/test split
+    new_df = pandas.read_csv(...)  # mini batch
+    X_new, _ = g.transform(new_df, None, kind='nodes', return_graph=False)
     preds = model.predict(X_new)
     ```
 
@@ -371,7 +371,7 @@ Automatically and intelligently transform text, numbers, booleans, and other for
 
    ```python
     # graphistry
-    from graphistry.features import search_model, topic_model, ngrams_model, ModelDict, default_featurize_parameters
+    from graphistry.features import search_model, topic_model, ngrams_model, ModelDict, default_featurize_parameters, default_umap_parameters
 
     g = graphistry.nodes(df)
     g2 = g.umap(X=[..], y=[..], **search_model)  
@@ -381,7 +381,7 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     new_model.update(dict(
                       y=[...],
                       kind='edges', 
-                      model_name='sbert/hf/a_cool_transformer_model', 
+                      model_name='sbert/cool_transformer_model', 
                       use_scaler_target='kbins', 
                       n_bins=11, 
                       strategy='normal'))
@@ -397,13 +397,13 @@ See `help(g.featurize)` for more options
 
 ### [sklearn-based UMAP](https://umap-learn.readthedocs.io/en/latest/), [cuML-based UMAP](https://docs.rapids.ai/api/cuml/stable/api.html?highlight=umap#cuml.UMAP)
 
-* Reduce dimensionality and plot a similarity graph from feature vectors:
+* Reduce dimensionality by plotting a similarity graph from feature vectors:
 
     ```python
       # automatic feature engineering, UMAP
       g = graphistry.nodes(df).umap()
       
-      # plot the similarity graph even though there was no explicit edge_dataframe passed in -- it is created during UMAP.
+      # plot the similarity graph without any explicit edge_dataframe passed in -- it is created during UMAP.
       g.plot()
     ```
 
@@ -411,8 +411,20 @@ See `help(g.featurize)` for more options
 
     ```python
       new_df = pd.read_csv(...)
-      embeddings, X_new, _ = g.transform_umap(new_df, None, kind='nodes')
+      embeddings, X_new, _ = g.transform_umap(new_df, None, kind='nodes', return_graph=False)
     ```
+* Infer a new graph from new data using the old umap coordinates to run inference without having to train a new umap fit.
+
+    ```python
+      new_df = pd.read_csv(...)
+      g2 = g.transform_umap(new_df, return_graph=True)   # return_graph=True is default
+      g2.plot()  # 
+      
+      # or if you want the new minibatch to cluster to closest points in previous fit:
+      g3 = g.transform_umap(new_df, return_graph=True, merge_policy=True)
+      g3.plot()  # useful to see how new data connects to old -- can play with `sample` and `n_neighbors` to control how much of old to include
+    ```
+    
 
 * UMAP supports many options, such as supervised mode, working on a subset of columns, and passing arguments to underlying `featurize()` and UMAP implementations (see `help(g.umap)`):
 
@@ -552,7 +564,7 @@ See `help(g.search_graph)` for options
       g2.predict_links_all(threshold=0.95).plot()
     ```
 
-See `help(g.embed)`, `help(g.predict_links)` , `help(g.predict_links_all)` for options
+See `help(g.embed)`, `help(g.predict_links)` , or `help(g.predict_links_all)` for options
 
 ### DBSCAN 
 
@@ -564,13 +576,13 @@ See `help(g.embed)`, `help(g.predict_links)` , `help(g.predict_links_all)` for o
       # cluster by UMAP embeddings
       kind = 'nodes' | 'edges'
       g2 = g.umap(kind=kind).dbscan(kind=kind)
-      print(g2._nodes['_cluster']) | print(g2._edges['_cluster'])
+      print(g2._nodes['_dbscan']) | print(g2._edges['_dbscan'])
 
-      # dbscan with fixed parameters is default in umap
-      g2 = g.umap(dbscan=True)
+      # dbscan in umap or featurize via flag
+      g2 = g.umap(dbscan=True, min_dist=0.2, min_samples=1)
       
-      # and with greater control over parameters via chaining,
-      g2 = g.umap().dbscan(eps=1.2, min_samples=2, **kwargs)
+      # or via chaining,
+      g2 = g.umap().dbscan(min_dist=1.2, min_samples=2, **kwargs)
       
       # cluster by feature embeddings
       g2 = g.featurize().dbscan(**kwargs)
@@ -580,10 +592,14 @@ See `help(g.embed)`, `help(g.predict_links)` , `help(g.predict_links_all)` for o
       
       # equivalent to above (ie, cols != None and umap=True will still use features dataframe, rather than UMAP embeddings)
       g2 = g.umap().dbscan(cols=['ip_172', 'location', 'alert'], umap=True | False, **kwargs)
-      g2.plot() # color by `_cluster`
+      g2.plot() # color by `_dbscan`
+      
+      new_df = pd.read_csv(..)
+      # transform on new data according to fit dbscan model
+      g3 = g.transform_dbscan(new_df)
     ```
 
-See `help(g.dbscan)` for options
+See `help(g.dbscan)` or `help(g.transform_dbscan)` for options
 
 ### Quickly configurable
 
