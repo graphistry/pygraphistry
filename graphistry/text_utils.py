@@ -250,16 +250,11 @@ class SearchToGraphMixin(MIXIN_BASE):
             if res._umap is not None:
                 emb = res._node_embedding.iloc[found_indices]
         except Exception as e:  # for explicit relabeled nodes
-            #print(e)
+            logger.exception(e)
             tdf = rdf[df[node].isin(found_indices)]
             feats = res._node_features.loc[tdf.index]
-            #print(node, feats.shape)
             if res._umap is not None:
                 emb = res._node_embedding[df[node].isin(found_indices)]
-            #print('working')
-            
-            #print(tdf.shape, feats.shape)
-            #print(emb.shape) if emb is not None else None
         logger.info(f" - Returning edge dataframe of size {edges.shape[0]}")
         # get all the unique nodes
         logger.info(
