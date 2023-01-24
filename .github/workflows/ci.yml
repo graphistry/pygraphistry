@@ -209,6 +209,11 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-features.sh
 
+    - name: Full search tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-text.sh
+
     - name: Full umap tests (rich featurize)
       run: |
         source pygraphistry/bin/activate
