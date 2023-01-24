@@ -519,15 +519,6 @@ class DGLGraphMixin(MIXIN_BASE):
                 self.DGL_graph.edata[config.TEST_MASK],
             ) = get_torch_train_test_mask(n, self.train_split)
 
-    def __getitem__(self, idx):
-        # get one example by index, here we have only one graph. #todo parameterize case if we have RGNN
-        if self.DGL_graph is None:
-            logger.warning("DGL graph is not built, run `g.build_gnn(...)` first")
-        return self.DGL_graph
-
-    # def __len__(self): # this messes up scope.
-    #     # number of data examples
-    #     return 1
 
 
 # if __name__ == "__main__":

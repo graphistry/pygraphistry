@@ -123,6 +123,9 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
 
     kind = "node" if kind == "nodes" else "edge"
     setattr(g, f"_{kind}_dbscan", dbscan)
+    
+    if cols is not None:  # set False since we used the features for verbose
+        use_umap_embedding = False
 
     if verbose:
         cnt = Counter(labels)
@@ -140,7 +143,6 @@ def dbscan_predict(X: pd.DataFrame, model):
     """
     DBSCAN has no predict per se, so we reverse engineer one here
     from https://stackoverflow.com/questions/27822752/scikit-learn-predicting-new-points-with-dbscan
-    
     
     """
     n_samples = X.shape[0]
