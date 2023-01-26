@@ -2,13 +2,12 @@ import logging
 import pandas as pd
 import numpy as np
 
-from typing import Any, List, Union, TYPE_CHECKING, Tuple, Optional, Dict, Callable
+from typing import Any, List, Union, TYPE_CHECKING, Tuple, Optional
 from typing_extensions import Literal
 from collections import Counter
 
-from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
-from graphistry.constants import CUML, UMAP_LEARN, DBSCAN, DBSCAN_PARAMS  # noqa type: ignore
+from graphistry.constants import CUML, UMAP_LEARN, DBSCAN  # noqa type: ignore
 from graphistry.features import ModelDict
 from graphistry.feature_utils import get_matrix_by_column_parts
 
@@ -67,7 +66,7 @@ def resolve_cpu_gpu_engine(
     )
 
 
-def get_model_matrix(g, kind, cols, umap, target):
+def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, target):
     """
         Allows for a single function to get the model matrix for both nodes and edges as well as targets, embeddings, and features
 
@@ -95,7 +94,7 @@ def get_model_matrix(g, kind, cols, umap, target):
     return df
 
 
-def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, target=False, verbose=False):
+def dbscan_fit(g: Any, dbscan: Any, kind:str="nodes", cols: Optional[Union[List, str]]=None, use_umap_embedding:bool=True, target:bool=False, verbose:bool=False):
     """
     Fits clustering on UMAP embeddings if umap is True, otherwise on the features dataframe
         or target dataframe if target is True.
@@ -104,7 +103,7 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
         g: graphistry graph
         kind: 'nodes' or 'edges'
         cols: list of columns to use for clustering given `g.featurize` has been run
-        umap: whether to use UMAP embeddings or features dataframe
+        use_umap_embedding: whether to use UMAP embeddings or features dataframe for clustering (default: True)
     """
     X = get_model_matrix(g, kind, cols, use_umap_embedding, target)
     
@@ -139,7 +138,7 @@ def dbscan_fit(g, dbscan, kind="nodes", cols=None, use_umap_embedding=True, targ
     return g
 
 
-def dbscan_predict(X: pd.DataFrame, model):
+def dbscan_predict(X: pd.DataFrame, model: Any):
     """
     DBSCAN has no predict per se, so we reverse engineer one here
     from https://stackoverflow.com/questions/27822752/scikit-learn-predicting-new-points-with-dbscan
@@ -160,14 +159,6 @@ def dbscan_predict(X: pd.DataFrame, model):
             y_new[i] = model.labels_[model.core_sample_indices_[shortest_dist_idx]]
 
     return y_new
-
-
-# def dbscan_predict2(g, kind="nodes", cols=None, umap=True):
-#     X = g._get_feature(kind)
-#     dbscan = g._node_dbscan if kind == "nodes" else g._edge_dbscan
-
-#     preds = dbscan_predict(X, dbscan)
-#     return X, preds
 
 
 class ClusterMixin(MIXIN_BASE):
@@ -195,9 +186,9 @@ class ClusterMixin(MIXIN_BASE):
         )
 
         dbscan = (
-            cuDBSCAN(eps=min_dist, min_samples=min_samples, **kwargs)
+            cuDBSCAN(eps=min_dist, min_samples=min_samples, *args, **kwargs)
             if res.engine == CUML
-            else DBSCAN(eps=min_dist, min_samples=min_samples, **kwargs)
+            else DBSCAN(eps=min_dist, min_samples=min_samples, *args, **kwargs)
         )
 
         res = dbscan_fit(
@@ -210,11 +201,11 @@ class ClusterMixin(MIXIN_BASE):
         self,
         min_dist: float = 0.2,
         min_samples: int = 1,
-        cols=None,
-        kind="nodes",
-        fit_umap_embedding=True,
-        target=False,
-        verbose=False,
+        cols: Optional[Union[List, str]] = None,
+        kind: str = "nodes",
+        fit_umap_embedding: bool = True,
+        target: bool = False,
+        verbose: bool = False,
         *args,
         **kwargs,
     ):
