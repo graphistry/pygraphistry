@@ -376,7 +376,7 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     g = graphistry.nodes(df)
     g2 = g.umap(X=[..], y=[..], **search_model)  
 
-    # set custom encoding model with any feature kwargs
+    # set custom encoding model with any feature/umap/dbscan kwargs
     new_model = ModelDict(message='encoding new model parameters is easy', **default_featurize_parameters)
     new_model.update(dict(
                       y=[...],
@@ -389,7 +389,6 @@ Automatically and intelligently transform text, numbers, booleans, and other for
 
     g3 = g.umap(X=[..], **new_model)
     # compare g2 vs g3 or add to different pipelines
-    # ...
     ```
 
 
@@ -413,7 +412,7 @@ See `help(g.featurize)` for more options
       new_df = pd.read_csv(...)
       embeddings, X_new, _ = g.transform_umap(new_df, None, kind='nodes', return_graph=False)
     ```
-* Infer a new graph from new data using the old umap coordinates to run inference without having to train a new umap fit.
+* Infer a new graph from new data using the old umap coordinates to run inference without having to train a new umap model.
 
     ```python
       new_df = pd.read_csv(...)
@@ -422,7 +421,7 @@ See `help(g.featurize)` for more options
       
       # or if you want the new minibatch to cluster to closest points in previous fit:
       g3 = g.transform_umap(new_df, return_graph=True, merge_policy=True)
-      g3.plot()  # useful to see how new data connects to old -- can play with `sample` and `n_neighbors` to control how much of old to include
+      g3.plot()  # useful to see how new data connects to old -- play with `sample` and `n_neighbors` to control how much of old to include
     ```
     
 
@@ -463,11 +462,11 @@ See `help(g.umap)` for more options
 
     from [your_training_pipeline] import train, model
     # Train
-    g = graphistry.nodes(df).build_gnn(y=`target`) 
+    g = graphistry.nodes(df).build_gnn(y_nodes=`target`) 
     G = g.DGL_graph
     train(G, model)
     # predict on new data
-    X_new, _ = g.transform(new_df, None, kind='nodes' or 'edges') # no targets
+    X_new, _ = g.transform(new_df, None, kind='nodes' or 'edges', return_graph=False) # no targets
     predictions = model.predict(G_new, X_new)
     ```
 
@@ -492,12 +491,21 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
                         #encode text as paraphrase embeddings, supports any sbert model
                         model_name = "paraphrase-MiniLM-L6-v2")
                         
+      # or use convienence `ModelDict` to store parameters
+      
+      from graphistry.features import search_model
+      g2 = g.featurize(X = ['text_col_1', .., 'text_col_n'], kind='nodes', **search_model)
+     
+      # query using the power of transformers to find richly relevant results                   
+      
       results_df, query_vector = g2.search('my natural language query', ...)
       
-      print(results_df[['_distance', ..., 'text_col_n']])  #sorted by relevancy
+      print(results_df[['_distance', 'text_col', ..]])  #sorted by relevancy
       
-      # or see graph of matching entities and similarity edges (or optional original edges)
+      # or see graph of matching entities and original edges
+      
       g2.search_graph('my natural language query', ...).plot()
+      
     ```
 
     
@@ -578,7 +586,7 @@ See `help(g.embed)`, `help(g.predict_links)` , or `help(g.predict_links_all)` fo
       g2 = g.umap(kind=kind).dbscan(kind=kind)
       print(g2._nodes['_dbscan']) | print(g2._edges['_dbscan'])
 
-      # dbscan in umap or featurize via flag
+      # dbscan in `umap` or `featurize` via flag
       g2 = g.umap(dbscan=True, min_dist=0.2, min_samples=1)
       
       # or via chaining,
@@ -587,7 +595,7 @@ See `help(g.embed)`, `help(g.predict_links)` , or `help(g.predict_links_all)` fo
       # cluster by feature embeddings
       g2 = g.featurize().dbscan(**kwargs)
       
-      # cluster by a given set of feature column attributes 
+      # cluster by a given set of feature column attributes, inhereted from `g.get_matrix(cols)`
       g2 = g.featurize().dbscan(cols=['ip_172', 'location', 'alert'], **kwargs)
       
       # equivalent to above (ie, cols != None and umap=True will still use features dataframe, rather than UMAP embeddings)
@@ -596,7 +604,7 @@ See `help(g.embed)`, `help(g.predict_links)` , or `help(g.predict_links_all)` fo
       
       new_df = pd.read_csv(..)
       # transform on new data according to fit dbscan model
-      g3 = g.transform_dbscan(new_df)
+      g3 = g2.transform_dbscan(new_df)
     ```
 
 See `help(g.dbscan)` or `help(g.transform_dbscan)` for options
