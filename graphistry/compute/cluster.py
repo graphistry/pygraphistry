@@ -94,7 +94,7 @@ def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, targe
     return df
 
 
-def dbscan_fit(g: Any, dbscan: Any, kind:str="nodes", cols: Optional[Union[List, str]]=None, use_umap_embedding:bool=True, target:bool=False, verbose:bool=False):
+def dbscan_fit(g: Any, dbscan: Any, kind: str = "nodes", cols: Optional[Union[List, str]] = None, use_umap_embedding: bool = True, target: bool = False, verbose: bool = False):
     """
     Fits clustering on UMAP embeddings if umap is True, otherwise on the features dataframe
         or target dataframe if target is True.
