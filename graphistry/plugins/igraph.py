@@ -345,36 +345,46 @@ def compute_igraph(
 
     import igraph
 
-    if alg not in compute_algs:
-        raise ValueError(f'Unexpected parameter alg "{alg}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
+    ig = None
 
-    if out_col is None:
-        out_col = alg
-
-    try:
-        ig = self.to_igraph(directed=True if directed is None else directed, use_vids=use_vids)
-        out = getattr(ig, alg)(**params)
-    except NotImplementedError as e:
-        if directed is None:
-            ig = self.to_igraph(directed=False, use_vids=use_vids)
-            out = getattr(ig, alg)(**params)
-        else:
-            raise e
-
-    if isinstance(out, igraph.clustering.VertexClustering):
-        clustering = out.membership
-    elif isinstance(out, igraph.clustering.VertexDendrogram):
-        clustering = out.as_clustering().membership
-    elif isinstance(out, igraph.Graph):
-        return from_igraph(self, out)
-    elif isinstance(out, list) and self._nodes is None:
-        raise ValueError("No g._nodes table found; use .bind(), .nodes(), .materialize_nodes()")
-    elif len(out) == len(self._nodes):
-        clustering = out
+    algs = []
+    if isinstance(alg,list):
+        algs = alg
     else:
-        raise RuntimeError(f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')    
+        algs.append(alg)
 
-    ig.vs[out_col] = clustering
+    for alg in algs:
+        if alg not in compute_algs:
+            raise ValueError(f'Unexpected parameter alg "{alg}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
+
+        if out_col is None:
+            out_col = alg
+
+        if ig is None:
+            try:
+                ig = self.to_igraph(directed=True if directed is None else directed, use_vids=use_vids)
+                out = getattr(ig, alg)(**params)
+            except NotImplementedError as e:
+                if directed is None:
+                    ig = self.to_igraph(directed=False, use_vids=use_vids)
+                    out = getattr(ig, alg)(**params)
+                else:
+                    raise e
+
+        if isinstance(out, igraph.clustering.VertexClustering):
+            clustering = out.membership
+        elif isinstance(out, igraph.clustering.VertexDendrogram):
+            clustering = out.as_clustering().membership
+        elif isinstance(out, igraph.Graph):
+            return from_igraph(self, out)
+        elif isinstance(out, list) and self._nodes is None:
+            raise ValueError("No g._nodes table found; use .bind(), .nodes(), .materialize_nodes()")
+        elif len(out) == len(self._nodes):
+            clustering = out
+        else:
+            raise RuntimeError(f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')
+
+        ig.vs[out_col] = clustering
 
     return self.from_igraph(ig)
 
