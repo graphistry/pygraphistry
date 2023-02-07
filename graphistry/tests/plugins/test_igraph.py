@@ -516,6 +516,11 @@ class Test_igraph_compute(NoAuthTestCase):
                         warnings.filterwarnings("ignore", category=FutureWarning)
                         assert compute_igraph(g, alg, **opts) is not None
 
+        multiple = compute_igraph(g,['pagerank','cocitation','closeness','betweenness'])
+        assert 'closeness' in multiple._nodes.columns
+        assert 'betweenness' in multiple._nodes.columns
+
+
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_layouts(NoAuthTestCase):
 

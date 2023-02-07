@@ -353,23 +353,29 @@ def compute_igraph(
     else:
         algs.append(alg)
 
-    for alg in algs:
-        if alg not in compute_algs:
-            raise ValueError(f'Unexpected parameter alg "{alg}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
+    ocs = 0 # a variable to keep track if out_col is set or not initially
+    for algo in algs:
+        if algo not in compute_algs:
+            raise ValueError(f'Unexpected parameter alg "{algo}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
 
         if out_col is None:
-            out_col = alg
+            out_col = algo
+            ocs = 1
+        if ocs==1:
+            out_col = algo
 
         if ig is None:
             try:
                 ig = self.to_igraph(directed=True if directed is None else directed, use_vids=use_vids)
-                out = getattr(ig, alg)(**params)
+                out = getattr(ig, algo)(**params)
             except NotImplementedError as e:
                 if directed is None:
                     ig = self.to_igraph(directed=False, use_vids=use_vids)
-                    out = getattr(ig, alg)(**params)
+                    out = getattr(ig, algo)(**params)
                 else:
                     raise e
+        else:
+            out = getattr(ig, algo)(**params)
 
         if isinstance(out, igraph.clustering.VertexClustering):
             clustering = out.membership
