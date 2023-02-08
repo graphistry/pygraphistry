@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union, Tuple, Dict
 from graphistry.constants import NODE
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -282,7 +282,8 @@ compute_algs = [
 
 def compute_igraph(
     self: Plottable,
-    alg: str,
+    # alg: str,
+    alg: Union[str, List[Union[str, Tuple[str, dict]]], Dict[str, Union[str, Tuple[str,dict]]] ],
     out_col: Optional[str] = None,
     directed: Optional[bool] = None,
     use_vids=False,
@@ -348,34 +349,55 @@ def compute_igraph(
     ig = None
 
     algs = []
-    if isinstance(alg,list):
-        algs = alg
-    else:
+    col_names = None
+    if isinstance(alg,str):
         algs.append(alg)
+    elif isinstance(alg,list):
+        algs = alg
+    elif isinstance(alg,dict):
+        algs = list(alg.values())
+        col_names = [col for col in alg]
+    # else:
+    #     raise TypeError("")
+    # Need to add error message here
 
     ocs = 0 # a variable to keep track if out_col is set or not initially
-    for algo in algs:
-        if algo not in compute_algs:
-            raise ValueError(f'Unexpected parameter alg "{algo}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
+    use_params = params
+
+    for i,algo in enumerate(algs):
+        if isinstance(algo,tuple):
+            alg_name = algo[0]
+            use_params = algo[1]
+        else:
+            alg_name = algo
+            use_params = params
+
+        if alg_name not in compute_algs:
+            raise ValueError(f'Unexpected parameter alg "{alg_name}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
+
+        # This basically checks if a dictionary of column names
+        # and algorithms was passed
+        if col_names is not None:
+            out_col = col_names[i]
 
         if out_col is None:
-            out_col = algo
+            out_col = alg_name
             ocs = 1
         if ocs==1:
-            out_col = algo
+            out_col = alg_name
 
         if ig is None:
             try:
                 ig = self.to_igraph(directed=True if directed is None else directed, use_vids=use_vids)
-                out = getattr(ig, algo)(**params)
+                out = getattr(ig, alg_name)(**use_params)
             except NotImplementedError as e:
                 if directed is None:
                     ig = self.to_igraph(directed=False, use_vids=use_vids)
-                    out = getattr(ig, algo)(**params)
+                    out = getattr(ig, alg_name)(**use_params)
                 else:
                     raise e
         else:
-            out = getattr(ig, algo)(**params)
+            out = getattr(ig, alg_name)(**use_params)
 
         if isinstance(out, igraph.clustering.VertexClustering):
             clustering = out.membership
