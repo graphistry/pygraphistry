@@ -10,7 +10,7 @@ logger = setup_logger(__name__)
 # logger.setLevel(logging.DEBUG)
 
 
-# preferring igraph naming convetions over graphistry.constants
+# preferring igraph naming conventions over graphistry.constants
 SRC_IGRAPH = 'source'
 DST_IGRAPH = 'target'
 NODE_IGRAPH = NODE
@@ -73,7 +73,7 @@ def from_igraph(self,
             ig.vs['pagerank'] = ig.pagerank()
             g2 = g.from_igraph(ig, load_edges=False, node_attributes=[g._node, 'pagerank'])
             assert 'pagerank' in g2._nodes
-            asssert 'degree' in g2._nodes
+            assert 'degree' in g2._nodes
 
     """
 
@@ -478,7 +478,7 @@ def layout_igraph(
     :param directed: During the to_igraph conversion, whether to be directed. If None, try directed and then undirected. (default None)
     :type directed: Optional[bool]
 
-    :param use_vids: Whether to use igraph vertex ids (non-negative integers) or arbitary node ids (False, default)
+    :param use_vids: Whether to use igraph vertex ids (non-negative integers) or arbitrary node ids (False, default)
     :type use_vids: bool
 
     :param bind_position: Whether to call bind(point_x=, point_y=) (default True)
