@@ -520,9 +520,12 @@ class Test_igraph_compute(NoAuthTestCase):
                                      'coci':'cocitation','cl':'closeness','bt':'betweenness'})
         assert 'cl' in multiple1._nodes.columns
         assert 'bt' in multiple1._nodes.columns
+        assert 'coci' in multiple1._nodes.columns
+        assert 'pr' in multiple1._nodes.columns
 
         multiple2 = compute_igraph(g, [('pagerank',{'damping': 0.85}),'closeness'])
         assert 'closeness' in multiple2._nodes.columns
+        assert 'pagerank' in multiple2._nodes.columns
 
 
 
