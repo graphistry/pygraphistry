@@ -13,7 +13,7 @@
 
 **PyGraphistry is a Python visual graph AI library to extract, transform, analyze, model, and visualize big graphs, and especially alongside [Graphistry](https://www.graphistry.com) end-to-end GPU server sessions.** Installing with optional `graphistry[ai]` dependencies adds **graph autoML**, including automatic feature engineering, UMAP, and graph neural net support. Combined, PyGraphistry reduces your `time to graph` for going from raw data to visualizations and AI models down to three lines of code.
 
-Graphistry gets used on problems like visually mapping the behavior of devices and users, investigating fraud, analyzing machine learning results, and starting in graph AI. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 2MM elements. The serverside GPU analytics engine supports even bigger graphs. It smoothes graph workflows over the PyData ecosystem including Pandas/Spark/Dask dataframes, Nvidia RAPIDS GPU dataframes & GPU graphs, DGL/PyTorch graph neural networks, and various data connectors.
+Graphistry gets used on problems like visually mapping the behavior of devices and users, investigating fraud, analyzing machine learning results, and starting in graph AI. It provides point-and-click features like timebars, search, filtering, clustering, coloring, sharing, and more. Graphistry is the only tool built ground-up for large graphs. The client's custom WebGL rendering engine renders up to 8MM nodes + edges at a time, and most older client GPUs smoothly support somewhere between 100K and 2MM elements. The serverside GPU analytics engine supports even bigger graphs. It smoothens graph workflows over the PyData ecosystem including Pandas/Spark/Dask dataframes, Nvidia RAPIDS GPU dataframes & GPU graphs, DGL/PyTorch graph neural networks, and various data connectors.
 
 The PyGraphistry Python client helps several kinds of usage modes:
 
@@ -276,6 +276,12 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g_a = graphistry.edges(edges, 'src', 'dst')
     g_b = g_a.layout_igraph('sugiyama', directed=True)  # directed: for to_igraph
     g_b.compute_igraph('pagerank', params={'damping': 0.85}).plot()  #params: for layout
+  
+    # 'compute_igraph' can also be passed a list of algorithms(can be string or tuple)
+    # or a dictionary with keys of type 'str' and values of type 'str' or 'tuple'.
+    # ---------------Below are some ways this can also be done----------------
+    g_b.compute_igraph({'pr':('pagerank',{'damping':0.85}), 'cl':'closeness'})
+    g_b.compute_igraph([('pagerank',{'damping':0.85}), 'closeness'])
 
     ig = igraph.read('facebook_combined.txt', format='edgelist', directed=False)
     g = graphistry.from_igraph(ig)  # full conversion
@@ -524,10 +530,10 @@ See `help(g.search_graph)` for options
                       return_dataframe=False)  # set to `True` to return dataframe, or just access via `g5._edges`
     ```
 
-* Detect Anamolous Behavior (example use cases such as Cyber, Fraud, etc)
+* Detect Anomalous Behavior (example use cases such as Cyber, Fraud, etc)
 
     ```python
-      # Score anomolous edges by setting the flag `anomalous` to True and set confidence threshold low
+      # Score anomalous edges by setting the flag `anomalous` to True and set confidence threshold low
       g5 = g.predict_links_all(threshold=0.05, anomalous=True)  # score low confidence predicted edges
       g5.plot()
 
@@ -547,7 +553,7 @@ See `help(g.search_graph)` for options
 
       g = graphistry.edges(edf, src, dst).nodes(ndf, node_column)
 
-      # inherets all the featurization `kwargs` from `g.featurize` 
+      # inherits all the featurization `kwargs` from `g.featurize` 
       g2 = g.embed(relation='relationship_column_of_interest', use_feat=True, **kwargs)
       g2.predict_links_all(threshold=0.95).plot()
     ```
@@ -810,7 +816,7 @@ Let's size nodes based on their [PageRank](http://en.wikipedia.org/wiki/PageRank
 
 [igraph](http://igraph.org/python/) already has these algorithms implemented for us for small graphs. (See our cuGraph examples for big graphs.) If igraph is not already installed, fetch it with `pip install igraph`.
 
-We start by converting our edge dateframe into an igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
+We start by converting our edge dataframe into an igraph. The plotter can do the conversion for us using the *source* and *destination* bindings. Then we compute two new node attributes (*pagerank* & *community*).
 
 ```python
 g = g.compute_igraph('pagerank', directed=True, params={'damping': 0.85}).compute_igraph('community_infomap')
@@ -846,7 +852,7 @@ For more in-depth examples, check out the tutorials on [colors](demos/more_examp
 
 ### More advanced color and size controls
 
-You may want more controls like using gradients or maping specific values:
+You may want more controls like using gradients or mapping specific values:
 
 ```python
 g.encode_edge_color('int_col')  # int32 or int64
