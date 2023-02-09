@@ -3,10 +3,11 @@ from typing import Any, List, Optional, Union, Tuple, Dict
 from graphistry.constants import NODE
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
+
 logger = setup_logger(__name__)
 
-#import logging
-#logger.setLevel(logging.DEBUG)
+# import logging
+# logger.setLevel(logging.DEBUG)
 
 
 # preferring igraph naming convetions over graphistry.constants
@@ -14,13 +15,14 @@ SRC_IGRAPH = 'source'
 DST_IGRAPH = 'target'
 NODE_IGRAPH = NODE
 
+
 def from_igraph(self,
-    ig,
-    node_attributes: Optional[List[str]] = None,
-    edge_attributes: Optional[List[str]] = None,
-    load_nodes: bool = True, load_edges: bool = True,
-    merge_if_existing: bool = True
-) -> Plottable:
+                ig,
+                node_attributes: Optional[List[str]] = None,
+                edge_attributes: Optional[List[str]] = None,
+                load_nodes: bool = True, load_edges: bool = True,
+                merge_if_existing: bool = True
+                ) -> Plottable:
     """
     Convert igraph object into Plotter
 
@@ -77,35 +79,35 @@ def from_igraph(self,
 
     g = self.bind()
 
-    #Compute nodes: need indexing for edges
+    # Compute nodes: need indexing for edges
 
     node_col = g._node or NODE
-    
+
     ig_vs_df = ig.get_vertex_dataframe()
     nodes_df = ig_vs_df
-
 
     if load_nodes:
 
         if node_col not in nodes_df:
-            #TODO if no g._nodes but 'name' in nodes_df, still use?
+            # TODO if no g._nodes but 'name' in nodes_df, still use?
             if (
-                ('name' in nodes_df) and  # noqa: W504
-                (g._nodes is not None and g._node is not None) and  # noqa: W504
-                (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
+                    ('name' in nodes_df) and  # noqa: W504
+                    (g._nodes is not None and g._node is not None) and  # noqa: W504
+                    (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
             ):
                 nodes_df = nodes_df.rename(columns={'name': node_col})
             elif ('name' in nodes_df) and (g._nodes is None):
                 nodes_df = nodes_df.rename(columns={'name': node_col})
             else:
                 nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
-        
+
         if node_attributes is not None:
-            nodes_df = nodes_df[ node_attributes ]
+            nodes_df = nodes_df[node_attributes]
 
         if g._nodes is not None and merge_if_existing:
             if len(g._nodes) != len(nodes_df):
-                logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
+                logger.warning(
+                    'node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
 
             g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
             nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
@@ -119,7 +121,7 @@ def from_igraph(self,
 
         # #####
 
-        #TODO: Reuse for g.nodes(nodes_df) as well?
+        # TODO: Reuse for g.nodes(nodes_df) as well?
 
         if len(ig_vs_df.columns) == 0:
             node_id_col = None
@@ -161,7 +163,7 @@ def from_igraph(self,
         })
 
         if edge_attributes is not None:
-            edges_df = edges_df[ edge_attributes ]
+            edges_df = edges_df[edge_attributes]
 
         if g._edges is not None and merge_if_existing:
 
@@ -172,22 +174,26 @@ def from_igraph(self,
                     g._edges.reset_index().rename(columns={g._edges.index.name or 'index': '__edge_index__'}),
                     g._source, g._destination, '__edge_index__'
                 )
-                logger.warning('edge index g._edge not set so using edge index as ID; set g._edge via g.edges(), or change merge_if_existing to False')
+                logger.warning(
+                    'edge index g._edge not set so using edge index as ID; set g._edge via g.edges(), or change merge_if_existing to False')
 
             if g_indexed._edge not in edges_df:
-                logger.warning('edge index g._edge %s missing as attribute in ig; using ig edge order for IDs', g_indexed._edge)
+                logger.warning('edge index g._edge %s missing as attribute in ig; using ig edge order for IDs',
+                               g_indexed._edge)
                 edges_df = edges_df.reset_index().rename(columns={edges_df.index.name or 'index': g_indexed._edge})
 
             if len(g_indexed._edges.columns) == 3 and (len(g_indexed._edges) == len(edges_df)):
-                #opt: skip merge: no old columns
+                # opt: skip merge: no old columns
                 1
             elif ((len(edges_df.columns) == 3) or len(edges_df.columns) == 0) and (len(g._edges) == len(edges_df)):
-                #opt: skip merge: no new columns
+                # opt: skip merge: no new columns
                 edges_df = g._edges
             else:
                 if len(g._edges) != len(edges_df):
-                    logger.warning('edge tables do not match in length; switch merge_if_existing to False or load_edges to False or add missing edges')
-                g_edges_trimmed = g_indexed._edges[[x for x in g_indexed._edges if x not in edges_df or x == g_indexed._edge]]
+                    logger.warning(
+                        'edge tables do not match in length; switch merge_if_existing to False or load_edges to False or add missing edges')
+                g_edges_trimmed = g_indexed._edges[
+                    [x for x in g_indexed._edges if x not in edges_df or x == g_indexed._edge]]
                 edges_df = edges_df.merge(g_edges_trimmed, how='left', on=g_indexed._edge)
 
             if g._edge is None:
@@ -198,13 +204,13 @@ def from_igraph(self,
     return g
 
 
-def to_igraph(self: Plottable, 
-    directed: bool = True,
-    include_nodes: bool = True,
-    node_attributes: Optional[List[str]] = None,
-    edge_attributes: Optional[List[str]] = None,
-    use_vids: bool = False
-):
+def to_igraph(self: Plottable,
+              directed: bool = True,
+              include_nodes: bool = True,
+              node_attributes: Optional[List[str]] = None,
+              edge_attributes: Optional[List[str]] = None,
+              use_vids: bool = False
+              ):
     """Convert current item to igraph Graph . See examples in from_igraph.
 
     :param directed: Whether to create a directed graph (default True)
@@ -230,15 +236,15 @@ def to_igraph(self: Plottable,
         g._node = None
         g._nodes = None
 
-    #otherwise, if no nodes, ig adds extra column 'name' to vertices
+    # otherwise, if no nodes, ig adds extra column 'name' to vertices
     g = g.materialize_nodes()
 
-    #igraph expects src/dst first
+    # igraph expects src/dst first
     edge_attrs = g._edges.columns if edge_attributes is None else edge_attributes
     edge_attrs = [x for x in edge_attrs if x not in [g._source, g._destination]]
     edges_df = g._edges[[g._source, g._destination] + edge_attrs]
 
-    #igraph expects node first
+    # igraph expects node first
     node_attrs = g._nodes if node_attributes is None else node_attributes
     node_attrs = [x for x in node_attrs if x != g._node]
     nodes_df = g._nodes[[g._node] + node_attrs]
@@ -251,8 +257,8 @@ compute_algs = [
     'authority_score',
     'betweenness',
     'bibcoupling',
-    #'biconnected_components',
-    #'bipartite_projection',
+    # 'biconnected_components',
+    # 'bipartite_projection',
     'harmonic_centrality',
     'closeness',
     'clusters',
@@ -261,7 +267,7 @@ compute_algs = [
     'community_fastgreedy',
     'community_infomap',
     'community_label_propagation',
-    #'community_leading_eigenvector_naive',  # in docs but not in code?
+    # 'community_leading_eigenvector_naive',  # in docs but not in code?
     'community_leading_eigenvector',
     'community_leiden',
     'community_multilevel',
@@ -275,19 +281,19 @@ compute_algs = [
     'eccentricity',
     'eigenvector_centrality',
     'k_core',
-    #'modularity',
+    # 'modularity',
     'pagerank',
     'spanning_tree'
 ]
 
+
 def compute_igraph(
-    self: Plottable,
-    # alg: str,
-    alg: Union[str, List[Union[str, Tuple[str, dict]]], Dict[str, Union[str, Tuple[str,dict]]] ],
-    out_col: Optional[str] = None,
-    directed: Optional[bool] = None,
-    use_vids=False,
-    params: dict = {}
+        self: Plottable,
+        alg: Union[str, List[Union[str, Tuple[str, dict]]], Dict[str, Union[str, Tuple[str, dict]]]],
+        out_col: Optional[str] = None,
+        directed: Optional[bool] = None,
+        use_vids=False,
+        params: dict = {}
 ) -> Plottable:
     """Enrich or replace graph using igraph methods
 
@@ -342,6 +348,14 @@ def compute_igraph(
                 g2 = g.compute_igraph('pagerank', params={'damping': 0.85})
                 assert 'pagerank' in g2._nodes.columns
 
+    **Example: Pagerank with custom name and parameters**
+            ::
+                import graphistry, pandas as pd
+                edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
+                g = graphistry.edges(edges, 's', 'd')
+                g2 = g.compute_igraph({'pr': ('pagerank',{'damping': 0.85})})
+                assert 'pr' in g2._nodes.columns
+
     """
 
     import igraph
@@ -350,22 +364,21 @@ def compute_igraph(
 
     algs = []
     col_names = None
-    if isinstance(alg,str):
+    if isinstance(alg, str):
         algs.append(alg)
-    elif isinstance(alg,list):
+    elif isinstance(alg, list):
         algs = alg
-    elif isinstance(alg,dict):
+    elif isinstance(alg, dict):
         algs = list(alg.values())
         col_names = [col for col in alg]
-    # else:
-    #     raise TypeError("")
-    # Need to add error message here
+    else:
+        raise TypeError("Accepted types for 'alg' are 'str', 'list' and 'dict'.")
 
-    ocs = 0 # a variable to keep track if out_col is set or not initially
+    ocs = 0  # a variable to keep track if out_col is set or not initially
     use_params = params
 
-    for i,algo in enumerate(algs):
-        if isinstance(algo,tuple):
+    for i, algo in enumerate(algs):
+        if isinstance(algo, tuple):
             alg_name = algo[0]
             use_params = algo[1]
         else:
@@ -373,7 +386,8 @@ def compute_igraph(
             use_params = params
 
         if alg_name not in compute_algs:
-            raise ValueError(f'Unexpected parameter alg "{alg_name}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
+            raise ValueError(
+                f'Unexpected parameter alg "{alg_name}" does not correspond to a known igraph graph.*() algorithm like "pagerank"')
 
         # This basically checks if a dictionary of column names
         # and algorithms was passed
@@ -383,7 +397,7 @@ def compute_igraph(
         if out_col is None:
             out_col = alg_name
             ocs = 1
-        if ocs==1:
+        if ocs == 1:
             out_col = alg_name
 
         if ig is None:
@@ -410,7 +424,8 @@ def compute_igraph(
         elif len(out) == len(self._nodes):
             clustering = out
         else:
-            raise RuntimeError(f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')
+            raise RuntimeError(
+                f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')
 
         ig.vs[out_col] = clustering
 
@@ -421,7 +436,7 @@ layout_algs = [
     'auto', 'automatic',
     'bipartite',
     'circle', 'circular',
-    #'connected_components',
+    # 'connected_components',
     'dh', 'davidson_harel',
     'drl',
     'drl_3d',
@@ -440,19 +455,20 @@ layout_algs = [
     'sphere', 'spherical', 'circle_3d', 'circular_3d',
     'star',
     'sugiyama',
-    #'umap'
+    # 'umap'
 ]
 
+
 def layout_igraph(
-    self: Plottable,
-    layout: str,
-    directed: Optional[bool] = None,
-    use_vids: bool = False,
-    bind_position: bool = True,
-    x_out_col: str = 'x',
-    y_out_col: str = 'y',
-    play: Optional[int] = 0,
-    params: dict = {}
+        self: Plottable,
+        layout: str,
+        directed: Optional[bool] = None,
+        use_vids: bool = False,
+        bind_position: bool = True,
+        x_out_col: str = 'x',
+        y_out_col: str = 'y',
+        play: Optional[int] = 0,
+        params: dict = {}
 ) -> Plottable:
     """Compute graph layout using igraph algorithm. For a list of layouts, see layout_algs or igraph documentation.
 
