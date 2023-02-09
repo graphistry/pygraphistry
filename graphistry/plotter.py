@@ -9,6 +9,7 @@ from .embed_utils import HeterographEmbedModuleMixin  # type: ignore
 from .text_utils import SearchToGraphMixin  # type: ignore
 from .compute.conditional import ConditionalMixin  # type: ignore
 from .compute.cluster import ClusterMixin  # type: ignore
+from .compute.symbolic import SymbolicMixin  # type: ignore
 
 
 mixins = ([
@@ -18,6 +19,7 @@ mixins = ([
     DGLGraphMixin, ClusterMixin,
     UMAPMixin,
     FeatureMixin, ConditionalMixin,
+    SymbolicMixin,
     LayoutsMixin,
     ComputeMixin, PlotterBase, object
 ])
@@ -36,6 +38,7 @@ class Plotter(  # type: ignore
         ClusterMixin.__init__(self, *args, **kwargs)
         DGLGraphMixin.__init__(self, *args, **kwargs)
         SearchToGraphMixin.__init__(self, *args, **kwargs)
+        SymbolicMixin.__init__(self, *args, **kwargs)
         HeterographEmbedModuleMixin.__init__(self, *args, **kwargs)
         GremlinMixin.__init__(self, *args, **kwargs)
         CosmosMixin.__init__(self, *args, **kwargs)

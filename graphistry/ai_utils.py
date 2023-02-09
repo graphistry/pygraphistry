@@ -141,15 +141,15 @@ def get_graphistry_from_milieu_search(
 
 
 def build_annoy_index(X, angular, n_trees=None):
-    """Builds an Annoy Index for fast vector search
+    f"""Builds an Annoy Index for fast vector search
 
-    Args:
-        X (_type_): _description_
-        angular (_type_): _description_
-        n_trees (_type_, optional): _description_. Defaults to None.
+    
+    :params: X: ndarray or pandas.DataFrame of vectors
+    :params: angular: bool, if True, uses angular distance, else euclidean
+    :params: n_trees (optional): . Defaults to {N_TREES} if None
 
-    Returns:
-        _type_: _description_
+    :return: AnnoyIndex
+    
     """
     from annoy import AnnoyIndex  # type: ignore
 
@@ -161,6 +161,9 @@ def build_annoy_index(X, angular, n_trees=None):
     else:
         logger.info("-using euclidean metric")
         metric = "euclidean"
+        
+    if not isinstance(X, pd.DataFrame):
+        X = pd.DataFrame(X)
 
     search_index = AnnoyIndex(X.shape[1], metric)
     # Add all the feature vectors to the search index
@@ -191,7 +194,7 @@ def query_by_vector(vect, df, search_index, top_n):
     )
 
     results = df.iloc[indices]
-    results[DISTANCE] = distances
+    results.loc[:, DISTANCE] = distances
     results = results.sort_values(by=[DISTANCE])
 
     return results
