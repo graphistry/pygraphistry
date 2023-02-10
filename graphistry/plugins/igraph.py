@@ -367,9 +367,9 @@ def compute_igraph(
     if isinstance(alg, str):
         algs.append(alg)
     elif isinstance(alg, list):
-        algs = alg
+        algs.extend(alg)
     elif isinstance(alg, dict):
-        algs = list(alg.values())
+        algs.extend(list(alg.values()))
         col_names = [col for col in alg]
     else:
         raise TypeError("Accepted types for 'alg' are 'str', 'list' and 'dict'.")
