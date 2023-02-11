@@ -135,7 +135,14 @@ def assert_imported():
         )
         raise import_min_exn
 
-
+def assert_cuml_imported():
+    has_cuml_dependancy_, import_cuml_exn = lazy_import_has_cuml_dependancy()
+    if not has_cuml_dependancy_:
+        logger.error(  # noqa
+                     "cunl not found, trying running"  # noqa
+                     "`pip install rapids`"  # noqa
+        )
+        raise import_cuml_exn
 # ############################################################################
 #
 #     Rough calltree
@@ -891,6 +898,7 @@ def process_dirty_dataframes(
     similarity: Optional[str] = None,  # "ngram",
     categories: Optional[str] = "auto",
     multilabel: bool = False,
+    feature_engine: Optional[str] = "dirty_cat",
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -922,7 +930,6 @@ def process_dirty_dataframes(
     elif feature_engine=='cuCat':
         from cuCat import SuperVectorizer, GapEncoder, SimilarityEncoder
     
-    from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
     t = time()
 
@@ -1164,7 +1171,8 @@ def process_nodes_dataframes(
         n_topics_target=n_topics_target,
         similarity=similarity,
         categories=categories,
-        multilabel=multilabel
+        multilabel=multilabel,
+        feature_engine=feature_engine,
     )
 
     if embedding:
