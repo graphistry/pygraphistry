@@ -12,7 +12,7 @@ graphistry package
 graphistry.plotter module
 -------------------------
 
-.. automodule:: graphistry.plotter
+.. automodule:: graphistry.PlotterBase
     :members:
     :undoc-members:
     :show-inheritance:
