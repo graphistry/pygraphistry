@@ -499,7 +499,7 @@ class UMAPMixin(MIXIN_BASE):
 
 
             res = res._process_umap(
-                res, pd.DataFrame(X_), y_, kind, memoize, featurize_kwargs, **umap_kwargs
+                res, pd.DataFrame(X_.to_numpy()), y_, kind, memoize, featurize_kwargs, **umap_kwargs
             )
 
             res._weighted_adjacency_nodes = res._weighted_adjacency
