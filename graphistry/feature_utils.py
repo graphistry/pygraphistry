@@ -2,6 +2,7 @@ import copy
 import numpy as np
 import os
 import pandas as pd
+import cudf
 from time import time
 import warnings
 from functools import partial
@@ -167,7 +168,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
-    if isinstance(y, pd.DataFrame):
+    if isinstance(y, pd.DataFrame) or isinstance(y, cudf.DataFrame):
         return y
 
     if df is None:
@@ -188,7 +189,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
-    if isinstance(X, pd.DataFrame):
+    if isinstance(X, pd.DataFrame) or isinstance(X, cudf.DataFrame):
         return X
 
     if df is None:

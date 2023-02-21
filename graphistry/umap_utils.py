@@ -3,6 +3,7 @@ from time import time
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import pandas as pd
+import cudf
 
 from . import constants as config
 from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
@@ -478,7 +479,6 @@ class UMAPMixin(MIXIN_BASE):
                 )
 
             nodes = res._nodes[res._node].values
-            index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
             logger.debug("propagating with featurize_kwargs: %s", featurize_kwargs)
             (
@@ -492,8 +492,14 @@ class UMAPMixin(MIXIN_BASE):
             logger.debug("umap X_: %s", X_)
             logger.debug("umap y_: %s", y_)
 
+            if isinstance(X_,pd.DataFrame):
+                index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
+            elif isinstance(X_,cudf.DataFrame):
+                index_to_nodes_dict=cudf.DataFrame(nodes).reset_index()
+
+
             res = res._process_umap(
-                res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
+                res, pd.DataFrame(X_), y_, kind, memoize, featurize_kwargs, **umap_kwargs
             )
 
             res._weighted_adjacency_nodes = res._weighted_adjacency
@@ -521,7 +527,7 @@ class UMAPMixin(MIXIN_BASE):
             )
 
             res = res._process_umap(
-                res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
+                res, pd.DataFrame(X_.to_numpy()), y_, kind, memoize, featurize_kwargs, **umap_kwargs
             )
             res._weighted_adjacency_edges = res._weighted_adjacency
             if res._xy is None:
