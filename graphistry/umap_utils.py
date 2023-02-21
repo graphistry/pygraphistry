@@ -496,10 +496,10 @@ class UMAPMixin(MIXIN_BASE):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
             elif isinstance(X_,cudf.DataFrame):
                 index_to_nodes_dict=cudf.DataFrame(nodes).reset_index()
-
+                X_=pd.DataFrame(X_.to_numpy())
 
             res = res._process_umap(
-                res, pd.DataFrame(X_.to_numpy()), y_, kind, memoize, featurize_kwargs, **umap_kwargs
+                res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
             )
 
             res._weighted_adjacency_nodes = res._weighted_adjacency
@@ -527,7 +527,7 @@ class UMAPMixin(MIXIN_BASE):
             )
 
             res = res._process_umap(
-                res, pd.DataFrame(X_.to_numpy()), y_, kind, memoize, featurize_kwargs, **umap_kwargs
+                res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
             )
             res._weighted_adjacency_edges = res._weighted_adjacency
             if res._xy is None:
