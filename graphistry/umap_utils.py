@@ -1,9 +1,9 @@
 import copy
 from time import time
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+from inspect import getmodule
 
 import pandas as pd
-import cudf
 
 from . import constants as config
 from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
@@ -494,7 +494,8 @@ class UMAPMixin(MIXIN_BASE):
 
             if isinstance(X_,pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-            elif isinstance(X_,cudf.DataFrame):
+            elif 'cudf.core.dataframe' in str(getmodule(X_)):
+                import cudf
                 index_to_nodes_dict = cudf.DataFrame(nodes).reset_index()
                 X_= pd.DataFrame(X_.to_numpy())
 
