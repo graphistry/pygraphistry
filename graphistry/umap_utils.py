@@ -495,8 +495,8 @@ class UMAPMixin(MIXIN_BASE):
             if isinstance(X_,pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
             elif isinstance(X_,cudf.DataFrame):
-                index_to_nodes_dict=cudf.DataFrame(nodes).reset_index()
-                X_=pd.DataFrame(X_.to_numpy())
+                index_to_nodes_dict = cudf.DataFrame(nodes).reset_index()
+                X_= pd.DataFrame(X_.to_numpy())
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
