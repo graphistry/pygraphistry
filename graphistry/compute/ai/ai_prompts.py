@@ -22,6 +22,12 @@ class SplunkPrompts(Prompt):
                 "write a splunk query for the index `redteam_50k` that uses the src and dst information to output a table for events where RED=1. you can use closest matching fields from [src_computer, other, dst_computer, time]"
                 + NEXT
                 + '| search index="redteam_50k" RED=1 | Table src_computer, dst_computer',
+                "get the top 10 most common source IPs in the index `redteam_50k`"
+                + NEXT
+                + '| search index="redteam_50k" | stats count by src_ip | sort - count | head 10',
+                "get fields for the index redteam_50k"
+                + NEXT
+                + '| search index="redteam_50k" | fieldsummary | table field',
             ]
         )
 
