@@ -6,7 +6,6 @@ import pandas as pd
 
 import logging
 
-os.chdir("/Users/alexmorisse/dev/langchain/")
 
 try:
     from langchain import OpenAI
