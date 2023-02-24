@@ -239,16 +239,19 @@ def compute_cugraph(
     
     **Example: Pagerank**
         ::
+
             g2 = g.compute_cugraph('pagerank')
             assert 'pagerank' in g2._nodes.columns
 
     **Example: Katz centrality with rename**
         ::
+
             g2 = g.compute_cugraph('katz_centrality', out_col='katz_centrality_renamed')
             assert 'katz_centrality_renamed' in g2._nodes.columns
 
     **Example: Pass params to cugraph**
         ::
+        
             g2 = g.compute_cugraph('k_truss', params={'k': 2})
             assert 'k_truss' in g2._nodes.columns
 
