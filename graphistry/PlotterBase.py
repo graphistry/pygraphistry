@@ -295,7 +295,7 @@ class PlotterBase(Plottable):
         :param fg: Dictionary {'blendMode': str} of any valid CSS blend mode
         :type fg: dict
 
-        :param bg: Nested dictionary of page background properties. {'color': str, 'gradient': {'kind': str, 'position': str, 'stops': list }, 'image': { 'url': str, 'width': int, 'height': int, 'blendMode': str }
+        :param bg: Nested dictionary of page background properties. { 'color': str, 'gradient': {'kind': str, 'position': str, 'stops': list }, 'image': { 'url': str, 'width': int, 'height': int, 'blendMode': str }
         :type bg: dict
 
         :param logo: Nested dictionary of logo properties. { 'url': str, 'autoInvert': bool, 'position': str, 'dimensions': { 'maxWidth': int, 'maxHeight': int }, 'crop': { 'top': int, 'left': int, 'bottom': int, 'right': int }, 'padding': { 'top': int, 'left': int, 'bottom': int, 'right': int}, 'style': str}        
@@ -845,7 +845,8 @@ class PlotterBase(Plottable):
         :param edge: Attribute containing an edge's ID
         :type edge: str
 
-        :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
+        :param edge_title: Attribute overriding edge's minimized label text. 
+        By default, the edge source and destination is used.
         :type edge_title: str
 
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
@@ -1002,6 +1003,7 @@ class PlotterBase(Plottable):
 
         **Example**
             ::
+
                 import graphistry
 
                 def sample_nodes(g, n):
@@ -1101,6 +1103,7 @@ class PlotterBase(Plottable):
 
         **Example**
             ::
+
                 import graphistry
 
                 def sample_edges(g, n):
