@@ -25,6 +25,28 @@ Pygraphistry Module
     :undoc-members:
     :show-inheritance:
 
+Featurize 
+==================
+.. automodule:: graphistry.feature_utils
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+UMAP 
+==================
+.. automodule:: graphistry.umap_utils
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+DB Scan
+==================
+.. automodule:: graphistry.compute.
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 Arrow uploader Module
 ==================
 
@@ -48,3 +70,4 @@ Versioneer
     :members:
     :undoc-members:
     :show-inheritance:
+
