@@ -133,12 +133,39 @@ def get_graphistry_from_milieu_search(
     return g
 
 
+
+
 # #########################################################################################################################
 #
 #  Graphistry Vector Search Index
 #
 ##########################################################################################################################
+import faiss
+import numpy as np
 
+class FaissVectorSearch:
+    def __init__(self, M):
+        #self.M = M
+        self.index = faiss.IndexFlatL2(M.shape[1])
+        self.index.add(M)
+
+    def search(self, q, k=5):
+        """
+        Search for the k nearest neighbors of a query vector q.
+
+        Parameters:
+        - q: the query vector to search for
+        - k: the number of nearest neighbors to return (default: 5)
+
+        Returns:
+        - D: a numpy array of size (k,) containing the distances to the k nearest neighbors
+        - I: a numpy array of size (k,) containing the indices of the k nearest neighbors
+        """
+        q = np.asarray(q, dtype=np.float32)
+        D, I = self.index.search(q.reshape(1, -1), k)
+        return D[0], I[0]
+    
+    
 
 def build_annoy_index(X, angular, n_trees=None):
     f"""Builds an Annoy Index for fast vector search
@@ -482,3 +509,6 @@ def infer_self_graph(res,
     # #########################################################
     print("-" * 50) if verbose else None
     return hydrate_graph(res, df, new_edges, node, src, dst, emb, X, y)
+
+
+

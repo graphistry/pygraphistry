@@ -323,7 +323,7 @@ class AIGraph(ai.Expression):
     def learn_from_url(self, url):
         res = ai.Expression()
         res = res.fetch(url)
-        #print(f'DOC LENGHT {res.length()}')
+        # print(f'DOC LENGHT {res.length()}')
         res = res[:3000]
         sym = self.process(res)
         summary = sym.query("Give a concise summary of this dataset?")
@@ -355,7 +355,7 @@ class SplunkAIGraph(AIGraph):
         self.antimem = {}
         self.conn = GraphistryAdminSplunk()
 
-        self._splunk_context = self.get_context(index, all_indexes=all_indexes)
+        self.get_context(index, all_indexes=all_indexes)
 
         self.splunk = Splunk()
 
@@ -369,8 +369,9 @@ class SplunkAIGraph(AIGraph):
         if all_indexes:
             self.get_indexes()
             context = f"You are working with the index `{index}` and the following fields: {self.fields}. You can also use the following indexes: {self.indexes.keys()}"
-        print('-'*80)
+        print("-" * 80)
         print("context:", context)
+        self._splunk_context = context
         return context
 
     def _search(self, query: str, *args, **kwargs) -> pd.DataFrame:
