@@ -925,9 +925,9 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    if feature_engine=='dirty_cat':
+    if feature_engine =='dirty_cat':
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    elif feature_engine=='cuCat':
+    elif feature_engine =='cuCat':
         from cuCat import SuperVectorizer, GapEncoder, SimilarityEncoder
     
     from sklearn.preprocessing import FunctionTransformer
