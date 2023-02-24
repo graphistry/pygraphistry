@@ -1,42 +1,50 @@
-graphistry package
+Overview
 ==================
 .. toctree::
    :maxdepth: 3
 
-   graphistry.compute
+
    graphistry.layout
    graphistry.plugins
    graphistry.plugins_types
 
 
-graphistry.plotter module
--------------------------
+Plotter Module
+==================
 
 .. automodule:: graphistry.PlotterBase
     :members:
     :undoc-members:
     :show-inheritance:
 
-graphistry.pygraphistry module
-------------------------------
+Pygraphistry Module
+==================
 
 .. automodule:: graphistry.pygraphistry
     :members:
     :undoc-members:
     :show-inheritance:
 
-graphistry.arrow_uploader module
---------------------------------
+Arrow uploader Module
+==================
 
 .. automodule:: graphistry.arrow_uploader
     :members:
     :undoc-members:
     :show-inheritance:
 
-graphistry.ArrowFileUploader module
------------------------------------
+Arrow File Uploader Module
+==================
 
 .. automodule:: graphistry.ArrowFileUploader
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+Versioneer
+==================
+
+.. automodule:: graphistry._version
     :members:
     :undoc-members:
     :show-inheritance:
