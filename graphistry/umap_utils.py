@@ -497,7 +497,7 @@ class UMAPMixin(MIXIN_BASE):
             elif 'cudf.core.dataframe' in str(getmodule(X_)):
                 import cudf
                 index_to_nodes_dict = cudf.DataFrame(nodes).reset_index()
-                X_= pd.DataFrame(X_.to_numpy())
+                X_ = pd.DataFrame(X_.to_numpy())
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
