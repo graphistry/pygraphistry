@@ -2,11 +2,9 @@ import copy
 import numpy as np
 import os
 import pandas as pd
-import cudf
 from time import time
 import warnings
 from functools import partial
-from inspect import getmodule
 
 from typing import (
     Hashable,
@@ -41,16 +39,6 @@ if TYPE_CHECKING:
         SentenceTransformer = Any
     try:
         from dirty_cat import (
-            SuperVectorizer,
-            GapEncoder,
-            SimilarityEncoder,
-        )
-    except:
-        SuperVectorizer = Any
-        GapEncoder = Any
-        SimilarityEncoder = Any
-    try:
-        from cuCat import (
             SuperVectorizer,
             GapEncoder,
             SimilarityEncoder,
@@ -103,20 +91,6 @@ def lazy_import_has_min_dependancy():
     except ModuleNotFoundError as e:
         return False, e
 
-def lazy_import_has_cuml_dependancy():
-    import warnings
-    warnings.filterwarnings("ignore")
-    try:
-        import scipy.sparse  # noqa
-        from scipy import __version__ as scipy_version
-        from cuCat import __version__ as cuCat_version
-        from sklearn import __version__ as sklearn_version
-        logger.debug(f"SCIPY VERSION: {scipy_version}")
-        logger.debug(f"cuCat VERSION: {cuCat_version}")
-        logger.debug(f"sklearn VERSION: {sklearn_version}")
-        return True, 'ok'
-    except ModuleNotFoundError as e:
-        return False, e
 
 def assert_imported_text():
     has_dependancy_text_, import_text_exn, _ = lazy_import_has_dependancy_text()
@@ -137,14 +111,7 @@ def assert_imported():
         )
         raise import_min_exn
 
-def assert_cuml_imported():
-    has_cuml_dependancy_, import_cuml_exn = lazy_import_has_cuml_dependancy()
-    if not has_cuml_dependancy_:
-        logger.error(  # noqa
-                     "cunl not found, trying running"  # noqa
-                     "`pip install rapids`"  # noqa
-        )
-        raise import_cuml_exn
+
 # ############################################################################
 #
 #     Rough calltree
@@ -168,7 +135,7 @@ def assert_cuml_imported():
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cuCat"]
+FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
 
@@ -176,16 +143,13 @@ def resolve_feature_engine(
     feature_engine: FeatureEngine,
 ) -> FeatureEngineConcrete:  # noqa
 
-    if feature_engine in ["none", "pandas", "dirty_cat", "torch", "cuCat"]:
+    if feature_engine in ["none", "pandas", "dirty_cat", "torch"]:
         return feature_engine  # type: ignore
 
     if feature_engine == "auto":
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
         if has_dependancy_text_:
             return "torch"
-        has_cuml_dependancy_, _ = lazy_import_has_cuml_dependancy()
-        if has_cuml_dependancy_:
-            return "cuCat"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
         if has_min_dependancy_:
             return "dirty_cat"
@@ -193,7 +157,7 @@ def resolve_feature_engine(
 
     raise ValueError(  # noqa
         f'feature_engine expected to be "none", '
-        '"pandas", "dirty_cat", "torch", "cuCat", or "auto"'
+        '"pandas", "dirty_cat", "torch", or "auto"'
         f'but received: {feature_engine} :: {type(feature_engine)}'
     )
 
@@ -203,7 +167,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
-    if isinstance(y, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(y)):
+    if isinstance(y, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(y):
         return y
 
     if df is None:
@@ -224,7 +188,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
-    if isinstance(X, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(X)):
+    if isinstance(X, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(X):
         return X
 
     if df is None:
@@ -900,7 +864,6 @@ def process_dirty_dataframes(
     similarity: Optional[str] = None,  # "ngram",
     categories: Optional[str] = "auto",
     multilabel: bool = False,
-    feature_engine: Optional[str] = "dirty_cat",
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -927,11 +890,7 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    if feature_engine=='dirty_cat':
-        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    elif feature_engine=='cuCat':
-        from cuCat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    
+    from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
     t = time()
 
@@ -1173,8 +1132,7 @@ def process_nodes_dataframes(
         n_topics_target=n_topics_target,
         similarity=similarity,
         categories=categories,
-        multilabel=multilabel,
-        feature_engine=feature_engine,
+        multilabel=multilabel
     )
 
     if embedding:
@@ -1830,7 +1788,6 @@ def prune_weighted_edges_df_and_relabel_nodes(
         f"from {len(wdf):,} to {len(wdf2):,} edges."
     )
     if index_to_nodes_dict is not None:
-
         wdf2 = wdf2.replace(
             {
                 config.SRC: index_to_nodes_dict,
@@ -2374,10 +2331,7 @@ class FeatureMixin(MIXIN_BASE):
                 default True.
         :return: self, with new attributes set by the featurization process.
         """
-        if feature_engine == 'dirty_cat':
-            assert_imported()
-        elif feature_engine == 'cuCat':
-            assert_cuml_imported()
+        assert_imported()
         if inplace:
             res = self
         else:
