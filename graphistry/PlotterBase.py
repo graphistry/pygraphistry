@@ -165,23 +165,20 @@ class PlotterBase(Plottable):
         self._bolt_driver : any = None
         self._tigergraph : any = None
 
+        # feature engineering
         self._node_embedding = None
         self._node_encoder = None
         self._node_features = None
-        self._node_ordinal_pipeline = None
-        self._node_ordinal_pipeline_target = None,
+        self._node_features_raw = None
         self._node_target = None
         self._node_target_encoder = None
-        self._node_text_model = None
 
         self._edge_embedding = None
         self._edge_encoder = None
         self._edge_features = None
-        self._edge_ordinal_pipeline = None
-        self._edge_ordinal_pipeline_target = None
+        self._edge_features_raw = None
         self._edge_target = None
         self._edge_target_encoder = None
-        self._edge_text_model = None
 
         self._weighted_adjacency_nodes = None
         self._weighted_adjacency_edges = None
@@ -190,6 +187,7 @@ class PlotterBase(Plottable):
         self._weighted_edges_df_from_edges = None
         self._xy = None
 
+        # the fit umap instance
         self._umap = None
 
         self._adjacency = None
@@ -201,6 +199,13 @@ class PlotterBase(Plottable):
         self._use_feat: bool = False
         self._triplets: Optional[List] = None 
         self._kg_embed_dim: int = 128
+        
+        # Dbscan
+        self._node_dbscan = None  # the fit dbscan instance
+        self._edge_dbscan = None
+        
+        # DGL
+        self.DGL_graph = None  # the DGL graph
 
 
     def __repr__(self):
