@@ -38,9 +38,9 @@ base_extras_light = {
 }
 
 base_extras_heavy = {
-  'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'] + ['cuCat @ git+https://github.com/graphistry/cuCat/@0.01.0'] ,
+  'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
 }
-base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'annoy', 'joblib']
+base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'annoy', 'joblib'] + ['cuCat @ git+https://github.com/graphistry/cuCat/@0.01.0']
 
 base_extras = {**base_extras_light, **base_extras_heavy}
 
