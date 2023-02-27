@@ -176,13 +176,14 @@ EXPLANATION_AND_CODE = "EXPLANATION AND CODE."
 def process(data, *args, **kwargs):
     """Process data with consistent pipeline of functions."""
     pipeline = kwargs.get("pipeline", LambdaHelper(lambda x: x["args"][0]))
-
-    stream = ai.Stream(ai.Sequence(pipeline()))
+    cluster = kwargs.get("cluster", False)
+    stream = ai.Stream(ai.Sequence(pipeline))
     sym = ai.Symbol(data)
     res = ai.Symbol(list(stream(sym)))
-    expr = ai.Cluster()
-    return expr(res)
-
+    if cluster:
+        expr = ai.Cluster()
+        return expr(res)
+    return res
 
 WEB_DESCRIPTION = """Design a web app with HTML, CSS and inline JavaScript. 
 Use dark theme and best practices for colors, text font, etc. 
@@ -593,11 +594,12 @@ class SymbolicMixin(MIXIN_BASE):
     ):
         context_df = safe_encode_df(context_df, max_doc_length=max_doc_length)
         sym = process_df_to_sym(context_df, as_records)
-        stream = ai.Stream(Lambda(lambda x: x["args"][0]))
-        rr = ai.Symbol(list(stream(sym)))
-        if cluster:
-            print("clustering")
-            rr = ai.Cluster(rr)
+        rr = process(sym, cluster=cluster)
+        # stream = ai.Stream(LambdaHelper(lambda x: x["args"][0]))
+        # rr = ai.Symbol(list(stream(sym)))
+        # if cluster:
+        #     print("clustering")
+        #     rr = ai.Cluster(rr)
         return rr
 
     def _add_context_and_query(self, sym, query, context="summary"):
@@ -732,7 +734,10 @@ class SymbolicMixin(MIXIN_BASE):
         sample=4,
         max_clusters=10,
         as_records=True,
+        cluster=False,
         verbose=False,
+        *args,
+        **kwargs,
     ):
         """Make a summary graph of the top `max_clusters` clusters from `cluster_col`"""
         reports = []
@@ -764,7 +769,7 @@ class SymbolicMixin(MIXIN_BASE):
                 context_df = context_df.sample(sample)
             if cols is not None:
                 context_df = context_df[cols]
-            sym = self._encode_df_as_sym(context_df, as_records)
+            sym = self._encode_df_as_sym(context_df, as_records, cluster=cluster)
             report = self._add_context_and_query(sym, query, context)
             # inspect if this cluster answers the query or not
 
@@ -836,9 +841,9 @@ class SymbolicMixin(MIXIN_BASE):
         # should aggregate vectors etc ...
         return g_cluster
 
-    def on_select(self, query, context, nodeIDs):
+    def on_select(self, query, context, nodeIDs, cluster=False):
         context_df = self._nodes.iloc[nodeIDs]
-        sym = self._encode_df_as_sym(context_df, as_records=True)
+        sym = self._encode_df_as_sym(context_df, as_records=True, cluster=cluster)
         return self._add_context_and_query(sym, query, context)
 
     # def on_select_by_name(self, query, context, names):
