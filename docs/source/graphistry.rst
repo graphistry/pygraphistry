@@ -1,4 +1,4 @@
-Overview
+Layout & Plugins
 ==================
 .. toctree::
    :maxdepth: 3
