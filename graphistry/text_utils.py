@@ -143,16 +143,16 @@ class SearchToGraphMixin(MIXIN_BASE):
             calls will be not rebuilt index.
 
         Args:
-            query (str): natural language query.
-            cols (list or str, optional): if fuzzy=False, select which column to query.
+            :query (str): natural language query.
+            :cols (list or str, optional): if fuzzy=False, select which column to query.
                                             Defaults to None since fuzzy=True by defaul.
-            thresh (float, optional): distance threshold from query vector to returned results.
+            :thresh (float, optional): distance threshold from query vector to returned results.
                                         Defaults to 5000, set large just in case,
                                         but could be as low as 10.
-            fuzzy (bool, optional): if True, uses embedding + annoy index for recall,
+            :fuzzy (bool, optional): if True, uses embedding + annoy index for recall,
                                         otherwise does string matching over given `cols`
                                         Defaults to True.
-            top_n (int, optional): how many results to return. Defaults to 100.
+            :top_n (int, optional): how many results to return. Defaults to 100.
 
         Returns:
             pd.DataFrame, vector_encoding_of_query:
@@ -194,15 +194,15 @@ class SearchToGraphMixin(MIXIN_BASE):
             See help(g.search) for more information
 
         Args:
-            query (str): query input eg "coding best practices"
-            scale (float, optional): edge weigh threshold,  Defaults to 0.5.
-            top_n (int, optional): how many results to return. Defaults to 100.
-            thresh (float, optional): distance threshold from query vector to returned results.
+            :query (str): query input eg "coding best practices"
+            :scale (float, optional): edge weigh threshold,  Defaults to 0.5.
+            :top_n (int, optional): how many results to return. Defaults to 100.
+            :thresh (float, optional): distance threshold from query vector to returned results.
                                         Defaults to 5000, set large just in case,
                                         but could be as low as 10.
-            broader (bool, optional): if True, will retrieve entities connected via an edge
+            :broader (bool, optional): if True, will retrieve entities connected via an edge
                 that were not necessarily bubbled up in the results_dataframe. Defaults to False.
-            inplace (bool, optional): whether to return new instance (default) or mutate self.
+            :inplace (bool, optional): whether to return new instance (default) or mutate self.
                                         Defaults to False.
 
         Returns:
