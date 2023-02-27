@@ -125,18 +125,19 @@ class SearchToGraphMixin(MIXIN_BASE):
 
             If node data is not yet feature-encoded (and explicit edges are given),
             run automatic feature engineering:
-            ```
+            ::
+
                 g2 = g.featurize(kind='nodes', X=['text_col_1', ..],
                 min_words=0 # forces all named columns are textually encoded
                 )
-            ```
 
             If edges do not yet exist, generate them via
-            ```
+            ::
+
                 g2 = g.umap(kind='nodes', X=['text_col_1', ..],
                 min_words=0 # forces all named columns are textually encoded
                 )
-            ```
+            
             If an index is not yet built, it is generated `g2.build_index()` on the fly at search time.
             Otherwise, can set `g2.build_index()` and then subsequent `g2.search(...)`
             calls will be not rebuilt index.
