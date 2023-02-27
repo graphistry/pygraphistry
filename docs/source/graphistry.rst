@@ -40,9 +40,17 @@ UMAP
     :undoc-members:
     :show-inheritance:
 
-DB Scan
+
+Semantic Search 
 ==================
-.. automodule:: graphistry.compute.
+.. automodule:: graphistry.text_utils
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+DBScan
+==================
+.. automodule:: graphistry.compute.cluster
     :members:
     :undoc-members:
     :show-inheritance:
