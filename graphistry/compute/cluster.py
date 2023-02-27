@@ -71,11 +71,11 @@ def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, targe
         Allows for a single function to get the model matrix for both nodes and edges as well as targets, embeddings, and features
 
     Args:
-        g: graphistry graph
-        kind: 'nodes' or 'edges'
-        cols: list of columns to use for clustering given `g.featurize` has been run
-        umap: whether to use UMAP embeddings or features dataframe
-        target: whether to use the target dataframe or features dataframe
+            :g: graphistry graph
+            :kind: 'nodes' or 'edges'
+            :cols: list of columns to use for clustering given `g.featurize` has been run
+            :umap: whether to use UMAP embeddings or features dataframe
+            :target: whether to use the target dataframe or features dataframe
 
     Returns:
         pd.DataFrame: dataframe of model matrix given the inputs
@@ -99,11 +99,11 @@ def dbscan_fit(g: Any, dbscan: Any, kind: str = "nodes", cols: Optional[Union[Li
     Fits clustering on UMAP embeddings if umap is True, otherwise on the features dataframe
         or target dataframe if target is True.
 
-    args:
-        g: graphistry graph
-        kind: 'nodes' or 'edges'
-        cols: list of columns to use for clustering given `g.featurize` has been run
-        use_umap_embedding: whether to use UMAP embeddings or features dataframe for clustering (default: True)
+    Args:
+        :g: graphistry graph
+        :kind: 'nodes' or 'edges'
+        :cols: list of columns to use for clustering given `g.featurize` has been run
+        :use_umap_embedding: whether to use UMAP embeddings or features dataframe for clustering (default: True)
     """
     X = get_model_matrix(g, kind, cols, use_umap_embedding, target)
     
@@ -246,14 +246,14 @@ class ClusterMixin(MIXIN_BASE):
              https://github.com/graphistry/pygraphistry/blob/master/demos/ai/cyber/cyber-redteam-umap-demo.ipynb
 
         Args:
-            min_dist float: The maximum distance between two samples for them to be considered as in the same neighborhood.
-            kind str: 'nodes' or 'edges'
-            cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features or targets by
+            :min_dist float: The maximum distance between two samples for them to be considered as in the same neighborhood.
+            :kind str: 'nodes' or 'edges'
+            :cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features or targets by
                 fragments of interest, e.g. ['ip_172', 'location', 'ssh', 'warnings']
-            fit_umap_embedding bool: whether to use UMAP embeddings or features dataframe to cluster DBSCAN
-            min_samples: The number of samples in a neighborhood for a point to be considered as a core point.
+            :fit_umap_embedding bool: whether to use UMAP embeddings or features dataframe to cluster DBSCAN
+            :min_samples: The number of samples in a neighborhood for a point to be considered as a core point.
                 This includes the point itself.
-            target: whether to use the target column as the clustering feature
+            :target: whether to use the target column as the clustering feature
 
         """
 
@@ -358,28 +358,28 @@ class ClusterMixin(MIXIN_BASE):
 
                 predict:
                 ::
-                
+
                     emb, X, y, ndf = g2.transform_dbscan(ndf, ndf, return_graph=False)
                     # or
                     g3 = g2.transform_dbscan(ndf, ndf, return_graph=True)
                     g3.plot()
 
 
-        args:
-            df: dataframe to transform
-            y: optional labels dataframe
-            min_dist: The maximum distance between two samples for them to be considered as in the same neighborhood.
+        Args:
+            :df: dataframe to transform
+            :y: optional labels dataframe
+            :min_dist: The maximum distance between two samples for them to be considered as in the same neighborhood.
                 smaller values will result in less edges between the minibatch and the original graph.
                 Default 'auto', infers min_dist from the mean distance and std of new points to the original graph
-            fit_umap_embedding: whether to use UMAP embeddings or features dataframe when inferring edges between
+            :fit_umap_embedding: whether to use UMAP embeddings or features dataframe when inferring edges between
                 the minibatch and the original graph. Default False, uses the features dataframe
-            sample: number of samples to use when inferring edges between the minibatch and the original graph,
+            :sample: number of samples to use when inferring edges between the minibatch and the original graph,
                 if None, will only use closest point to the minibatch. If greater than 0, will sample the closest `sample` points
                 in existing graph to pull in more edges. Default None
-            kind: 'nodes' or 'edges'
-            return_graph: whether to return a graph or the (emb, X, y, minibatch df enriched with DBSCAN labels), default True
+            :kind: 'nodes' or 'edges'
+            :return_graph: whether to return a graph or the (emb, X, y, minibatch df enriched with DBSCAN labels), default True
                 infered graph supports kind='nodes' only. 
-            verbose: whether to print out progress, default False
+            :verbose: whether to print out progress, default False
 
         """
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind, verbose=verbose)
