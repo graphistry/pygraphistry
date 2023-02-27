@@ -54,9 +54,9 @@ if TYPE_CHECKING:
             SimilarityEncoder,
         )
     except:
-        SuperVectorizer = object
-        GapEncoder = object
-        SimilarityEncoder = object
+        SuperVectorizer = Any
+        GapEncoder = Any
+        SimilarityEncoder = Any
     try:
         from sklearn.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
