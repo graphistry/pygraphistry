@@ -48,15 +48,15 @@ if TYPE_CHECKING:
         GapEncoder = Any
         SimilarityEncoder = Any
     try:
-        from cuCat import (
+        from cu_cat import (
             SuperVectorizer,
             GapEncoder,
             SimilarityEncoder,
         )
     except:
-        SuperVectorizer = Any
-        GapEncoder = Any
-        SimilarityEncoder = Any
+        SuperVectorizer = object
+        GapEncoder = object
+        SimilarityEncoder = object
     try:
         from sklearn.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
@@ -101,17 +101,22 @@ def lazy_import_has_min_dependancy():
     except ModuleNotFoundError as e:
         return False, e
 
-def lazy_import_has_cuml_dependancy():
+def lazy_import_has_cu_cat_dependancy():
     import warnings
     warnings.filterwarnings("ignore")
     try:
         import scipy.sparse  # noqa
         from scipy import __version__ as scipy_version
-        from cuCat import __version__ as cuCat_version
+        from cu_cat import __version__ as cu_cat_version
         from sklearn import __version__ as sklearn_version
+        from cuml import __verison__ as cuml_version
+        from cudf import __verison__ as cudf_version
         logger.debug(f"SCIPY VERSION: {scipy_version}")
-        logger.debug(f"cuCat VERSION: {cuCat_version}")
+        logger.debug(f"Cuda CAT VERSION: {cu_cat_version}")
         logger.debug(f"sklearn VERSION: {sklearn_version}")
+        logger.debug(f"cuml VERSION: {cuml_version}")
+        logger.debug(f"cudf VERSION: {cudf_version}")
+
         return True, 'ok'
     except ModuleNotFoundError as e:
         return False, e
@@ -139,7 +144,7 @@ def assert_cuml_imported():
     has_cuml_dependancy_, import_cuml_exn = lazy_import_has_cuml_dependancy()
     if not has_cuml_dependancy_:
         logger.error(  # noqa
-                     "cunl not found, trying running"  # noqa
+                     "cuml not found, trying running"  # noqa
                      "`pip install rapids`"  # noqa
         )
         raise import_cuml_exn
@@ -168,7 +173,7 @@ def assert_cuml_imported():
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cuCat"]
+FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
 
@@ -176,7 +181,7 @@ def resolve_feature_engine(
     feature_engine: FeatureEngine,
 ) -> FeatureEngineConcrete:  # noqa
 
-    if feature_engine in ["none", "pandas", "dirty_cat", "torch", "cuCat"]:
+    if feature_engine in ["none", "pandas", "dirty_cat", "torch", "cu_cat"]:
         return feature_engine  # type: ignore
 
     if feature_engine == "auto":
@@ -185,7 +190,7 @@ def resolve_feature_engine(
             return "torch"
         has_cuml_dependancy_, _ = lazy_import_has_cuml_dependancy()
         if has_cuml_dependancy_:
-            return "cuCat"
+            return "cu_cat"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
         if has_min_dependancy_:
             return "dirty_cat"
@@ -193,7 +198,7 @@ def resolve_feature_engine(
 
     raise ValueError(  # noqa
         f'feature_engine expected to be "none", '
-        '"pandas", "dirty_cat", "torch", "cuCat", or "auto"'
+        '"pandas", "dirty_cat", "torch", "cu_cat", or "auto"'
         f'but received: {feature_engine} :: {type(feature_engine)}'
     )
 
@@ -929,8 +934,8 @@ def process_dirty_dataframes(
     """
     if feature_engine == 'dirty_cat':
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    elif feature_engine == 'cuCat':
-        from cuCat import SuperVectorizer, GapEncoder, SimilarityEncoder
+    elif feature_engine == 'cu_cat':
+        from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     
     from sklearn.preprocessing import FunctionTransformer
     t = time()
@@ -2375,7 +2380,7 @@ class FeatureMixin(MIXIN_BASE):
         """
         if feature_engine == 'dirty_cat':
             assert_imported()
-        elif feature_engine == 'cuCat':
+        elif feature_engine == 'cu_cat':
             assert_cuml_imported()
         if inplace:
             res = self
