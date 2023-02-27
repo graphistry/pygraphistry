@@ -141,7 +141,7 @@ def assert_imported():
         raise import_min_exn
 
 def assert_cuml_imported():
-    has_cuml_dependancy_, import_cuml_exn = lazy_import_has_cuml_dependancy()
+    has_cuml_dependancy_, import_cuml_exn = lazy_import_has_cu_cat_dependancy()
     if not has_cuml_dependancy_:
         logger.error(  # noqa
                      "cuml not found, trying running"  # noqa
@@ -188,7 +188,7 @@ def resolve_feature_engine(
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
         if has_dependancy_text_:
             return "torch"
-        has_cuml_dependancy_, _ = lazy_import_has_cuml_dependancy()
+        has_cuml_dependancy_, _ = lazy_import_has_cu_cat_dependancy()
         if has_cuml_dependancy_:
             return "cu_cat"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
