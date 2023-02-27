@@ -3,8 +3,7 @@ import numpy as np
 
 import graphistry
 
-from .constants import N_TREES, DISTANCE, WEIGHT, BATCH
-from .features import N_NEIGHBORS
+from .constants import DISTANCE, WEIGHT, BATCH
 from logging import getLogger
 
 logger = getLogger(__name__)
@@ -140,12 +139,13 @@ def get_graphistry_from_milieu_search(
 #  Graphistry Vector Search Index
 #
 ##########################################################################################################################
-import faiss
-import numpy as np
+# import faiss
+# import numpy as np
 
 class FaissVectorSearch:
     def __init__(self, M):
-        #self.M = M
+        import faiss
+        import numpy as np
         self.index = faiss.IndexFlatL2(M.shape[1])
         self.index.add(M)
 
@@ -158,54 +158,15 @@ class FaissVectorSearch:
         - k: the number of nearest neighbors to return (default: 5)
 
         Returns:
-        - D: a numpy array of size (k,) containing the distances to the k nearest neighbors
         - I: a numpy array of size (k,) containing the indices of the k nearest neighbors
+        - D: a numpy array of size (k,) containing the distances to the k nearest neighbors
         """
         q = np.asarray(q, dtype=np.float32)
         D, I = self.index.search(q.reshape(1, -1), k)
-        return D[0], I[0]
+        return I[0], D[0]
     
-    
-
-def build_annoy_index(X, angular, n_trees=None):
-    f"""Builds an Annoy Index for fast vector search
-
-    
-    :params: X: ndarray or pandas.DataFrame of vectors
-    :params: angular: bool, if True, uses angular distance, else euclidean
-    :params: n_trees (optional): . Defaults to {N_TREES} if None
-
-    :return: AnnoyIndex
-    
-    """
-    from annoy import AnnoyIndex  # type: ignore
-
-    logger.info(f"Building Index of size {X.shape}")
-
-    if angular:
-        logger.info("-using angular metric")
-        metric = "angular"
-    else:
-        logger.info("-using euclidean metric")
-        metric = "euclidean"
-        
-    if not isinstance(X, pd.DataFrame):
-        X = pd.DataFrame(X)
-
-    search_index = AnnoyIndex(X.shape[1], metric)
-    # Add all the feature vectors to the search index
-    for i in range(len(X)):
-        search_index.add_item(i, X.values[i])
-    if n_trees is None:
-        n_trees = N_TREES
-
-    logger.info(f"-building index with {n_trees} trees")
-    search_index.build(n_trees)
-    return search_index
-
-
-def query_by_vector(vect, df, search_index, top_n):
-    """ Query by vector using annoy index and append distance to results
+    def search_df(self, q, df, k):
+        """ Query by vector using annoy index and append distance to results
     
         it is assumed len(vect) == len(df) == len(search_index)
         args:
@@ -215,16 +176,15 @@ def query_by_vector(vect, df, search_index, top_n):
             top_n: number of results to return
         returns:
             sorted dataframe with top_n results and distance
-    """
-    indices, distances = search_index.get_nns_by_vector(
-        vect.values[0], top_n, include_distances=True
-    )
+        """
 
-    results = df.iloc[indices]
-    results.loc[:, DISTANCE] = distances
-    results = results.sort_values(by=[DISTANCE])
+        indices, distances = self.search(q.values[0], k=k)
 
-    return results
+        results = df.iloc[indices]
+        results.loc[:, DISTANCE] = distances
+        results = results.sort_values(by=[DISTANCE])
+
+        return results
 
 
 # #########################################################################################################################
