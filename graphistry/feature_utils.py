@@ -499,7 +499,6 @@ class Embedding:
     """
     Generates random embeddings of a given dimension 
     that aligns with the index of the dataframe
-    _____________________________________________________________________
     
     """
     def __init__(self, df: pd.DataFrame):
@@ -1754,10 +1753,11 @@ class FastEncoder:
     def scale(self, X=None, y=None, return_pipeline=False, *args, **kwargs):
         """Fits new scaling functions on df, y via args-kwargs
         
-            example:
+        **Example:**
+            ::
+
                 from graphisty.features import SCALERS, SCALER_OPTIONS
                 print(SCALERS)
-                
                 g = graphistry.nodes(df)
                 # set a scaling strategy for features and targets -- umap uses those and produces different results depending.
                 g2 = g.umap(use_scaler='standard', use_scaler_target=None)
@@ -1770,6 +1770,8 @@ class FastEncoder:
                 clf.fit(X_scaled, y_scaled)
                 
             args:
+            ::
+
                 X: pd.DataFrame of features
                 y: pd.DataFrame of target features
                 kind: str, one of 'nodes' or 'edges'
@@ -1880,14 +1882,20 @@ class FeatureMixin(MIXIN_BASE):
     Subclasses UMAPMixin for umap-ing of automatic features.
 
     Usage:
+    ::
+
         g = graphistry.nodes(df, 'node_column')
         g2 = g.featurize()
 
     or for edges,
+    ::
+
         g = graphistry.edges(df, 'src', 'dst')
         g2 = g.featurize(kind='edges')
 
     or chain them for both nodes and edges,
+    ::
+
         g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node_column')
         g2 = g.featurize().featurize(kind='edges')
 
@@ -2202,21 +2210,24 @@ class FeatureMixin(MIXIN_BASE):
         """
             Transform new data and append to existing graph, or return dataframes
         
-            args:
-                df: pd.DataFrame, raw data to transform
-                ydf: pd.DataFrame, optional
-                kind: str  # one of `nodes`, `edges`
-                return_graph: bool, if True, will return a graph with inferred edges.
-                merge_policy: bool, if True, adds batch to existing graph nodes via nearest neighbors. 
-                    If False, will infer edges only between nodes in the batch, default False
-                min_dist: float, if return_graph is True, will use this value in NN search, or 'auto' to infer a good value
-                    min_dist represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
-                sample: int, if return_graph is True, will use sample edges of existing graph to fill out the new graph
-                n_neighbors: int, if return_graph is True, will use this value for n_neighbors in Nearest Neighbors search
-                scaled: bool, if True, will use scaled transformation of data set during featurization, default True
-                verbose: bool, if True, will print metadata about the graph construction, default False
-            returns:
-                X, y: pd.DataFrame, transformed data if return_graph is False
+            **args:**
+            ::
+
+                # df: pd.DataFrame, raw data to transform
+                # ydf: pd.DataFrame, optional
+                # kind: str  # one of `nodes`, `edges`
+                # return_graph: bool, if True, will return a graph with inferred edges.
+                # merge_policy: bool, if True, adds batch to existing graph nodes via nearest neighbors. 
+                    # If False, will infer edges only between nodes in the batch, default False
+                # min_dist: float, if return_graph is True, will use this value in NN search, or 'auto' to infer a good value
+                    # min_dist represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
+                # sample: int, if return_graph is True, will use sample edges of existing graph to fill out the new graph
+                # n_neighbors: int, if return_graph is True, will use this value for n_neighbors in Nearest Neighbors search
+                # scaled: bool, if True, will use scaled transformation of data set during featurization, default True
+                # verbose: bool, if True, will print metadata about the graph construction, default False
+            **Returns:**
+
+                    X, y: pd.DataFrame, transformed data if return_graph is False
                     or a graphistry Plottable with inferred edges if return_graph is True
         """
         if kind == "nodes":
@@ -2255,7 +2266,9 @@ class FeatureMixin(MIXIN_BASE):
     ):
         """Scale data using the same scalers as used in the featurization step.
         
-            example usage:
+            **Example**
+            ::
+
                 g = graphistry.nodes(df)
                 X, y = g.featurize().scale(kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
                 
@@ -2271,25 +2284,29 @@ class FeatureMixin(MIXIN_BASE):
                 clf.fit(X_scaled, y_scaled)
 
 
-            args:
-                df: pd.DataFrame, raw data to transform, if None, will use data from featurization fit
-                y: pd.DataFrame, optional target data
-                kind: str, one of `nodes`, `edges`
-                use_scaler: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
-                use_scaler_target: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
-                impute: bool, if True, will impute missing values
-                n_quantiles: int, number of quantiles to use for quantile scaler
-                output_distribution: str, one of `normal`, `uniform`, `lognormal` 
-                quantile_range: tuple, range of quantiles to use for quantile scaler
-                n_bins: int, number of bins to use for KBinsDiscretizer
-                encode: str, one of `ordinal`, `onehot`, `onehot-dense`, `binary`    
-                strategy: str, one of `uniform`, `quantile`, `kmeans`
-                keep_n_decimals: int, number of decimals to keep after scaling
-                return_scalers: bool, if True, will return the scalers used to scale the data
-            returns:
-                (X, y) transformed data if return_graph is False
+            **Args:**
+            ::
+
+                # df: pd.DataFrame, raw data to transform, if None, will use data from featurization fit
+                # y: pd.DataFrame, optional target data
+                # kind: str, one of `nodes`, `edges`
+                # use_scaler: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
+                # use_scaler_target: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
+                # impute: bool, if True, will impute missing values
+                # n_quantiles: int, number of quantiles to use for quantile scaler
+                # output_distribution: str, one of `normal`, `uniform`, `lognormal` 
+                # quantile_range: tuple, range of quantiles to use for quantile scaler
+                # n_bins: int, number of bins to use for KBinsDiscretizer
+                # encode: str, one of `ordinal`, `onehot`, `onehot-dense`, `binary`    
+                # strategy: str, one of `uniform`, `quantile`, `kmeans`
+                # keep_n_decimals: int, number of decimals to keep after scaling
+                # return_scalers: bool, if True, will return the scalers used to scale the data
+
+            **Returns:**
+
+                    (X, y) transformed data if return_graph is False
                     or a graph with inferred edges if return_graph is True,
-                or (X, y, scaler, scaler_target) if return_scalers is True
+                    or (X, y, scaler, scaler_target) if return_scalers is True
         """
                 
         if df is None:  # use the original data
@@ -2774,7 +2791,8 @@ class FeatureMixin(MIXIN_BASE):
 
     
     def get_matrix(self, columns: Optional[Union[List, str]] = None, kind: str = 'nodes', target: bool = False) -> pd.DataFrame:
-        """Returns feature matrix, and if columns are specified, returns matrix with only the columns that contain 
+        """
+        Returns feature matrix, and if columns are specified, returns matrix with only the columns that contain 
             the string `column_part` in their name.
 
             `X = g.get_matrix(['feature1', 'feature2'])`
@@ -2786,7 +2804,9 @@ class FeatureMixin(MIXIN_BASE):
             
             Powerful way to retrieve features from a featurized graph by column or (top) features of interest.
             
-            example:
+            **Example:**
+            ::
+            
                 # get the full feature matrices
                 X = g.get_matrix()
                 y = g.get_matrix(target=True)

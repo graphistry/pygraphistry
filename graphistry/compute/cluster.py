@@ -212,6 +212,8 @@ class ClusterMixin(MIXIN_BASE):
         """DBSCAN clustering on cpu or gpu infered automatically. Adds a `_dbscan` column to nodes or edges.
 
         Examples:
+        ::
+
             g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
 
             # cluster by UMAP embeddings
@@ -333,22 +335,30 @@ class ClusterMixin(MIXIN_BASE):
         Graph nodes | edges will be colored by '_dbscan' column.
             
             Examples:
+            ::
+
                 fit:
                     g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
                     g2 = g.featurize().dbscan()
 
                 predict:
+                ::
+
                     emb, X, _, ndf = g2.transform_dbscan(ndf, return_graph=False)
                     # or
                     g3 = g2.transform_dbscan(ndf, return_graph=True)
                     g3.plot()
 
             likewise for umap:
+            ::
+
                 fit:
                     g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
                     g2 = g.umap(X=.., y=..).dbscan()
 
                 predict:
+                ::
+                
                     emb, X, y, ndf = g2.transform_dbscan(ndf, ndf, return_graph=False)
                     # or
                     g3 = g2.transform_dbscan(ndf, ndf, return_graph=True)
