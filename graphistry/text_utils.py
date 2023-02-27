@@ -155,10 +155,10 @@ class SearchToGraphMixin(MIXIN_BASE):
             :top_n (int, optional): how many results to return. Defaults to 100.
 
         Returns:
-            pd.DataFrame, vector_encoding_of_query:
-                * rank ordered dataframe of results matching query
-                * vector encoding of query via given transformer/ngrams model if fuzzy=True
-                    else None
+            **pd.DataFrame, vector_encoding_of_query:**
+            rank ordered dataframe of results matching query
+
+            vector encoding of query via given transformer/ngrams model if fuzzy=True else None
         """
         if not fuzzy:
             if cols is None:
