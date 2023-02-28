@@ -363,6 +363,7 @@ def layout_cugraph(
 
     **Example: ForceAtlas2 layout**
         ::
+
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
             g = graphistry.edges(edges, 's', 'd')
@@ -370,6 +371,7 @@ def layout_cugraph(
 
     **Example: Change which column names are generated**
         ::
+
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
             g = graphistry.edges(edges, 's', 'd')
@@ -380,6 +382,7 @@ def layout_cugraph(
 
     **Example: Pass parameters to layout methods**
         ::
+        
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
             g = graphistry.edges(edges, 's', 'd')
