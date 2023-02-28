@@ -627,10 +627,9 @@ def fit_pipeline(
      which helps for when transformer pipeline is scaling or imputer
      which sometime introduce small negative numbers,
      and umap metrics like Hellinger need to be positive
-    :param X, DataFrame to transform.
+    :param X: DataFrame to transform.
     :param transformer: Pipeline object to fit and transform
-    :param keep_n_decimals: Int of how many decimal places to keep in
-    rounded transformed data
+    :param keep_n_decimals: Int of how many decimal places to keep in rounded transformed data
     """
     columns = X.columns
     index = X.index
@@ -1772,9 +1771,10 @@ class FastEncoder:
             args:
             ::
 
-                X: pd.DataFrame of features
-                y: pd.DataFrame of target features
-                kind: str, one of 'nodes' or 'edges'
+                
+                ;X: pd.DataFrame of features
+                :y: pd.DataFrame of target features
+                :kind: str, one of 'nodes' or 'edges'
                 *args, **kwargs: passed to smart_scaler pipeline
             returns:
                 scaled X, y
@@ -2211,20 +2211,17 @@ class FeatureMixin(MIXIN_BASE):
             Transform new data and append to existing graph, or return dataframes
         
             **args:**
-            ::
 
-                # df: pd.DataFrame, raw data to transform
-                # ydf: pd.DataFrame, optional
-                # kind: str  # one of `nodes`, `edges`
-                # return_graph: bool, if True, will return a graph with inferred edges.
-                # merge_policy: bool, if True, adds batch to existing graph nodes via nearest neighbors. 
-                    # If False, will infer edges only between nodes in the batch, default False
-                # min_dist: float, if return_graph is True, will use this value in NN search, or 'auto' to infer a good value
-                    # min_dist represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
-                # sample: int, if return_graph is True, will use sample edges of existing graph to fill out the new graph
-                # n_neighbors: int, if return_graph is True, will use this value for n_neighbors in Nearest Neighbors search
-                # scaled: bool, if True, will use scaled transformation of data set during featurization, default True
-                # verbose: bool, if True, will print metadata about the graph construction, default False
+                :df: pd.DataFrame, raw data to transform
+                :ydf: pd.DataFrame, optional
+                :kind: str  # one of `nodes`, `edges`
+                :return_graph: bool, if True, will return a graph with inferred edges.
+                :merge_policy: bool, if True, adds batch to existing graph nodes via nearest neighbors. If False, will infer edges only between nodes in the batch, default False
+                :min_dist: float, if return_graph is True, will use this value in NN search, or 'auto' to infer a good value. min_dist represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
+                :sample: int, if return_graph is True, will use sample edges of existing graph to fill out the new graph
+                :n_neighbors: int, if return_graph is True, will use this value for n_neighbors in Nearest Neighbors search
+                :scaled: bool, if True, will use scaled transformation of data set during featurization, default True
+                :verbose: bool, if True, will print metadata about the graph construction, default False
             **Returns:**
 
                     X, y: pd.DataFrame, transformed data if return_graph is False
@@ -2285,22 +2282,21 @@ class FeatureMixin(MIXIN_BASE):
 
 
             **Args:**
-            ::
 
-                # df: pd.DataFrame, raw data to transform, if None, will use data from featurization fit
-                # y: pd.DataFrame, optional target data
-                # kind: str, one of `nodes`, `edges`
-                # use_scaler: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
-                # use_scaler_target: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
-                # impute: bool, if True, will impute missing values
-                # n_quantiles: int, number of quantiles to use for quantile scaler
-                # output_distribution: str, one of `normal`, `uniform`, `lognormal` 
-                # quantile_range: tuple, range of quantiles to use for quantile scaler
-                # n_bins: int, number of bins to use for KBinsDiscretizer
-                # encode: str, one of `ordinal`, `onehot`, `onehot-dense`, `binary`    
-                # strategy: str, one of `uniform`, `quantile`, `kmeans`
-                # keep_n_decimals: int, number of decimals to keep after scaling
-                # return_scalers: bool, if True, will return the scalers used to scale the data
+                :df: pd.DataFrame, raw data to transform, if None, will use data from featurization fit
+                :y: pd.DataFrame, optional target data
+                :kind: str, one of `nodes`, `edges`
+                :use_scaler: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
+                :use_scaler_target: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
+                :impute: bool, if True, will impute missing values
+                :n_quantiles: int, number of quantiles to use for quantile scaler
+                :output_distribution: str, one of `normal`, `uniform`, `lognormal` 
+                :quantile_range: tuple, range of quantiles to use for quantile scaler
+                :n_bins: int, number of bins to use for KBinsDiscretizer
+                :encode: str, one of `ordinal`, `onehot`, `onehot-dense`, `binary`    
+                :strategy: str, one of `uniform`, `quantile`, `kmeans`
+                :keep_n_decimals: int, number of decimals to keep after scaling
+                :return_scalers: bool, if True, will return the scalers used to scale the data
 
             **Returns:**
 
@@ -2792,7 +2788,7 @@ class FeatureMixin(MIXIN_BASE):
     
     def get_matrix(self, columns: Optional[Union[List, str]] = None, kind: str = 'nodes', target: bool = False) -> pd.DataFrame:
         """
-        Returns feature matrix, and if columns are specified, returns matrix with only the columns that contain 
+            Returns feature matrix, and if columns are specified, returns matrix with only the columns that contain 
             the string `column_part` in their name.
 
             `X = g.get_matrix(['feature1', 'feature2'])`
@@ -2824,10 +2820,10 @@ class FeatureMixin(MIXIN_BASE):
             Caveats:
                 - if you have a column name that is a substring of another column name, you may get unexpected results.
         Args:
-            columns (Union[List, str]): list of column names or a single column name that may exist in columns 
+            :columns (Union[List, str]): list of column names or a single column name that may exist in columns 
                 of the feature matrix. If None, returns original feature matrix
-            kind (str, optional): Node or Edge features. Defaults to 'nodes'.
-            target (bool, optional): If True, returns the target matrix. Defaults to False.
+            :kind (str, optional): Node or Edge features. Defaults to 'nodes'.
+            :target (bool, optional): If True, returns the target matrix. Defaults to False.
 
         Returns:
             pd.DataFrame: feature matrix with only the columns that contain the string `column_part` in their name.
