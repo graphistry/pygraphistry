@@ -314,15 +314,18 @@ class PlotterBase(Plottable):
 
         **Example: Chained merge - results in url and blendMode being set, while color is dropped**
             ::
+
                 g2 =  g.style(bg={'color': 'black'}, fg={'blendMode': 'screen'})
                 g3 = g2.style(bg={'image': {'url': 'http://site.com/watermark.png'}})
                 
         **Example: Gradient background**
             ::
+
               g.style(bg={'gradient': {'kind': 'linear', 'position': 45, 'stops': [['rgb(0,0,0)', '0%'], ['rgb(255,255,255)', '100%']]}})
               
         **Example: Page settings**
             ::
+            
               g.style(page={'title': 'Site - {{ name }}', 'favicon': 'http://site.com/logo.ico'})
 
         """        
@@ -857,7 +860,7 @@ class PlotterBase(Plottable):
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
         :type edge_label: str
 
-        :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
+        :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
         :type edge_color: str
 
         :param edge_source_color: Attribute overriding edge's source color if no edge_color, as an rgba int64 value.
@@ -875,7 +878,7 @@ class PlotterBase(Plottable):
         :param point_label: Attribute overriding node's expanded label text. By default, scrollable list of attribute/value mappings.
         :type point_label: str
 
-        :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
+        :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
         :type point_color: str
 
         :param point_size: Attribute overriding node's size. By default, uses the node degree. The visualization will normalize point sizes and adjust dynamically using semantic zoom.
