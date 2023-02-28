@@ -1944,7 +1944,7 @@ class FeatureMixin(MIXIN_BASE):
         memoize: bool = True,
         verbose: bool = False,
     ):
-        res = self.bind()  # was self.copy() but changing to test
+        res = self.copy() 
         ndf = res._nodes
         node = res._node
 
