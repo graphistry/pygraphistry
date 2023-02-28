@@ -1,2 +1,2 @@
-versioneer module
-=================
+.. versioneer module
+.. =================
