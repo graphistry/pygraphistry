@@ -17,6 +17,7 @@ else:
 
 logger = getLogger(__name__)
 
+
 class SearchToGraphMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -42,7 +43,9 @@ class SearchToGraphMixin(MIXIN_BASE):
         self.assert_fitted()
         self.assert_features_line_up_with_nodes()
         X = self._get_feature("nodes")
-        self.search_index = FaissVectorSearch(X.values) #self._build_search_index(X, angular, n_trees, faiss=False)
+        self.search_index = FaissVectorSearch(
+            X.values
+        )  # self._build_search_index(X, angular, n_trees, faiss=False)
 
     def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float):
         # Use the loaded featurizers to transform the dataframe
@@ -205,9 +208,9 @@ class SearchToGraphMixin(MIXIN_BASE):
             res = self.bind()
 
         edf = edges = res._edges
-        #print('shape of edges', edf.shape)
+        # print('shape of edges', edf.shape)
         rdf = df = res._nodes
-        #print('shape of nodes', rdf.shape)
+        # print('shape of nodes', rdf.shape)
         node = res._node
         indices = rdf[node]
         src = res._source
@@ -242,7 +245,7 @@ class SearchToGraphMixin(MIXIN_BASE):
             if res._umap is not None:
                 emb = res._node_embedding.iloc[found_indices]  # type: ignore
         except Exception as e:  # for explicit relabeled nodes
-            #logger.exception(e)
+            logger.exception(e)
             tdf = rdf[df[node].isin(found_indices)]
             feats = res._node_features.loc[tdf.index]  # type: ignore
             if res._umap is not None:
@@ -267,6 +270,7 @@ class SearchToGraphMixin(MIXIN_BASE):
 
     def save_search_instance(self, savepath):
         from joblib import dump  # type: ignore   # need to make this onnx or similar
+
         self.build_index()
         search = self.search_index
         del self.search_index  # can't pickle Annoy

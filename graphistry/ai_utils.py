@@ -158,12 +158,12 @@ class FaissVectorSearch:
         - k: the number of nearest neighbors to return (default: 5)
 
         Returns:
-        - I: a numpy array of size (k,) containing the indices of the k nearest neighbors
-        - D: a numpy array of size (k,) containing the distances to the k nearest neighbors
+        - Index: a numpy array of size (k,) containing the indices of the k nearest neighbors
+        - Distances: a numpy array of size (k,) containing the distances to the k nearest neighbors
         """
         q = np.asarray(q, dtype=np.float32)
-        D, I = self.index.search(q.reshape(1, -1), k)
-        return I[0], D[0]
+        Distances, Index = self.index.search(q.reshape(1, -1), k)
+        return Index[0], Distances[0]
     
     def search_df(self, q, df, k):
         """ Query by vector using annoy index and append distance to results
@@ -469,6 +469,3 @@ def infer_self_graph(res,
     # #########################################################
     print("-" * 50) if verbose else None
     return hydrate_graph(res, df, new_edges, node, src, dst, emb, X, y)
-
-
-
