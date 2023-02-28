@@ -6,6 +6,11 @@ import graphistry
 from .constants import DISTANCE, WEIGHT, BATCH
 from logging import getLogger
 
+try:
+    import faiss
+except:
+    faiss = None
+
 logger = getLogger(__name__)
 
 
@@ -144,8 +149,7 @@ def get_graphistry_from_milieu_search(
 
 class FaissVectorSearch:
     def __init__(self, M):
-        import faiss
-        import numpy as np
+        # import faiss
         self.index = faiss.IndexFlatL2(M.shape[1])
         self.index.add(M)
 
