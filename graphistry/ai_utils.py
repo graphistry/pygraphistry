@@ -7,7 +7,7 @@ from .constants import DISTANCE, WEIGHT, BATCH
 from logging import getLogger
 
 try:
-    import faiss
+    import faiss  # type ignore
 except:
     faiss = None
 
