@@ -15,7 +15,8 @@ core_requires = [
   'requests',
   'squarify',
   'typing-extensions',
-  'packaging >= 20.1'
+  'packaging >= 20.1',
+  'setuptools < 60.0.0',
 ]
 
 stubs = [
