@@ -281,7 +281,7 @@ class UMAPMixin(MIXIN_BASE):
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
         """Transforms data into UMAP embedding
         
-        args:
+        Args:
             :df: Dataframe to transform
             :y: Target column
             :kind: One of `nodes` or `edges`
