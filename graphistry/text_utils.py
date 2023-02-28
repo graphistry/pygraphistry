@@ -122,37 +122,38 @@ class SearchToGraphMixin(MIXIN_BASE):
 
             If node data is not yet feature-encoded (and explicit edges are given),
             run automatic feature engineering:
-            ```
+            ::
+
                 g2 = g.featurize(kind='nodes', X=['text_col_1', ..],
                 min_words=0 # forces all named columns are textually encoded
                 )
-            ```
 
             If edges do not yet exist, generate them via
-            ```
+            ::
+
                 g2 = g.umap(kind='nodes', X=['text_col_1', ..],
                 min_words=0 # forces all named columns are textually encoded
                 )
-            ```
+            
             If an index is not yet built, it is generated `g2.build_index()` on the fly at search time.
             Otherwise, can set `g2.build_index()` to build it ahead of time.
         Args:
-            query (str): natural language query.
-            cols (list or str, optional): if fuzzy=False, select which column to query.
+            :query (str): natural language query.
+            :cols (list or str, optional): if fuzzy=False, select which column to query.
                                             Defaults to None since fuzzy=True by defaul.
-            thresh (float, optional): distance threshold from query vector to returned results.
+            :thresh (float, optional): distance threshold from query vector to returned results.
                                         Defaults to 5000, set large just in case,
                                         but could be as low as 10.
-            fuzzy (bool, optional): if True, uses embedding + annoy index for recall,
+            :fuzzy (bool, optional): if True, uses embedding + annoy index for recall,
                                         otherwise does string matching over given `cols`
                                         Defaults to True.
-            top_n (int, optional): how many results to return. Defaults to 100.
+            :top_n (int, optional): how many results to return. Defaults to 100.
 
         Returns:
-            pd.DataFrame, vector_encoding_of_query:
-                * rank ordered dataframe of results matching query
-                * vector encoding of query via given transformer/ngrams model if fuzzy=True
-                    else None
+            **pd.DataFrame, vector_encoding_of_query:**
+            rank ordered dataframe of results matching query
+
+            vector encoding of query via given transformer/ngrams model if fuzzy=True else None
         """
         if not fuzzy:
             if cols is None:
@@ -188,15 +189,15 @@ class SearchToGraphMixin(MIXIN_BASE):
             See help(g.search) for more information
 
         Args:
-            query (str): query input eg "coding best practices"
-            scale (float, optional): edge weigh threshold,  Defaults to 0.5.
-            top_n (int, optional): how many results to return. Defaults to 100.
-            thresh (float, optional): distance threshold from query vector to returned results.
+            :query (str): query input eg "coding best practices"
+            :scale (float, optional): edge weigh threshold,  Defaults to 0.5.
+            :top_n (int, optional): how many results to return. Defaults to 100.
+            :thresh (float, optional): distance threshold from query vector to returned results.
                                         Defaults to 5000, set large just in case,
                                         but could be as low as 10.
-            broader (bool, optional): if True, will retrieve entities connected via an edge
+            :broader (bool, optional): if True, will retrieve entities connected via an edge
                 that were not necessarily bubbled up in the results_dataframe. Defaults to False.
-            inplace (bool, optional): whether to return new instance (default) or mutate self.
+            :inplace (bool, optional): whether to return new instance (default) or mutate self.
                                         Defaults to False.
 
         Returns:
