@@ -144,12 +144,11 @@ def get_graphistry_from_milieu_search(
 #  Graphistry Vector Search Index
 #
 ##########################################################################################################################
-# import faiss
-# import numpy as np
+
 
 class FaissVectorSearch:
     def __init__(self, M):
-        # import faiss
+        import faiss
         self.index = faiss.IndexFlatL2(M.shape[1])
         self.index.add(M)
 
