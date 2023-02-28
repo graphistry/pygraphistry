@@ -1,7 +1,7 @@
 import pandas as pd
 
 from .feature_utils import FeatureMixin
-from .ai_utils import search_to_df, build_annoy_index, query_by_vector
+from .ai_utils import search_to_df, FaissVectorSearch
 from .constants import WEIGHT, DISTANCE
 from logging import getLogger
 
@@ -37,24 +37,18 @@ class SearchToGraphMixin(MIXIN_BASE):
             f"found nodes: {a}, feats: {b}. Did you mutate nodes between fit?"
         )
 
-    def _build_search_index(self, X, angular=False, n_trees=None):
-        # builds local index from X
-        return build_annoy_index(X, angular, n_trees)
-
     def build_index(self, angular=False, n_trees=None):
         # builds local index
         self.assert_fitted()
         self.assert_features_line_up_with_nodes()
-
         X = self._get_feature("nodes")
-
-        self.search_index = self._build_search_index(X, angular, n_trees)
+        self.search_index = FaissVectorSearch(X.values) #self._build_search_index(X, angular, n_trees, faiss=False)
 
     def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float):
         # Use the loaded featurizers to transform the dataframe
         vect, _ = self.transform(qdf, None, kind="nodes", return_graph=False)
 
-        results = query_by_vector(vect, self._nodes, self.search_index, top_n)
+        results = self.search_index.search_df(vect, self._nodes, top_n)
         results = results.query(f"{DISTANCE} < {thresh}")
 
         return results, vect
@@ -138,9 +132,7 @@ class SearchToGraphMixin(MIXIN_BASE):
                 )
             ```
             If an index is not yet built, it is generated `g2.build_index()` on the fly at search time.
-            Otherwise, can set `g2.build_index()` and then subsequent `g2.search(...)`
-            calls will be not rebuilt index.
-
+            Otherwise, can set `g2.build_index()` to build it ahead of time.
         Args:
             query (str): natural language query.
             cols (list or str, optional): if fuzzy=False, select which column to query.
@@ -250,7 +242,7 @@ class SearchToGraphMixin(MIXIN_BASE):
             if res._umap is not None:
                 emb = res._node_embedding.iloc[found_indices]  # type: ignore
         except Exception as e:  # for explicit relabeled nodes
-            logger.exception(e)
+            #logger.exception(e)
             tdf = rdf[df[node].isin(found_indices)]
             feats = res._node_features.loc[tdf.index]  # type: ignore
             if res._umap is not None:
