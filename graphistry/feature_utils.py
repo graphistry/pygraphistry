@@ -140,7 +140,7 @@ def assert_imported():
         )
         raise import_min_exn
 
-def assert_cuml_imported():
+def assert_cuml_cucat():
     has_cuml_dependancy_, import_cuml_exn = lazy_import_has_cu_cat_dependancy()
     if not has_cuml_dependancy_:
         logger.error(  # noqa
@@ -2381,7 +2381,7 @@ class FeatureMixin(MIXIN_BASE):
         if feature_engine == 'dirty_cat':
             assert_imported()
         elif feature_engine == 'cu_cat':
-            assert_cuml_imported()
+            assert_cuml_cucat()
         if inplace:
             res = self
         else:
