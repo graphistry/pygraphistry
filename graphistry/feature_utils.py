@@ -109,8 +109,8 @@ def lazy_import_has_cu_cat_dependancy():
         from scipy import __version__ as scipy_version
         from cu_cat import __version__ as cu_cat_version
         from sklearn import __version__ as sklearn_version
-        from cuml import __verison__ as cuml_version
-        from cudf import __verison__ as cudf_version
+        from cuml import __version__ as cuml_version
+        from cudf import __version__ as cudf_version
         logger.debug(f"SCIPY VERSION: {scipy_version}")
         logger.debug(f"Cuda CAT VERSION: {cu_cat_version}")
         logger.debug(f"sklearn VERSION: {sklearn_version}")
@@ -173,7 +173,7 @@ def assert_cuml_cucat():
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat"]
+FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat", "cu_cat|torch"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
 
