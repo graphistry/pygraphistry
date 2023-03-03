@@ -283,7 +283,7 @@ class Splunk(ai.Expression):
         return self.value
 
 
-class AIGraph(ai.Expression):
+class AIGraph(Splunk):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mem = {}
@@ -348,9 +348,10 @@ def get_splunk_condition(res, splunk):
 
 
 class SplunkAIGraph(AIGraph):
-    def __init__(self, index, all_indexes=False, *args, **kwargs):
+    def __init__(self, index, all_indexes=False, verbose=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.index = index
+        self.verbose = verbose
         self.mem = {}
         self.antimem = {}
         self.conn = GraphistryAdminSplunk()
@@ -362,6 +363,7 @@ class SplunkAIGraph(AIGraph):
         self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}"
         self.SUFFIX = "\n\nRemember that this is a splunk search and to prepend `search` to your result. GO!"
         self.SPLUNK_HINT = "hint: |search index=* | Table src, rel, dst, **,"
+        
 
     def get_context(self, index, all_indexes=False):
         self.get_fields(index)
@@ -369,8 +371,8 @@ class SplunkAIGraph(AIGraph):
         if all_indexes:
             self.get_indexes()
             context = f"You are working with the index `{index}` and the following fields: {self.fields}. You can also use the following indexes: {self.indexes.keys()}"
-        print("-" * 80)
-        print("context:", context)
+        print("-" * 80) if self.verbose else None
+        print("context:", context) if self.verbose else None
         self._splunk_context = context
         return context
 
@@ -430,7 +432,6 @@ class SplunkAIGraph(AIGraph):
                 print("!!same splunk, what?\n\t", splunk)
 
             print("new splunk, who dis?\n\t", splunk, '\n')
-            # res = self._search(splunk)
             condition, context = get_splunk_condition(res, splunk)
             i += 1
 
@@ -448,13 +449,13 @@ class SplunkAIGraph(AIGraph):
     
 
     def get_indexes(self):
-        print("getting indexes")
+        print("getting indexes") if self.verbose else None
         indices = self.conn.get_indexes()
         self.indexes = indices
         return indices
 
     def get_fields(self, index):
-        print("getting fields")
+        print("getting fields") if self.verbose else None
         fields = self.conn.get_fields(index)
         fields = [k["field"] for k in fields]
         self.fields = fields
@@ -479,13 +480,13 @@ class SplunkAIGraph(AIGraph):
 
 # Splunk specific functions
 
-
-def is_splunk_query(query, sym: SplunkAIGraph, verbose=False, *args, **kwargs):
+def is_splunk_query(query, sym: SplunkAIGraph, verbose=False, *args, **kwargs) -> bool:
     issplunk = sym.query(
         f"is this: `{query}` a SPL (splunk) query? Return yes or no",
         constraint=lambda x: x.lower() in ["yes", "no"],
         default="no",
     )
+    print('-'*60) if verbose else None
     if issplunk == "no":
         print(f"`{query[:400]}` \nis not a splunk query") if verbose else None
         return False
@@ -495,18 +496,20 @@ def is_splunk_query(query, sym: SplunkAIGraph, verbose=False, *args, **kwargs):
 
 def is_asking_for_a_splunk_query(
     query, sym: SplunkAIGraph, verbose=False, *args, **kwargs
-):
+) -> bool:
     issplunk = sym.query(
         f"is this asking you to generate a SPL (splunk) query? `{query}`, return a yes or no",
         constraint=lambda x: x.lower() in ["yes", "no"],
         default="no",
     )
+    print('-'*60) if verbose else None
     if issplunk == "no":
         print(
-            f"This `{query}` is not asking to generate a splunk query"
+            f"`{query}` is not asking to generate a splunk query"
         ) if verbose else None
         return False
-    print(f"This `{query}` is asking to generate a splunk query") if verbose else None
+    
+    print(f"`{query}` is asking to generate a splunk query") if verbose else None
     return True
 
 
@@ -550,64 +553,22 @@ def get_likely_edges(query, sym: SplunkAIGraph, verbose=False, *args, **kwargs):
 class SymbolicMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         self._sym = None
-        self.splunker = SplunkAIGraph('redteam_50k')
+        self.splunk = SplunkAIGraph('redteam_50k')
 
     def ai(self, query, context=None, *args, **kwargs):
         if getattr(self, "_sym", None) is None:
             self._sym = ai.Expression()
-        sym = self._sym
+        sym = self._sym # add iteration to the sym
 
-        res = self.splunker.splunk_search(query)
+        res = self.splunk.splunk_search(query, previous=sym)
         
-        if isinstance(res, pd.DataFrame):
+        if isinstance(res, pd.DataFrame) and not res.empty:
             g = self.edges(res, 'src_computer', 'dst_computer')
             return g
+        
+        self._sym = res
         return res
 
-
-        # graph = sym.query(
-        #     f'are any of [cols, top_n, as_records, edge_cols, cluster, fuzzy] or "graph" found in the following? `{args} {kwargs}`, If so, return ONLY key value pairs FOUND IN THE DATA as a kwargs dict, otherwise simply return None'
-        # )
-        # print("graph:", graph)
-
-        # if graph.value not in ["None"]:
-        #     kwargs = graph.dict(
-        #         "make a dict if any of the following keys: [cols, top_n, as_records, edge_cols, cluster, fuzzy] are found, otherwise return an empty dict}"
-        #     )
-        #     print("kwargs:", kwargs)
-        #     print("\nforward")
-        #     return self.forward(query, context, **kwargs)
-
-        # url = sym.query(
-        #     f'is the following a url or a request for a url?\n"{query}" OR "{context}"\nIf True, return the found url, otherwise return None.'
-        # )
-        # print("url:", url)
-        # if url:
-        #     print("fetching", url)
-        #     sym = sym.fetch(url)
-
-        # splunk = sym.query(
-        #     f'is the following a splunk query or a request for a splunk query?\n"{query}" AND/OR "{context}"\nIf True, return splunk query, otherwise return None.'
-        # )
-        # print("splunk:", splunk)
-
-        # if splunk:
-        #     # print('splunk:', splunk)
-        #     conn = GraphistryAdminSplunk()
-        #     df = conn.to_dataframe(splunk)
-        #     if not df.empty:
-        #         sym = self._encode_df_as_sym(df, as_records=True)
-        #         self._sym = sym
-        #         return sym, df
-
-        # sym = sym.query(query)
-        # print("-" * 100)
-        # print("query", query)
-        # print("context", context)
-        # print("sym", sym)
-        # # set latest context
-        # self._sym = sym
-        # return sym, None
 
     def _reset_sym(self):
         self._sym = None
@@ -618,20 +579,15 @@ class SymbolicMixin(MIXIN_BASE):
         context_df = safe_encode_df(context_df, max_doc_length=max_doc_length)
         sym = process_df_to_sym(context_df, as_records)
         rr = process(sym, cluster=cluster)
-        # stream = ai.Stream(LambdaHelper(lambda x: x["args"][0]))
-        # rr = ai.Symbol(list(stream(sym)))
-        # if cluster:
-        #     print("clustering")
-        #     rr = ai.Cluster(rr)
         return rr
 
     def _add_context_and_query(self, sym, query, context="summary"):
-        """_summary_
+        """ adds context to the query
 
         Args:
-            sym (_type_): _description_
-            query (_type_): _description_
-            context (str, optional): _description_. Defaults to 'summary'.
+            sym (_type_): symbolicAI
+            query (_type_): the query
+            context (str, optional): either key words or what ever other context. Defaults to 'summary'.
 
         Returns:
             _type_: _description_
@@ -854,10 +810,10 @@ class SymbolicMixin(MIXIN_BASE):
 
         df = pd.DataFrame(df, columns=[cluster_col, "context", "query", "report"])
         df2 = pd.DataFrame(df2, columns=["src", "dst", "weight"])
-        import graphistry
 
+        res = self.bind()
         g_cluster = (
-            graphistry.nodes(df, cluster_col)
+            res.nodes(df, cluster_col)
             .edges(df2, "src", "dst")
             .bind(edge_weight="weight")
         )
@@ -869,13 +825,4 @@ class SymbolicMixin(MIXIN_BASE):
         sym = self._encode_df_as_sym(context_df, as_records=True, cluster=cluster)
         return self._add_context_and_query(sym, query, context)
 
-    # def on_select_by_name(self, query, context, names):
-    #     # total hack
-    #     #cdf = self._nodes[self._nodes.full_name.isin(names)] #['full_name', 'title']
-    #     #cdf = pd.concat([cdf, context_df], axis=0)
-    #     context_df = pd.read_csv('~/dev/pygraphistry/data/context_df.csv', index_col=0)
-    #     cdf = context_df.sample(20)
-    #     cdf = pd.concat([cdf, pd.DataFrame({'full_name': names})], axis=0)
-
-    #     sym = self._encode_df_as_sym(cdf, as_records=True)
-    #     return self._add_context_and_query(sym, query, context)
+  
