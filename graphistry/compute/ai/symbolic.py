@@ -185,6 +185,7 @@ def process(data, *args, **kwargs):
         return expr(res)
     return res
 
+
 WEB_DESCRIPTION = """Design a web app with HTML, CSS and inline JavaScript. 
 Use dark theme and best practices for colors, text font, etc. 
 Use Bootstrap for styling.
@@ -273,6 +274,7 @@ class Splunk(ai.Expression):
         )
         def _func(_) -> str:
             pass
+
         return self._sym_return_type(_func(Splunk(sym)))
 
     @property
@@ -342,7 +344,7 @@ def get_splunk_condition(res, splunk):
     elif pd.DataFrame(res).empty:
         condition = pd.DataFrame(res).empty
         context = f"The following SPL query returned no results: {splunk}"
-    print('context', context)
+    print("context", context)
     print(res.head()) if isinstance(res, pd.DataFrame) else None
     return condition, context
 
@@ -363,7 +365,6 @@ class SplunkAIGraph(AIGraph):
         self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}"
         self.SUFFIX = "\n\nRemember that this is a splunk search and to prepend `search` to your result. GO!"
         self.SPLUNK_HINT = "hint: |search index=* | Table src, rel, dst, **,"
-        
 
     def get_context(self, index, all_indexes=False):
         self.get_fields(index)
@@ -400,7 +401,7 @@ class SplunkAIGraph(AIGraph):
         if is_spl in ["yes", True, "True"]:
             res = self._search(query)
             splunk = query
-            
+
         is_asking_for_splunk = is_asking_for_a_splunk_query(query, self, verbose=True)
         if is_asking_for_splunk in ["yes", True, "True"]:
             # try to convert to splunk
@@ -431,7 +432,7 @@ class SplunkAIGraph(AIGraph):
             if old_splunk == splunk:
                 print("!!same splunk, what?\n\t", splunk)
 
-            print("new splunk, who dis?\n\t", splunk, '\n')
+            print("new splunk, who dis?\n\t", splunk, "\n")
             condition, context = get_splunk_condition(res, splunk)
             i += 1
 
@@ -446,7 +447,6 @@ class SplunkAIGraph(AIGraph):
             print("-" * 30)
             print("--Added a failed memory:", query)
         return res
-    
 
     def get_indexes(self):
         print("getting indexes") if self.verbose else None
@@ -480,13 +480,14 @@ class SplunkAIGraph(AIGraph):
 
 # Splunk specific functions
 
+
 def is_splunk_query(query, sym: SplunkAIGraph, verbose=False, *args, **kwargs) -> bool:
     issplunk = sym.query(
         f"is this: `{query}` a SPL (splunk) query? Return yes or no",
         constraint=lambda x: x.lower() in ["yes", "no"],
         default="no",
     )
-    print('-'*60) if verbose else None
+    print("-" * 60) if verbose else None
     if issplunk == "no":
         print(f"`{query[:400]}` \nis not a splunk query") if verbose else None
         return False
@@ -502,13 +503,13 @@ def is_asking_for_a_splunk_query(
         constraint=lambda x: x.lower() in ["yes", "no"],
         default="no",
     )
-    print('-'*60) if verbose else None
+    print("-" * 60) if verbose else None
     if issplunk == "no":
         print(
             f"`{query}` is not asking to generate a splunk query"
         ) if verbose else None
         return False
-    
+
     print(f"`{query}` is asking to generate a splunk query") if verbose else None
     return True
 
@@ -536,6 +537,7 @@ def find_splunk_index(query, sym: SplunkAIGraph, verbose, *args, **kwargs):
     print(index) if verbose else None
     return index
 
+
 def get_likely_edges(query, sym: SplunkAIGraph, verbose=False, *args, **kwargs):
     edges = sym.query(
         f"query: {query} uses the following columns as edges:",
@@ -553,22 +555,21 @@ def get_likely_edges(query, sym: SplunkAIGraph, verbose=False, *args, **kwargs):
 class SymbolicMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         self._sym = None
-        self.splunk = SplunkAIGraph('redteam_50k')
+        self.splunk = SplunkAIGraph("redteam_50k")
 
     def ai(self, query, context=None, *args, **kwargs):
         if getattr(self, "_sym", None) is None:
             self._sym = ai.Expression()
-        sym = self._sym # add iteration to the sym
+        sym = self._sym  # add iteration to the sym
 
         res = self.splunk.splunk_search(query, previous=sym)
-        
+
         if isinstance(res, pd.DataFrame) and not res.empty:
-            g = self.edges(res, 'src_computer', 'dst_computer')
+            g = self.edges(res, "src_computer", "dst_computer")
             return g
-        
+
         self._sym = res
         return res
-
 
     def _reset_sym(self):
         self._sym = None
@@ -582,7 +583,7 @@ class SymbolicMixin(MIXIN_BASE):
         return rr
 
     def _add_context_and_query(self, sym, query, context="summary"):
-        """ adds context to the query
+        """adds context to the query
 
         Args:
             sym (_type_): symbolicAI
@@ -824,5 +825,3 @@ class SymbolicMixin(MIXIN_BASE):
         context_df = self._nodes.iloc[nodeIDs]
         sym = self._encode_df_as_sym(context_df, as_records=True, cluster=cluster)
         return self._add_context_and_query(sym, query, context)
-
-  
