@@ -5,10 +5,11 @@ from urllib.parse import quote
 import pandas as pd
 
 class SplunkConnector:
-    def __init__(self, username, password, host):
+    def __init__(self, username, password, host, verbose=False):
         self.username = username
         self.password = password
         self.host = host
+        self.verbose = verbose
         self.connect()
         
     def connect(self):
@@ -34,7 +35,7 @@ class SplunkConnector:
         """Returns a list of fields for a given index
             This is used to provide context for the symbolic AI
         """
-        print(f'Returning fields from {index}')
+        print(f'Returning fields from {index}') if self.verbose else None
         query = f"search index={index} | fieldsummary | table field"
         return self.query(query)
 
@@ -90,19 +91,14 @@ class SplunkConnector:
         data = list(self.query(search_query, earliest_time, latest_time))
         if not data:
             return pd.DataFrame()
-
         df = pd.DataFrame(data)
         df.columns = [field for field in data[0].keys()]
-
         return df
     
 
 class GraphistryAdminSplunk(SplunkConnector):
     
     def __init__(self):
-        username = 'alex'
-        password = 'graph1234!'
-        host="splunk.graphistry.com"
         # username = ''
         # password = ''
         # host="splunk.graphistry.com"
