@@ -1,7 +1,6 @@
 import splunklib.client as client
 import splunklib.results as results
 import sys
-from urllib.parse import quote
 import pandas as pd
 
 class SplunkConnector:
@@ -15,7 +14,7 @@ class SplunkConnector:
     def connect(self):
         try:
             self.service = client.connect(host=self.host, username=self.username, password=self.password)
-            print("Splunk connection established")
+            print("Splunk connection established") if self.verbose else None
         except Exception as e:
             print(e)   
             
