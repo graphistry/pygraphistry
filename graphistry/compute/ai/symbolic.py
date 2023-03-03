@@ -273,7 +273,6 @@ class Splunk(ai.Expression):
         )
         def _func(_) -> str:
             pass
-
         return self._sym_return_type(_func(Splunk(sym)))
 
     @property
@@ -327,7 +326,7 @@ class AIGraph(ai.Expression):
         # print(f'DOC LENGHT {res.length()}')
         res = res[:3000]
         sym = self.process(res)
-        summary = sym.query("Give a concise summary of this dataset?")
+        summary = sym.query("Provide a concise summary of this dataset.")
         self.mem[summary] = sym
         return summary
 
@@ -343,7 +342,7 @@ def get_splunk_condition(res, splunk):
     elif pd.DataFrame(res).empty:
         condition = pd.DataFrame(res).empty
         context = f"The following SPL query returned no results: {splunk}"
-    print(context)
+    print('context', context)
     print(res.head()) if isinstance(res, pd.DataFrame) else None
     return condition, context
 
@@ -387,7 +386,7 @@ class SplunkAIGraph(AIGraph):
     ) -> pd.DataFrame:
         splunk = self.splunk(query, attach=attach, *args, **kwargs)
         res = self._search(splunk)
-
+        print("-" * 60) if verbose else None
         print("****splunk:", splunk) if verbose else None
         print(
             "**result:", (res.shape if isinstance(res, pd.DataFrame) else res)
@@ -396,14 +395,18 @@ class SplunkAIGraph(AIGraph):
 
     def splunk_search(self, query: str, timeout: int = 1, *args, **kwargs):
         is_spl = is_splunk_query(query, self, verbose=True)
-        if is_spl in ["yes", True]:
+        if is_spl in ["yes", True, "True"]:
             res = self._search(query)
             splunk = query
-        else:
+            
+        is_asking_for_splunk = is_asking_for_a_splunk_query(query, self, verbose=True)
+        if is_asking_for_splunk in ["yes", True, "True"]:
             # try to convert to splunk
             res, splunk = self._query_to_splunk(
                 query, attach=self._splunk_context, verbose=True
             )
+        else:
+            return self.query(query, *args, **kwargs)
 
         # check if we got data back
         condition, context = get_splunk_condition(res, splunk)
@@ -424,9 +427,9 @@ class SplunkAIGraph(AIGraph):
             )
 
             if old_splunk == splunk:
-                print("!!same splunk, who dis?\n\t", splunk)
+                print("!!same splunk, what?\n\t", splunk)
 
-            print("new splunk, who dis?\n\t", splunk)
+            print("new splunk, who dis?\n\t", splunk, '\n')
             # res = self._search(splunk)
             condition, context = get_splunk_condition(res, splunk)
             i += 1
@@ -434,12 +437,15 @@ class SplunkAIGraph(AIGraph):
         if isinstance(res, pd.DataFrame) and not res.empty:
             # get good example pairs of query and splunk
             self.mem[query] = splunk
+            print("-" * 30)
             print("--Added a successful memory:", query)
             condition = False
         else:
             self.antimem[query] = splunk
+            print("-" * 30)
             print("--Added a failed memory:", query)
         return res
+    
 
     def get_indexes(self):
         print("getting indexes")
@@ -462,9 +468,8 @@ class SplunkAIGraph(AIGraph):
         print("good_cols:", good_cols)
         return good_cols
 
-    def _edge_query(self, *args, **kwargs):
-        edges_query = f"write a splunk query for the index `{self.index}` that uses the src and dst information to output a table of events."
-        return edges_query
+    def _likely_edges(self, *args, **kwargs):
+        return get_likely_edges(self, *args, **kwargs)
 
     def qa(self, query):
         df = self.splunk_search(query)
@@ -477,7 +482,7 @@ class SplunkAIGraph(AIGraph):
 
 def is_splunk_query(query, sym: SplunkAIGraph, verbose=False, *args, **kwargs):
     issplunk = sym.query(
-        f"is this: \n{query}\n a SPL (splunk) query? Return a yes or no",
+        f"is this: `{query}` a SPL (splunk) query? Return yes or no",
         constraint=lambda x: x.lower() in ["yes", "no"],
         default="no",
     )
@@ -492,7 +497,7 @@ def is_asking_for_a_splunk_query(
     query, sym: SplunkAIGraph, verbose=False, *args, **kwargs
 ):
     issplunk = sym.query(
-        f"is this asking you to generate a SPL (splunk) query? {query}, return a yes or no",
+        f"is this asking you to generate a SPL (splunk) query? `{query}`, return a yes or no",
         constraint=lambda x: x.lower() in ["yes", "no"],
         default="no",
     )
@@ -528,6 +533,15 @@ def find_splunk_index(query, sym: SplunkAIGraph, verbose, *args, **kwargs):
     print(index) if verbose else None
     return index
 
+def get_likely_edges(query, sym: SplunkAIGraph, verbose=False, *args, **kwargs):
+    edges = sym.query(
+        f"query: {query} uses the following columns as edges:",
+        attach=sym.fields,
+        constraint=lambda x: len(x.split()) == 2,
+    )
+    print(edges) if verbose else None
+    return edges
+
 
 ###########################################################################################################
 ### AI Graph Class using Symbolic AI
@@ -536,55 +550,64 @@ def find_splunk_index(query, sym: SplunkAIGraph, verbose, *args, **kwargs):
 class SymbolicMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs):
         self._sym = None
+        self.splunker = SplunkAIGraph('redteam_50k')
 
     def ai(self, query, context=None, *args, **kwargs):
         if getattr(self, "_sym", None) is None:
             self._sym = ai.Expression()
         sym = self._sym
 
-        graph = sym.query(
-            f'are any of [cols, top_n, as_records, edge_cols, cluster, fuzzy] or "graph" found in the following?\n\n{args} {kwargs}\n\nIf so, return ONLY key value pairs FOUND IN THE DATA as a kwargs dict, otherwise simply return None'
-        )
-        print("graph:", graph)
+        res = self.splunker.splunk_search(query)
+        
+        if isinstance(res, pd.DataFrame):
+            g = self.edges(res, 'src_computer', 'dst_computer')
+            return g
+        return res
 
-        if graph.value not in ["None"]:
-            kwargs = graph.dict(
-                "make a dict if any of the following keys: [cols, top_n, as_records, edge_cols, cluster, fuzzy] are found, otherwise return an empty dict}"
-            )
-            print("kwargs:", kwargs)
-            print("\nforward")
-            return self.forward(query, context, **kwargs)
 
-        url = sym.query(
-            f'is the following a url or a request for a url?\n"{query}" OR "{context}"\nIf True, return the found url, otherwise return None.'
-        )
-        print("url:", url)
-        if url:
-            print("fetching", url)
-            sym = sym.fetch(url)
+        # graph = sym.query(
+        #     f'are any of [cols, top_n, as_records, edge_cols, cluster, fuzzy] or "graph" found in the following? `{args} {kwargs}`, If so, return ONLY key value pairs FOUND IN THE DATA as a kwargs dict, otherwise simply return None'
+        # )
+        # print("graph:", graph)
 
-        splunk = sym.query(
-            f'is the following a splunk query or a request for a splunk query?\n"{query}" AND/OR "{context}"\nIf True, return splunk query, otherwise return None.'
-        )
-        print("splunk:", splunk)
+        # if graph.value not in ["None"]:
+        #     kwargs = graph.dict(
+        #         "make a dict if any of the following keys: [cols, top_n, as_records, edge_cols, cluster, fuzzy] are found, otherwise return an empty dict}"
+        #     )
+        #     print("kwargs:", kwargs)
+        #     print("\nforward")
+        #     return self.forward(query, context, **kwargs)
 
-        if splunk:
-            # print('splunk:', splunk)
-            conn = GraphistryAdminSplunk()
-            df = conn.to_dataframe(splunk)
-            if not df.empty:
-                sym = self._encode_df_as_sym(df, as_records=True)
-                self._sym = sym
-                return sym, df
+        # url = sym.query(
+        #     f'is the following a url or a request for a url?\n"{query}" OR "{context}"\nIf True, return the found url, otherwise return None.'
+        # )
+        # print("url:", url)
+        # if url:
+        #     print("fetching", url)
+        #     sym = sym.fetch(url)
 
-        sym = sym.query(query)
-        print("-" * 100)
-        print("query", query)
-        print("context", context)
-        print("sym", sym)
-        # set latest context
-        self._sym = sym
-        return sym, None
+        # splunk = sym.query(
+        #     f'is the following a splunk query or a request for a splunk query?\n"{query}" AND/OR "{context}"\nIf True, return splunk query, otherwise return None.'
+        # )
+        # print("splunk:", splunk)
+
+        # if splunk:
+        #     # print('splunk:', splunk)
+        #     conn = GraphistryAdminSplunk()
+        #     df = conn.to_dataframe(splunk)
+        #     if not df.empty:
+        #         sym = self._encode_df_as_sym(df, as_records=True)
+        #         self._sym = sym
+        #         return sym, df
+
+        # sym = sym.query(query)
+        # print("-" * 100)
+        # print("query", query)
+        # print("context", context)
+        # print("sym", sym)
+        # # set latest context
+        # self._sym = sym
+        # return sym, None
 
     def _reset_sym(self):
         self._sym = None

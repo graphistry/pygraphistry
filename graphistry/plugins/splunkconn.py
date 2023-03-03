@@ -1,6 +1,7 @@
 import splunklib.client as client
 import splunklib.results as results
 import sys
+from urllib.parse import quote
 import pandas as pd
 
 class SplunkConnector:
@@ -99,10 +100,12 @@ class SplunkConnector:
 class GraphistryAdminSplunk(SplunkConnector):
     
     def __init__(self):
-        username = ''
-        password = ''
+        username = 'alex'
+        password = 'graph1234!'
         host="splunk.graphistry.com"
-        #conn = SplunkConnector(username, password, host)
+        # username = ''
+        # password = ''
+        # host="splunk.graphistry.com"
         super().__init__(username, password, host)
         
         
