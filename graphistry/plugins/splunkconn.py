@@ -24,7 +24,7 @@ class SplunkConnector:
             This is used to provide context for the symbolic AI
         """
         indexes = {}
-        print('retrieving index information')
+        print('retrieving index information') if self.verbose else None
         for index_name in self.service.indexes:
             index = self.service.indexes[index_name.name]
             fields = index.fields
