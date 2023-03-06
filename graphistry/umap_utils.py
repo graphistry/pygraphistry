@@ -286,8 +286,7 @@ class UMAPMixin(MIXIN_BASE):
         if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)):
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
         elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
-            import cudf
-            emb = cudf.DataFrame(emb, columns=[config.X, config.Y], index=index)
+            emb = pd.DataFrame(emb.to_numpy(), columns=[config.X, config.Y], index=index.to_numpy())
         else:
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1] - 2)
@@ -326,7 +325,6 @@ class UMAPMixin(MIXIN_BASE):
             # have to set _raw_data attribute on umap?
             fresh_res._umap = old_res._umap  # this saves the day!
             return fresh_res
-
         emb = res.umap_fit_transform(X_, y_)
         res._xy = emb
         return res
@@ -509,6 +507,7 @@ class UMAPMixin(MIXIN_BASE):
             if res._xy is None:
                 raise RuntimeError("This should not happen")
             res._node_embedding = res._xy
+
             # TODO add edge filter so graph doesn't have double edges
             # TODO user-guidable edge merge policies like upsert?
             res._weighted_edges_df_from_nodes = (
@@ -595,10 +594,9 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._node_embedding
         else:
             emb = res._edge_embedding
-        if 'cudf.core.dataframe' not in str(getmodule(emb)): ## cuda cannot support nulls https://github.com/cupy/cupy/issues/5918#issuecomment-946327237
-            df[x_name] = emb.values.T[0]  # if embedding is greater
-            # than two dimensions will only take first two coordinates
-            df[y_name] = emb.values.T[1]
+            
+        df[x_name] = emb.values.T[0]
+        df[y_name] = emb.values.T[1]
 
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 

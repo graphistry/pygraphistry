@@ -1891,7 +1891,7 @@ class FeatureMixin(MIXIN_BASE):
         ndf = res._nodes
         node = res._node
 
-        if remove_node_column and 'cudf.core.dataframe' not in str(getmodule(ndf)):
+        if remove_node_column:
             ndf = remove_node_column_from_symbolic(ndf, node)
             X = remove_node_column_from_symbolic(X, node)
 
