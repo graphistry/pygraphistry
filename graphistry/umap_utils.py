@@ -283,8 +283,11 @@ class UMAPMixin(MIXIN_BASE):
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
-        if emb.shape[1] == 2:
+        if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)):
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
+        elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
+            import cudf
+            emb = cudf.DataFrame(emb, columns=[config.X, config.Y], index=index)
         else:
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1] - 2)
@@ -497,7 +500,6 @@ class UMAPMixin(MIXIN_BASE):
             elif 'cudf.core.dataframe' in str(getmodule(X_)):
                 import cudf
                 index_to_nodes_dict = cudf.DataFrame(nodes).reset_index()
-                X_ = pd.DataFrame(X_.to_numpy())
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
@@ -593,11 +595,11 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._node_embedding
         else:
             emb = res._edge_embedding
+        if 'cudf.core.dataframe' not in str(getmodule(emb)): ## cuda cannot support nulls https://github.com/cupy/cupy/issues/5918#issuecomment-946327237
+            df[x_name] = emb.values.T[0]  # if embedding is greater
+            # than two dimensions will only take first two coordinates
+            df[y_name] = emb.values.T[1]
 
-        df[x_name] = emb.values.T[0]  # if embedding is greater
-        # than two dimensions will only take first two coordinates
-        df[y_name] = emb.values.T[1]
-        #
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 
         if encode_weight and kind == "nodes":
