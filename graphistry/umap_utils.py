@@ -286,12 +286,17 @@ class UMAPMixin(MIXIN_BASE):
         if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)):
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
         elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
-            emb = pd.DataFrame(emb.to_numpy(), columns=[config.X, config.Y], index=index.to_numpy())
+            import cudf
+            emb = cudf.DataFrame(emb.to_cupy(), columns=[config.X, config.Y], index=index.to_cupy())
         else:
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1] - 2)
             ]
-            emb = pd.DataFrame(emb, columns=columns, index=index)
+            if 'cudf.core.dataframe' not in str(getmodule(emb)):
+                emb = pd.DataFrame(emb, columns=columns, index=index)
+            elif 'cudf.core.dataframe' in str(getmodule(emb)):
+                import cudf
+                emb = cudf.DataFrame(emb.to_cupy(), columns=columns, index=index.to_cupy())
         return emb
 
     def _process_umap(
