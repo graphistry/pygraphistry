@@ -287,7 +287,7 @@ class UMAPMixin(MIXIN_BASE):
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
         elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
             import cudf
-            emb = cudf.DataFrame(emb.to_cupy(), columns=[config.X, config.Y], index=index.to_cupy())
+            emb = cudf.DataFrame(emb.values, columns=[config.X, config.Y], index=index.values)
         else:
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1] - 2)
@@ -296,7 +296,7 @@ class UMAPMixin(MIXIN_BASE):
                 emb = pd.DataFrame(emb, columns=columns, index=index)
             elif 'cudf.core.dataframe' in str(getmodule(emb)):
                 import cudf
-                emb = cudf.DataFrame(emb.to_cupy(), columns=columns, index=index.to_cupy())
+                emb = cudf.DataFrame(emb.values, columns=columns, index=index.values)
         return emb
 
     def _process_umap(
