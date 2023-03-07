@@ -329,7 +329,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         log(f"{triplets.shape[0]} triplets for inference")
         ############################################################
         # the bees knees 
-        scores = self._score(triplets)
+        scores = self._score(triplets).cpu()
         ############################################################
         if len(triplets) > 1:
             if anomalous:
