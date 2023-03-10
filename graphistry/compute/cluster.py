@@ -243,7 +243,7 @@ class ClusterMixin(MIXIN_BASE):
         Useful:
             Enriching the graph with cluster labels from UMAP is useful for visualizing clusters in the graph by color, size, etc,
             as well as assessing metrics per cluster, e.g.
-             https://github.com/graphistry/pygraphistry/blob/master/demos/ai/cyber/cyber-redteam-umap-demo.ipynb
+            https://github.com/graphistry/pygraphistry/blob/master/demos/ai/cyber/cyber-redteam-umap-demo.ipynb
 
         Args:
             :min_dist float: The maximum distance between two samples for them to be considered as in the same neighborhood.

@@ -224,9 +224,8 @@ def features_without_target(
     df: pd.DataFrame, y: Optional[Union[List, str, pd.DataFrame]] = None
 ) -> pd.DataFrame:
     """
-        Checks if y DataFrame column name is in df, and removes it
-        from df if so
-    ___________________________________________________________________
+    Checks if y DataFrame column name is in df, and removes it from df if so
+    ________________________________________________________________________
 
     :param df: model DataFrame
     :param y: target DataFrame
@@ -398,7 +397,7 @@ def is_dataframe_all_numeric(df: pd.DataFrame) -> bool:
 
 def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
     """
-        Finds columns that if not coerced to strings, will break processors.
+    Finds columns that if not coerced to strings, will break processors.
     -------------------------------------------------------------------------
     :param df: DataFrame
     :param bad_set: List of strings to look for.
@@ -431,7 +430,6 @@ def check_if_textual_column(
 ) -> bool:
     """
     Checks if `col` column of df is textual or not using basic heuristics
-
     __________________________________________________________________________
 
     :param df: DataFrame
@@ -541,6 +539,7 @@ def get_preprocessing_pipeline(
         Helper function for imputing and scaling np.ndarray data
         using different scaling transformers.
     -----------------------------------------------------------------
+
     :param X: np.ndarray
     :param impute: whether to run imputing or not
     :param use_scaler: string in None or
@@ -623,11 +622,12 @@ def fit_pipeline(
     X: pd.DataFrame, transformer, keep_n_decimals: int = 5
 ) -> pd.DataFrame:
     """
-     Helper to fit DataFrame over transformer pipeline.
-     Rounds resulting matrix X by keep_n_digits if not 0,
-     which helps for when transformer pipeline is scaling or imputer
-     which sometime introduce small negative numbers,
-     and umap metrics like Hellinger need to be positive
+    Helper to fit DataFrame over transformer pipeline.
+    Rounds resulting matrix X by keep_n_digits if not 0,
+    which helps for when transformer pipeline is scaling or imputer
+    which sometime introduce small negative numbers,
+    and umap metrics like Hellinger need to be positive
+
     :param X: DataFrame to transform.
     :param transformer: Pipeline object to fit and transform
     :param keep_n_decimals: Int of how many decimal places to keep in rounded transformed data
@@ -871,8 +871,8 @@ def process_dirty_dataframes(
     Union[SuperVectorizer, FunctionTransformer],
 ]:
     """
-        Dirty_Cat encoder for record level data. Will automatically turn
-        inhomogeneous dataframe into matrix using smart conversion tricks.
+    Dirty_Cat encoder for record level data. Will automatically turn
+    inhomogeneous dataframe into matrix using smart conversion tricks.
     ______________________________________________________________________
 
     :param ndf: node DataFrame
@@ -1248,8 +1248,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
         src (string): source column
         dst (string): destination column
         mlb (sklearn): multilabelBinarizer
-        fit (bool, optional): If true, fits multilabelBinarizer.
-            Defaults to False.
+        fit (bool, optional): If true, fits multilabelBinarizer. Defaults to False.
     Returns:
         tuple: pd.DataFrame, multilabelBinarizer
     """

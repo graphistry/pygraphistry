@@ -137,6 +137,7 @@ class SearchToGraphMixin(MIXIN_BASE):
             
             If an index is not yet built, it is generated `g2.build_index()` on the fly at search time.
             Otherwise, can set `g2.build_index()` to build it ahead of time.
+
         Args:
             :query (str): natural language query.
             :cols (list or str, optional): if fuzzy=False, select which column to query.
