@@ -13,6 +13,7 @@ Here in our docstrings you can find useful packages, modules, and commands to ma
    graphistry
    graphistry.compute
    modules
+   versioneer
 
 Indices and tables
 ==================
