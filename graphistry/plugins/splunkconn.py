@@ -3,6 +3,14 @@ import splunklib.results as results
 import sys
 import pandas as pd
 
+#FIXME remove
+opts = {
+    'username': '',
+    'password': '',
+    'host': 'splunk.graphistry.com',
+    'verbose': 'True
+}
+
 class SplunkConnector:
     def __init__(self, username, password, host, verbose=False):
         self.username = username
@@ -98,10 +106,4 @@ class SplunkConnector:
 class GraphistryAdminSplunk(SplunkConnector):
     
     def __init__(self):
-        # username = ''
-        # password = ''
-        # host="splunk.graphistry.com"
-        super().__init__(username, password, host)
-        
-        
-        
+        super().__init__(opts["username"], opts["password"], opts["host"], opts["verbose"])
