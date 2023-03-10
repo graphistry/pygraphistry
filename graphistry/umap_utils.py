@@ -479,7 +479,9 @@ class UMAPMixin(MIXIN_BASE):
                     default True.
             :verbose: whether to print out extra information, default False.
         :return: self, with attributes set with new data
+
         """
+
         if engine == UMAP_LEARN:
             assert_imported()
         elif engine == CUML:
