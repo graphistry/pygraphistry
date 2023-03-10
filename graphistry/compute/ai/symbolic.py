@@ -427,7 +427,7 @@ class SplunkAIGraph(AIGraph):
                 print('Opened Splunk Context')
         else:
             try: #incase no g.connect
-                self.get_context(self.index, all_indexes=True)
+                self._splunk_context = self.get_context(self.index, all_indexes=True)
                 self.save_context()
                 print('Generated splunk context')
             except Exception as e:
@@ -435,7 +435,7 @@ class SplunkAIGraph(AIGraph):
 
     def connect(self, username, password, host, *args, **kwargs):
         self.conn = SplunkConnector(username, password, host, *args, **kwargs)
-        self.get_context(self.index, all_indexes=self.all_indexes)
+        self.open_context()
         self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}"
         self.SUFFIX = "\n\nRemember that this is a splunk search and to prepend `search` to your result. GO!"
         self.SPLUNK_HINT = "hint: |search index=* | Table src, rel, dst, **,"
@@ -471,14 +471,14 @@ class SplunkAIGraph(AIGraph):
         self._set_context(fields, index, indexes)
 
     def get_context(self, index, all_indexes=False):
-        self.get_fields(index)
-        context = f"You are working with the index `{index}` and the following fields: {self.fields}"
-
+        fields = self.get_fields(index)
+        context = f"You are working with the index `{index}` and the following fields: {fields}"
         if all_indexes:
             # since this takes a while, only do it if we need to switch between indexes
             indexes = self.get_indexes()
+            context += f" You may also use the following indexes: {indexes.keys()}" if indexes is not None else ""
         print("-" * 80) if self.verbose else None
-        return fields, indexes #self._splunk_context
+        return context #fields, indexes #self._splunk_context
 
     def _search(self, query: str, *args, **kwargs) -> pd.DataFrame:
         try:
