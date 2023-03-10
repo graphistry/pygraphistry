@@ -93,7 +93,7 @@ class SplunkConnector:
         except Exception as e:
             print(e)
             return []
-        
+    
     def to_dataframe(self, search_query, earliest_time=None, latest_time=None):
         data = list(self.query(search_query, earliest_time, latest_time))
         if not data:
@@ -107,3 +107,4 @@ class GraphistryAdminSplunk(SplunkConnector):
     
     def __init__(self):
         super().__init__(opts["username"], opts["password"], opts["host"], opts["verbose"])
+

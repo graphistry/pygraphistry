@@ -36,13 +36,16 @@ class SearchToGraphMixin(MIXIN_BASE):
             "Nodes dataframe and feature vectors are not same size, "
             f"found nodes: {a}, feats: {b}. Did you mutate nodes between fit?"
         )
+    def read_index(self, path):
+        self.search_index = FaissVectorSearch.read(path)
 
     def build_index(self, angular=False, n_trees=None):
         # builds local index
+        import numpy as np
         self.assert_fitted()
         self.assert_features_line_up_with_nodes()
         X = self._get_feature("nodes")
-        self.search_index = FaissVectorSearch(X.values) #self._build_search_index(X, angular, n_trees, faiss=False)
+        self.search_index = FaissVectorSearch(np.ascontiguousarray(X.values)) 
 
     def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float):
         # Use the loaded featurizers to transform the dataframe
