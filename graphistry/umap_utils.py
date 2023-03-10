@@ -620,7 +620,6 @@ class UMAPMixin(MIXIN_BASE):
         if not inplace:
             return res
 
-
     def _bind_xy_from_umap(
         self,
         res: Any,

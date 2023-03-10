@@ -1776,6 +1776,7 @@ class FastEncoder:
                 :y: pd.DataFrame of target features
                 :kind: str, one of 'nodes' or 'edges'
                 *args, **kwargs: passed to smart_scaler pipeline
+
             returns:
                 scaled X, y
         """
