@@ -466,7 +466,6 @@ def get_textual_columns(
 ) -> List:
     """Collects columns from df that it deems are textual.
    
-
     :param df: DataFrame
     :return: list of columns names
     """
@@ -529,10 +528,7 @@ def get_preprocessing_pipeline(
     encode: str = "ordinal",
     strategy: str = "quantile",
 ) -> Pipeline:  # noqa
-    """
-        Helper function for imputing and scaling np.ndarray data
-        using different scaling transformers.
-    -----------------------------------------------------------------
+    """Helper function for imputing and scaling np.ndarray data using different scaling transformers.
 
     :param X: np.ndarray
     :param impute: whether to run imputing or not
@@ -864,10 +860,7 @@ def process_dirty_dataframes(
     Union[SuperVectorizer, FunctionTransformer],
     Union[SuperVectorizer, FunctionTransformer],
 ]:
-    """
-    Dirty_Cat encoder for record level data. Will automatically turn
-    inhomogeneous dataframe into matrix using smart conversion tricks.
-    ______________________________________________________________________
+    """Dirty_Cat encoder for record level data. Will automatically turn inhomogeneous dataframe into matrix using smart conversion tricks.
 
     :param ndf: node DataFrame
     :param y: target DataFrame or series
@@ -2719,10 +2712,8 @@ class FeatureMixin(MIXIN_BASE):
         memoize: bool = True,
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
-        """
-        helper method gets edge feature and target matrix if X, y
-        are not specified
-        -----------------------------------------------------------
+        """helper method gets edge feature and target matrix if X, y are not specified
+       
         :param X: Data Matrix
         :param y: target, default None
         :return: data `X` and `y`
