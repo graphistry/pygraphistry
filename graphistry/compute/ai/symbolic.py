@@ -357,9 +357,7 @@ class SplunkAIGraph(AIGraph):
         self.mem = {}
         self.antimem = {}
         #self.conn = GraphistryAdminSplunk()
-
         #self.get_context(index, all_indexes=all_indexes)
-
         self.splunk = Splunk()
 
         self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}"
