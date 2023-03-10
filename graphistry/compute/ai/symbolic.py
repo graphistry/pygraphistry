@@ -352,6 +352,7 @@ def get_splunk_condition(res, splunk):
 class SplunkAIGraph(AIGraph):
     def __init__(self, index, all_indexes=False, verbose=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.all_indexes = all_indexes
         self.index = index
         self.verbose = verbose
         self.mem = {}
@@ -362,13 +363,12 @@ class SplunkAIGraph(AIGraph):
 
         self.splunk = Splunk()
 
+    def connect(self, username, password, host, *args, **kwargs):
+        self.conn = SplunkConnector(username, password, host, *args, **kwargs)
+        self.get_context(self.index, all_indexes=self.all_indexes)
         self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}"
         self.SUFFIX = "\n\nRemember that this is a splunk search and to prepend `search` to your result. GO!"
         self.SPLUNK_HINT = "hint: |search index=* | Table src, rel, dst, **,"
-
-    def connect(self, username, password, host, *args, **kwargs):
-        self.conn = SplunkConnector(username, password, host, *args, **kwargs)
-        #self.get_context(index, all_indexes=all_indexes)
 
 
     def get_context(self, index, all_indexes=False):
