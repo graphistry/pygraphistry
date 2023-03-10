@@ -2818,8 +2818,10 @@ class FeatureMixin(MIXIN_BASE):
                     => ['basket_price_total', 'conversion_percent', 'CTR_percent', 'CVR_percent']
 
                 # not as useful for sbert features. 
+
             Caveats:
                 - if you have a column name that is a substring of another column name, you may get unexpected results.
+
         Args:
             :columns (Union[List, str]): list of column names or a single column name that may exist in columns 
                 of the feature matrix. If None, returns original feature matrix
