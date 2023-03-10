@@ -185,6 +185,11 @@ class FaissVectorSearch:
         results = results.sort_values(by=[DISTANCE])
 
         return results
+    
+    def read_index(self, index_file):
+        import faiss
+        self.index = faiss.read_index(index_file)
+        return self.index
 
 
 # #########################################################################################################################
