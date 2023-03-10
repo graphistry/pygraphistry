@@ -284,7 +284,6 @@ class Splunk(ai.Expression):
     def as_splunk(self):
         return self.value
 
-
 class AIGraph(Splunk):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -354,12 +353,14 @@ class SplunkAIGraph(AIGraph):
         super().__init__(*args, **kwargs)
         self.index = index
         self.verbose = verbose
+        self.all_indexes = all_indexes
         self.mem = {}
         self.antimem = {}
-        #self.conn = GraphistryAdminSplunk()
-
-        #self.get_context(index, all_indexes=all_indexes)
-
+        try:
+            self.conn = GraphistryAdminSplunk()
+            self.get_context(index, all_indexes=all_indexes)
+        except:
+            pass
         self.splunk = Splunk()
 
         self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}"
