@@ -479,9 +479,7 @@ class UMAPMixin(MIXIN_BASE):
                     default True.
             :verbose: whether to print out extra information, default False.
         :return: self, with attributes set with new data
-
         """
-
         if engine == UMAP_LEARN:
             assert_imported()
         elif engine == CUML:
@@ -621,6 +619,7 @@ class UMAPMixin(MIXIN_BASE):
 
         if not inplace:
             return res
+
 
     def _bind_xy_from_umap(
         self,
