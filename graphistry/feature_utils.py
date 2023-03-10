@@ -270,11 +270,7 @@ def remove_node_column_from_symbolic(X_symbolic, node):
 
 
 def remove_internal_namespace_if_present(df: pd.DataFrame):
-    """
-        Some tranformations below add columns to the DataFrame,
-        this method removes them before featurization
-        Will not drop if suffix is added during UMAP-ing
-    ______________________________________________________________
+    """Some tranformations below add columns to the DataFrame, this method removes them before featurization will not drop if suffix is added during UMAP-ing
 
     :param df: DataFrame
     :return: DataFrame with dropped columns in reserved namespace
