@@ -2410,7 +2410,7 @@ class FeatureMixin(MIXIN_BASE):
         memoize: bool = True,
         verbose: bool = False,
     ):
-        """
+        r"""
         Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
         ______________________________________________________________________
 
