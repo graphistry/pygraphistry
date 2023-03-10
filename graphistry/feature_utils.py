@@ -2412,7 +2412,7 @@ class FeatureMixin(MIXIN_BASE):
     ):
         r"""
         Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
-        ______________________________________________________________________
+        __________________________________________________________________
 
         :param kind: specify whether to featurize `nodes` or `edges`.
                 Edge featurization includes a pairwise
