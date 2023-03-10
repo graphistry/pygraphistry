@@ -18,7 +18,7 @@ Plotter Module
     :show-inheritance:
 
 Pygraphistry Module
-==================
+===================
 
 .. automodule:: graphistry.pygraphistry
     :members:
@@ -56,7 +56,7 @@ DBScan
     :show-inheritance:
 
 Arrow uploader Module
-==================
+=====================
 
 .. automodule:: graphistry.arrow_uploader
     :members:
@@ -64,7 +64,7 @@ Arrow uploader Module
     :show-inheritance:
 
 Arrow File Uploader Module
-==================
+==========================
 
 .. automodule:: graphistry.ArrowFileUploader
     :members:
