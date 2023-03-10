@@ -59,3 +59,6 @@ from ._version import get_versions
 
 __version__ = get_versions()["version"]
 del get_versions
+
+#FIXME only here to expose plugins.splunkconn.opts
+from . import plugins
