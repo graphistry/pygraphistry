@@ -285,12 +285,9 @@ class Splunk(ai.Expression):
     def as_splunk(self):
         return self.value
 
-<<<<<<< Updated upstream
-class AIGraph(Splunk):
-=======
+
 
 class AIGraph(ai.Expression):
->>>>>>> Stashed changes
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mem = {}
@@ -490,7 +487,7 @@ class SplunkAIGraph(AIGraph):
 
     def splunk_search(self, query, timeout: int = 1, *args, **kwargs):
 
-        splunk, df = self.splunk_df(query, *args, **kwargs)
+        splunk, df = self.splunk_df(query, *args, **kwargs)  # splunk, exception
 
         # check if we got data back
         found_solution, context = get_splunk_condition(df, splunk)
