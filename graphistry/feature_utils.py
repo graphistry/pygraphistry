@@ -430,7 +430,8 @@ def check_if_textual_column(
     min_words: float = 2.5,
 ) -> bool:
     """
-        Checks if `col` column of df is textual or not using basic heuristics
+    Checks if `col` column of df is textual or not using basic heuristics
+
     __________________________________________________________________________
 
     :param df: DataFrame
@@ -2223,6 +2224,7 @@ class FeatureMixin(MIXIN_BASE):
                 :n_neighbors: int, if return_graph is True, will use this value for n_neighbors in Nearest Neighbors search
                 :scaled: bool, if True, will use scaled transformation of data set during featurization, default True
                 :verbose: bool, if True, will print metadata about the graph construction, default False
+
             **Returns:**
 
                     X, y: pd.DataFrame, transformed data if return_graph is False
