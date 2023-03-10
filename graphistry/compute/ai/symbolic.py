@@ -406,6 +406,8 @@ class GraphistryComposition(AIGraph):
 class SplunkAIGraph(AIGraph):
     def __init__(self, index, all_indexes=False, verbose=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        
+        self.all_indexes = all_indexes
         self.index = index
         self.indexes = {}
         self.fields = []
@@ -413,15 +415,8 @@ class SplunkAIGraph(AIGraph):
         self.all_indexes = all_indexes
         self.mem = {}
         self.antimem = {}
-        try:
-            self.conn = GraphistryAdminSplunk()
-            self.open_context()
-        except:
-            pass
+        # symbolic Splunk Symbol
         self.splunk = Splunk()
-        self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}."
-        self.SUFFIX = "\n\nRemember that this is a splunk search and to prepend `search` to your result. GO!"
-        self.SPLUNK_HINT = "hint: | search index=* | Table src, rel, dst, **,"
 
     def open_context(self):
         # load it once ...
@@ -433,14 +428,14 @@ class SplunkAIGraph(AIGraph):
         else:
             try: #incase no g.connect
                 self.get_context(self.index, all_indexes=True)
-                with open('splunk.context', 'w') as f:
-                    f.write(self._splunk_context)
-                    print('Generated splunk context')
+                self.save_context()
+                print('Generated splunk context')
             except Exception as e:
                 print(e)
 
     def connect(self, username, password, host, *args, **kwargs):
         self.conn = SplunkConnector(username, password, host, *args, **kwargs)
+        self.get_context(self.index, all_indexes=self.all_indexes)
         self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}"
         self.SUFFIX = "\n\nRemember that this is a splunk search and to prepend `search` to your result. GO!"
         self.SPLUNK_HINT = "hint: |search index=* | Table src, rel, dst, **,"
@@ -475,19 +470,15 @@ class SplunkAIGraph(AIGraph):
         fields, indexes = self.get_context(index, all_indexes=self.all_indexes)
         self._set_context(fields, index, indexes)
 
-    def connect(self, username, password, host, *args, **kwargs):
-        self.conn = SplunkConnector(username, password, host, *args, **kwargs)
+    def get_context(self, index, all_indexes=False):
+        self.get_fields(index)
+        context = f"You are working with the index `{index}` and the following fields: {self.fields}"
 
-    def get_context(self, index=None, all_indexes=False):
-        fields = self.get_fields(index)
-        indexes = None
         if all_indexes:
             # since this takes a while, only do it if we need to switch between indexes
             indexes = self.get_indexes()
         print("-" * 80) if self.verbose else None
-        #self.set_context()
         return fields, indexes #self._splunk_context
-
 
     def _search(self, query: str, *args, **kwargs) -> pd.DataFrame:
         try:

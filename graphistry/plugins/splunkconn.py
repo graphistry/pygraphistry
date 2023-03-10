@@ -8,7 +8,7 @@ opts = {
     'username': '',
     'password': '',
     'host': 'splunk.graphistry.com',
-    'verbose': 'True'
+    'verbose': True
 }
 
 class SplunkConnector:
