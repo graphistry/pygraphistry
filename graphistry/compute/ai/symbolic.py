@@ -407,7 +407,6 @@ class SplunkAIGraph(AIGraph):
     def __init__(self, index, all_indexes=False, verbose=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        #TODO make all these lazy too
         self.all_indexes = all_indexes
         self.index = index
         self.indexes = {}
@@ -416,8 +415,7 @@ class SplunkAIGraph(AIGraph):
         self.all_indexes = all_indexes
         self.mem = {}
         self.antimem = {}
-
-        #FIXME this should not connect on mixin start, it's too much of a tax
+        # symbolic Splunk Symbol
         self.splunk = Splunk()
 
     def open_context(self):
