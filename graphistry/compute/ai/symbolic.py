@@ -4,7 +4,7 @@ from collections import Counter
 import numpy as np
 
 from graphistry.text_utils import SearchToGraphMixin
-from graphistry.plugins.splunkconn import GraphistryAdminSplunk
+from graphistry.plugins.splunkconn import GraphistryAdminSplunk, SplunkConnector
 
 import pandas as pd
 from time import time
@@ -356,7 +356,7 @@ class SplunkAIGraph(AIGraph):
         self.verbose = verbose
         self.mem = {}
         self.antimem = {}
-        self.conn = GraphistryAdminSplunk()
+        #self.conn = GraphistryAdminSplunk()
 
         self.get_context(index, all_indexes=all_indexes)
 
@@ -365,6 +365,9 @@ class SplunkAIGraph(AIGraph):
         self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}"
         self.SUFFIX = "\n\nRemember that this is a splunk search and to prepend `search` to your result. GO!"
         self.SPLUNK_HINT = "hint: |search index=* | Table src, rel, dst, **,"
+
+    def connect(self, username, password, host, *args, **kwargs):
+        self.conn = SplunkConnector(username, password, host, *args, **kwargs)
 
     def get_context(self, index, all_indexes=False):
         self.get_fields(index)
