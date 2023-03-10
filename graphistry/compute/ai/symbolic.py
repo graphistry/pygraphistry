@@ -295,7 +295,7 @@ class AIGraph(ai.Expression):
 
     def _make_df_mem(self, res, query, value):
         if isinstance(res, pd.DataFrame) and not res.empty:
-            # get good example pairs of query and splunk
+            # get good example pairs of query and dataframe 
             self.mem[query] = value
             print("-" * 30)
             print("--Added a successful memory:", query)
@@ -304,6 +304,13 @@ class AIGraph(ai.Expression):
             self.antimem[query] = value
             print("-" * 30)
             print("--Added a failed memory:", query)
+    
+    def _make_sym_mem(self, sym, sym2):
+        # get good example pairs of syms
+        self.mem[sym] = sym2
+        print("-" * 30)
+        print("--Added a successful sym pair", sym)
+
 
     def process(self, data, *args, **kwargs):
         return process(data, *args, **kwargs)
@@ -338,7 +345,8 @@ class AIGraph(ai.Expression):
         res = res[:3000]
         sym = self.process(res)
         summary = sym.query("Provide a concise summary of this dataset.")
-        self.mem[summary] = sym
+        #self.mem[summary] = sym
+        self._make_sym_mem(summary, sym)
         return summary
 
 
@@ -407,25 +415,35 @@ class SplunkAIGraph(AIGraph):
         self.antimem = {}
         try:
             self.conn = GraphistryAdminSplunk()
+            self.open_context()
         except:
             pass
         self.splunk = Splunk()
-        self.open_context()
         self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}."
         self.SUFFIX = "\n\nRemember that this is a splunk search and to prepend `search` to your result. GO!"
         self.SPLUNK_HINT = "hint: | search index=* | Table src, rel, dst, **,"
 
     def open_context(self):
+        # load it once ...
         if os.path.exists('splunk.context'):    
             with open('splunk.context', 'r') as f:
                 doc = f.readline()
                 self._splunk_context = doc
                 print('Opened Splunk Context')
         else:
-            self.get_context(self.index, all_indexes=True)
-            with open('splunk.context', 'w') as f:
-                f.write(self._splunk_context)
-                print('Generated splunk context')
+            try: #incase no g.connect
+                self.get_context(self.index, all_indexes=True)
+                with open('splunk.context', 'w') as f:
+                    f.write(self._splunk_context)
+                    print('Generated splunk context')
+            except Exception as e:
+                print(e)
+
+    def connect(self, username, password, host, *args, **kwargs):
+        self.conn = SplunkConnector(username, password, host, *args, **kwargs)
+        self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}"
+        self.SUFFIX = "\n\nRemember that this is a splunk search and to prepend `search` to your result. GO!"
+        self.SPLUNK_HINT = "hint: |search index=* | Table src, rel, dst, **,"
 
     def save_context(self):
         with open('splunk.context', 'w') as f:
@@ -433,7 +451,6 @@ class SplunkAIGraph(AIGraph):
 
     def get_indexes(self):
         indexes = self.conn.get_indexes()
-        self.indexes = indexes
         print(f"Indices: {indexes.keys()}") if self.verbose else None
         return indexes
 
@@ -442,12 +459,10 @@ class SplunkAIGraph(AIGraph):
         if index:
             fields = self.conn.get_fields(index)
             fields = [k["field"] for k in fields]
-        self.fields = fields
         print(f"Fields: {fields}") if self.verbose else None
         return fields
     
-    def _set_context(self, index: str, indexes: dict = None):
-        fields = self.get_fields(index)
+    def _set_context(self, fields, index: str, indexes: dict = None):
         self.index = index
         self.indexes = indexes
         context = ''
@@ -456,22 +471,23 @@ class SplunkAIGraph(AIGraph):
         context += f" You may also use the following indexes: {indexes.keys()}" if indexes is not None else ""
         self._splunk_context = context
 
-    def set_context(self):
-        self._set_context(self.index, self.indexes)
+    def set_context(self, index):
+        fields, indexes = self.get_context(index, all_indexes=self.all_indexes)
+        self._set_context(fields, index, indexes)
 
     def connect(self, username, password, host, *args, **kwargs):
         self.conn = SplunkConnector(username, password, host, *args, **kwargs)
-        #self.get_context(index, all_indexes=all_indexes)
-
 
     def get_context(self, index=None, all_indexes=False):
-        self.get_fields(index)
+        fields = self.get_fields(index)
+        indexes = None
         if all_indexes:
             # since this takes a while, only do it if we need to switch between indexes
-            self.get_indexes()
+            indexes = self.get_indexes()
         print("-" * 80) if self.verbose else None
-        self.set_context()
-        return self._splunk_context
+        #self.set_context()
+        return fields, indexes #self._splunk_context
+
 
     def _search(self, query: str, *args, **kwargs) -> pd.DataFrame:
         try:
