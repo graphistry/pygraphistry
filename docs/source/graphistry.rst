@@ -48,13 +48,6 @@ Semantic Search
     :undoc-members:
     :show-inheritance:
     
-Compute
-==================
-.. automodule:: graphistry.compute
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 DBScan
 ==================
 .. automodule:: graphistry.compute.cluster
