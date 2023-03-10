@@ -135,7 +135,6 @@ def umap_graph_to_weighted_edges(umap_graph, engine, is_legacy, cfg=config):
 class UMAPMixin(MIXIN_BASE):
     """
     UMAP Mixin for automagic UMAPing
-
     """
     # FIXME where is this used? 
     _umap_memoize: WeakValueDictionary = WeakValueDictionary()
@@ -424,10 +423,8 @@ class UMAPMixin(MIXIN_BASE):
         verbose: bool = False,
         **featurize_kwargs,
     ):
-        """
-            UMAP the featurized nodes or edges data,
-            or pass in your own X, y (optional) dataframes of values
-            
+        """UMAP the featurized nodes or edges data, or pass in your own X, y (optional) dataframes of values
+        
         Example
         -------
         >>> import graphistry   
