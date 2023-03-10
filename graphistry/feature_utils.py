@@ -2194,8 +2194,7 @@ class FeatureMixin(MIXIN_BASE):
                   return_graph: bool = True,
                   scaled: bool = True,
                   verbose: bool = False):
-        """
-            Transform new data and append to existing graph, or return dataframes
+        """Transform new data and append to existing graph, or return dataframes
         
             **args:**
 
@@ -2212,8 +2211,8 @@ class FeatureMixin(MIXIN_BASE):
 
             **Returns:**
 
-                    X, y: pd.DataFrame, transformed data if return_graph is False
-                    or a graphistry Plottable with inferred edges if return_graph is True
+                X, y: pd.DataFrame, transformed data if return_graph is False
+                or a graphistry Plottable with inferred edges if return_graph is True
         """
         if kind == "nodes":
             X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
@@ -2268,7 +2267,6 @@ class FeatureMixin(MIXIN_BASE):
                 # fit some other pipeline
                 clf.fit(X_scaled, y_scaled)
 
-
             **Args:**
 
                 :df: pd.DataFrame, raw data to transform, if None, will use data from featurization fit
@@ -2288,9 +2286,7 @@ class FeatureMixin(MIXIN_BASE):
 
             **Returns:**
 
-                    (X, y) transformed data if return_graph is False
-                    or a graph with inferred edges if return_graph is True,
-                    or (X, y, scaler, scaler_target) if return_scalers is True
+                (X, y) transformed data if return_graph is False or a graph with inferred edges if return_graph is True, or (X, y, scaler, scaler_target) if return_scalers is True
         """
                 
         if df is None:  # use the original data
@@ -2623,7 +2619,6 @@ class FeatureMixin(MIXIN_BASE):
         are not specified.
         if X, y are specified will set them as `_node_target` and
         `_node_target` attributes
-        -----------------------------------------------------------
         """
 
         res = self.bind()
@@ -2805,15 +2800,15 @@ class FeatureMixin(MIXIN_BASE):
             Caveats:
                 - if you have a column name that is a substring of another column name, you may get unexpected results.
 
-        Args:
-            :columns (Union[List, str]): list of column names or a single column name that may exist in columns 
-                of the feature matrix. If None, returns original feature matrix
-            :kind (str, optional): Node or Edge features. Defaults to 'nodes'.
-            :target (bool, optional): If True, returns the target matrix. Defaults to False.
+            Args:
+                :columns (Union[List, str]): list of column names or a single column name that may exist in columns 
+                    of the feature matrix. If None, returns original feature matrix
+                :kind (str, optional): Node or Edge features. Defaults to 'nodes'.
+                :target (bool, optional): If True, returns the target matrix. Defaults to False.
 
-        Returns:
-            pd.DataFrame: feature matrix with only the columns that contain the string `column_part` in their name.
-        """
+            Returns:
+                pd.DataFrame: feature matrix with only the columns that contain the string `column_part` in their name.
+            """
         if target:
             X = self._get_target(kind)
         else:
