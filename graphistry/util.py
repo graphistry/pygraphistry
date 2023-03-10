@@ -302,7 +302,6 @@ def deprecated(message):
 # MODEL Parameter HELPERS
 def get_timestamp():
     import datetime
-
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -357,6 +356,32 @@ class ModelDict(UserDict):
                 "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
             )
         return super().update(*args, **kwargs)
+
+
+def profile(func):
+    from line_profiler import LineProfiler
+    profiler = LineProfiler()
+
+    def inner(*args, **kwargs):
+        profiler.add_function(func)
+        profiler.enable_by_count()
+        return func(*args, **kwargs)
+
+    return inner
+
+
+def timer_func(func):
+    # This function shows the execution time of
+    # the function object passed
+    from time import time
+    def wrap_func(*args, **kwargs):
+        t1 = time()
+        result = func(*args, **kwargs)
+        t2 = time()
+        print(f'Function {func.__name__!r} executed in {(t2-t1):.4f}s')
+        return result
+
+    return wrap_func
 
 
 def is_notebook():
