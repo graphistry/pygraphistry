@@ -47,6 +47,13 @@ Semantic Search
     :members:
     :undoc-members:
     :show-inheritance:
+    
+Compute
+==================
+.. automodule:: graphistry.compute
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 DBScan
 ==================
