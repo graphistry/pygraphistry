@@ -358,7 +358,7 @@ class SplunkAIGraph(AIGraph):
         self.antimem = {}
         #self.conn = GraphistryAdminSplunk()
 
-        self.get_context(index, all_indexes=all_indexes)
+        #self.get_context(index, all_indexes=all_indexes)
 
         self.splunk = Splunk()
 
@@ -368,6 +368,8 @@ class SplunkAIGraph(AIGraph):
 
     def connect(self, username, password, host, *args, **kwargs):
         self.conn = SplunkConnector(username, password, host, *args, **kwargs)
+        #self.get_context(index, all_indexes=all_indexes)
+
 
     def get_context(self, index, all_indexes=False):
         self.get_fields(index)
