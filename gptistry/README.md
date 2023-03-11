@@ -14,7 +14,7 @@
 
 Based off of the streamlit [component-template](https://github.com/streamlit/component-template). But then starting fresh with [Create React App](https://github.com/facebook/create-react-app) and using js instead of ts.
 
-[Styles with tailwindcss](https://tailwindcss.com/docs/guides/create-react-app)
+[Components from ChakraUI](https://chakra-ui.com)
 
 Also using eslint and prettier as [described here](https://medium.com/how-to-react/config-eslint-and-prettier-in-visual-studio-code-for-react-js-development-97bb2236b31a).
 
