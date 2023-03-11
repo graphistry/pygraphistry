@@ -596,11 +596,11 @@ class UMAPMixin(MIXIN_BASE):
 
             logger.debug("umap X_: %s", X_)
             logger.debug("umap y_: %s", y_)
-            logger.debug("data is type :: %s", (type(X_)))
-            if isinstance(X_, pd.DataFrame):
+
+            if isinstance(X_,pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
             elif 'cudf.core.dataframe' in str(getmodule(X_)):
-                index_to_nodes_dict = nodes  # {}?
+                index_to_nodes_dict = nodes
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
@@ -699,12 +699,8 @@ class UMAPMixin(MIXIN_BASE):
         else:
             emb = res._edge_embedding
             
-        if type(df) == type(emb):
-            df[x_name] = emb.values.T[0]
-            df[y_name] = emb.values.T[1]
-        elif isinstance(df, pd.DataFrame) and 'cudf.core.dataframe' in str(getmodule(emb)):
-            df[x_name] = emb.to_numpy().T[0]
-            df[y_name] = emb.to_numpy().T[1]
+        df[x_name] = emb.values.T[0]
+        df[y_name] = emb.values.T[1]
 
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 
