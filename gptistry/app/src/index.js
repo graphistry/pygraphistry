@@ -39,10 +39,22 @@ const DEFAULT_STREAMLIT_THEME = {
   lightenedBg05: "hsla(234, 12%, 19%, 1)",
 };
 
-const EXAMPLE_PROMPT = `
-write a splunk query for the index \`redteam_50k\` that uses the src and dst information
-to output a table for events where red=1
-`;
+const GRAPHHISTRY_COLOR_SCHEME = {
+  colors: {
+    graphistry: {
+      50: "#D6F3FF",
+      100: "#A5E4FF",
+      200: "#7DD3F8",
+      300: "#61BEE4",
+      400: "#46A6D0",
+      500: "#3090B8",
+      600: "#20759A",
+      700: "#185874",
+      800: "#103C4F",
+      900: "#082029",
+    },
+  },
+};
 
 const LOADING = "loading";
 
@@ -102,20 +114,7 @@ export function App() {
       setTheme(
         extendTheme(
           {
-            colors: {
-              graphistry: {
-                50: "#D6F3FF",
-                100: "#A5E4FF",
-                200: "#7DD3F8",
-                300: "#61BEE4",
-                400: "#46A6D0",
-                500: "#3090B8",
-                600: "#20759A",
-                700: "#185874",
-                800: "#103C4F",
-                900: "#082029",
-              },
-            },
+            ...GRAPHHISTRY_COLOR_SCHEME,
             initialColorMode: tinycolor(stheme.backgroundColor).isDark()
               ? "dark"
               : "light",

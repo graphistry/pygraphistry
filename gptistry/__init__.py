@@ -5,13 +5,19 @@ from pathlib import Path
 sys.path.append(Path(__file__).parent / "lib")
 # ^ For finding pygraphistry during development
 
-import time
+import datetime
 import traceback
 import uuid
 import os
 import streamlit.components.v1 as components
 import streamlit as st
 from json import JSONEncoder
+
+
+import graphistry
+import graphistry.compute.ai.symbolic
+from graphistry.compute.ai.ai_prompts import Splunk
+from graphistry.compute.ai.symbolic import SplunkAIGraph
 
 
 _RELEASE = False
@@ -43,7 +49,11 @@ def rerun():
 ## Helpers
 ####################
 def get_now():
-    return int(time.time() * 1000)
+    # Match JS timestamp
+    return int(
+        (datetime.datetime.utcnow() - datetime.datetime(1970, 1, 1)).total_seconds()
+        * 1000
+    )
 
 
 def gpt_state():
@@ -70,6 +80,7 @@ class Thought:
         intent="",
         code="",
         updated_at=get_now(),
+        fresh=True,
     ):
         self.id = id
         self.dataset_id = dataset_id
@@ -78,6 +89,7 @@ class Thought:
         self.intent = intent
         self.code = code
         self.updated_at = updated_at
+        self.fresh = fresh
 
     def __repr__(self):
         return str(self.__dict__)
@@ -93,6 +105,7 @@ class GptState:
         self.busy = False
         self.action_buffer = []
         self.thoughts = {first_thought.id: first_thought}
+        self.last_timestamp = 0
 
     def __repr__(self):
         return str(self.__dict__)
@@ -111,18 +124,38 @@ class GptAction:
         state = gpt_state()
 
         try:
-            print("Processing action", self.type, self.args)
+            print("\n\n\nProcessing action:", self.type, self.args)
+            print("\n\n")
 
             if self.type == "fix":
                 thought = Thought(**self.args["thought"])
-                thought.code = thought.code + " all better now"
-                thought.updated_at = self.timestamp
-                state.thoughts[thought.id] = thought
+                new_thought = Thought(**self.args["thought"])
+                new_thought.id = str(uuid.uuid4())
+                new_thought.parent_id = thought.id
+                new_thought.code = thought.code + "\n| fieldsummary"
+                new_thought.intent = "FIXED " + thought.intent
+                new_thought.updated_at = get_now()
+                state.thoughts[new_thought.id] = new_thought
+                state.focus = new_thought.id
             elif self.type == "update":
                 thought = Thought(**self.args["thought"])
+                thought.updated_at = get_now()
                 state.thoughts[thought.id] = thought
             elif self.type == "focus":
                 state.focus = self.args["thought_id"]
+            elif self.type == "ask":
+                thought = Thought(**self.args["thought"])
+                splunk = Splunk()
+                thought.code = str(splunk.query(thought.intent + thought.prompt))
+                thought.updated_at = get_now()
+                state.thoughts[thought.id] = thought
+            elif self.type == "plot":
+                thought = Thought(**self.args["thought"])
+                print("Generating plot for", thought)
+                thought.dataset_id = "Miserables"
+                # g = st.session_state.connection_state.sym.splunk_search(thought.code)
+                # g.plot()
+                state.thoughts[thought.id] = thought
 
             return state
         except Exception:
@@ -156,12 +189,12 @@ else:
 
 
 def _gptistry(key, type, **kwargs):
-    event = _component_func(
+    action = _component_func(
         key=key, default=None, type=type, state=gpt_state(), **kwargs
     )
-    if event:
-        print("GOT Event", event)
-        st.session_state.gpt_state.action_buffer.append(GptAction(**event))
+    if action and action["timestamp"] > st.session_state.gpt_state.last_timestamp:
+        st.session_state.gpt_state.action_buffer.append(GptAction(**action))
+        st.session_state.gpt_state.last_timestamp = action["timestamp"]
         rerun()
 
     return gpt_state()
@@ -191,6 +224,25 @@ def gptistry_controller():
     if "gpt_state" not in st.session_state:
         print("initializing gpt_state")
         st.session_state.gpt_state = GptState()
+
+    if "connection_state" not in st.session_state:
+        print("initializing connection_state")
+        sym = SplunkAIGraph("redteam_50k")
+        graphistry.register(
+            api=3,
+            protocol="https",
+            server="hub.graphistry.com",
+            username=os.environ["USERNAME"],
+            password=os.environ["GRAPHISTRY_PASSWORD"],
+        )
+        st.session_state.connection_state = {
+            "graphistry": graphistry,
+            "sym": sym.connect(
+                os.environ["USERNAME"],
+                os.environ["SPLUNK_PASSWORD"],
+                os.environ["SPLUNK_HOST"],
+            ),
+        }
 
     print("gpt_state", gpt_state())
 
@@ -240,6 +292,7 @@ if not _RELEASE and not _SIMPLE:
     if focus and focus.dataset_id:
         gpt_plot("plot", focus.dataset_id, thought_id=focus.id)
 
+# TODO: Iterate this:
 if not _RELEASE and _SIMPLE:
     current_action = gptistry_controller()
     focus = gpt_focused_thought()

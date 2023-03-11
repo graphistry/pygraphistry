@@ -12,4 +12,10 @@ export default class Dispatcher {
   focus(thought_id) {
     this.dispatch({ type: "focus", thought_id });
   }
+  plot(thought) {
+    this.dispatch({ type: "plot", thought });
+  }
+  ask(thought) {
+    this.dispatch({ type: "ask", thought });
+  }
 }

@@ -2,6 +2,9 @@
 
 ### Getting started
 
+- `streamlit run __init__.py`
+
+- `cd app`
 - `npm i`
 - `npm start`
 

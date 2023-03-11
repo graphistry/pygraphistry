@@ -1,4 +1,5 @@
 import { Graphistry } from "@graphistry/client-api-react";
+import "./Plot.css";
 
 const LOCAL_DEV = {
   graphistryHost: "http://0.0.0.0:3000",

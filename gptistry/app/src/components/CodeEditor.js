@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { Textarea } from "@chakra-ui/react";
 import Prism from "prismjs";
 import "prismjs/components/prism-splunk-spl";
 
@@ -11,7 +12,9 @@ import "./CodeEditor.css";
 export default function CodeEditor({
   code,
   onChange,
+  onBlur,
   language = "splunk-spl",
+  placeholder,
 }) {
   const textArea = useRef(null);
   const codeBlock = useRef(null);
@@ -49,14 +52,16 @@ export default function CodeEditor({
 
   return (
     <div className="code-edit-container">
-      <textarea
+      <Textarea
         id="code-editor"
         value={code}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         ref={textArea}
         onScroll={syncScroll}
-      ></textarea>
+        onBlur={onBlur}
+        placeholder={placeholder}
+      />
       <pre id="code-highlighter" ref={codeBlock}>
         <code className={`language-${language}`}>{fixedCode}</code>
       </pre>
