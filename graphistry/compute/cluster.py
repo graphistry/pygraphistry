@@ -123,7 +123,7 @@ def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, targe
         df = g._get_embedding(kind)            
     
     if g.engine in [CUML]:
-        df = make_safe_gpu_dataframes(df, None, g.engine)
+        df, _ = make_safe_gpu_dataframes(df, None, g.engine)
     #print('\n df:', df.shape, df.columns)
     return df
 
