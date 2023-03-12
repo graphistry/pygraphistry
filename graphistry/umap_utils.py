@@ -688,6 +688,9 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
 
+            ## add the safe coercion here 
+            X_, y_ = make_safe_gpu_dataframes(X_, y_, self.engine)
+
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
             )
