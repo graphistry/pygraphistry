@@ -145,13 +145,15 @@ def dbscan_fit(g: Any, dbscan: Any, kind: str = "nodes", cols: Optional[Union[Li
         raise ValueError("No features found for clustering")
 
     dbscan.fit(X)
-    labels = dbscan.labels_
-    print(labels, type(labels))
-    
+    if g.engine == 'cuml':
+        labels = dbscan.labels_.to_numpy()
+    else:
+        labels = dbscan.labels_
+
     if kind == "nodes":
-        g._nodes = g._nodes.assign(_dbscan=np.array(labels))
+        g._nodes = g._nodes.assign(_dbscan=labels)
     elif kind == "edges":
-        g._edges = g._edges.assign(_dbscan=np.array(labels))
+        g._edges = g._edges.assign(_dbscan=labels)
     else:
         raise ValueError("kind must be one of `nodes` or `edges`")
 
