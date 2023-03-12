@@ -41,6 +41,17 @@ def lazy_dbscan_import_has_dependency():
 
     return has_min_dependency, DBSCAN, has_cuml_dependency, cuDBSCAN
 
+def lazy_cudf_import_has_dependancy():
+    try:
+        import warnings
+
+        warnings.filterwarnings("ignore")
+        import cudf  # type: ignore
+
+        return True, "ok", cudf
+    except ModuleNotFoundError as e:
+        return False, e, None
+
 
 def resolve_cpu_gpu_engine(
     engine: DBSCANEngine,
@@ -64,6 +75,27 @@ def resolve_cpu_gpu_engine(
         '"umap_learn", or  "cuml" '
         f"but received: {engine} :: {type(engine)}"
     )
+
+def make_safe_gpu_dataframes(X, y, engine):
+    """helper method to coerce a dataframe to the correct type (pd vs cudf)"""
+    def safe_cudf(X, y):
+        new_kwargs = {}
+        kwargs = {'X': X, 'y': y}
+        for key, value in kwargs.items():
+            if isinstance(value, cudf.DataFrame) and engine == "pandas":
+                new_kwargs[key] = value.to_pandas()
+            elif isinstance(value, pd.DataFrame) and engine == "cuml":
+                new_kwargs[key] = cudf.from_pandas(value)
+            else:
+                new_kwargs[key] = value
+        return new_kwargs['X'], new_kwargs['y']
+
+    has_cudf_dependancy_, _, cudf = lazy_cudf_import_has_dependancy()
+    if has_cudf_dependancy_:
+        print('DBSCAN CUML Matrices')
+        return safe_cudf(X, y)
+    else:
+        return X, y
 
 
 def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, target):
@@ -89,7 +121,9 @@ def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, targe
 
     if umap and cols is None and g._umap is not None:
         df = g._get_embedding(kind)            
-        
+    
+    if g.engine in [CUML]:
+        df = make_safe_gpu_dataframes(df, None)
     #print('\n df:', df.shape, df.columns)
     return df
 
@@ -112,11 +146,12 @@ def dbscan_fit(g: Any, dbscan: Any, kind: str = "nodes", cols: Optional[Union[Li
 
     dbscan.fit(X)
     labels = dbscan.labels_
+    print(labels, type(labels))
     
     if kind == "nodes":
-        g._nodes = g._nodes.assign(_dbscan=labels)
+        g._nodes = g._nodes.assign(_dbscan=np.array(labels))
     elif kind == "edges":
-        g._edges = g._edges.assign(_dbscan=labels)
+        g._edges = g._edges.assign(_dbscan=np.array(labels))
     else:
         raise ValueError("kind must be one of `nodes` or `edges`")
 
