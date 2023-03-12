@@ -8,13 +8,14 @@ from .umap_utils import UMAPMixin  # type: ignore
 from .embed_utils import HeterographEmbedModuleMixin  # type: ignore
 from .text_utils import SearchToGraphMixin  # type: ignore
 from .compute.conditional import ConditionalMixin  # type: ignore
+from .compute.cluster import ClusterMixin  # type: ignore
 
 
 mixins = ([
     CosmosMixin, NeptuneMixin, GremlinMixin,
     HeterographEmbedModuleMixin,
     SearchToGraphMixin,
-    DGLGraphMixin,
+    DGLGraphMixin, ClusterMixin,
     UMAPMixin,
     FeatureMixin, ConditionalMixin,
     LayoutsMixin,
@@ -32,6 +33,7 @@ class Plotter(  # type: ignore
         ConditionalMixin.__init__(self, *args, **kwargs)
         FeatureMixin.__init__(self, *args, **kwargs)
         UMAPMixin.__init__(self, *args, **kwargs)
+        ClusterMixin.__init__(self, *args, **kwargs)
         DGLGraphMixin.__init__(self, *args, **kwargs)
         SearchToGraphMixin.__init__(self, *args, **kwargs)
         HeterographEmbedModuleMixin.__init__(self, *args, **kwargs)
