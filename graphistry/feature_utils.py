@@ -24,6 +24,7 @@ from graphistry.compute.ComputeMixin import ComputeMixin
 from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
+from .ai_utils import infer_graph, infer_self_graph
 
 # add this inside classes and have a method that can set log level
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)
@@ -544,7 +545,7 @@ def get_preprocessing_pipeline(
     :param X: np.ndarray
     :param impute: whether to run imputing or not
     :param use_scaler: string in None or
-            ["minmax", "quantile", "zscale", "robust", "kbins"],
+            ["minmax", "quantile", "standard", "robust", "kbins"],
             selects scaling transformer, default None
     :param n_quantiles: if use_scaler = 'quantile',
             sets the quantile bin size.
@@ -573,7 +574,7 @@ def get_preprocessing_pipeline(
     available_preprocessors = [
         "minmax",
         "quantile",
-        "zscale",
+        "standard",
         "robust",
         "kbins",
     ]
@@ -600,7 +601,7 @@ def get_preprocessing_pipeline(
         scaler = QuantileTransformer(
             n_quantiles=n_quantiles, output_distribution=output_distribution
         )
-    elif use_scaler == "zscale":
+    elif use_scaler == "standard":
         scaler = StandardScaler()
     elif use_scaler == "robust":
         scaler = RobustScaler(quantile_range=quantile_range)
@@ -884,7 +885,7 @@ def process_dirty_dataframes(
             threshold, encoder is OneHot, above, it is GapEncoder
     :param n_topics: number of topics for GapEncoder, default 42
     :param use_scaler: None or string in
-            ['minmax', 'zscale', 'robust', 'quantile']
+            ['minmax', 'standard', 'robust', 'quantile']
     :param similarity: one of 'ngram', 'levenshtein-ratio', 'jaro',
             or'jaro-winkler'}) – The type of pairwise string similarity
             to use. If None or False, uses a SuperVectorizer
@@ -1027,6 +1028,8 @@ def process_nodes_dataframes(
 ) -> Tuple[
     pd.DataFrame,
     Any,
+    pd.DataFrame,
+    Any,
     SuperVectorizer,
     SuperVectorizer,
     Optional[Pipeline],
@@ -1042,7 +1045,7 @@ def process_nodes_dataframes(
     :param df: pandas DataFrame of data
     :param y: pandas DataFrame of targets
     :param use_scaler: None or string in
-            ['minmax', 'zscale', 'robust', 'quantile']
+            ['minmax', 'standard', 'robust', 'quantile']
     :param n_topics: number of topics in Gap Encoder
     :param use_scaler:
     :param confidence: Number between 0 and 1, will pass
@@ -1068,7 +1071,7 @@ def process_nodes_dataframes(
         X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(
             df, y
         )
-        X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
+        X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
             X_enc,
             y_enc,
             use_scaler,
@@ -1090,6 +1093,8 @@ def process_nodes_dataframes(
         return (
             X_enc,
             y_enc,
+            X_encs,
+            y_encs,
             data_encoder,
             label_encoder,
             scaling_pipeline,
@@ -1155,7 +1160,7 @@ def process_nodes_dataframes(
         f"--The entire Encoding process took {(time()-t)/60:.2f} minutes"
     )
 
-    X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
+    X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
         X_enc,
         y_enc,
         use_scaler,
@@ -1173,6 +1178,8 @@ def process_nodes_dataframes(
     return (
         X_enc,
         y_enc,
+        X_encs,
+        y_encs,
         data_encoder,
         label_encoder,
         scaling_pipeline,
@@ -1274,7 +1281,7 @@ def process_edge_dataframes(
     src: str,
     dst: str,
     cardinality_threshold: int = 40,
-    cardinality_threshold_target: int = 100,
+    cardinality_threshold_target: int = 400,
     n_topics: int = config.N_TOPICS_DEFAULT,
     n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
     use_scaler: Optional[str] = None,
@@ -1284,7 +1291,6 @@ def process_edge_dataframes(
     ngram_range: tuple = (1, 3),
     max_df: float = 0.2,
     min_df: int = 3,
-    #confidence: float = 0.35,
     min_words: float = 2.5,
     model_name: str = "paraphrase-MiniLM-L6-v2",
     similarity: Optional[str] = None,
@@ -1299,6 +1305,8 @@ def process_edge_dataframes(
     keep_n_decimals: int = 5,
     feature_engine: FeatureEngineConcrete = "pandas",
 ) -> Tuple[
+    pd.DataFrame,
+    pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
     List[Any],
@@ -1320,7 +1328,7 @@ def process_edge_dataframes(
     :param src: source column to select in edf
     :param dst: destination column to select in edf
     :param use_scaler: None or string in
-        ['minmax', 'zscale', 'robust', 'quantile']
+        ['minmax', 'standard', 'robust', 'quantile']
     :return: Encoded data matrix and target (if not None),
         the data encoders, and the label encoder.
     """
@@ -1355,7 +1363,7 @@ def process_edge_dataframes(
         # add the two datasets together
         X_enc = pd.concat([T, X_enc], axis=1)
         # then scale them
-        X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
+        X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
             X_enc,
             y_enc,
             use_scaler,
@@ -1375,6 +1383,8 @@ def process_edge_dataframes(
         return (
             X_enc,
             y_enc,
+            X_encs,
+            y_encs,
             [mlb_pairwise_edge_encoder, data_encoder],
             label_encoder,
             scaling_pipeline,
@@ -1386,6 +1396,8 @@ def process_edge_dataframes(
     (
         X_enc,
         y_enc,
+        _,
+        _,
         data_encoder,
         label_encoder,
         _,
@@ -1427,7 +1439,7 @@ def process_edge_dataframes(
         f" {(time()-t)/60:.2f} minutes"
     )
 
-    X_enc, y_enc, scaling_pipeline, scaling_pipeline_target = smart_scaler(
+    X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(
         X_enc,
         y_enc,
         use_scaler,
@@ -1445,6 +1457,8 @@ def process_edge_dataframes(
     res = (
         X_enc,
         y_enc,
+        X_encs,
+        y_encs,
         [mlb_pairwise_edge_encoder, data_encoder],
         label_encoder,
         scaling_pipeline,
@@ -1502,22 +1516,23 @@ def transform_dirty(
     data_encoder: Union[SuperVectorizer, FunctionTransformer],  # type: ignore
     name: str = "",
 ) -> pd.DataFrame:
-    from sklearn.preprocessing import MultiLabelBinarizer
+    # from sklearn.preprocessing import MultiLabelBinarizer
     logger.debug(f"-{name} Encoder:")
     logger.debug(f"\t{data_encoder}\n")
     # print(f"-{name} Encoder:")
     # print(f"\t{data_encoder}\n")
-    try:
-        logger.debug(f"{data_encoder.get_feature_names_in}")
-    except Exception as e:
-        logger.warning(e)
-        pass
+    # try:
+    #     logger.debug(f"{data_encoder.get_feature_names_in}")
+    # except Exception as e:
+    #     logger.warning(e)
+    #     pass
     logger.debug(f"TRANSFORM pre as df -- \t{df.shape}")
 
     # #####################################  for dirty_cat 0.3.0
     use_columns = getattr(data_encoder, 'columns_', [])
     if len(use_columns):
-        X = data_encoder.transform(df[use_columns])
+        #print(f"Using columns: {use_columns}")
+        X = data_encoder.transform(df[df.columns.intersection(use_columns)])
     # #####################################  with dirty_cat 0.2.0
     else:
         X = data_encoder.transform(df)
@@ -1545,20 +1560,21 @@ def transform(
     # this function aligns with what is computed during
     # processing nodes or edges.
     (
-        X_enc,
-        y_enc,
+        _,
+        _,
+        _,
+        _,
         data_encoder,
         label_encoder,
-        scaling_pipeline,
-        scaling_pipeline_target,
+        _,
+        _,
         text_model,
         text_cols,
     ) = res
 
-    # feature_columns = X_enc.columns
-    # feature_columns_target = y_enc.columns
     logger.info("-" * 90)
-
+    
+    # index = df.index
     y = pd.DataFrame([])
     T = pd.DataFrame([])
     # encode nodes
@@ -1614,14 +1630,14 @@ def transform(
     logger.info(f"--Features matrix shape: {X.shape}")
     logger.info(f"--Target matrix shape: {y.shape}")
 
-    if scaling_pipeline and not X.empty:
-        logger.info("--Scaling Features")
-        X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns)
-    if scaling_pipeline_target and not y.empty:
-        logger.info(f"--Scaling Target {scaling_pipeline_target}")
-        y = pd.DataFrame(
-            scaling_pipeline_target.transform(y), columns=y.columns
-        )
+    # if scaling_pipeline and not X.empty:
+    #     logger.info("--Scaling Features")
+    #     X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=index)
+    # if scaling_pipeline_target and not y.empty:
+    #     logger.info(f"--Scaling Target {scaling_pipeline_target}")
+    #     y = pd.DataFrame(
+    #         scaling_pipeline_target.transform(y), columns=y.columns, index=index
+    #     )
 
     return X, y
 
@@ -1677,6 +1693,8 @@ class FastEncoder:
         [
             X_enc,
             y_enc,
+            X_encs,
+            y_encs,
             data_encoder,
             label_encoder,
             scaling_pipeline,
@@ -1690,8 +1708,10 @@ class FastEncoder:
         # label_encoder.target_names_in = self.target_names_in
         self.feature_columns = X_enc.columns
         self.feature_columns_target = y_enc.columns
-        self.X = X_enc
-        self.y = y_enc
+        self.X = X_encs
+        self.y = y_encs
+        self.X_orignal = X_enc
+        self.y_orignal = y_enc
         self.data_encoder = data_encoder  # is list for edges
         self.label_encoder = label_encoder
         self.scaling_pipeline = scaling_pipeline
@@ -1708,40 +1728,63 @@ class FastEncoder:
         self._set_result(res)
 
     def transform(self, df, ydf=None):
+        "Raw transform, no scaling."
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
         return X, y
+    
+    def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target):
+        """Transform with scaling fit durning fit."""
+        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
+        if scaling_pipeline is not None and not X.empty:
+            X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
+        if scaling_pipeline_target is not None and y is not None and not y.empty:
+            y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns, index=y.index)
+        return X, y
+    
+    def transform_scaled(self, df, ydf=None, scaling_pipeline=None, scaling_pipeline_target=None):
+        if scaling_pipeline is None:
+            scaling_pipeline = self.scaling_pipeline
+        if scaling_pipeline_target is None:
+            scaling_pipeline_target = self.scaling_pipeline_target
+        return self._transform_scaled(df, ydf, scaling_pipeline, scaling_pipeline_target)
 
     def fit_transform(self, src=None, dst=None, *args, **kwargs):
         self.fit(src=src, dst=dst, *args, **kwargs)
         return self.X, self.y
 
-    def scale(self, df, ydf=None, set_scaler=False, *args, **kwargs):
-        # pretty hacky but gets job done --
-        """Fits new scaling functions on df, ydf via args-kwargs
-        (ie use downstream as X_train, X_test ,... or batch 
-        when different scaling on the outputs is required)
+    def scale(self, X=None, y=None, return_pipeline=False, *args, **kwargs):
+        """Fits new scaling functions on df, y via args-kwargs
+        
+            example:
+                from graphisty.features import SCALERS, SCALER_OPTIONS
+                print(SCALERS)
+                
+                g = graphistry.nodes(df)
+                # set a scaling strategy for features and targets -- umap uses those and produces different results depending.
+                g2 = g.umap(use_scaler='standard', use_scaler_target=None)
+                
+                # later if you want to scale new data, you can do so
+                X, y = g2.transform(df, df, scaled=False)  # unscaled transformer output
+                # now scale with new settings
+                X_scaled, y_scaled = g2.scale(X, y, use_scaler='minmax', use_scaler_target='kbins', n_bins=5)
+                # fit some other pipeline
+                clf.fit(X_scaled, y_scaled)
+                
+            args:
+                X: pd.DataFrame of features
+                y: pd.DataFrame of target features
+                kind: str, one of 'nodes' or 'edges'
+                *args, **kwargs: passed to smart_scaler pipeline
+            returns:
+                scaled X, y
         """
-        # pop off the previous scaler so that .transform won't use it
-        self.res[4] = None
-        self.res[5] = None
-
-        X, y = self.transform(df, ydf)  # these are the raw transforms,
         logger.info("-Fitting new scaler on raw features")
         X, y, scaling_pipeline, scaling_pipeline_target = smart_scaler(
             X_enc=X, y_enc=y, *args, **kwargs
         )
-
-        if set_scaler:
-            logger.info("--Setting fit scaler to self")
-            self.res[4] = scaling_pipeline
-            self.res[5] = scaling_pipeline_target
-            self.scaling_pipeline = scaling_pipeline
-            self.scaling_pipeline_target = scaling_pipeline_target
-        else:  # add the original back
-            self.res[4] = self.scaling_pipeline
-            self.res[5] = self.scaling_pipeline_target
-
-        return X, y, scaling_pipeline, scaling_pipeline_target
+        if return_pipeline:
+            return X, y, scaling_pipeline, scaling_pipeline_target
+        return X, y
 
 
 # ######################################################################################################################
@@ -1816,6 +1859,21 @@ def reuse_featurization(
         memoize=memoize,
     )
 
+def get_matrix_by_column_part(X: pd.DataFrame, column_part: str) -> pd.DataFrame:
+    """Get the feature matrix by column part existing in column names."""
+    transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]  # type: ignore
+    return X[transformed_columns] 
+
+def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Optional[Union[list, str]]) -> pd.DataFrame:
+    """Get the feature matrix by column parts list existing in column names."""
+    if column_parts is None:
+        return X
+    if isinstance(column_parts, str):
+        column_parts = [column_parts]
+    res = pd.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)  # type: ignore
+    res = res.loc[:, ~res.columns.duplicated()]  # type: ignore
+    return res
+
 
 class FeatureMixin(MIXIN_BASE):
     """
@@ -1830,7 +1888,7 @@ class FeatureMixin(MIXIN_BASE):
         g = graphistry.edges(df, 'src', 'dst')
         g2 = g.featurize(kind='edges')
 
-    or chain them,
+    or chain them for both nodes and edges,
         g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node_column')
         g2 = g.featurize().featurize(kind='edges')
 
@@ -1843,25 +1901,25 @@ class FeatureMixin(MIXIN_BASE):
         pass
 
     def _get_feature(self, kind):
-        kind = kind.replace('s', '')
-        assert kind in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
-        x = getattr(self, f'_{kind}_features')
+        kind2 = kind.replace('s', '')
+        assert kind2 in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
+        x = getattr(self, f'_{kind2}_features')
         return x
     
     def _get_target(self, kind):
-        kind = kind.replace('s', '')
-        assert kind in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
-        x = getattr(self, f'_{kind}_target')
+        kind2 = kind.replace('s', '')
+        assert kind2 in ['node', 'edge'], f'kind needs to be in `nodes` or `edges`, found {kind}'
+        x = getattr(self, f'_{kind2}_target')
         return x
     
     def _featurize_nodes(
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "zscale",
-        use_scaler_target: Optional[str] = "kbins",
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
         cardinality_threshold: int = 40,
-        cardinality_threshold_target: int = 120,
+        cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         multilabel: bool = False,
@@ -1870,7 +1928,6 @@ class FeatureMixin(MIXIN_BASE):
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[str] = None,
@@ -1886,8 +1943,9 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         feature_engine: FeatureEngineConcrete = "pandas",
         memoize: bool = True,
+        verbose: bool = False,
     ):
-        res = self.copy()
+        res = self.bind()  # was self.copy() but changing to test
         ndf = res._nodes
         node = res._node
 
@@ -1915,8 +1973,10 @@ class FeatureMixin(MIXIN_BASE):
         y_resolved = resolve_y(ndf, y)
 
         feature_engine = resolve_feature_engine(feature_engine)
+        
+        from .features import ModelDict
 
-        fkwargs = dict(
+        fkwargs = ModelDict("Featurize Params",
             X=X_resolved,
             y=y_resolved,
             use_scaler=use_scaler,
@@ -1931,7 +1991,6 @@ class FeatureMixin(MIXIN_BASE):
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
             similarity=similarity,
@@ -1955,6 +2014,7 @@ class FeatureMixin(MIXIN_BASE):
 
         old_res = reuse_featurization(res, memoize, fkwargs)
         if old_res:
+            print("--- [[ RE-USING NODE FEATURIZATION ]]") if verbose else None
             logger.info("--- [[ RE-USING NODE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
             for attr in ["_node_features", "_node_target", "_node_encoder"]:
@@ -1966,21 +2026,24 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = remove_internal_namespace_if_present(X_resolved)
 
         keys_to_remove = ["X", "y", "remove_node_column"]
-        nfkwargs = {}
+        nfkwargs = dict()
         for key, value in fkwargs.items():
             if key not in keys_to_remove:
                 nfkwargs[key] = value
 
-        #############################################################
+        print('-' * 80) if verbose else None
+        print("** Featuring nodes") if verbose else None
+        # ############################################################
         encoder = FastEncoder(X_resolved, y_resolved, kind="nodes")
         encoder.fit(**nfkwargs)
-        ############################################################
+        # ###########################################################
 
         # if changing, also update fresh_res
         res._node_features = encoder.X
+        res._node_features_raw = encoder.X_orignal  # .copy()
         res._node_target = encoder.y
+        res._node_target_raw = encoder.y_orignal  # .copy()
         res._node_encoder = encoder  # now this does
-        
         # all the work `._node_encoder.transform(df, y)` etc
 
         return res
@@ -1989,17 +2052,16 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "zscale",
-        use_scaler_target: Optional[str] = "kbins",
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
         cardinality_threshold: int = 40,
-        cardinality_threshold_target: int = 20,
+        cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        #confidence: float = 0.35,
         min_words: float = 2.5,
         multilabel: bool = False,
         model_name: str = "paraphrase-MiniLM-L6-v2",
@@ -2015,6 +2077,7 @@ class FeatureMixin(MIXIN_BASE):
         keep_n_decimals: int = 5,
         feature_engine: FeatureEngineConcrete = "pandas",
         memoize: bool = True,
+        verbose: bool = False,
     ):
 
         res = self.copy()
@@ -2047,7 +2110,6 @@ class FeatureMixin(MIXIN_BASE):
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
             similarity=similarity,
@@ -2089,6 +2151,7 @@ class FeatureMixin(MIXIN_BASE):
             if key not in keys_to_remove:
                 nfkwargs[key] = value
 
+        print("** Featuring edges") if verbose else None
         ###############################################################
         encoder = FastEncoder(X_resolved, y_resolved, kind="edges")
         encoder.fit(src=res._source, dst=res._destination, **nfkwargs)
@@ -2096,13 +2159,30 @@ class FeatureMixin(MIXIN_BASE):
 
         # if editing, should also update fresh_res
         res._edge_features = encoder.X
+        res._edge_features_raw = encoder.X_orignal  # .copy()
         res._edge_target = encoder.y
+        res._edge_target_raw = encoder.y_orignal  # .copy()
         res._edge_encoder = encoder
 
         return res
+    
+    def _infer_edges(self, emb, X, y, df, eps='auto', n_neighbors=4, sample=None, infer_on_umap_embedding=False, 
+                     verbose=False, merge_policy=False, **kwargs):
+        res = self.bind()
+        if merge_policy:
+            # useful to cluster onto existing graph
+            g = infer_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, 
+                            n_neighbors=n_neighbors, eps=eps, sample=sample, verbose=verbose, **kwargs) 
+        else:
+            # useful to cluster onto self
+            g = infer_self_graph(res, emb, X, y, df, infer_on_umap_embedding=infer_on_umap_embedding, 
+                                 n_neighbors=n_neighbors, eps=eps, verbose=verbose, **kwargs)
+        return g
 
-    def _transform(self, encoder: str, df: pd.DataFrame, ydf: pd.DataFrame):
+    def _transform(self, encoder: str, df: pd.DataFrame, ydf: Optional[pd.DataFrame], scaled):
         if getattr(self, encoder) is not None:
+            if scaled:
+                return getattr(self, encoder).transform_scaled(df, ydf)
             return getattr(self, encoder).transform(df, ydf)
         else:
             logger.debug(
@@ -2110,45 +2190,124 @@ class FeatureMixin(MIXIN_BASE):
                 "before being able to transform data"
             )
 
-    def transform(self, df, ydf, kind):
-        """Transform new data"""
+    def transform(self, df: pd.DataFrame, 
+                  y: Optional[pd.DataFrame] = None, 
+                  kind: str = 'nodes', 
+                  min_dist: Union[str, float, int] = 'auto', 
+                  n_neighbors: int = 7,
+                  merge_policy: bool = False,
+                  sample: Optional[int] = None, 
+                  return_graph: bool = True,
+                  scaled: bool = True,
+                  verbose: bool = False):
+        """
+            Transform new data and append to existing graph, or return dataframes
+        
+            args:
+                df: pd.DataFrame, raw data to transform
+                ydf: pd.DataFrame, optional
+                kind: str  # one of `nodes`, `edges`
+                return_graph: bool, if True, will return a graph with inferred edges.
+                merge_policy: bool, if True, adds batch to existing graph nodes via nearest neighbors. 
+                    If False, will infer edges only between nodes in the batch, default False
+                min_dist: float, if return_graph is True, will use this value in NN search, or 'auto' to infer a good value
+                    min_dist represents the maximum distance between two samples for one to be considered as in the neighborhood of the other.
+                sample: int, if return_graph is True, will use sample edges of existing graph to fill out the new graph
+                n_neighbors: int, if return_graph is True, will use this value for n_neighbors in Nearest Neighbors search
+                scaled: bool, if True, will use scaled transformation of data set during featurization, default True
+                verbose: bool, if True, will print metadata about the graph construction, default False
+            returns:
+                X, y: pd.DataFrame, transformed data if return_graph is False
+                    or a graphistry Plottable with inferred edges if return_graph is True
+        """
         if kind == "nodes":
-            return self._transform("_node_encoder", df, ydf)
+            X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
         elif kind == "edges":
-            return self._transform("_edge_encoder", df, ydf)
+            X, y_ = self._transform("_edge_encoder", df, y, scaled=scaled)
         else:
             logger.debug("kind must be one of `nodes`,"
                          f"`edges`, found {kind}")
+            
+        if return_graph and kind not in ["edges"]:
+            emb = None  # will not be able to infer graph from umap coordinates, 
+            # but will be able to infer graph from features of existing edges
+            g = self._infer_edges(emb, X, y_, df, eps=min_dist, sample=sample, n_neighbors=n_neighbors,
+                                  infer_on_umap_embedding=False, merge_policy=merge_policy,
+                                  verbose=verbose)
+            return g
+        return X, y_
 
     def scale(
         self,
-        df,
-        ydf,
-        kind,
-        use_scaler,
-        use_scaler_target,
-        set_scaler=False,
+        df: Optional[pd.DataFrame] = None,
+        y: Optional[pd.DataFrame] = None,
+        kind: str = "nodes",
+        use_scaler: Union[str, None] = None,
+        use_scaler_target: Union[str, None] = None,
         impute: bool = True,
         n_quantiles: int = 10,
         output_distribution: str = "normal",
         quantile_range=(25, 75),
-        n_bins: int = 2,
+        n_bins: int = 10,
         encode: str = "ordinal",
         strategy: str = "uniform",
         keep_n_decimals: int = 5,
+        return_scalers: bool = False,
     ):
+        """Scale data using the same scalers as used in the featurization step.
+        
+            example usage:
+                g = graphistry.nodes(df)
+                X, y = g.featurize().scale(kind='nodes', use_scaler='robust', use_scaler_target='kbins', n_bins=3)
+                
+                # or 
+                g = graphistry.nodes(df)
+                # set a scaling strategy for features and targets -- umap uses those and produces different results depending.
+                g2 = g.umap(use_scaler='standard', use_scaler_target=None)
+                
+                # later if you want to scale new data, you can do so
+                X, y = g2.transform(df, df, scale=False)
+                X_scaled, y_scaled = g2.scale(X, y, use_scaler='minmax', use_scaler_target='kbins', n_bins=5)
+                # fit some other pipeline
+                clf.fit(X_scaled, y_scaled)
+
+
+            args:
+                df: pd.DataFrame, raw data to transform, if None, will use data from featurization fit
+                y: pd.DataFrame, optional target data
+                kind: str, one of `nodes`, `edges`
+                use_scaler: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
+                use_scaler_target: str, optional, one of `minmax`, `robust`, `standard`, `kbins`, `quantile`
+                impute: bool, if True, will impute missing values
+                n_quantiles: int, number of quantiles to use for quantile scaler
+                output_distribution: str, one of `normal`, `uniform`, `lognormal` 
+                quantile_range: tuple, range of quantiles to use for quantile scaler
+                n_bins: int, number of bins to use for KBinsDiscretizer
+                encode: str, one of `ordinal`, `onehot`, `onehot-dense`, `binary`    
+                strategy: str, one of `uniform`, `quantile`, `kmeans`
+                keep_n_decimals: int, number of decimals to keep after scaling
+                return_scalers: bool, if True, will return the scalers used to scale the data
+            returns:
+                (X, y) transformed data if return_graph is False
+                    or a graph with inferred edges if return_graph is True,
+                or (X, y, scaler, scaler_target) if return_scalers is True
+        """
+                
+        if df is None:  # use the original data
+            X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)  # type: ignore
+        else:
+            X, y = self.transform(df, y, kind=kind, return_graph=False, scaled=False)
 
         if kind == "nodes" and hasattr(self, "_node_encoder"):  # type: ignore
             if self._node_encoder is not None:  # type: ignore
                 (
                     X,
                     y,
-                    scaling_pipeline,
-                    scaling_pipeline_target,
+                    scaler,
+                    scaler_target
                 ) = self._node_encoder.scale(
-                    df,
-                    ydf,
-                    set_scaler=set_scaler,
+                    X,
+                    y,
                     use_scaler=use_scaler,
                     use_scaler_target=use_scaler_target,
                     impute=impute,
@@ -2159,6 +2318,7 @@ class FeatureMixin(MIXIN_BASE):
                     encode=encode,
                     strategy=strategy,
                     keep_n_decimals=keep_n_decimals,
+                    return_pipeline=True
                 )  # type: ignore
             else:
                 raise AttributeError(
@@ -2172,12 +2332,11 @@ class FeatureMixin(MIXIN_BASE):
                 (
                     X,
                     y,
-                    scaling_pipeline,
-                    scaling_pipeline_target,
+                    scaler,
+                    scaler_target
                 ) = self._edge_encoder.scale(
-                    df,
-                    ydf,
-                    set_scaler=set_scaler,
+                    X,
+                    y,
                     use_scaler=use_scaler,
                     use_scaler_target=use_scaler_target,
                     impute=impute,
@@ -2188,14 +2347,17 @@ class FeatureMixin(MIXIN_BASE):
                     encode=encode,
                     strategy=strategy,
                     keep_n_decimals=keep_n_decimals,
+                    return_pipeline=True
                 )  # type: ignore
             else:
                 raise AttributeError(
                     'Please run g.featurize(kind="edges", *args, **kwargs) '
                     'first before scaling matrices and targets is possible.'
                 )
+        if return_scalers:
+            return X, y, scaler, scaler_target
+        return X, y
 
-        return X, y, scaling_pipeline, scaling_pipeline_target
 
     def featurize(
         self,
@@ -2214,24 +2376,26 @@ class FeatureMixin(MIXIN_BASE):
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        min_words: float = 2.5,
+        min_words: float = 4.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         impute: bool = True,
         n_quantiles: int = 100,
         output_distribution: str = "normal",
-        quantile_range=(25, 75),
+        quantile_range = (25, 75),
         n_bins: int = 10,
         encode: str = "ordinal",
         strategy: str = "uniform",
-        similarity: Optional[
-            str
-        ] = None,  # turn this off in favor of Gap Encoder
+        similarity: Optional[str] = None,  # turn this off in favor of Gap Encoder
         categories: Optional[str] = "auto",
         keep_n_decimals: int = 5,
         remove_node_column: bool = True,
         inplace: bool = False,
         feature_engine: FeatureEngine = "auto",
+        dbscan: bool = False,
+        min_dist: float = 0.5,  # DBSCAN eps
+        min_samples: int = 1,  # DBSCAN min_samples
         memoize: bool = True,
+        verbose: bool = False,
     ):
         r"""
             Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
@@ -2249,11 +2413,11 @@ class FeatureMixin(MIXIN_BASE):
         :param use_scaler: selects which scaler (and automatically imputes
                 missing values using mean strategy)
                 to scale the data. Options are;
-                "minmax", "quantile", "zscale", "robust",
+                "minmax", "quantile", "standard", "robust",
                 "kbins", default None.
                 Please see scikits-learn documentation
                 https://scikit-learn.org/stable/modules/preprocessing.html
-                Here 'zscale' corresponds to 'StandardScaler' in scikits.
+                Here 'standard' corresponds to 'StandardScaler' in scikits.
         :param cardinality_threshold: dirty_cat threshold on cardinality of
                 categorical labels across columns.
                 If value is greater than threshold, will run GapEncoder
@@ -2292,20 +2456,21 @@ class FeatureMixin(MIXIN_BASE):
                 but at cost of encoding time. If faster encoding is needed,
                 `average_word_embeddings_komninos` is useful
                 and produces less semantically relevant vectors.
-                Please see www.huggingface.co or sentence_transformer
+                Please see sentence_transformer
                 (https://www.sbert.net/) library for all available models.
         :param multilabel: if True, will encode a *single* target column composed of
                 lists of lists as multilabel outputs. 
                 This only works with y=['a_single_col'], default False
         :param embedding: If True, produces a random node embedding of size `n_topics`
-                default, False.
+                default, False. If no node features are provided, will produce random embeddings 
+                (for GNN models, for example)
         :param use_ngrams: If True, will encode textual columns as TfIdf Vectors,
                 default, False.
         :param ngram_range: if use_ngrams=True, can set ngram_range, eg: tuple = (1, 3)
         :param max_df:  if use_ngrams=True, set max word frequency to consider in vocabulary
                 eg: max_df = 0.2,
         :param min_df:  if use_ngrams=True, set min word count to consider in vocabulary
-                eg: min_df = 3    
+                eg: min_df = 3 or 0.00001
         :param categories: Optional[str] in ["auto", "k-means", "most_frequent"], decides which 
                 category to select in Similarity Encoding, default 'auto'
         :param impute: Whether to impute missing values, default True
@@ -2315,7 +2480,7 @@ class FeatureMixin(MIXIN_BASE):
                 can return distribution as ["normal", "uniform"]
         :param quantile_range: if use_scaler = 'robust'|'quantile', 
                 sets the quantile range.
-        :param n_bins: number of bins to use in kbins discretizer
+        :param n_bins: number of bins to use in kbins discretizer, default 10
         :param encode: encoding for KBinsDiscretizer, can be one of
                 `onehot`, `onehot-dense`, `ordinal`, default 'ordinal'
         :param strategy: strategy for KBinsDiscretizer, can be one of
@@ -2323,6 +2488,9 @@ class FeatureMixin(MIXIN_BASE):
         :param n_quantiles: if use_scaler = "quantile", sets the number of quantiles, default=100
         :param output_distribution: if use_scaler="quantile"|"robust", 
                 choose from ["normal", "uniform"]
+        :param dbscan: whether to run DBSCAN, default False.
+        :param min_dist: DBSCAN eps parameter, default 0.5.
+        :param min_samples: DBSCAN min_samples parameter, default 5.
         :param keep_n_decimals: number of decimals to keep                
         :param remove_node_column: whether to remove node column so it is
                 not featurized, default True.
@@ -2330,7 +2498,7 @@ class FeatureMixin(MIXIN_BASE):
                 not, default False.
         :param memoize: whether to store and reuse results across runs,
                 default True.
-        :return: self, with new attributes set by the featurization process.
+        :return: graphistry instance with new attributes set by the featurization process.
         """
         assert_imported()
         if inplace:
@@ -2356,11 +2524,10 @@ class FeatureMixin(MIXIN_BASE):
                 ngram_range=ngram_range,
                 max_df=max_df,
                 min_df=min_df,
-                #confidence=confidence,  # deprecated
                 min_words=min_words,
                 model_name=model_name,
-                similarity=similarity,  # deprecated
-                categories=categories,  # deprecated
+                similarity=similarity,  
+                categories=categories,
                 impute=impute,
                 n_quantiles=n_quantiles,
                 quantile_range=quantile_range,
@@ -2372,6 +2539,7 @@ class FeatureMixin(MIXIN_BASE):
                 remove_node_column=remove_node_column,
                 feature_engine=feature_engine,
                 memoize=memoize,
+                verbose=verbose
             )
         elif kind == "edges":
             res = res._featurize_edges(
@@ -2388,11 +2556,10 @@ class FeatureMixin(MIXIN_BASE):
                 ngram_range=ngram_range,
                 max_df=max_df,
                 min_df=min_df,
-                #confidence=confidence,  # deprecated
                 min_words=min_words,
                 model_name=model_name,
-                similarity=similarity,  # deprecated
-                categories=categories,  # deprecated
+                similarity=similarity, 
+                categories=categories,
                 impute=impute,
                 n_quantiles=n_quantiles,
                 quantile_range=quantile_range,
@@ -2403,12 +2570,17 @@ class FeatureMixin(MIXIN_BASE):
                 keep_n_decimals=keep_n_decimals,
                 feature_engine=feature_engine,
                 memoize=memoize,
+                verbose=verbose
             )
         else:
             logger.warning(
                 f"One may only featurize `nodes` or `edges`, got {kind}"
             )
             return self
+        
+        if dbscan:  # this adds columns to the dataframe, will break tests of pure featurization & umap, so set to False in those
+            res = res.dbscan(min_dist=min_dist, min_samples=min_samples, kind=kind, fit_umap_embedding=False, verbose=verbose)  # type: ignore
+
         if not inplace:
             return res
 
@@ -2416,19 +2588,18 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "zscale",
-        use_scaler_target: Optional[str] = "kbins",
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
         cardinality_threshold: int = 40,
         cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         multilabel: bool = False,
-        embedding=False,
+        embedding: bool = False,
         use_ngrams: bool = False,
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[
@@ -2447,6 +2618,7 @@ class FeatureMixin(MIXIN_BASE):
         feature_engine: FeatureEngineConcrete = "pandas",
         reuse_if_existing=False,
         memoize: bool = True,
+        verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, MIXIN_BASE]:
         """
         helper method gets node feature and target matrix if X, y
@@ -2463,7 +2635,7 @@ class FeatureMixin(MIXIN_BASE):
             res._node_target = None
 
         if reuse_if_existing and res._node_features is not None:
-            # logger.info('-Reusing Existing Featurization')
+            logger.info('-Reusing Existing Node Featurization')
             return res._node_features, res._node_target, res
 
         res = res._featurize_nodes(
@@ -2481,7 +2653,6 @@ class FeatureMixin(MIXIN_BASE):
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
             similarity=similarity,
@@ -2497,6 +2668,7 @@ class FeatureMixin(MIXIN_BASE):
             remove_node_column=remove_node_column,
             feature_engine=feature_engine,
             memoize=memoize,
+            verbose=verbose,
         )
 
         assert res._node_features is not None  # ensure no infinite loop
@@ -2512,10 +2684,10 @@ class FeatureMixin(MIXIN_BASE):
         self,
         X: XSymbolic = None,
         y: YSymbolic = None,
-        use_scaler: Optional[str] = "robust",
-        use_scaler_target: Optional[str] = "kbins",
+        use_scaler: Optional[str] = None,
+        use_scaler_target: Optional[str] = None,
         cardinality_threshold: int = 40,
-        cardinality_threshold_target: int = 20,
+        cardinality_threshold_target: int = 400,
         n_topics: int = config.N_TOPICS_DEFAULT,
         n_topics_target: int = config.N_TOPICS_TARGET_DEFAULT,
         multilabel: bool = False,
@@ -2523,7 +2695,6 @@ class FeatureMixin(MIXIN_BASE):
         ngram_range: tuple = (1, 3),
         max_df: float = 0.2,
         min_df: int = 3,
-        #confidence: float = 0.35,
         min_words: float = 2.5,
         model_name: str = "paraphrase-MiniLM-L6-v2",
         similarity: Optional[
@@ -2541,6 +2712,7 @@ class FeatureMixin(MIXIN_BASE):
         feature_engine: FeatureEngineConcrete = "pandas",
         reuse_if_existing=False,
         memoize: bool = True,
+        verbose: bool = False,
     ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
         """
         helper method gets edge feature and target matrix if X, y
@@ -2558,7 +2730,7 @@ class FeatureMixin(MIXIN_BASE):
             res._edge_target = None
 
         if reuse_if_existing and res._edge_features is not None:
-            # logger.info('-Reusing Existing Featurization')
+            logger.info('-Reusing Existing Edge Featurization')
             return res._edge_features, res._edge_target, res
 
         res = res._featurize_edges(
@@ -2575,7 +2747,6 @@ class FeatureMixin(MIXIN_BASE):
             ngram_range=ngram_range,
             max_df=max_df,
             min_df=min_df,
-            #confidence=confidence,
             min_words=min_words,
             model_name=model_name,
             similarity=similarity,
@@ -2590,6 +2761,7 @@ class FeatureMixin(MIXIN_BASE):
             keep_n_decimals=keep_n_decimals,
             feature_engine=feature_engine,
             memoize=memoize,
+            verbose=verbose,
         )
 
         assert res._edge_features is not None  # ensure no infinite loop
@@ -2601,39 +2773,49 @@ class FeatureMixin(MIXIN_BASE):
             memoize=memoize,
         )
 
-    def _features_by_col(self, column_part: str, kind: str):
-        if kind == 'nodes' and hasattr(self, '_node_features'):
-            X = self._node_features
-        elif kind == 'edges' and hasattr(self, '_edge_features'):
-            X = self._edge_features
-        else:
-            raise ValueError('make sure to call `featurize` or `umap` before calling `get_features_by_cols`')
-        
-        transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]  # type: ignore
-        return X[transformed_columns]  # type: ignore
     
-    def get_features_by_cols(self, columns: Union[List, str], kind: str = 'nodes'):
-        """Returns feature matrix with only the columns that contain the string `column_part` in their name.
-        
-            `X = g.get_features_by_cols(['feature1', 'feature2'])`
+    def get_matrix(self, columns: Optional[Union[List, str]] = None, kind: str = 'nodes', target: bool = False) -> pd.DataFrame:
+        """Returns feature matrix, and if columns are specified, returns matrix with only the columns that contain 
+            the string `column_part` in their name.
+
+            `X = g.get_matrix(['feature1', 'feature2'])`
             will retrieve a feature matrix with only the columns that contain the string 
             `feature1` or `feature2` in their name.
+
+            Most useful for topic modeling, where the column names are of the form `topic_0: descriptor`, `topic_1: descriptor`, etc.
+            Can retrieve unique columns in original dataframe, or actual topic features like [ip_part, shoes, preference_x, etc].
+            
+            Powerful way to retrieve features from a featurized graph by column or (top) features of interest.
             
             example:
-                res = g2.get_features_by_cols(['172', 'percent'])
-                res.columns
+                # get the full feature matrices
+                X = g.get_matrix()
+                y = g.get_matrix(target=True)
+            
+                # get subset of features, or topics, given topic model encoding
+                X = g2.get_matrix(['172', 'percent'])
+                X.columns
                     => ['ip_172.56.104.67', 'ip_172.58.129.252', 'item_percent']
+                # or in targets
+                y = g2.get_matrix(['total', 'percent'], target=True)
+                y.columns
+                    => ['basket_price_total', 'conversion_percent', 'CTR_percent', 'CVR_percent']
 
+                # not as useful for sbert features. 
+            Caveats:
+                - if you have a column name that is a substring of another column name, you may get unexpected results.
         Args:
             columns (Union[List, str]): list of column names or a single column name that may exist in columns 
-                of the feature matrix.
+                of the feature matrix. If None, returns original feature matrix
             kind (str, optional): Node or Edge features. Defaults to 'nodes'.
+            target (bool, optional): If True, returns the target matrix. Defaults to False.
 
         Returns:
             pd.DataFrame: feature matrix with only the columns that contain the string `column_part` in their name.
         """
-        if isinstance(columns, str):
-            columns = [columns]
-        X = pd.concat([self._features_by_col(col, kind=kind) for col in columns], axis=1)  # type: ignore
-        X = X.loc[:, ~X.columns.duplicated()]  # type: ignore
-        return X
+        if target:
+            X = self._get_target(kind)
+        else:
+            X = self._get_feature(kind)
+
+        return get_matrix_by_column_parts(X, columns)

@@ -53,6 +53,7 @@ nitpick_ignore = [
     ('py:class', 'graphistry.layouts.LayoutsMixin'),
     ('py:class', 'graphistry.compute.ComputeMixin'),
     ('py:class', 'graphistry.compute.conditional.ConditionalMixin'),
+    ('py:class', 'graphistry.compute.cluster.ClusterMixin'),
     ('py:class', 'graphistry.Plottable.Plottable'),
     ('py:class', 'graphistry.feature_utils.FeatureMixin'),
     ('py:class', 'graphistry.dgl_utils.DGLGraphMixin'),
