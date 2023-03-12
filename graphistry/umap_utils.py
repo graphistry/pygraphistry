@@ -113,121 +113,6 @@ def resolve_umap_engine(
     )
 
 
-
-# def convert_pandas_to_cudf(func):
-#     def wrapper(*args, **kwargs):
-#         new_args = []
-#         new_kwargs = {}
-#         for arg in args:
-#             if isinstance(arg, pd.DataFrame):
-#                 new_args.append(cudf.DataFrame.from_pandas(arg))
-#             else:
-#                 new_args.append(arg)
-#         for key, value in kwargs.items():
-#             if isinstance(value, pd.DataFrame):
-#                 new_kwargs[key] = cudf.DataFrame.from_pandas(value)
-#             else:
-#                 new_kwargs[key] = value
-#         return func(*new_args, **new_kwargs)
-#     return wrapper
-
-# def convert_cudf_to_pandas(func):
-#     def wrapper(*args, **kwargs):
-#         new_args = []
-#         new_kwargs = {}
-#         for arg in args:
-#             if isinstance(arg, cudf.DataFrame):
-#                 new_args.append(arg.to_pandas())
-#             else:
-#                 new_args.append(arg)
-#         for key, value in kwargs.items():
-#             if isinstance(value, cudf.DataFrame):
-#                 new_kwargs[key] = value.to_pandas()
-#             else:
-#                 new_kwargs[key] = value
-#         try:
-#             result = func(*new_args, **new_kwargs)
-#             if isinstance(result, cudf.DataFrame):
-#                 result = result.to_pandas()
-#         except Exception as e:
-#             logger.exception(f"An error occurred while running {func.__name__}. Exception: {e}")
-#             raise e
-#         return result
-#     return wrapper
-
-
-# def safe_gpu_dataframes(func):
-#     """Decorator function that safely wraps methods given the engine, 
-#     specifically flexibility in what part of pipeline to convert to or from pd or cudf
-#     engine_in asserts the dtype of the input (converting if necessary)
-#     while engine_out asserts the output dtype
-#     """
-    
-#     from functools import wraps  # https://stackoverflow.com/questions/11731136/class-method-decorator-with-self-arguments
-
-#     @wraps(func)
-#     def dummy(self, *args, **kwargs):
-#         try:
-#             result = func(*args, **kwargs)
-#         except Exception as e:
-#             logger.exception(f"An error occurred while running {func.__name__}. Exception: {e}")
-#             raise e
-#         return result
-
-#     @wraps(func)
-#     def wrapper(self, *args, **kwargs):
-#         engine_in = self.engine_in
-#         engine_out = self.engine_out
-#         new_args = []
-#         new_kwargs = {}
-#         for arg in args:
-#             if isinstance(arg, cudf.DataFrame) and engine_in == "cuml":
-#                 new_args.append(arg)
-#             elif isinstance(arg, pd.DataFrame) and engine_in == "pandas":
-#                 new_args.append(arg)
-#             elif isinstance(arg, cudf.DataFrame) and engine_in == "pandas":
-#                 new_args.append(arg.to_pandas())
-#             elif isinstance(arg, pd.DataFrame) and engine_in == "cuml":
-#                 new_args.append(cudf.from_pandas(arg))
-#             else:
-#                 new_args.append(arg)
-#         for key, value in kwargs.items():
-#             if isinstance(value, cudf.DataFrame) and engine_in == "cuml":
-#                 new_kwargs[key] = value
-#             elif isinstance(value, pd.DataFrame) and engine_in == "pandas":
-#                 new_kwargs[key] = value.to_pandas()
-#             elif isinstance(value, cudf.DataFrame) and engine_in == "pandas":
-#                 new_kwargs[key] = value.to_pandas()
-#             elif isinstance(value, pd.DataFrame) and engine_in == "cuml":
-#                 new_kwargs[key] = cudf.from_pandas(value)
-#             else:
-#                 new_kwargs[key] = value
-#         try:
-#             result = func(*new_args, **new_kwargs)
-#             if isinstance(result, cudf.DataFrame) and engine_out == "cuml":
-#                 result = result
-#             elif isinstance(result, pd.DataFrame) and engine_out == "pandas":
-#                 result = result
-#             elif isinstance(result, cudf.DataFrame) and engine_out == "pandas":
-#                 result = result.to_pandas()
-#             elif isinstance(result, pd.DataFrame) and engine_out == "cuml":
-#                 result = cudf.from_pandas(result)
-#             else:
-#                 raise ValueError("Unknown engine specified.")
-#         except Exception as e:
-#             logger.exception(f"An error occurred while running {func.__name__}. Exception: {e}")
-#             raise e
-#         return result
-
-#     has_cuml_dependancy_, _, cuml = lazy_cuml_import_has_dependancy()
-#     if has_cuml_dependancy_:
-#         return wrapper
-#     else:
-#         return dummy
-
-
-
-
 def make_safe_gpu_dataframes(X, y, engine_in):
 
     def safe_cudf(X, y):
@@ -351,7 +236,6 @@ class UMAPMixin(MIXIN_BASE):
         res._negative_sample_rate = negative_sample_rate
         res._umap = umap_engine.UMAP(**umap_kwargs)
         res.engine = engine_resolved
-        #self.engine = engine_resolved
         res._suffix = suffix
                                                             
         return res
