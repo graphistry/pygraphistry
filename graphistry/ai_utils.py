@@ -366,6 +366,8 @@ def infer_graph(
 
     new_emb = None
     if emb is not None:
+        if 'cudf.core.dataframe.DataFrame' in type(old_emb): # convert to pd
+            old_emb = old_emb.to_pandas()
         new_emb = pd.concat([emb, old_emb], axis=0)
 
     new_features = pd.concat([X, FEATS.loc[old_nodes.index]], axis=0)
