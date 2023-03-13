@@ -284,7 +284,10 @@ def infer_graph(
     df["_n"] = numeric_indices
     df[BATCH] = 1  # 1 for minibatch, 0 for existing graph
     node = res._node
-    print('Node', node)
+
+    if node not in df.columns:
+        df[node] = numeric_indices
+
     NDF = res._nodes
     NDF[BATCH] = 0
     EDF = res._edges
@@ -432,8 +435,6 @@ def infer_self_graph(res,
     df["_n"] = numeric_indices
     df[BATCH] = 1  # 1 for minibatch, 0 for existing graph, here should all be `1` 
     node = res._node
-    print('node self', node)
-
     if node not in df.columns:
         df[node] = numeric_indices
 
@@ -464,8 +465,6 @@ def infer_self_graph(res,
     for i, dist in enumerate(mdists):
         record_df = df.iloc[i, :]
         nearest = np.where(dist < eps)[0]
-        if i < 2:
-            print('type dist', type(dist))
         nn.append(len(nearest))
         for j in nearest[:n_neighbors]:  # add n_neighbors nearest neighbors, if any, super speedup hack
             if i != j:
