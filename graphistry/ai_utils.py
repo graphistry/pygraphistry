@@ -464,7 +464,7 @@ def infer_self_graph(res,
         record_df = df.iloc[i, :]
         nearest = np.where(dist < eps)[0]
         if i < 2:
-            print('type dist': type(dist))
+            print('type dist', type(dist))
         nn.append(len(nearest))
         for j in nearest[:n_neighbors]:  # add n_neighbors nearest neighbors, if any, super speedup hack
             if i != j:
