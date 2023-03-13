@@ -113,15 +113,15 @@ def resolve_umap_engine(
     )
 
 
-def make_safe_gpu_dataframes(X, y, engine_in):
+def make_safe_gpu_dataframes(X, y, engine):
 
     def safe_cudf(X, y):
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
         for key, value in kwargs.items():
-            if isinstance(value, cudf.DataFrame) and engine_in == "pandas":
+            if isinstance(value, cudf.DataFrame) and engine == "pandas":
                 new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine_in == "cuml":
+            elif isinstance(value, pd.DataFrame) and engine == "cuml":
                 new_kwargs[key] = cudf.from_pandas(value)
             else:
                 new_kwargs[key] = value
@@ -325,18 +325,20 @@ class UMAPMixin(MIXIN_BASE):
                 useful to contextualize new data against existing graph. If False, `sample` is irrelevant.
             sample: Sample number of existing graph's neighbors to use for contextualization -- helps make denser graphs
             return_graph: Whether to return a graph or just the embeddings
-            fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data
+            fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
             verbose: Whether to print information about the graph inference
         """
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
+        X, y_ = make_safe_gpu_dataframes(X, y_, self.engine)
         emb = self._umap.transform(X)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
+            emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas')  # for now so we don't have to touch infer_edges, force to pandas
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors,
                                   verbose=verbose) 
-            return g        
+            return g
         return emb, X, y_
 
     def _bundle_embedding(self, emb, index):
@@ -344,7 +346,7 @@ class UMAPMixin(MIXIN_BASE):
         if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)):
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
         elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
-            emb.rename(columns={0:config.X,1: config.Y},inplace=True)
+            emb.rename(columns={0: config.X, 1: config.Y}, inplace=True)
         else:
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1])
@@ -352,7 +354,7 @@ class UMAPMixin(MIXIN_BASE):
             if 'cudf.core.dataframe' not in str(getmodule(emb)):
                 emb = pd.DataFrame(emb, columns=columns, index=index)
             elif 'cudf.core.dataframe' in str(getmodule(emb)):
-                emb.columns=columns
+                emb.columns = columns
         return emb
 
     def _process_umap(
