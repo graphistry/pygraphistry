@@ -434,7 +434,8 @@ def infer_self_graph(res,
     node = res._node
     print('node self', node)
 
-    assert node in df.columns
+    if node not in df.columns:
+        df[node] = numeric_indices
 
     src = res._source
     dst = res._destination
