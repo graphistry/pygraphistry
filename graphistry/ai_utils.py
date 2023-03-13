@@ -284,6 +284,7 @@ def infer_graph(
     df["_n"] = numeric_indices
     df[BATCH] = 1  # 1 for minibatch, 0 for existing graph
     node = res._node
+    print('Node', node)
     NDF = res._nodes
     NDF[BATCH] = 0
     EDF = res._edges
@@ -296,8 +297,6 @@ def infer_graph(
     old_edges = []
     old_nodes = []
     mdists = []
-
-    # vsearch = build_search_index(X_previously_fit, angular=False)
 
     for i in range(X_new.shape[0]):
         diff = X_previously_fit - X_new.iloc[i, :]
@@ -427,20 +426,22 @@ def infer_self_graph(res,
 
     #  if umap, need to add '_n' as node id to df, adding new indices to existing graph
     numeric_indices = np.arange(
-        X_previously_fit.shape[0],  # X_previously_fit.shape[0] + X_new.shape[0]
+        X_previously_fit.shape[0],
         dtype=np.float64  # this seems off but works
         )
     df["_n"] = numeric_indices
-    df[BATCH] = 1  # 1 for minibatch, 0 for existing graph, should all be `1` 
+    df[BATCH] = 1  # 1 for minibatch, 0 for existing graph, here should all be `1` 
     node = res._node
+    print('node self', node)
+
+    assert node in df.columns
+
     src = res._source
     dst = res._destination
     
     old_nodes = []
     new_edges = []
     mdists = []
-
-    # vsearch = build_search_index(X_previously_fit, angular=False)
 
     for i in range(X_new.shape[0]):
         diff = X_previously_fit - X_new.iloc[i, :]
@@ -462,6 +463,8 @@ def infer_self_graph(res,
     for i, dist in enumerate(mdists):
         record_df = df.iloc[i, :]
         nearest = np.where(dist < eps)[0]
+        if i < 2:
+            print('type dist': type(dist))
         nn.append(len(nearest))
         for j in nearest[:n_neighbors]:  # add n_neighbors nearest neighbors, if any, super speedup hack
             if i != j:
