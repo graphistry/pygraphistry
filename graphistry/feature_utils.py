@@ -3,6 +3,7 @@ import numpy as np
 import os
 import pandas as pd
 from time import time
+from inspect import getmodule
 import warnings
 from functools import partial
 
@@ -130,7 +131,6 @@ def assert_imported_text():
         )
         raise import_text_exn
 
-
 def assert_imported():
     has_min_dependancy_, import_min_exn = lazy_import_has_min_dependancy()
     if not has_min_dependancy_:
@@ -139,7 +139,7 @@ def assert_imported():
                      "`pip install graphistry[ai]`"  # noqa
         )
         raise import_min_exn
-
+        
 def assert_cuml_cucat():
     has_cuml_dependancy_, import_cuml_exn = lazy_import_has_cu_cat_dependancy()
     if not has_cuml_dependancy_:
@@ -149,7 +149,7 @@ def assert_cuml_cucat():
         )
         raise import_cuml_exn
     
-    
+
 # ############################################################################
 #
 #     Rough calltree
@@ -208,7 +208,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
-    if isinstance(y, pd.DataFrame):
+    if isinstance(y, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(y)):
         return y
 
     if df is None:
@@ -229,7 +229,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
-    if isinstance(X, pd.DataFrame):
+    if isinstance(X, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(X)):
         return X
 
     if df is None:
@@ -905,7 +905,6 @@ def process_dirty_dataframes(
     similarity: Optional[str] = None,  # "ngram",
     categories: Optional[str] = "auto",
     multilabel: bool = False,
-    feature_engine: Optional[str] = "dirty_cat",
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -936,7 +935,6 @@ def process_dirty_dataframes(
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     elif feature_engine == 'cu_cat':
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    
     from sklearn.preprocessing import FunctionTransformer
     t = time()
 
@@ -1178,8 +1176,7 @@ def process_nodes_dataframes(
         n_topics_target=n_topics_target,
         similarity=similarity,
         categories=categories,
-        multilabel=multilabel,
-        feature_engine=feature_engine,
+        multilabel=multilabel
     )
 
     if embedding:
