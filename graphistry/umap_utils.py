@@ -328,6 +328,7 @@ class UMAPMixin(MIXIN_BASE):
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
             verbose: Whether to print information about the graph inference
         """
+        df, y = make_safe_gpu_dataframes(df, y, 'pandas')
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
         X, y_ = make_safe_gpu_dataframes(X, y_, self.engine)
         emb = self._umap.transform(X)  # type: ignore
