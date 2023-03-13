@@ -1177,7 +1177,8 @@ def process_nodes_dataframes(
         n_topics_target=n_topics_target,
         similarity=similarity,
         categories=categories,
-        multilabel=multilabel
+        multilabel=multilabel,
+        feature_engine=feature_engine,
     )
 
     if embedding:
