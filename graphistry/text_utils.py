@@ -1,7 +1,7 @@
 import pandas as pd
 
 from .feature_utils import FeatureMixin
-from .ai_utils import search_to_df, build_annoy_index, query_by_vector
+from .ai_utils import search_to_df, FaissVectorSearch
 from .constants import WEIGHT, DISTANCE
 from logging import getLogger
 
@@ -16,6 +16,7 @@ else:
     MIXIN_BASE = object
 
 logger = getLogger(__name__)
+
 
 class SearchToGraphMixin(MIXIN_BASE):
     def __init__(self, *args, **kwargs) -> None:
@@ -37,24 +38,20 @@ class SearchToGraphMixin(MIXIN_BASE):
             f"found nodes: {a}, feats: {b}. Did you mutate nodes between fit?"
         )
 
-    def _build_search_index(self, X, angular=False, n_trees=None):
-        # builds local index from X
-        return build_annoy_index(X, angular, n_trees)
-
     def build_index(self, angular=False, n_trees=None):
         # builds local index
         self.assert_fitted()
         self.assert_features_line_up_with_nodes()
-
         X = self._get_feature("nodes")
-
-        self.search_index = self._build_search_index(X, angular, n_trees)
+        self.search_index = FaissVectorSearch(
+            X.values
+        )  # self._build_search_index(X, angular, n_trees, faiss=False)
 
     def _query_from_dataframe(self, qdf: pd.DataFrame, top_n: int, thresh: float):
         # Use the loaded featurizers to transform the dataframe
         vect, _ = self.transform(qdf, None, kind="nodes", return_graph=False)
 
-        results = query_by_vector(vect, self._nodes, self.search_index, top_n)
+        results = self.search_index.search_df(vect, self._nodes, top_n)
         results = results.query(f"{DISTANCE} < {thresh}")
 
         return results, vect
@@ -125,39 +122,39 @@ class SearchToGraphMixin(MIXIN_BASE):
 
             If node data is not yet feature-encoded (and explicit edges are given),
             run automatic feature engineering:
-            ```
+            ::
+
                 g2 = g.featurize(kind='nodes', X=['text_col_1', ..],
                 min_words=0 # forces all named columns are textually encoded
                 )
-            ```
 
             If edges do not yet exist, generate them via
-            ```
+            ::
+
                 g2 = g.umap(kind='nodes', X=['text_col_1', ..],
                 min_words=0 # forces all named columns are textually encoded
                 )
-            ```
+            
             If an index is not yet built, it is generated `g2.build_index()` on the fly at search time.
-            Otherwise, can set `g2.build_index()` and then subsequent `g2.search(...)`
-            calls will be not rebuilt index.
+            Otherwise, can set `g2.build_index()` to build it ahead of time.
 
         Args:
-            query (str): natural language query.
-            cols (list or str, optional): if fuzzy=False, select which column to query.
+            :query (str): natural language query.
+            :cols (list or str, optional): if fuzzy=False, select which column to query.
                                             Defaults to None since fuzzy=True by defaul.
-            thresh (float, optional): distance threshold from query vector to returned results.
+            :thresh (float, optional): distance threshold from query vector to returned results.
                                         Defaults to 5000, set large just in case,
                                         but could be as low as 10.
-            fuzzy (bool, optional): if True, uses embedding + annoy index for recall,
+            :fuzzy (bool, optional): if True, uses embedding + annoy index for recall,
                                         otherwise does string matching over given `cols`
                                         Defaults to True.
-            top_n (int, optional): how many results to return. Defaults to 100.
+            :top_n (int, optional): how many results to return. Defaults to 100.
 
         Returns:
-            pd.DataFrame, vector_encoding_of_query:
-                * rank ordered dataframe of results matching query
-                * vector encoding of query via given transformer/ngrams model if fuzzy=True
-                    else None
+            **pd.DataFrame, vector_encoding_of_query:**
+            rank ordered dataframe of results matching query
+
+            vector encoding of query via given transformer/ngrams model if fuzzy=True else None
         """
         if not fuzzy:
             if cols is None:
@@ -193,15 +190,15 @@ class SearchToGraphMixin(MIXIN_BASE):
             See help(g.search) for more information
 
         Args:
-            query (str): query input eg "coding best practices"
-            scale (float, optional): edge weigh threshold,  Defaults to 0.5.
-            top_n (int, optional): how many results to return. Defaults to 100.
-            thresh (float, optional): distance threshold from query vector to returned results.
+            :query (str): query input eg "coding best practices"
+            :scale (float, optional): edge weigh threshold,  Defaults to 0.5.
+            :top_n (int, optional): how many results to return. Defaults to 100.
+            :thresh (float, optional): distance threshold from query vector to returned results.
                                         Defaults to 5000, set large just in case,
                                         but could be as low as 10.
-            broader (bool, optional): if True, will retrieve entities connected via an edge
+            :broader (bool, optional): if True, will retrieve entities connected via an edge
                 that were not necessarily bubbled up in the results_dataframe. Defaults to False.
-            inplace (bool, optional): whether to return new instance (default) or mutate self.
+            :inplace (bool, optional): whether to return new instance (default) or mutate self.
                                         Defaults to False.
 
         Returns:
@@ -213,9 +210,9 @@ class SearchToGraphMixin(MIXIN_BASE):
             res = self.bind()
 
         edf = edges = res._edges
-        #print('shape of edges', edf.shape)
+        # print('shape of edges', edf.shape)
         rdf = df = res._nodes
-        #print('shape of nodes', rdf.shape)
+        # print('shape of nodes', rdf.shape)
         node = res._node
         indices = rdf[node]
         src = res._source
@@ -275,6 +272,7 @@ class SearchToGraphMixin(MIXIN_BASE):
 
     def save_search_instance(self, savepath):
         from joblib import dump  # type: ignore   # need to make this onnx or similar
+
         self.build_index()
         search = self.search_index
         del self.search_index  # can't pickle Annoy

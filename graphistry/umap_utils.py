@@ -166,7 +166,6 @@ def umap_graph_to_weighted_edges(umap_graph, engine, is_legacy, cfg=config):
 class UMAPMixin(MIXIN_BASE):
     """
     UMAP Mixin for automagic UMAPing
-
     """
     # FIXME where is this used? 
     _umap_memoize: WeakValueDictionary = WeakValueDictionary()
@@ -315,18 +314,19 @@ class UMAPMixin(MIXIN_BASE):
     ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
         """Transforms data into UMAP embedding
         
-        args:
-            df: Dataframe to transform
-            y: Target column
-            kind: One of `nodes` or `edges`
-            min_dist: Epsilon for including neighbors in infer_graph
-            n_neighbors: Number of neighbors to use for contextualization
-            merge_policy: if True, use previous graph, adding new batch to existing graph's neighbors
+        Args:
+            :df: Dataframe to transform
+            :y: Target column
+            :kind: One of `nodes` or `edges`
+            :min_dist: Epsilon for including neighbors in infer_graph
+            :n_neighbors: Number of neighbors to use for contextualization
+            :merge_policy: if True, use previous graph, adding new batch to existing graph's neighbors
                 useful to contextualize new data against existing graph. If False, `sample` is irrelevant.
             sample: Sample number of existing graph's neighbors to use for contextualization -- helps make denser graphs
             return_graph: Whether to return a graph or just the embeddings
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
             verbose: Whether to print information about the graph inference
+
         """
         df, y = make_safe_gpu_dataframes(df, y, 'pandas')
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
@@ -468,60 +468,59 @@ class UMAPMixin(MIXIN_BASE):
         verbose: bool = False,
         **featurize_kwargs,
     ):
-        """
-            UMAP the featurized nodes or edges data,
-            or pass in your own X, y (optional) dataframes of values
-            
+        """UMAP the featurized nodes or edges data, or pass in your own X, y (optional) dataframes of values
+        
         Example
-        -------
+     
         >>> import graphistry   
         >>> g = graphistry.nodes(pd.DataFrame({'node': [0,1,2], 'data': [1,2,3], 'meta': ['a', 'b', 'c']}))
         >>> g2 = g.umap(n_components=3, spread=1.0, min_dist=0.1, n_neighbors=12, negative_sample_rate=5, local_connectivity=1, repulsion_strength=1.0, metric='euclidean', suffix='', play=0, encode_position=True, encode_weight=True, dbscan=False, engine='auto', feature_engine='auto', inplace=False, memoize=True, verbose=False)
         >>> g2.plot()
         
         Parameters
-        ----------
-            X: either a dataframe ndarray of features, or column names to featurize
-            y: either an dataframe ndarray of targets, or column names to featurize
+ 
+            :X: either a dataframe ndarray of features, or column names to featurize
+            :y: either an dataframe ndarray of targets, or column names to featurize
                     targets
-            kind: `nodes` or `edges` or None.
+            :kind: `nodes` or `edges` or None.
                     If None, expects explicit X, y (optional) matrices,
                     and will Not associate them to nodes or edges.
                     If X, y (optional) is given, with kind = [nodes, edges],
                     it will associate new matrices to nodes or edges attributes.
-            scale: multiplicative scale for pruning weighted edge DataFrame
+            :scale: multiplicative scale for pruning weighted edge DataFrame
                     gotten from UMAP, between [0, ..) with high end meaning keep
                     all edges
-            n_neighbors: UMAP number of nearest neighbors to include for
+            :n_neighbors: UMAP number of nearest neighbors to include for
                     UMAP connectivity, lower makes more compact layouts. Minimum 2
-            min_dist: UMAP float between 0 and 1, lower makes more compact
+            :min_dist: UMAP float between 0 and 1, lower makes more compact
                     layouts.
-            spread: UMAP spread of values for relaxation
-            local_connectivity: UMAP connectivity parameter
-            repulsion_strength: UMAP repulsion strength
-            negative_sample_rate: UMAP negative sampling rate
-            n_components: number of components in the UMAP projection,
+            :spread: UMAP spread of values for relaxation
+            :local_connectivity: UMAP connectivity parameter
+            :repulsion_strength: UMAP repulsion strength
+            :negative_sample_rate: UMAP negative sampling rate
+            :n_components: number of components in the UMAP projection,
                     default 2
-            metric: UMAP metric, default 'euclidean'.
+            :metric: UMAP metric, default 'euclidean'.
                     see (UMAP-LEARN)[https://umap-learn.readthedocs.io/
                     en/latest/parameters.html] documentation for more.
-            suffix: optional suffix to add to x, y attributes of umap.
-            play: Graphistry play parameter, default 0, how much to evolve
+            :suffix: optional suffix to add to x, y attributes of umap.
+            :play: Graphistry play parameter, default 0, how much to evolve
                     the network during clustering. 0 preserves the original UMAP layout.
-            encode_weight: if True, will set new edges_df from
+            :encode_weight: if True, will set new edges_df from
                     implicit UMAP, default True.
-            encode_position: whether to set default plotting bindings
+            :encode_position: whether to set default plotting bindings
                     -- positions x,y from umap for .plot(), default True
-            dbscan: whether to run DBSCAN on the UMAP embedding, default False.
-            engine: selects which engine to use to calculate UMAP:
+            :dbscan: whether to run DBSCAN on the UMAP embedding, default False.
+            :engine: selects which engine to use to calculate UMAP:
                     default "auto" will use cuML if available, otherwise UMAP-LEARN.
-            feature_engine: How to encode data
+            :feature_engine: How to encode data
                     ("none", "auto", "pandas", "dirty_cat", "torch")
-            inplace: bool = False, whether to modify the current object, default False.
+            :inplace: bool = False, whether to modify the current object, default False.
                     when False, returns a new object, useful for chaining in a functional paradigm.
-            memoize: whether to memoize the results of this method,
+            :memoize: whether to memoize the results of this method,
                     default True.
-            verbose: whether to print out extra information, default False.
+            :verbose: whether to print out extra information, default False.
+
         :return: self, with attributes set with new data
         """
         if engine == UMAP_LEARN:
