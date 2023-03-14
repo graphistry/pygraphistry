@@ -294,6 +294,11 @@ def infer_graph(
     old_nodes = []
     mdists = []
 
+    ## check if pandas or cudf
+    if 'cudf.core.dataframe' in str(type(X_previously_fit)):
+        # move it out of memory...
+        X_previously_fit = X_previously_fit.to_pandas()
+
     for i in range(X_new.shape[0]):
         diff = X_previously_fit - X_new.iloc[i, :]
         dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
