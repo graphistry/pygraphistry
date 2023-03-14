@@ -974,10 +974,16 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed)
-        
-        X_enc = pd.DataFrame(
-            X_enc, columns=features_transformed, index=ndf.index
-        )
+        print([type(X_enc),type(ndf),type(features_transformed)])
+        if 'cudf.core.dataframe' not in str(getmodule(ndf)):
+            X_enc = pd.DataFrame(
+                X_enc, columns=features_transformed, index=ndf.index
+            )
+        elif 'cudf.core.dataframe' in str(getmodule(ndf)):
+            import cudf
+            X_enc = cudf.DataFrame(
+                X_enc, columns=features_transformed, index=ndf.index
+            )
         X_enc = X_enc.fillna(0.0)
     else:
         logger.info("-*-*- DataFrame is completely numeric")
