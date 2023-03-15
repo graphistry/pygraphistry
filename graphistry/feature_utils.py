@@ -675,12 +675,19 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-
-    X = transformer.fit_transform(X)
-    if keep_n_decimals:
-        X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
-
-    return pd.DataFrame(X, columns=columns, index=index)
+    X_type= str(getmodule(X))
+    if 'cudf.core.dataframe' not in X_type:
+        X = transformer.fit_transform(X)
+        if keep_n_decimals:
+            X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
+        X=pd.DataFrame(X, columns=columns, index=index)
+    elif 'cudf.core.dataframe' in X_type:
+        import cudf
+        X = transformer.fit_transform(X.to_numpy())
+        if keep_n_decimals:
+            X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
+        X=cudf.DataFrame(X, columns=columns, index=index)
+    return X
 
 
 def impute_and_scale_df(
@@ -974,7 +981,6 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed)
-        print([type(X_enc),type(ndf),type(features_transformed)])
         if 'cudf.core.dataframe' not in str(getmodule(ndf)):
             X_enc = pd.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
@@ -1301,9 +1307,15 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     """
     # uses mlb with fit=T/F so we can use it in transform mode
     # to recreate edge feature concat definition
-    source = edf[src]
-    destination = edf[dst]
+
     logger.debug("Encoding Edges using MultiLabelBinarizer")
+    edf_type = str(getmodule(edf))
+    if 'cudf.core.dataframe' in edf_type:
+        source = edf.to_pandas()[src]
+        destination = edf.to_pandas()[dst]
+    else:
+        source = edf[src]
+        destination = edf[dst]
     if fit:
         T = mlb.fit_transform(zip(source, destination))
     else:
@@ -1314,7 +1326,11 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     ]  # stringify the column names or scikits.base throws error
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
-    T = pd.DataFrame(T, columns=columns, index=edf.index)
+    if 'cudf.core.dataframe' in edf_type:
+        import cudf
+        T = cudf.DataFrame(T, columns=columns, index=edf.index)
+    else:
+        T = pd.DataFrame(T, columns=columns, index=edf.index)
     logger.info(f"Shape of Edge Encoding: {T.shape}")
     return T, mlb
 
@@ -1467,7 +1483,11 @@ def process_edge_dataframes(
     if not X_enc.empty and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
-        X_enc = pd.concat([T, X_enc], axis=1)
+        T_type= str(getmodule(T))
+        if 'cudf.core.dataframe' not in T_type:
+            X_enc = pd.concat([T, X_enc], axis=1)
+        elif 'cudf.core.dataframe' not in T_type:
+            X_enc = cudf.concat([T, X_enc], axis=1)
     elif not T.empty and X_enc.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found only Edges =>")
