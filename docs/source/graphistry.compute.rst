@@ -1,17 +1,4 @@
-graphistry.layout package
-=========================
-
-Subpackages
------------
-
-.. toctree::
-   :maxdepth: 4
-
-
-Submodules
-----------
-
-graphistry.compute.ComputeMixin module
+ComputeMixin module
 ------------------------------------------------
 
 .. automodule:: graphistry.compute.ComputeMixin
@@ -20,10 +7,45 @@ graphistry.compute.ComputeMixin module
    :show-inheritance:
 
 
-Module contents
+Chain
 ---------------
 
-.. automodule:: graphistry.compute
+.. automodule:: graphistry.compute.chain
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Cluster
+---------------
+.. automodule:: graphistry.compute.cluster
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Collapse
+---------------
+.. automodule:: graphistry.compute.collapse
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Conditional
+---------------
+.. automodule:: graphistry.compute.conditional
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Filter by Dictionary
+---------------
+.. automodule:: graphistry.compute.filter_by_dict
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Hop
+---------------
+.. automodule:: graphistry.compute.hop
    :members:
    :undoc-members:
    :show-inheritance:

@@ -1,14 +1,3 @@
-Layout & Plugins
-==================
-.. toctree::
-   :maxdepth: 3
-
-
-   graphistry.layout
-   graphistry.plugins
-   graphistry.plugins_types
-
-
 Plotter Module
 ==================
 
@@ -17,13 +6,32 @@ Plotter Module
     :undoc-members:
     :show-inheritance:
 
-Pygraphistry Module
+Plugins
 ==================
+.. toctree::
+   :maxdepth: 3
 
-.. automodule:: graphistry.pygraphistry
-    :members:
-    :undoc-members:
-    :show-inheritance:
+
+   graphistry.plugins
+ 
+
+
+Compute 
+==================
+.. toctree::
+   :maxdepth: 3
+
+   graphistry.compute
+
+
+Layouts
+==================
+.. toctree::
+   :maxdepth: 3
+
+
+   graphistry.layout
+
 
 Featurize 
 ==================
