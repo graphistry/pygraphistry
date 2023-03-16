@@ -147,6 +147,7 @@ def dbscan_fit(g: Any, dbscan: Any, kind: str = "nodes", cols: Optional[Union[Li
     dbscan.fit(X)
     if g.engine == 'cuml':
         labels = dbscan.labels_.to_numpy()
+        # dbscan.components_ = X[dbscan.core_sample_indices_.to_pandas()]  # can't believe len(samples) != unique(labels) ... #cumlfail
     else:
         labels = dbscan.labels_
 
@@ -206,11 +207,11 @@ class ClusterMixin(MIXIN_BASE):
         self, res, kind, cols, fit_umap_embedding, target, min_dist, min_samples, verbose, *args, **kwargs
     ):
         """
-        DBSCAN clustering on cpu or gpu infered by .engine flag
+        DBSCAN clustering on cpu or *(not yet supported) gpu* infered by .engine flag
         """
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import_has_dependency()
 
-        res.engine = resolve_cpu_gpu_engine("auto")
+        res.engine = resolve_cpu_gpu_engine(UMAP_LEARN)  # resolve_cpu_gpu_engine("auto")
         res._dbscan_params = ModelDict(
             "latest DBSCAN params",
             kind=kind,
@@ -247,6 +248,7 @@ class ClusterMixin(MIXIN_BASE):
         **kwargs,
     ):
         """DBSCAN clustering on cpu or gpu infered automatically. Adds a `_dbscan` column to nodes or edges.
+           NOTE: g.transform_dbscan(..) currently unsupported on GPU.
 
         Examples:
         ::
@@ -307,7 +309,6 @@ class ClusterMixin(MIXIN_BASE):
             *args,
             **kwargs,
         )
-        #res = res.encode_point_color(column=DBSCAN, as_categorical=True)
 
         return res
 
@@ -339,6 +340,11 @@ class ClusterMixin(MIXIN_BASE):
                 X_ = emb
             else:
                 X_ = XX
+            
+
+            if self.engine == 'cuml':
+                print('Transform DBSCAN not supported for engine=`cuml`, use engine=`umap_learn` instead')
+                return emb, X, y, df
 
             labels = dbscan_predict(X_, dbscan)  # type: ignore
             if umap and cols is None:
@@ -419,11 +425,13 @@ class ClusterMixin(MIXIN_BASE):
             :verbose: whether to print out progress, default False
 
         """
+        if self.engine == 'cuml':
+            print('Transform DBSCAN not supported for `cuml`, use engine=`umap_learn` instead')
+            return self.transform_umap(df, y, kind=kind, verbose=verbose, return_graph=return_graph)
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind, verbose=verbose)
         if return_graph and kind not in ["edges"]:
             g = self._infer_edges(emb, X, y, df, eps=min_dist, sample=sample, n_neighbors=n_neighbors,  # type: ignore
                 infer_on_umap_embedding=infer_umap_embedding
                 )
-            #g = g.encode_point_color(column=DBSCAN, as_categorical=True)
             return g
         return emb, X, y, df
