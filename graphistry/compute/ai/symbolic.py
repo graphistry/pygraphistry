@@ -234,7 +234,7 @@ END = ' EOF'
 class SplunkPreProcessor(PreProcessor):
     def __call__(self, wrp_self, wrp_params, *args, **kwds):
         super().override_reserved_signature_keys(wrp_params, *args, **kwds)
-        return START + str(wrp_self) + END
+        return START + str(wrp_self) + NEXT
 
 
 class SplunkPrompts(ai.Prompt):
@@ -254,12 +254,12 @@ class SplunkPrompts(ai.Prompt):
                 START + "write a splunk query for the index `redteam_50k` that uses the src and dst information to output a table for events where RED=1. you can use closest matching fields from [src_computer, other, dst_computer, time]"
                 + NEXT
                 + '| search index="redteam_50k" RED=1 | Table src_computer, dst_computer'  + END,
-                START + "show red team login activity" + NEXT + '| search index="redteam_50k" RED=1 | Table src_computer, dst_computer, login, timestamp' + END
+                START + "show red team login activity" + NEXT + '| search index="redteam_50k" RED=1 | Table src_computer, dst_computer, login, timestamp' + END, 
             ]
         )
 
 
-class 
+
 
 
 class Splunk(ai.Expression):
@@ -274,7 +274,7 @@ class Splunk(ai.Expression):
             pre_processor=[SplunkPreProcessor()],
             post_processor=[StripPostProcessor()],
             stop=[END],
-            constraint = [lambda x: 'search' in x]
+            #constraint = [lambda x: 'search' in x]
             **kwargs,
         )
         def _func(_) -> str:
