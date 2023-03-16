@@ -223,10 +223,7 @@ def safe_divide(a, b):
 def features_without_target(
     df: pd.DataFrame, y: Optional[Union[List, str, pd.DataFrame]] = None
 ) -> pd.DataFrame:
-    """
-        Checks if y DataFrame column name is in df, and removes it
-        from df if so
-    ___________________________________________________________________
+    """Checks if y DataFrame column name is in df, and removes it from df if so
 
     :param df: model DataFrame
     :param y: target DataFrame
@@ -397,9 +394,8 @@ def is_dataframe_all_numeric(df: pd.DataFrame) -> bool:
 
 
 def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
-    """
-        Finds columns that if not coerced to strings, will break processors.
-    -------------------------------------------------------------------------
+    """Finds columns that if not coerced to strings, will break processors.
+    
     :param df: DataFrame
     :param bad_set: List of strings to look for.
     :return: list
@@ -429,9 +425,7 @@ def check_if_textual_column(
     confidence: float = 0.35,
     min_words: float = 2.5,
 ) -> bool:
-    """
-        Checks if `col` column of df is textual or not using basic heuristics
-    __________________________________________________________________________
+    """Checks if `col` column of df is textual or not using basic heuristics
 
     :param df: DataFrame
     :param col: column name
@@ -470,9 +464,7 @@ def check_if_textual_column(
 def get_textual_columns(
     df: pd.DataFrame, min_words: float = 2.5
 ) -> List:
-    """
-        Collects columns from df that it deems are textual.
-    _____________________________________________________________________
+    """Collects columns from df that it deems are textual.
 
     :param df: DataFrame
     :return: list of columns names
@@ -793,8 +785,8 @@ def smart_scaler(
 
 
 def get_cardinality_ratio(df: pd.DataFrame):
-    """Calculates ratio of unique values to total number of rows of DataFrame
-    -------------------------------------------------------------------------
+    """Calculates the ratio of unique values to total number of rows of DataFrame
+   
     :param df: DataFrame
     """
     ratios = {}
@@ -2409,9 +2401,8 @@ class FeatureMixin(MIXIN_BASE):
         memoize: bool = True,
         verbose: bool = False,
     ):
-        r"""
-            Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
-        ______________________________________________________________________
+        r"""Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
+        
 
         :param kind: specify whether to featurize `nodes` or `edges`.
                 Edge featurization includes a pairwise
