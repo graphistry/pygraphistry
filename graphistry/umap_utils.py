@@ -1,6 +1,7 @@
 import copy
 from time import time
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+from inspect import getmodule
 
 import pandas as pd
 
@@ -279,18 +280,25 @@ class UMAPMixin(MIXIN_BASE):
         emb = self._umap.transform(x)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
         return emb, x, y
-
+    
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
-        if emb.shape[1] == 2:
+
+        if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)):
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
+        elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
+            emb.rename(columns={0:config.X,1: config.Y},inplace=True)
         else:
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1] - 2)
             ]
-            emb = pd.DataFrame(emb, columns=columns, index=index)
-        return emb
 
+            if 'cudf.core.dataframe' not in str(getmodule(emb)):
+                emb = pd.DataFrame(emb, columns=columns, index=index)
+            elif 'cudf.core.dataframe' in str(getmodule(emb)):
+                emb.columns=columns
+        return emb
+    
     def _process_umap(
         self,
         res,

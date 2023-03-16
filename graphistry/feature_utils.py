@@ -668,7 +668,7 @@ def fit_pipeline(
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         X=pd.DataFrame(X, columns=columns, index=index)
     elif 'cudf.core.dataframe' in X_type:
-        import cudf
+        import cudf ## need proper import routine still
         X = transformer.fit_transform(X.to_numpy())
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
@@ -1476,10 +1476,11 @@ def process_edge_dataframes(
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
         T_type= str(getmodule(T))
-        if 'cudf.core.dataframe' not in T_type:
-            X_enc = pd.concat([T, X_enc], axis=1)
-        elif 'cudf.core.dataframe' not in T_type:
+        if 'cudf.core.dataframe' in T_type:
+            import cudf
             X_enc = cudf.concat([T, X_enc], axis=1)
+        else:
+            X_enc = pd.concat([T, X_enc], axis=1)
     elif not T.empty and X_enc.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found only Edges =>")
