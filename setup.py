@@ -15,7 +15,8 @@ core_requires = [
   'requests',
   'squarify',
   'typing-extensions',
-  'packaging >= 20.1'
+  'packaging >= 20.1',
+  'setuptools < 60.0.0',
 ]
 
 stubs = [
@@ -33,14 +34,17 @@ base_extras_light = {
     'networkx': ['networkx>=2.5'],
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
-    'nodexl': ['openpyxl', 'xlrd'],
+    'nodexl': ['openpyxl==3.1.0', 'xlrd'],
     'jupyter': ['ipython'],
 }
 
 base_extras_heavy = {
   'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
 }
-base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'annoy', 'joblib']
+base_extras_heavy['cu-cat'] = ['cu-cat @ git+https://github.com/graphistry/cuCat/@0.01.0']
+
+base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'annoy', 'joblib'] + base_extras_heavy['cu-cat']
+
 
 base_extras = {**base_extras_light, **base_extras_heavy}
 

@@ -13,41 +13,6 @@ class GraphBase(object):
             loops (set[Edge]): the set of *loop* edges (of degree 0).
             directed (bool): indicates if the graph is considered *oriented* or not.
 
-        Methods:
-            vertices(cond=None): generates an iterator over vertices, with optional filter
-            edges(cond=None): generates an iterator over edges, with optional filter
-            matrix(cond=None): returns the associativity matrix of the graph component
-            order(): the order of the graph (number of vertices)
-            norm(): the norm of the graph (number of edges)
-            deg_min(): the minimum degree of vertices
-            deg_max(): the maximum degree of vertices
-            deg_avg(): the average degree of vertices
-            eps(): the graph epsilon value (norm/order), average number of edges per vertex.
-            path(x,y,f_io=0,hook=None): shortest path between vertices x and y by breadth-first descent,
-            contrained by f_io direction if provided. The path is returned as a list of Vertex objects.
-            If a *hook* function is provided, it is called at every vertex added to the path, passing
-            the vertex object as argument.
-            roots(): returns the list of *roots* (vertices with no inward edges).
-            leaves(): returns the list of *leaves* (vertices with no outward edges).
-            add_single_vertex(v): allow a GraphBase to hold a single vertex.
-            add_edge(e): add edge e. At least one of its vertex must belong to the graph,
-            the other being added automatically.
-            remove_edge(e): remove Edge e, asserting that the resulting graph is still connex.
-            remove_vertex(x): remove Vertex x and all associated edges.
-            dijkstra(x,f_io=0,hook=None): shortest weighted-edges paths between x and all other vertices
-            by dijkstra's algorithm with heap used as priority queue.
-            get_scs_with_feedback(): returns the set of strongly connected components
-            ("scs") by using Tarjan algorithm.
-            These are maximal sets of vertices such that there is a path from each
-            vertex to every other vertex.
-            The algorithm performs a DFS from the provided list of root vertices.
-            A cycle is of course a strongly connected component,
-            but a strongly connected component can include several cycles.
-            The Feedback Acyclic Set of edge to be removed/reversed is provided by
-            marking the edges with a "feedback" flag.
-            Complexity is O(V+E).
-            partition(): returns a *partition* of the connected graph as a list of lists.
-            neighbors(v): returns neighbours of a vertex v.
     """
 
     def __init__(self, vertices = None, edges = None, directed = True):
@@ -96,12 +61,21 @@ class GraphBase(object):
                 v.component = self
 
     def roots(self):
+        """
+        returns the list of *roots* (vertices with no inward edges).
+        """
         return list(filter(lambda v: len(v.e_in()) == 0, self.verticesPoset))
 
     def leaves(self):
+        """
+        returns the list of *leaves* (vertices with no outward edges).
+        """
         return list(filter(lambda v: len(v.e_out()) == 0, self.verticesPoset))
 
     def add_single_vertex(self, v):
+        """
+        allow a GraphBase to hold a single vertex.
+        """
         if len(self.edgesPoset) == 0 and len(self.verticesPoset) == 0:
             v = self.verticesPoset.add(v)
             v.component = self
@@ -109,6 +83,9 @@ class GraphBase(object):
         return None
 
     def add_edge(self, e):
+        """
+        add edge e. At least one of its vertex must belong to the graph, the other being added automatically.
+        """
         if e in self.edgesPoset:
             return self.edgesPoset.get(e)
         x = e.v[0]
@@ -127,6 +104,9 @@ class GraphBase(object):
         return e
 
     def remove_edge(self, e):
+        """
+        remove Edge e, asserting that the resulting graph is still connex.
+        """
         if e not in self.edgesPoset:
             return
         e.detach()
@@ -143,6 +123,9 @@ class GraphBase(object):
             return e
 
     def remove_vertex(self, x):
+        """
+        remove Vertex x and all associated edges.
+        """
         if x not in self.verticesPoset:
             return
         vertices = x.neighbors()  # get all neighbor vertices to check paths
@@ -168,6 +151,9 @@ class GraphBase(object):
         return lambda x: value
 
     def vertices(self, cond = None):
+        """
+        generates an iterator over vertices, with optional filter
+        """
         vertices = self.verticesPoset
         if cond is None:
             cond = self.constant_function(True)
@@ -176,6 +162,9 @@ class GraphBase(object):
                 yield v
 
     def edges(self, cond = None):
+        """
+        generates an iterator over edges, with optional filter
+        """
         edges = self.edgesPoset
         if cond is None:
             cond = self.constant_function(True)
@@ -185,7 +174,7 @@ class GraphBase(object):
 
     def matrix(self, cond = None):
         """
-            This associativity matrix is like the adjacency matrix but antisymmetric.
+            This associativity matrix is like the adjacency matrix but antisymmetric. Returns the associativity matrix of the graph component
 
         :param cond: same a the condition function in vertices().
         :return: array
@@ -207,27 +196,46 @@ class GraphBase(object):
         return mat
 
     def order(self):
+        """
+        the order of the graph (number of vertices)
+        """
         return len(self.verticesPoset)
 
     def norm(self):
         """
-            The size of the edge poset.
+            The size of the edge poset (number of edges).
         """
         return len(self.edgesPoset)
 
     def deg_min(self):
+        """
+        the minimum degree of vertices
+        """
         return min([v.degree() for v in self.verticesPoset])
 
     def deg_max(self):
+        """
+         the maximum degree of vertices
+        """
         return max([v.degree() for v in self.verticesPoset])
 
     def deg_avg(self):
+        """
+         the average degree of vertices
+        """
         return sum([v.degree() for v in self.verticesPoset]) / float(self.order())
 
     def eps(self):
+        """
+         the graph epsilon value (norm/order), average number of edges per vertex.
+        """
         return float(self.norm()) / self.order()
 
     def path(self, x, y, f_io = 0, hook = None):
+        """
+        shortest path between vertices x and y by breadth-first descent, contrained by f_io direction if provided. The path is returned as a list of Vertex objects.
+        If a *hook* function is provided, it is called at every vertex added to the path, passing the vertex object as argument.
+        """
         assert x in self.verticesPoset
         assert y in self.verticesPoset
         x = self.verticesPoset.get(x)
@@ -263,6 +271,9 @@ class GraphBase(object):
         return p
 
     def dijkstra(self, x, f_io = 0, hook = None):
+        """
+        shortest weighted-edges paths between x and all other vertices by dijkstra's algorithm with heap used as priority queue.
+        """
         from collections import defaultdict
         from heapq import heappop, heappush
 
@@ -300,7 +311,11 @@ class GraphBase(object):
 
     def get_scs_with_feedback(self, roots = None):
         """
-            Minimum FAS algorithm (feedback arc set) creating a DAG.
+            Minimum FAS algorithm (feedback arc set) creating a DAG. Returns the set of strongly connected components
+            ("scs") by using Tarjan algorithm. These are maximal sets of vertices such that there is a path from each vertex to every other vertex.
+            The algorithm performs a DFS from the provided list of root vertices. A cycle is of course a strongly connected component,but a strongly connected component can include several cycles.
+            The Feedback Acyclic Set of edge to be removed/reversed is provided by marking the edges with a "feedback" flag.
+            Complexity is O(V+E).
 
         :param roots:
         :return:

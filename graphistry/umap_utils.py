@@ -1,7 +1,6 @@
 import copy
 from time import time
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
-from inspect import getmodule
 
 import pandas as pd
 
@@ -283,18 +282,13 @@ class UMAPMixin(MIXIN_BASE):
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
-        if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)):
+        if emb.shape[1] == 2:
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
-        elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
-            emb.rename(columns={0:config.X,1: config.Y},inplace=True)
         else:
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1] - 2)
             ]
-            if 'cudf.core.dataframe' not in str(getmodule(emb)):
-                emb = pd.DataFrame(emb, columns=columns, index=index)
-            elif 'cudf.core.dataframe' in str(getmodule(emb)):
-                emb.columns=columns
+            emb = pd.DataFrame(emb, columns=columns, index=index)
         return emb
 
     def _process_umap(
@@ -328,6 +322,7 @@ class UMAPMixin(MIXIN_BASE):
             # have to set _raw_data attribute on umap?
             fresh_res._umap = old_res._umap  # this saves the day!
             return fresh_res
+
         emb = res.umap_fit_transform(X_, y_)
         res._xy = emb
         return res
@@ -483,6 +478,7 @@ class UMAPMixin(MIXIN_BASE):
                 )
 
             nodes = res._nodes[res._node].values
+            index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
             logger.debug("propagating with featurize_kwargs: %s", featurize_kwargs)
             (
@@ -509,7 +505,6 @@ class UMAPMixin(MIXIN_BASE):
             if res._xy is None:
                 raise RuntimeError("This should not happen")
             res._node_embedding = res._xy
-
             # TODO add edge filter so graph doesn't have double edges
             # TODO user-guidable edge merge policies like upsert?
             res._weighted_edges_df_from_nodes = (
@@ -596,14 +591,11 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._node_embedding
         else:
             emb = res._edge_embedding
-            
-        if type(df) == type(emb):
-            df[x_name] = emb.values.T[0]
-            df[y_name] = emb.values.T[1]
-        elif isinstance(df, pd.DataFrame) and 'cudf.core.dataframe' in str(getmodule(emb)):
-            df[x_name] = emb.to_numpy().T[0]
-            df[y_name] = emb.to_numpy().T[1]
 
+        df[x_name] = emb.values.T[0]  # if embedding is greater
+        # than two dimensions will only take first two coordinates
+        df[y_name] = emb.values.T[1]
+        #
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 
         if encode_weight and kind == "nodes":
