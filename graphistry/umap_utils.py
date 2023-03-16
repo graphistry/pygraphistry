@@ -45,6 +45,17 @@ def lazy_cuml_import_has_dependancy():
         return True, "ok", cuml
     except ModuleNotFoundError as e:
         return False, e, None
+    
+def lazy_cudf_import_has_dependancy():
+    try:
+        import warnings
+
+        warnings.filterwarnings("ignore")
+        import cudf  # type: ignore
+
+        return True, "ok", cudf
+    except ModuleNotFoundError as e:
+        return False, e, None
 
 
 def assert_imported():
