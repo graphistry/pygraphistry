@@ -46,6 +46,16 @@ def lazy_cuml_import_has_dependancy():
     except ModuleNotFoundError as e:
         return False, e, None
 
+def lazy_cudf_import_has_dependancy(): ## rather than adding to cuml import
+    try:
+        import warnings
+
+        warnings.filterwarnings("ignore")
+        import cudf  # type: ignore
+
+        return True, "ok", cudf
+    except ModuleNotFoundError as e:
+        return False, e, None
 
 def assert_imported():
     has_dependancy_, import_exn, umap_learn = lazy_umap_import_has_dependancy()
