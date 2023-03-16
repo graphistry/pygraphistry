@@ -56,7 +56,7 @@ def lazy_cudf_import_has_dependancy():
 def resolve_cpu_gpu_engine(
     engine: DBSCANEngine,
 ) -> DBSCANEngineConcrete:  # noqa
-    if engine in [CUML, UMAP_LEARN]:
+    if engine in [CUML, UMAP_LEARN, 'sklearn']:
         return engine  # type: ignore
     if engine in ["auto"]:
         (
@@ -204,14 +204,17 @@ class ClusterMixin(MIXIN_BASE):
         pass
 
     def _cluster_dbscan(
-        self, res, kind, cols, fit_umap_embedding, target, min_dist, min_samples, verbose, *args, **kwargs
+        self, res, kind, cols, fit_umap_embedding, target, min_dist, min_samples, engine, verbose, *args, **kwargs
     ):
         """
         DBSCAN clustering on cpu or *(not yet supported) gpu* infered by .engine flag
         """
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import_has_dependency()
 
-        res.engine = resolve_cpu_gpu_engine(UMAP_LEARN)  # resolve_cpu_gpu_engine("auto")
+        if engine in [CUML]:
+            print('`g.transform_dbscan(..)` not supported for engine=cuml, will return `g.transform_umap(..)` instead')
+
+        res.engine = resolve_cpu_gpu_engine(engine)  # resolve_cpu_gpu_engine("auto")
         res._dbscan_params = ModelDict(
             "latest DBSCAN params",
             kind=kind,
@@ -220,6 +223,7 @@ class ClusterMixin(MIXIN_BASE):
             fit_umap_embedding=fit_umap_embedding,
             min_dist=min_dist,
             min_samples=min_samples,
+            engine=engine,
             verbose=verbose,
         )
 
@@ -244,6 +248,7 @@ class ClusterMixin(MIXIN_BASE):
         fit_umap_embedding: bool = True,
         target: bool = False,
         verbose: bool = False,
+        engine_dbscan: str = 'sklearn'
         *args,
         **kwargs,
     ):
@@ -305,6 +310,7 @@ class ClusterMixin(MIXIN_BASE):
             target=target,
             min_dist=min_dist,
             min_samples=min_samples,
+            engine=engine_dbscan,
             verbose=verbose,
             *args,
             **kwargs,
