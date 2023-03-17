@@ -214,7 +214,7 @@ class ClusterMixin(MIXIN_BASE):
         if engine_dbscan in [CUML]:
             print('`g.transform_dbscan(..)` not supported for engine=cuml, will return `g.transform_umap(..)` instead')
 
-        res.engine_dbscan = resolve_cpu_gpu_engine(engine_dbscan)  # resolve_cpu_gpu_engine("auto")
+        res.engine_dbscan = engine_dbscan #resolve_cpu_gpu_engine(engine_dbscan)  # resolve_cpu_gpu_engine("auto")
         res._dbscan_params = ModelDict(
             "latest DBSCAN params",
             kind=kind,
@@ -229,7 +229,7 @@ class ClusterMixin(MIXIN_BASE):
 
         dbscan = (
             cuDBSCAN(eps=min_dist, min_samples=min_samples, *args, **kwargs)
-            if res.engine == CUML
+            if res.engine_dbscan == CUML
             else DBSCAN(eps=min_dist, min_samples=min_samples, *args, **kwargs)
         )
 
@@ -330,6 +330,7 @@ class ClusterMixin(MIXIN_BASE):
             target = res._dbscan_params["target"]
 
             dbscan = res._node_dbscan if kind == "nodes" else res._edge_dbscan
+            print('DBSCAN TYPE IN TRANSFORM', type(dbscan))
 
             emb = None
             if umap and cols is None:
