@@ -431,7 +431,7 @@ class ClusterMixin(MIXIN_BASE):
             :verbose: whether to print out progress, default False
 
         """
-        if self.engine == 'cuml':
+        if self.engine_dbscan == 'cuml':
             print('Transform DBSCAN not supported for `cuml`, use engine=`umap_learn` instead')
             return self.transform_umap(df, y, kind=kind, verbose=verbose, return_graph=return_graph)
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind, verbose=verbose)
