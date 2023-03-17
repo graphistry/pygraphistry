@@ -1,10 +1,11 @@
 # import sympy
-from typing import TYPE_CHECKING, List, Dict, Any, Union, Optional, Tuple
+from typing import TYPE_CHECKING, List, Dict, Any, Union, Optional, Tuple, TypeVar
 from collections import Counter
 import numpy as np
+import os
 
 from graphistry.text_utils import SearchToGraphMixin
-from graphistry.plugins.splunkconn import GraphistryAdminSplunk, SplunkConnector
+from graphistry.plugins.splunkconn import SplunkConnector
 
 import pandas as pd
 from time import time
@@ -257,11 +258,6 @@ class SplunkPrompts(ai.Prompt):
                 START + "show red team login activity" + NEXT + '| search index="redteam_50k" RED=1 | Table src_computer, dst_computer, login, timestamp' + END, 
             ]
         )
-
-
-
-
-
 class Splunk(ai.Expression):
     @property
     def static_context(self):
@@ -288,7 +284,6 @@ class Splunk(ai.Expression):
 
     def as_splunk(self):
         return self.value
-
 
 
 class AIGraph(ai.Expression):
@@ -320,7 +315,7 @@ class AIGraph(ai.Expression):
         return process(data, *args, **kwargs)
 
     # @cache_sym
-    def _get_likely_src_dst(self, df):
+    def get_likely_src_dst(self, df):
         srcdst = self.query(
             f"what are the likely src and dst columns of this dataframe? {df.columns}\n return as [src, dst]"
         ).list("[]", constraint=lambda x: len(x) == 2)
@@ -364,10 +359,9 @@ def get_splunk_condition(res, splunk):
         context = f"!!The following SPL query returned an error: {res}"
     elif pd.DataFrame(res).empty: # then res is a dataframe that empty
         context = f"!!The following SPL query returned no results: {splunk}"
-    print("context", context)
+    print("context:", context)
     print(res.head()) if isinstance(res, pd.DataFrame) else None
     return found_solution, context
-
 
 
 class GraphistryComposition(AIGraph):
@@ -417,25 +411,42 @@ class SplunkAIGraph(AIGraph):
         self.fields = []
         self.verbose = verbose
         self.all_indexes = all_indexes
-        self.mem = {}
-        self.antimem = {}
         # symbolic Splunk Symbol
         self.splunk = Splunk()
 
     def open_context(self):
         # load it once ...
+        import json
         if os.path.exists('splunk.context'):    
             with open('splunk.context', 'r') as f:
                 doc = f.readline()
                 self._splunk_context = doc
                 print('Opened Splunk Context')
+            with open('splunk.fields', 'r') as f:
+                doc = f.readline()
+                self.fields = json.loads(doc)
+                print('Opened Splunk Fields')
+            with open('splunk.indexes', 'r') as f:
+                doc = f.readline()
+                self.indexes = json.loads(doc)
+                print('Opened Splunk Indexes')
         else:
-            try: #incase no g.connect
-                self._splunk_context = self.get_context(self.index, all_indexes=True)
+            try: #incase g.connect hasn't been called yet
+                self.fields, self.indexes = self.get_context(self.index, all_indexes=True)
+                self._set_context(self.fields, self.index, self.indexes)
                 self.save_context()
                 print('Generated splunk context')
             except Exception as e:
                 print(e)
+
+    def save_context(self):
+        import json
+        with open('splunk.context', 'w') as f:
+            f.write(self._splunk_context)
+        with open('splunk.fields', 'w') as f:
+            f.write(json.dumps(self.fields))
+        with open('splunk.indexes', 'w') as f:
+            f.write(json.dumps(self.indexes))
 
     def connect(self, username, password, host, *args, **kwargs):
         self.conn = SplunkConnector(username, password, host, *args, **kwargs)
@@ -443,10 +454,6 @@ class SplunkAIGraph(AIGraph):
         self.PREFIX = f"make a splunk query that returns a table of events using some or all of the following fields: {self.fields}"
         self.SUFFIX = "\n\nRemember that this is a splunk search and to prepend `search` to your result. GO!"
         self.SPLUNK_HINT = "hint: |search index=* | Table src, rel, dst, **,"
-
-    def save_context(self):
-        with open('splunk.context', 'w') as f:
-            f.write(self._splunk_context)
 
     def get_indexes(self):
         indexes = self.conn.get_indexes()
@@ -461,30 +468,42 @@ class SplunkAIGraph(AIGraph):
         print(f"Fields: {fields}") if self.verbose else None
         return fields
     
+    def get_context(self, index, all_indexes=False):
+        fields = self.get_fields(index)
+        indexes = {}
+        if all_indexes:
+            # since this takes a while, only do it if we need to switch between indexes
+            indexes = self.get_indexes()
+        return fields, indexes 
+    
     def _set_context(self, fields, index: str, indexes: dict = None):
+        self.fields = fields
         self.index = index
         self.indexes = indexes
         context = ''
         if index is not None:
             context += f"you are working with the index `{index}` and the following fields: {fields}."
-        context += f" You may also use the following indexes: {indexes.keys()}" if indexes is not None else ""
+        if indexes is not None:
+            context += f"\n\nYou may also use the following indexes: {list(indexes.keys())}"
         self._splunk_context = context
 
     def set_context(self, index):
         fields, indexes = self.get_context(index, all_indexes=self.all_indexes)
         self._set_context(fields, index, indexes)
-
-    def get_context(self, index, all_indexes=False):
-        fields = self.get_fields(index)
-        context = f"You are working with the index `{index}` and the following fields: {fields}"
-        if all_indexes:
-            # since this takes a while, only do it if we need to switch between indexes
-            indexes = self.get_indexes()
-            context += f" You may also use the following indexes: {indexes.keys()}" if indexes is not None else ""
-        print("-" * 80) if self.verbose else None
-        return context #fields, indexes #self._splunk_context
+    
+    def query(self, query):
+        return super().query(query, attach=list(self.indexes.keys()))
 
     def _search(self, query: str, *args, **kwargs) -> pd.DataFrame:
+        """search splunk connection and return a dataframe
+
+        Args:
+            query (str): _description_
+
+        Returns:
+            pd.DataFrame: _description_
+            or Exception: _description_
+        """
         try:
             res = self.conn.query(query, *args, **kwargs)
         except Exception as e:
@@ -530,22 +549,23 @@ class SplunkAIGraph(AIGraph):
         return df
 
     def get_likely_index(self, query):
-        index = self.query(f"This query: `{q}`, is likely to be run on which of the following `{list(sym.indexes.keys())}` indices? \
-                If you can not find a likely candidate given the query, return {sym.index}. \
+        index = self.query(f"This query: `{query}`, is likely to be run on which of the following `{list(self.indexes.keys())}` indices? \
+                If you can not find a likely candidate given the query, return {self.index}. \
                     If you find more than one, include each one."
         ).list("item")
         print("likely indexes:", index)
         return index
 
-    def _likely_fields(self):
+    def likely_fields(self):
         fields = self.fields
         good_cols = self.query(
-            f"given these columns of a dataframe: `{fields}`, the most likely columns to be used in a data science model are:"
+            f"using only these columns: `{fields}`, the most likely columns to be used in a data science model are:"
         ).list("item")
+        print('all fields:', fields)
         print("good_cols:", good_cols)
         return good_cols
 
-    def _likely_edges(self, *args, **kwargs):
+    def likely_edges(self, *args, **kwargs):
         return get_likely_edges(self, *args, **kwargs)
 
     def qa(self, query):
@@ -629,7 +649,7 @@ def find_splunk_index(query, sym: SplunkAIGraph, verbose, *args, **kwargs):
 
 def get_likely_edges(query, sym: SplunkAIGraph, verbose=False, *args, **kwargs):
     edges = sym.query(
-        f"query: {query} uses the following columns as edges:",
+        f"query: `{query}` uses the following columns as edges:",
         attach=sym.fields,
         constraint=lambda x: len(x.split()) == 2,
     )
@@ -661,7 +681,7 @@ class SymbolicMixin(MIXIN_BASE):
         # if isinstance(res, pd.DataFrame) and context=='df':
         #     return res
         if isinstance(res, pd.DataFrame) and not res.empty:
-            # get the proper 
+            # get the proper edges
             g = self.edges(res, "src_computer", "dst_computer").materialize_nodes()
             return g
 
