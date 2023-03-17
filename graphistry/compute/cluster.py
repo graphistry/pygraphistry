@@ -122,8 +122,8 @@ def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, targe
     if umap and cols is None and g._umap is not None:
         df = g._get_embedding(kind)            
     
-    if g.engine_dbscan in [CUML]:
-        df, _ = make_safe_gpu_dataframes(df, None, g.engine_dbscan)
+    #if g.engine_dbscan in [CUML]:
+    df, _ = make_safe_gpu_dataframes(df, None, g.engine_dbscan)
     #print('\n df:', df.shape, df.columns)
     return df
 
