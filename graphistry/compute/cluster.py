@@ -347,8 +347,7 @@ class ClusterMixin(MIXIN_BASE):
             else:
                 X_ = XX
             
-
-            if self.engine == 'cuml':
+            if res.engine_dbscan == 'cuml':
                 print('Transform DBSCAN not supported for engine_dbscan=`cuml`, use engine=`umap_learn`, `pandas` or `sklearn` instead')
                 return emb, X, y, df
 
@@ -431,11 +430,13 @@ class ClusterMixin(MIXIN_BASE):
             :verbose: whether to print out progress, default False
 
         """
-        if self.engine_dbscan == 'cuml':
-            print('Transform DBSCAN not supported for `cuml`, use engine=`umap_learn` instead')
-            return self.transform_umap(df, y, kind=kind, verbose=verbose, return_graph=return_graph)
+        # if self.engine_dbscan == 'cuml':
+        #     print('Transform DBSCAN not supported for `cuml`, use engine=`umap_learn` instead')
+        #     return self.transform_umap(df, y, kind=kind, verbose=verbose, return_graph=return_graph)
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind, verbose=verbose)
         if return_graph and kind not in ["edges"]:
+            df, y = make_safe_gpu_dataframes(df, y, 'pandas')
+            X, emb = make_safe_gpu_dataframes(X, emb, 'pandas')
             g = self._infer_edges(emb, X, y, df, eps=min_dist, sample=sample, n_neighbors=n_neighbors,  # type: ignore
                 infer_on_umap_embedding=infer_umap_embedding
                 )
