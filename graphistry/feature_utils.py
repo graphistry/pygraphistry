@@ -170,7 +170,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
     if isinstance(y, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(y)):
-        return y
+        return y  # type: ignore
 
     if df is None:
         raise ValueError("Missing data for featurization")
@@ -191,7 +191,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
     if isinstance(X, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(X)):
-        return X
+        return X  # type: ignore
 
     if df is None:
         raise ValueError("Missing data for featurization")

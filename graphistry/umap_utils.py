@@ -330,7 +330,7 @@ class UMAPMixin(MIXIN_BASE):
         """
         df, y = make_safe_gpu_dataframes(df, y, 'pandas')
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
-        X, y_ = make_safe_gpu_dataframes(X, y_, self.engine)
+        X, y_ = make_safe_gpu_dataframes(X, y_, self.engine)  # type: ignore
         emb = self._umap.transform(X)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
@@ -589,7 +589,7 @@ class UMAPMixin(MIXIN_BASE):
                 index_to_nodes_dict = nodes  # {}?
 
             # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)
+            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)  # type: ignore
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, verbose, **umap_kwargs
@@ -619,7 +619,7 @@ class UMAPMixin(MIXIN_BASE):
             )
 
             # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)
+            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)  # type: ignore
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
