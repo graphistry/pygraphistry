@@ -145,7 +145,8 @@ def dbscan_fit(g: Any, dbscan: Any, kind: str = "nodes", cols: Optional[Union[Li
         raise ValueError("No features found for clustering")
 
     dbscan.fit(X)
-    if g.engine == 'cuml':
+    # this is a future feature one cuml supports it
+    if g.engine_dbscan == 'cuml':
         labels = dbscan.labels_.to_numpy()
         # dbscan.components_ = X[dbscan.core_sample_indices_.to_pandas()]  # can't believe len(samples) != unique(labels) ... #cumlfail
     else:
@@ -232,6 +233,7 @@ class ClusterMixin(MIXIN_BASE):
             if res.engine_dbscan == CUML
             else DBSCAN(eps=min_dist, min_samples=min_samples, *args, **kwargs)
         )
+        print('dbscan:', dbscan)
 
         res = dbscan_fit(
             res, dbscan, kind=kind, cols=cols, use_umap_embedding=fit_umap_embedding, verbose=verbose
