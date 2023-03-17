@@ -82,7 +82,7 @@ def make_safe_gpu_dataframes(X, y, engine):
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
         for key, value in kwargs.items():
-            if isinstance(value, cudf.DataFrame) and engine == "pandas":
+            if isinstance(value, cudf.DataFrame) and engine in ["pandas", 'sklearn', 'umap_learn']:
                 new_kwargs[key] = value.to_pandas()
             elif isinstance(value, pd.DataFrame) and engine == "cuml":
                 new_kwargs[key] = cudf.from_pandas(value)
@@ -122,8 +122,8 @@ def get_model_matrix(g, kind: str, cols: Optional[Union[List, str]], umap, targe
     if umap and cols is None and g._umap is not None:
         df = g._get_embedding(kind)            
     
-    if g.engine in [CUML]:
-        df, _ = make_safe_gpu_dataframes(df, None, g.engine)
+    if g.engine_dbscan in [CUML]:
+        df, _ = make_safe_gpu_dataframes(df, None, g.engine_dbscan)
     #print('\n df:', df.shape, df.columns)
     return df
 
@@ -204,17 +204,17 @@ class ClusterMixin(MIXIN_BASE):
         pass
 
     def _cluster_dbscan(
-        self, res, kind, cols, fit_umap_embedding, target, min_dist, min_samples, engine, verbose, *args, **kwargs
+        self, res, kind, cols, fit_umap_embedding, target, min_dist, min_samples, engine_dbscan, verbose, *args, **kwargs
     ):
         """
         DBSCAN clustering on cpu or *(not yet supported) gpu* infered by .engine flag
         """
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import_has_dependency()
 
-        if engine in [CUML]:
+        if engine_dbscan in [CUML]:
             print('`g.transform_dbscan(..)` not supported for engine=cuml, will return `g.transform_umap(..)` instead')
 
-        res.engine = resolve_cpu_gpu_engine(engine)  # resolve_cpu_gpu_engine("auto")
+        res.engine_dbscan = resolve_cpu_gpu_engine(engine_dbscan)  # resolve_cpu_gpu_engine("auto")
         res._dbscan_params = ModelDict(
             "latest DBSCAN params",
             kind=kind,
@@ -223,7 +223,7 @@ class ClusterMixin(MIXIN_BASE):
             fit_umap_embedding=fit_umap_embedding,
             min_dist=min_dist,
             min_samples=min_samples,
-            engine=engine,
+            engine_dbscan=engine_dbscan,
             verbose=verbose,
         )
 
@@ -310,7 +310,7 @@ class ClusterMixin(MIXIN_BASE):
             target=target,
             min_dist=min_dist,
             min_samples=min_samples,
-            engine=engine_dbscan,
+            engine_dbscan=engine_dbscan,
             verbose=verbose,
             *args,
             **kwargs,
@@ -349,7 +349,7 @@ class ClusterMixin(MIXIN_BASE):
             
 
             if self.engine == 'cuml':
-                print('Transform DBSCAN not supported for engine=`cuml`, use engine=`umap_learn` instead')
+                print('Transform DBSCAN not supported for engine_dbscan=`cuml`, use engine=`umap_learn`, `pandas` or `sklearn` instead')
                 return emb, X, y, df
 
             labels = dbscan_predict(X_, dbscan)  # type: ignore
