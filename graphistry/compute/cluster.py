@@ -354,8 +354,12 @@ class ClusterMixin(MIXIN_BASE):
                 print('Transform DBSCAN not supported for engine_dbscan=`cuml`, use engine=`umap_learn`, `pandas` or `sklearn` instead')
                 return emb, X, y, df
             
-            X_, _ = make_safe_gpu_dataframes(X_, None, res.engine_dbscan)
+            print(type(X_))
+            X_, _ = make_safe_gpu_dataframes(X_, None, 'pandas')  # fuck all this hacky shit
+            print('after make safe gpu', type(X_))
+
             labels = dbscan_predict(X_, dbscan)  # type: ignore
+            print('after dbscan predict', type(labels))
             if umap and cols is None:
                 df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)  # type: ignore
             else:
