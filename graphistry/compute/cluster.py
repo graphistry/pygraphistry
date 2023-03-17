@@ -248,7 +248,7 @@ class ClusterMixin(MIXIN_BASE):
         fit_umap_embedding: bool = True,
         target: bool = False,
         verbose: bool = False,
-        engine_dbscan: str = 'sklearn'
+        engine_dbscan: str = 'sklearn',
         *args,
         **kwargs,
     ):
