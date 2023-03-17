@@ -588,7 +588,7 @@ class UMAPMixin(MIXIN_BASE):
             elif 'cudf.core.dataframe' in str(getmodule(X_)):
                 index_to_nodes_dict = nodes  # {}?
 
-            ## add the safe coercion here 
+            # add the safe coercion here 
             X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)
 
             res = res._process_umap(
@@ -618,7 +618,7 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
 
-            ## add the safe coercion here 
+            # add the safe coercion here 
             X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)
 
             res = res._process_umap(

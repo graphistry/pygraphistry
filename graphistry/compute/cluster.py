@@ -72,7 +72,7 @@ def resolve_cpu_gpu_engine(
 
     raise ValueError(  # noqa
         f'engine expected to be "auto", '
-        '"umap_learn", or  "cuml" '
+        '"umap_learn", "pandas", "sklearn", or  "cuml" '
         f"but received: {engine} :: {type(engine)}"
     )
 
@@ -92,7 +92,7 @@ def make_safe_gpu_dataframes(X, y, engine):
 
     has_cudf_dependancy_, _, cudf = lazy_cudf_import_has_dependancy()
     if has_cudf_dependancy_:
-        print('DBSCAN CUML Matrices')
+        # print('DBSCAN CUML Matrices')
         return safe_cudf(X, y)
     else:
         return X, y
@@ -215,7 +215,7 @@ class ClusterMixin(MIXIN_BASE):
         if engine_dbscan in [CUML]:
             print('`g.transform_dbscan(..)` not supported for engine=cuml, will return `g.transform_umap(..)` instead')
 
-        res.engine_dbscan = engine_dbscan #resolve_cpu_gpu_engine(engine_dbscan)  # resolve_cpu_gpu_engine("auto")
+        res.engine_dbscan = engine_dbscan  # resolve_cpu_gpu_engine(engine_dbscan)  # resolve_cpu_gpu_engine("auto")
         res._dbscan_params = ModelDict(
             "latest DBSCAN params",
             kind=kind,
@@ -233,7 +233,7 @@ class ClusterMixin(MIXIN_BASE):
             if res.engine_dbscan == CUML
             else DBSCAN(eps=min_dist, min_samples=min_samples, *args, **kwargs)
         )
-        print('dbscan:', dbscan)
+        # print('dbscan:', dbscan)
 
         res = dbscan_fit(
             res, dbscan, kind=kind, cols=cols, use_umap_embedding=fit_umap_embedding, verbose=verbose
@@ -354,12 +354,12 @@ class ClusterMixin(MIXIN_BASE):
                 print('Transform DBSCAN not supported for engine_dbscan=`cuml`, use engine=`umap_learn`, `pandas` or `sklearn` instead')
                 return emb, X, y, df
             
-            print('before', type(X_))
+            #print('before', type(X_))
             X_, emb = make_safe_gpu_dataframes(X_, emb, 'pandas')  
-            print('after make safe gpu', type(X_))
+            #print('after make safe gpu', type(X_))
 
             labels = dbscan_predict(X_, dbscan)  # type: ignore
-            print('after dbscan predict', type(labels))
+            #print('after dbscan predict', type(labels))
             if umap and cols is None:
                 df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)  # type: ignore
             else:

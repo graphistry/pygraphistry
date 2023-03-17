@@ -294,9 +294,9 @@ def infer_graph(
     old_nodes = []
     mdists = []
 
-    ## check if pandas or cudf
+    # check if pandas or cudf
     if 'cudf.core.dataframe' in str(type(X_previously_fit)):
-        # move it out of memory...
+        #  move it out of memory...
         X_previously_fit = X_previously_fit.to_pandas()
 
     for i in range(X_new.shape[0]):
@@ -364,7 +364,7 @@ def infer_graph(
 
     new_emb = None
     if emb is not None:
-        if 'cudf.core.dataframe.DataFrame' in str(type(old_emb)): # convert to pd
+        if 'cudf.core.dataframe.DataFrame' in str(type(old_emb)):  # convert to pd
             old_emb = old_emb.to_pandas()
         new_emb = pd.concat([emb, old_emb], axis=0)
 
