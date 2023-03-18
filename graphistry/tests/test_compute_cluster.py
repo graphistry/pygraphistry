@@ -45,9 +45,9 @@ class TestComputeCluster(unittest.TestCase):
     @pytest.mark.skipif(not has_dbscan, reason="requires ai dependencies")
     def test_dbscan_params(self):
         dbscan_params = [ModelDict('Testing UMAP', kind='nodes', min_dist=0.2, min_samples=1, cols=None, target=False, 
-                                   fit_umap_embedding=False, verbose=True), 
+                                   fit_umap_embedding=False, verbose=True, engine_dbscan='sklearn'), 
                          ModelDict('Testing UMAP target', kind='nodes', min_dist=0.1, min_samples=1, cols=None, 
-                                   fit_umap_embedding=True, target=True, verbose=True)
+                                   fit_umap_embedding=True, target=True, verbose=True, engine_dbscan='sklearn'),
 
         ]
         for params in dbscan_params:
