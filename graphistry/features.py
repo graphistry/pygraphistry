@@ -73,11 +73,11 @@ EXTRA_COLS_NEEDED = ["x", "y", "_n"]
 # ###############################################################
 # ################# graphistry umap config constants #################
 N_COMPONENTS = 2
-N_NEIGHBORS = 15
+N_NEIGHBORS = 20
 MIN_DIST = 0.1
 SPREAD = 0.5
 LOCAL_CONNECTIVITY = 1
-REPULSION_STRENGTH = 1
+REPULSION_STRENGTH = 2
 NEGATIVE_SAMPLING_RATE = 5
 METRIC = "euclidean"
 

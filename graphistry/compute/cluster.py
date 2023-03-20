@@ -332,7 +332,7 @@ class ClusterMixin(MIXIN_BASE):
             target = res._dbscan_params["target"]
 
             dbscan = res._node_dbscan if kind == "nodes" else res._edge_dbscan
-            print('DBSCAN TYPE IN TRANSFORM', type(dbscan))
+            # print('DBSCAN TYPE IN TRANSFORM', type(dbscan))
 
             emb = None
             if umap and cols is None:
@@ -351,12 +351,10 @@ class ClusterMixin(MIXIN_BASE):
                 X_ = XX
             
             if res.engine_dbscan == 'cuml':
-                print('Transform DBSCAN not supported for engine_dbscan=`cuml`, use engine=`umap_learn`, `pandas` or `sklearn` instead')
+                print('Transform DBSCAN not yet supported for engine_dbscan=`cuml`, use engine=`umap_learn`, `pandas` or `sklearn` instead')
                 return emb, X, y, df
             
-            #print('before', type(X_))
             X_, emb = make_safe_gpu_dataframes(X_, emb, 'pandas')  
-            #print('after make safe gpu', type(X_))
 
             labels = dbscan_predict(X_, dbscan)  # type: ignore
             #print('after dbscan predict', type(labels))
@@ -438,9 +436,6 @@ class ClusterMixin(MIXIN_BASE):
             :verbose: whether to print out progress, default False
 
         """
-        # if self.engine_dbscan == 'cuml':
-        #     print('Transform DBSCAN not supported for `cuml`, use engine=`umap_learn` instead')
-        #     return self.transform_umap(df, y, kind=kind, verbose=verbose, return_graph=return_graph)
         emb, X, y, df = self._transform_dbscan(df, y, kind=kind, verbose=verbose)
         if return_graph and kind not in ["edges"]:
             df, y = make_safe_gpu_dataframes(df, y, 'pandas')
