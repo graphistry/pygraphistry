@@ -235,7 +235,6 @@ class UMAPMixin(MIXIN_BASE):
         print(umap_kwargs) if verbose else None
         # set new umap kwargs
         res._umap_params = umap_kwargs  
-
         res._n_components = n_components
         res._metric = metric
         res._n_neighbors = n_neighbors
