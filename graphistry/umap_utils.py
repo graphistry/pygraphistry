@@ -198,18 +198,18 @@ class UMAPMixin(MIXIN_BASE):
         negative_sample_rate: int = 5,
         n_components: int = 2,
         metric: str = "euclidean",
-        engine: UMAPEngine = "auto",
+        umap_engine: UMAPEngine = "auto",
         suffix: str = "",
         verbose: bool = False,
     ):
         from graphistry.features import ModelDict
 
-        engine_resolved = resolve_umap_engine(engine)
+        engine_resolved = resolve_umap_engine(umap_engine)
         # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == UMAP_LEARN:
-            _, _, umap_engine = lazy_umap_import_has_dependancy()
+            _, _, umap_engine_ = lazy_umap_import_has_dependancy()
         elif engine_resolved == CUML:
-            _, _, umap_engine = lazy_cuml_import_has_dependancy()
+            _, _, umap_engine_ = lazy_cuml_import_has_dependancy()
         else:
             raise ValueError(
                 "No umap engine, ensure 'auto', 'umap_learn', or 'cuml', and the library is installed"
@@ -243,7 +243,7 @@ class UMAPMixin(MIXIN_BASE):
         res._local_connectivity = local_connectivity
         res._repulsion_strength = repulsion_strength
         res._negative_sample_rate = negative_sample_rate
-        res._umap = umap_engine.UMAP(**umap_kwargs)
+        res._umap = umap_engine_.UMAP(**umap_kwargs)
         res.umap_engine = engine_resolved
         res._suffix = suffix
                                                             
