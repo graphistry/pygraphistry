@@ -10,28 +10,31 @@ import uuid
 import warnings
 from functools import lru_cache
 from typing import Any
+from collections import UserDict
 
 from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
 
 # #####################################
 
+
 def global_logger():
     logger = logging.getLogger()
     return logger
 
+
 def setup_logger(name, verbose=VERBOSE, fullpath=TRACE):
-    #if fullpath:
+    # if fullpath:
     #    FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
-    #else:
+    # else:
     #    FORMAT = " %(message)s\n"
-    #logging.basicConfig(format=FORMAT)
-    #logger = logging.getLogger()#f'graphistry.{name}')
-    #if verbose is None:
+    # logging.basicConfig(format=FORMAT)
+    # logger = logging.getLogger()#f'graphistry.{name}')
+    # if verbose is None:
     #    logger.setLevel(logging.ERROR)
-    #else:
+    # else:
     #    logger.setLevel(logging.INFO if verbose else logging.DEBUG)
-    #return logger
+    # return logger
     return global_logger()
 
 
@@ -39,6 +42,8 @@ def setup_logger(name, verbose=VERBOSE, fullpath=TRACE):
 # Caching utils
 
 _cache_coercion_val = None
+
+
 @lru_cache(maxsize=CACHE_COERCION_SIZE)
 def cache_coercion_helper(k):
     return _cache_coercion_val
@@ -46,8 +51,8 @@ def cache_coercion_helper(k):
 
 def cache_coercion(k, v):
     """
-        Holds references to last 100 used coercions
-        Use with weak key/value dictionaries for actual lookups
+    Holds references to last 100 used coercions
+    Use with weak key/value dictionaries for actual lookups
     """
     global _cache_coercion_val
     _cache_coercion_val = v
@@ -65,30 +70,37 @@ class WeakValueWrapper:
 def hash_pdf(df: pd.DataFrame) -> str:
     # can be 20% faster via to_parquet (see lmeyerov issue in pandas gh), but unclear if always available
     return (
-        hashlib.sha256(putil.hash_pandas_object(df, index=True).to_numpy().tobytes()).hexdigest()
-        + hashlib.sha256(str(df.columns).encode('utf-8')).hexdigest()  # noqa: W503
+        hashlib.sha256(
+            putil.hash_pandas_object(df, index=True).to_numpy().tobytes()
+        ).hexdigest()
+        + hashlib.sha256(str(df.columns).encode("utf-8")).hexdigest()  # noqa: W503
     )
 
 
 def hash_memoize_helper(v: Any) -> str:
 
     if isinstance(v, dict):
-        rolling = '{'
+        rolling = "{"
         for k2, v2 in v.items():
-            rolling += f'{k2}:{hash_memoize_helper(v2)},'
-        rolling += '}'
+            rolling += f"{k2}:{hash_memoize_helper(v2)},"
+        rolling += "}"
+    elif isinstance(v, ModelDict):
+        rolling = "{"
+        for k2, v2 in v.items():
+            rolling += f"{k2}:{hash_memoize_helper(v2)},"
+        rolling += "}"
     elif isinstance(v, list):
-        rolling = '['
+        rolling = "["
         for i in v:
-            rolling += f'{hash_memoize_helper(i)},'
-        rolling += ']'
+            rolling += f"{hash_memoize_helper(i)},"
+        rolling += "]"
     elif isinstance(v, tuple):
-        rolling = '('
+        rolling = "("
         for i in v:
-            rolling += f'{hash_memoize_helper(i)},'
-        rolling += ')'
+            rolling += f"{hash_memoize_helper(i)},"
+        rolling += ")"
     elif isinstance(v, bool):
-        rolling = 'T' if v else 'F'
+        rolling = "T" if v else "F"
     elif isinstance(v, int):
         rolling = str(v)
     elif isinstance(v, float):
@@ -96,49 +108,54 @@ def hash_memoize_helper(v: Any) -> str:
     elif isinstance(v, str):
         rolling = v
     elif v is None:
-        rolling = 'N'
+        rolling = "N"
     elif isinstance(v, pd.DataFrame):
         rolling = hash_pdf(v)
     else:
-        raise TypeError(f'Unsupported memoization type: {type(v)}')
+        raise TypeError(f"Unsupported memoization type: {type(v)}")
 
     return rolling
 
-def hash_memoize(v: Any) -> str:
-    return hashlib.sha256(hash_memoize_helper(v).encode('utf-8')).hexdigest()
 
-def check_set_memoize(g, metadata, attribute, name: str = '', memoize: bool = True):  # noqa: C901
+def hash_memoize(v: Any) -> str:
+    return hashlib.sha256(hash_memoize_helper(v).encode("utf-8")).hexdigest()
+
+
+def check_set_memoize(
+    g, metadata, attribute, name: str = "", memoize: bool = True
+):  # noqa: C901
     """
-        Helper Memoize function that checks if metadata args have changed for object g -- which is unconstrained save
-        for the fact that it must have `attribute`. If they have not changed, will return memoized version,
-        if False, will continue with whatever pipeline it is in front.
+    Helper Memoize function that checks if metadata args have changed for object g -- which is unconstrained save
+    for the fact that it must have `attribute`. If they have not changed, will return memoized version,
+    if False, will continue with whatever pipeline it is in front.
     """
-    
-    logger = setup_logger(f'{__name__}.memoization')
+
+    logger = setup_logger(f"{__name__}.memoization")
 
     if not memoize:
-        logger.debug('Memoization disabled')
+        logger.debug("Memoization disabled")
         return False
-    
+
     hashed = None
     weakref = getattr(g, attribute)
     try:
-        hashed = hash_memoize(metadata)
+        hashed = hash_memoize(dict(data=metadata))
     except TypeError:
         logger.warning(
-            f'! Failed {name} speedup attempt. Continuing without memoization speedups.'
+            f"! Failed {name} speedup attempt. Continuing without memoization speedups."
         )
     try:
         if hashed in weakref:
-            logger.debug(f'{name} memoization hit: %s', hashed)
+            logger.debug(f"{name} memoization hit: %s", hashed)
             return weakref[hashed].v
         else:
-            logger.debug(f'{name} memoization miss for id (of %s): %s',
-                         len(weakref), hashed)
+            logger.debug(
+                f"{name} memoization miss for id (of %s): %s", len(weakref), hashed
+            )
     except:
-        logger.debug(f'Failed to hash {name} kwargs', exc_info=True)
+        logger.debug(f"Failed to hash {name} kwargs", exc_info=True)
         pass
-    
+
     if memoize and (hashed is not None):
         w = WeakValueWrapper(g)
         cache_coercion(hashed, w)
@@ -280,6 +297,90 @@ def deprecated(message):
 
     return deprecated_decorator
 
+
+# #############################################################################
+# MODEL Parameter HELPERS
+def get_timestamp():
+    import datetime
+
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+class ModelDict(UserDict):
+    """Helper class to print out model names and keep track of updates
+
+    Args:
+        message: description of model
+        verbose: print out model names, logging happens regardless
+    """
+
+    def __init__(self, message, verbose=True, _timestamp=False, *args, **kwargs):
+        self._message = message
+        self._verbose = verbose
+        self._timestamp = _timestamp  # do no use this inside the class, as it will trigger memoization. Only use outside of class.
+        L = (
+            len(message)
+            if _timestamp is False
+            else max(len(message), len(get_timestamp()) + 1)
+        )
+        self._print_length = min(80, L)
+        self._updates = []
+        super().__init__(*args, **kwargs)
+
+    def print(self, message):
+        if self._timestamp:
+            message = f"{message}\n{get_timestamp()}"
+        if self._verbose:
+            print("_" * self._print_length)
+            print()
+            print(message)
+            print("_" * self._print_length)
+            print()
+
+    def __repr__(self):
+        # logger.info(self._message)
+        self.print(self._message)
+        return super().__repr__()
+
+    # def __setitem__(self, key, value):  # can't get this to work properly as it doesn't get called on update
+    #     self._updates.append({key: value})
+    #     if len(self._updates) > 1:
+    #         self._message += (
+    #             "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
+    #         )
+    #     return super().__setitem__(key, value)
+
+    def update(self, *args, **kwargs):
+        self._updates.append(args[0])
+        if len(self._updates) > 1:  # don't take first update since its the init/default
+            self._message += (
+                "\n" + "_" * self._print_length + f"\n\nUpdated: {self._updates[-1]}"
+            )
+        return super().update(*args, **kwargs)
+
+
+def is_notebook():
+    """Check if running in a notebook"""
+    try:
+        from IPython import get_ipython
+
+        if "IPKernelApp" not in get_ipython().config:  # pragma: no cover
+            raise ImportError("console")
+            return False
+        if "VSCODE_PID" in os.environ:  # pragma: no cover
+            raise ImportError("vscode")
+            return False
+    except:
+        return False
+    else:  # pragma: no cover
+        return True
+    
+    
+def printmd(string, color=None, size=20):
+    """Print markdown string in notebook"""
+    from IPython.display import Markdown, display
+    colorstr = "<span style='color:{};font-weight:200;font-size:{}px'>{}</span>".format(color, size, string)
+    display(Markdown(colorstr))
 
 #
 # def inspect_decorator(func, args, kwargs):

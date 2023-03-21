@@ -165,23 +165,20 @@ class PlotterBase(Plottable):
         self._bolt_driver : any = None
         self._tigergraph : any = None
 
+        # feature engineering
         self._node_embedding = None
         self._node_encoder = None
         self._node_features = None
-        self._node_ordinal_pipeline = None
-        self._node_ordinal_pipeline_target = None,
+        self._node_features_raw = None
         self._node_target = None
         self._node_target_encoder = None
-        self._node_text_model = None
 
         self._edge_embedding = None
         self._edge_encoder = None
         self._edge_features = None
-        self._edge_ordinal_pipeline = None
-        self._edge_ordinal_pipeline_target = None
+        self._edge_features_raw = None
         self._edge_target = None
         self._edge_target_encoder = None
-        self._edge_text_model = None
 
         self._weighted_adjacency_nodes = None
         self._weighted_adjacency_edges = None
@@ -190,6 +187,7 @@ class PlotterBase(Plottable):
         self._weighted_edges_df_from_edges = None
         self._xy = None
 
+        # the fit umap instance
         self._umap = None
 
         self._adjacency = None
@@ -201,6 +199,13 @@ class PlotterBase(Plottable):
         self._use_feat: bool = False
         self._triplets: Optional[List] = None 
         self._kg_embed_dim: int = 128
+        
+        # Dbscan
+        self._node_dbscan = None  # the fit dbscan instance
+        self._edge_dbscan = None
+        
+        # DGL
+        self.DGL_graph = None  # the DGL graph
 
 
     def __repr__(self):
@@ -295,7 +300,7 @@ class PlotterBase(Plottable):
         :param fg: Dictionary {'blendMode': str} of any valid CSS blend mode
         :type fg: dict
 
-        :param bg: Nested dictionary of page background properties. {'color': str, 'gradient': {'kind': str, 'position': str, 'stops': list }, 'image': { 'url': str, 'width': int, 'height': int, 'blendMode': str }
+        :param bg: Nested dictionary of page background properties. { 'color': str, 'gradient': {'kind': str, 'position': str, 'stops': list }, 'image': { 'url': str, 'width': int, 'height': int, 'blendMode': str }
         :type bg: dict
 
         :param logo: Nested dictionary of logo properties. { 'url': str, 'autoInvert': bool, 'position': str, 'dimensions': { 'maxWidth': int, 'maxHeight': int }, 'crop': { 'top': int, 'left': int, 'bottom': int, 'right': int }, 'padding': { 'top': int, 'left': int, 'bottom': int, 'right': int}, 'style': str}        
@@ -309,15 +314,18 @@ class PlotterBase(Plottable):
 
         **Example: Chained merge - results in url and blendMode being set, while color is dropped**
             ::
+
                 g2 =  g.style(bg={'color': 'black'}, fg={'blendMode': 'screen'})
                 g3 = g2.style(bg={'image': {'url': 'http://site.com/watermark.png'}})
                 
         **Example: Gradient background**
             ::
+
               g.style(bg={'gradient': {'kind': 'linear', 'position': 45, 'stops': [['rgb(0,0,0)', '0%'], ['rgb(255,255,255)', '100%']]}})
               
         **Example: Page settings**
             ::
+            
               g.style(page={'title': 'Site - {{ name }}', 'favicon': 'http://site.com/logo.ico'})
 
         """        
@@ -845,13 +853,14 @@ class PlotterBase(Plottable):
         :param edge: Attribute containing an edge's ID
         :type edge: str
 
-        :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
+        :param edge_title: Attribute overriding edge's minimized label text. 
+        By default, the edge source and destination is used.
         :type edge_title: str
 
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
         :type edge_label: str
 
-        :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
+        :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
         :type edge_color: str
 
         :param edge_source_color: Attribute overriding edge's source color if no edge_color, as an rgba int64 value.
@@ -869,7 +878,7 @@ class PlotterBase(Plottable):
         :param point_label: Attribute overriding node's expanded label text. By default, scrollable list of attribute/value mappings.
         :type point_label: str
 
-        :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
+        :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
         :type point_color: str
 
         :param point_size: Attribute overriding node's size. By default, uses the node degree. The visualization will normalize point sizes and adjust dynamically using semantic zoom.
@@ -1002,6 +1011,7 @@ class PlotterBase(Plottable):
 
         **Example**
             ::
+
                 import graphistry
 
                 def sample_nodes(g, n):
@@ -1101,6 +1111,7 @@ class PlotterBase(Plottable):
 
         **Example**
             ::
+
                 import graphistry
 
                 def sample_edges(g, n):
