@@ -2563,16 +2563,21 @@ class FeatureMixin(MIXIN_BASE):
                 default True.
         :return: graphistry instance with new attributes set by the featurization process.
         """
+        feature_engine = resolve_feature_engine(feature_engine)
+
+        print('Featurizing nodes with feature_engine=' + feature_engine)
+
         if feature_engine == 'dirty_cat':
             assert_imported()
         elif feature_engine == 'cu_cat':
             assert_cuml_cucat()
+            
         if inplace:
             res = self
         else:
             res = self.bind()
 
-        feature_engine = resolve_feature_engine(feature_engine)
+        #feature_engine = resolve_feature_engine(feature_engine)
 
         if kind == "nodes":
             res = res._featurize_nodes(
