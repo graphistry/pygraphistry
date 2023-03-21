@@ -113,6 +113,7 @@ def lazy_import_has_cu_cat_dependancy():
         from sklearn import __version__ as sklearn_version
         from cuml import __version__ as cuml_version
         from cudf import __version__ as cudf_version
+        import cudf
         logger.debug(f"SCIPY VERSION: {scipy_version}")
         logger.debug(f"Cuda CAT VERSION: {cu_cat_version}")
         logger.debug(f"sklearn VERSION: {sklearn_version}")
@@ -668,7 +669,6 @@ def fit_pipeline(
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         X=pd.DataFrame(X, columns=columns, index=index)
     elif 'cudf.core.dataframe' in X_type:
-        import cudf
         X = transformer.fit_transform(X.to_numpy())
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
@@ -969,7 +969,6 @@ def process_dirty_dataframes(
                 X_enc, columns=features_transformed, index=ndf.index
             )
         elif 'cudf.core.dataframe' in str(getmodule(ndf)):
-            import cudf
             X_enc = cudf.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
@@ -1314,7 +1313,6 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
     if 'cudf.core.dataframe' in edf_type:
-        import cudf
         T = cudf.DataFrame(T, columns=columns, index=edf.index)
     else:
         T = pd.DataFrame(T, columns=columns, index=edf.index)
@@ -1477,7 +1475,6 @@ def process_edge_dataframes(
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
         T_type= str(getmodule(T))
         if 'cudf.core.dataframe' in T_type:
-            import cudf
             X_enc = cudf.concat([T, X_enc], axis=1)
         else:
             X_enc = pd.concat([T, X_enc], axis=1)
