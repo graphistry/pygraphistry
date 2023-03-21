@@ -110,18 +110,21 @@ def lazy_import_has_cu_cat_dependancy():
         import scipy.sparse  # noqa
         from scipy import __version__ as scipy_version
         from cu_cat import __version__ as cu_cat_version
+        import cu_cat
         from sklearn import __version__ as sklearn_version
         from cuml import __version__ as cuml_version
+        import cuml
         from cudf import __version__ as cudf_version
+        import cudf
         logger.debug(f"SCIPY VERSION: {scipy_version}")
         logger.debug(f"Cuda CAT VERSION: {cu_cat_version}")
         logger.debug(f"sklearn VERSION: {sklearn_version}")
         logger.debug(f"cuml VERSION: {cuml_version}")
         logger.debug(f"cudf VERSION: {cudf_version}")
 
-        return True, 'ok'
+        return True, 'ok', cudf
     except ModuleNotFoundError as e:
-        return False, e
+        return False, e, None
 
 def assert_imported_text():
     has_dependancy_text_, import_text_exn, _ = lazy_import_has_dependancy_text()
@@ -142,14 +145,33 @@ def assert_imported():
         raise import_min_exn
         
 def assert_cuml_cucat():
-    has_cuml_dependancy_, import_cuml_exn = lazy_import_has_cu_cat_dependancy()
+    has_cuml_dependancy_, import_cuml_exn, cudf = lazy_import_has_cu_cat_dependancy()
     if not has_cuml_dependancy_:
         logger.error(  # noqa
                      "cuml not found, trying running"  # noqa
                      "`pip install rapids`"  # noqa
         )
         raise import_cuml_exn
-    
+
+def make_safe_gpu_dataframes(X, y, engine):
+
+    def safe_cudf(X, y):
+        new_kwargs = {}
+        kwargs = {'X': X, 'y': y}
+        for key, value in kwargs.items():
+            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "dirty_cat", "torch"]:
+                new_kwargs[key] = value.to_pandas()
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
+                new_kwargs[key] = cudf.from_pandas(value)
+            else:
+                new_kwargs[key] = value
+        return new_kwargs['X'], new_kwargs['y']
+
+    has_cudf_dependancy_, _, cudf = lazy_import_has_cu_cat_dependancy()
+    if has_cudf_dependancy_:
+        return safe_cudf(X, y)
+    else:
+        return X, y
 
 # ############################################################################
 #
@@ -189,7 +211,7 @@ def resolve_feature_engine(
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
         if has_dependancy_text_:
             return "torch"
-        has_cuml_dependancy_, _ = lazy_import_has_cu_cat_dependancy()
+        has_cuml_dependancy_, _, cudf = lazy_import_has_cu_cat_dependancy()
         if has_cuml_dependancy_:
             return "cu_cat"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
@@ -968,12 +990,13 @@ def process_dirty_dataframes(
             X_enc = pd.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
+            X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
         elif 'cudf.core.dataframe' in str(getmodule(ndf)):
             import cudf
             X_enc = cudf.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
-        X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
+        #X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
     else:
         logger.info("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
@@ -1229,7 +1252,7 @@ class FastMLB:
     def __init__(self, mlb, in_column, out_columns):
         if isinstance(in_column, str):
             in_column = [in_column]
-        self.columns = in_column  # should be singe entry list ['cats']
+        self.columns = in_column  # should be single entry list ['cats']
         self.mlb = mlb
         self.out_columns = out_columns
         self.feature_names_in_ = in_column
@@ -2035,7 +2058,8 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
 
-        feature_engine = resolve_feature_engine(feature_engine)
+        #feature_engine = resolve_feature_engine(feature_engine)
+        res.feature_engine = feature_engine
         
         from .features import ModelDict
 
@@ -2159,6 +2183,8 @@ class FeatureMixin(MIXIN_BASE):
                 **{res._destination: res._edges[res._destination]}
             )
 
+        res.feature_engine = feature_engine
+
         # now that everything is set
         fkwargs = dict(
             X=X_resolved,
@@ -2188,6 +2214,7 @@ class FeatureMixin(MIXIN_BASE):
             keep_n_decimals=keep_n_decimals,
             feature_engine=feature_engine,
         )
+
 
         res._feature_params = {
             **getattr(res, "_feature_params", {}),
@@ -2571,13 +2598,13 @@ class FeatureMixin(MIXIN_BASE):
             assert_imported()
         elif feature_engine == 'cu_cat':
             assert_cuml_cucat()
-            
+
         if inplace:
             res = self
         else:
             res = self.bind()
 
-        #feature_engine = resolve_feature_engine(feature_engine)
+        #res.feature_engine = feature_engine
 
         if kind == "nodes":
             res = res._featurize_nodes(
