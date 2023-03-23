@@ -192,7 +192,7 @@ class UMAPMixin(MIXIN_BASE):
         res,
         n_neighbors: int = 12,
         min_dist: float = 0.1,
-        spread: float = 0.5,
+        spread: float = 1,
         local_connectivity: int = 1,
         repulsion_strength: float = 1,
         negative_sample_rate: int = 5,
