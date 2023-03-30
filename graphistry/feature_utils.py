@@ -169,6 +169,7 @@ def make_safe_gpu_dataframes(X, y, engine):
 
     has_cudf_dependancy_, _, cudf = lazy_import_has_cu_cat_dependancy()
     if has_cudf_dependancy_:
+        print(f"Using GPU: {engine}")
         return safe_cudf(X, y)
     else:
         return X, y
