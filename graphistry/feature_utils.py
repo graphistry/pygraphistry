@@ -2058,6 +2058,8 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
 
+        X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
+
         #feature_engine = resolve_feature_engine(feature_engine)
         res.feature_engine = feature_engine
         
@@ -2184,6 +2186,9 @@ class FeatureMixin(MIXIN_BASE):
             )
 
         res.feature_engine = feature_engine
+
+        X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
+
 
         # now that everything is set
         fkwargs = dict(
@@ -2603,8 +2608,6 @@ class FeatureMixin(MIXIN_BASE):
             res = self
         else:
             res = self.bind()
-
-        #res.feature_engine = feature_engine
 
         if kind == "nodes":
             res = res._featurize_nodes(
