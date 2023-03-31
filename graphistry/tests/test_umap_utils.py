@@ -27,6 +27,7 @@ from graphistry.tests.test_feature_utils import (
 from graphistry.umap_utils import (
     lazy_umap_import_has_dependancy,
     lazy_cuml_import_has_dependancy,
+    lazy_cudf_import_has_dependancy,
 )
 <<<<<<< HEAD
 from graphistry.umap_utils import lazy_umap_import_has_dependancy, lazy_cuml_import_has_dependancy, lazy_cudf_import_has_dependancy
@@ -40,6 +41,7 @@ has_umap, _, _ = lazy_umap_import_has_dependancy()
 
 # print('has_dependancy', has_dependancy)
 # print('has_cuml', has_cuml)
+# print('has_cudf', has_cudf)
 # print('has_umap', has_umap)
 
 logger = logging.getLogger(__name__)

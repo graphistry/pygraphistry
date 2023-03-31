@@ -197,7 +197,7 @@ def make_safe_gpu_dataframes(X, y, engine):
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat", "cu_cat|torch"]
+FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
 
@@ -691,7 +691,6 @@ def fit_pipeline(
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         X=pd.DataFrame(X, columns=columns, index=index)
     elif 'cudf.core.dataframe' in X_type:
-        import cudf
         X = transformer.fit_transform(X.to_numpy())
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
@@ -993,7 +992,6 @@ def process_dirty_dataframes(
             )
             X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
         elif 'cudf.core.dataframe' in str(getmodule(ndf)):
-            import cudf
             X_enc = cudf.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
@@ -1338,7 +1336,6 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
     if 'cudf.core.dataframe' in edf_type:
-        import cudf
         T = cudf.DataFrame(T, columns=columns, index=edf.index)
     else:
         T = pd.DataFrame(T, columns=columns, index=edf.index)
@@ -1500,8 +1497,9 @@ def process_edge_dataframes(
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
         T_type= str(getmodule(T))
-        if 'cudf.core.dataframe' in T_type:
-            import cudf
+        if 'cudf.core.dataframe' not in T_type:
+            X_enc = pd.concat([T, X_enc], axis=1)
+        elif 'cudf.core.dataframe' not in T_type:
             X_enc = cudf.concat([T, X_enc], axis=1)
         else:
             X_enc = pd.concat([T, X_enc], axis=1)
