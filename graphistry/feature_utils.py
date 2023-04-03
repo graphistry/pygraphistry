@@ -60,7 +60,7 @@ if TYPE_CHECKING:
         GapEncoder = Any
         SimilarityEncoder = Any
     try:
-        from sklearn.preprocessing import FunctionTransformer
+        from cuml.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
     except:
         FunctionTransformer = Any
@@ -110,8 +110,10 @@ def lazy_import_has_cu_cat_dependancy():
         import scipy.sparse  # noqa
         from scipy import __version__ as scipy_version
         from cu_cat import __version__ as cu_cat_version
+        import cu_cat
         from sklearn import __version__ as sklearn_version
         from cuml import __version__ as cuml_version
+        import cuml
         from cudf import __version__ as cudf_version
         import cudf
         logger.debug(f"SCIPY VERSION: {scipy_version}")
@@ -120,9 +122,9 @@ def lazy_import_has_cu_cat_dependancy():
         logger.debug(f"cuml VERSION: {cuml_version}")
         logger.debug(f"cudf VERSION: {cudf_version}")
 
-        return True, 'ok'
+        return True, 'ok', cudf
     except ModuleNotFoundError as e:
-        return False, e
+        return False, e, None
 
 def assert_imported_text():
     has_dependancy_text_, import_text_exn, _ = lazy_import_has_dependancy_text()
@@ -143,14 +145,34 @@ def assert_imported():
         raise import_min_exn
         
 def assert_cuml_cucat():
-    has_cuml_dependancy_, import_cuml_exn = lazy_import_has_cu_cat_dependancy()
+    has_cuml_dependancy_, import_cuml_exn, cudf = lazy_import_has_cu_cat_dependancy()
     if not has_cuml_dependancy_:
         logger.error(  # noqa
                      "cuml not found, trying running"  # noqa
                      "`pip install rapids`"  # noqa
         )
         raise import_cuml_exn
-    
+
+def make_safe_gpu_dataframes(X, y, engine):
+
+    def safe_cudf(X, y):
+        new_kwargs = {}
+        kwargs = {'X': X, 'y': y}
+        for key, value in kwargs.items():
+            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "dirty_cat", "torch"]:
+                new_kwargs[key] = value.to_pandas()
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
+                new_kwargs[key] = cudf.from_pandas(value)
+            else:
+                new_kwargs[key] = value
+        return new_kwargs['X'], new_kwargs['y']
+
+    has_cudf_dependancy_, _, cudf = lazy_import_has_cu_cat_dependancy()
+    if has_cudf_dependancy_:
+        print(f"Using GPU: {engine}")
+        return safe_cudf(X, y)
+    else:
+        return X, y
 
 # ############################################################################
 #
@@ -175,7 +197,7 @@ def assert_cuml_cucat():
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat", "cu_cat|torch"]
+FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
 
@@ -190,7 +212,7 @@ def resolve_feature_engine(
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
         if has_dependancy_text_:
             return "torch"
-        has_cuml_dependancy_, _ = lazy_import_has_cu_cat_dependancy()
+        has_cuml_dependancy_, _, cudf = lazy_import_has_cu_cat_dependancy()
         if has_cuml_dependancy_:
             return "cu_cat"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
@@ -211,7 +233,8 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
     if isinstance(y, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(y)):
-        return y
+
+        return y  # type: ignore
 
     if df is None:
         raise ValueError("Missing data for featurization")
@@ -232,8 +255,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
     if isinstance(X, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(X)):
-        return X
-
+        return X  # type: ignore
     if df is None:
         raise ValueError("Missing data for featurization")
 
@@ -587,11 +609,19 @@ def get_preprocessing_pipeline(
     :return: scaled array, imputer instances or None, scaler instance or None
     """
     from sklearn.preprocessing import (
+        # FunctionTransformer,
+        # KBinsDiscretizer,
+        # MinMaxScaler,
+        MultiLabelBinarizer,
+        QuantileTransformer, 
+        # RobustScaler,
+        # StandardScaler,
+    )
+    from cuml.preprocessing import (
         FunctionTransformer,
         KBinsDiscretizer,
         MinMaxScaler,
-        MultiLabelBinarizer,
-        QuantileTransformer,
+        # QuantileTransformer,  ## cuml 23 only
         RobustScaler,
         StandardScaler,
     )
@@ -864,7 +894,7 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    from sklearn.preprocessing import FunctionTransformer
+    from cuml.preprocessing import FunctionTransformer
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -926,7 +956,7 @@ def process_dirty_dataframes(
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     elif feature_engine == 'cu_cat':
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    from sklearn.preprocessing import FunctionTransformer
+    from cuml.preprocessing import FunctionTransformer
     t = time()
 
     if not is_dataframe_all_numeric(ndf):
@@ -941,7 +971,6 @@ def process_dirty_dataframes(
         )
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
-        
         X_enc = data_encoder.fit_transform(ndf, y)
         X_enc = make_array(X_enc)
 
@@ -968,11 +997,16 @@ def process_dirty_dataframes(
             X_enc = pd.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
+            X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
         elif 'cudf.core.dataframe' in str(getmodule(ndf)):
-            X_enc = cudf.DataFrame(
-                X_enc, columns=features_transformed, index=ndf.index
-            )
-        X_enc = X_enc.fillna(0.0)
+            import cudf
+            X_enc = cudf.DataFrame.from_arrow(X_enc)
+            X_enc.index = ndf.index
+            # features_transformed=np.array([item.as_py() for item in features_transformed.key()])
+            # X_enc.columns = features_transformed #.to_numpy() ##error suggests this -- not working
+
+            
+        #X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
     else:
         logger.info("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
@@ -1196,7 +1230,6 @@ def process_nodes_dataframes(
     logger.debug(
         f"--The entire Encoding process took {(time()-t)/60:.2f} minutes"
     )
-
     X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
         X_enc,
         y_enc,
@@ -1211,7 +1244,6 @@ def process_nodes_dataframes(
         strategy=strategy,
         keep_n_decimals=keep_n_decimals,
     )
-
     return (
         X_enc,
         y_enc,
@@ -1228,7 +1260,7 @@ class FastMLB:
     def __init__(self, mlb, in_column, out_columns):
         if isinstance(in_column, str):
             in_column = [in_column]
-        self.columns = in_column  # should be singe entry list ['cats']
+        self.columns = in_column  # should be single entry list ['cats']
         self.mlb = mlb
         self.out_columns = out_columns
         self.feature_names_in_ = in_column
@@ -1474,7 +1506,9 @@ def process_edge_dataframes(
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
         T_type= str(getmodule(T))
-        if 'cudf.core.dataframe' in T_type:
+        if 'cudf.core.dataframe' not in T_type:
+            X_enc = pd.concat([T, X_enc], axis=1)
+        elif 'cudf.core.dataframe' not in T_type:
             X_enc = cudf.concat([T, X_enc], axis=1)
         else:
             X_enc = pd.concat([T, X_enc], axis=1)
@@ -1731,7 +1765,6 @@ class FastEncoder:
         logger.info("\n-- Setting Encoder Parts from Fit ::")
         logger.info(f'Feature Columns In: {self.feature_names_in}')
         logger.info(f'Target Columns In: {self.target_names_in}')
-
         for name, value in zip(self.res_names, res):
             if name not in ["X_enc", "y_enc"]:
                 logger.info("-" * 90)
@@ -2032,7 +2065,10 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
 
-        feature_engine = resolve_feature_engine(feature_engine)
+        X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
+
+        #feature_engine = resolve_feature_engine(feature_engine)
+        res.feature_engine = feature_engine
         
         from .features import ModelDict
 
@@ -2156,6 +2192,11 @@ class FeatureMixin(MIXIN_BASE):
                 **{res._destination: res._edges[res._destination]}
             )
 
+        res.feature_engine = feature_engine
+
+        X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
+
+
         # now that everything is set
         fkwargs = dict(
             X=X_resolved,
@@ -2185,6 +2226,7 @@ class FeatureMixin(MIXIN_BASE):
             keep_n_decimals=keep_n_decimals,
             feature_engine=feature_engine,
         )
+
 
         res._feature_params = {
             **getattr(res, "_feature_params", {}),
@@ -2560,16 +2602,19 @@ class FeatureMixin(MIXIN_BASE):
                 default True.
         :return: graphistry instance with new attributes set by the featurization process.
         """
+        feature_engine = resolve_feature_engine(feature_engine)
+
+        print('Featurizing nodes with feature_engine=' + feature_engine)
+
         if feature_engine == 'dirty_cat':
             assert_imported()
         elif feature_engine == 'cu_cat':
             assert_cuml_cucat()
+
         if inplace:
             res = self
         else:
             res = self.bind()
-
-        feature_engine = resolve_feature_engine(feature_engine)
 
         if kind == "nodes":
             res = res._featurize_nodes(
