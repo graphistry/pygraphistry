@@ -208,7 +208,7 @@ class TestUMAPFitTransform(unittest.TestCase):
             warnings.filterwarnings("ignore", category=FutureWarning)
             g2 = g.umap(**umap_kwargs, engine='umap_learn')
             g3 = g.umap(**umap_kwargs2, engine='umap_learn')
-        assert g2._umap_params==umap_kwargs
+        assert g2._umap_params == umap_kwargs
         assert (
             g2._umap_params == umap_kwargs
         ), f"Umap params do not match, found {g2._umap_params} vs {umap_kwargs}"
