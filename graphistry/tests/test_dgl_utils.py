@@ -16,7 +16,6 @@ logger = setup_logger("test_DGL_utils", verbose=True)
 edf = pd.read_csv(
     "graphistry/tests/data/malware_capture_bot.csv", index_col=0, nrows=50
 )
-edf = edf.drop(['StartTime'], axis=1)
 edf = edf.drop_duplicates()
 src, dst = "to_node", "from_node"
 edf["to_node"] = edf.SrcAddr.astype(str)

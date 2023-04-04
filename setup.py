@@ -10,7 +10,7 @@ def unique_flatten_dict(d):
 core_requires = [
   'numpy',
   'palettable >= 3.0',
-  'pandas >= 0.17.0',
+  'pandas < 2.0.0',
   'pyarrow >= 0.15.0',
   'requests',
   'squarify',
@@ -42,7 +42,7 @@ base_extras_heavy = {
   'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
 }
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
-base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'faiss-cpu', 'joblib']
+base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch<2', 'sentence-transformers', 'faiss-cpu', 'joblib']
 
 base_extras = {**base_extras_light, **base_extras_heavy}
 
