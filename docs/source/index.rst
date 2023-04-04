@@ -8,12 +8,12 @@ PyGraphistry is a Python visual graph AI library to extract, transform, analyze,
 Here in our docstrings you can find useful packages, modules, and commands to maximize your graph AI experience with PyGraphistry. In the navbar you can find an overview of all the packages and modules we provided and a few useful highlighted ones as well. You can search for them on our Search page. For a full tutorial, refer to our `PyGraphistry <https://github.com/graphistry/pygraphistry/>`_ repo.
 
 
-Click to open interactive version! (For server-backed interactive analytics, use an API key)
+.. Click to open interactive version! (For server-backed interactive analytics, use an API key)
 
 
-.. raw:: html
+.. .. raw:: html
 
-       <iframe width="600" height="400" src="https://hub.graphistry.com/graph/graph.html?dataset=Facebook&splashAfter=true" frameborder="0" allowfullscreen></iframe>
+..        <iframe width="600" height="400" src="https://hub.graphistry.com/graph/graph.html?dataset=Facebook&splashAfter=true" frameborder="0" allowfullscreen></iframe>
 
 For self-hosting and access to a free API key, refer to our Graphistry `Hub <https://hub.graphistry.com/>`_.
 
