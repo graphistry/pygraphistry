@@ -116,6 +116,13 @@ def resolve_umap_engine(
 def make_safe_gpu_dataframes(X, y, engine):
 
     def safe_cudf(X, y):
+        # remove duplicate columns
+        if len(X.columns) != len(set(X.columns)):
+            X = X.loc[:, ~X.columns.duplicated()]
+        try:
+            y = y.loc[:, ~y.columns.duplicated()]
+        except:
+            pass
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
         for key, value in kwargs.items():

@@ -27,11 +27,13 @@ from graphistry.tests.test_feature_utils import (
 from graphistry.umap_utils import (
     lazy_umap_import_has_dependancy,
     lazy_cuml_import_has_dependancy,
+    lazy_cudf_import_has_dependancy,
 )
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
 has_cuml, _, _ = lazy_cuml_import_has_dependancy()
 has_umap, _, _ = lazy_umap_import_has_dependancy()
+has_cudf, _, cudf = lazy_cudf_import_has_dependancy()
 
 # print('has_dependancy', has_dependancy)
 # print('has_cuml', has_cuml)
@@ -137,14 +139,10 @@ class TestUMAPFitTransform(unittest.TestCase):
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_columns_match(self):
-        d = self.g2._node_features.shape[1]
-        dt = self.g2._node_target.shape[1]
-        de = self.g2e._edge_features.shape[1]
-        det = self.g2e._edge_target.shape[1]
-        assert (self.X.columns == self.x.columns).sum() == d, "Node Feature Columns do not match"
-        assert (self.Y.columns == self.y.columns).sum() == dt, "Node Target Columns do not match"
-        assert (self.Xe.columns == self.xe.columns).sum() == de, "Edge Feature Columns do not match"
-        assert (self.Ye.columns == self.ye.columns).sum() == det, "Edge Target Columns do not match"
+        assert set(self.X.columns) == set(self.x.columns), "Node Feature Columns do not match"
+        assert set(self.Y.columns) == set(self.y.columns), "Node Target Columns do not match"
+        assert set(self.Xe.columns) == set(self.xe.columns), "Edge Feature Columns do not match"
+        assert set(self.Ye.columns) == set(self.ye.columns), "Edge Target Columns do not match"
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_index_match(self):
@@ -208,8 +206,9 @@ class TestUMAPFitTransform(unittest.TestCase):
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(**umap_kwargs)
-            g3 = g.umap(**umap_kwargs2)
+            g2 = g.umap(**umap_kwargs, engine='umap_learn')
+            g3 = g.umap(**umap_kwargs2, engine='umap_learn')
+        assert g2._umap_params==umap_kwargs
         assert (
             g2._umap_params == umap_kwargs
         ), f"Umap params do not match, found {g2._umap_params} vs {umap_kwargs}"
@@ -254,10 +253,13 @@ class TestUMAPFitTransform(unittest.TestCase):
             if return_g:
                 assert True
             else:
+                objs = (pd.DataFrame,)
+                if has_cudf:
+                    objs = (pd.DataFrame, cudf.DataFrame)
                 assert len(g4) == 3
-                assert isinstance(g4[0], pd.DataFrame)
-                assert isinstance(g4[1], pd.DataFrame)
-                assert isinstance(g4[2], pd.DataFrame)
+                assert isinstance(g4[0], objs)
+                assert isinstance(g4[1], objs)
+                assert isinstance(g4[2], objs)
                 assert g4[0].shape[1] == 2
                 assert g4[1].shape[1] >= 2
                 assert g4[2].shape[0] == test.shape[0]
@@ -277,21 +279,24 @@ class TestUMAPMethods(unittest.TestCase):
     def _check_attributes(self, g, attributes):
         msg = "Graphistry instance after umap should have `{}` as attribute"
         msg2 = "Graphistry instance after umap should not have None values for `{}`"
+        objs = (pd.DataFrame,)
+        if has_cudf:
+            objs = (pd.DataFrame, cudf.DataFrame)
 
         for attribute in attributes:
             self.assertTrue(hasattr(g, attribute), msg.format(attribute))
             self.assertTrue(getattr(g, attribute) is not None, msg2.format(attribute))
             if "df" in attribute:
                 self.assertIsInstance(
-                    getattr(g, attribute), pd.DataFrame, msg.format(attribute)
+                    getattr(g, attribute), objs, msg.format(attribute)
                 )
             if "node_" in attribute:
                 self.assertIsInstance(
-                    getattr(g, attribute), pd.DataFrame, msg.format(attribute)
+                    getattr(g, attribute), objs, msg.format(attribute)
                 )
             if "edge_" in attribute:
                 self.assertIsInstance(
-                    getattr(g, attribute), pd.DataFrame, msg.format(attribute)
+                    getattr(g, attribute), objs, msg.format(attribute)
                 )
 
     def cases_check_node_attributes(self, g):

@@ -443,7 +443,6 @@ class DGLGraphMixin(MIXIN_BASE):
         :param inplace: default, False, whether to return Graphistry instance in place or not.
 
         """
-
         if inplace:
             res = self
         else:
