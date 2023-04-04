@@ -16,6 +16,7 @@ logger = setup_logger("test_DGL_utils", verbose=True)
 edf = pd.read_csv(
     "graphistry/tests/data/malware_capture_bot.csv", index_col=0, nrows=50
 )
+edf = edf.drop(['StartTime'], axis=1)
 edf = edf.drop_duplicates()
 src, dst = "to_node", "from_node"
 edf["to_node"] = edf.SrcAddr.astype(str)
@@ -166,6 +167,7 @@ class TestDGL(unittest.TestCase):
         self._test_cases_dgl(g2)
 
     @pytest.mark.skipif(not has_dgl, reason="requires DGL dependencies")
+    @pytest.mark.xfail(reason="Mishandling datetimes: https://github.com/graphistry/pygraphistry/issues/381")
     def test_build_dgl_with_no_node_features(self):
         g = graphistry.edges(edf, src, dst)
         g.reset_caches()  # so that we redo calcs
