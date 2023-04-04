@@ -74,7 +74,9 @@ X_edges = pd.DataFrame(
 class TestDGL(unittest.TestCase):
     def _test_cases_dgl(self, g):
         # simple test to see if DGL graph was set during different featurization + umap strategies
-        G = g.DGL_graph
+        G = g._dgl_graph
+        print('#######################')
+        print(G)
         keys = ["feature", "target", "train_mask", "test_mask"]
         keys_without_target = ["feature", "train_mask", "test_mask"]
 
