@@ -1,10 +1,16 @@
 Plotter Module
 ==================
+.. toctree::
+    :maxdepth: 3
 
+<<<<<<< HEAD
 .. automodule:: graphistry.plotter
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+    graphistry.plotter
+>>>>>>> cb10f3c5d10848c574aae90aaf401aee82e86d10
 
 Plugins
 ==================
