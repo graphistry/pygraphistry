@@ -15,7 +15,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     description,
     bind,
     style,
-    addStyle,
+    add_style,
     edges,
     nodes,
     graph,
