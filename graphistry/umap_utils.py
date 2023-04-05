@@ -329,6 +329,7 @@ class UMAPMixin(MIXIN_BASE):
             :n_neighbors: Number of neighbors to use for contextualization
             :merge_policy: if True, use previous graph, adding new batch to existing graph's neighbors
                 useful to contextualize new data against existing graph. If False, `sample` is irrelevant.
+
             sample: Sample number of existing graph's neighbors to use for contextualization -- helps make denser graphs
             return_graph: Whether to return a graph or just the embeddings
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
