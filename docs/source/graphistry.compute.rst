@@ -5,6 +5,7 @@ ComputeMixin module
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 
 Chain
@@ -14,6 +15,7 @@ Chain
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Cluster
 ---------------
@@ -21,6 +23,7 @@ Cluster
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Collapse
 ---------------
@@ -28,6 +31,7 @@ Collapse
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Conditional
 ---------------
@@ -35,13 +39,15 @@ Conditional
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Filter by Dictionary
----------------
+--------------------
 .. automodule:: graphistry.compute.filter_by_dict
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Hop
 ---------------
@@ -49,3 +55,4 @@ Hop
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:

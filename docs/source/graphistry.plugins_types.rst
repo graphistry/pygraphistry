@@ -1,6 +1,12 @@
 graphistry.plugins\_types package
 =================================
 
+
+.. toctree:: 
+   :maxdepth: 2
+   
+   graphistry.layout.utils
+
 Submodules
 ----------
 

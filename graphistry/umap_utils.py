@@ -133,9 +133,7 @@ def umap_graph_to_weighted_edges(umap_graph, engine, is_legacy, cfg=config):
 
 
 class UMAPMixin(MIXIN_BASE):
-    """
-    UMAP Mixin for automagic UMAPing
-
+    """UMAP Mixin for automagic UMAPing
     """
     # FIXME where is this used? 
     _umap_memoize: WeakValueDictionary = WeakValueDictionary()
@@ -429,14 +427,14 @@ class UMAPMixin(MIXIN_BASE):
             or pass in your own X, y (optional) dataframes of values
             
         Example
-        -------
+      
         >>> import graphistry   
         >>> g = graphistry.nodes(pd.DataFrame({'node': [0,1,2], 'data': [1,2,3], 'meta': ['a', 'b', 'c']}))
         >>> g2 = g.umap(n_components=3, spread=1.0, min_dist=0.1, n_neighbors=12, negative_sample_rate=5, local_connectivity=1, repulsion_strength=1.0, metric='euclidean', suffix='', play=0, encode_position=True, encode_weight=True, dbscan=False, engine='auto', feature_engine='auto', inplace=False, memoize=True, verbose=False)
         >>> g2.plot()
         
         Parameters
-        ----------
+  
             :X: either a dataframe ndarray of features, or column names to featurize
             :y: either an dataframe ndarray of targets, or column names to featurize
                     targets
@@ -478,6 +476,7 @@ class UMAPMixin(MIXIN_BASE):
             :memoize: whether to memoize the results of this method,
                     default True.
             :verbose: whether to print out extra information, default False.
+            
         :return: self, with attributes set with new data
         """
         if engine == UMAP_LEARN:
