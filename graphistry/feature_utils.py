@@ -1003,7 +1003,8 @@ def process_dirty_dataframes(
             X_enc = cudf.DataFrame.from_arrow(X_enc)
             X_enc.index = ndf.index
             # features_transformed=np.array([item.as_py() for item in features_transformed.key()])
-            # X_enc.columns = features_transformed #.to_numpy() ##error suggests this -- not working
+            # X_enc.columns = features_transformed.as_py()
+            #  = features_transformed #.to_numpy() ##error suggests this -- not working
 
             
         #X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
