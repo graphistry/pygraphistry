@@ -224,7 +224,7 @@ class PlotterBase(Plottable):
         else:
             return str(rep)
 
-    def addStyle(self, fg=None, bg=None, page=None, logo=None):
+    def add_style(self, fg=None, bg=None, page=None, logo=None):
         """Set general visual styles
         
         See .bind() and .settings(url_params={}) for additional styling options, and style() for another way to set the same attributes.
