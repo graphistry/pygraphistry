@@ -549,6 +549,22 @@ class UMAPMixin(MIXIN_BASE):
         )
         logger.debug("umap_kwargs: %s", umap_kwargs)
 
+        # temporary until we have full cudf support in feature_utils.py
+        has_cudf, _, cudf = lazy_cudf_import_has_dependancy()
+
+        if has_cudf:
+            flag_nodes_cudf = isinstance(self._nodes, cudf.DataFrame)
+            flag_edges_cudf = isinstance(self._edges, cudf.DataFrame)
+
+            if flag_nodes_cudf or flag_edges_cudf:
+                res = self
+                if flag_nodes_cudf:
+                    res._nodes = res._nodes.to_pandas()
+                if flag_edges_cudf:
+                    res._edges = res._edges.to_pandas()
+                res = res.umap(X=self._nodes, y=self._edges, **umap_kwargs)
+                return res
+
         if inplace:
             res = self
         else:
@@ -562,7 +578,6 @@ class UMAPMixin(MIXIN_BASE):
         featurize_kwargs = self._set_features(
             res, X, y, kind, feature_engine, {**featurize_kwargs, "memoize": memoize}
         )
-
 
         if kind == "nodes":
             index = res._nodes.index

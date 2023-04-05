@@ -1033,12 +1033,6 @@ class PlotterBase(Plottable):
             res = base.nodes(nodes2)
         else:
             res = copy.copy(base)
-            # this is temporary
-            # TODO: for cudf support need to clean the entire codebase
-            try:
-                nodes = nodes.to_pandas()
-            except:
-                pass
             res._nodes = nodes
         # for use in text_utils.py search index
         if hasattr(res, 'search_index'):
@@ -1147,10 +1141,6 @@ class PlotterBase(Plottable):
             res = base.edges(edges2)
         else:
             res = copy.copy(base)
-            try:
-                edges = edges.to_pandas()
-            except:
-                pass
             res._edges = edges
         return res
 
