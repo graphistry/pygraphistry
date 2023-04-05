@@ -412,18 +412,33 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         if source is None:
             src = pd.Series(all_nodes)
         else:
+            # this is temporary
+            try:
+                source = source.to_pandas()  # type: ignore
+            except:
+                pass
             src = pd.Series(source)
             src = src.map(self._node2id)
 
         if relation is None:
             rel = pd.Series(all_relations)
         else:
+            # this is temporary
+            try:
+                relation = relation.to_pandas()  # type: ignore
+            except:
+                pass
             rel = pd.Series(relation)
             rel = rel.map(self._relation2id)
 
         if destination is None:
             dst = pd.Series(all_nodes)
         else:
+            # this is temporary
+            try:
+                destination = destination.to_pandas()  # type: ignore
+            except:
+                pass
             dst = pd.Series(destination)
             dst = dst.map(self._node2id)
 
