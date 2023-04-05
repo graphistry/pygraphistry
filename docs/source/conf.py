@@ -56,7 +56,7 @@ nitpick_ignore = [
     ('py:class', 'graphistry.compute.cluster.ClusterMixin'),
     ('py:class', 'graphistry.Plottable.Plottable'),
     ('py:class', 'graphistry.plugins.cugraph.compute_cugraph'),
-    ('py:class', 'graphistry.plugins.cugraph.layout_cugraph'),
+    ('py:class', 'graphistry.plugins.cugraph.from_cugraph'),
     ('py:class', 'graphistry.plugins.igraph.compute_igraph'),
     ('py:class', 'graphistry.plugins.igraph.from_igraph'),
     ('py:class', 'graphistry.plugins.igraph.layout_igraph'),

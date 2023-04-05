@@ -7,6 +7,7 @@ edge Module
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 edgeBase Module
 ---------------------------------------
@@ -15,6 +16,7 @@ edgeBase Module
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 graph Module
 ------------------------------------
@@ -23,6 +25,7 @@ graph Module
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 graphBase Module
 ----------------------------------------
@@ -31,6 +34,7 @@ graphBase Module
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 vertex Module
 -------------------------------------
@@ -39,6 +43,7 @@ vertex Module
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 vertexBase Module
 -----------------------------------------
@@ -47,6 +52,7 @@ vertexBase Module
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 
 Module contents
@@ -56,3 +62,4 @@ Module contents
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:

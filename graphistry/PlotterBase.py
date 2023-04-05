@@ -342,17 +342,10 @@ class PlotterBase(Plottable):
     def encode_axis(self, rows=[]):
         """Render radial and linear axes with optional labels
 
-        :param rows: List of rows - {
-            label: Optional[str],
-            ?r: float,
-            ?x: float,
-            ?y: float,
-            ?internal: true,
-            ?external: true,
-            ?space: true
-        }
+        :param rows: List of rows - { label: Optional[str],?r: float, ?x: float, ?y: float, ?internal: true, ?external: true, ?space: true }
 
         :returns: Plotter
+        
         :rtype: Plotter
 
         **Example: Several radial axes**
@@ -545,9 +538,7 @@ class PlotterBase(Plottable):
             comparator=None,
             for_default=True, for_current=False,
             as_text=False, blend_mode=None, style=None, border=None, shape=None):
-        """Set node icon with more control than bind().
-        Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
-        When as_text=True is enabled, values are instead interpreted as raw strings.
+        """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...). When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
         :type column: str
@@ -614,9 +605,7 @@ class PlotterBase(Plottable):
             comparator=None,
             for_default=True, for_current=False,
             as_text=False, blend_mode=None, style=None, border=None, shape=None):
-        """Set edge icon with more control than bind()
-        Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
-        When as_text=True is enabled, values are instead interpreted as raw strings.
+        """Set edge icon with more control than bind() Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...). When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
         :type column: str
@@ -836,10 +825,7 @@ class PlotterBase(Plottable):
              edge_source_color=None, edge_destination_color=None,
              point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
              point_x=None, point_y=None):
-        """Relate data attributes to graph structure and visual representation.
-
-        To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
-
+        """Relate data attributes to graph structure and visual representation. To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
 
         :param source: Attribute containing an edge's source ID
         :type source: str
@@ -853,8 +839,7 @@ class PlotterBase(Plottable):
         :param edge: Attribute containing an edge's ID
         :type edge: str
 
-        :param edge_title: Attribute overriding edge's minimized label text. 
-        By default, the edge source and destination is used.
+        :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
         :type edge_title: str
 
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
@@ -894,6 +879,7 @@ class PlotterBase(Plottable):
         :rtype: Plotter
 
         **Example: Minimal**
+
             ::
 
                 import graphistry
@@ -901,6 +887,7 @@ class PlotterBase(Plottable):
                 g = g.bind(source='src', destination='dst')
 
         **Example: Node colors**
+
             ::
 
                 import graphistry
@@ -909,6 +896,7 @@ class PlotterBase(Plottable):
                            node='id', point_color='color')
 
         **Example: Chaining**
+
             ::
 
                 import graphistry
@@ -925,6 +913,7 @@ class PlotterBase(Plottable):
                 g3b = g2b.bind(point_size='size3b')
 
         In the above **Chaining** example, all bindings use src/dst/id. Colors and sizes bind to:
+
             ::
 
                 g: default/default
@@ -933,8 +922,6 @@ class PlotterBase(Plottable):
                 g2b: color2b/size2b
                 g3a: color2a/size3a
                 g3b: color2b/size3b
-
-
         """
         res = copy.copy(self)
         res._source = source or self._source
