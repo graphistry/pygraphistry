@@ -1,7 +1,7 @@
 Plotter Module
 ==================
 
-.. automodule:: graphistry.PlotterBase
+.. automodule:: graphistry.plotter
     :members:
     :undoc-members:
     :show-inheritance:
