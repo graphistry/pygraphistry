@@ -562,7 +562,7 @@ class UMAPMixin(MIXIN_BASE):
                     res._nodes = res._nodes.to_pandas()
                 if flag_edges_cudf:
                     res._edges = res._edges.to_pandas()
-                res = res.umap(X=self._nodes, y=self._edges, **umap_kwargs)
+                res = res.umap(X=self._nodes, y=self._edges, **umap_kwargs)  # type: ignore
                 return res
 
         if inplace:
