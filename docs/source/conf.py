@@ -71,6 +71,7 @@ nitpick_ignore = [
     ('py:class', 'Plotter'),
     ('py:class', 'Plottable'),
     ('py:class', 'CuGraphKind'),
+    ('py:class', 'cugraph.Graph'),
     ('py:class', 'IGraph graph'),
     ('py:class', 'igraph'),
     ('py:class', 'dgl'),
