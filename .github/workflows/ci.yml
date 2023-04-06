@@ -199,10 +199,20 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/typecheck.sh
 
+    - name: Full dbscan tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-dbscan.sh
+        
     - name: Full feature tests (rich featurize)
       run: |
         source pygraphistry/bin/activate
         ./bin/test-features.sh
+
+    - name: Full search tests (rich featurize)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-text.sh
 
     - name: Full umap tests (rich featurize)
       run: |

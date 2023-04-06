@@ -40,6 +40,9 @@ extensions = [
     "sphinx_autodoc_typehints",
 ]
 
+# mock imports
+autodoc_mock_imports = ["graphistry.compute.chain"]
+
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
     ('py:class', '1'),  # Ex: api : Optional[Literal[1, 3]]
@@ -53,7 +56,13 @@ nitpick_ignore = [
     ('py:class', 'graphistry.layouts.LayoutsMixin'),
     ('py:class', 'graphistry.compute.ComputeMixin'),
     ('py:class', 'graphistry.compute.conditional.ConditionalMixin'),
+    ('py:class', 'graphistry.compute.cluster.ClusterMixin'),
     ('py:class', 'graphistry.Plottable.Plottable'),
+    ('py:class', 'graphistry.plugins.cugraph.compute_cugraph'),
+    ('py:class', 'graphistry.plugins.cugraph.from_cugraph'),
+    ('py:class', 'graphistry.plugins.igraph.compute_igraph'),
+    ('py:class', 'graphistry.plugins.igraph.from_igraph'),
+    ('py:class', 'graphistry.plugins.igraph.layout_igraph'),
     ('py:class', 'graphistry.feature_utils.FeatureMixin'),
     ('py:class', 'graphistry.dgl_utils.DGLGraphMixin'),
     ('py:class', 'graphistry.umap_utils.UMAPMixin'),

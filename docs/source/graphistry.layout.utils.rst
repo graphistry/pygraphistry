@@ -1,6 +1,11 @@
 graphistry.layout.utils package
 ===============================
 
+.. toctree:: 
+   :maxdepth: 2
+   
+   graphistry.layout.graph
+
 Submodules
 ----------
 

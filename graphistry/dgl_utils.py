@@ -229,7 +229,7 @@ class DGLGraphMixin(MIXIN_BASE):
             self.train_split = train_split
             self.device = device
             self._removed_edges_previously = False
-            self.DGL_graph = None
+            self._dgl_graph = None
             self.dgl_initialized = True
 
     def _prune_edge_target(self):
@@ -335,7 +335,7 @@ class DGLGraphMixin(MIXIN_BASE):
                 'destination column not set, try running g.bind(destination="my_col") or g.edges(df, destination="my_col")'
             )
 
-        res.DGL_graph, res._adjacency, res._entity_to_index = pandas_to_dgl_graph(
+        res._dgl_graph, res._adjacency, res._entity_to_index = pandas_to_dgl_graph(
             res._edges,
             res._source,
             res._destination,
@@ -370,7 +370,7 @@ class DGLGraphMixin(MIXIN_BASE):
 
         ndata = convert_to_torch(X_enc, y_enc)
         # add ndata to the graph
-        res.DGL_graph.ndata.update(ndata)
+        res._dgl_graph.ndata.update(ndata)
         res._mask_nodes()
         return res
 
@@ -396,7 +396,7 @@ class DGLGraphMixin(MIXIN_BASE):
 
         edata = convert_to_torch(X_enc, y_enc)
         # add edata to the graph
-        res.DGL_graph.edata.update(edata)
+        res._dgl_graph.edata.update(edata)
         res._mask_edges()
         return res
 
@@ -504,30 +504,21 @@ class DGLGraphMixin(MIXIN_BASE):
             return res
 
     def _mask_nodes(self):
-        if config.FEATURE in self.DGL_graph.ndata:
-            n = self.DGL_graph.ndata[config.FEATURE].shape[0]
+        if config.FEATURE in self._dgl_graph.ndata:
+            n = self._dgl_graph.ndata[config.FEATURE].shape[0]
             (
-                self.DGL_graph.ndata[config.TRAIN_MASK],
-                self.DGL_graph.ndata[config.TEST_MASK],
+                self._dgl_graph.ndata[config.TRAIN_MASK],
+                self._dgl_graph.ndata[config.TEST_MASK],
             ) = get_torch_train_test_mask(n, self.train_split)
 
     def _mask_edges(self):
-        if config.FEATURE in self.DGL_graph.edata:
-            n = self.DGL_graph.edata[config.FEATURE].shape[0]
+        if config.FEATURE in self._dgl_graph.edata:
+            n = self._dgl_graph.edata[config.FEATURE].shape[0]
             (
-                self.DGL_graph.edata[config.TRAIN_MASK],
-                self.DGL_graph.edata[config.TEST_MASK],
+                self._dgl_graph.edata[config.TRAIN_MASK],
+                self._dgl_graph.edata[config.TEST_MASK],
             ) = get_torch_train_test_mask(n, self.train_split)
 
-    def __getitem__(self, idx):
-        # get one example by index, here we have only one graph. #todo parameterize case if we have RGNN
-        if self.DGL_graph is None:
-            logger.warning("DGL graph is not built, run `g.build_gnn(...)` first")
-        return self.DGL_graph
-
-    # def __len__(self): # this messes up scope.
-    #     # number of data examples
-    #     return 1
 
 
 # if __name__ == "__main__":
@@ -607,7 +598,7 @@ class DGLGraphMixin(MIXIN_BASE):
 #         use_edge_scaler="zscale",
 #     )
 #     # the DGL graph
-#     G = g2.DGL_graph
+#     G = g2._dgl_graph
 #     print('G', G)
 #     # to get a sense of the different parts in training loop above
 #     # labels = torch.tensor(T.values, dtype=torch.float)
