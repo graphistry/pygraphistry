@@ -68,7 +68,7 @@ nitpick_ignore = [
     ('py:class', 'graphistry.embed_utils.HeterographEmbedModuleMixin'),
     ('py:class', 'graphistry.PlotterBase.PlotterBase'),
     ('py:class', 'graphistry.compute.ast.ASTObject'),
-    ('py:class', 'graphistry.plotter.Plotter'),
+    ('py:class', 'Plotter'),
     ('py:class', 'IGraph graph'),
     ('py:class', 'igraph'),
     ('py:class', 'dgl'),
