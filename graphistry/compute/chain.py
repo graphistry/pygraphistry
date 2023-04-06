@@ -97,7 +97,8 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
 
     :param ops: List[ASTObject] Various node and edge matchers
 
-    :returns: Plottable
+    :returns: Plotter
+    :rtype: Plotter
 
     **Example: Find nodes of some type**
 
