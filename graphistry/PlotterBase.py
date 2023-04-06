@@ -398,31 +398,15 @@ class PlotterBase(Plottable):
         """Set point color with more control than bind()
 
         :param column: Data column name
-        :type column: str
-
         :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
-        :type palette: Optional[list]
-
         :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
-        :type as_categorical: Optional[bool]
-
         :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
-        :type as_continuous: Optional[bool]
-
         :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
-        :type categorical_mapping: Optional[dict]
-
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
-        :type default_mapping: Optional[str]
-
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: Optional[bool]
-
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: Optional[bool]
 
         :returns: Plotter
-        :rtype: Plotter
 
         **Example: Set a palette-valued column for the color, same as bind(point_color='my_column')**
             ::
@@ -459,31 +443,15 @@ class PlotterBase(Plottable):
         """Set edge color with more control than bind()
 
         :param column: Data column name
-        :type column: str
-
         :param palette: Optional list of color-like strings. Ex: ["black, "#FF0", "rgb(255,255,255)" ]. Used as a gradient for continuous and round-robin for categorical.
-        :type palette: Optional[list]
-
         :param as_categorical: Interpret column values as categorical. Ex: Uses palette via round-robin when more values than palette entries.
-        :type as_categorical: Optional[bool]
-
         :param as_continuous: Interpret column values as continuous. Ex: Uses palette for an interpolation gradient when more values than palette entries.
-        :type as_continuous: Optional[bool]
-
         :param categorical_mapping: Mapping from column values to color-like strings. Ex: {"car": "red", "truck": #000"}
-        :type categorical_mapping: Optional[dict]
-
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping="gray".
-        :type default_mapping: Optional[str]
-
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: Optional[bool]
-
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: Optional[bool]
 
         :returns: Plotter
-        :rtype: Plotter
 
         **Example: See encode_point_color**
         """
@@ -541,34 +509,16 @@ class PlotterBase(Plottable):
         """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...). When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
-        :type column: str
-
         :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
-        :type categorical_mapping: Optional[dict]
-
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
-        :type default_mapping: Optional[Union[int,float]]
-
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: Optional[bool]
-
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: Optional[bool]
-
         :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
-        :type as_text: Optional[bool]
-
         :param blend_mode: CSS blend mode
-        :type blend_mode: Optional[str]
-
         :param style: CSS filter properties - opacity, saturation, luminosity, grayscale, and more
-        :type style: Optional[dict]
-
         :param border: Border properties - 'width', 'color', and 'storke'
-        :type border: Optional[dict]
 
         :returns: Plotter
-        :rtype: Plotter
 
         **Example: Set a string column of icons for the point icons, same as bind(point_icon='my_column')**
             ::
@@ -608,25 +558,13 @@ class PlotterBase(Plottable):
         """Set edge icon with more control than bind() Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...). When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
-        :type column: str
-
         :param categorical_mapping: Mapping from column values to icon name strings. Ex: {"toyota": 'car', "ford": 'truck'}
-        :type categorical_mapping: Optional[dict]
-
         :param default_mapping: Augment categorical_mapping with mapping for values not in categorical_mapping. Ex: default_mapping=50.
-        :type default_mapping: Optional[Union[int,float]]
-
         :param for_default: Use encoding for when no user override is set. Default on.
-        :type for_default: Optional[bool]
-
         :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
-        :type for_current: Optional[bool]
-
         :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
-        :type as_text: Optional[bool]
 
         :returns: Plotter
-        :rtype: Plotter
 
         **Example: Set a string column of icons for the edge icons, same as bind(edge_icon='my_column')**
             ::
@@ -828,55 +766,23 @@ class PlotterBase(Plottable):
         """Relate data attributes to graph structure and visual representation. To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
 
         :param source: Attribute containing an edge's source ID
-        :type source: str
-
         :param destination: Attribute containing an edge's destination ID
-        :type destination: str
-
         :param node: Attribute containing a node's ID
-        :type node: str
-
         :param edge: Attribute containing an edge's ID
-        :type edge: str
-
         :param edge_title: Attribute overriding edge's minimized label text. By default, the edge source and destination is used.
-        :type edge_title: str
-
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
-        :type edge_label: str
-
         :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
-        :type edge_color: str
-
         :param edge_source_color: Attribute overriding edge's source color if no edge_color, as an rgba int64 value.
-        :type edge_source_color: str
-
         :param edge_destination_color: Attribute overriding edge's destination color if no edge_color, as an rgba int64 value.
-        :type edge_destination_color: str
-
         :param edge_weight: Attribute overriding edge weight. Default is 1. Advanced layout controls will relayout edges based on this value.
-        :type edge_weight: str
-
         :param point_title: Attribute overriding node's minimized label text. By default, the node ID is used.
-        :type point_title: str
-
         :param point_label: Attribute overriding node's expanded label text. By default, scrollable list of attribute/value mappings.
-        :type point_label: str
-
         :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
-        :type point_color: str
-
         :param point_size: Attribute overriding node's size. By default, uses the node degree. The visualization will normalize point sizes and adjust dynamically using semantic zoom.
-        :type point_size: str
-
         :param point_x: Attribute overriding node's initial x position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
-        :type point_x: str
-
         :param point_y: Attribute overriding node's initial y position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
-        :type point_y: str
 
         :returns: Plotter
-        :rtype: Plotter
 
         **Example: Minimal**
 
