@@ -48,8 +48,7 @@ def from_igraph(self,
     :param merge_if_existing: Whether to merge with existing node/edge dataframes (default True)
     :param merge_if_existing: bool
 
-    :returns: Plotter
-    :rtype: Plotter
+    :returns: Plottable
 
     **Example: Convert from igraph, including all node/edge properties**
         ::
