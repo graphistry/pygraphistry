@@ -1,9 +1,10 @@
-Plotter Module
-==================
+plotter
+=======
 .. toctree::
-    :maxdepth: 3
+   :maxdepth: 3
 
-    graphistry.plotter
+   graphistry.plotter
+
 
 Plugins
 ==================
