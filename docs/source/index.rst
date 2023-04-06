@@ -69,6 +69,7 @@ Articles
 ==================
 * `Graphistry: Visual Graph AI Interactive demo <https://github.com/graphistry/pygraphistry/blob/master/README.md#demo-of-friendship-communities-on-facebook/>`_
 * `PyGraphistry + Databricks <https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb>`_
+* `PyGraphistry + UMAP <https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/umap_learn/umap_learn.ipynb>`_
 
 
 Indices and tables
