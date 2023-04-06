@@ -40,6 +40,9 @@ extensions = [
     "sphinx_autodoc_typehints",
 ]
 
+# mock imports
+todoc_mock_imports = ["graphistry.compute.ast.ASTObject"]
+
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
     ('py:class', '1'),  # Ex: api : Optional[Literal[1, 3]]
