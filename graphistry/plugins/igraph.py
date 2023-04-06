@@ -48,7 +48,7 @@ def from_igraph(self,
     :param merge_if_existing: Whether to merge with existing node/edge dataframes (default True)
     :param merge_if_existing: bool
 
-    :returns: Plottable
+    :returns: Plotter
 
     **Example: Convert from igraph, including all node/edge properties**
         ::
@@ -293,12 +293,22 @@ def compute_igraph(
     """Enrich or replace graph using igraph methods
 
     :param alg: Name of an igraph.Graph method like `pagerank`
+    :type alg: str
+
     :param out_col: For algorithms that generate a node attribute column, `out_col` is the desired output column name. When `None`, use the algorithm's name. (default None)
+    :type out_col: Optional[str]
+
     :param directed: During the to_igraph conversion, whether to be directed. If None, try directed and then undirected. (default None)
+    :type directed: Optional[bool]
+
     :param use_vids: During the to_igraph conversion, whether to interpret IDs as igraph vertex IDs (non-negative integers) or arbitrary values (False, default)
+    :type use_vids: bool
+
     :param params: Any named parameters to pass to the underlying igraph method
+    :type params: dict
 
     :returns: Plotter
+    :rtype: Plotter
 
     **Example: Pagerank**
         ::
@@ -414,15 +424,31 @@ def layout_igraph(
     """Compute graph layout using igraph algorithm. For a list of layouts, see layout_algs or igraph documentation.
 
     :param layout: Name of an igraph.Graph.layout method like `sugiyama`
+    :type layout: str
+
     :param directed: During the to_igraph conversion, whether to be directed. If None, try directed and then undirected. (default None)
+    :type directed: Optional[bool]
+
     :param use_vids: Whether to use igraph vertex ids (non-negative integers) or arbitary node ids (False, default)
+    :type use_vids: bool
+
     :param bind_position: Whether to call bind(point_x=, point_y=) (default True)
+    :type bind_position: bool
+
     :param x_out_col: Attribute to write x position to. (default 'x')
+    :type x_out_col: str
+
     :param y_out_col: Attribute to write x position to. (default 'y')
+    :type y_out_col: str
+
     :param play: If defined, set settings(url_params={'play': play}). (default 0)
+    :type play: Optional[str]
+
     :param params: Any named parameters to pass to the underlying igraph method
+    :type params: dict
 
     :returns: Plotter
+    :rtype: Plotter
 
     **Example: Sugiyama layout**
         ::
