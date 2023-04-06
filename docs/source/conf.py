@@ -93,6 +93,7 @@ nitpick_ignore = [
     ('py:data', 'typing.List'),
     ('py:data', 'typing.Literal'),
     ('py:data', 'typing.Optional'),
+    ('py:data', 'typing.Callable'),
     ('py:data', 'typing.Tuple'),
     ('py:data', 'typing.Union'),
     ('py:class','pandas.core.frame.DataFrame')
