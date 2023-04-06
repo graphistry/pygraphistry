@@ -959,7 +959,7 @@ class PlotterBase(Plottable):
         If a callable, will be called with current Plotter and whatever positional+named arguments
 
         :param edges: Edges and their attributes, or transform from Plotter to edges
-        :type edges: Pandas dataframe, NetworkX graph, or IGraph graph.
+        :type edges: Pandas dataframe, NetworkX graph, or IGraph graph
 
         :returns: Plotter
         :rtype: Plotter
