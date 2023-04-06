@@ -95,7 +95,7 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
     Return subgraph of matches according to the list of node & edge matchers
     If any matchers are named, add a correspondingly named boolean-valued column to the output
 
-    :param ops: List[ASTobject] Various node and edge matchers
+    :param ops: List[ASTObject] Various node and edge matchers
 
     :returns: Plottable
 
