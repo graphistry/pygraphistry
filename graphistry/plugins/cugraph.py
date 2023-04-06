@@ -332,34 +332,15 @@ def layout_cugraph(
     """Layout the grpah using a cuGraph algorithm. For a list of layouts, see cugraph documentation (currently just force_atlas2).
 
     :param layout: Name of an cugraph layout method like `force_atlas2`
-    :type layout: str
-
     :param params: Any named parameters to pass to the underlying cugraph method
-    :type params: dict
-
     :param kind: The kind of cugraph Graph
-    :type kind: CuGraphKind
-
     :param directed: During the to_cugraph conversion, whether to be directed. (default True)
-    :type directed: bool
-
     :param G: The cugraph graph (G) to layout. If None, the current graph is used.
-    :type G: Optional[Any]
-
     :param bind_position: Whether to call bind(point_x=, point_y=) (default True)
-    :type bind_position: bool
-
     :param x_out_col: Attribute to write x position to. (default 'x')
-    :type x_out_col: str
-
     :param y_out_col: Attribute to write x position to. (default 'y')
-    :type y_out_col: str
-
     :param play: If defined, set settings(url_params={'play': play}). (default 0)
-    :type play: Optional[str]
-
     :returns: Plotter
-    :rtype: Plotter
 
     **Example: ForceAtlas2 layout**
         ::

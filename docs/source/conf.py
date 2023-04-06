@@ -40,9 +40,6 @@ extensions = [
     "sphinx_autodoc_typehints",
 ]
 
-# mock imports
-autodoc_mock_imports = ["graphistry.compute.chain.chain"]
-
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
     ('py:class', '1'),  # Ex: api : Optional[Literal[1, 3]]
