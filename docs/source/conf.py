@@ -41,7 +41,7 @@ extensions = [
 ]
 
 # mock imports
-autodoc_mock_imports = ["graphistry.compute.chain"]
+autodoc_mock_imports = ["graphistry.compute.chain.chain"]
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
@@ -69,7 +69,6 @@ nitpick_ignore = [
     ('py:class', 'graphistry.text_utils.SearchToGraphMixin'),
     ('py:class', 'graphistry.embed_utils.HeterographEmbedModuleMixin'),
     ('py:class', 'graphistry.PlotterBase.PlotterBase'),
-    ('py:function', 'graphistry.compute.chain.chain'),
     ('py:class', 'IGraph graph'),
     ('py:class', 'igraph'),
     ('py:class', 'dgl'),
