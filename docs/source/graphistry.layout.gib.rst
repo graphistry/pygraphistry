@@ -1,3 +1,7 @@
+:orphan:
+
+.. ^ FIXME
+
 graphistry.layout.gib package
 ==================================
 
@@ -11,3 +15,5 @@ Module contents
    :members:
    :undoc-members:
    :show-inheritance:
+
+   

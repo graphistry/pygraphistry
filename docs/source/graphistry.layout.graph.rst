@@ -59,3 +59,7 @@ Module contents
    :members:
    :undoc-members:
    :show-inheritance:
+   
+graphistry.layout.gib
+  
+

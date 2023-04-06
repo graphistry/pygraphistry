@@ -165,23 +165,20 @@ class PlotterBase(Plottable):
         self._bolt_driver : any = None
         self._tigergraph : any = None
 
+        # feature engineering
         self._node_embedding = None
         self._node_encoder = None
         self._node_features = None
-        self._node_ordinal_pipeline = None
-        self._node_ordinal_pipeline_target = None,
+        self._node_features_raw = None
         self._node_target = None
         self._node_target_encoder = None
-        self._node_text_model = None
 
         self._edge_embedding = None
         self._edge_encoder = None
         self._edge_features = None
-        self._edge_ordinal_pipeline = None
-        self._edge_ordinal_pipeline_target = None
+        self._edge_features_raw = None
         self._edge_target = None
         self._edge_target_encoder = None
-        self._edge_text_model = None
 
         self._weighted_adjacency_nodes = None
         self._weighted_adjacency_edges = None
@@ -190,6 +187,7 @@ class PlotterBase(Plottable):
         self._weighted_edges_df_from_edges = None
         self._xy = None
 
+        # the fit umap instance
         self._umap = None
 
         self._adjacency = None
@@ -201,6 +199,13 @@ class PlotterBase(Plottable):
         self._use_feat: bool = False
         self._triplets: Optional[List] = None 
         self._kg_embed_dim: int = 128
+        
+        # Dbscan
+        self._node_dbscan = None  # the fit dbscan instance
+        self._edge_dbscan = None
+        
+        # DGL
+        self.DGL_graph = None  # the DGL graph
 
 
     def __repr__(self):
@@ -219,7 +224,7 @@ class PlotterBase(Plottable):
         else:
             return str(rep)
 
-    def addStyle(self, fg=None, bg=None, page=None, logo=None):
+    def add_style(self, fg=None, bg=None, page=None, logo=None):
         """Set general visual styles
         
         See .bind() and .settings(url_params={}) for additional styling options, and style() for another way to set the same attributes.
@@ -295,7 +300,7 @@ class PlotterBase(Plottable):
         :param fg: Dictionary {'blendMode': str} of any valid CSS blend mode
         :type fg: dict
 
-        :param bg: Nested dictionary of page background properties. {'color': str, 'gradient': {'kind': str, 'position': str, 'stops': list }, 'image': { 'url': str, 'width': int, 'height': int, 'blendMode': str }
+        :param bg: Nested dictionary of page background properties. { 'color': str, 'gradient': {'kind': str, 'position': str, 'stops': list }, 'image': { 'url': str, 'width': int, 'height': int, 'blendMode': str }
         :type bg: dict
 
         :param logo: Nested dictionary of logo properties. { 'url': str, 'autoInvert': bool, 'position': str, 'dimensions': { 'maxWidth': int, 'maxHeight': int }, 'crop': { 'top': int, 'left': int, 'bottom': int, 'right': int }, 'padding': { 'top': int, 'left': int, 'bottom': int, 'right': int}, 'style': str}        
@@ -309,15 +314,18 @@ class PlotterBase(Plottable):
 
         **Example: Chained merge - results in url and blendMode being set, while color is dropped**
             ::
+
                 g2 =  g.style(bg={'color': 'black'}, fg={'blendMode': 'screen'})
                 g3 = g2.style(bg={'image': {'url': 'http://site.com/watermark.png'}})
                 
         **Example: Gradient background**
             ::
+
               g.style(bg={'gradient': {'kind': 'linear', 'position': 45, 'stops': [['rgb(0,0,0)', '0%'], ['rgb(255,255,255)', '100%']]}})
               
         **Example: Page settings**
             ::
+            
               g.style(page={'title': 'Site - {{ name }}', 'favicon': 'http://site.com/logo.ico'})
 
         """        
@@ -334,17 +342,10 @@ class PlotterBase(Plottable):
     def encode_axis(self, rows=[]):
         """Render radial and linear axes with optional labels
 
-        :param rows: List of rows - {
-            label: Optional[str],
-            ?r: float,
-            ?x: float,
-            ?y: float,
-            ?internal: true,
-            ?external: true,
-            ?space: true
-        }
+        :param rows: List of rows - { label: Optional[str],?r: float, ?x: float, ?y: float, ?internal: true, ?external: true, ?space: true }
 
         :returns: Plotter
+        
         :rtype: Plotter
 
         **Example: Several radial axes**
@@ -537,9 +538,7 @@ class PlotterBase(Plottable):
             comparator=None,
             for_default=True, for_current=False,
             as_text=False, blend_mode=None, style=None, border=None, shape=None):
-        """Set node icon with more control than bind().
-        Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
-        When as_text=True is enabled, values are instead interpreted as raw strings.
+        """Set node icon with more control than bind(). Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...). When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
         :type column: str
@@ -606,9 +605,7 @@ class PlotterBase(Plottable):
             comparator=None,
             for_default=True, for_current=False,
             as_text=False, blend_mode=None, style=None, border=None, shape=None):
-        """Set edge icon with more control than bind()
-        Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...).
-        When as_text=True is enabled, values are instead interpreted as raw strings.
+        """Set edge icon with more control than bind() Values from Font Awesome 4 such as "laptop": https://fontawesome.com/v4.7.0/icons/ , image URLs (http://...), and data URIs (data:...). When as_text=True is enabled, values are instead interpreted as raw strings.
 
         :param column: Data column name
         :type column: str
@@ -828,10 +825,7 @@ class PlotterBase(Plottable):
              edge_source_color=None, edge_destination_color=None,
              point_title=None, point_label=None, point_color=None, point_weight=None, point_size=None, point_opacity=None, point_icon=None,
              point_x=None, point_y=None):
-        """Relate data attributes to graph structure and visual representation.
-
-        To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
-
+        """Relate data attributes to graph structure and visual representation. To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
 
         :param source: Attribute containing an edge's source ID
         :type source: str
@@ -851,7 +845,7 @@ class PlotterBase(Plottable):
         :param edge_label: Attribute overriding edge's expanded label text. By default, scrollable list of attribute/value mappings.
         :type edge_label: str
 
-        :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
+        :param edge_color: Attribute overriding edge's color. rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
         :type edge_color: str
 
         :param edge_source_color: Attribute overriding edge's source color if no edge_color, as an rgba int64 value.
@@ -869,7 +863,7 @@ class PlotterBase(Plottable):
         :param point_label: Attribute overriding node's expanded label text. By default, scrollable list of attribute/value mappings.
         :type point_label: str
 
-        :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see palette definitions <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ for values. Based on Color Brewer.
+        :param point_color: Attribute overriding node's color.rgba (int64) or int32 palette index, see `palette <https://graphistry.github.io/docs/legacy/api/0.9.2/api.html#extendedpalette>`_ definitions for values. Based on Color Brewer.
         :type point_color: str
 
         :param point_size: Attribute overriding node's size. By default, uses the node degree. The visualization will normalize point sizes and adjust dynamically using semantic zoom.
@@ -885,6 +879,7 @@ class PlotterBase(Plottable):
         :rtype: Plotter
 
         **Example: Minimal**
+
             ::
 
                 import graphistry
@@ -892,6 +887,7 @@ class PlotterBase(Plottable):
                 g = g.bind(source='src', destination='dst')
 
         **Example: Node colors**
+
             ::
 
                 import graphistry
@@ -900,6 +896,7 @@ class PlotterBase(Plottable):
                            node='id', point_color='color')
 
         **Example: Chaining**
+
             ::
 
                 import graphistry
@@ -916,6 +913,7 @@ class PlotterBase(Plottable):
                 g3b = g2b.bind(point_size='size3b')
 
         In the above **Chaining** example, all bindings use src/dst/id. Colors and sizes bind to:
+
             ::
 
                 g: default/default
@@ -924,8 +922,6 @@ class PlotterBase(Plottable):
                 g2b: color2b/size2b
                 g3a: color2a/size3a
                 g3b: color2b/size3b
-
-
         """
         res = copy.copy(self)
         res._source = source or self._source
@@ -1002,6 +998,7 @@ class PlotterBase(Plottable):
 
         **Example**
             ::
+
                 import graphistry
 
                 def sample_nodes(g, n):
@@ -1101,6 +1098,7 @@ class PlotterBase(Plottable):
 
         **Example**
             ::
+
                 import graphistry
 
                 def sample_edges(g, n):
