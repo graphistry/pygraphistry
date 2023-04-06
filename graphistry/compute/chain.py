@@ -98,10 +98,8 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
     If any matchers are named, add a correspondingly named boolean-valued column to the output
 
     :param ops: List[ASTobject] Various node and edge matchers
-    :type fg: dict
 
     :returns: Plotter
-    :rtype: Plotter
 
     **Example: Find nodes of some type**
         ::
