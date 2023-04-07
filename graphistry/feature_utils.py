@@ -60,7 +60,7 @@ if TYPE_CHECKING:
         GapEncoder = Any
         SimilarityEncoder = Any
     try:
-        from sklearn.preprocessing import FunctionTransformer
+        from cuml.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
     except:
         FunctionTransformer = Any
@@ -328,10 +328,9 @@ def remove_node_column_from_symbolic(X_symbolic, node):
             logger.info(f"Removing `{node}` from input X_symbolic list")
             X_symbolic.remove(node)
         return X_symbolic
-    if isinstance(X_symbolic, pd.DataFrame):
+    if isinstance(X_symbolic, pd.DataFrame) or 'cudf' in str(getmodule(X_symbolic)):
         logger.info(f"Removing `{node}` from input X_symbolic DataFrame")
         return X_symbolic.drop(columns=[node], errors="ignore")
-
 
 def remove_internal_namespace_if_present(df: pd.DataFrame):
     """Some tranformations below add columns to the DataFrame, this method removes them before featurization will not drop if suffix is added during UMAP-ing
@@ -609,11 +608,19 @@ def get_preprocessing_pipeline(
     :return: scaled array, imputer instances or None, scaler instance or None
     """
     from sklearn.preprocessing import (
+        # FunctionTransformer,
+        # KBinsDiscretizer,
+        # MinMaxScaler,
+        MultiLabelBinarizer,
+        QuantileTransformer, 
+        # RobustScaler,
+        # StandardScaler,
+    )
+    from cuml.preprocessing import (
         FunctionTransformer,
         KBinsDiscretizer,
         MinMaxScaler,
-        MultiLabelBinarizer,
-        QuantileTransformer,
+        # QuantileTransformer,  ## cuml 23 only
         RobustScaler,
         StandardScaler,
     )
@@ -886,7 +893,7 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    from sklearn.preprocessing import FunctionTransformer
+    from cuml.preprocessing import FunctionTransformer
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -947,8 +954,9 @@ def process_dirty_dataframes(
     if feature_engine == 'dirty_cat':
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     elif feature_engine == 'cu_cat':
+        # assert_cuml_cucat() ## tried to use this rather than importing below
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    from sklearn.preprocessing import FunctionTransformer
+    from cuml.preprocessing import FunctionTransformer
     t = time()
 
     if not is_dataframe_all_numeric(ndf):
@@ -963,7 +971,6 @@ def process_dirty_dataframes(
         )
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
-        
         X_enc = data_encoder.fit_transform(ndf, y)
         X_enc = make_array(X_enc)
 
@@ -992,9 +999,14 @@ def process_dirty_dataframes(
             )
             X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
         elif 'cudf.core.dataframe' in str(getmodule(ndf)):
-            X_enc = cudf.DataFrame(
-                X_enc, columns=features_transformed, index=ndf.index
-            )
+            import cudf
+            X_enc = cudf.DataFrame.from_arrow(X_enc)
+            X_enc.index = ndf.index
+            # features_transformed=np.array([item.as_py() for item in features_transformed.key()])
+            # X_enc.columns = features_transformed.as_py()
+            #  = features_transformed #.to_numpy() ##error suggests this -- not working
+
+            
         #X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
     else:
         logger.info("-*-*- DataFrame is completely numeric")
@@ -1219,7 +1231,6 @@ def process_nodes_dataframes(
     logger.debug(
         f"--The entire Encoding process took {(time()-t)/60:.2f} minutes"
     )
-
     X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
         X_enc,
         y_enc,
@@ -1234,7 +1245,6 @@ def process_nodes_dataframes(
         strategy=strategy,
         keep_n_decimals=keep_n_decimals,
     )
-
     return (
         X_enc,
         y_enc,
@@ -1309,7 +1319,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
         edf (pd.DataFrame): edge dataframe
         src (string): source column
         dst (string): destination column
-        mlb (sklearn): multilabelBinarizer
+        mlb (sklearn): multilabelBinarizer ##not in cuml yet so cast down to pandas
         fit (bool, optional): If true, fits multilabelBinarizer. Defaults to False.
     Returns:
         tuple: pd.DataFrame, multilabelBinarizer
@@ -1319,16 +1329,19 @@ def encode_edges(edf, src, dst, mlb, fit=False):
 
     logger.debug("Encoding Edges using MultiLabelBinarizer")
     edf_type = str(getmodule(edf))
-    if 'cudf.core.dataframe' in edf_type:
-        source = edf.to_pandas()[src]
-        destination = edf.to_pandas()[dst]
-    else:
-        source = edf[src]
-        destination = edf[dst]
-    if fit:
+    source = edf[src]
+    destination = edf[dst]
+    source_dtype = str(getmodule(source))
+                       
+    if fit and 'cudf' not in source_dtype:
         T = mlb.fit_transform(zip(source, destination))
-    else:
+    elif fit and 'cudf' in source_dtype:
+        T = mlb.fit_transform(zip(source.to_pandas(), destination.to_pandas()))
+    elif not fit and 'cudf' not in source_dtype:
         T = mlb.transform(zip(source, destination))
+    elif not fit and 'cudf' in source_dtype:
+        T = mlb.transform(zip(source.to_pandas(), destination.to_pandas()))
+                                   
     T = 1.0 * T  # coerce to float
     columns = [
         str(k) for k in mlb.classes_
@@ -1336,6 +1349,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
     if 'cudf.core.dataframe' in edf_type:
+        import cudf
         T = cudf.DataFrame(T, columns=columns, index=edf.index)
     else:
         T = pd.DataFrame(T, columns=columns, index=edf.index)
@@ -1756,7 +1770,6 @@ class FastEncoder:
         logger.info("\n-- Setting Encoder Parts from Fit ::")
         logger.info(f'Feature Columns In: {self.feature_names_in}')
         logger.info(f'Target Columns In: {self.target_names_in}')
-
         for name, value in zip(self.res_names, res):
             if name not in ["X_enc", "y_enc"]:
                 logger.info("-" * 90)
@@ -2033,11 +2046,14 @@ class FeatureMixin(MIXIN_BASE):
         res = self.copy() 
         ndf = res._nodes
         node = res._node
-
+        # print(['ndf:',ndf])
+        # print(['X:',X])
+        # print(['node:',res._node])
+        
         if remove_node_column:
             ndf = remove_node_column_from_symbolic(ndf, node)
             X = remove_node_column_from_symbolic(X, node)
-
+        
         if ndf is None:
             logger.info(
                 "! Materializing Nodes and setting `embedding=True`"
