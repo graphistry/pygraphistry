@@ -29,9 +29,9 @@ PyGraphistry: Explore Relationships
       :target: https://pypi.python.org/pypi/graphistry
       :alt: License
 
-   .. image:: https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com
-      :target: https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com
-      :alt: License
+   .. .. image:: https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com
+   ..    :target: https://img.shields.io/uptimerobot/status/m787548531-e9c7b7508fc76fea927e2313?label=hub.graphistry.com
+   ..    :alt: License
 
    .. .. image:: https://img.shields.io/badge/slack-Graphistry%20chat-orange.svg?logo=slack
    ..       :target: https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g
