@@ -1,5 +1,6 @@
 PyGraphistry: Explore Relationships
 ========================================
+.. only:: html
 .. image:: https://readthedocs.org/projects/pygraphistry/badge/?version=latest
     :target: https://pygraphistry.readthedocs.io/en/latest/?badge=latest
     :alt: Documentation Status
