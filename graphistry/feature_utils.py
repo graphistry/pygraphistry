@@ -328,10 +328,9 @@ def remove_node_column_from_symbolic(X_symbolic, node):
             logger.info(f"Removing `{node}` from input X_symbolic list")
             X_symbolic.remove(node)
         return X_symbolic
-    if isinstance(X_symbolic, pd.DataFrame):
+    if isinstance(X_symbolic, pd.DataFrame) or 'cudf' in str(getmodule(X_symbolic)):
         logger.info(f"Removing `{node}` from input X_symbolic DataFrame")
         return X_symbolic.drop(columns=[node], errors="ignore")
-
 
 def remove_internal_namespace_if_present(df: pd.DataFrame):
     """Some tranformations below add columns to the DataFrame, this method removes them before featurization will not drop if suffix is added during UMAP-ing
@@ -955,6 +954,7 @@ def process_dirty_dataframes(
     if feature_engine == 'dirty_cat':
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     elif feature_engine == 'cu_cat':
+        # assert_cuml_cucat() ## tried to use this rather than importing below
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from cuml.preprocessing import FunctionTransformer
     t = time()
@@ -993,21 +993,17 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed)
-        if 'cudf.core.dataframe' not in str(getmodule(ndf)):
+        if 'cudf' not in str(getmodule(ndf)):
             X_enc = pd.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
             X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
-        elif 'cudf.core.dataframe' in str(getmodule(ndf)):
-            import cudf
-            X_enc = cudf.DataFrame.from_arrow(X_enc)
+        elif 'cudf' in str(getmodule(ndf)):
+            # X_enc = cudf.DataFrame.from_arrow(X_enc)
             X_enc.index = ndf.index
-            # features_transformed=np.array([item.as_py() for item in features_transformed.key()])
-            # X_enc.columns = features_transformed.as_py()
-            #  = features_transformed #.to_numpy() ##error suggests this -- not working
+            X_enc.columns = np.array(features_transformed)
+            X_enc = X_enc.fillna(0.0)
 
-            
-        #X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
     else:
         logger.info("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
@@ -1319,7 +1315,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
         edf (pd.DataFrame): edge dataframe
         src (string): source column
         dst (string): destination column
-        mlb (sklearn): multilabelBinarizer
+        mlb (sklearn): multilabelBinarizer ##not in cuml yet so cast down to pandas
         fit (bool, optional): If true, fits multilabelBinarizer. Defaults to False.
     Returns:
         tuple: pd.DataFrame, multilabelBinarizer
@@ -1329,23 +1325,27 @@ def encode_edges(edf, src, dst, mlb, fit=False):
 
     logger.debug("Encoding Edges using MultiLabelBinarizer")
     edf_type = str(getmodule(edf))
-    if 'cudf.core.dataframe' in edf_type:
-        source = edf.to_pandas()[src]
-        destination = edf.to_pandas()[dst]
-    else:
-        source = edf[src]
-        destination = edf[dst]
-    if fit:
+    source = edf[src]
+    destination = edf[dst]
+    source_dtype = str(getmodule(source))
+                       
+    if fit and 'cudf' not in source_dtype:
         T = mlb.fit_transform(zip(source, destination))
-    else:
+    elif fit and 'cudf' in source_dtype:
+        T = mlb.fit_transform(zip(source.to_pandas(), destination.to_pandas()))
+    elif not fit and 'cudf' not in source_dtype:
         T = mlb.transform(zip(source, destination))
+    elif not fit and 'cudf' in source_dtype:
+        T = mlb.transform(zip(source.to_pandas(), destination.to_pandas()))
+                                   
     T = 1.0 * T  # coerce to float
     columns = [
         str(k) for k in mlb.classes_
     ]  # stringify the column names or scikits.base throws error
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
-    if 'cudf.core.dataframe' in edf_type:
+    if 'cudf' in edf_type:
+        import cudf
         T = cudf.DataFrame(T, columns=columns, index=edf.index)
     else:
         T = pd.DataFrame(T, columns=columns, index=edf.index)
@@ -2042,11 +2042,14 @@ class FeatureMixin(MIXIN_BASE):
         res = self.copy() 
         ndf = res._nodes
         node = res._node
-
+        # print(['ndf:',ndf])
+        # print(['X:',X])
+        # print(['node:',res._node])
+        
         if remove_node_column:
             ndf = remove_node_column_from_symbolic(ndf, node)
             X = remove_node_column_from_symbolic(X, node)
-
+        
         if ndf is None:
             logger.info(
                 "! Materializing Nodes and setting `embedding=True`"
