@@ -50,7 +50,17 @@ if TYPE_CHECKING:
         GapEncoder = Any
         SimilarityEncoder = Any
     try:
-        from sklearn.preprocessing import FunctionTransformer
+        from cu_cat import (
+            SuperVectorizer,
+            GapEncoder,
+            SimilarityEncoder,
+        )
+    except:
+        SuperVectorizer = Any
+        GapEncoder = Any
+        SimilarityEncoder = Any
+    try:
+        from cuml.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
     except:
         FunctionTransformer = Any
@@ -93,6 +103,28 @@ def lazy_import_has_min_dependancy():
     except ModuleNotFoundError as e:
         return False, e
 
+def lazy_import_has_cu_cat_dependancy():
+    import warnings
+    warnings.filterwarnings("ignore")
+    try:
+        import scipy.sparse  # noqa
+        from scipy import __version__ as scipy_version
+        from cu_cat import __version__ as cu_cat_version
+        import cu_cat
+        from sklearn import __version__ as sklearn_version
+        from cuml import __version__ as cuml_version
+        import cuml
+        from cudf import __version__ as cudf_version
+        import cudf
+        logger.debug(f"SCIPY VERSION: {scipy_version}")
+        logger.debug(f"Cuda CAT VERSION: {cu_cat_version}")
+        logger.debug(f"sklearn VERSION: {sklearn_version}")
+        logger.debug(f"cuml VERSION: {cuml_version}")
+        logger.debug(f"cudf VERSION: {cudf_version}")
+
+        return True, 'ok', cudf
+    except ModuleNotFoundError as e:
+        return False, e, None
 
 def assert_imported_text():
     has_dependancy_text_, import_text_exn, _ = lazy_import_has_dependancy_text()
@@ -103,7 +135,6 @@ def assert_imported_text():
         )
         raise import_text_exn
 
-
 def assert_imported():
     has_min_dependancy_, import_min_exn = lazy_import_has_min_dependancy()
     if not has_min_dependancy_:
@@ -112,7 +143,36 @@ def assert_imported():
                      "`pip install graphistry[ai]`"  # noqa
         )
         raise import_min_exn
+        
+def assert_cuml_cucat():
+    has_cuml_dependancy_, import_cuml_exn, cudf = lazy_import_has_cu_cat_dependancy()
+    if not has_cuml_dependancy_:
+        logger.error(  # noqa
+                     "cuml not found, trying running"  # noqa
+                     "`pip install rapids`"  # noqa
+        )
+        raise import_cuml_exn
 
+def make_safe_gpu_dataframes(X, y, engine):
+
+    def safe_cudf(X, y):
+        new_kwargs = {}
+        kwargs = {'X': X, 'y': y}
+        for key, value in kwargs.items():
+            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "dirty_cat", "torch"]:
+                new_kwargs[key] = value.to_pandas()
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
+                new_kwargs[key] = cudf.from_pandas(value)
+            else:
+                new_kwargs[key] = value
+        return new_kwargs['X'], new_kwargs['y']
+
+    has_cudf_dependancy_, _, cudf = lazy_import_has_cu_cat_dependancy()
+    if has_cudf_dependancy_:
+        print(f"Using GPU: {engine}")
+        return safe_cudf(X, y)
+    else:
+        return X, y
 
 # ############################################################################
 #
@@ -137,7 +197,7 @@ def assert_imported():
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch"]
+FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
 
@@ -145,13 +205,16 @@ def resolve_feature_engine(
     feature_engine: FeatureEngine,
 ) -> FeatureEngineConcrete:  # noqa
 
-    if feature_engine in ["none", "pandas", "dirty_cat", "torch"]:
+    if feature_engine in ["none", "pandas", "dirty_cat", "torch", "cu_cat"]:
         return feature_engine  # type: ignore
 
     if feature_engine == "auto":
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
         if has_dependancy_text_:
             return "torch"
+        has_cuml_dependancy_, _, cudf = lazy_import_has_cu_cat_dependancy()
+        if has_cuml_dependancy_:
+            return "cu_cat"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
         if has_min_dependancy_:
             return "dirty_cat"
@@ -159,7 +222,7 @@ def resolve_feature_engine(
 
     raise ValueError(  # noqa
         f'feature_engine expected to be "none", '
-        '"pandas", "dirty_cat", "torch", or "auto"'
+        '"pandas", "dirty_cat", "torch", "cu_cat", or "auto"'
         f'but received: {feature_engine} :: {type(feature_engine)}'
     )
 
@@ -170,6 +233,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
     if isinstance(y, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(y)):
+
         return y  # type: ignore
 
     if df is None:
@@ -192,7 +256,6 @@ def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
     if isinstance(X, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(X)):
         return X  # type: ignore
-
     if df is None:
         raise ValueError("Missing data for featurization")
 
@@ -265,10 +328,9 @@ def remove_node_column_from_symbolic(X_symbolic, node):
             logger.info(f"Removing `{node}` from input X_symbolic list")
             X_symbolic.remove(node)
         return X_symbolic
-    if isinstance(X_symbolic, pd.DataFrame):
+    if isinstance(X_symbolic, pd.DataFrame) or 'cudf' in str(getmodule(X_symbolic)):
         logger.info(f"Removing `{node}` from input X_symbolic DataFrame")
         return X_symbolic.drop(columns=[node], errors="ignore")
-
 
 def remove_internal_namespace_if_present(df: pd.DataFrame):
     """Some tranformations below add columns to the DataFrame, this method removes them before featurization will not drop if suffix is added during UMAP-ing
@@ -546,11 +608,19 @@ def get_preprocessing_pipeline(
     :return: scaled array, imputer instances or None, scaler instance or None
     """
     from sklearn.preprocessing import (
+        # FunctionTransformer,
+        # KBinsDiscretizer,
+        # MinMaxScaler,
+        MultiLabelBinarizer,
+        QuantileTransformer, 
+        # RobustScaler,
+        # StandardScaler,
+    )
+    from cuml.preprocessing import (
         FunctionTransformer,
         KBinsDiscretizer,
         MinMaxScaler,
-        MultiLabelBinarizer,
-        QuantileTransformer,
+        # QuantileTransformer,  ## cuml 23 only
         RobustScaler,
         StandardScaler,
     )
@@ -621,12 +691,18 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-
-    X = transformer.fit_transform(X)
-    if keep_n_decimals:
-        X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
-
-    return pd.DataFrame(X, columns=columns, index=index)
+    X_type= str(getmodule(X))
+    if 'cudf.core.dataframe' not in X_type:
+        X = transformer.fit_transform(X)
+        if keep_n_decimals:
+            X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
+        X=pd.DataFrame(X, columns=columns, index=index)
+    elif 'cudf.core.dataframe' in X_type:
+        X = transformer.fit_transform(X.to_numpy())
+        if keep_n_decimals:
+            X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
+        X=cudf.DataFrame(X, columns=columns, index=index)
+    return X
 
 
 def impute_and_scale_df(
@@ -817,7 +893,7 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    from sklearn.preprocessing import FunctionTransformer
+    from cuml.preprocessing import FunctionTransformer
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -851,6 +927,7 @@ def process_dirty_dataframes(
     similarity: Optional[str] = None,  # "ngram",
     categories: Optional[str] = "auto",
     multilabel: bool = False,
+    feature_engine: Optional[str] = "dirty_cat",
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -874,8 +951,12 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    from sklearn.preprocessing import FunctionTransformer
+    if feature_engine == 'dirty_cat':
+        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+    elif feature_engine == 'cu_cat':
+        # assert_cuml_cucat() ## tried to use this rather than importing below
+        from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+    from cuml.preprocessing import FunctionTransformer
     t = time()
 
     if not is_dataframe_all_numeric(ndf):
@@ -890,7 +971,6 @@ def process_dirty_dataframes(
         )
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
-        
         X_enc = data_encoder.fit_transform(ndf, y)
         X_enc = make_array(X_enc)
 
@@ -913,11 +993,21 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed)
-        
-        X_enc = pd.DataFrame(
-            X_enc, columns=features_transformed, index=ndf.index
-        )
-        X_enc = X_enc.fillna(0.0)
+        if 'cudf.core.dataframe' not in str(getmodule(ndf)):
+            X_enc = pd.DataFrame(
+                X_enc, columns=features_transformed, index=ndf.index
+            )
+            X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
+        elif 'cudf.core.dataframe' in str(getmodule(ndf)):
+            import cudf
+            X_enc = cudf.DataFrame.from_arrow(X_enc)
+            X_enc.index = ndf.index
+            # features_transformed=np.array([item.as_py() for item in features_transformed.key()])
+            # X_enc.columns = features_transformed.as_py()
+            #  = features_transformed #.to_numpy() ##error suggests this -- not working
+
+            
+        #X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
     else:
         logger.info("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
@@ -1119,7 +1209,8 @@ def process_nodes_dataframes(
         n_topics_target=n_topics_target,
         similarity=similarity,
         categories=categories,
-        multilabel=multilabel
+        multilabel=multilabel,
+        feature_engine=feature_engine,
     )
 
     if embedding:
@@ -1140,7 +1231,6 @@ def process_nodes_dataframes(
     logger.debug(
         f"--The entire Encoding process took {(time()-t)/60:.2f} minutes"
     )
-
     X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
         X_enc,
         y_enc,
@@ -1155,7 +1245,6 @@ def process_nodes_dataframes(
         strategy=strategy,
         keep_n_decimals=keep_n_decimals,
     )
-
     return (
         X_enc,
         y_enc,
@@ -1172,7 +1261,7 @@ class FastMLB:
     def __init__(self, mlb, in_column, out_columns):
         if isinstance(in_column, str):
             in_column = [in_column]
-        self.columns = in_column  # should be singe entry list ['cats']
+        self.columns = in_column  # should be single entry list ['cats']
         self.mlb = mlb
         self.out_columns = out_columns
         self.feature_names_in_ = in_column
@@ -1230,27 +1319,40 @@ def encode_edges(edf, src, dst, mlb, fit=False):
         edf (pd.DataFrame): edge dataframe
         src (string): source column
         dst (string): destination column
-        mlb (sklearn): multilabelBinarizer
+        mlb (sklearn): multilabelBinarizer ##not in cuml yet so cast down to pandas
         fit (bool, optional): If true, fits multilabelBinarizer. Defaults to False.
     Returns:
         tuple: pd.DataFrame, multilabelBinarizer
     """
     # uses mlb with fit=T/F so we can use it in transform mode
     # to recreate edge feature concat definition
+
+    logger.debug("Encoding Edges using MultiLabelBinarizer")
+    edf_type = str(getmodule(edf))
     source = edf[src]
     destination = edf[dst]
-    logger.debug("Encoding Edges using MultiLabelBinarizer")
-    if fit:
+    source_dtype = str(getmodule(source))
+                       
+    if fit and 'cudf' not in source_dtype:
         T = mlb.fit_transform(zip(source, destination))
-    else:
+    elif fit and 'cudf' in source_dtype:
+        T = mlb.fit_transform(zip(source.to_pandas(), destination.to_pandas()))
+    elif not fit and 'cudf' not in source_dtype:
         T = mlb.transform(zip(source, destination))
+    elif not fit and 'cudf' in source_dtype:
+        T = mlb.transform(zip(source.to_pandas(), destination.to_pandas()))
+                                   
     T = 1.0 * T  # coerce to float
     columns = [
         str(k) for k in mlb.classes_
     ]  # stringify the column names or scikits.base throws error
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
-    T = pd.DataFrame(T, columns=columns, index=edf.index)
+    if 'cudf.core.dataframe' in edf_type:
+        import cudf
+        T = cudf.DataFrame(T, columns=columns, index=edf.index)
+    else:
+        T = pd.DataFrame(T, columns=columns, index=edf.index)
     logger.info(f"Shape of Edge Encoding: {T.shape}")
     return T, mlb
 
@@ -1408,7 +1510,13 @@ def process_edge_dataframes(
     if not X_enc.empty and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
-        X_enc = pd.concat([T, X_enc], axis=1)
+        T_type= str(getmodule(T))
+        if 'cudf.core.dataframe' not in T_type:
+            X_enc = pd.concat([T, X_enc], axis=1)
+        elif 'cudf.core.dataframe' not in T_type:
+            X_enc = cudf.concat([T, X_enc], axis=1)
+        else:
+            X_enc = pd.concat([T, X_enc], axis=1)
     elif not T.empty and X_enc.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found only Edges =>")
@@ -1662,7 +1770,6 @@ class FastEncoder:
         logger.info("\n-- Setting Encoder Parts from Fit ::")
         logger.info(f'Feature Columns In: {self.feature_names_in}')
         logger.info(f'Target Columns In: {self.target_names_in}')
-
         for name, value in zip(self.res_names, res):
             if name not in ["X_enc", "y_enc"]:
                 logger.info("-" * 90)
@@ -1939,11 +2046,14 @@ class FeatureMixin(MIXIN_BASE):
         res = self.copy() 
         ndf = res._nodes
         node = res._node
-
+        # print(['ndf:',ndf])
+        # print(['X:',X])
+        # print(['node:',res._node])
+        
         if remove_node_column:
             ndf = remove_node_column_from_symbolic(ndf, node)
             X = remove_node_column_from_symbolic(X, node)
-
+        
         if ndf is None:
             logger.info(
                 "! Materializing Nodes and setting `embedding=True`"
@@ -1963,7 +2073,10 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
 
-        feature_engine = resolve_feature_engine(feature_engine)
+        X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
+
+        #feature_engine = resolve_feature_engine(feature_engine)
+        res.feature_engine = feature_engine
         
         from .features import ModelDict
 
@@ -2087,6 +2200,11 @@ class FeatureMixin(MIXIN_BASE):
                 **{res._destination: res._edges[res._destination]}
             )
 
+        res.feature_engine = feature_engine
+
+        X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
+
+
         # now that everything is set
         fkwargs = dict(
             X=X_resolved,
@@ -2116,6 +2234,7 @@ class FeatureMixin(MIXIN_BASE):
             keep_n_decimals=keep_n_decimals,
             feature_engine=feature_engine,
         )
+
 
         res._feature_params = {
             **getattr(res, "_feature_params", {}),
@@ -2491,13 +2610,19 @@ class FeatureMixin(MIXIN_BASE):
                 default True.
         :return: graphistry instance with new attributes set by the featurization process.
         """
-        assert_imported()
+        feature_engine = resolve_feature_engine(feature_engine)
+
+        print('Featurizing nodes with feature_engine=' + feature_engine)
+
+        if feature_engine == 'dirty_cat':
+            assert_imported()
+        elif feature_engine == 'cu_cat':
+            assert_cuml_cucat()
+
         if inplace:
             res = self
         else:
             res = self.bind()
-
-        feature_engine = resolve_feature_engine(feature_engine)
 
         if kind == "nodes":
             res = res._featurize_nodes(

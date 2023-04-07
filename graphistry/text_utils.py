@@ -43,6 +43,9 @@ class SearchToGraphMixin(MIXIN_BASE):
         self.assert_fitted()
         self.assert_features_line_up_with_nodes()
         X = self._get_feature("nodes")
+        if type(X) != pd.DataFrame:
+            print(f"Converting from {type(X)} to pandas for semantic search index")
+            X = X.to_pandas()
         self.search_index = FaissVectorSearch(
             X.values
         )  # self._build_search_index(X, angular, n_trees, faiss=False)
