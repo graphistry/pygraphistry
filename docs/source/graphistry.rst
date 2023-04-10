@@ -58,7 +58,7 @@ Semantic Search
 
 DBScan
 ==================
-.. automodule:: graphistry.computecluster
+.. automodule:: graphistry.compute.cluster
     :members:
     :undoc-members:
     :show-inheritance:
