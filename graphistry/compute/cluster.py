@@ -207,8 +207,7 @@ class ClusterMixin(MIXIN_BASE):
     def _cluster_dbscan(
         self, res, kind, cols, fit_umap_embedding, target, min_dist, min_samples, engine_dbscan, verbose, *args, **kwargs
     ):
-        """
-        DBSCAN clustering on cpu or *(not yet supported) gpu* infered by .engine flag
+        """DBSCAN clustering on cpu or gpu infered by .engine flag
         """
         _, DBSCAN, _, cuDBSCAN = lazy_dbscan_import_has_dependency()
 
@@ -287,18 +286,14 @@ class ClusterMixin(MIXIN_BASE):
             g2.plot() # color by `_dbscan` column
 
         Useful:
-            Enriching the graph with cluster labels from UMAP is useful for visualizing clusters in the graph by color, size, etc,
-            as well as assessing metrics per cluster, e.g.
-            https://github.com/graphistry/pygraphistry/blob/master/demos/ai/cyber/cyber-redteam-umap-demo.ipynb
+            Enriching the graph with cluster labels from UMAP is useful for visualizing clusters in the graph by color, size, etc, as well as assessing metrics per cluster, e.g. https://github.com/graphistry/pygraphistry/blob/master/demos/ai/cyber/cyber-redteam-umap-demo.ipynb
 
         Args:
             :min_dist float: The maximum distance between two samples for them to be considered as in the same neighborhood.
             :kind str: 'nodes' or 'edges'
-            :cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features or targets by
-                fragments of interest, e.g. ['ip_172', 'location', 'ssh', 'warnings']
+            :cols: list of columns to use for clustering given `g.featurize` has been run, nice way to slice features or targets by fragments of interest, e.g. ['ip_172', 'location', 'ssh', 'warnings']
             :fit_umap_embedding bool: whether to use UMAP embeddings or features dataframe to cluster DBSCAN
-            :min_samples: The number of samples in a neighborhood for a point to be considered as a core point.
-                This includes the point itself.
+            :min_samples: The number of samples in a neighborhood for a point to be considered as a core point. This includes the point itself.
             :target: whether to use the target column as the clustering feature
 
         """
@@ -382,11 +377,7 @@ class ClusterMixin(MIXIN_BASE):
         return_graph: bool = True,
         verbose: bool = False,
         ):  # type: ignore
-        """
-        Transforms a minibatch dataframe to one with a new column '_dbscan' containing the DBSCAN cluster 
-        labels on the minibatch and generates a graph with the minibatch and the original graph, with edges 
-        between the minibatch and the original graph inferred from the umap embedding or features dataframe.
-        Graph nodes | edges will be colored by '_dbscan' column.
+        """Transforms a minibatch dataframe to one with a new column '_dbscan' containing the DBSCAN cluster labels on the minibatch and generates a graph with the minibatch and the original graph, with edges between the minibatch and the original graph inferred from the umap embedding or features dataframe. Graph nodes | edges will be colored by '_dbscan' column.
             
             Examples:
             ::
