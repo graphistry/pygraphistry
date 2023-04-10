@@ -65,9 +65,7 @@ For self-hosting and access to a free API key, refer to our Graphistry `Hub <htt
    :maxdepth: 3
 
    graphistry
-   graphistry.compute
    modules
-   versioneer
 
 Articles
 ==================
