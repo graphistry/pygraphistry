@@ -271,7 +271,10 @@ def remove_node_column_from_symbolic(X_symbolic, node):
 
 
 def remove_internal_namespace_if_present(df: pd.DataFrame):
-    """Some tranformations below add columns to the DataFrame, this method removes them before featurization will not drop if suffix is added during UMAP-ing
+    """
+        Some tranformations below add columns to the DataFrame,
+        this method removes them before featurization
+        Will not drop if suffix is added during UMAP-ing
 
     :param df: DataFrame
     :return: DataFrame with dropped columns in reserved namespace
@@ -392,7 +395,7 @@ def is_dataframe_all_numeric(df: pd.DataFrame) -> bool:
 
 def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
     """Finds columns that if not coerced to strings, will break processors.
-
+    
     :param df: DataFrame
     :param bad_set: List of strings to look for.
     :return: list
@@ -462,7 +465,7 @@ def get_textual_columns(
     df: pd.DataFrame, min_words: float = 2.5
 ) -> List:
     """Collects columns from df that it deems are textual.
-   
+
     :param df: DataFrame
     :return: list of columns names
     """
@@ -608,13 +611,7 @@ def get_preprocessing_pipeline(
 def fit_pipeline(
     X: pd.DataFrame, transformer, keep_n_decimals: int = 5
 ) -> pd.DataFrame:
-    """
-    Helper to fit DataFrame over transformer pipeline.
-    Rounds resulting matrix X by keep_n_digits if not 0,
-    which helps for when transformer pipeline is scaling or imputer
-    which sometime introduce small negative numbers,
-    and umap metrics like Hellinger need to be positive
-
+    """Helper to fit DataFrame over transformer pipeline. Rounds resulting matrix X by keep_n_digits if not 0, which helps for when transformer pipeline is scaling or imputer which sometime introduce small negative numbers, and umap metrics like Hellinger need to be positive
     :param X: DataFrame to transform.
     :param transformer: Pipeline object to fit and transform
     :param keep_n_decimals: Int of how many decimal places to keep in rounded transformed data
@@ -781,7 +778,7 @@ def smart_scaler(
 
 
 def get_cardinality_ratio(df: pd.DataFrame):
-    """Calculates ratio of unique values to total number of rows of DataFrame
+    """Calculates the ratio of unique values to total number of rows of DataFrame
    
     :param df: DataFrame
     """
@@ -857,8 +854,10 @@ def process_dirty_dataframes(
     Union[SuperVectorizer, FunctionTransformer],
     Union[SuperVectorizer, FunctionTransformer],
 ]:
-    """Dirty_Cat encoder for record level data. Will automatically turn inhomogeneous dataframe into matrix using smart conversion tricks.
-
+    """
+        Dirty_Cat encoder for record level data. Will automatically turn
+        inhomogeneous dataframe into matrix using smart conversion tricks.
+   
     :param ndf: node DataFrame
     :param y: target DataFrame or series
     :param cardinality_threshold: For ndf columns, below this threshold,
@@ -1019,9 +1018,7 @@ def process_nodes_dataframes(
     Any,
     List[str],
 ]:
-    """
-        Automatic Deep Learning Embedding/ngrams of Textual Features,
-        with the rest of the columns taken care of by dirty_cat
+    """Automatic Deep Learning Embedding/ngrams of Textual Features, with the rest of the columns taken care of by dirty_cat
 
     :param df: pandas DataFrame of data
     :param y: pandas DataFrame of targets
@@ -1040,6 +1037,7 @@ def process_nodes_dataframes(
     :param model_name: SentenceTransformer model name. See available list at
             https://www.sbert.net/docs/pretrained_models.
             html#sentence-embedding-models
+
     :return: X_enc, y_enc, data_encoder, label_encoder,
         scaling_pipeline,
         scaling_pipeline_target,
@@ -1232,8 +1230,8 @@ def encode_edges(edf, src, dst, mlb, fit=False):
         dst (string): destination column
         mlb (sklearn): multilabelBinarizer
         fit (bool, optional): If true, fits multilabelBinarizer. Defaults to False.
-    Returns:
-        tuple: pd.DataFrame, multilabelBinarizer
+
+    :Returns: tuple: pd.DataFrame, multilabelBinarizer
     """
     # uses mlb with fit=T/F so we can use it in transform mode
     # to recreate edge feature concat definition
@@ -1309,8 +1307,8 @@ def process_edge_dataframes(
     :param dst: destination column to select in edf
     :param use_scaler: None or string in
         ['minmax', 'standard', 'robust', 'quantile']
-    :return: Encoded data matrix and target (if not None),
-        the data encoders, and the label encoder.
+
+    :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
     lazy_import_has_min_dependancy()
     from sklearn.preprocessing import (
@@ -1754,7 +1752,6 @@ class FastEncoder:
             args:
             ::
 
-                
                 ;X: pd.DataFrame of features
                 :y: pd.DataFrame of target features
                 :kind: str, one of 'nodes' or 'edges'
@@ -1782,9 +1779,7 @@ class FastEncoder:
 def prune_weighted_edges_df_and_relabel_nodes(
     wdf: pd.DataFrame, scale: float = 0.1, index_to_nodes_dict: Optional[Dict] = None
 ) -> pd.DataFrame:
-    """
-        Prune the weighted edge DataFrame so to return high
-        fidelity similarity scores.
+    """Prune the weighted edge DataFrame so to return high fidelity similarity scores.
 
     :param wdf: weighted edge DataFrame gotten via UMAP
     :param scale: lower values means less edges > (max - scale * std)
@@ -1861,9 +1856,7 @@ def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Optional[Union[lis
 
 
 class FeatureMixin(MIXIN_BASE):
-    """
-    FeatureMixin for automatic featurization of nodes and edges DataFrames.
-    Subclasses UMAPMixin for umap-ing of automatic features.
+    """FeatureMixin for automatic featurization of nodes and edges DataFrames. Subclasses UMAPMixin for umap-ing of automatic features.
 
     Usage:
     ::
@@ -2391,7 +2384,7 @@ class FeatureMixin(MIXIN_BASE):
         verbose: bool = False,
     ):
         r"""Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
-       
+        
         :param kind: specify whether to featurize `nodes` or `edges`.
                 Edge featurization includes a pairwise
                 src-to-dst feature block using a MultiLabelBinarizer,
@@ -2611,11 +2604,7 @@ class FeatureMixin(MIXIN_BASE):
         memoize: bool = True,
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, MIXIN_BASE]:
-        """
-        helper method gets node feature and target matrix if X, y
-        are not specified.
-        if X, y are specified will set them as `_node_target` and
-        `_node_target` attributes
+        """helper method gets node feature and target matrix if X, y are not specified. if X, y are specified will set them as `_node_target` and `_node_target` attributes
         """
 
         res = self.bind()
@@ -2704,8 +2693,8 @@ class FeatureMixin(MIXIN_BASE):
         memoize: bool = True,
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], MIXIN_BASE]:
-        """helper method gets edge feature and target matrix if X, y are not specified
-       
+        """ helper method gets edge feature and target matrix if X, y are not specified
+      
         :param X: Data Matrix
         :param y: target, default None
         :return: data `X` and `y`
@@ -2763,18 +2752,7 @@ class FeatureMixin(MIXIN_BASE):
 
     
     def get_matrix(self, columns: Optional[Union[List, str]] = None, kind: str = 'nodes', target: bool = False) -> pd.DataFrame:
-        """
-            Returns feature matrix, and if columns are specified, returns matrix with only the columns that contain 
-            the string `column_part` in their name.
-
-            `X = g.get_matrix(['feature1', 'feature2'])`
-            will retrieve a feature matrix with only the columns that contain the string 
-            `feature1` or `feature2` in their name.
-
-            Most useful for topic modeling, where the column names are of the form `topic_0: descriptor`, `topic_1: descriptor`, etc.
-            Can retrieve unique columns in original dataframe, or actual topic features like [ip_part, shoes, preference_x, etc].
-            
-            Powerful way to retrieve features from a featurized graph by column or (top) features of interest.
+        """Returns feature matrix, and if columns are specified, returns matrix with only the columns that contain the string `column_part` in their name.`X = g.get_matrix(['feature1', 'feature2'])` will retrieve a feature matrix with only the columns that contain the string `feature1` or `feature2` in their name. Most useful for topic modeling, where the column names are of the form `topic_0: descriptor`, `topic_1: descriptor`, etc. Can retrieve unique columns in original dataframe, or actual topic features like [ip_part, shoes, preference_x, etc]. Powerful way to retrieve features from a featurized graph by column or (top) features of interest.
             
             **Example:**
             ::
@@ -2797,15 +2775,15 @@ class FeatureMixin(MIXIN_BASE):
             Caveats:
                 - if you have a column name that is a substring of another column name, you may get unexpected results.
 
-            Args:
-                :columns (Union[List, str]): list of column names or a single column name that may exist in columns 
-                    of the feature matrix. If None, returns original feature matrix
-                :kind (str, optional): Node or Edge features. Defaults to 'nodes'.
-                :target (bool, optional): If True, returns the target matrix. Defaults to False.
+        Args:
+            :columns (Union[List, str]): list of column names or a single column name that may exist in columns of the feature matrix. If None, returns original feature matrix
+            :kind (str, optional): Node or Edge features. Defaults to 'nodes'.
+            :target (bool, optional): If True, returns the target matrix. Defaults to False.
 
-            Returns:
-                pd.DataFrame: feature matrix with only the columns that contain the string `column_part` in their name.
-            """
+        Returns:
+            pd.DataFrame: feature matrix with only the columns that contain the string `column_part` in their name.
+        """
+
         if target:
             X = self._get_target(kind)
         else:

@@ -223,14 +223,19 @@ def compute_cugraph(
 
     :param alg: algorithm name
     :type alg: str
+
     :param out_col: node table output column name, defaults to alg param
     :type out_col: Optional[str]
+
     :param params: algorithm parameters passed to cuGraph as kwargs
     :type params: dict
+
     :param kind: kind of cugraph to use
     :type kind: CuGraphKind
+
     :param directed: whether graph is directed
     :type directed: bool
+
     :param G: cugraph graph to use; if None, use self
     :type G: Optional[cugraph.Graph]
 

@@ -1,16 +1,59 @@
-graphistry.layout package
-=========================
 
-Subpackages
------------
 
-.. toctree::
-   :maxdepth: 4
+edge Module
+-----------------------------------
 
-   graphistry.layout.gib
-   graphistry.layout.graph
-   graphistry.layout.sugiyama
-   graphistry.layout.utils
+.. automodule:: graphistry.layout.graph.edge
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :noindex:
+
+edgeBase Module
+---------------------------------------
+
+.. automodule:: graphistry.layout.graph.edgeBase
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :noindex:
+
+graph Module
+------------------------------------
+
+.. automodule:: graphistry.layout.graph.graph
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :noindex:
+
+graphBase Module
+----------------------------------------
+
+.. automodule:: graphistry.layout.graph.graphBase
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :noindex:
+
+vertex Module
+-------------------------------------
+
+.. automodule:: graphistry.layout.graph.vertex
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :noindex:
+
+vertexBase Module
+-----------------------------------------
+
+.. automodule:: graphistry.layout.graph.vertexBase
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :noindex:
+
 
 Module contents
 ---------------
@@ -19,3 +62,4 @@ Module contents
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:

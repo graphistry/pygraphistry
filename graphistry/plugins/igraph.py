@@ -49,7 +49,6 @@ def from_igraph(self,
     :param merge_if_existing: bool
 
     :returns: Plotter
-    :rtype: Plotter
 
     **Example: Convert from igraph, including all node/edge properties**
         ::

@@ -1,17 +1,4 @@
-graphistry.plugins package
-==========================
-
-Subpackages
------------
-
-.. toctree::
-   :maxdepth: 4
-
-
-Submodules
-----------
-
-graphistry.plugins.igraph module
+iGraph
 ------------------------------------------------
 
 .. automodule:: graphistry.plugins.igraph
@@ -20,10 +7,10 @@ graphistry.plugins.igraph module
    :show-inheritance:
 
 
-Module contents
+CuGraph
 ---------------
 
-.. automodule:: graphistry.plugins
+.. automodule:: graphistry.plugins.cugraph
    :members:
    :undoc-members:
    :show-inheritance:
