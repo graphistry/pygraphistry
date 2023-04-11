@@ -789,9 +789,8 @@ class TestCudfUmap(unittest.TestCase):
     @pytest.mark.skipif(
         not has_cudf, reason="requires cudf"
     )
-
     def setUp(self):
-        self.samples=1000
+        self.samples = 1000
         df = pd.DataFrame(np.random.randint(18,75,size=(self.samples, 1)), columns=['age'])
         df['user_id'] = np.random.randint(0,200,size=(self.samples, 1))
         df['profile'] = np.random.randint(0,1000,size=(self.samples, 1))
