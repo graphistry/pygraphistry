@@ -782,13 +782,6 @@ class TestCUMLMethods(TestUMAPMethods):
 
 class TestCudfUmap(unittest.TestCase):
     # temporary tests for cudf pass thru umap
-    @pytest.mark.skipif(
-        not has_dependancy or not has_cuml,
-        reason="requires cuml dependencies",
-    )
-    @pytest.mark.skipif(
-        not has_cudf, reason="requires cudf"
-    )
     def setUp(self):
         self.samples = 1000
         df = pd.DataFrame(np.random.randint(18,75,size=(self.samples, 1)), columns=['age'])
@@ -796,8 +789,9 @@ class TestCudfUmap(unittest.TestCase):
         df['profile'] = np.random.randint(0,1000,size=(self.samples, 1))
         self.df = cudf.from_pandas(df)
     
+    @pytest.mark.skipif(not has_dependancy or not has_cuml, reason="requires cuml dependencies")
+    @pytest.mark.skipif(not has_cudf, reason="requires cudf")
     def test_base(self):
-        print('working')
         graphistry.nodes(self.df).umap('auto')._node_embedding.shape == (self.samples, 2)
         graphistry.nodes(self.df).umap('engine')._node_embedding.shape == (self.samples, 2)
 
