@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Added
+* AI: moves public `g.g_dgl` from KG `embed` method to private method `g._kg_dgl`
+* AI: BREAKING CHANGES: to return matrices during transform, set the flag:  `X, y = g.transform(df, return_graph=False)` default behavior is ~ `g2 = g.transform(df)` returning a Plottable instance. 
+
+## [0.28.7 - 2022-12-22]
+
+### Added
+* AI: all `transform_*` methods return graphistry Plottable instances, using an infer_graph method. To return matrices, set the `return_graph=False` flag. 
+* AI: adds `g.get_matrix(**kwargs)` general method to retrieve (sub)-feature/target matrices
+* AI: DBSCAN -- `g.featurize().dbscan()` and `g.umap().dbscan()` with options to use UMAP embedding, feature matrix, or subset of feature matrix via `g.dbscan(cols=[...])`
+* AI: Demo cleanup using ModelDict & new features, refactoring demos using `dbscan` and `transform` methods.
+* Tests: dbscan tests
 * AI: Easy import of featurization kwargs for `g.umap(**kwargs)` and `g.featurize(**kwargs)`
 * AI: `g.get_features_by_cols` returns featurized submatrix with `col_part` in their columns
 * AI: `g.conditional_graph` and `g.conditional_probs` assessing conditional probs and graph
@@ -25,7 +36,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * GIB: Add missing import during group-in-a-box cudf layout of 0-degree nodes
 * Tests: SSO login tests catch more unexpected exns
 
-## [0.28.6 - 2022-29-22]
+## [0.28.6 - 2022-11-29]
 
 
 ### Added

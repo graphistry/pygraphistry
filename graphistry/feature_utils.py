@@ -997,13 +997,12 @@ def process_dirty_dataframes(
             X_enc = pd.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
-            X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
-        elif 'cudf' in str(getmodule(ndf)):
-            # X_enc = cudf.DataFrame.from_arrow(X_enc)
-            X_enc.index = ndf.index
-            X_enc.columns = np.array(features_transformed)
-            X_enc = X_enc.fillna(0.0)
-
+        elif 'cudf.core.dataframe' in str(getmodule(ndf)):
+            import cudf
+            X_enc = cudf.DataFrame(
+                X_enc, columns=features_transformed, index=ndf.index
+            )
+        X_enc = X_enc.fillna(0.0)
     else:
         logger.info("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)

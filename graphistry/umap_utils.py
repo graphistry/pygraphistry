@@ -127,6 +127,13 @@ def resolve_umap_engine(
 def make_safe_gpu_dataframes(X, y, engine):
 
     def safe_cudf(X, y):
+        # remove duplicate columns
+        if len(X.columns) != len(set(X.columns)):
+            X = X.loc[:, ~X.columns.duplicated()]
+        try:
+            y = y.loc[:, ~y.columns.duplicated()]
+        except:
+            pass
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
         for key, value in kwargs.items():
@@ -310,37 +317,15 @@ class UMAPMixin(MIXIN_BASE):
         emb = self._bundle_embedding(emb, index=X.index)
         return emb
 
-
-    def transform_umap(self, df: pd.DataFrame, 
-                    y: Optional[pd.DataFrame] = None, 
-                    kind: str = 'nodes', 
-                    min_dist: Union[str, float, int] = 'auto', 
-                    n_neighbors: int = 7,
-                    merge_policy: bool = False,
-                    sample: Optional[int] = None, 
-                    return_graph: bool = True,
-                    fit_umap_embedding: bool = True,
-                    verbose: bool = False
-    ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Plottable]:
-        """Transforms data into UMAP embedding
-        
-        Args:
-            :df: Dataframe to transform
-            :y: Target column
-            :kind: One of `nodes` or `edges`
-            :min_dist: Epsilon for including neighbors in infer_graph
-            :n_neighbors: Number of neighbors to use for contextualization
-            :merge_policy: if True, use previous graph, adding new batch to existing graph's neighbors
-                useful to contextualize new data against existing graph. If False, `sample` is irrelevant.
-            sample: Sample number of existing graph's neighbors to use for contextualization -- helps make denser graphs
-            return_graph: Whether to return a graph or just the embeddings
-            fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
-            verbose: Whether to print information about the graph inference
-        """
-        df, y = make_safe_gpu_dataframes(df, y, self.feature_engine)
-        X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
-        X, y_ = make_safe_gpu_dataframes(X, y_, self.umap_engine)  # type: ignore
-        emb = self._umap.transform(X)  # type: ignore
+    def transform_umap(  # noqa: E303
+        self, df: pd.DataFrame, ydf: pd.DataFrame, kind: str = "nodes"
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        try:
+            logger.debug(f"Going into Transform umap {df.shape}, {ydf.shape}")
+        except:
+            pass
+        x, y = self.transform(df, ydf, kind=kind)
+        emb = self._umap.transform(x)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
 
         if return_graph and kind not in ["edges"]:
@@ -564,6 +549,22 @@ class UMAPMixin(MIXIN_BASE):
         )
         logger.debug("umap_kwargs: %s", umap_kwargs)
 
+        # temporary until we have full cudf support in feature_utils.py
+        has_cudf, _, cudf = lazy_cudf_import_has_dependancy()
+
+        if has_cudf:
+            flag_nodes_cudf = isinstance(self._nodes, cudf.DataFrame)
+            flag_edges_cudf = isinstance(self._edges, cudf.DataFrame)
+
+            if flag_nodes_cudf or flag_edges_cudf:
+                res = self
+                if flag_nodes_cudf:
+                    res._nodes = res._nodes.to_pandas()
+                if flag_edges_cudf:
+                    res._edges = res._edges.to_pandas()
+                res = res.umap(X=self._nodes, y=self._edges, **umap_kwargs)  # type: ignore
+                return res
+
         if inplace:
             res = self
         else:
@@ -577,7 +578,8 @@ class UMAPMixin(MIXIN_BASE):
         featurize_kwargs = self._set_features(
             res, X, y, kind, feature_engine, {**featurize_kwargs, "memoize": memoize}
         )
-
+        # umap_kwargs = {**umap_kwargs,
+        # 'featurize_kwargs': featurize_kwargs or {}}
 
         if kind == "nodes":
             index = res._nodes.index
@@ -607,11 +609,8 @@ class UMAPMixin(MIXIN_BASE):
             logger.debug("data is type :: %s", (type(X_)))
             if isinstance(X_, pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-            elif 'cudf' in str(getmodule(X_)):
-                index_to_nodes_dict = nodes  # {}?
-
-            # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.umap_engine)  # type: ignore
+            elif 'cudf.core.dataframe' in str(getmodule(X_)):
+                index_to_nodes_dict = nodes
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, verbose, **umap_kwargs

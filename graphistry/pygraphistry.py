@@ -1942,6 +1942,7 @@ class PyGraphistry(object):
 
         **Example**
             ::
+            
                 import graphistry
 
                 def sample_nodes(g, n):
@@ -1992,6 +1993,7 @@ class PyGraphistry(object):
 
         **Example**
             ::
+
                 import graphistry
 
                 def sample_edges(g, n):
