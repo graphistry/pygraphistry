@@ -15,13 +15,19 @@ from graphistry.feature_utils import (
     process_nodes_dataframes,
     resolve_feature_engine,
     lazy_import_has_min_dependancy,
+    lazy_import_has_cu_cat_dependancy,
     lazy_import_has_dependancy_text,
     FastEncoder
 )
 
+from graphistry.features import topic_model, ngrams_model
+from graphistry.constants import SCALERS
+
+np.random.seed(137)
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
+has_cu_cat_dependancy_text, _, _ = lazy_import_has_cu_cat_dependancy()
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
@@ -127,7 +133,7 @@ good_cols_reddit = text_cols_reddit + meta_cols_reddit
 target_names_node = [['label'], ['label', 'type']]
 # test also sending in a dataframe for target
 double_target_reddit = pd.DataFrame(
-    {"label": ndf_reddit.label.values, "type": ndf_reddit["type"].values}
+    {"label": ndf_reddit.label.values, "type": ndf_reddit["type"].values}, index=ndf_reddit.index
 )
 single_target_reddit = pd.DataFrame({"label": ndf_reddit.label.values})
 
@@ -136,6 +142,14 @@ edge_df2['src'] = np.random.random_integers(0, 120, size=len(edge_df2))
 edge_df2['dst'] = np.random.random_integers(0, 120, size=len(edge_df2))
 edge2_target_df = pd.DataFrame({'label': edge_df2.label})
 
+# #############################################################################################################
+what = ['whatever', 'on what', 'what do', 'what do you', 'what do you think', 
+        'to what', 'but what', 'what is', 'what it', 'what kind', 'what kind of', 
+        'of what', 'know what', 'what are', 'what are the', 'what to', 'what to do', 
+        'from what', 'with what', 'and what', 'what you', 'whats', 'know what to', 'don know what', 'what the']
+freedom = ['title: dyslexics, experience, language',
+       'label: languagelearning, agile, leaves',
+       'title: freedom, finally, moved']
 # ################################################
 # data to test textual and numeric DataFrame
 # ndf_stocks, price_df_stocks = get_stocks_dataframe()
@@ -161,6 +175,44 @@ def check_allclose_fit_transform_on_same_data(X, x, Y=None, y=None):
             if name == 'Target' and Y is not None and y is not None:
                 allclose_stats(Y, y, value, name)
 
+
+class TestFeaturizeGetMethods(unittest.TestCase):
+    
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def setUp(self) -> None:
+        g = graphistry.nodes(ndf_reddit)
+        g2 = g.featurize(y=double_target_reddit,  # ngrams
+                use_ngrams=True,
+                ngram_range=(1, 4)
+                )
+        
+        g3 = g.featurize(**topic_model  # topic model       
+        )
+        self.g = g
+        self.g2 = g2
+        self.g3 = g3
+        
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_get_col_matrix(self):
+        # no edges so this should be None
+        assert self.g2.get_matrix(kind='edges') is None
+        
+        # test target methods
+        assert all(self.g2.get_matrix(target=True).columns == self.g2._node_target.columns)
+        assert self.g2.get_matrix('Anxiety', target=True).shape[0] == len(self.g2._node_target)
+        # test str vs list 
+        assert (self.g2.get_matrix('Anxiety', target=True) == self.g2.get_matrix(['Anxiety'], target=True)).all().values[0]
+
+        # assert list(self.g2.get_matrix(['Anxiety', 'education', 'computer'], target=True).columns) == ['label_Anxiety', 'label_education', 'label_computervision']
+    
+        # test feature methods
+        # ngrams
+        assert (self.g2.get_matrix().columns == self.g2._node_features.columns).all()
+        assert list(self.g2.get_matrix('what').columns) == what, list(self.g2.get_matrix('what').columns)
+        
+        # topic
+        assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
+        assert list(self.g3.get_matrix(['language', 'freedom']).columns) == freedom, self.g3.get_matrix(['language', 'freedom']).columns
 
 class TestFastEncoder(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
@@ -237,7 +289,8 @@ class TestFeatureProcessors(unittest.TestCase):
                 2,
                 4000,
             ]:  # last one should skip encoding, and throw all to dirty_cat
-                X_enc, y_enc, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
+
+                X_enc, y_enc, X_encs, y_encs, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
                     ndf_reddit,
                     y=double_target_reddit,
                     use_scaler=None,
@@ -260,6 +313,71 @@ class TestFeatureProcessors(unittest.TestCase):
         assert y.shape == (4, 4)
         assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
         
+class TestFeatureCUMLProcessors(unittest.TestCase):
+    def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
+        import cu_cat
+        self.assertIsInstance(
+            x,
+            cudf.DataFrame,
+            f"Returned data matrix is not cudf DataFrame for {name} {value}",
+        )
+        self.assertFalse(
+            x.empty,
+            f"cudf DataFrame should not be empty for {name} {value}",
+        )
+        self.assertIsInstance(
+            y,
+            pd.DataFrame,
+            f"Returned Target is not a cudf DataFrame for {name} {value}",
+        )
+        self.assertFalse(
+            y.empty,
+            f"cudf Target DataFrame should not be empty for {name} {value}",
+        )
+        self.assertIsInstance(
+            data_encoder,
+            cu_cat.super_vectorizer.TableVectorizer,
+            f"Data Encoder is not a cu_cat.super_vectorizer.TableVectorizer instance for {name} {value}",
+        )
+        self.assertIsInstance(
+            target_encoder,
+            cu_cat.super_vectorizer.TableVectorizer,
+            f"Data Target Encoder is not a cu_cat.super_vectorizer.TableVectorizer instance for {name} {value}",
+        )
+
+    @pytest.mark.skipif(not has_cu_cat_dependancy or not has_cu_cat_dependancy, reason="requires cu_cat feature dependencies")
+    def test_process_node_dataframes_min_words(self):
+        # test different target cardinality
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            for min_words in [
+                2,
+                4000,
+            ]:  # last one should skip encoding, and throw all to dirty_cat
+
+                X_enc, y_enc, X_encs, y_encs, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
+                    ndf_reddit,
+                    y=double_target_reddit,
+                    use_scaler=None,
+                    cardinality_threshold=40,
+                    cardinality_threshold_target=40,
+                    n_topics=20,
+                    min_words=min_words,
+                    model_name=model_avg_name,
+                    feature_engine=resolve_feature_engine('auto')
+                )
+                self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
+    
+    @pytest.mark.skipif(not has_cu_cat_dependancy, reason="requires minimal feature dependencies")
+    def test_multi_label_binarizer(self):
+        g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            g2 = g.featurize(y=['list_str'], X=['src'], multilabel=True)
+        y = g2._get_target('node')
+        assert y.shape == (4, 4)
+        assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
+
 class TestFeatureMethods(unittest.TestCase):
 
     def _check_attributes(self, g, attributes):
@@ -370,19 +488,21 @@ class TestFeatureMethods(unittest.TestCase):
     def test_node_scaling(self):
         g = graphistry.nodes(ndf_reddit)
         g2 = g.featurize(X="title", y='label', use_scaler=None, use_scaler_target=None)
-        scalers = ['quantile', 'zscale', 'kbins', 'robust', 'minmax']
-        for scaler in scalers:
-            a, b, c, d = g2.scale(ndf_reddit, single_target_reddit, kind='nodes', use_scaler=scaler, use_scaler_target=np.random.choice(scalers))
-
-        
+        for scaler in SCALERS:
+            X, y, c, d = g2.scale(ndf_reddit, single_target_reddit, kind='nodes', 
+                                  use_scaler=scaler, 
+                                  use_scaler_target=np.random.choice(SCALERS), 
+                                  return_scalers=True)
 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_scaling(self):
         g = graphistry.edges(edge_df2, "src", "dst")
         g2 = g.featurize(y='label', kind='edges', use_scaler=None, use_scaler_target=None)
-        scalers = ['quantile', 'zscale', 'kbins', 'robust', 'minmax']
-        for scaler in scalers:
-            a, b, c, d = g2.scale(edge_df2, edge2_target_df, kind='edges', use_scaler=scaler, use_scaler_target=np.random.choice(scalers))
+        for scaler in SCALERS:
+            X, y, c, d = g2.scale(edge_df2, edge2_target_df, kind='edges', 
+                                  use_scaler=scaler, 
+                                  use_scaler_target=np.random.choice(SCALERS), 
+                                  return_scalers=True)
 
 
 
