@@ -1,7 +1,7 @@
 #NOTE: context is ..
 
-ARG BASE_VERSION=v2.39.17
-ARG CUDA_SHORT_VERSION=11.4
+ARG BASE_VERSION=v2.40.4
+ARG CUDA_SHORT_VERSION=11.5
 FROM graphistry/graphistry-nvidia:${BASE_VERSION}-${CUDA_SHORT_VERSION}
 ARG PIP_DEPS="-e .[umap-learn,test]"
 
