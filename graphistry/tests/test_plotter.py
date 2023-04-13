@@ -720,32 +720,32 @@ class TestPlotterStylesArrow(NoAuthTestCase):
         logo = {"url": "zzz"}
         page = {"title": "zzz"}
 
-        assert g.add_style()._style == {}
+        assert g.addStyle()._style == {}
 
-        g.add_style(fg={"blendMode": "screen"})
-        assert g.add_style()._style == {}
+        g.addStyle(fg={"blendMode": "screen"})
+        assert g.addStyle()._style == {}
 
-        assert g.add_style(bg=copy.deepcopy(bg))._style == {"bg": bg}
-        assert g.add_style(bg={"color": "blue"}).add_style(
+        assert g.addStyle(bg=copy.deepcopy(bg))._style == {"bg": bg}
+        assert g.addStyle(bg={"color": "blue"}).addStyle(
             bg=copy.deepcopy(bg)
         )._style == {"bg": bg}
-        assert g.add_style(bg={"image": {"url": "http://asdf.com/b.png"}}).add_style(
+        assert g.addStyle(bg={"image": {"url": "http://asdf.com/b.png"}}).addStyle(
             bg=copy.deepcopy(bg)
         )._style == {"bg": {**bg, "image": {"url": "http://asdf.com/b.png"}}}
         assert (
-            g.add_style(
+            g.addStyle(
                 bg=copy.deepcopy(bg),
                 fg=copy.deepcopy(fg),
                 logo=copy.deepcopy(logo),
                 page=copy.deepcopy(page),
             )._style == {"bg": bg, "fg": fg, "logo": logo, "page": page}
         )
-        assert g.add_style(
+        assert g.addStyle(
             bg=copy.deepcopy(bg),
             fg=copy.deepcopy(fg),
             logo=copy.deepcopy(logo),
             page=copy.deepcopy(page),
-        ).add_style(bg={"color": "green"})._style == {
+        ).addStyle(bg={"color": "green"})._style == {
             "bg": {"color": "green"},
             "fg": fg,
             "logo": logo,
@@ -755,7 +755,7 @@ class TestPlotterStylesArrow(NoAuthTestCase):
         g2 = graphistry.edges(pd.DataFrame({"s": [0], "d": [0]})).bind(
             source="s", destination="d"
         )
-        ds = g2.add_style(
+        ds = g2.addStyle(
             bg=copy.deepcopy(bg),
             fg=copy.deepcopy(fg),
             page=copy.deepcopy(page),
@@ -783,7 +783,7 @@ class TestPlotterStylesJSON(NoAuthTestCase):
         g2 = graphistry.edges(pd.DataFrame({"s": [0], "d": [0]})).bind(
             source="s", destination="d"
         )
-        g3 = g2.add_style(
+        g3 = g2.addStyle(
             bg=copy.deepcopy(bg),
             fg=copy.deepcopy(fg),
             page=copy.deepcopy(page),
