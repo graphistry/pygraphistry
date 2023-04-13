@@ -1209,7 +1209,7 @@ class PyGraphistry(object):
         return Plotter().description(description)
 
     @staticmethod
-    def add_style(bg=None, fg=None, logo=None, page=None):
+    def addStyle(bg=None, fg=None, logo=None, page=None):
         """Creates a base plotter with some style settings.
 
         For parameters, see ``plotter.addStyle``.
@@ -1225,7 +1225,7 @@ class PyGraphistry(object):
                 graphistry.addStyle(bg={'color': 'black'})
         """
 
-        return Plotter().add_style(bg=bg, fg=fg, logo=logo, page=page)
+        return Plotter().addStyle(bg=bg, fg=fg, logo=logo, page=page)
 
     @staticmethod
     def style(bg=None, fg=None, logo=None, page=None):
@@ -2417,7 +2417,7 @@ refresh = PyGraphistry.refresh
 api_token = PyGraphistry.api_token
 verify_token = PyGraphistry.verify_token
 bind = PyGraphistry.bind
-add_style = PyGraphistry.add_style
+addStyle = PyGraphistry.addStyle
 style = PyGraphistry.style
 encode_point_color = PyGraphistry.encode_point_color
 encode_edge_color = PyGraphistry.encode_edge_color
