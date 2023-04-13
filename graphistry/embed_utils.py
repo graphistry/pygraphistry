@@ -1,4 +1,5 @@
 import logging
+import warnings
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
@@ -405,40 +406,35 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             where score >= threshold if anamalous if False else score <= threshold, or a dataframe
             
         """
-
+        warnings.warn("currently `predict_links` is cpu only, gpu compatibility will be added in \
+                future releases") 
         all_nodes = self._node2id.values()
         all_relations = self._relation2id.values()
 
         if source is None:
             src = pd.Series(all_nodes)
         else:
-            # this is temporary
-            try:
+            # this is temporary, will be removed after gpu feature utils
+            if not isinstance(source, pd.DataFrame):
                 source = source.to_pandas()  # type: ignore
-            except:
-                pass
             src = pd.Series(source)
             src = src.map(self._node2id)
 
         if relation is None:
             rel = pd.Series(all_relations)
         else:
-            # this is temporary
-            try:
+            # this is temporary, will be removed after gpu feature utils
+            if not isinstance(relation, pd.DataFrame):
                 relation = relation.to_pandas()  # type: ignore
-            except:
-                pass
             rel = pd.Series(relation)
             rel = rel.map(self._relation2id)
 
         if destination is None:
             dst = pd.Series(all_nodes)
         else:
-            # this is temporary
-            try:
+            # this is temporary, will be removed after gpu feature utils
+            if not isinstance(destination, pd.DataFrame):
                 destination = destination.to_pandas()  # type: ignore
-            except:
-                pass
             dst = pd.Series(destination)
             dst = dst.map(self._node2id)
 
