@@ -6,6 +6,7 @@ from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 
+
 def lazy_embed_import_dep():
     try:
         import torch
@@ -19,6 +20,11 @@ def lazy_embed_import_dep():
 
     except:
         return False, None, None, None, None, None, None, None
+
+try:
+    import cudf
+except:
+    cudf = object
 
 
 if TYPE_CHECKING:
@@ -289,6 +295,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         -------
             self : graphistry instance
         """
+        # this is temporary, will be fixed in future releases
+        if isinstance(self._nodes, cudf.DataFrame):
+            self._nodes = self._nodes.to_pandas()
+        if isinstance(self._edges, cudf.DataFrame):
+            self._edges = self._edges.to_pandas()
         if inplace:
             res = self
         else:
@@ -405,40 +416,35 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             where score >= threshold if anamalous if False else score <= threshold, or a dataframe
             
         """
-
+        logging.warning("currently `predict_links` is cpu only, gpu compatibility will be added in \
+                future releases") 
         all_nodes = self._node2id.values()
         all_relations = self._relation2id.values()
 
         if source is None:
             src = pd.Series(all_nodes)
         else:
-            # this is temporary
-            try:
+            # this is temporary, will be removed after gpu feature utils
+            if isinstance(source, cudf.DataFrame):
                 source = source.to_pandas()  # type: ignore
-            except:
-                pass
             src = pd.Series(source)
             src = src.map(self._node2id)
 
         if relation is None:
             rel = pd.Series(all_relations)
         else:
-            # this is temporary
-            try:
+            # this is temporary, will be removed after gpu feature utils
+            if isinstance(relation, cudf.DataFrame):
                 relation = relation.to_pandas()  # type: ignore
-            except:
-                pass
             rel = pd.Series(relation)
             rel = rel.map(self._relation2id)
 
         if destination is None:
             dst = pd.Series(all_nodes)
         else:
-            # this is temporary
-            try:
+            # this is temporary, will be removed after gpu feature utils
+            if isinstance(destination, cudf.DataFrame):
                 destination = destination.to_pandas()  # type: ignore
-            except:
-                pass
             dst = pd.Series(destination)
             dst = dst.map(self._node2id)
 

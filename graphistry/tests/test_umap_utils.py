@@ -5,6 +5,7 @@ import warnings
 
 import graphistry
 
+import os
 import logging
 import numpy as np
 import pandas as pd
@@ -49,6 +50,8 @@ logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore")
 
+# enable tests if has cudf and env didn't explicitly disable
+is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
 
 triangleEdges = pd.DataFrame(
     {
@@ -785,6 +788,22 @@ class TestCUMLMethods(TestUMAPMethods):
                 logger.debug("-" * 80)
                 self.assertGreaterEqual(shape[0], last_shape)
                 last_shape = shape[0]
+
+class TestCudfUmap(unittest.TestCase):
+    # temporary tests for cudf pass thru umap
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
+    def setUp(self):
+        self.samples = 1000
+        df = pd.DataFrame(np.random.randint(18,75,size=(self.samples, 1)), columns=['age'])
+        df['user_id'] = np.random.randint(0,200,size=(self.samples, 1))
+        df['profile'] = np.random.randint(0,1000,size=(self.samples, 1))
+        self.df = cudf.from_pandas(df)
+    
+    @pytest.mark.skipif(not has_dependancy or not has_cuml, reason="requires cuml dependencies")
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
+    def test_base(self):
+        graphistry.nodes(self.df).umap('auto')._node_embedding.shape == (self.samples, 2)
+        graphistry.nodes(self.df).umap('engine')._node_embedding.shape == (self.samples, 2)
 
 
 @pytest.mark.skipif(

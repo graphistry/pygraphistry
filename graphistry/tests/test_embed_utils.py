@@ -1,3 +1,4 @@
+import os
 import pytest
 import pandas as pd
 import unittest
@@ -19,6 +20,9 @@ def check_cudf():
 
 
 has_cudf, cudf = check_cudf()
+
+# enable tests if has cudf and env didn't explicitly disable
+is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
 
 class TestEmbed(unittest.TestCase):
 
@@ -114,7 +118,7 @@ class TestEmbed(unittest.TestCase):
 class TestEmbedCUDF(unittest.TestCase):
 
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
-    @pytest.mark.skipif(not has_cudf, reason="requires cudf")
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def setUp(self):
         self.edf = cudf.DataFrame([[0, 1, 0], [1, 2, 0], [2, 0, 1]],
             columns=['src', 'dst', 'rel']
@@ -138,7 +142,7 @@ class TestEmbedCUDF(unittest.TestCase):
         
 
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
-    @pytest.mark.skipif(not has_cudf, reason="requires cudf")
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_embed_out_basic(self):
         for name, g in self.graphs:
             g = g.embed('rel', embedding_dim=self.d, **self.kwargs)
@@ -150,7 +154,7 @@ class TestEmbedCUDF(unittest.TestCase):
 
 
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
-    @pytest.mark.skipif(not has_cudf, reason="requires cudf")
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_predict_links(self):
         source = pd.Series([0,2])
         relation = None
@@ -166,7 +170,7 @@ class TestEmbedCUDF(unittest.TestCase):
         self.assertIn("score", g_new._edges.columns)
     
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
-    @pytest.mark.skipif(not has_cudf, reason="requires cudf")
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_predict_links_all(self):
         g = self.graph_no_feat.embed('rel', embedding_dim=self.d, **self.kwargs)
         g_new = g.predict_links_all(threshold=0)
@@ -175,7 +179,7 @@ class TestEmbedCUDF(unittest.TestCase):
 
         
     @pytest.mark.skipif(not dep_flag, reason="requires ai feature dependencies")
-    @pytest.mark.skipif(not has_cudf, reason="requires cudf")
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_chaining(self):
         for name, g in self.graphs:
             logging.debug('name: %s test changing embedding dim with feats' % name)

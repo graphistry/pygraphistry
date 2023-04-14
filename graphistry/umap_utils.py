@@ -491,47 +491,59 @@ class UMAPMixin(MIXIN_BASE):
         memoize: bool = True,
         **featurize_kwargs,
     ):
-        """
-            UMAP the featurized node or edges data,
-            or pass in your own X, y (optional).
+        """UMAP the featurized nodes or edges data, or pass in your own X, y (optional) dataframes of values
+        
+        Example
 
-        :param kind: `nodes` or `edges` or None.
-                If None, expects explicit X, y (optional) matrices,
-                and will Not associate them to nodes or edges.
-                If X, y (optional) is given, with kind = [nodes, edges],
-                it will associate new matrices to nodes or edges attributes.
-        :param feature_engine: How to encode data
-                ("none", "auto", "pandas", "dirty_cat", "torch")
-        :param encode_weight: if True, will set new edges_df from
-                implicit UMAP, default True.
-        :param encode_position: whether to set default plotting bindings
-                -- positions x,y from umap for .plot()
-        :param X: either an ndarray of features, or column names to featurize
-        :param y: either an ndarray of targets, or column names to featurize
-                targets
-        :param scale: multiplicative scale for pruning weighted edge DataFrame
-                gotten from UMAP, between [0, ..) with high end meaning keep
-                all edges
-        :param n_neighbors: UMAP number of nearest neighbors to include for
-                UMAP connectivity, lower makes more compact layouts. Minimum 2
-        :param min_dist: UMAP float between 0 and 1, lower makes more compact
-                layouts.
-        :param spread: UMAP spread of values for relaxation
-        :param local_connectivity: UMAP connectivity parameter
-        :param repulsion_strength: UMAP repulsion strength
-        :param negative_sample_rate: UMAP negative sampling rate
-        :param n_components: number of components in the UMAP projection,
-                default 2
-        :param metric: UMAP metric, default 'euclidean'.
-                see (UMAP-LEARN)[https://umap-learn.readthedocs.io/
-                en/latest/parameters.html] documentation for more.
-        :param suffix: optional suffix to add to x, y attributes of umap.
-        :param play: Graphistry play parameter, default 0, how much to evolve
-                the network during clustering
-        :param engine: selects which engine to use to calculate UMAP:
-                NotImplemented yet, default UMAP-LEARN
-        :param memoize: whether to memoize the results of this method,
-                default True.
+        >>> import graphistry   
+        >>> g = graphistry.nodes(pd.DataFrame({'node': [0,1,2], 'data': [1,2,3], 'meta': ['a', 'b', 'c']}))
+        >>> g2 = g.umap(n_components=3, spread=1.0, min_dist=0.1, n_neighbors=12, negative_sample_rate=5, local_connectivity=1, repulsion_strength=1.0, metric='euclidean', suffix='', play=0, encode_position=True, encode_weight=True, dbscan=False, engine='auto', feature_engine='auto', inplace=False, memoize=True, verbose=False)
+        >>> g2.plot()
+        
+        Parameters
+ 
+            :X: either a dataframe ndarray of features, or column names to featurize
+            :y: either an dataframe ndarray of targets, or column names to featurize
+                    targets
+            :kind: `nodes` or `edges` or None.
+                    If None, expects explicit X, y (optional) matrices,
+                    and will Not associate them to nodes or edges.
+                    If X, y (optional) is given, with kind = [nodes, edges],
+                    it will associate new matrices to nodes or edges attributes.
+            :scale: multiplicative scale for pruning weighted edge DataFrame
+                    gotten from UMAP, between [0, ..) with high end meaning keep
+                    all edges
+            :n_neighbors: UMAP number of nearest neighbors to include for
+                    UMAP connectivity, lower makes more compact layouts. Minimum 2
+            :min_dist: UMAP float between 0 and 1, lower makes more compact
+                    layouts.
+            :spread: UMAP spread of values for relaxation
+            :local_connectivity: UMAP connectivity parameter
+            :repulsion_strength: UMAP repulsion strength
+            :negative_sample_rate: UMAP negative sampling rate
+            :n_components: number of components in the UMAP projection,
+                    default 2
+            :metric: UMAP metric, default 'euclidean'.
+                    see (UMAP-LEARN)[https://umap-learn.readthedocs.io/
+                    en/latest/parameters.html] documentation for more.
+            :suffix: optional suffix to add to x, y attributes of umap.
+            :play: Graphistry play parameter, default 0, how much to evolve
+                    the network during clustering. 0 preserves the original UMAP layout.
+            :encode_weight: if True, will set new edges_df from
+                    implicit UMAP, default True.
+            :encode_position: whether to set default plotting bindings
+                    -- positions x,y from umap for .plot(), default True
+            :dbscan: whether to run DBSCAN on the UMAP embedding, default False.
+            :engine: selects which engine to use to calculate UMAP:
+                    default "auto" will use cuML if available, otherwise UMAP-LEARN.
+            :feature_engine: How to encode data
+                    ("none", "auto", "pandas", "dirty_cat", "torch")
+            :inplace: bool = False, whether to modify the current object, default False.
+                    when False, returns a new object, useful for chaining in a functional paradigm.
+            :memoize: whether to memoize the results of this method,
+                    default True.
+            :verbose: whether to print out extra information, default False.
+
         :return: self, with attributes set with new data
         """
         if umap_engine == UMAP_LEARN:

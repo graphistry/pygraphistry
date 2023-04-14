@@ -44,6 +44,4 @@ docker run \
     ${NETWORK} \
     graphistry/test-gpu:${TEST_CPU_VERSION} \
         --maxfail=1 \
-        --ignore=graphistry/tests/test_feature_utils.py \
-        --ignore=graphistry/tests/test_umap_utils.py \
         $@

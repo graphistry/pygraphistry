@@ -32,15 +32,15 @@ VERBOSE = False
 
 
 def unpack(g: Plottable):
-    """
-        Helper method that unpacks graphistry instance
+    """Helper method that unpacks graphistry instance
+
     ex:
+
         ndf, edf, src, dst, node = unpack(g)
 
-    -----------------------------------------------------------------------------------------
-
     :param g: graphistry instance
-    :returns node DataFrame, edge DataFrame, source column, destination column, node column
+
+    :returns: node DataFrame, edge DataFrame, source column, destination column, node column
     """
     ndf = g._nodes
     edf = g._edges
@@ -51,10 +51,7 @@ def unpack(g: Plottable):
 
 
 def get_children(g: Plottable, node_id: Union[str, int], hops: int = 1):
-    """
-        Helper that gets children at k-hops from node `node_id`
-
-    ------------------------------------------------------------------
+    """Helper that gets children at k-hops from node `node_id`
 
     :returns graphistry instance of hops
     """
@@ -65,17 +62,14 @@ def get_children(g: Plottable, node_id: Union[str, int], hops: int = 1):
 def has_edge(
     g: Plottable, n1: Union[str, int], n2: Union[str, int], directed: bool = True
 ) -> bool:
-    """
-        Checks if `n1` and `n2` share an (directed or not) edge
-
-    ------------------------------------------------------------------
+    """Checks if `n1` and `n2` share an (directed or not) edge
 
     :param g: graphistry instance
     :param n1: `node` to check if has edge to `n2`
     :param n2: `node` to check if has edge to `n1`
     :param directed: bool, if True, checks only outgoing edges from `n1`->`n2`, else finds undirected edges
-    :returns bool, if edge exists between `n1` and `n2`
 
+    :returns: bool, if edge exists between `n1` and `n2`
     """
     ndf, edf, src, dst, node = unpack(g)
     if directed:
@@ -92,16 +86,14 @@ def has_edge(
 def get_edges_of_node(
     g: Plottable, node_id: Union[str, int], outgoing_edges: bool = True, hops: int = 1
 ):
-    """
-        Gets edges of node at k-hops from node
-
-    ----------------------------------------------------------------------------------
+    """Gets edges of node at k-hops from node
 
     :param g: graphistry instance
     :param node_id: `node` to find edges from
     :param outgoing_edges: bool, if true, finds all outgoing edges of `node`, default True
     :param hops: the number of hops from `node` to take, default = 1
-    :returns DataFrame of edges
+
+    :returns: DataFrame of edges
     """
     _, _, src, dst, _ = unpack(g)
     g2 = get_children(g, node_id, hops=hops)
@@ -119,11 +111,7 @@ def get_edges_in_out_cluster(
     column: Union[str, int],
     directed: bool = True,
 ):
-    """
-        Traverses children of `node_id` and separates them into incluster and outcluster sets depending if they have
-        `attribute` in node DataFrame `column`
-
-    --------------------------------------------------------------------------------------------------------------------
+    """Traverses children of `node_id` and separates them into incluster and outcluster sets depending if they have `attribute` in node DataFrame `column`
 
     :param g: graphistry instance
     :param node_id: `node` with `attribute` in `column`
@@ -157,67 +145,57 @@ def get_edges_in_out_cluster(
 
 
 def get_cluster_store_keys(ndf: pd.DataFrame, node: Union[str, int]):
-    """
-        Main innovation in finding and adding to super node.
-        Checks if node is a segment in any collapse_node in COLLAPSE column of nodes DataFrame
-
-    --------------------------------------------------------------------------------------------
+    """Main innovation in finding and adding to super node. Checks if node is a segment in any collapse_node in COLLAPSE column of nodes DataFrame
 
     :param ndf: node DataFrame
     :param node: node to find
-    :returns DataFrame of bools of where `wrap_key(node)` exists in COLLAPSE column
+
+    :returns: DataFrame of bools of where `wrap_key(node)` exists in COLLAPSE column
     """
     node = wrap_key(node)
     return ndf[COLLAPSE_NODE].astype(str).str.contains(node, na=False)
 
 
 def in_cluster_store_keys(ndf: pd.DataFrame, node: Union[str, int]) -> bool:
-    """
-        checks if node is in collapse_node in COLLAPSE column of nodes DataFrame
-
-    ------------------------------------------------------------------------------
+    """checks if node is in collapse_node in COLLAPSE column of nodes DataFrame
 
     :param ndf: nodes DataFrame
     :param node: node to find
-    :returns bool
+
+    :returns: bool
     """
     return any(get_cluster_store_keys(ndf, node))
 
 
 def reduce_key(key: Union[str, int]) -> str:
-    """
-        Takes "1 1 2 1 2 3" -> "1 2 3
-
-    ---------------------------------------------------
+    """Takes "1 1 2 1 2 3" -> "1 2 3
 
     :param key: node name
-    :returns new node name with duplicates removed
+
+    :returns: new node name with duplicates removed
     """
     uniques = " ".join(np.unique(str(key).split()))
     return uniques
 
 
 def unwrap_key(name: Union[str, int]) -> str:
-    """
-        Unwraps node name: ~name~ -> name
-
-    ----------------------------------------
+    """Unwraps node name: ~name~ -> name
 
     :param name: node to unwrap
-    :returns unwrapped node name
+
+    :returns: unwrapped node name
     """
     return str(name).replace(WRAP, "")
 
 
 def wrap_key(name: Union[str, int]) -> str:
-    """
-        Wraps node name -> ~name~
-
-    -----------------------------------
+    """Wraps node name -> ~name~
 
     :param name: node name
-    :returns wrapped node name
+
+    :returns: wrapped node name
     """
+
     name = str(name)
     if WRAP in name:  # idempotency
         return name
@@ -225,17 +203,16 @@ def wrap_key(name: Union[str, int]) -> str:
 
 
 def melt(ndf: pd.DataFrame, node: Union[str, int]) -> str:
-    """
-        Reduces node if in cluster store, otherwise passes it through.
+    """Reduces node if in cluster store, otherwise passes it through.
     ex:
+
         node = "4" will take any sequence from get_cluster_store_keys, "1 2 3", "4 3 6" and returns "1 2 3 4 6"
         when they have a common entry (3).
-
-    -------------------------------------------------------------------------------------------------------------
 
     :param ndf, node DataFrame
     :param node: node to melt
     :returns new_parent_name of super node
+
     """
     rdf = ndf[get_cluster_store_keys(ndf, node)]
     topkey = wrap_key(node)
@@ -259,14 +236,12 @@ def check_has_set(ndf, parent, child):
 def get_new_node_name(
     ndf: pd.DataFrame, parent: Union[str, int], child: Union[str, int]
 ) -> str:
-    """
-        If child in cluster group, melts name, else makes new parent_name from parent, child
-
-    ---------------------------------------------------------------------------------------------------------
+    """If child in cluster group, melts name, else makes new parent_name from parent, child
 
     :param ndf: node DataFrame
     :param parent: `node` with `attribute` in `column`
     :param child: `node` with `attribute` in `column`
+
     :returns new_parent_name
     """
     # THIS IS IMPORTANT FUNCTION -- it is where we wrap the parent/child in WRAP
@@ -300,8 +275,6 @@ def collapse_nodes_and_edges(
         # outside logic controls when that is the case
         # for example, it assumes parent is already in cluster keys of COLLAPSE node
 
-    ---------------------------------------------------------------------------------------
-
     :param g: graphistry instance
     :param parent: `node` with `attribute` in `column`
     :param child: `node` with `attribute` in `column`
@@ -328,29 +301,24 @@ def collapse_nodes_and_edges(
 def has_property(
     g: Plottable, ref_node: Union[str, int], attribute: Union[str, int], column: Union[str, int]
 ) -> bool:
-    """
-        Checks if ref_node is in node dataframe in column with attribute
-
-    -------------------------------------------------------------------------
-
+    """Checks if ref_node is in node dataframe in column with attribute
     :param attribute:
     :param column:
     :param g: graphistry instance
     :param ref_node: `node` to check if it as `attribute` in `column`
-    :returns bool"""
+
+    :returns: bool
+    """
     ndf, edf, src, dst, node = unpack(g)
     ref_node = unwrap_key(ref_node)
     return ref_node in ndf[ndf[column] == attribute][node].values
 
 
 def check_default_columns_present_and_coerce_to_string(g: Plottable):
-    """
-        Helper to set COLLAPSE columns to nodes and edges dataframe, while converting src, dst, node to dtype(str)
-
-    -------------------------------------------------------------------------
-
+    """Helper to set COLLAPSE columns to nodes and edges dataframe, while converting src, dst, node to dtype(str)
     :param g: graphistry instance
-    :returns graphistry instance
+
+    :returns: graphistry instance
     """
     ndf, edf, src, dst, node = unpack(g)
     if COLLAPSE_NODE not in ndf.columns:
@@ -376,32 +344,26 @@ def collapse_algo(
     column: Union[str, int],
     seen: dict,
 ):
-    """
-        Basically candy crush over graph properties in a topology aware manner
+    """Basically candy crush over graph properties in a topology aware manner
 
-        Checks to see if child node has desired property from parent, we will need to check if
-        (start_node=parent: has_attribute , children nodes: has_attribute) by case
-        (T, T), (F, T), (T, F) and (F, F),
-        we start recursive collapse (or not) on the children, reassigning nodes and edges.
+        Checks to see if child node has desired property from parent, we will need to check if (start_node=parent: has_attribute , children nodes: has_attribute) by case (T, T), (F, T), (T, F) and (F, F),we start recursive collapse (or not) on the children, reassigning nodes and edges.
 
         if (T, T), append children nodes to start_node, re-assign the name of the node, and update the edge table with new name,
 
-        if (F, T) start k-(potentially new) super nodes, with k the number of children of start_node.
-                Start node keeps k outgoing edges.
+        if (F, T) start k-(potentially new) super nodes, with k the number of children of start_node. Start node keeps k outgoing edges.
 
         if (T, F) it is the end of the cluster, and we keep new node as is; keep going
 
         if (F, F); keep going
-
-    --------------------------------------------------------------------------------------------------------------------
-
+  
     :param seen:
     :param g: graphistry instance
     :param child: child node to start traversal, for first traversal, set child=parent or vice versa.
     :param parent: parent node to start traversal, in main call, this is set to child.
     :param attribute: attribute to collapse by
     :param column: column in nodes dataframe to collapse over.
-    :returns graphistry instance with collapsed nodes.
+
+    :returns: graphistry instance with collapsed nodes.
     """
 
     compute_key = f"{parent} {child}"
@@ -456,16 +418,13 @@ def normalize_graph(
     self_edges: bool = False,
     unwrap: bool = False
 ) -> Plottable:
-    """
-        Final step after collapse traversals are done, removes duplicates and moves COLLAPSE columns into respective
-        (node, src, dst) columns of node, edges dataframe from Graphistry instance g.
-
-    --------------------------------------------------------------------------------------------------------------------
+    """Final step after collapse traversals are done, removes duplicates and moves COLLAPSE columns into respective(node, src, dst) columns of node, edges dataframe from Graphistry instance g.
 
     :param g: graphistry instance
     :param self_edges: bool, whether to keep duplicates from ndf, edf, default False
     :param unwrap: bool, whether to unwrap node text with `~`, default True
-    :returns final graphistry instance
+
+    :returns: final graphistry instance
     """
 
     ndf, edf, src, dst, node = unpack(g)
@@ -527,7 +486,6 @@ def collapse_by(
     """
         Main call in collapse.py, collapses nodes and edges by attribute, and returns normalized graphistry object.
 
-    --------------------------------------------------------------------------------------------------------------------
     :param self: graphistry instance
     :param parent: parent node to start traversal, in main call, this is set to child.
     :param start_node:
@@ -535,6 +493,7 @@ def collapse_by(
     :param column: column in nodes dataframe to collapse over.
     :param seen: dict of previously collapsed pairs -- {n1, n2) is seen as different from (n2, n1)
     :param verbose: bool, default True
+
     :returns graphistry instance with collapsed and normalized nodes.
     """
     from time import time

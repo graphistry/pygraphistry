@@ -1,29 +1,37 @@
-Layout & Plugins
+plotter
+=======
+.. toctree::
+   :maxdepth: 3
+
+   graphistry.plotter
+
+
+Plugins
+==================
+.. toctree::
+   :maxdepth: 3
+
+
+   graphistry.plugins
+ 
+
+
+Compute 
+==================
+.. toctree::
+   :maxdepth: 3
+
+   graphistry.compute
+
+
+Layouts
 ==================
 .. toctree::
    :maxdepth: 3
 
 
    graphistry.layout
-   graphistry.plugins
-   graphistry.plugins_types
 
-
-Plotter Module
-==================
-
-.. automodule:: graphistry.plotter
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-Pygraphistry Module
-===================
-
-.. automodule:: graphistry.pygraphistry
-    :members:
-    :undoc-members:
-    :show-inheritance:
 
 Featurize 
 ==================
@@ -47,7 +55,7 @@ Semantic Search
     :members:
     :undoc-members:
     :show-inheritance:
-    
+
 DBScan
 ==================
 .. automodule:: graphistry.compute.cluster
@@ -56,7 +64,7 @@ DBScan
     :show-inheritance:
 
 Arrow uploader Module
-=====================
+============================
 
 .. automodule:: graphistry.arrow_uploader
     :members:
@@ -64,7 +72,7 @@ Arrow uploader Module
     :show-inheritance:
 
 Arrow File Uploader Module
-==========================
+============================
 
 .. automodule:: graphistry.ArrowFileUploader
     :members:
@@ -78,4 +86,3 @@ Versioneer
     :members:
     :undoc-members:
     :show-inheritance:
-
