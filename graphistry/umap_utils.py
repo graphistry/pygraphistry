@@ -126,9 +126,9 @@ def make_safe_gpu_dataframes(X, y, engine):
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
         for key, value in kwargs.items():
-            if isinstance(value, cudf.DataFrame) and engine == "pandas":
+            if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "dirty_cat"]:
                 new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine == "cuml":
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
                 new_kwargs[key] = cudf.from_pandas(value)
             else:
                 new_kwargs[key] = value
@@ -352,10 +352,13 @@ class UMAPMixin(MIXIN_BASE):
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
-        if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)):
+        if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)) and not hasattr(emb, 'device'):
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
         elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
             emb.rename(columns={0: config.X, 1: config.Y}, inplace=True)
+        elif emb.shape[1] == 2 and hasattr(emb, 'device'):
+            import cudf
+            emb = cudf.DataFrame(emb, columns=[config.X, config.Y], index=index)
         else:
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1])
