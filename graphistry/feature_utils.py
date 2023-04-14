@@ -689,15 +689,16 @@ def fit_pipeline(
     columns = X.columns
     index = X.index
     X_type= str(getmodule(X))
-    if 'cudf.core.dataframe' not in X_type:
+    if 'cudf' not in X_type:
         X = transformer.fit_transform(X)
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         X=pd.DataFrame(X, columns=columns, index=index)
-    elif 'cudf.core.dataframe' in X_type:
-        X = transformer.fit_transform(X.to_numpy())
+    else:
+        X = transformer.fit_transform(X.to_numpy()) ## why numpy here?
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
+        import cudf
         X=cudf.DataFrame(X, columns=columns, index=index)
     return X
 
@@ -953,7 +954,7 @@ def process_dirty_dataframes(
     if feature_engine == 'dirty_cat':
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     elif feature_engine == 'cu_cat':
-        # assert_cuml_cucat() ## tried to use this rather than importing below
+        lazy_import_has_cu_cat_dependancy() ## tried to use this rather than importing below
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from cuml.preprocessing import FunctionTransformer
     t = time()
@@ -992,21 +993,17 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed)
-        if 'cudf.core.dataframe' not in str(getmodule(ndf)):
+        if 'cudf' not in str(getmodule(ndf)):
             X_enc = pd.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
             X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
-        elif 'cudf.core.dataframe' in str(getmodule(ndf)):
-            import cudf
-            X_enc = cudf.DataFrame.from_arrow(X_enc)
+        else:
+            # X_enc = cudf.DataFrame.from_arrow(X_enc)
             X_enc.index = ndf.index
-            # features_transformed=np.array([item.as_py() for item in features_transformed.key()])
-            # X_enc.columns = features_transformed.as_py()
-            #  = features_transformed #.to_numpy() ##error suggests this -- not working
+            X_enc.columns = np.array(features_transformed)
+            X_enc = X_enc.fillna(0.0)
 
-            
-        #X_enc = X_enc.fillna(0.0)  # TODO -- this is a hack in cuml version
     else:
         logger.info("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
@@ -1346,7 +1343,8 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     ]  # stringify the column names or scikits.base throws error
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
-    if 'cudf.core.dataframe' in edf_type:
+    if 'cudf' in edf_type:
+        lazy_import_has_cu_cat_dependancy()
         import cudf
         T = cudf.DataFrame(T, columns=columns, index=edf.index)
     else:
@@ -1423,6 +1421,11 @@ def process_edge_dataframes(
         MultiLabelBinarizer()
     )  # create new one so we can use encode_edges later in
     # transform with fit=False
+    edf_type = str(getmodule(edf))
+    if 'cudf' in edf_type:
+        import cudf
+        lazy_import_has_cu_cat_dependancy()
+        
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
     )
@@ -1509,12 +1512,10 @@ def process_edge_dataframes(
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
         T_type= str(getmodule(T))
-        if 'cudf.core.dataframe' not in T_type:
+        if 'cudf' not in T_type:
             X_enc = pd.concat([T, X_enc], axis=1)
-        elif 'cudf.core.dataframe' not in T_type:
-            X_enc = cudf.concat([T, X_enc], axis=1)
         else:
-            X_enc = pd.concat([T, X_enc], axis=1)
+            X_enc = cudf.concat([T, X_enc], axis=1)
     elif not T.empty and X_enc.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found only Edges =>")

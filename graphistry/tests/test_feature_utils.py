@@ -15,6 +15,7 @@ from graphistry.feature_utils import (
     process_nodes_dataframes,
     resolve_feature_engine,
     lazy_import_has_min_dependancy,
+    lazy_import_has_cu_cat_dependancy,
     lazy_import_has_dependancy_text,
     FastEncoder
 )
@@ -26,6 +27,7 @@ np.random.seed(137)
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
+has_cu_cat_dependancy_text, _, _ = lazy_import_has_cu_cat_dependancy()
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
@@ -311,6 +313,71 @@ class TestFeatureProcessors(unittest.TestCase):
         assert y.shape == (4, 4)
         assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
         
+class TestFeatureCUMLProcessors(unittest.TestCase):
+    def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
+        import cu_cat
+        self.assertIsInstance(
+            x,
+            cudf.DataFrame,
+            f"Returned data matrix is not cudf DataFrame for {name} {value}",
+        )
+        self.assertFalse(
+            x.empty,
+            f"cudf DataFrame should not be empty for {name} {value}",
+        )
+        self.assertIsInstance(
+            y,
+            pd.DataFrame,
+            f"Returned Target is not a cudf DataFrame for {name} {value}",
+        )
+        self.assertFalse(
+            y.empty,
+            f"cudf Target DataFrame should not be empty for {name} {value}",
+        )
+        self.assertIsInstance(
+            data_encoder,
+            cu_cat.super_vectorizer.TableVectorizer,
+            f"Data Encoder is not a cu_cat.super_vectorizer.TableVectorizer instance for {name} {value}",
+        )
+        self.assertIsInstance(
+            target_encoder,
+            cu_cat.super_vectorizer.TableVectorizer,
+            f"Data Target Encoder is not a cu_cat.super_vectorizer.TableVectorizer instance for {name} {value}",
+        )
+
+    @pytest.mark.skipif(not has_cu_cat_dependancy or not has_cu_cat_dependancy, reason="requires cu_cat feature dependencies")
+    def test_process_node_dataframes_min_words(self):
+        # test different target cardinality
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            for min_words in [
+                2,
+                4000,
+            ]:  # last one should skip encoding, and throw all to dirty_cat
+
+                X_enc, y_enc, X_encs, y_encs, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
+                    ndf_reddit,
+                    y=double_target_reddit,
+                    use_scaler=None,
+                    cardinality_threshold=40,
+                    cardinality_threshold_target=40,
+                    n_topics=20,
+                    min_words=min_words,
+                    model_name=model_avg_name,
+                    feature_engine=resolve_feature_engine('auto')
+                )
+                self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
+    
+    @pytest.mark.skipif(not has_cu_cat_dependancy, reason="requires minimal feature dependencies")
+    def test_multi_label_binarizer(self):
+        g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            g2 = g.featurize(y=['list_str'], X=['src'], multilabel=True)
+        y = g2._get_target('node')
+        assert y.shape == (4, 4)
+        assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
+
 class TestFeatureMethods(unittest.TestCase):
 
     def _check_attributes(self, g, attributes):
