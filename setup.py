@@ -33,7 +33,7 @@ base_extras_light = {
     'networkx': ['networkx>=2.5'],
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
-    'nodexl': ['openpyxl', 'xlrd'],
+    'nodexl': ['openpyxl<3.1.1', 'xlrd'],
     'jupyter': ['ipython'],
 }
 

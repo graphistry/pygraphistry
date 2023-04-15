@@ -26,6 +26,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * GIB: Add missing import during group-in-a-box cudf layout of 0-degree nodes
 * Tests: SSO login tests catch more unexpected exns
+* Embed: `predict_links` on cuda
 
 ## [0.28.6 - 2022-11-29]
 
