@@ -602,7 +602,7 @@ def df_coercion(  # noqa: C901
     if engine == Engine.DASK:
         import dask.dataframe
         if isinstance(df, pd.DataFrame):
-            out = dask.dataframe.from_pandas(df, **{
+            out = dask.dataframe.from_pandas(df, **{  # type: ignore
                 **({'npartitions': npartitions} if npartitions is not None else {}) , 
                 **({'chunksize': chunksize} if chunksize is not None else {})
             })
