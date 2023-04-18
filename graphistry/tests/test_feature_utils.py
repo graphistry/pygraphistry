@@ -315,7 +315,7 @@ class TestFeatureProcessors(unittest.TestCase):
         
 class TestFeatureCUMLProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
-        import cu_cat
+        import cu_cat,cudf,cuml
         self.assertIsInstance(
             x,
             cudf.DataFrame,
@@ -345,7 +345,7 @@ class TestFeatureCUMLProcessors(unittest.TestCase):
             f"Data Target Encoder is not a cu_cat.super_vectorizer.TableVectorizer instance for {name} {value}",
         )
 
-    @pytest.mark.skipif(not has_cu_cat_dependancy or not has_cu_cat_dependancy, reason="requires cu_cat feature dependencies")
+    @pytest.mark.skipif(not lazy_import_has_cu_cat_dependancy, reason="requires cu_cat feature dependencies")
     def test_process_node_dataframes_min_words(self):
         # test different target cardinality
         with warnings.catch_warnings():
@@ -368,7 +368,7 @@ class TestFeatureCUMLProcessors(unittest.TestCase):
                 )
                 self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
-    @pytest.mark.skipif(not has_cu_cat_dependancy, reason="requires minimal feature dependencies")
+    @pytest.mark.skipif(not lazy_import_has_cu_cat_dependancy, reason="requires minimal feature dependencies")
     def test_multi_label_binarizer(self):
         g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
         with warnings.catch_warnings():
