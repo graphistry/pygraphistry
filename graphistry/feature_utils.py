@@ -197,6 +197,7 @@ def make_safe_gpu_dataframes(X, y, engine):
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 
+
 FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
@@ -688,18 +689,18 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-    X_type= str(getmodule(X))
+    X_type = str(getmodule(X))
     if 'cudf' not in X_type:
         X = transformer.fit_transform(X)
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
-        X=pd.DataFrame(X, columns=columns, index=index)
+        X = pd.DataFrame(X, columns=columns, index=index)
     else:
-        X = transformer.fit_transform(X.to_numpy()) ## why numpy here?
+        X = transformer.fit_transform(X.to_numpy())
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         import cudf
-        X=cudf.DataFrame(X, columns=columns, index=index)
+        X = udf.DataFrame(X, columns=columns, index=index)
     return X
 
 
@@ -954,7 +955,7 @@ def process_dirty_dataframes(
     if feature_engine == 'dirty_cat':
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     elif feature_engine == 'cu_cat':
-        lazy_import_has_cu_cat_dependancy() ## tried to use this rather than importing below
+        lazy_import_has_cu_cat_dependancy()  # tried to use this rather than importing below
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from cuml.preprocessing import FunctionTransformer
     t = time()
@@ -1511,7 +1512,7 @@ def process_edge_dataframes(
     if not X_enc.empty and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
-        T_type= str(getmodule(T))
+        T_type = str(getmodule(T))
         if 'cudf' not in T_type:
             X_enc = pd.concat([T, X_enc], axis=1)
         else:

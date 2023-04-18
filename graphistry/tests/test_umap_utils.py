@@ -30,7 +30,6 @@ from graphistry.umap_utils import (
     lazy_cuml_import_has_dependancy,
     lazy_cudf_import_has_dependancy,
 )
-from graphistry.umap_utils import lazy_umap_import_has_dependancy, lazy_cuml_import_has_dependancy, lazy_cudf_import_has_dependancy
 
 has_dependancy, _ = lazy_import_has_min_dependancy()
 has_cuml, _, _ = lazy_cuml_import_has_dependancy()
