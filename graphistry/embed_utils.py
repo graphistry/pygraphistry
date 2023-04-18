@@ -21,6 +21,7 @@ def lazy_embed_import_dep():
     except:
         return False, None, None, None, None, None, None, None
 
+
 try:
     import cudf
 except:
@@ -296,10 +297,16 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             self : graphistry instance
         """
         # this is temporary, will be fixed in future releases
-        if isinstance(self._nodes, cudf.DataFrame):
-            self._nodes = self._nodes.to_pandas()
-        if isinstance(self._edges, cudf.DataFrame):
-            self._edges = self._edges.to_pandas()
+        try:
+            if isinstance(self._nodes, cudf.DataFrame):
+                self._nodes = self._nodes.to_pandas()
+        except:
+            pass
+        try:
+            if isinstance(self._edges, cudf.DataFrame):
+                self._edges = self._edges.to_pandas()
+        except:
+            pass
         if inplace:
             res = self
         else:
@@ -425,8 +432,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             src = pd.Series(all_nodes)
         else:
             # this is temporary, will be removed after gpu feature utils
-            if isinstance(source, cudf.DataFrame):
-                source = source.to_pandas()  # type: ignore
+            try:
+                if isinstance(source, cudf.DataFrame):
+                    source = source.to_pandas()  # type: ignore
+            except:
+                pass
             src = pd.Series(source)
             src = src.map(self._node2id)
 
@@ -434,8 +444,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             rel = pd.Series(all_relations)
         else:
             # this is temporary, will be removed after gpu feature utils
-            if isinstance(relation, cudf.DataFrame):
-                relation = relation.to_pandas()  # type: ignore
+            try:
+                if isinstance(relation, cudf.DataFrame):
+                    relation = relation.to_pandas()  # type: ignore
+            except:
+                pass
             rel = pd.Series(relation)
             rel = rel.map(self._relation2id)
 
@@ -443,8 +456,11 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             dst = pd.Series(all_nodes)
         else:
             # this is temporary, will be removed after gpu feature utils
-            if isinstance(destination, cudf.DataFrame):
-                destination = destination.to_pandas()  # type: ignore
+            try:
+                if isinstance(destination, cudf.DataFrame):
+                    destination = destination.to_pandas()  # type: ignore
+            except:
+                pass
             dst = pd.Series(destination)
             dst = dst.map(self._node2id)
 
