@@ -700,7 +700,7 @@ def fit_pipeline(
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         import cudf
-        X = udf.DataFrame(X, columns=columns, index=index)
+        X = cudf.DataFrame(X, columns=columns, index=index)
     return X
 
 
