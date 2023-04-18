@@ -54,7 +54,7 @@ if TYPE_CHECKING:
             SuperVectorizer,
             GapEncoder,
             SimilarityEncoder,
-        )
+        ) # type: ignore
     except:
         SuperVectorizer = Any
         GapEncoder = Any
