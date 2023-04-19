@@ -611,23 +611,29 @@ def get_preprocessing_pipeline(
             `uniform`, `quantile`, `kmeans`, default 'quantile'
     :return: scaled array, imputer instances or None, scaler instance or None
     """
-    from sklearn.preprocessing import (
-        # FunctionTransformer,
-        # KBinsDiscretizer,
-        # MinMaxScaler,
-        MultiLabelBinarizer,
-        QuantileTransformer, 
-        # RobustScaler,
-        # StandardScaler,
-    )
-    from cuml.preprocessing import (
-        FunctionTransformer,
-        KBinsDiscretizer,
-        MinMaxScaler,
-        # QuantileTransformer,  ## cuml 23 only
-        RobustScaler,
-        StandardScaler,
-    )
+    try:
+        from sklearn.preprocessing import (
+            FunctionTransformer,
+            KBinsDiscretizer,
+            MinMaxScaler,
+            MultiLabelBinarizer,
+            QuantileTransformer, 
+            RobustScaler,
+            StandardScaler,
+        )
+    except:
+        pass
+    try:
+        from cuml.preprocessing import (
+            FunctionTransformer,
+            KBinsDiscretizer,
+            MinMaxScaler,
+            # QuantileTransformer,  ## cuml 23 only
+            RobustScaler,
+            StandardScaler,
+        )
+    except:
+        pass
     from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
     available_preprocessors = [
@@ -892,7 +898,11 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    from cuml.preprocessing import FunctionTransformer
+    try:
+        from cuml.preprocessing import FunctionTransformer
+    except:
+        from sklearn.preprocessing import FunctionTransformer
+
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -952,12 +962,19 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    if feature_engine == 'dirty_cat':
-        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    elif feature_engine == 'cu_cat':
+    try:
         lazy_import_has_cu_cat_dependancy()  # tried to use this rather than importing below
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    from cuml.preprocessing import FunctionTransformer
+        from cuml.preprocessing import FunctionTransformer
+        temporary_feat_engine_key = 'cu_cat'
+    except:
+        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+        temporary_feat_engine_key = 'dirty_cat'
+
+    # TODO: should be handled at resolve_feature_engine level
+    if not is_dataframe_all_numeric(ndf) and feature_engine == 'torch':
+        feature_engine = temporary_feat_engine_key
+        
     t = time()
 
     if not is_dataframe_all_numeric(ndf):

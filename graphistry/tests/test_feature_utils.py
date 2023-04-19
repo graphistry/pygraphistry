@@ -29,6 +29,14 @@ has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
 has_cu_cat_dependancy_text, _, _ = lazy_import_has_cu_cat_dependancy()
 
+HAS_CUCAT = False
+try:
+    import cu_cat, cudf
+    HAS_CUCAT = True
+except:
+    cu_cat = object
+    cudf = pd
+
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
 logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
@@ -314,8 +322,9 @@ class TestFeatureProcessors(unittest.TestCase):
         assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
         
 class TestFeatureCUMLProcessors(unittest.TestCase):
+    @pytest.mark.skipif(not lazy_import_has_cu_cat_dependancy, reason="requires cu_cat feature dependencies")
+    @pytest.mark.skipif(not HAS_CUCAT, reason="requires cu_cat, cudf")
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
-        import cu_cat,cudf  # ,cuml
         self.assertIsInstance(
             x,
             cudf.DataFrame,
@@ -346,6 +355,7 @@ class TestFeatureCUMLProcessors(unittest.TestCase):
         )
 
     @pytest.mark.skipif(not lazy_import_has_cu_cat_dependancy, reason="requires cu_cat feature dependencies")
+    @pytest.mark.skipif(not HAS_CUCAT, reason="requires cu_cat, cudf")
     def test_process_node_dataframes_min_words(self):
         # test different target cardinality
         with warnings.catch_warnings():
@@ -369,6 +379,7 @@ class TestFeatureCUMLProcessors(unittest.TestCase):
                 self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
     @pytest.mark.skipif(not lazy_import_has_cu_cat_dependancy, reason="requires minimal feature dependencies")
+    @pytest.mark.skipif(not HAS_CUCAT, reason="requires cu_cat, cudf")
     def test_multi_label_binarizer(self):
         g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
         with warnings.catch_warnings():
