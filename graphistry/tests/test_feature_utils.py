@@ -315,7 +315,7 @@ class TestFeatureProcessors(unittest.TestCase):
         
 class TestFeatureCUMLProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
-        import cu_cat,cudf,cuml
+        import cu_cat,cudf #,cuml
         self.assertIsInstance(
             x,
             cudf.DataFrame,
