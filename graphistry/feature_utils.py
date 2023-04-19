@@ -612,18 +612,7 @@ def get_preprocessing_pipeline(
     :return: scaled array, imputer instances or None, scaler instance or None
     """
     try:
-        from sklearn.preprocessing import (
-            FunctionTransformer,
-            KBinsDiscretizer,
-            MinMaxScaler,
-            MultiLabelBinarizer,
-            QuantileTransformer, 
-            RobustScaler,
-            StandardScaler,
-        )
-    except:
-        pass
-    try:
+        from sklearn.preprocessing import QuantileTransformer
         from cuml.preprocessing import (
             FunctionTransformer,
             KBinsDiscretizer,
@@ -633,7 +622,15 @@ def get_preprocessing_pipeline(
             StandardScaler,
         )
     except:
-        pass
+        from sklearn.preprocessing import (
+            FunctionTransformer,
+            KBinsDiscretizer,
+            MinMaxScaler,
+            MultiLabelBinarizer,
+            QuantileTransformer, 
+            RobustScaler,
+            StandardScaler,
+        )
     from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
     available_preprocessors = [
