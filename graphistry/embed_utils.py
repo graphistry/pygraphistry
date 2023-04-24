@@ -21,12 +21,13 @@ def lazy_embed_import_dep():
     except:
         return False, None, None, None, None, None, None, None
 
-
-try:
-    import cudf
-except:
-    cudf = object
-
+def check_cudf():
+    try:
+        import cudf
+        return True, cudf
+    except:
+        return False, Object
+        
 
 if TYPE_CHECKING:
     _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
@@ -36,6 +37,8 @@ else:
     TT = Any
     MIXIN_BASE = object
     torch = Any
+
+has_cudf, cudf = check_cudf()
 
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]  # type: ignore
