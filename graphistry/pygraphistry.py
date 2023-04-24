@@ -1,6 +1,7 @@
-from typing import Any, Callable, Dict, Iterable, List, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union, cast
 from typing_extensions import Literal
 from graphistry.Plottable import Plottable
+from graphistry.privacy import Mode, Privacy
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
@@ -64,7 +65,7 @@ default_config = {
     "certificate_validation": True,
     "store_token_creds_in_memory": True,
     # Do not call API when all None
-    "privacy": None,
+    "privacy": cast(Optional[Privacy], None),
     "login_type": None
 }
 
@@ -701,9 +702,9 @@ class PyGraphistry(object):
         
     @staticmethod
     def privacy(
-            mode: Optional[str] = None,
+            mode: Optional[Mode] = None,
             notify: Optional[bool] = None,
-            invited_users: Optional[List] = None,
+            invited_users: Optional[List[str]] = None,
             mode_action: Optional[str] = None,
             message: Optional[str] = None
         ):

@@ -2,6 +2,8 @@ from typing import List, Optional
 
 import io, pyarrow as pa, requests, sys
 
+from graphistry.privacy import Mode, Privacy
+
 from .ArrowFileUploader import ArrowFileUploader
 from .util import setup_logger
 logger = setup_logger(__name__)
@@ -534,9 +536,9 @@ class ArrowUploader:
 
     def cascade_privacy_settings(
         self,
-        mode: Optional[str] = None,
+        mode: Optional[Mode] = None,
         notify: Optional[bool] = None,
-        invited_users: Optional[List] = None,
+        invited_users: Optional[List[str]] = None,
         mode_action: Optional[str] = None,
         message: Optional[str] = None
     ):
@@ -582,7 +584,7 @@ class ArrowUploader:
         self,
         obj_pk: str,
         obj_type: str = 'dataset',
-        privacy: Optional[dict] = None
+        privacy: Optional[Privacy] = None
     ):
         """
         Set sharing settings. Any settings not passed here will cascade from PyGraphistry or defaults
