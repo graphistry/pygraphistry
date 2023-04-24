@@ -154,7 +154,7 @@ class PlotterBase(Plottable):
         self._height : int = 500
         self._render : bool = True
         self._url_params : dict = {'info': 'true'}
-        self._privacy = None
+        self._privacy : Optional[Privacy] = None
         # Metadata
         self._name : Optional[str] = None
         self._description : Optional[str] = None
