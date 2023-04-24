@@ -99,7 +99,9 @@ nitpick_ignore = [
     ('py:data', 'typing.Callable'),
     ('py:data', 'typing.Tuple'),
     ('py:data', 'typing.Union'),
-    ('py:class','pandas.core.frame.DataFrame')
+    ('py:data', 'Mode'),
+    ('py:class','pandas.core.frame.DataFrame'),
+    ('py:class', 'graphistry.privacy.Privacy')
 ]
 
 set_type_checking_flag = True
