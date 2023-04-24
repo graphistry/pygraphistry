@@ -4,6 +4,8 @@ import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
+from graphistry.privacy import Privacy, Mode
+
 
 from .constants import SRC, DST, NODE
 from .plugins_types import CuGraphKind
@@ -1200,11 +1202,11 @@ class PlotterBase(Plottable):
         return res
 
 
-    def privacy(self, mode: Optional[str] = None, notify: Optional[bool] = None, invited_users: Optional[List] = None, message: Optional[str] = None):
+    def privacy(self, mode: Optional[Mode] = None, notify: Optional[bool] = None, invited_users: Optional[List[str]] = None, message: Optional[str] = None):
         """Set local sharing mode
 
         :param mode: Either "private", "public", or inherit from global privacy()
-        :type mode: Optional[str]
+        :type mode: Optional[Mode]
         :param notify: Whether to email the recipient(s) upon upload, defaults to global privacy()
         :type notify: Optional[bool]
         :param invited_users: List of recipients, where each is {"email": str, "action": str} and action is "10" (view) or "20" (edit), defaults to global privacy()
