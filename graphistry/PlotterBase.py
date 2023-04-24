@@ -122,7 +122,7 @@ class PlotterBase(Plottable):
         cache_coercion_helper.cache_clear()
 
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super(PlotterBase, self).__init__()
 
         # Bindings
@@ -164,8 +164,8 @@ class PlotterBase(Plottable):
             'edge_encodings': {'current': {}, 'default': {} }
         }
         # Integrations
-        self._bolt_driver : any = None
-        self._tigergraph : any = None
+        self._bolt_driver : Any = None
+        self._tigergraph : Any = None
 
         # feature engineering
         self._node_embedding = None
