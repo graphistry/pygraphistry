@@ -26,7 +26,7 @@ def check_cudf():
         import cudf
         return True, cudf
     except:
-        return False, Object
+        return False, object
         
 
 if TYPE_CHECKING:
