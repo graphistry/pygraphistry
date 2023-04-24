@@ -1,5 +1,5 @@
-from typing import List, Literal, TypedDict
-from typing_extensions import NotRequired
+from typing import List, TypedDict
+from typing_extensions import NotRequired, Literal
 
 Mode = Literal['private', 'organization', 'public']
 
