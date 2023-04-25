@@ -1428,7 +1428,7 @@ def process_edge_dataframes(
     # if 'cudf' in edf_type:
         # import cudf
         # lazy_import_has_cu_cat_dependancy()
-        assert_cuml_cucat()
+    assert_cuml_cucat()
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
     )
