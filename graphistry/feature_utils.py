@@ -700,7 +700,8 @@ def fit_pipeline(
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         # import cudf
-        assert_cuml_cucat()
+        # assert_cuml_cucat()
+        _, _, cudf = lazy_import_has_cu_cat_dependancy()
         X = cudf.DataFrame(X, columns=columns, index=index)
     return X
 
@@ -1348,7 +1349,8 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     if 'cudf' in edf_type:
         # lazy_import_has_cu_cat_dependancy()
         # import cudf
-        assert_cuml_cucat()
+        # assert_cuml_cucat()
+        _, _, cudf = lazy_import_has_cu_cat_dependancy()
         T = cudf.DataFrame(T, columns=columns, index=edf.index)
     else:
         T = pd.DataFrame(T, columns=columns, index=edf.index)
@@ -1428,7 +1430,8 @@ def process_edge_dataframes(
     # if 'cudf' in edf_type:
         # import cudf
         # lazy_import_has_cu_cat_dependancy()
-    assert_cuml_cucat()
+    # assert_cuml_cucat()
+    _, _, cudf = lazy_import_has_cu_cat_dependancy()
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
     )
