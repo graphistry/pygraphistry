@@ -703,6 +703,7 @@ def fit_pipeline(
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         # import cudf
+        # assert_cuml_cucat()
         _, _, cudf = lazy_import_has_cu_cat_dependancy()
         X = cudf.DataFrame(X, columns=columns, index=index)
     return X
