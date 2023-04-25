@@ -60,6 +60,13 @@ if TYPE_CHECKING:
         GapEncoder = Any
         SimilarityEncoder = Any
     try:
+        from sklearn.preprocessing import FunctionTransformer
+        from sklearn.base import BaseEstimator, TransformerMixin
+    except:
+        FunctionTransformer = Any
+        BaseEstimator = object
+        TransformerMixin = object
+    try:
         from cuml.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
     except:
