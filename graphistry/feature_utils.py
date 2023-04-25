@@ -901,7 +901,11 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    from cuml.preprocessing import FunctionTransformer
+    from sklearn.preprocessing import FunctionTransformer
+    try:
+        from cuml.preprocessing import FunctionTransformer
+    except:
+        pass
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -966,7 +970,11 @@ def process_dirty_dataframes(
     elif feature_engine == 'cu_cat':
         lazy_import_has_cu_cat_dependancy()  # tried to use this rather than importing below
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    from cuml.preprocessing import FunctionTransformer
+    from sklearn.preprocessing import FunctionTransformer
+    try:
+        from cuml.preprocessing import FunctionTransformer
+    except:
+        pass
     t = time()
 
     if not is_dataframe_all_numeric(ndf):
