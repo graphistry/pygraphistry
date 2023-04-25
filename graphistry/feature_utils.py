@@ -619,7 +619,7 @@ def get_preprocessing_pipeline(
     :return: scaled array, imputer instances or None, scaler instance or None
     """
     from sklearn.preprocessing import (
-        FunctionTransformer,
+        # FunctionTransformer,
         # KBinsDiscretizer,
         # MinMaxScaler,
         MultiLabelBinarizer,
@@ -628,7 +628,7 @@ def get_preprocessing_pipeline(
         # StandardScaler,
     )
     from cuml.preprocessing import (
-        FunctionTransformer,
+        # FunctionTransformer,
         KBinsDiscretizer,
         MinMaxScaler,
         # QuantileTransformer,  ## cuml 23 only
