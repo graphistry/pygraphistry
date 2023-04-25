@@ -60,7 +60,7 @@ if TYPE_CHECKING:
         GapEncoder = Any
         SimilarityEncoder = Any
     try:
-        from sklearn.preprocessing import FunctionTransformer
+        from cuml.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
     except:
         FunctionTransformer = Any
@@ -611,26 +611,23 @@ def get_preprocessing_pipeline(
             `uniform`, `quantile`, `kmeans`, default 'quantile'
     :return: scaled array, imputer instances or None, scaler instance or None
     """
-    try:
-        from sklearn.preprocessing import QuantileTransformer
-        from cuml.preprocessing import (
-            FunctionTransformer,
-            KBinsDiscretizer,
-            MinMaxScaler,
-            # QuantileTransformer,  ## cuml 23 only
-            RobustScaler,
-            StandardScaler,
-        )
-    except:
-        from sklearn.preprocessing import (
-            FunctionTransformer,
-            KBinsDiscretizer,
-            MinMaxScaler,
-            MultiLabelBinarizer,
-            QuantileTransformer, 
-            RobustScaler,
-            StandardScaler,
-        )
+    from sklearn.preprocessing import (
+        # FunctionTransformer,
+        # KBinsDiscretizer,
+        # MinMaxScaler,
+        MultiLabelBinarizer,
+        QuantileTransformer, 
+        # RobustScaler,
+        # StandardScaler,
+    )
+    from cuml.preprocessing import (
+        FunctionTransformer,
+        KBinsDiscretizer,
+        MinMaxScaler,
+        # QuantileTransformer,  ## cuml 23 only
+        RobustScaler,
+        StandardScaler,
+    )
     from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
     available_preprocessors = [
@@ -897,11 +894,7 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    try:
-        from cuml.preprocessing import FunctionTransformer
-    except:
-        from sklearn.preprocessing import FunctionTransformer
-
+    from cuml.preprocessing import FunctionTransformer
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -961,19 +954,12 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    try:
+    if feature_engine == 'dirty_cat':
+        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+    elif feature_engine == 'cu_cat':
         lazy_import_has_cu_cat_dependancy()  # tried to use this rather than importing below
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-        from cuml.preprocessing import FunctionTransformer
-        temporary_feat_engine_key = 'cu_cat'
-    except:
-        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-        temporary_feat_engine_key = 'dirty_cat'
-
-    # TODO: should be handled at resolve_feature_engine level
-    if not is_dataframe_all_numeric(ndf) and feature_engine == 'torch':
-        feature_engine = temporary_feat_engine_key
-        
+    from cuml.preprocessing import FunctionTransformer
     t = time()
 
     if not is_dataframe_all_numeric(ndf):
@@ -1361,6 +1347,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
     if 'cudf' in edf_type:
+        # lazy_import_has_cu_cat_dependancy()
         # import cudf
         # assert_cuml_cucat()
         _, _, cudf = lazy_import_has_cu_cat_dependancy()
@@ -1439,8 +1426,11 @@ def process_edge_dataframes(
         MultiLabelBinarizer()
     )  # create new one so we can use encode_edges later in
     # transform with fit=False
-
+    edf_type = str(getmodule(edf))
+    # if 'cudf' in edf_type:
+        # import cudf
     _, _, cudf = lazy_import_has_cu_cat_dependancy()
+    # assert_cuml_cucat()
     
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
