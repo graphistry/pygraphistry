@@ -52,7 +52,8 @@ class NotThisMethod(Exception):
     """Exception raised if a method is not valid for the current scenario."""
 
 
-LONG_VERSION_PY = {}
+# TODO: type annotation
+LONG_VERSION_PY = {}  # type: ignore
 HANDLERS = {}
 
 
