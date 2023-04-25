@@ -1426,9 +1426,6 @@ def process_edge_dataframes(
         MultiLabelBinarizer()
     )  # create new one so we can use encode_edges later in
     # transform with fit=False
-    # edf_type = str(getmodule(edf))
-    # if 'cudf' in edf_type:
-        # import cudf
     _, _, cudf = lazy_import_has_cu_cat_dependancy()
     # assert_cuml_cucat()
     
