@@ -962,7 +962,7 @@ def process_dirty_dataframes(
     """
     if feature_engine != 'cu_cat':
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
-    if feature_engine == 'cu_cat':
+    elif feature_engine == 'cu_cat':
         lazy_import_has_cu_cat_dependancy()  # tried to use this rather than importing below
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     t = time()
