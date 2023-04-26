@@ -66,13 +66,13 @@ if TYPE_CHECKING:
         FunctionTransformer = Any
         BaseEstimator = object
         TransformerMixin = object
-    try:
-        from cuml.preprocessing import FunctionTransformer
-        from sklearn.base import BaseEstimator, TransformerMixin
-    except:
-        FunctionTransformer = Any
-        BaseEstimator = object
-        TransformerMixin = object
+    # try:
+    #     from cuml.preprocessing import FunctionTransformer
+    #     from sklearn.base import BaseEstimator, TransformerMixin
+    # except:
+    #     FunctionTransformer = Any
+    #     BaseEstimator = object
+    #     TransformerMixin = object
 else:
     MIXIN_BASE = object
     Pipeline = Any
