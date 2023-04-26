@@ -620,21 +620,21 @@ def get_preprocessing_pipeline(
     """
     from sklearn.preprocessing import (
         FunctionTransformer,
-        # KBinsDiscretizer,
-        # MinMaxScaler,
-        MultiLabelBinarizer,
-        QuantileTransformer, 
-        # RobustScaler,
-        # StandardScaler,
-    )
-    from cuml.preprocessing import (
-        # FunctionTransformer,
         KBinsDiscretizer,
         MinMaxScaler,
-        # QuantileTransformer,  ## cuml 23 only
+        MultiLabelBinarizer,
+        QuantileTransformer, 
         RobustScaler,
         StandardScaler,
     )
+    # from cuml.preprocessing import (
+    #     # FunctionTransformer,
+    #     KBinsDiscretizer,
+    #     MinMaxScaler,
+    #     # QuantileTransformer,  ## cuml 23 only
+    #     RobustScaler,
+    #     StandardScaler,
+    # )
     from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
     available_preprocessors = [
