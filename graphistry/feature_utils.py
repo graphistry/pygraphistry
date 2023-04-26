@@ -962,11 +962,13 @@ def process_dirty_dataframes(
     """
     if feature_engine != 'cu_cat':
         from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+        from sklearn.preprocessing import FunctionTransformer
     elif feature_engine == 'cu_cat':
         lazy_import_has_cu_cat_dependancy()  # tried to use this rather than importing below
         from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+        from cuml.preprocessing import FunctionTransformer
     t = time()
-
+    
     if not is_dataframe_all_numeric(ndf):
         data_encoder = SuperVectorizer(
             auto_cast=True,
