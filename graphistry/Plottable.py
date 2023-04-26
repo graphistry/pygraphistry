@@ -76,8 +76,8 @@ class Plottable(object):
     _umap : Optional[UMAP]
 
     _adjacency : Optional[Any]
-    _entity_to_index : dict
-    _index_to_entity : dict
+    _entity_to_index : Optional[dict]
+    _index_to_entity : Optional[dict]
 
     DGL_graph: Optional[Any]
     

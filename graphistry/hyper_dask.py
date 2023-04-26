@@ -571,7 +571,6 @@ def df_coercion(  # noqa: C901
         dgdf <- pd, cudf, dgdf
     """
     logger.debug('@df_coercion %s -> %s', type(df), engine)
-
     if engine == Engine.PANDAS:
         if isinstance(df, pd.DataFrame):
             return df
@@ -602,7 +601,7 @@ def df_coercion(  # noqa: C901
     if engine == Engine.DASK:
         import dask.dataframe
         if isinstance(df, pd.DataFrame):
-            out = dask.dataframe.from_pandas(df, **{  # type: ignore
+            out = dask.dataframe.from_pandas(df, **{  # type: ignore[call-overload]
                 **({'npartitions': npartitions} if npartitions is not None else {}) , 
                 **({'chunksize': chunksize} if chunksize is not None else {})
             })
@@ -613,7 +612,6 @@ def df_coercion(  # noqa: C901
         if isinstance(df, dask.dataframe.DataFrame):
             return df
         raise ValueError('dask engine mode requires pd.DataFrame/dask.dataframe.DataFrame input, received: %s' % str(type(df)))
-
     if engine == Engine.DASK_CUDF:
         import cudf, dask_cudf, dask.dataframe
         if isinstance(df, pd.DataFrame):
@@ -646,6 +644,10 @@ def clean_events(
 
     # FIXME https://github.com/rapidsai/cudf/issues/7735
     # None -> np.nan
+    custom_event_id_flag = False
+    if (engine in [Engine.DASK, Engine.DASK_CUDF]) and (defs.event_id not in events.columns):
+        events[defs.event_id] = range(0, len(events))
+        custom_event_id_flag = True
     if dropna and (engine == Engine.DASK_CUDF):
         import cudf, numpy as np
         if isinstance(events, pd.DataFrame):  # or isinstance(events, cudf.DataFrame):
@@ -655,7 +657,6 @@ def clean_events(
                     logger.debug('None -> nan workaround for col [ %s ] => %s', c, events[c])
                     events[c] = events[c].fillna(np.nan)
                     logger.debug('... with drop: %s', events[c].dropna())
-
     out_events = df_coercion(events, engine, npartitions, chunksize, debug)
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
         out_events = out_events.persist()
@@ -673,16 +674,15 @@ def clean_events(
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
         out_events = out_events.persist()
         logger.debug('copied events: %s', out_events.compute())
-
-    if defs.event_id in events.columns:
+    if (defs.event_id in events.columns) or custom_event_id_flag:
         out_events[defs.event_id] = (defs.event_id + defs.delim) + out_events[defs.event_id].astype(str).fillna(defs.null_val) 
     else:
         out_events[defs.event_id] = (defs.event_id + defs.delim) + out_events[[]].reset_index()['index'].astype(str)
+
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
         out_events = out_events.persist()
         logger.debug('tagged events: %s', out_events.compute())
         logger.debug('////clean_events')
-
     logger.debug('////clean: %s', out_events.dtypes)
     return out_events
 
@@ -739,7 +739,7 @@ def hypergraph(
     else:
         engine_resolved = engine
     defs = HyperBindings(**opts)
-    entity_types = screen_entities(raw_events, entity_types, defs)
+    entity_types = [i for i in screen_entities(raw_events, entity_types, defs) if i != defs.event_id]
     events = clean_events(raw_events, defs, dropna=drop_na, engine=engine_resolved, npartitions=npartitions, chunksize=chunksize, debug=debug)  # type: ignore
     if debug and (engine in [ Engine.DASK, Engine.DASK_CUDF ]):
         logger.debug('==== events: %s', events.compute())

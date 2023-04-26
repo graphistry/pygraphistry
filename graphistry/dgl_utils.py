@@ -1,6 +1,6 @@
 # classes for converting a dataframe or Graphistry Plottable into a DGL
 from collections import Counter
-from typing import Optional, TYPE_CHECKING
+from typing import Dict, Optional, TYPE_CHECKING, Tuple
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,7 @@ from .util import setup_logger
 
 
 if TYPE_CHECKING:
+    import scipy
     MIXIN_BASE = FeatureMixin
     try:
         import torch
@@ -166,7 +167,7 @@ def pandas_to_sparse_adjacency(df, src, dst, weight_col):
 
 def pandas_to_dgl_graph(
     df: pd.DataFrame, src: str, dst: str, weight_col: Optional[str] = None, device: str = "cpu"
-):
+) -> Tuple["dgl.DGLGraph", "scipy.sparse.coo_matrix", Dict]:
     """Turns an edge DataFrame with named src and dst nodes, to DGL graph
     :eg
         g, sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, 'to_node', 'from_node')
@@ -342,6 +343,8 @@ class DGLGraphMixin(MIXIN_BASE):
             weight_col=weight_column,
             device=res.device,
         )
+        if res._entity_to_index is None:
+            raise ValueError("entity_to_index is None, something went wrong")
         res._index_to_entity = {k: v for v, k in res._entity_to_index.items()}
         # this is a sanity check after _remove_edges_not_in_nodes
         res._check_nodes_lineup_with_edges()

@@ -39,6 +39,7 @@ HONEYPOT_NODES = 11
 
 DEBUG = False
 
+'''
 def honeypot_hyperparams(df) -> dict:
     return {
         "g": PyGraphistry.bind(),
@@ -95,13 +96,12 @@ def assertFrameEqualDask(df1: DataframeLike, df2: DataframeLike):
     import dask.dataframe as dd
 
     if isinstance(df1, dd.DataFrame):
-        df1 = df1.compute().reset_index(drop=True)
+        df1 = df1.compute()
     if isinstance(df2, dd.DataFrame):
-        df2 = df2.compute().reset_index(drop=True)
-    
+        df2 = df2.compute()
     return assertFrameEqual(
-        df1[sorted(df1.columns)],
-        df2[sorted(df2.columns)],
+        df1.reset_index(drop=True).sort_values(by=sorted(df1.columns)),
+        df2.reset_index(drop=True).sort_values(by=sorted(df2.columns)),
         check_index_type=False,
     )
 
@@ -349,6 +349,7 @@ class TestHypergraphPandas(NoAuthTestCase):
             verbose=False,
             drop_edge_attrs=True,
         )
+
         edges = pd.DataFrame(
             {
                 "edgeType": ["a1", "a1", "a1", "id", "id", "id", "🙈", "🙈", "🙈"],
@@ -980,6 +981,7 @@ class TestHypergraphDask(NoAuthTestCase):
                     ],
                 }
             )
+
             assertFrameEqualDask(h.edges, edges)
             for (k, v) in [
                 ("entities", 12),
@@ -1023,6 +1025,7 @@ class TestHypergraphDask(NoAuthTestCase):
                 npartitions=2,
                 debug=DEBUG,
             )
+
             self.assertEqual(len(h.edges.compute()), 9)
             self.assertEqual(len(h.nodes.compute()), 6)
 
@@ -1102,6 +1105,7 @@ class TestHypergraphDask(NoAuthTestCase):
             )
 
             logger.debug("edges: %s", h.edges.compute())
+
             assertFrameEqualDask(h.edges, edges)
             for (k, v) in [("entities", 9), ("nodes", 12), ("edges", 9), ("events", 3)]:
                 logger.debug("testing raw: %s = %s", k, getattr(h, k))
