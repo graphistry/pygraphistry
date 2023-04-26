@@ -898,24 +898,29 @@ class callThrough:
         return self.x
 
 
-def get_numeric_transformers(ndf=None, y=None):
+def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    label_encoder = None
-    data_encoder = None
-    y_ = y.select_dtypes(include=[np.number]) if y is not None else None
-    if y_ is not None:
-        label_encoder = FunctionTransformer(partial(passthrough_df_cols, columns=y_.columns))
+    label_encoder = False
+    data_encoder = False
+    y_ = y
+    if y is not None:
+        y_ = y.select_dtypes(include=[np.number])
+        label_encoder = FunctionTransformer(
+            partial(passthrough_df_cols, columns=y_.columns)
+        )  # takes dataframe and memorizes which cols to use.
         label_encoder.get_feature_names_out = callThrough(y_.columns)
         label_encoder.columns_ = y_.columns
 
-    ndf_ = ndf.select_dtypes(include=[np.number]) if ndf is not None else None
-    if ndf_ is not None:
-        data_encoder = StandardScaler()
-        data_encoder.fit(ndf_)
+    if ndf is not None:
+        ndf_ = ndf.select_dtypes(include=[np.number])
+        data_encoder = FunctionTransformer(
+            partial(passthrough_df_cols, columns=ndf_.columns)
+        )
         data_encoder.get_feature_names_out = callThrough(ndf_.columns)
+        #data_encoder.columns_ = ndf_.columns
         data_encoder.get_feature_names_in = callThrough(ndf_.columns)
-
+        
     return ndf_, y_, data_encoder, label_encoder
 
 
