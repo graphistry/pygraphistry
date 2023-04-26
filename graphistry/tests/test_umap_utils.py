@@ -74,6 +74,17 @@ node_floats = ["flt"]
 node_numeric = node_ints + node_floats
 node_target = triangleNodes[["y"]]
 
+def _eq(df1, df2):
+    try:
+        df1 = df1.to_pandas()
+    except:
+        pass
+    try:
+        df2 = df2.to_pandas()
+    except:
+        pass
+    return df1 == df2
+
 
 class TestUMAPFitTransform(unittest.TestCase):
     # check to see that .fit and transform gives similar embeddings on same data
@@ -152,41 +163,41 @@ class TestUMAPFitTransform(unittest.TestCase):
         # nodes
         d = self.g2._nodes.shape[0]
         de = self.g2e._edges.shape[0]
-        assert (self.gn._nodes.index == self.g2._nodes.index).sum() == d, "Node Indexes do not match"
-        assert (self.gn._nodes.index == self.EMB.index).sum() == d, "Emb Indexes do not match"
-        assert (self.gn._nodes.index == self.emb.index).sum() == d, "Transformed Emb Indexes do not match"
-        assert (self.gn._nodes.index == self.X.index).sum() == d, "Transformed Node features Indexes do not match"
-        assert (self.gn._nodes.index == self.y.index).sum() == d, "Transformed Node target Indexes do not match"
+        assert _eq(self.gn._nodes.index, self.g2._nodes.index).sum() == d, "Node Indexes do not match"
+        assert _eq(self.gn._nodes.index, self.EMB.index).sum() == d, "Emb Indexes do not match"
+        assert _eq(self.gn._nodes.index, self.emb.index).sum() == d, "Transformed Emb Indexes do not match"
+        assert _eq(self.gn._nodes.index, self.X.index).sum() == d, "Transformed Node features Indexes do not match"
+        assert _eq(self.gn._nodes.index, self.y.index).sum() == d, "Transformed Node target Indexes do not match"
 
         # edges
-        assert (self.ge._edges.index == self.g2e._edges.index).sum() == de, "Edge Indexes do not match"
-        assert (self.ge._edges.index == self.EMBe.index).sum() == de, "Edge Emb Indexes do not match"
-        assert (self.ge._edges.index == self.embe.index).sum() == de, "Edge Transformed Emb Indexes do not match"
-        assert (self.ge._edges.index == self.Xe.index).sum() == de, "Edge Transformed features Indexes do not match"
-        assert (self.ge._edges.index == self.ye.index).sum() == de, "Edge Transformed target Indexes do not match"
+        assert _eq(self.ge._edges.index, self.g2e._edges.index).sum() == de, "Edge Indexes do not match"
+        assert _eq(self.ge._edges.index, self.EMBe.index).sum() == de, "Edge Emb Indexes do not match"
+        assert _eq(self.ge._edges.index, self.embe.index).sum() == de, "Edge Transformed Emb Indexes do not match"
+        assert _eq(self.ge._edges.index, self.Xe.index).sum() == de, "Edge Transformed features Indexes do not match"
+        assert _eq(self.ge._edges.index, self.ye.index).sum() == de, "Edge Transformed target Indexes do not match"
 
         # make sure the indexes match at transform time internally as well
-        assert (self.X.index == self.x.index).sum() == d, "Node Feature Indexes do not match"
-        assert (self.Y.index == self.y.index).sum() == d, "Node Target Indexes do not match"
-        assert (self.Xe.index == self.xe.index).sum() == de, "Edge Feature Indexes do not match"
-        assert (self.Ye.index == self.ye.index).sum() == de, "Edge Target Indexes do not match"
+        assert _eq(self.X.index, self.x.index).sum() == d, "Node Feature Indexes do not match"
+        assert _eq(self.Y.index, self.y.index).sum() == d, "Node Target Indexes do not match"
+        assert _eq(self.Xe.index, self.xe.index).sum() == de, "Edge Feature Indexes do not match"
+        assert _eq(self.Ye.index, self.ye.index).sum() == de, "Edge Target Indexes do not match"
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_node_index_match_in_infered_graph(self):
         # nodes
         g3 = self.g2._nodes
-        assert (g3.index == self.EMB.index).sum() == len(g3), "Node Emb Indexes do not match"
-        assert (g3.index == self.emb.index).sum() == len(g3), "Node Transformed Emb Indexes do not match"
-        assert (g3.index == self.X.index).sum() == len(g3), "Node Transformed features Indexes do not match"
-        assert (g3.index == self.y.index).sum() == len(g3), "Node Transformed target Indexes do not match"
+        assert _eq(g3.index, self.EMB.index).sum() == len(g3), "Node Emb Indexes do not match"
+        assert _eq(g3.index, self.emb.index).sum() == len(g3), "Node Transformed Emb Indexes do not match"
+        assert _eq(g3.index, self.X.index).sum() == len(g3), "Node Transformed features Indexes do not match"
+        assert _eq(g3.index, self.y.index).sum() == len(g3), "Node Transformed target Indexes do not match"
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_edge_index_match_in_infered_graph(self):
         g3 = self.g2e._edges
-        assert (g3.index == self.EMBe.index).sum() == len(g3), "Edge Emb Indexes do not match"
-        assert (g3.index == self.embe.index).sum() == len(g3), "Edge Transformed Emb Indexes do not match"
-        assert (g3.index == self.Xe.index).sum() == len(g3), "Edge Transformed Node features Indexes do not match"
-        assert (g3.index == self.ye.index).sum() == len(g3), "Edge Transformed Node target Indexes do not match"
+        assert _eq(g3.index, self.EMBe.index).sum() == len(g3), "Edge Emb Indexes do not match"
+        assert _eq(g3.index, self.embe.index).sum() == len(g3), "Edge Transformed Emb Indexes do not match"
+        assert _eq(g3.index, self.Xe.index).sum() == len(g3), "Edge Transformed Node features Indexes do not match"
+        assert _eq(g3.index, self.ye.index).sum() == len(g3), "Edge Transformed Node target Indexes do not match"
 
     
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")

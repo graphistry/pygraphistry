@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+from typing import Any
 
 
 def get_keywords():
@@ -52,8 +53,7 @@ class NotThisMethod(Exception):
     """Exception raised if a method is not valid for the current scenario."""
 
 
-# TODO: type annotation
-LONG_VERSION_PY = {}  # type: ignore
+LONG_VERSION_PY : Any = {}
 HANDLERS = {}
 
 

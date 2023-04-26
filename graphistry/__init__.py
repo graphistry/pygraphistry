@@ -55,6 +55,10 @@ from graphistry.compute import (
 
 from graphistry.Engine import Engine
 
+from graphistry.privacy import (
+    Mode, Privacy
+)
+
 from ._version import get_versions
 
 __version__ = get_versions()["version"]

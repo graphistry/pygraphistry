@@ -175,7 +175,6 @@ node_compute_algs_to_attr : Dict[str, Union[str, List[str]]] = {
     'spectralModularityMaximizationClustering': 'cluster',
     'connected_components': 'labels',
     'strongly_connected_components': 'labels',
-    'weakly_connected_components': 'labels',
     'core_number': 'core_number',
     #'k_core': 'values',
     'hits': ['hubs', 'authorities'],

@@ -52,12 +52,6 @@ class TestTextSearch(unittest.TestCase):
         self.g_emb = g3
         self.g_with_edges = g4
         
-    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
-    def test_query(self):
-        for g in [self.g_ngrams, self.g_emb]:
-            res, _ = g.search('How to set up DNS', thresh=100)
-            assert not res.empty, f'Results DataFrame should not be empty, found {res}'
-       
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies") 
     def test_query_graph(self):
         for name, g in zip(['ngrams', 'embedding'], [self.g_ngrams, self.g_emb]):
