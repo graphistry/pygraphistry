@@ -901,6 +901,11 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
+    from sklearn.preprocessing import FunctionTransformer
+    try:
+        from cuml.preprocessing import FunctionTransformer
+    except:
+        pass
     label_encoder = False
     data_encoder = False
     y_ = y
