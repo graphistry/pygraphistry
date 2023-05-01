@@ -2207,9 +2207,9 @@ class FeatureMixin(MIXIN_BASE):
 
         # This is temporary until cucat release 
         if 'cudf.core.dataframe' in str(getmodule(df)):
-            df = df.to_pandas()
+            df = df.to_pandas()  # type: ignore
         if (y is not None) and ('cudf.core.dataframe' in str(getmodule(y))):
-            y = y.to_pandas()
+            y = y.to_pandas()  # type: ignore
 
         if kind == "nodes":
             X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
