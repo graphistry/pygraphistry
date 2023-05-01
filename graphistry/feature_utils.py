@@ -2204,6 +2204,13 @@ class FeatureMixin(MIXIN_BASE):
                 X, y: pd.DataFrame, transformed data if return_graph is False
                 or a graphistry Plottable with inferred edges if return_graph is True
         """
+
+        # This is temporary until cucat release 
+        if 'cudf.core.dataframe' in str(getmodule(df)):
+            df = df.to_pandas()
+        if (y is not None) and ('cudf.core.dataframe' in str(getmodule(y))):
+            y = y.to_pandas()
+
         if kind == "nodes":
             X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
         elif kind == "edges":
