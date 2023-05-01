@@ -150,7 +150,7 @@ class FaissVectorSearch:
     def __init__(self, M):
         import faiss
         self.index = faiss.IndexFlatL2(M.shape[1])
-        self.index.add(M)
+        self.index.add(M.astype('float32'))
 
     def search(self, q, k=5):
         """
@@ -169,7 +169,7 @@ class FaissVectorSearch:
         return Index[0], Distances[0]
     
     def search_df(self, q, df, k):
-        """ Query by vector using annoy index and append distance to results
+        """ Query by vector using index and append distance to results
     
         it is assumed len(vect) == len(df) == len(search_index)
         args:
