@@ -565,7 +565,7 @@ class UMAPMixin(MIXIN_BASE):
                     res._nodes = res._nodes.to_pandas()
                 if flag_edges_cudf:
                     res._edges = res._edges.to_pandas()
-                if X != None or y != None:
+                if (X is not None) or (y is not None):
                     res = res.umap(X=X, y=y, kind=kind, **umap_kwargs)  # type: ignore
                 else:
                     res = res.umap(X=self._nodes, y=self._edges, kind=kind, **umap_kwargs)  # type: ignore
