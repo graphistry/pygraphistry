@@ -7,10 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-### Added
+## [0.29.0 - 2023-05-01]
+
+### Breaking 🔥
 * AI: moves public `g.g_dgl` from KG `embed` method to private method `g._kg_dgl`
 * AI: moves public `g.DGL_graph` to private attribute `g._dgl_graph`
-* AI: BREAKING CHANGES: to return matrices during transform, set the flag:  `X, y = g.transform(df, return_graph=False)` default behavior is ~ `g2 = g.transform(df)` returning a Plottable instance. 
+* AI: To return matrices during transform, set the flag:  `X, y = g.transform(df, return_graph=False)` default behavior is ~ `g2 = g.transform(df)` returning a `Plottable` instance. 
 
 ## [0.28.7 - 2022-12-22]
 
