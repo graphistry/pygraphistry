@@ -90,28 +90,27 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 
 def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
     """
-
     Experimental: Chain a list of operations
 
     Return subgraph of matches according to the list of node & edge matchers
-
     If any matchers are named, add a correspondingly named boolean-valued column to the output
 
-    :param ops: List[ASTobject] Various node and edge matchers
-    :type fg: dict
+    :param ops: List[ASTObject] Various node and edge matchers
 
     :returns: Plotter
     :rtype: Plotter
 
     **Example: Find nodes of some type**
-        ::
+
+    ::
 
             from graphistry.ast import n
 
             people_nodes_df = g.chain([ n({"type": "person"}) ])._nodes
             
     **Example: Find 2-hop edge sequences with some attribute**
-        ::
+
+    ::
 
             from graphistry.ast import e_forward
 

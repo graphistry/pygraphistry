@@ -76,15 +76,15 @@ class Plottable(object):
     _umap : Optional[UMAP]
 
     _adjacency : Optional[Any]
-    _entity_to_index : dict
-    _index_to_entity : dict
+    _entity_to_index : Optional[dict]
+    _index_to_entity : Optional[dict]
 
     DGL_graph: Optional[Any]
     
     # embed utils
     _relation : Optional[str]
     _use_feat: bool
-    triplets: Optional[List]  # actually torch.Tensor too
+    _triplets: Optional[List]  # actually torch.Tensor too
     _kg_embed_dim: int
     
 

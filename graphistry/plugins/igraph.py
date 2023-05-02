@@ -49,10 +49,10 @@ def from_igraph(self,
     :param merge_if_existing: bool
 
     :returns: Plotter
-    :rtype: Plotter
 
     **Example: Convert from igraph, including all node/edge properties**
         ::
+
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a', 'b', 'c', 'd'], 'd': ['b', 'c', 'd', 'e'], 'v': [101, 102, 103, 104]})
             g = graphistry.edges(edges, 's', 'd').materialize_nodes().get_degrees()
@@ -62,6 +62,7 @@ def from_igraph(self,
 
     **Example: Enrich from igraph, but only load in 1 node attribute**
         ::
+
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a', 'b', 'c', 'd'], 'd': ['b', 'c', 'd', 'e'], 'v': [101, 102, 103, 104]})
             g = graphistry.edges(edges, 's', 'd').materialize_nodes().get_degree()
@@ -198,7 +199,8 @@ def from_igraph(self,
     return g
 
 
-def to_igraph(self: Plottable, 
+def to_igraph(
+    self: Plottable, 
     directed: bool = True,
     include_nodes: bool = True,
     node_attributes: Optional[List[str]] = None,
@@ -309,8 +311,8 @@ def compute_igraph(
     :rtype: Plotter
 
     **Example: Pagerank**
-
         ::
+
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
             g = graphistry.edges(edges, 's', 'd')
@@ -319,6 +321,7 @@ def compute_igraph(
 
     **Example: Pagerank with custom name**
         ::
+
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
             g = graphistry.edges(edges, 's', 'd')
@@ -327,6 +330,7 @@ def compute_igraph(
 
     **Example: Pagerank on an undirected**
         ::
+
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
             g = graphistry.edges(edges, 's', 'd')
@@ -334,7 +338,8 @@ def compute_igraph(
             assert 'pagerank' in g2._nodes.columns
 
     **Example: Pagerank with custom parameters**
-            ::
+        ::
+
                 import graphistry, pandas as pd
                 edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['c','c','e','e']})
                 g = graphistry.edges(edges, 's', 'd')
@@ -447,6 +452,7 @@ def layout_igraph(
 
     **Example: Sugiyama layout**
         ::
+
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
             g = graphistry.edges(edges, 's', 'd')
@@ -456,6 +462,7 @@ def layout_igraph(
 
     **Example: Change which column names are generated**
         ::
+
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
             g = graphistry.edges(edges, 's', 'd')
@@ -466,6 +473,7 @@ def layout_igraph(
 
     **Example: Pass parameters to layout methods - Sort nodes by degree**
         ::
+        
             import graphistry, pandas as pd
             edges = pd.DataFrame({'s': ['a','b','c','d'], 'd': ['b','c','d','e']})
             g = graphistry.edges(edges, 's', 'd')

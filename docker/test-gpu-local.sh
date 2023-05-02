@@ -3,7 +3,7 @@ set -ex
 
 echo "CONFIG"
 
-PIP_DEPS=${PIP_DEPS:--e .[bolt,gremlin,igraph,test] neo4j==4.4.3}
+PIP_DEPS=${PIP_DEPS:--e .[bolt,gremlin,igraph,test,ai] neo4j==4.4.3}
 WITH_NEO4J=${WITH_NEO4J:-0}
 WITH_LINT=${WITH_LINT:-1}
 WITH_TYPECHECK=${WITH_TYPECHECK:-1}
@@ -45,5 +45,4 @@ docker run \
     graphistry/test-gpu:${TEST_CPU_VERSION} \
         --maxfail=1 \
         --ignore=graphistry/tests/test_feature_utils.py \
-        --ignore=graphistry/tests/test_umap_utils.py \
         $@
