@@ -37,8 +37,9 @@ extensions = [
     #'sphinx.ext.autosummary',
     #'sphinx.ext.intersphinx',
     "sphinx.ext.ifconfig",
-    "sphinx_autodoc_typehints",
+    "sphinx_autodoc_typehints"
 ]
+
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
@@ -53,13 +54,24 @@ nitpick_ignore = [
     ('py:class', 'graphistry.layouts.LayoutsMixin'),
     ('py:class', 'graphistry.compute.ComputeMixin'),
     ('py:class', 'graphistry.compute.conditional.ConditionalMixin'),
+    ('py:class', 'graphistry.compute.cluster.ClusterMixin'),
     ('py:class', 'graphistry.Plottable.Plottable'),
+    ('py:class', 'graphistry.plugins.cugraph.compute_cugraph'),
+    ('py:class', 'graphistry.plugins.cugraph.from_cugraph'),
+    ('py:class', 'graphistry.plugins.igraph.compute_igraph'),
+    ('py:class', 'graphistry.plugins.igraph.from_igraph'),
+    ('py:class', 'graphistry.plugins.igraph.layout_igraph'),
     ('py:class', 'graphistry.feature_utils.FeatureMixin'),
     ('py:class', 'graphistry.dgl_utils.DGLGraphMixin'),
     ('py:class', 'graphistry.umap_utils.UMAPMixin'),
     ('py:class', 'graphistry.text_utils.SearchToGraphMixin'),
     ('py:class', 'graphistry.embed_utils.HeterographEmbedModuleMixin'),
     ('py:class', 'graphistry.PlotterBase.PlotterBase'),
+    ('py:class', 'graphistry.compute.ast.ASTObject'),
+    ('py:class', 'Plotter'),
+    ('py:class', 'Plottable'),
+    ('py:class', 'CuGraphKind'),
+    ('py:class', 'cugraph.Graph'),
     ('py:class', 'IGraph graph'),
     ('py:class', 'igraph'),
     ('py:class', 'dgl'),
@@ -84,9 +96,12 @@ nitpick_ignore = [
     ('py:data', 'typing.List'),
     ('py:data', 'typing.Literal'),
     ('py:data', 'typing.Optional'),
+    ('py:data', 'typing.Callable'),
     ('py:data', 'typing.Tuple'),
     ('py:data', 'typing.Union'),
-    ('py:class','pandas.core.frame.DataFrame')
+    ('py:class', 'Mode'),
+    ('py:class','pandas.core.frame.DataFrame'),
+    ('py:class', 'graphistry.privacy.Privacy')
 ]
 
 set_type_checking_flag = True

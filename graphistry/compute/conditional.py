@@ -66,7 +66,7 @@ class ConditionalMixin(MIXIN_BASE):
         Useful for finding the conditional probability of a node or edge attribute
         
         returned dataframe sums to 1 on each column
-        -----------------------------------------------------------
+   
         :param x: target column
         :param given: the dependent column
         :param kind: 'nodes' or 'edges'

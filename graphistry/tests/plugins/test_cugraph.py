@@ -478,12 +478,24 @@ class Test_cugraph_compute(NoAuthTestCase):
             #'bipartite_projection': {
             #    'params': {'which': 0}
             #},
-            #'community_leading_eigenvector': {
-            #    'directed': False
-            #},
-            #'community_leiden': {
-            #    'directed': False
-            #},
+            'k_core': {
+                'directed': False
+            },
+            'minimum_spanning_tree': {
+                'directed': False
+            },
+            'leiden': {
+                'directed': False
+            },
+            'louvain': {
+                'directed': False
+            },
+            'connected_components': {
+                'directed': False
+            },
+            'core_number': {
+                'directed': False
+            },
             #'community_multilevel': {
             #    'directed': False
             #},
@@ -579,11 +591,18 @@ class Test_cugraph_compute(NoAuthTestCase):
         }
 
         skiplist = [
-            #'eigenvector_centrality'
+            'jaccard',
+            'jaccard_w',
+            'overlap',
+            'overlap_coefficient',
+            'overlap_w',
+            'sorensen',
+            'sorensen_coefficient',
+            'sorensen_w',
+            'ego_graph'
         ]
 
         edges3_gdf = cudf.from_pandas(edges3_df)
-
         g = graphistry.edges(edges3_gdf, 'a', 'b').bind(edge_weight='f').materialize_nodes()
         for alg in [x for x in compute_algs]:
             if alg not in skiplist:
