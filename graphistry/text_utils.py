@@ -246,7 +246,7 @@ class SearchToGraphMixin(MIXIN_BASE):
             feats = res._node_features.iloc[found_indices]  # type: ignore
             if res._umap is not None:
                 emb = res._node_embedding.iloc[found_indices]  # type: ignore
-        except Exception as e:  # for explicit relabeled nodes
+        except Exception:  # for explicit relabeled nodes
             #logger.exception(e)
             tdf = rdf[df[node].isin(found_indices)]
             feats = res._node_features.loc[tdf.index]  # type: ignore
