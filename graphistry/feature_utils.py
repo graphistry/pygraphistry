@@ -1812,12 +1812,8 @@ def prune_weighted_edges_df_and_relabel_nodes(
         f"from {len(wdf):,} to {len(wdf2):,} edges."
     )
     if index_to_nodes_dict is not None:
-        wdf2 = wdf2.replace(
-            {
-                config.SRC: index_to_nodes_dict,
-                config.DST: index_to_nodes_dict,
-            }
-        )
+        wdf2[config.SRC] = wdf2[config.SRC].map(index_to_nodes_dict)
+        wdf2[config.DST] = wdf2[config.DST].map(index_to_nodes_dict)
     return wdf2
 
 

@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.29.1 - 2023-05-03]
+
+### Fixed 
+
+* AI: cuml OOM fix [#482](https://github.com/graphistry/pygraphistry/pull/482)
+
 ## [0.29.0 - 2023-05-01]
 
 ### Breaking 🔥
