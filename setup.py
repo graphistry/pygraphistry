@@ -45,7 +45,7 @@ base_extras_heavy = {
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
 base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch<2', 'sentence-transformers', 'faiss-cpu', 'joblib']
 
-base_extras_heavy['cu_cat'] = base_extras_heavy['ai'] + ['cu_cat @ git+http://github.com/graphistry/cu-cat/tarball/cu_cat_regpt'] #egg=package-0.02.0']
+base_extras_heavy['cu_cat'] = base_extras_heavy['ai'] + ['cu_cat @ git+http://github.com/graphistry/cu-cat.git@0.03.0']
 
 base_extras = {**base_extras_light, **base_extras_heavy}
 
