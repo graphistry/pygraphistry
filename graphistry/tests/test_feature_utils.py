@@ -32,8 +32,8 @@ warnings.filterwarnings("ignore")
 logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
 
 model_avg_name = (
-    "/models/average_word_embeddings_komninos"  # 250mb, fastest vectorizer in transformer models
-    #"/models/paraphrase-albert-small-v2"  # 40mb
+    #"/models/average_word_embeddings_komninos"  # 250mb, fastest vectorizer in transformer models
+    "/models/paraphrase-albert-small-v2"  # 40mb
     #"/models/paraphrase-MiniLM-L3-v2"  # 60mb
 )
 
@@ -437,6 +437,44 @@ class TestFeatureMethods(unittest.TestCase):
                                   use_scaler_target=np.random.choice(SCALERS), 
                                   return_scalers=True)
 
+### cucat
+
+class TestFeaturizeGetMethodsCucat(unittest.TestCase):
+    
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def setUp(self) -> None:
+        import cudf
+        g = graphistry.nodes(cudf.from_pandas(ndf_reddit))
+        g2 = g.featurize(y=cudf.from_pandas(double_target_reddit),  # ngrams
+                use_ngrams=True,
+                ngram_range=(1, 4)
+                )
+        
+        g3 = g.featurize(**topic_model, feature_engine="cu_cat")  # topic model
+        self.g = g
+        self.g2 = g2
+        self.g3 = g3
+        
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    def test_get_col_matrix(self):
+        # no edges so this should be None
+        assert self.g2.get_matrix(kind='edges') is None
+        
+        # test target methods
+        assert all(self.g2.get_matrix(target=True).columns == self.g2._node_target.columns)
+        assert self.g2.get_matrix('Anxiety', target=True).shape[0] == len(self.g2._node_target)
+        # test str vs list 
+        assert (self.g2.get_matrix('Anxiety', target=True) == self.g2.get_matrix(['Anxiety'], target=True)).all().values[0]
+
+        # assert list(self.g2.get_matrix(['Anxiety', 'education', 'computer'], target=True).columns) == ['label_Anxiety', 'label_education', 'label_computervision']
+    
+        # test feature methods
+        # ngrams
+        assert (self.g2.get_matrix().columns == self.g2._node_features.columns).all()
+        assert list(self.g2.get_matrix('what').columns) == what, list(self.g2.get_matrix('what').columns)
+        
+        # topic
+        assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
 
 
 if __name__ == "__main__":
