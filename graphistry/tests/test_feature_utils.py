@@ -27,6 +27,9 @@ np.random.seed(137)
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
 
+# enable tests if has cudf and env didn't explicitly disable
+is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
+
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
 logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
@@ -442,6 +445,7 @@ class TestFeatureMethods(unittest.TestCase):
 class TestFeaturizeGetMethodsCucat(unittest.TestCase):
     
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def setUp(self) -> None:
         import cudf
         g = graphistry.nodes(cudf.from_pandas(ndf_reddit))
@@ -456,6 +460,7 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
         self.g3 = g3
         
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_get_col_matrix(self):
         # no edges so this should be None
         assert self.g2.get_matrix(kind='edges') is None
