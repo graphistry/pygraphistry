@@ -43,22 +43,22 @@ if TYPE_CHECKING:
         from dirty_cat import (
             SuperVectorizer,
             GapEncoder,
-            SimilarityEncoder,
+            # SimilarityEncoder,
         )
     except:
         SuperVectorizer = Any
         GapEncoder = Any
-        SimilarityEncoder = Any
+        # SimilarityEncoder = Any
     try:
         from cu_cat import (
             SuperVectorizer,
             GapEncoder,
-            SimilarityEncoder,
+            # SimilarityEncoder,
         )  # type: ignore
     except:
         SuperVectorizer = Any
         GapEncoder = Any
-        SimilarityEncoder = Any
+        # SimilarityEncoder = Any
     try:
         from sklearn.preprocessing import FunctionTransformer
         from sklearn.base import BaseEstimator, TransformerMixin
@@ -72,7 +72,7 @@ else:
     SentenceTransformer = Any
     SuperVectorizer = Any
     GapEncoder = Any
-    SimilarityEncoder = Any
+    # SimilarityEncoder = Any
     FunctionTransformer = Any
     BaseEstimator = Any
     TransformerMixin = Any
@@ -948,11 +948,11 @@ def process_dirty_dataframes(
 
     if feature_engine == 'cu_cat':
         lazy_import_has_dependancy_cu_cat()
-        from cu_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+        from cu_cat import SuperVectorizer, GapEncoder#, SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
 
     else:
-        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+        from dirty_cat import SuperVectorizer, GapEncoder#, SimilarityEncoder
         from sklearn.preprocessing import FunctionTransformer
 
     t = time()
@@ -1023,10 +1023,10 @@ def process_dirty_dataframes(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold_target,
             high_card_cat_transformer=GapEncoder(n_topics_target)
-            if not similarity
-            else SimilarityEncoder(
-                similarity=similarity, categories=categories, n_prototypes=2
-            ),  # Similarity
+            # if not similarity
+            # else SimilarityEncoder(
+            #     similarity=similarity, categories=categories, n_prototypes=2
+            # ),  # Similarity
         )
 
         y_enc = label_encoder.fit_transform(y)

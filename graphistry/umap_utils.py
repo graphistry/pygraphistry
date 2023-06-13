@@ -411,8 +411,15 @@ class UMAPMixin(MIXIN_BASE):
         print('** Fitting UMAP') if verbose else None
         res = res.umap_lazy_init(res, verbose=verbose, **umap_kwargs_pure)
         
+        self.datetime_columns = X_.select_dtypes(
+            include=["datetime", "datetimetz"]
+        ).columns.to_list()
+        
+        self.R_=X_[self.datetime_columns]
+        X_=X_.drop(columns=self.datetime_columns)
+        
         emb = res._umap_fit_transform(X_, y_, verbose=verbose)
-        res._xy = emb
+        res._xy = emb.join(self.R_)
         return res
 
     def _set_features(  # noqa: E303
