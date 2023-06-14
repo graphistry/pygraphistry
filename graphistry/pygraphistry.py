@@ -175,6 +175,26 @@ class PyGraphistry(object):
 
         return PyGraphistry.api_token()
 
+    # @staticmethod
+    # def token_relogin(token, org_name=None, fail_silent=False):
+    #     PyGraphistry._is_authenticated = False
+    #     token = (
+    #         ArrowUploader(
+    #             server_base_path=PyGraphistry.protocol()
+    #             + "://"                     # noqa: W503
+    #             + PyGraphistry.server(),    # noqa: W503
+    #             certificate_validation=PyGraphistry.certificate_validation(),
+    #         )
+    #         .refresh(token)
+    #         .token
+    #     )
+
+    #     PyGraphistry.api_token(token)
+    #     PyGraphistry._is_authenticated = True
+
+    #     return PyGraphistry.api_token()
+
+
     @staticmethod
     def pkey_login(personal_key_id, personal_key_secret, org_name=None, fail_silent=False):
         """Authenticate with personal key/secret and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
@@ -356,13 +376,10 @@ class PyGraphistry(object):
     @staticmethod
     def refresh(token=None, fail_silent=False):
         """Use self or provided JWT token to get a fresher one. If self token, internalize upon refresh."""
-        using_self_token = token is None
-        logger.debug("1. @PyGraphistry refresh, org_name: {}".format(PyGraphistry._config['org_name']))
+        using_self_token = token is not None
+        logger.debug("1. @PyGraphistry refresh, org_name: {}".format(PyGraphistry.org_name()))
         try:
-            if PyGraphistry.store_token_creds_in_memory():
-                logger.debug("JWT refresh via creds")
-                logger.debug("2. @PyGraphistry refresh :relogin")
-                return PyGraphistry.relogin()
+
 
             logger.debug("JWT refresh via token")
             if using_self_token:
@@ -382,6 +399,11 @@ class PyGraphistry(object):
                 PyGraphistry._is_authenticated = True
             return PyGraphistry.api_token()
         except Exception as e:
+            if PyGraphistry.store_token_creds_in_memory():
+                logger.debug("JWT refresh via creds")
+                logger.debug("2. @PyGraphistry refresh :relogin")
+                return PyGraphistry.relogin()
+
             if not fail_silent:
                 util.error("Failed to refresh token: %s" % str(e))
 
