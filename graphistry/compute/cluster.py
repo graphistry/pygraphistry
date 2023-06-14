@@ -439,7 +439,7 @@ class ClusterMixin(MIXIN_BASE):
 
 
 
-def get_dendrogram_edges(df: pd.DataFrame, as_graph:bool=True) -> Union[pd.DataFrame, Any]:
+def get_dendrogram_edges(df: pd.DataFrame, as_graph: bool = True) -> Union[pd.DataFrame, Any]:
     """Converts a dataframe of feature embeddings to a dendrogram graph with edges between each merge
     This will calculate what AgglomerativeClustering does under the hood, but using the linkage matrix
 
@@ -491,4 +491,3 @@ def get_dendrogram_edges(df: pd.DataFrame, as_graph:bool=True) -> Union[pd.DataF
         g = graphistry.edges(edges, 'node1', 'node2')
         return g
     return edges
-

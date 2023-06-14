@@ -69,10 +69,11 @@ class TestComputeCluster(unittest.TestCase):
         
 
 class TestDendrogram(unittest.TestCase):
+
     @pytest.mark.skipif(not has_dbscan, reason="requires ai dependencies")
     def setUp(self) -> None:
         g = graphistry.nodes(ndf).edges(edf, 'src', 'dst')
-        gs=[]
+        gs = []
         for kind in ['nodes', 'edges']:
             g2 = g.umap(kind=kind, n_topics=2, dbscan=False).dbscan(kind=kind, verbose=True)
             gs.append(g2)
@@ -84,6 +85,7 @@ class TestDendrogram(unittest.TestCase):
             g3 = get_dendrogram_edges(g2.get_matrix(kind=kind))
             self.assertTrue('node1' in g3._edges, 'dendrogram graph has no `node1` column')
             self.assertTrue('node2' in g3._edges, 'dendrogram graph has no `node1` column')
+
 
 if __name__ == '__main__':
     unittest.main()
