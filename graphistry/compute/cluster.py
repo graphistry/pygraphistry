@@ -436,3 +436,59 @@ class ClusterMixin(MIXIN_BASE):
                 )
             return g
         return emb, X, y, df
+
+
+
+def get_dendrogram_edges(df: pd.DataFrame, as_graph:bool=True) -> Union[pd.DataFrame, Any]:
+    """Converts a dataframe of feature embeddings to a dendrogram graph with edges between each merge
+    This will calculate what AgglomerativeClustering does under the hood, but using the linkage matrix
+
+    Args:
+        :df: dataframe of feature embeddings
+        :as_graph: whether to return a graphistry graph or a dataframe of edges
+    Usage:
+        ::
+            g = graphistry.edges(edf, 'src', 'dst').nodes(ndf, 'node')
+            g2 = g.umap().dbscan()  # or g2 = g.featurize()
+            g3 = get_dendrogram_edges(g2.get_matrix(), as_graph=True)
+    """
+    from scipy.cluster.hierarchy import linkage
+    import graphistry
+
+    # df is the numeric dataframe from umap, or featurize
+    Z = linkage(df, 'ward')
+    # Convert to a DataFrame
+    df2 = pd.DataFrame(Z, columns=['src', 'dst', 'dist', 'size'])
+
+    # Create a new node for each merge
+    num_samples = len(df)
+    df2['src'] = df2['src'].astype(int)
+    df2['dst'] = df2['dst'].astype(int)
+
+    # The new node is the index + the number of samples
+    df2['new_node'] = df2.index + num_samples
+
+    # Convert the dataframe to have each edge as a row
+    edges_src = pd.DataFrame({
+        'node1': df2['new_node'],
+        'node2': df2['src'],
+        'dist': df2['dist'], 
+    })
+
+    edges_dst = pd.DataFrame({
+        'node1': df2['new_node'],
+        'node2': df2['dst'],
+        'dist': df2['dist']
+    })
+
+    edges = pd.concat([edges_src, edges_dst])
+
+    # Handle data type
+    edges['node1'] = edges['node1'].astype(int)
+    edges['node2'] = edges['node2'].astype(int)
+    
+    if as_graph:
+        g = graphistry.edges(edges, 'node1', 'node2')
+        return g
+    return edges
+
