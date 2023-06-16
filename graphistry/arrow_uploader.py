@@ -352,7 +352,7 @@ class ArrowUploader:
 
         base_path = self.server_base_path
         out = requests.post(
-            f'{base_path}/api/v2/token/refresh',
+            f'{base_path}/api/v2/auth/token/refresh',
             verify=self.certificate_validation,
             json={'token': token})
         json_response = None
