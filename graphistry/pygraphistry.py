@@ -175,26 +175,6 @@ class PyGraphistry(object):
 
         return PyGraphistry.api_token()
 
-    # @staticmethod
-    # def token_relogin(token, org_name=None, fail_silent=False):
-    #     PyGraphistry._is_authenticated = False
-    #     token = (
-    #         ArrowUploader(
-    #             server_base_path=PyGraphistry.protocol()
-    #             + "://"                     # noqa: W503
-    #             + PyGraphistry.server(),    # noqa: W503
-    #             certificate_validation=PyGraphistry.certificate_validation(),
-    #         )
-    #         .refresh(token)
-    #         .token
-    #     )
-
-    #     PyGraphistry.api_token(token)
-    #     PyGraphistry._is_authenticated = True
-
-    #     return PyGraphistry.api_token()
-
-
     @staticmethod
     def pkey_login(personal_key_id, personal_key_secret, org_name=None, fail_silent=False):
         """Authenticate with personal key/secret and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
