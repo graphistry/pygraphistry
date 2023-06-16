@@ -376,11 +376,9 @@ class PyGraphistry(object):
     @staticmethod
     def refresh(token=None, fail_silent=False):
         """Use self or provided JWT token to get a fresher one. If self token, internalize upon refresh."""
-        using_self_token = token is not None
+        using_self_token = token is None
         logger.debug("1. @PyGraphistry refresh, org_name: {}".format(PyGraphistry.org_name()))
         try:
-
-
             logger.debug("JWT refresh via token")
             if using_self_token:
                 PyGraphistry._is_authenticated = False
@@ -399,6 +397,7 @@ class PyGraphistry(object):
                 PyGraphistry._is_authenticated = True
             return PyGraphistry.api_token()
         except Exception as e:
+            raise e
             if PyGraphistry.store_token_creds_in_memory():
                 logger.debug("JWT refresh via creds")
                 logger.debug("2. @PyGraphistry refresh :relogin")
