@@ -384,6 +384,7 @@ class PyGraphistry(object):
 
             if not fail_silent:
                 util.error("Failed to refresh token: %s" % str(e))
+                raise e
 
     @staticmethod
     def verify_token(token=None, fail_silent=False) -> bool:
