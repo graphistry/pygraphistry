@@ -26,8 +26,8 @@ mixins = ([
 class Plotter(  # type: ignore
     *mixins  # type: ignore
 ):  # type: ignore
-    def __init__(self, *args, **kwargs):
-        PlotterBase.__init__(self, *args, **kwargs)
+    def __init__(self, PyGraphistry_set, *args, **kwargs):
+        PlotterBase.__init__(self, PyGraphistry_set, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
         LayoutsMixin.__init__(self, *args, **kwargs)
         ConditionalMixin.__init__(self, *args, **kwargs)

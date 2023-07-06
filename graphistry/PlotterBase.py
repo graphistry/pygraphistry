@@ -122,10 +122,11 @@ class PlotterBase(Plottable):
         cache_coercion_helper.cache_clear()
 
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, PyGraphistry_set=None, *args: Any, **kwargs: Any) -> None:
         super(PlotterBase, self).__init__()
 
         # Bindings
+        self.__PyGraphistry = PyGraphistry_set
         self._edges : Any = None
         self._nodes : Any = None
         self._source : Optional[str] = None
@@ -1373,8 +1374,7 @@ class PlotterBase(Plottable):
                     .plot(es)
 
         """
-        from .pygraphistry import PyGraphistry
-        logger.debug("1. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
+        logger.debug("1. @PloatterBase plot: PyGraphistry.org_name(): {}".format(self.__PyGraphistry.org_name()))
 
         if graph is None:
             if self._edges is None:
@@ -1389,22 +1389,22 @@ class PlotterBase(Plottable):
         self._check_mandatory_bindings(not isinstance(n, type(None)))
 
         # from .pygraphistry import PyGraphistry
-        api_version = PyGraphistry.api_version()
-        logger.debug("2. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
+        api_version = self.__PyGraphistry.api_version()
+        logger.debug("2. @PloatterBase plot: PyGraphistry.org_name(): {}".format(self.__PyGraphistry.org_name()))
         if api_version == 1:
             dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
             if skip_upload:
                 return dataset
-            info = PyGraphistry._etl1(dataset)
+            info = self.__PyGraphistry._etl1(dataset)
         elif api_version == 3:
-            logger.debug("3. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
-            PyGraphistry.refresh()
-            logger.debug("4. @PloatterBase plot: PyGraphistry.org_name(): {}".format(PyGraphistry.org_name()))
+            logger.debug("3. @PloatterBase plot: PyGraphistry.org_name(): {}".format(self.__PyGraphistry.org_name()))
+            self.__PyGraphistry.refresh()
+            logger.debug("4. @PloatterBase plot: PyGraphistry.org_name(): {}".format(self.__PyGraphistry.org_name()))
 
             dataset = self._plot_dispatch(g, n, name, description, 'arrow', self._style, memoize)
             if skip_upload:
                 return dataset
-            dataset.token = PyGraphistry.api_token()
+            dataset.token = self.__PyGraphistry.api_token()
             dataset.post(as_files=as_files, memoize=memoize)
             dataset.maybe_post_share_link(self)
             info = {
@@ -1413,9 +1413,9 @@ class PlotterBase(Plottable):
                 'viztoken': str(uuid.uuid4())
             }
 
-        viz_url = PyGraphistry._viz_url(info, self._url_params)
-        cfg_client_protocol_hostname = PyGraphistry._config['client_protocol_hostname']
-        full_url = ('%s:%s' % (PyGraphistry._config['protocol'], viz_url)) if cfg_client_protocol_hostname is None else viz_url
+        viz_url = self.__PyGraphistry._viz_url(info, self._url_params)
+        cfg_client_protocol_hostname = self.__PyGraphistry._config['client_protocol_hostname']
+        full_url = ('%s:%s' % (self.__PyGraphistry._config['protocol'], viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
         if (render is False) or ((render is None) and not self._render):
             return full_url
@@ -1941,8 +1941,6 @@ class PlotterBase(Plottable):
     # Main helper for creating ETL1 payload
     def _make_json_dataset(self, edges, nodes, name):
 
-        from .pygraphistry import PyGraphistry
-
         def flatten_categorical(df):
             # Avoid cat_col.where(...)-related exceptions
             df2 = df.copy()
@@ -1956,7 +1954,7 @@ class PlotterBase(Plottable):
 
         bindings = {'idField': self._node or PlotterBase._defaultNodeId,
                     'destinationField': self._destination, 'sourceField': self._source}
-        dataset = {'name': PyGraphistry._config['dataset_prefix'] + name,
+        dataset = {'name': self.__PyGraphistry._config['dataset_prefix'] + name,
                    'bindings': bindings, 'type': 'edgelist', 'graph': edict}
 
         if nlist is not None:
@@ -1967,20 +1965,20 @@ class PlotterBase(Plottable):
 
     def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata) -> ArrowUploader:
 
-        from .pygraphistry import PyGraphistry
         au : ArrowUploader = ArrowUploader(
-            server_base_path=PyGraphistry.protocol() + '://' + PyGraphistry.server(),
+            PyGraphistry_set = self.__PyGraphistry,
+            server_base_path=self.__PyGraphistry.protocol() + '://' + self.__PyGraphistry.server(),
             edges=edges, nodes=nodes,
             name=name, description=description,
             metadata={
-                'usertag': PyGraphistry._tag,
-                'key': PyGraphistry.api_key(),
+                'usertag': self.__PyGraphistry._tag,
+                'key': self.__PyGraphistry.api_key(),
                 'agent': 'pygraphistry',
                 'apiversion' : '3',
                 'agentversion': sys.modules['graphistry'].__version__,  # type: ignore
                 **(metadata or {})
             },
-            certificate_validation=PyGraphistry.certificate_validation())
+            certificate_validation=self.__PyGraphistry.certificate_validation())
 
         au.edge_encodings = au.g_to_edge_encodings(self)
         au.node_encodings = au.g_to_node_encodings(self)
@@ -2041,10 +2039,8 @@ class PlotterBase(Plottable):
 
     def cypher(self, query, params={}):
 
-        from .pygraphistry import PyGraphistry
-
         res = copy.copy(self)
-        driver = self._bolt_driver or PyGraphistry._config['bolt_driver']
+        driver = self._bolt_driver or self.__PyGraphistry._config['bolt_driver']
         if driver is None:
             raise ValueError("BOLT connection information not provided. Must first call graphistry.register(bolt=...) or g.bolt(...).")
         with driver.session() as session:

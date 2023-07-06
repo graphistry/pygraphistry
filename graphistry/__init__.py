@@ -44,7 +44,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     nodexl,
     ArrowUploader,
     ArrowFileUploader,
-    PyGraphistry,
+    PyGraphistry as init,
     from_igraph,
     from_cugraph
 )

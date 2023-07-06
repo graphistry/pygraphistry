@@ -153,6 +153,7 @@ class ArrowUploader:
 
 
     def __init__(self, 
+            PyGraphistry_set = None,
             server_base_path='http://nginx', view_base_path='http://localhost',
             name = None,
             description = None,
@@ -176,15 +177,15 @@ class ArrowUploader:
         self.__metadata = metadata
         self.__certificate_validation = certificate_validation
         self.__org_name = org_name if org_name else None
+        self.__PyGraphistry = PyGraphistry_set
 
         if org_name:
             self.__org_name = org_name
         else:
             # check current org_name
-            from .pygraphistry import PyGraphistry
-            if 'org_name' in PyGraphistry._config:
-                logger.debug("@ArrowUploader.__init__: There is an org_name : {}".format(PyGraphistry._config['org_name']))
-                self.__org_name = PyGraphistry._config['org_name']
+            if self.__PyGraphistry and 'org_name' in self.__PyGraphistry._config:
+                logger.debug("@ArrowUploader.__init__: There is an org_name : {}".format(self.__PyGraphistry._config['org_name']))
+                self.__org_name = self.__PyGraphistry._config['org_name']
             else:
                 self.__org_name = None
 
@@ -222,7 +223,6 @@ class ArrowUploader:
         return self._handle_login_response(out, org_name)
 
     def _handle_login_response(self, out, org_name):
-        from .pygraphistry import PyGraphistry
         json_response = None
         try:
             json_response = out.json()
@@ -250,13 +250,13 @@ class ArrowUploader:
                     raise Exception("You are not authorized or not a member of {}".format(org_name))
 
             if logged_in_org_name is None and org_name is None:
-                if 'org_name' in PyGraphistry._config:
-                    del PyGraphistry._config['org_name']
+                if self.__PyGraphistry and 'org_name' in self.__PyGraphistry._config:
+                    del self.__PyGraphistry._config['org_name']
             else:
-                if org_name in PyGraphistry._config:
-                    logger.debug("@ArrowUploder, handle login reponse, org_name: {}".format(PyGraphistry._config['org_name']))
-                PyGraphistry._config['org_name'] = logged_in_org_name 
-                # PyGraphistry.org_name(logged_in_org_name)
+                if self.__PyGraphistry and org_name in self.__PyGraphistry._config:
+                    logger.debug("@ArrowUploder, handle login reponse, org_name: {}".format(self.__PyGraphistry._config['org_name']))
+                self.__PyGraphistry._config['org_name'] = logged_in_org_name 
+                # self.__PyGraphistry.org_name(logged_in_org_name)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
             raise
@@ -548,9 +548,7 @@ class ArrowUploader:
             - global
             - hard-coded
         """
-
-        from .pygraphistry import PyGraphistry
-        global_privacy = PyGraphistry._config['privacy']
+        global_privacy = self.__PyGraphistry._config['privacy'] if self.__PyGraphistry else None
         if global_privacy is not None:
             if mode is None:
                 mode = global_privacy['mode']
@@ -691,9 +689,8 @@ class ArrowUploader:
             Skip if never called .privacy()
             Return True/False based on whether called
         """
-        from .pygraphistry import PyGraphistry
-        logger.debug('Privacy: global (%s), local (%s)', PyGraphistry._config['privacy'] or 'None', g._privacy or 'None')
-        if PyGraphistry._config['privacy'] is not None or g._privacy is not None:
+        logger.debug('Privacy: global (%s), local (%s)', self.__PyGraphistry._config['privacy'] or 'None', g._privacy or 'None')
+        if (self.__PyGraphistry and self.__PyGraphistry._config['privacy'] is not None) or g._privacy is not None:
             self.post_share_link(self.dataset_id, 'dataset', g._privacy)
             return True
 
