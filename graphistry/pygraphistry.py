@@ -354,7 +354,7 @@ class PyGraphistry(object):
     def refresh(self, token=None, fail_silent=False):
         """Use self or provided JWT token to get a fresher one. If self token, internalize upon refresh."""
         using_self_token = token is None
-        logger.debug("1. @PyGraphistry refresh, org_name: {}".format(self._config['org_name']))
+        logger.debug("1. @PyGraphistry refresh, org_name: {}".format(self.org_name()))
         try:
             if self.store_token_creds_in_memory():
                 logger.debug("JWT refresh via creds")
@@ -810,14 +810,6 @@ class PyGraphistry(object):
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
     ):
-        print(f"self in hypergraph is {self}")
-        print(f"raw_events in hypergraph is {raw_events}")
-        print(f"entity_types in hypergraph is {entity_types}")
-        print(f"opts in hypergraph is {opts}")
-        print(f"drop_na in hypergraph is {drop_na}")
-        print(f"drop_edge_attrs in hypergraph is {drop_edge_attrs}")
-        print(f"verbose in hypergraph is {verbose}")
-        print(f"direct in hypergraph is {direct}")
         """Transform a dataframe into a hypergraph.
 
         :param raw_events: Dataframe to transform (pandas or cudf).
@@ -929,7 +921,7 @@ class PyGraphistry(object):
         from . import hyper
 
         return hyper.Hypergraph().hypergraph(
-            PyGraphistry,
+            PyGraphistry(),
             raw_events,
             entity_types,
             opts,
@@ -2342,7 +2334,6 @@ class PyGraphistry(object):
             self._config['personal_key_secret'] = value.strip()
 
     def switch_org(self, value):
-        # print(self._switch_org_url(value))
         response = requests.post(
             self._switch_org_url(value),
             data={'slug': value},
@@ -2367,10 +2358,16 @@ class PyGraphistry(object):
         except:
             logger.error('Error: %s', response, exc_info=True)
             raise Exception("Unknown Error")
+    
+    def set_object(self, instance=None):
+        if instance:
+            if isinstance(instance, object):
+                self.__dict__ = instance.__dict__
 
 
 
 new_PyGraphistry = PyGraphistry()
+set_object = new_PyGraphistry.set_object
 client_protocol_hostname = new_PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = new_PyGraphistry.store_token_creds_in_memory
 server = new_PyGraphistry.server
@@ -2424,6 +2421,7 @@ personal_key_secret = new_PyGraphistry.personal_key_secret
 switch_org = new_PyGraphistry.switch_org
 
 
+# set_object = PyGraphistry.set_object
 # client_protocol_hostname = PyGraphistry.client_protocol_hostname
 # store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
 # server = PyGraphistry.server

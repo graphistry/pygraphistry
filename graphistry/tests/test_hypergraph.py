@@ -5,6 +5,7 @@ import pytest
 
 import graphistry, graphistry.plotter
 from common import NoAuthTestCase
+from graphistry.pygraphistry import PyGraphistry
 
 logger = logging.getLogger(__name__)
 
@@ -288,37 +289,41 @@ class TestHypergraphPlain(NoAuthTestCase):
         assert len(hg["graph"]._edges) == 4
 
     def test_drop_na_direct(self):
-
+        
+        PyGraphistry_set = PyGraphistry()
         df = pd.DataFrame({"a": ["a", None, "a"], "i": [1, 1, None]})
 
-        hg = graphistry.hypergraph(df, drop_na=True, direct=True)
+        hg = PyGraphistry_set.hypergraph(df, drop_na=True, direct=True)
 
         assert len(hg["graph"]._nodes) == 2
         assert len(hg["graph"]._edges) == 1
 
     def test_skip_na_hyperedge(self):
-
+        
+        PyGraphistry_set = PyGraphistry()
         nans_df = pd.DataFrame({"x": ["a", "b", "c"], "y": ["aa", None, "cc"]})
         expected_hits = ["a", "b", "c", "aa", "cc"]
 
-        skip_attr_h_edges = graphistry.hypergraph(nans_df, drop_edge_attrs=True)[
+        skip_attr_h_edges = PyGraphistry_set.hypergraph(nans_df, drop_edge_attrs=True)[
             "edges"
         ]
         self.assertEqual(len(skip_attr_h_edges), len(expected_hits))
 
-        default_h_edges = graphistry.hypergraph(nans_df)["edges"]
+        default_h_edges = PyGraphistry_set.hypergraph(nans_df)["edges"]
         self.assertEqual(len(default_h_edges), len(expected_hits))
 
     #categorical astype(str) throws a warning
     @pytest.mark.filterwarnings("ignore:invalid value encountered in cast")
     def test_hyper_evil(self):
-        graphistry.hypergraph(squareEvil)
+        PyGraphistry_set = PyGraphistry()
+        PyGraphistry_set.hypergraph(squareEvil)
 
     def test_hyper_to_pa_vanilla(self):
 
+        PyGraphistry_set = PyGraphistry()
         df = pd.DataFrame({"x": ["a", "b", "c"], "y": ["d", "e", "f"]})
 
-        hg = graphistry.hypergraph(df)
+        hg = PyGraphistry_set.hypergraph(df)
         nodes_arr = pa.Table.from_pandas(hg["graph"]._nodes)
         assert len(nodes_arr) == 9
         edges_err = pa.Table.from_pandas(hg["graph"]._edges)
@@ -326,19 +331,21 @@ class TestHypergraphPlain(NoAuthTestCase):
 
     def test_hyper_to_pa_mixed(self):
 
+        PyGraphistry_set = PyGraphistry()
         df = pd.DataFrame({"x": ["a", "b", "c"], "y": [1, 2, 3]})
 
-        hg = graphistry.hypergraph(df)
+        hg = PyGraphistry_set.hypergraph(df)
         nodes_arr = pa.Table.from_pandas(hg["graph"]._nodes)
         assert len(nodes_arr) == 9
         edges_err = pa.Table.from_pandas(hg["graph"]._edges)
         assert len(edges_err) == 6
 
     def test_hyper_to_pa_na(self):
-
+        
+        PyGraphistry_set = PyGraphistry()
         df = pd.DataFrame({"x": ["a", None, "c"], "y": [1, 2, None]})
 
-        hg = graphistry.hypergraph(df, drop_na=False)
+        hg = PyGraphistry_set.hypergraph(df, drop_na=False)
         nodes_arr = pa.Table.from_pandas(hg["graph"]._nodes)
         assert len(hg["graph"]._nodes) == 9
         assert len(nodes_arr) == 9
@@ -347,7 +354,9 @@ class TestHypergraphPlain(NoAuthTestCase):
         assert len(edges_err) == 6
 
     def test_hyper_to_pa_all(self):
-        hg = graphistry.hypergraph(triangleNodes, ["id", "a1", "🙈"])
+
+        PyGraphistry_set = PyGraphistry()
+        hg = PyGraphistry_set.hypergraph(triangleNodes, ["id", "a1", "🙈"])
         nodes_arr = pa.Table.from_pandas(hg["graph"]._nodes)
         assert len(hg["graph"]._nodes) == 12
         assert len(nodes_arr) == 12
@@ -356,7 +365,9 @@ class TestHypergraphPlain(NoAuthTestCase):
         assert len(edges_err) == 9
 
     def test_hyper_to_pa_all_direct(self):
-        hg = graphistry.hypergraph(triangleNodes, ["id", "a1", "🙈"], direct=True)
+
+        PyGraphistry_set = PyGraphistry()
+        hg = PyGraphistry_set.hypergraph(triangleNodes, ["id", "a1", "🙈"], direct=True)
         nodes_arr = pa.Table.from_pandas(hg["graph"]._nodes)
         assert len(hg["graph"]._nodes) == 9
         assert len(nodes_arr) == 9

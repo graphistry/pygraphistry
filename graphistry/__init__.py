@@ -46,7 +46,8 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     ArrowFileUploader,
     PyGraphistry as init,
     from_igraph,
-    from_cugraph
+    from_cugraph,
+    set_object
 )
 
 from graphistry.compute import (

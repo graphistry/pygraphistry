@@ -441,9 +441,11 @@ class TestPlotterLabelInference(NoAuthTestCase):
 class TestPlotterArrowConversions(NoAuthTestCase):
     @classmethod
     def setUpClass(cls):
-        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
-        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
+        get_pygraphistry = graphistry.init()
+        get_pygraphistry._is_authenticated = True
+        get_pygraphistry.store_token_creds_in_memory(True)
+        get_pygraphistry.relogin = lambda: True
+        graphistry.set_object(get_pygraphistry)
         graphistry.register(api=3)
 
     def test_table_to_arrow_from_none(self):
@@ -649,9 +651,11 @@ class TestPlotterArrowConversions(NoAuthTestCase):
 class TestPlotterStylesArrow(NoAuthTestCase):
     @classmethod
     def setUpClass(cls):
-        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
-        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
+        get_pygraphistry = graphistry.init()
+        get_pygraphistry._is_authenticated = True
+        get_pygraphistry.store_token_creds_in_memory(True)
+        get_pygraphistry.relogin = lambda: True
+        graphistry.set_object(get_pygraphistry)
         graphistry.register(api=3)
 
     def test_init(self):
@@ -770,9 +774,11 @@ class TestPlotterStylesArrow(NoAuthTestCase):
 class TestPlotterStylesJSON(NoAuthTestCase):
     @classmethod
     def setUpClass(cls):
-        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
-        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
+        get_pygraphistry = graphistry.init()
+        get_pygraphistry._is_authenticated = True
+        get_pygraphistry.store_token_creds_in_memory(True)
+        get_pygraphistry.relogin = lambda: True
+        graphistry.set_object(get_pygraphistry)
         graphistry.register(api=1)
 
     def test_styleApi_reject(self):
@@ -803,9 +809,11 @@ class TestPlotterEncodings(NoAuthTestCase):
 
     @classmethod
     def setUpClass(cls):
-        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
-        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
+        get_pygraphistry = graphistry.init()
+        get_pygraphistry._is_authenticated = True
+        get_pygraphistry.store_token_creds_in_memory(True)
+        get_pygraphistry.relogin = lambda: True
+        graphistry.set_object(get_pygraphistry)
         graphistry.register(api=3)
 
     def test_init_mt(self):

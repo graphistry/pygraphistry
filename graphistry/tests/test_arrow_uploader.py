@@ -156,28 +156,32 @@ class TestArrowUploader_Core(unittest.TestCase):
         }
 
     def test_cascade_privacy_settings_default_global(self):
-        PyGraphistry._config["privacy"] = None
-        PyGraphistry.privacy()
-        au = ArrowUploader()
+        PyGraphistry_set = PyGraphistry()
+        PyGraphistry_set._config["privacy"] = None
+        PyGraphistry_set.privacy()
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
         assert au.cascade_privacy_settings() == ('private', False, [], '20', '')
 
     def test_cascade_privacy_settings_global_override(self):
-        PyGraphistry._config["privacy"] = None
-        PyGraphistry.privacy(mode="public", notify=True)
-        au = ArrowUploader()
+        PyGraphistry_set = PyGraphistry()
+        PyGraphistry_set._config["privacy"] = None
+        PyGraphistry_set.privacy(mode="public", notify=True)
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
         assert au.cascade_privacy_settings() == ('public', True, [], '10', '')
 
     def test_cascade_privacy_settings_local_override(self):
-        PyGraphistry._config["privacy"] = None
+        PyGraphistry_set = PyGraphistry()
+        PyGraphistry_set._config["privacy"] = None
         g = graphistry.bind().privacy(mode="public", notify=True)
-        au = ArrowUploader()
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
         assert au.cascade_privacy_settings(**g._privacy) == ('public', True, [], '10', '')
 
     def test_cascade_privacy_settings_local_override_cascade(self):
-        PyGraphistry._config["privacy"] = None
-        PyGraphistry.privacy()
+        PyGraphistry_set = PyGraphistry()
+        PyGraphistry_set._config["privacy"] = None
+        PyGraphistry_set.privacy()
         g = graphistry.bind().privacy(mode="public", notify=True)
-        au = ArrowUploader()
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
         assert au.cascade_privacy_settings(**g._privacy) == ('public', True, [], '10', '')
 
 
@@ -225,11 +229,12 @@ class TestArrowUploader_Comms(unittest.TestCase):
         })
         mock_post.return_value = mock_resp
 
-        au = ArrowUploader()
+        PyGraphistry_set = PyGraphistry()
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
         response = au.login(username="u", password="p", org_name="mock-org")
         tok = response.token
         assert tok == "123"
-        assert PyGraphistry.org_name() == "mock-org"
+        assert PyGraphistry_set.org_name() == "mock-org"
 
 
     @mock.patch('requests.post')
@@ -238,7 +243,8 @@ class TestArrowUploader_Comms(unittest.TestCase):
         mock_resp = self._mock_response(json_data={'token': '123'})
         mock_post.return_value = mock_resp
 
-        au = ArrowUploader()
+        PyGraphistry_set = PyGraphistry()
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
 
         with pytest.raises(Exception):
             au.login(username="u", password="p", org_name="mock-org")
@@ -260,7 +266,8 @@ class TestArrowUploader_Comms(unittest.TestCase):
         })
         mock_post.return_value = mock_resp
 
-        au = ArrowUploader()
+        PyGraphistry_set = PyGraphistry()
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
 
         with pytest.raises(Exception):
             au.login(username="u", password="p", org_name="mock-org")
@@ -282,7 +289,8 @@ class TestArrowUploader_Comms(unittest.TestCase):
         })
         mock_post.return_value = mock_resp
 
-        au = ArrowUploader()
+        PyGraphistry_set = PyGraphistry()
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
 
         with pytest.raises(Exception):
             au.login(username="u", password="p", org_name="mock-org")
@@ -304,7 +312,8 @@ class TestArrowUploader_Comms(unittest.TestCase):
         })
         mock_post.return_value = mock_resp
 
-        au = ArrowUploader()
+        PyGraphistry_set = PyGraphistry()
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
 
         au.sso_login(org_name="mock-org", idp_name="mock-idp")
 
@@ -328,7 +337,8 @@ class TestArrowUploader_Comms(unittest.TestCase):
         })
         mock_post.return_value = mock_resp
 
-        au = ArrowUploader()
+        PyGraphistry_set = PyGraphistry()
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
 
         au.sso_login(org_name="mock-org", idp_name="mock-idp")
         #assert au.sso_state == 'xxuixld'
@@ -352,7 +362,8 @@ class TestArrowUploader_Comms(unittest.TestCase):
         })
         mock_get.return_value = mock_resp
 
-        au = ArrowUploader()
+        PyGraphistry_set = PyGraphistry()
+        au = ArrowUploader(PyGraphistry_set=PyGraphistry_set)
 
         au.sso_get_token(state='ignored-valid')
         assert au.token == '123'
