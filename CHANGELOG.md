@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.29.2 - 2023-07-10]
+
+### Fixed
+
+* Security: Allow token register without org
+* Security: Refresh logic
+
 ## [0.29.1 - 2023-05-03]
 
 ### Fixed 
