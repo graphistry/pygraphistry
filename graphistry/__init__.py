@@ -1,5 +1,8 @@
 
 from graphistry.pygraphistry import (  # noqa: E402, F401
+    _user_sessions,
+    current_session,
+    instance,
     client_protocol_hostname,
     protocol,
     server,
@@ -46,8 +49,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     ArrowFileUploader,
     PyGraphistry as init,
     from_igraph,
-    from_cugraph,
-    set_object
+    from_cugraph
 )
 
 from graphistry.compute import (

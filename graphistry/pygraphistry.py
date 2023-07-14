@@ -2358,21 +2358,51 @@ class PyGraphistry(object):
         except:
             logger.error('Error: %s', response, exc_info=True)
             raise Exception("Unknown Error")
+
+
+
+_user_sessions = {}
+current_session = [0]
+
+class Call_PyGraphistry():
+    def __getattr__(self, attr):
+        def wrapper(*args, **kwargs):
+            return getattr(self.pygraphistry, attr)(*args, **kwargs)
+        return wrapper
+
+    def register(self, **kwargs):
+        self.pygraphistry = PyGraphistry().register(**kwargs)
+        _user_sessions[len(_user_sessions)] = self.pygraphistry
+        current_session[0] = self.get_user_session_key(self.pygraphistry)
+        return self.pygraphistry
     
-    def set_object(self, instance=None):
-        if instance:
-            if isinstance(instance, object):
-                self.__dict__ = instance.__dict__
+    def instance(self, instance=None):
+        if instance is not None:
+            if isinstance(instance, int):
+                instance = _user_sessions[instance]
+                self.pygraphistry = instance
+                current_session[0] = self.get_user_session_key(instance)
+            elif isinstance(instance, object):
+                self.pygraphistry = instance
+                current_session[0] = self.get_user_session_key(instance)
+            else:
+                print("fail to change instance")
+        return self.pygraphistry
+
+    @classmethod
+    def get_user_session_key(cls, instance):
+        for key, value in _user_sessions.items():
+            if value == instance:
+                return key
 
 
-
-new_PyGraphistry = PyGraphistry()
-set_object = new_PyGraphistry.set_object
+new_PyGraphistry = Call_PyGraphistry()
+instance = new_PyGraphistry.instance
+register = new_PyGraphistry.register
 client_protocol_hostname = new_PyGraphistry.client_protocol_hostname
 store_token_creds_in_memory = new_PyGraphistry.store_token_creds_in_memory
 server = new_PyGraphistry.server
 protocol = new_PyGraphistry.protocol
-register = new_PyGraphistry.register
 sso_get_token = new_PyGraphistry.sso_get_token
 privacy = new_PyGraphistry.privacy
 login = new_PyGraphistry.login
@@ -2419,61 +2449,6 @@ from_cugraph = new_PyGraphistry.from_cugraph
 personal_key_id = new_PyGraphistry.personal_key_id
 personal_key_secret = new_PyGraphistry.personal_key_secret
 switch_org = new_PyGraphistry.switch_org
-
-
-# set_object = PyGraphistry.set_object
-# client_protocol_hostname = PyGraphistry.client_protocol_hostname
-# store_token_creds_in_memory = PyGraphistry.store_token_creds_in_memory
-# server = PyGraphistry.server
-# protocol = PyGraphistry.protocol
-# register = PyGraphistry.register
-# sso_get_token = PyGraphistry.sso_get_token
-# privacy = PyGraphistry.privacy
-# login = PyGraphistry.login
-# refresh = PyGraphistry.refresh
-# api_token = PyGraphistry.api_token
-# verify_token = PyGraphistry.verify_token
-# bind = PyGraphistry.bind
-# addStyle = PyGraphistry.addStyle
-# style = PyGraphistry.style
-# encode_point_color = PyGraphistry.encode_point_color
-# encode_edge_color = PyGraphistry.encode_edge_color
-# encode_point_size = PyGraphistry.encode_point_size
-# encode_point_icon = PyGraphistry.encode_point_icon
-# encode_edge_icon = PyGraphistry.encode_edge_icon
-# encode_point_badge = PyGraphistry.encode_point_badge
-# encode_edge_badge = PyGraphistry.encode_edge_badge
-# infer_labels = PyGraphistry.infer_labels
-# name = PyGraphistry.name
-# description = PyGraphistry.description
-# edges = PyGraphistry.edges
-# nodes = PyGraphistry.nodes
-# pipe = PyGraphistry.pipe
-# graph = PyGraphistry.graph
-# settings = PyGraphistry.settings
-# hypergraph = PyGraphistry.hypergraph
-# bolt = PyGraphistry.bolt
-# cypher = PyGraphistry.cypher
-# nodexl = PyGraphistry.nodexl
-# tigergraph = PyGraphistry.tigergraph
-# cosmos = PyGraphistry.cosmos
-# neptune = PyGraphistry.neptune
-# gremlin = PyGraphistry.gremlin
-# gremlin_client = PyGraphistry.gremlin_client
-# drop_graph = PyGraphistry.drop_graph
-# gsql_endpoint = PyGraphistry.gsql_endpoint
-# gsql = PyGraphistry.gsql
-# layout_settings = PyGraphistry.layout_settings
-# org_name = PyGraphistry.org_name
-# idp_name = PyGraphistry.idp_name
-# sso_state = PyGraphistry.sso_state
-# scene_settings = PyGraphistry.scene_settings
-# from_igraph = PyGraphistry.from_igraph
-# from_cugraph = PyGraphistry.from_cugraph
-# personal_key_id = PyGraphistry.personal_key_id
-# personal_key_secret = PyGraphistry.personal_key_secret
-# switch_org = PyGraphistry.switch_org
-
 
 
 class NumpyJSONEncoder(json.JSONEncoder):
