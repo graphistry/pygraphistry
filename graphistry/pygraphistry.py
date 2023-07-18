@@ -2364,7 +2364,7 @@ class PyGraphistry(object):
 _user_sessions = {}
 current_session = [0]
 
-class Call_PyGraphistry():
+class CallPyGraphistry():
     def __getattr__(self, attr):
         def wrapper(*args, **kwargs):
             return getattr(self.pygraphistry, attr)(*args, **kwargs)
@@ -2382,6 +2382,10 @@ class Call_PyGraphistry():
                 instance = _user_sessions[instance]
                 self.pygraphistry = instance
                 current_session[0] = self.get_user_session_key(instance)
+            elif isinstance(instance, list):
+                instance = _user_sessions[instance[0]]
+                self.pygraphistry = instance
+                current_session[0] = self.get_user_session_key(instance)
             elif isinstance(instance, object):
                 self.pygraphistry = instance
                 current_session[0] = self.get_user_session_key(instance)
@@ -2396,7 +2400,7 @@ class Call_PyGraphistry():
                 return key
 
 
-new_PyGraphistry = Call_PyGraphistry()
+new_PyGraphistry = CallPyGraphistry()
 instance = new_PyGraphistry.instance
 register = new_PyGraphistry.register
 client_protocol_hostname = new_PyGraphistry.client_protocol_hostname
