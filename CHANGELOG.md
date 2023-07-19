@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.29.3 - 2023-07=19]
+
+### Changed
+
+* igraph: Change dependency to new package name before old deprecates (https://github.com/graphistry/pygraphistry/pull/494)
+
 ## [0.29.2 - 2023-07-10]
 
 ### Fixed
