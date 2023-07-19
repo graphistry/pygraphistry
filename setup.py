@@ -30,7 +30,7 @@ dev_extras = {
 }
 
 base_extras_light = {
-    'igraph': ['python-igraph'],
+    'igraph': ['igraph'],
     'networkx': ['networkx>=2.5'],
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
