@@ -948,11 +948,11 @@ def process_dirty_dataframes(
 
     if feature_engine == 'cu_cat':
         lazy_import_has_dependancy_cu_cat()
-        from cu_cat import SuperVectorizer, GapEncoder#, SimilarityEncoder
+        from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
 
     else:
-        from dirty_cat import SuperVectorizer, GapEncoder#, SimilarityEncoder
+        from dirty_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
         from sklearn.preprocessing import FunctionTransformer
 
     t = time()

@@ -415,8 +415,8 @@ class UMAPMixin(MIXIN_BASE):
             include=["datetime", "datetimetz"]
         ).columns.to_list()
         
-        self.R_=X_[self.datetime_columns]
-        X_=X_.drop(columns=self.datetime_columns)
+        self.R_ = X_[self.datetime_columns]
+        X_ = X_.drop(columns=self.datetime_columns)
         
         emb = res._umap_fit_transform(X_, y_, verbose=verbose)
         res._xy = emb.join(self.R_)
