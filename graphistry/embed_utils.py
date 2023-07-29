@@ -21,12 +21,12 @@ def lazy_embed_import_dep():
     except:
         return False, None, None, None, None, None, None, None
 
-def check_cudf():
-    try:
-        import cudf
-        return True, cudf
-    except:
-        return False, object
+# def check_cudf():
+#     try:
+#         import cudf
+#         return True, cudf
+#     except:
+#         return False, object
         
 
 if TYPE_CHECKING:
