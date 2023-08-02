@@ -74,6 +74,24 @@ node_floats = ["flt"]
 node_numeric = node_ints + node_floats
 node_target = triangleNodes[["y"]]
 
+node_graph_with_index = pd.DataFrame(
+    {
+        "index": range(1, 13),
+        "a": ["a", "b", "c", "d"] * 3,
+        "b": ["w", "x", "y", "z"] * 3,
+    }
+)
+
+edge_graph_with_index = pd.DataFrame(
+    {
+        "index": range(1, 13),
+        "a": ["a", "b", "c", "d"] * 3,
+        "b": ["w", "x", "y", "z"] * 3,
+        "src": [1, 2, 3, 4] * 3,
+        "dst": [4, 3, 1, 2] * 3,
+    }
+)
+
 def _eq(df1, df2):
     try:
         df1 = df1.to_pandas()
@@ -149,6 +167,15 @@ class TestUMAPFitTransform(unittest.TestCase):
             edge_df22, y=edge2_target_df, kind="edges", return_graph=False, verbose=verbose
         )        
         self.g2e = g2
+
+        # graph with index
+        self.g_index_nodes = graphistry.nodes(node_graph_with_index)
+        self.g_index_nodes_umaped = self.g_index_nodes.umap(engine="umap_learn")
+        assert "_n" == self.g_index_nodes_umaped._node
+
+        self.g_index_edges = graphistry.nodes(edge_graph_with_index)
+        self.g_index_edges_umaped = self.g_index_edges.umap(engine="umap_learn")
+        assert "_n" == self.g_index_edges_umaped._node
 
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
@@ -809,6 +836,15 @@ class TestCudfUmap(unittest.TestCase):
     def test_base(self):
         graphistry.nodes(self.df).umap('auto')._node_embedding.shape == (self.samples, 2)
         graphistry.nodes(self.df).umap('engine')._node_embedding.shape == (self.samples, 2)
+
+        # graph with index
+        self.g_index_nodes = graphistry.nodes(node_graph_with_index)
+        self.g_index_nodes_umaped = self.g_index_nodes.umap(engine="cuml")
+        assert "_n" == self.g_index_nodes_umaped._node
+
+        self.g_index_edges = graphistry.nodes(edge_graph_with_index)
+        self.g_index_edges_umaped = self.g_index_edges.umap(engine="cuml")
+        assert "_n" == self.g_index_edges_umaped._node
 
 
 if __name__ == "__main__":
