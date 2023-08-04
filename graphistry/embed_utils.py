@@ -21,6 +21,8 @@ def lazy_embed_import_dep():
     except:
         return False, None, None, None, None, None, None, None
 
+def lazy_isinstance(self._nodes, cudf):
+
 # def check_cudf():
 #     try:
 #         import cudf
