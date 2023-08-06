@@ -107,7 +107,7 @@ def lazy_import_has_dependancy_cuda():
     try:
         import scipy.sparse  # noqa
         from scipy import __version__ as scipy_version
-        from cu_cat import __version__ as cu_cat_version
+        # from cu_cat import __version__ as cu_cat_version
         import cu_cat
         from sklearn import __version__ as sklearn_version
         from cuml import __version__ as cuml_version
@@ -115,7 +115,7 @@ def lazy_import_has_dependancy_cuda():
         from cudf import __version__ as cudf_version
         import cudf
         logger.debug(f"SCIPY VERSION: {scipy_version}")
-        logger.debug(f"Cuda CAT VERSION: {cu_cat_version}")
+        # logger.debug(f"Cuda CAT VERSION: {cu_cat_version}")
         logger.debug(f"sklearn VERSION: {sklearn_version}")
         logger.debug(f"cuml VERSION: {cuml_version}")
         logger.debug(f"cudf VERSION: {cudf_version}")
@@ -228,7 +228,7 @@ def resolve_feature_engine(
 YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 
-def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
+def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic, cudf: None) -> pd.DataFrame:
 
     if isinstance(y, pd.DataFrame) or (cudf is not None and isinstance(y, cudf.DataFrame)):
         return y  # type: ignore
@@ -249,7 +249,7 @@ def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 
-def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
+def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic, cudf: None) -> pd.DataFrame:
 
     if isinstance(X, pd.DataFrame) or (cudf is not None and isinstance(X, cudf.DataFrame)):
         return X  # type: ignore
@@ -321,7 +321,7 @@ def features_without_target(
     return df
 
 
-def remove_node_column_from_symbolic(X_symbolic, node):
+def remove_node_column_from_symbolic(X_symbolic, node, cudf: None):
     if isinstance(X_symbolic, list):
         if node in X_symbolic:
             logger.info(f"Removing `{node}` from input X_symbolic list")
@@ -688,7 +688,7 @@ def fit_pipeline(
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         X = pd.DataFrame(X, columns=columns, index=index)
     else:
-        X = transformer.fit_transform(X.to_numpy())
+        X = transformer.fit_transform(X)
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         _, _, cudf = lazy_import_has_dependancy_cuda()
@@ -1002,7 +1002,7 @@ def process_dirty_dataframes(
             X_enc = cudf.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
-            X_enc = X_enc.fillna(0.0).to_pandas()  # will be removed for future cu_cat release
+            X_enc = X_enc.fillna(0.0)#.to_pandas()  # will be removed for future cu_cat release
 
     else:
         logger.info("-*-*- DataFrame is completely numeric")
@@ -2033,9 +2033,13 @@ class FeatureMixin(MIXIN_BASE):
         ndf = res._nodes
         node = res._node
 
+        
+        ## add cudf init here
+        _, _, cudf = lazy_import_has_dependancy_cuda()
+    
         if remove_node_column:
-            ndf = remove_node_column_from_symbolic(ndf, node)
-            X = remove_node_column_from_symbolic(X, node)
+            ndf = remove_node_column_from_symbolic(ndf, node, cudf)
+            X = remove_node_column_from_symbolic(X, node, cudf)
 
         if ndf is None:
             logger.info(
@@ -2053,8 +2057,8 @@ class FeatureMixin(MIXIN_BASE):
 
         # resolve everything before setting dict so that
         # `X = ndf[cols]` and `X = cols` resolve to same thing
-        X_resolved = resolve_X(ndf, X)
-        y_resolved = resolve_y(ndf, y)
+        X_resolved = resolve_X(ndf, X, cudf)
+        y_resolved = resolve_y(ndf, y, cudf)
 
         res.feature_engine = feature_engine
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
@@ -2167,8 +2171,8 @@ class FeatureMixin(MIXIN_BASE):
 
         res = self.copy()
         edf = res._edges
-        X_resolved = resolve_X(edf, X)
-        y_resolved = resolve_y(edf, y)
+        X_resolved = resolve_X(edf, X, cudf)
+        y_resolved = resolve_y(edf, y, cudf)
 
         if res._source not in X_resolved:
             logger.debug("adding g._source to edge features")
@@ -2309,11 +2313,11 @@ class FeatureMixin(MIXIN_BASE):
                 or a graphistry Plottable with inferred edges if return_graph is True
         """
 
-        # This is temporary until cucat release 
-        if 'cudf.core.dataframe' in str(getmodule(df)):
-            df = df.to_pandas()  # type: ignore
-        if (y is not None) and ('cudf.core.dataframe' in str(getmodule(y))):
-            y = y.to_pandas()  # type: ignore
+        # # This is temporary until cucat release 
+        # if 'cudf.core.dataframe' in str(getmodule(df)):
+        #     df = df.to_pandas()  # type: ignore
+        # if (y is not None) and ('cudf.core.dataframe' in str(getmodule(y))):
+        #     y = y.to_pandas()  # type: ignore
 
         if kind == "nodes":
             X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
