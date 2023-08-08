@@ -2037,10 +2037,6 @@ class FeatureMixin(MIXIN_BASE):
         res = self.copy() 
         ndf = res._nodes
         node = res._node
-
-        
-        ## add cudf init here
-        _, _, cudf = lazy_import_has_dependancy_cuda()
     
         if remove_node_column:
             ndf = remove_node_column_from_symbolic(ndf, node)
