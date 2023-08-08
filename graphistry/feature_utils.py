@@ -228,8 +228,10 @@ def resolve_feature_engine(
 YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 
-def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic, cudf: None) -> pd.DataFrame:
-
+def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
+    
+    _, _, cudf = lazy_import_has_dependancy_cuda()
+    
     if isinstance(y, pd.DataFrame) or (cudf is not None and isinstance(y, cudf.DataFrame)):
         return y  # type: ignore
 
@@ -249,8 +251,10 @@ def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic, cudf: None) -> pd.DataFr
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 
-def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic, cudf: None) -> pd.DataFrame:
-
+def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
+    
+    _, _, cudf = lazy_import_has_dependancy_cuda()
+    
     if isinstance(X, pd.DataFrame) or (cudf is not None and isinstance(X, cudf.DataFrame)):
         return X  # type: ignore
 
@@ -321,7 +325,8 @@ def features_without_target(
     return df
 
 
-def remove_node_column_from_symbolic(X_symbolic, node, cudf: None):
+def remove_node_column_from_symbolic(X_symbolic, node):
+    _, _, cudf = lazy_import_has_dependancy_cuda()
     if isinstance(X_symbolic, list):
         if node in X_symbolic:
             logger.info(f"Removing `{node}` from input X_symbolic list")
@@ -2038,8 +2043,8 @@ class FeatureMixin(MIXIN_BASE):
         _, _, cudf = lazy_import_has_dependancy_cuda()
     
         if remove_node_column:
-            ndf = remove_node_column_from_symbolic(ndf, node, cudf)
-            X = remove_node_column_from_symbolic(X, node, cudf)
+            ndf = remove_node_column_from_symbolic(ndf, node)
+            X = remove_node_column_from_symbolic(X, node)
 
         if ndf is None:
             logger.info(
@@ -2057,8 +2062,8 @@ class FeatureMixin(MIXIN_BASE):
 
         # resolve everything before setting dict so that
         # `X = ndf[cols]` and `X = cols` resolve to same thing
-        X_resolved = resolve_X(ndf, X, cudf)
-        y_resolved = resolve_y(ndf, y, cudf)
+        X_resolved = resolve_X(ndf, X)
+        y_resolved = resolve_y(ndf, y)
 
         res.feature_engine = feature_engine
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
@@ -2171,8 +2176,8 @@ class FeatureMixin(MIXIN_BASE):
 
         res = self.copy()
         edf = res._edges
-        X_resolved = resolve_X(edf, X, cudf)
-        y_resolved = resolve_y(edf, y, cudf)
+        X_resolved = resolve_X(edf, X)
+        y_resolved = resolve_y(edf, y)
 
         if res._source not in X_resolved:
             logger.debug("adding g._source to edge features")
