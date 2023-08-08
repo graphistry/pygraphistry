@@ -1007,7 +1007,7 @@ def process_dirty_dataframes(
             X_enc = cudf.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
-            X_enc = X_enc.fillna(0.0)#.to_pandas()  # will be removed for future cu_cat release
+            X_enc = X_enc.fillna(0.0)  # .to_pandas()  # will be removed for future cu_cat release
 
     else:
         logger.info("-*-*- DataFrame is completely numeric")
