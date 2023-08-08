@@ -17,7 +17,7 @@ from graphistry.feature_utils import (
     resolve_feature_engine,
     lazy_import_has_min_dependancy,
     lazy_import_has_dependancy_text,
-    lazy_import_has_dependancy_cu_cat,
+    lazy_import_has_dependancy_cuda,
     FastEncoder
 )
 
@@ -28,7 +28,7 @@ np.random.seed(137)
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
-has_cudf, _, _ = lazy_import_has_dependancy_cu_cat()
+has_cudf, _, _ = lazy_import_has_dependancy_cuda()
 
 # enable tests if has cudf and env didn't explicitly disable
 is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
