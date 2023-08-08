@@ -352,9 +352,9 @@ class UMAPMixin(MIXIN_BASE):
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
-        if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)) and not hasattr(emb, 'device'):
+        if emb.shape[1] == 2 and 'cudf' not in str(getmodule(emb)) and not hasattr(emb, 'device'):
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
-        elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
+        elif emb.shape[1] == 2 and 'cudf' in str(getmodule(emb)):
             emb.rename(columns={0: config.X, 1: config.Y}, inplace=True)
         elif emb.shape[1] == 2 and hasattr(emb, 'device'):
             import cudf
@@ -363,9 +363,9 @@ class UMAPMixin(MIXIN_BASE):
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1])
             ]
-            if 'cudf.core.dataframe' not in str(getmodule(emb)):
+            if 'cudf' not in str(getmodule(emb)):
                 emb = pd.DataFrame(emb, columns=columns, index=index)
-            elif 'cudf.core.dataframe' in str(getmodule(emb)):
+            elif 'cudf' in str(getmodule(emb)):
                 emb.columns = columns
         return emb
 
@@ -620,7 +620,7 @@ class UMAPMixin(MIXIN_BASE):
             logger.debug("data is type :: %s", (type(X_)))
             if isinstance(X_, pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-            elif 'cudf.core.dataframe' in str(getmodule(X_)):
+            elif 'cudf' in str(getmodule(X_)):
                 index_to_nodes_dict = nodes  # {}?
 
             # add the safe coercion here 
@@ -726,10 +726,10 @@ class UMAPMixin(MIXIN_BASE):
         else:
             emb = res._edge_embedding
             
-        if type(df) == type(emb):
+        if type(df) is type(emb):
             df[x_name] = emb.values.T[0]
             df[y_name] = emb.values.T[1]
-        elif isinstance(df, pd.DataFrame) and 'cudf.core.dataframe' in str(getmodule(emb)):
+        elif isinstance(df, pd.DataFrame) and 'cudf' in str(getmodule(emb)):
             df[x_name] = emb.to_numpy().T[0]
             df[y_name] = emb.to_numpy().T[1]
 
