@@ -549,7 +549,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
     def _score(self, triplets: Union[np.ndarray, TT]) -> TT:  # type: ignore
         _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
         emb = self._kg_embeddings.clone().detach()
-        if type(triplets) != torch.Tensor:
+        if not isinstance(triplets, torch.Tensor):
             triplets = torch.tensor(triplets)
         score = self._embed_model.score(emb, triplets)
         prob = torch.sigmoid(score)
