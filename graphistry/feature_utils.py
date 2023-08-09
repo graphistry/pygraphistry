@@ -1005,9 +1005,11 @@ def process_dirty_dataframes(
         else:
             _, _, cudf = lazy_import_has_dependancy_cuda()
             X_enc = cudf.DataFrame(
-                X_enc, columns=features_transformed, index=ndf.index
+                X_enc
             )
-            X_enc = X_enc.fillna(0.0)  # .to_pandas()  # will be removed for future cu_cat release
+            X_enc.columns=features_transformed
+            X_enc.set_index(ndf.index)
+            X_enc = X_enc.fillna(0.0)
 
     else:
         logger.info("-*-*- DataFrame is completely numeric")
