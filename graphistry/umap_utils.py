@@ -89,7 +89,7 @@ def is_legacy_cuml():
         return False
 
 
-UMAPEngineConcrete = Literal['cuml', 'umap_learn']
+UMAPEngineConcrete = Literal['cuml', 'umap_learn', 'cuda']
 UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
 
 
@@ -128,7 +128,7 @@ def make_safe_gpu_dataframes(X, y, engine):
         for key, value in kwargs.items():
             if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "dirty_cat"]:
                 new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat", "cuda"]:
                 new_kwargs[key] = cudf.from_pandas(value)
             else:
                 new_kwargs[key] = value

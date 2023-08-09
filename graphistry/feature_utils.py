@@ -22,8 +22,10 @@ from typing_extensions import Literal  # Literal native to py3.8+
 
 from graphistry.compute.ComputeMixin import ComputeMixin
 from . import constants as config
+from .constants import CUDA_CAT, DIRTY_CAT
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
+from .umap_utils import resolve_umap_engine
 from .ai_utils import infer_graph, infer_self_graph
 
 # add this inside classes and have a method that can set log level
@@ -43,7 +45,6 @@ if TYPE_CHECKING:
         from dirty_cat import (
             SuperVectorizer,
             GapEncoder,
-            # SimilarityEncoder,
         )
     except:
         SuperVectorizer = Any
@@ -53,7 +54,6 @@ if TYPE_CHECKING:
         from cu_cat import (
             SuperVectorizer,
             GapEncoder,
-            # SimilarityEncoder,
         )  # type: ignore
     except:
         SuperVectorizer = Any
@@ -163,7 +163,7 @@ def make_safe_gpu_dataframes(X, y, engine):
         for key, value in kwargs.items():
             if isinstance(value, cudf.DataFrame) and engine in ["pandas", "dirty_cat", "torch"]:
                 new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat", "cuda"]:
                 new_kwargs[key] = cudf.from_pandas(value)
             else:
                 new_kwargs[key] = value
@@ -195,7 +195,7 @@ def make_safe_gpu_dataframes(X, y, engine):
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat"]
+FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat", "cuda"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
 
@@ -203,7 +203,7 @@ def resolve_feature_engine(
     feature_engine: FeatureEngine,
 ) -> FeatureEngineConcrete:  # noqa
 
-    if feature_engine in ["none", "pandas", "dirty_cat", "torch", "cu_cat"]:
+    if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT, "cuda"]:
         return feature_engine  # type: ignore
 
     if feature_engine == "auto":
@@ -951,12 +951,12 @@ def process_dirty_dataframes(
             the data encoder, and the label encoder.
     """
 
-    if feature_engine == 'cu_cat':
+    if feature_engine == CUDA_CAT:
         lazy_import_has_dependancy_cuda()
         from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
 
-    else:
+    elif feature_engine == DIRTY_CAT:
         from dirty_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
         from sklearn.preprocessing import FunctionTransformer
 
