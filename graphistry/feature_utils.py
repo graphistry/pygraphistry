@@ -194,7 +194,7 @@ def make_safe_gpu_dataframes(X, y, engine):
 #
 #      _featurize_or_get_edges_dataframe_if_X_is_None
 
-FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat", "cuda"]
+FeatureEngineConcrete = Literal["none", "pandas", "dirty_cat", "torch", "cu_cat"]
 FeatureEngine = Literal[FeatureEngineConcrete, "auto"]
 
 
@@ -202,8 +202,10 @@ def resolve_feature_engine(
     feature_engine: FeatureEngine,
 ) -> FeatureEngineConcrete:  # noqa
 
-    if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT, "cuda"]:
+    if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
+    if feature_engine in ["cuda"]:
+        return "cu_cat"  # type: ignore
 
     if feature_engine == "auto":
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
@@ -2494,6 +2496,7 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         inplace: bool = False,
         feature_engine: FeatureEngine = "auto",
+        engine: str = "auto",
         dbscan: bool = False,
         min_dist: float = 0.5,  # DBSCAN eps
         min_samples: int = 1,  # DBSCAN min_samples
@@ -2601,7 +2604,10 @@ class FeatureMixin(MIXIN_BASE):
                 default True.
         :return: graphistry instance with new attributes set by the featurization process.
         """
-        feature_engine = resolve_feature_engine(feature_engine)
+        try:
+            feature_engine = resolve_feature_engine(feature_engine)
+        except:
+            feature_engine = resolve_feature_engine(engine)
 
         if feature_engine == 'dirty_cat':
             assert_imported()
