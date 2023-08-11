@@ -2499,7 +2499,7 @@ class FeatureMixin(MIXIN_BASE):
         remove_node_column: bool = True,
         inplace: bool = False,
         feature_engine: FeatureEngine = "auto",
-        engine: str = "auto",
+        engine: FeatureEngine = "auto",
         dbscan: bool = False,
         min_dist: float = 0.5,  # DBSCAN eps
         min_samples: int = 1,  # DBSCAN min_samples
