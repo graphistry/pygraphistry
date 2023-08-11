@@ -987,7 +987,10 @@ def process_dirty_dataframes(
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
-        logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
+        if feature_engine == CUDA_CAT:
+            logger.info(f"-Shape of [[cu_cat fit]] data {X_enc.shape}")
+        elif feature_engine == DIRTY_CAT:
+            logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
         logger.debug(f"-Transformers: \n{all_transformers}\n")
         logger.debug(
             f"-Transformed Columns: \n{features_transformed[:20]}...\n"
