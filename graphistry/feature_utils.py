@@ -953,7 +953,7 @@ def process_dirty_dataframes(
             the data encoder, and the label encoder.
     """
 
-    if feature_engine == CUDA_CAT
+    if feature_engine == CUDA_CAT:
         lazy_import_has_dependancy_cuda()
         from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
