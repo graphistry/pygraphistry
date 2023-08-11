@@ -958,7 +958,7 @@ def process_dirty_dataframes(
         from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
 
-    elif feature_engine == "dirty_cat":  # DIRTY_CAT
+    else: # if feature_engine == "dirty_cat":  # DIRTY_CAT
         from dirty_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
         from sklearn.preprocessing import FunctionTransformer
 
