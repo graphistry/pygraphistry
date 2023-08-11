@@ -155,8 +155,9 @@ def assert_cuml_cucat():
 
 def make_safe_gpu_dataframes(X, y, engine):
     has_cudf_dependancy_, _, cudf = lazy_import_has_dependancy_cuda()
-    assert cudf is not None
+    
     if has_cudf_dependancy_:
+        assert cudf is not None
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
         for key, value in kwargs.items():
