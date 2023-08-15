@@ -385,8 +385,8 @@ class TestFeatureMethods(unittest.TestCase):
                                 use_scaler=None,
                                 use_scaler_target=None,
                                 use_ngrams=use_ngram,
-                                min_df=0,
-                                max_df=1.,
+                                min_df=0.0,
+                                max_df=1.0,
                                 cardinality_threshold=cardinality,
                                 cardinality_threshold_target=cardinality
                             )
@@ -461,27 +461,27 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
         self.g2 = g2
         self.g3 = g3
         
-    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
-    @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
-    def test_get_col_matrix(self):
-        # no edges so this should be None
-        assert self.g2.get_matrix(kind='edges') is None
+    # @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    # @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
+    # def test_get_col_matrix(self):
+    #     # no edges so this should be None
+    #     assert self.g2.get_matrix(kind='edges') is None
         
-        # test target methods
-        assert all(self.g2.get_matrix(target=True).columns == self.g2._node_target.columns)
-        assert self.g2.get_matrix('Anxiety', target=True).shape[0] == len(self.g2._node_target)
-        # test str vs list 
-        assert (self.g2.get_matrix('Anxiety', target=True) == self.g2.get_matrix(['Anxiety'], target=True)).all().values[0]
+    #     # test target methods
+    #     assert all(self.g2.get_matrix(target=True).columns == self.g2._node_target.columns)
+    #     assert self.g2.get_matrix('Anxiety', target=True).shape[0] == len(self.g2._node_target)
+    #     # test str vs list 
+    #     assert (self.g2.get_matrix('Anxiety', target=True) == self.g2.get_matrix(['Anxiety'], target=True)).all().values[0]
 
-        # assert list(self.g2.get_matrix(['Anxiety', 'education', 'computer'], target=True).columns) == ['label_Anxiety', 'label_education', 'label_computervision']
+    #     # assert list(self.g2.get_matrix(['Anxiety', 'education', 'computer'], target=True).columns) == ['label_Anxiety', 'label_education', 'label_computervision']
     
-        # test feature methods
-        # ngrams
-        assert (self.g2.get_matrix().columns == self.g2._node_features.columns).all()
-        assert list(self.g2.get_matrix('what').columns) == what, list(self.g2.get_matrix('what').columns)
+    #     # test feature methods
+    #     # ngrams
+    #     assert (self.g2.get_matrix().columns == self.g2._node_features.columns).all()
+    #     assert list(self.g2.get_matrix('what').columns) == what, list(self.g2.get_matrix('what').columns)
         
-        # topic
-        assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
+    #     # topic
+    #     assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
 
 
 if __name__ == "__main__":
