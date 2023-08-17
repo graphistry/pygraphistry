@@ -965,15 +965,23 @@ def process_dirty_dataframes(
     t = time()
 
     if not is_dataframe_all_numeric(ndf):
-        data_encoder = SuperVectorizer(
-            auto_cast=True,
-            cardinality_threshold=cardinality_threshold,
-            high_card_cat_transformer=GapEncoder(n_topics),
-            #  numerical_transformer=StandardScaler(), This breaks
-            #  since -- AttributeError: Transformer numeric
-            #  (type StandardScaler)
-            #  does not provide get_feature_names.
-        )
+        if feature_engine == CUDA_CAT:
+            data_encoder = SuperVectorizer(
+                auto_cast=True,
+                cardinality_threshold=cardinality_threshold_target,
+                high_card_cat_transformer=GapEncoder(n_topics),
+                datetime_transformer = "passthrough"
+            )
+        else:
+            data_encoder = SuperVectorizer(
+                auto_cast=True,
+                cardinality_threshold=cardinality_threshold,
+                high_card_cat_transformer=GapEncoder(n_topics),
+                #  numerical_transformer=StandardScaler(), This breaks
+                #  since -- AttributeError: Transformer numeric
+                #  (type StandardScaler)
+                #  does not provide get_feature_names.
+            )
 
         logger.info(":: Encoding DataFrame might take a few minutes ------")
         
@@ -1031,15 +1039,23 @@ def process_dirty_dataframes(
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
 
-        label_encoder = SuperVectorizer(
-            auto_cast=True,
-            cardinality_threshold=cardinality_threshold_target,
-            high_card_cat_transformer=GapEncoder(n_topics_target)
-            # if not similarity
-            # else SimilarityEncoder(
-            #     similarity=similarity, categories=categories, n_prototypes=2
-            # ),  # Similarity
-        )
+        if feature_engine == CUDA_CAT:
+            label_encoder = SuperVectorizer(
+                auto_cast=True,
+                cardinality_threshold=cardinality_threshold_target,
+                high_card_cat_transformer=GapEncoder(n_topics_target),
+                datetime_transformer = "passthrough"
+            )
+        else:
+            label_encoder = SuperVectorizer(
+                auto_cast=True,
+                cardinality_threshold=cardinality_threshold_target,
+                high_card_cat_transformer=GapEncoder(n_topics_target)
+                # if not similarity
+                # else SimilarityEncoder(
+                #     similarity=similarity, categories=categories, n_prototypes=2
+                # ),  # Similarity
+            )
 
         y_enc = label_encoder.fit_transform(y)
         y_enc = make_array(y_enc)
