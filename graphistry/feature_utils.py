@@ -1020,6 +1020,8 @@ def process_dirty_dataframes(
             X_enc = cudf.DataFrame(
                 X_enc
             )
+            # if datetime_transformer == "passthrough":
+            features_transformed.append('datetime')
             X_enc.columns = features_transformed
             X_enc.set_index(ndf.index)
             X_enc = X_enc.fillna(0.0)
