@@ -410,7 +410,20 @@ def set_to_numeric(df: pd.DataFrame, cols: List, fill_value: float = 0.0):
 
 def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
     # eg df["Start_Date"] = pd.to_datetime(df[['Month', 'Day', 'Year']])
-    df[new_col] = pd.to_datetime(df[cols], errors="coerce").fillna(0)
+    X_type = str(getmodule(df))
+    if 'cudf' not in X_type:
+        df[new_col] = pd.to_datetime(df[cols], errors="coerce").fillna(0)
+    else:
+        # _, _, cudf = lazy_import_has_dependancy_cuda()
+        # assert cudf is not None
+        for col in df.columns:
+            try:
+                df[col] = cudf.to_datetime(
+                    df[col], errors="raise", infer_datetime_format=True
+                )
+                print(df[col])
+            except:
+                pass
 
 
 def set_to_bool(df: pd.DataFrame, col: str, value: Any):
@@ -1020,8 +1033,11 @@ def process_dirty_dataframes(
             X_enc = cudf.DataFrame(
                 X_enc
             )
-            # if datetime_transformer == "passthrough":
-            features_transformed.append('datetime')
+            # ndf = set_to_datetime(ndf,'A','A')
+            dt_count = ndf.select_dtypes(include=["datetime", "datetimetz"]).columns.to_list()
+            if len(dt_count) > 0:
+                dt_new=['datetime_'+str(n) for n in range(len(dt_count))]
+                features_transformed.extend(dt_new)
             X_enc.columns = features_transformed
             X_enc.set_index(ndf.index)
             X_enc = X_enc.fillna(0.0)
