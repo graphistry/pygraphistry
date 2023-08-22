@@ -10,13 +10,13 @@ def unique_flatten_dict(d):
 core_requires = [
   'numpy',
   'palettable >= 3.0',
-  'pandas < 2.0.0',
+  'pandas',
   'pyarrow >= 0.15.0',
   'requests',
   'squarify',
   'typing-extensions',
   'packaging >= 20.1',
-  'setuptools < 60.0.0',
+  'setuptools',
 ]
 
 stubs = [
