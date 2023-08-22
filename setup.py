@@ -26,6 +26,9 @@ stubs = [
 dev_extras = {
     'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1', 'Jinja2<3.1'],
     'test': ['flake8', 'mock', 'mypy', 'pytest'] + stubs,
+    'testai': [
+      'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
+    ],
     'build': ['build']
 }
 
