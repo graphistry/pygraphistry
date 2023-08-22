@@ -14,6 +14,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Infra
 
 * Adding Python 3.10, 3.11 to more of test matrix
+* Unpin `setuptools` and `pandas`
+* Fix tests that were breaking on pandas 2+
 
 ## [0.29.3 - 2023-07-19]
 
