@@ -3,7 +3,7 @@ set -ex
 
 
 PYTHON_VERSION=${PYTHON_VERSION:-3.8} \
-PIP_DEPS=${PIP_DEPS:--e .[ai,test]} \
+PIP_DEPS=${PIP_DEPS:--e .[ai,test,testai]} \
 WITH_LINT=${WITH_LINT:-1} \
 WITH_TYPECHECK=${WITH_TYPECHECK:-1} \
 WITH_BUILD=${WITH_BUILD:-1} \
