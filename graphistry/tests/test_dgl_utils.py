@@ -49,8 +49,8 @@ node_cols = ["Dur", "TotPkts", "TotBytes", "SrcBytes", "ip"]
 use_cols = ["Dur", "TotPkts", "TotBytes", "SrcBytes"]
 
 # we can make an effective node_df using edf
-tdf = edf.groupby(["to_node"], as_index=False).mean().assign(ip=lambda x: x.to_node)
-fdf = edf.groupby(["from_node"], as_index=False).mean().assign(ip=lambda x: x.from_node)
+tdf = edf.groupby(["to_node"], as_index=False).mean(numeric_only=True).assign(ip=lambda x: x.to_node)
+fdf = edf.groupby(["from_node"], as_index=False).mean(numeric_only=True).assign(ip=lambda x: x.from_node)
 ndf = pd.concat([tdf, fdf], axis=0)
 ndf = ndf.fillna(0)
 

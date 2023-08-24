@@ -728,7 +728,7 @@ class UMAPMixin(MIXIN_BASE):
         else:
             emb = res._edge_embedding
             
-        if type(df) is type(emb):
+        if isinstance(df, type(emb)):
             df[x_name] = emb.values.T[0]
             df[y_name] = emb.values.T[1]
         elif isinstance(df, pd.DataFrame) and 'cudf' in str(getmodule(emb)):
