@@ -377,6 +377,15 @@ class TestUMAPMethods(unittest.TestCase):
                     self.cases_test_graph(g2, kind=kind, df=df)
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_simplest(self):
+        df = pd.DataFrame({
+            'x': ['aa a' * 10, 'bb b' * 2, 'ccc ' * 20, 'dd abc', 'ee x1z'] * 10,
+            'y': [1.0, 2.0, 3.0, 4.0, 5.0] * 10
+        })
+        graphistry.nodes(df).umap()
+        assert True
+
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_node_umap(self):
         g = graphistry.nodes(triangleNodes)
         use_cols = [node_ints, node_floats, node_numeric]
