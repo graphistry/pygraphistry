@@ -486,8 +486,6 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
         # topic
         assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
 
-        assert
-
 
 if __name__ == "__main__":
     unittest.main()

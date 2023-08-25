@@ -414,8 +414,8 @@ def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
     if 'cudf' not in X_type:
         df[new_col] = pd.to_datetime(df[cols], errors="coerce").fillna(0)
     else:
-        # _, _, cudf = lazy_import_has_dependancy_cuda()
-        # assert cudf is not None
+        _, _, cudf = lazy_import_has_dependancy_cuda()
+        assert cudf is not None
         for col in df.columns:
             try:
                 df[col] = cudf.to_datetime(
