@@ -1036,7 +1036,7 @@ def process_dirty_dataframes(
             # ndf = set_to_datetime(ndf,'A','A')
             dt_count = ndf.select_dtypes(include=["datetime", "datetimetz"]).columns.to_list()
             if len(dt_count) > 0:
-                dt_new=['datetime_'+str(n) for n in range(len(dt_count))]
+                dt_new = ['datetime_' + str(n) for n in range(len(dt_count))]
                 features_transformed.extend(dt_new)
             X_enc.columns = features_transformed
             X_enc.set_index(ndf.index)
