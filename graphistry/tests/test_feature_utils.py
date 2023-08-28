@@ -29,7 +29,7 @@ np.random.seed(137)
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
-has_cudf, _, cudf = lazy_import_has_dependancy_cuda()
+has_cudf, _, _ = lazy_import_has_dependancy_cuda()
 
 # enable tests if has cudf and env didn't explicitly disable
 is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
@@ -39,8 +39,8 @@ warnings.filterwarnings("ignore")
 logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
 
 model_avg_name = (
-    #"/models/average_word_embeddings_komninos"  # 250mb, fastest vectorizer in transformer models
-    "/models/paraphrase-albert-small-v2"  # 40mb
+    "/models/average_word_embeddings_komninos"  # 250mb, fastest vectorizer in transformer models
+    # "/models/paraphrase-albert-small-v2"  # 40mb
     #"/models/paraphrase-MiniLM-L3-v2"  # 60mb
 )
 
@@ -386,7 +386,6 @@ class TestFeatureMethods(unittest.TestCase):
                                 use_scaler=None,
                                 use_scaler_target=None,
                                 use_ngrams=use_ngram,
-                                feature_engine='dirty_cat',
                                 min_df=0.0,
                                 max_df=1.0,
                                 cardinality_threshold=cardinality,
@@ -451,7 +450,7 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def setUp(self) -> None:
-        import cudf
+        _, _, cudf = lazy_import_has_dependancy_cuda()
         ndf_malware = pd.read_csv("graphistry/tests/data/malware_capture_bot.csv", index_col=0)
         g = graphistry.nodes(cudf.from_pandas(ndf_malware))
 
@@ -468,6 +467,7 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_get_col_matrix(self):
+        _, _, cudf = lazy_import_has_dependancy_cuda()
         # no edges so this should be None
         assert self.g2.get_matrix(kind='edges') is None
         
