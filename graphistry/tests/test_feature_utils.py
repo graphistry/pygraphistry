@@ -29,7 +29,7 @@ np.random.seed(137)
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
-has_cudf, _, _ = lazy_import_has_dependancy_cuda()
+has_cudf, _, cudf = lazy_import_has_dependancy_cuda()
 
 # enable tests if has cudf and env didn't explicitly disable
 is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
@@ -386,6 +386,7 @@ class TestFeatureMethods(unittest.TestCase):
                                 use_scaler=None,
                                 use_scaler_target=None,
                                 use_ngrams=use_ngram,
+                                feature_engine='dirty_cat',
                                 min_df=0.0,
                                 max_df=1.0,
                                 cardinality_threshold=cardinality,
