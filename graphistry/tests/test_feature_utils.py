@@ -382,6 +382,7 @@ class TestFeatureMethods(unittest.TestCase):
                                 kind=kind,
                                 X=use_col,
                                 y=target,
+                                feature_engine='dirty_cat', ## defaulting to cucat
                                 model_name=model_avg_name,
                                 use_scaler=None,
                                 use_scaler_target=None,
