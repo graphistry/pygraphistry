@@ -399,7 +399,7 @@ class TestFeatureMethods(unittest.TestCase):
     def test_node_featurizations(self):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, meta_cols_reddit]
-        targets = [None, single_target_reddit, double_target_reddit]  #+ target_names_node
+        targets = [None, single_target_reddit, double_target_reddit]  # + target_names_node
         self._test_featurizations(
             g,
             use_cols=use_cols,
