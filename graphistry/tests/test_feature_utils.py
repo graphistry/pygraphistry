@@ -325,11 +325,11 @@ class TestFeatureMethods(unittest.TestCase):
         for attribute in attributes:
             self.assertTrue(hasattr(g, attribute), msg.format(attribute))
             if 'features' in attribute:
-                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
+                assert isinstance(getattr(g, attribute), pd.DataFrame)#, msg.format(attribute))
             if 'target' in attribute:
-                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
+                assert isinstance(getattr(g, attribute), pd.DataFrame)#, msg.format(attribute))
             if 'encoder' in attribute:
-                self.assertIsInstance(getattr(g, attribute), FastEncoder, msg.format(attribute))
+                assert isinstance(getattr(g, attribute), FastEncoder)#, msg.format(attribute))
 
     def cases_check_node_attributes(self, g):
         attributes = [
