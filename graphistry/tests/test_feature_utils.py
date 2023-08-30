@@ -351,14 +351,14 @@ class TestFeatureMethods(unittest.TestCase):
         print(f'<{name} test graph: {value}>')
         if kind == "nodes":
             ndf = g._nodes
-            self.cases_check_node_attributes(g)  #causing some issues with types
+            self.cases_check_node_attributes(g)
         else:
             ndf = g._edges
             self.cases_check_edge_attributes(g)
 
         cols = ndf.columns
-        assert np.all(ndf == df[cols])  #f"Graphistry {kind}-dataframe does not match outside dataframe it was fed"
-
+        assert np.all(ndf == df[cols])
+        
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
