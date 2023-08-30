@@ -357,7 +357,7 @@ class TestFeatureMethods(unittest.TestCase):
             self.cases_check_edge_attributes(g)
 
         cols = ndf.columns
-        assert np.all(ndf == df[cols])  #  , f"Graphistry {kind}-dataframe does not match outside dataframe it was fed"
+        assert np.all(ndf == df[cols])  #f"Graphistry {kind}-dataframe does not match outside dataframe it was fed"
 
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():
