@@ -325,9 +325,9 @@ class TestFeatureMethods(unittest.TestCase):
         for attribute in attributes:
             self.assertTrue(hasattr(g, attribute), msg.format(attribute))
             if 'features' in attribute:
-                self.assertIsInstance(getattr(g, attribute), pd.DataFrame)#, msg.format(attribute))
+                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
             if 'target' in attribute:
-                self.assertIsInstance(getattr(g, attribute), pd.DataFrame)#, msg.format(attribute))
+                self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
             if 'encoder' in attribute:
                 self.assertIsInstance(getattr(g, attribute), FastEncoder, msg.format(attribute))
 
