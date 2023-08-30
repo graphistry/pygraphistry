@@ -421,7 +421,6 @@ def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
                 df[col] = cudf.to_datetime(
                     df[col], errors="raise", infer_datetime_format=True
                 )
-                print(df[col])
             except:
                 pass
 

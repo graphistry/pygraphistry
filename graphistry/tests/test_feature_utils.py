@@ -349,7 +349,6 @@ class TestFeatureMethods(unittest.TestCase):
 
     def cases_test_graph(self, g, name, value, kind="nodes", df=ndf_reddit):
         print(f'<{name} test graph: {value}>')
-        df = pd.read_csv("graphistry/tests/data/reddit.csv", index_col=0)
         if kind == "nodes":
             ndf = g._nodes
             self.cases_check_node_attributes(g)
@@ -358,6 +357,7 @@ class TestFeatureMethods(unittest.TestCase):
             self.cases_check_edge_attributes(g)
 
         cols = ndf.columns
+        print(cols)
         self.assertTrue(
             np.all(ndf == df[cols]),
             f"Graphistry {kind}-dataframe does not match outside dataframe it was fed"
