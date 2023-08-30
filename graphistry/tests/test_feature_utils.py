@@ -325,11 +325,11 @@ class TestFeatureMethods(unittest.TestCase):
         for attribute in attributes:
             self.assertTrue(hasattr(g, attribute), msg.format(attribute))
             if 'features' in attribute:
-                assert isinstance(getattr(g, attribute), pd.DataFrame)#, msg.format(attribute))
+                self.assertIsInstance(getattr(g, attribute), pd.DataFrame)#, msg.format(attribute))
             if 'target' in attribute:
-                assert isinstance(getattr(g, attribute), pd.DataFrame)#, msg.format(attribute))
+                self.assertIsInstance(getattr(g, attribute), pd.DataFrame)#, msg.format(attribute))
             if 'encoder' in attribute:
-                assert isinstance(getattr(g, attribute), FastEncoder)#, msg.format(attribute))
+                self.assertIsInstance(getattr(g, attribute), FastEncoder, msg.format(attribute))
 
     def cases_check_node_attributes(self, g):
         attributes = [
@@ -382,7 +382,6 @@ class TestFeatureMethods(unittest.TestCase):
                                 kind=kind,
                                 X=use_col,
                                 y=target,
-                                feature_engine='dirty_cat',  # defaulting to cucat
                                 model_name=model_avg_name,
                                 use_scaler=None,
                                 use_scaler_target=None,
