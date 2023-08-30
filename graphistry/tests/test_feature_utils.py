@@ -351,7 +351,7 @@ class TestFeatureMethods(unittest.TestCase):
         print(f'<{name} test graph: {value}>')
         if kind == "nodes":
             ndf = g._nodes
-            self.cases_check_node_attributes(g) ## causing some issues with types
+            self.cases_check_node_attributes(g)  #causing some issues with types
         else:
             ndf = g._edges
             self.cases_check_edge_attributes(g)
