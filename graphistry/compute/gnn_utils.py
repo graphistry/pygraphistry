@@ -6,6 +6,8 @@ from torch_geometric.nn import GCNConv
 from torch_geometric.data import DataLoader
 from torch_geometric.datasets import Planetoid
 import torch.optim as optim
+
+from sklearn.metrics import roc_auc_score
 from collections import defaultdict
 
 # Base GNN Model
@@ -127,6 +129,8 @@ if __name__ == '__main__':
 
     # Create data loaders (use your own data loaders if you have custom datasets)
     train_loader = DataLoader([data], batch_size=32, shuffle=True)
+    val_loader = DataLoader([data], batch_size=32, shuffle=False)
+
 
     # Initialize model and optimizer
     joint_model = JointModel(dataset.num_features)
@@ -134,6 +138,7 @@ if __name__ == '__main__':
 
     # Split edges for positive and negative samples using degree dominance
     edge_index_pos, edge_index_neg = sample_edges(data.edge_index, num_samples=2 * data.num_edges)
+    edge_index_pos_val, edge_index_neg_val = sample_edges(data.edge_index, 100)
 
     # Training Loop
     joint_model.train()
@@ -154,9 +159,18 @@ if __name__ == '__main__':
     joint_model.eval()
     with torch.no_grad():
         correct = 0
-        for batch in train_loader:
-            node_pred, _, _ = joint_model(batch, edge_index_pos, edge_index_neg)
-            pred = node_pred.argmax(dim=1)
-            correct += pred.eq(batch.y).sum().item()
+        for batch in val_loader:
+            node_pred_val, link_pred_pos_val, link_pred_neg_val = joint_model(batch, edge_index_pos_val, edge_index_neg_val)
+            val_loss = joint_loss(node_pred_val, batch.y, link_pred_pos_val, link_pred_neg_val)
+
+            # Node prediction metrics
+            pred = node_pred_val.argmax(dim=1)
+            node_correct = pred.eq(batch.y).sum().item()
+            node_accuracy = node_correct / len(val_loader.dataset)
             
-        print(f'Node Classification Accuracy: {correct / len(train_loader.dataset)}')
+            # Link prediction metrics
+            link_labels = torch.cat([torch.ones(link_pred_pos_val.shape[0]), torch.zeros(link_pred_neg_val.shape[0])])
+            link_preds = torch.cat([link_pred_pos_val, link_pred_neg_val])
+            roc_score = roc_auc_score(link_labels.detach().cpu(), link_preds.detach().cpu())
+
+            print(f'Epoch {epoch+1}, Validation Loss: {val_loss.item()}, Node Classification Accuracy: {node_accuracy}, Link Prediction ROC: {roc_score}')            
