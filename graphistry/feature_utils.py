@@ -294,6 +294,9 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
     ]
     # df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
     df = df.rename(columns={c: c+'_1' for c in df.columns if c in reserved_namespace})
+    if (len(df.columns)<=2) and (isinstance(df.columns.to_list()[0],int)):
+        int_namespace=pd.to_numeric(df.columns, errors = 'coerce').dropna().to_list()
+        df = df.rename(columns={c: str(c)+'_1' for c in df.columns if c in int_namespace})
     return df
 
 
