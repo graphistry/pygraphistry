@@ -169,7 +169,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
-    if isinstance(y, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(y)):
+    if isinstance(y, pd.DataFrame) or 'cudf' in str(getmodule(y)):
         return y  # type: ignore
 
     if df is None:
@@ -190,7 +190,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
-    if isinstance(X, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(X)):
+    if isinstance(X, pd.DataFrame) or 'cudf' in str(getmodule(X)):
         return X  # type: ignore
 
     if df is None:
@@ -292,7 +292,8 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.IMPLICIT_NODE_ID,
         "index",  # in umap, we add as reindex
     ]
-    df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
+    # df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
+    df = df.rename(columns={c: c+'_1' for c in df.columns if c in reserved_namespace})
     return df
 
 
@@ -1998,7 +1999,8 @@ class FeatureMixin(MIXIN_BASE):
             logger.info("--- [[ RE-USING NODE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
             for attr in ["_node_features", "_node_target", "_node_encoder"]:
-                setattr(fresh_res, attr, getattr(old_res, attr))
+                if hasattr(old_res, attr):
+                    setattr(fresh_res, attr, getattr(old_res, attr))
 
             return fresh_res
 
@@ -2202,9 +2204,9 @@ class FeatureMixin(MIXIN_BASE):
         """
 
         # This is temporary until cucat release 
-        if 'cudf.core.dataframe' in str(getmodule(df)):
+        if 'cudf' in str(getmodule(df)):
             df = df.to_pandas()  # type: ignore
-        if (y is not None) and ('cudf.core.dataframe' in str(getmodule(y))):
+        if (y is not None) and ('cudf' in str(getmodule(y))):
             y = y.to_pandas()  # type: ignore
 
         if kind == "nodes":
