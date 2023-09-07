@@ -358,7 +358,7 @@ class TestFeatureMethods(unittest.TestCase):
         cols = ndf.columns
         self.assertTrue(
             np.all(ndf.fillna(0) == df[cols].fillna(0)),
-            f"Graphistry {kind}-dataframe does not match outside dataframe it was fed"
+            f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
         )
 
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
