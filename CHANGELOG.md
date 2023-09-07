@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.29.5 - 2023-08-23]
+
+### Fixed
+
+* Lint: Update flake8 in test
+* AI: UMAP ignores reserved columns and fewer exceptions on low dimensionaltiy
+
 ## [0.29.4 - 2023-08-22]
 
 ### Fixed
