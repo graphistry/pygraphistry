@@ -205,7 +205,7 @@ def resolve_feature_engine(
 
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
-    if feature_engine in ["cuda"]:
+    elif feature_engine in ["cuda"]:
         return "cu_cat"  # type: ignore
 
     if feature_engine == "auto":
