@@ -206,7 +206,7 @@ def resolve_feature_engine(
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
     elif feature_engine in ["cuda"]:
-        return "cu_cat"  # type: ignore
+        return CUDA_CAT  # type: ignore
 
     if feature_engine == "auto":
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
