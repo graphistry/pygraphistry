@@ -400,7 +400,8 @@ class UMAPMixin(MIXIN_BASE):
             print('umap previous n_components', umap_kwargs['n_components']) if verbose else None
             fresh_res = copy.copy(res)
             for attr in ["_xy", "_weighted_edges_df", "_weighted_adjacency"]:
-                setattr(fresh_res, attr, getattr(old_res, attr))
+                if hasattr(old_res, attr):
+                    setattr(fresh_res, attr, getattr(old_res, attr))
             # have to set _raw_data attribute on umap?
             fresh_res._umap = old_res._umap  # this saves the day!
             #fresh_res._umap_initialized = True
