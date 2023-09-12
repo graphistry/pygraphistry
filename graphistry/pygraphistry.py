@@ -219,9 +219,7 @@ class PyGraphistry(object):
         """
 
         if PyGraphistry._config['store_token_creds_in_memory']:
-            PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
-                org_name, idp_name, sso_timeout
-            )
+            PyGraphistry.relogin = lambda: PyGraphistry.sso_login(org_name, idp_name, sso_timeout)
 
         PyGraphistry._is_authenticated = False
         arrow_uploader = ArrowUploader(
@@ -248,12 +246,12 @@ class PyGraphistry(object):
 
 
     @staticmethod
-    def _handle_auth_url(auth_url, sso_timeout):
+    def _handle_auth_url(auth_url, sso_timeout, relogin=False):
         """Internal function to handle what to do with the auth_url 
            based on the client mode python/ipython console or notebook.
 
         :param auth_url: SSO auth url retrieved via API
-        :type auth_url: str
+        :type auth_url: str or list in list([[name1,url1], [name2,url2], [name3,url3])
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
         :type sso_timeout: Optional[int]
         :returns: None.
@@ -266,17 +264,48 @@ class PyGraphistry(object):
         if in_ipython() or in_databricks():  # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
-            display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
-            print("Please click the above link to open browser to login")
+            if isinstance(auth_url ,list):
+                for auth_url_each in auth_url:
+                    # pop up window
+                    # display(HTML(f'<a href="{auth_url_each[1]}" target="_blank" onclick="window.open(\'{auth_url_each[1]}\', \'_blank\', \'width=900,height=600\'); return false;">{auth_url_each[0]}</a>'))
+                    display(HTML(f'<a href="{auth_url_each[1]}" target="_blank">{auth_url_each[0]}</a>'))
+            else:
+                # display(HTML(f'<a href="{auth_url}" target="_blank" onclick="window.open(\'{auth_url}\', \'_blank\', \'width=900,height=600\'); return false;">Login SSO</a>'))
+                display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
+            if relogin:
+                print("Please click the above link to open browser to access SSO organization")
+            else:
+                print("Please click the above link to open browser to login")
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
         else:
-            print("Please minimize browser after SSO login to back to pygraphistry")
-
             import webbrowser
-            input("Press Enter to open browser ...")
-            # open browser to auth_url
-            webbrowser.open(auth_url)
+            print("Please minimize browser after SSO login to back to pygraphistry")
+            if isinstance(auth_url ,list):
+                if len(auth_url) == 1:
+                    print(f"idp name: {auth_url[0][0]}")
+                    input("Press Enter to open browser ...")
+                    webbrowser.open(auth_url[0][1])
+                else:
+                    while True:
+                        url_dict = {}
+                        for index, (name, url) in enumerate(auth_url, start=1):
+                            url_dict[str(index)] = url
+                            print(f"{index}: {name}")
+                        input_key = input("Enter a number above to open the browser or 'quit' to exit: ")
+                        
+                        if input_key in url_dict:
+                            selected_url = url_dict[input_key]
+                            webbrowser.open(selected_url)
+                            break
+                        elif input_key.strip().lower() == 'quit':
+                            break
+                        else:
+                            print("Invalid key. No URL found.")
+            else:
+                input("Press Enter to open browser ...")
+                # open browser to auth_url
+                webbrowser.open(auth_url)
 
         if sso_timeout is not None:
             time.sleep(1)
@@ -305,7 +334,7 @@ class PyGraphistry(object):
                 # set org_name to sso org
                 PyGraphistry._config['org_name'] = org_name
 
-                print("Successfully get a token")
+                print(f"Successfully get a token, org_name is {org_name}")
                 return PyGraphistry.api_token()
             else:
                 return None
@@ -338,6 +367,7 @@ class PyGraphistry(object):
             try:
                 token = arrow_uploader.token
                 org_name = arrow_uploader.org_name
+                PyGraphistry.sso_state(arrow_uploader.state)
             except Exception:
                 pass
             logger.debug("jwt token :{}".format(token))
@@ -2386,10 +2416,33 @@ class PyGraphistry(object):
         result = PyGraphistry._handle_api_response(response)
 
         if result is True:
-            PyGraphistry._config['org_name'] = value.strip()
-            logger.info("Switched to organization: {}".format(value.strip()))
+            PyGraphistry._api_response_switch_org(response)
         else:  # print the error message
             raise Exception(result)
+    
+    @staticmethod
+    def _api_response_switch_org(response):
+        try:
+            json_response = response.json()
+            message = json_response.get('message', '')
+            data = json_response.get('data', '')
+            if message.startswith('Switch to organization'):
+                PyGraphistry._config['org_name'] = data['organization_slug']
+                logger.info("Switched to organization: {}".format(data['organization_slug']))
+            elif message.startswith('Login to SSO for switch to organization') or message.startswith('Choose SSO for switch to organization'):
+                idp_name_with_url_list = []
+                idp_state_list = []
+                for idp_name in data['idp']:
+                    idp_name_with_url_list.append([idp_name, data['idp'][idp_name]['auth_url']])
+                    idp_state_list.append(data['idp'][idp_name]['state'])
+                multiple_idp_state = 'SEPARATE'.join(idp_state_list)
+                PyGraphistry.sso_state(multiple_idp_state)
+                PyGraphistry._handle_auth_url(idp_name_with_url_list, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS, relogin=True)
+            else:
+                return message
+        except:
+            logger.error('Error: %s', response, exc_info=True)
+            raise Exception("Unknown Error")
 
     @staticmethod
     def _handle_api_response(response):

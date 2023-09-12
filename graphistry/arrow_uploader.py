@@ -320,10 +320,8 @@ class ArrowUploader:
         # from .pygraphistry import PyGraphistry
 
         base_path = self.server_base_path
-        out = requests.get(
-            f'{base_path}/api/v2/o/sso/oidc/jwt/{state}/',
-            verify=self.certificate_validation
-        )
+        url = f'{base_path}/api/v2/o/sso/oidc/jwt/{state}/'
+        out = requests.get(url,verify=self.certificate_validation)
         json_response = None
         try:
             json_response = out.json()
@@ -338,6 +336,8 @@ class ArrowUploader:
                     if 'active_organization' in json_response['data']:
                         logger.debug("@ArrowUploader.sso_get_token, org_name: {}".format(json_response['data']['active_organization']['slug']))
                         self.org_name = json_response['data']['active_organization']['slug']
+                    if 'state' in json_response['data']:
+                        self.state = json_response['data']['state']
 
         except Exception as e:
             logger.error('Unexpected SSO authentication error: %s', out, exc_info=True)
