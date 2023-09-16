@@ -229,6 +229,30 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g.plot()
     ```
 
+* [Memgraph](https://memgraph.com/) ([notebook demo](demos/demos_databases_apis/memgraph/visualizing_iam_dataset.ipynb))
+
+   ```python
+   from neo4j import GraphDatabase
+   MEMGRAPH = {
+   'uri': "bolt://localhost:7687",
+   'auth': (" ", " ")
+   }
+   graphistry.register(bolt=MEMGRAPH)
+   ```
+
+   ```python
+   driver = GraphDatabase.driver(**MEMGRAPH)
+   with driver.session() as session:
+   session.run("""
+     CREATE (per1:Person {id: 1, name: "Julie"})
+     CREATE (fil2:File {id: 2, name: "welcome_to_memgraph.txt"})
+     CREATE (per1)-[:HAS_ACCESS_TO]->(fil2) """)
+   g = graphistry.cypher("""
+      MATCH (node1)-[connection]-(node2)
+      RETURN node1, connection, node2;""")
+   g.plot()
+   ```
+
 * [Azure Cosmos DB (Gremlin)](https://azure.microsoft.com/en-us/services/cosmos-db/)
 
     ```python
