@@ -163,7 +163,7 @@ def make_safe_gpu_dataframes(X, y, engine):
         for key, value in kwargs.items():
             if isinstance(value, cudf.DataFrame) and engine in ["pandas", "dirty_cat", "torch"]:
                 new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat", "cuda"]:
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat", "cuda", "gpu"]:
                 new_kwargs[key] = cudf.from_pandas(value)
             else:
                 new_kwargs[key] = value
@@ -205,7 +205,7 @@ def resolve_feature_engine(
 
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
-    elif feature_engine in ["cuda"]:
+    elif feature_engine in ["cuda", "gpu"]:
         return CUDA_CAT  # type: ignore
 
     if feature_engine == "auto":
