@@ -205,9 +205,6 @@ def resolve_feature_engine(
 
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
-    elif feature_engine in ["cuda", "gpu"]:
-        return CUDA_CAT  # type: ignore
-
     if feature_engine == "auto":
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
         if has_dependancy_text_:
@@ -2646,10 +2643,7 @@ class FeatureMixin(MIXIN_BASE):
                 default True.
         :return: graphistry instance with new attributes set by the featurization process.
         """
-        try:
-            feature_engine = resolve_feature_engine(feature_engine)
-        except:
-            feature_engine = resolve_feature_engine(engine)
+        feature_engine = resolve_feature_engine(feature_engine)
 
         if feature_engine == 'dirty_cat':
             assert_imported_min()

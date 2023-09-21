@@ -89,7 +89,7 @@ def is_legacy_cuml():
         return False
 
 
-UMAPEngineConcrete = Literal['cuml', 'umap_learn', 'cuda']
+UMAPEngineConcrete = Literal['cuml', 'umap_learn']
 UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
 
 
@@ -98,8 +98,6 @@ def resolve_umap_engine(
 ) -> UMAPEngineConcrete:  # noqa
     if engine in [CUML, UMAP_LEARN]:
         return engine  # type: ignore
-    if engine in ["cuda"]:
-        return 'cuml'  # type: ignore
     if engine in ["auto"]:
         has_cuml_dependancy_, _, _ = lazy_cuml_import_has_dependancy()
         if has_cuml_dependancy_:
