@@ -133,7 +133,7 @@ def assert_imported_text():
         raise import_text_exn
 
 
-def assert_imported():
+def assert_imported_min():
     has_min_dependancy_, import_min_exn = lazy_import_has_min_dependancy()
     if not has_min_dependancy_:
         logger.error(  # noqa
@@ -143,7 +143,7 @@ def assert_imported():
         raise import_min_exn
 
 
-def assert_cuml_cucat():
+def assert_imported_cucat():
     has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
     if not has_dependancy_cudf_:
         logger.error(  # noqa
@@ -973,8 +973,7 @@ def process_dirty_dataframes(
     """
 
     if feature_engine == CUDA_CAT:
-        # lazy_import_has_dependancy_cudf()
-        assert_cuml_cucat()
+        assert_imported_cucat()
         from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
 
@@ -2109,7 +2108,6 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
 
-        # res.feature_engine = feature_engine
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
         
         from .features import ModelDict
@@ -2234,8 +2232,6 @@ class FeatureMixin(MIXIN_BASE):
             X_resolved = X_resolved.assign(
                 **{res._destination: res._edges[res._destination]}
             )
-
-        # res.feature_engine = feature_engine
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
 
         # now that everything is set
@@ -2656,9 +2652,9 @@ class FeatureMixin(MIXIN_BASE):
             feature_engine = resolve_feature_engine(engine)
 
         if feature_engine == 'dirty_cat':
-            assert_imported()
+            assert_imported_min()
         elif feature_engine == 'cu_cat':
-            assert_cuml_cucat()
+            assert_imported_cucat()
 
         if inplace:
             res = self
