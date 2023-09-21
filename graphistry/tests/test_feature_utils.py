@@ -17,7 +17,7 @@ from graphistry.feature_utils import (
     resolve_feature_engine,
     lazy_import_has_min_dependancy,
     lazy_import_has_dependancy_text,
-    lazy_import_has_dependancy_cuda,
+    lazy_import_has_dependancy_cudf,
     set_to_datetime,
     FastEncoder
 )
@@ -29,7 +29,7 @@ np.random.seed(137)
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
-has_cudf, _, _ = lazy_import_has_dependancy_cuda()
+has_cudf, _, _ = lazy_import_has_dependancy_cudf()
 
 # enable tests if has cudf and env didn't explicitly disable
 is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
@@ -449,7 +449,7 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def setUp(self) -> None:
-        _, _, cudf = lazy_import_has_dependancy_cuda()
+        _, _, cudf = lazy_import_has_dependancy_cudf()
         ndf_malware = pd.read_csv("graphistry/tests/data/malware_capture_bot.csv", index_col=0)
         g = graphistry.nodes(cudf.from_pandas(ndf_malware))
 
@@ -466,7 +466,7 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_get_col_matrix(self):
-        _, _, cudf = lazy_import_has_dependancy_cuda()
+        _, _, cudf = lazy_import_has_dependancy_cudf()
         # no edges so this should be None
         assert self.g2.get_matrix(kind='edges') is None
         
