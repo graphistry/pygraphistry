@@ -24,6 +24,23 @@ class BaseGNN(nn.Module):
         x = self.conv2(x, edge_index)
         return x
 
+# Base GNN Model with Learnable Node Parameters
+class BaseGNNLearnableNodeParams(nn.Module):
+    def __init__(self, num_nodes, in_channels, out_channels):
+        super(BaseGNNLearnableNodeParams, self).__init__()
+        self.num_nodes = num_nodes
+        self.node_features = nn.Parameter(torch.randn(num_nodes, in_channels))
+        self.conv1 = GCNConv(in_channels, 128)
+        self.conv2 = GCNConv(128, out_channels)
+    
+    def forward(self, data):
+        x = self.node_features
+        edge_index = data.edge_index
+        x = self.conv1(x, edge_index)
+        x = F.relu(x)
+        x = self.conv2(x, edge_index)
+        return x
+
 # Node Prediction Model
 class NodePredictionModel(nn.Module):
     def __init__(self, base_model, n_classes=10):
