@@ -7,7 +7,7 @@ from common import NoAuthTestCase
 class TestTiger(NoAuthTestCase):
     def test_tg_init_plain(self):
         tg = graphistry.tigergraph()
-        self.assertTrue(type(tg) == graphistry.plotter.Plotter)
+        self.assertTrue(type(tg) is graphistry.plotter.Plotter)
 
     def test_tg_init_many(self):
         tg = graphistry.tigergraph(
@@ -20,7 +20,7 @@ class TestTiger(NoAuthTestCase):
             pwd="tigergraph2",
             verbose=False,
         )
-        self.assertTrue(type(tg) == graphistry.plotter.Plotter)
+        self.assertTrue(type(tg) is graphistry.plotter.Plotter)
 
     def test_tg_endpoint_url_simple(self):
         tg = graphistry.tigergraph(
