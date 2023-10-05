@@ -10,13 +10,13 @@ def unique_flatten_dict(d):
 core_requires = [
   'numpy',
   'palettable >= 3.0',
-  'pandas < 2.0.0',
+  'pandas',
   'pyarrow >= 0.15.0',
   'requests',
   'squarify',
   'typing-extensions',
   'packaging >= 20.1',
-  'setuptools < 60.0.0',
+  'setuptools',
 ]
 
 stubs = [
@@ -25,7 +25,10 @@ stubs = [
 
 dev_extras = {
     'docs': ['sphinx==3.4.3', 'docutils==0.16', 'sphinx_autodoc_typehints==1.11.1', 'sphinx-rtd-theme==0.5.1', 'Jinja2<3.1'],
-    'test': ['flake8', 'mock', 'mypy', 'pytest'] + stubs,
+    'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs,
+    'testai': [
+      'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
+    ],
     'build': ['build']
 }
 

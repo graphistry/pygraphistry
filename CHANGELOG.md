@@ -7,6 +7,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Docs
+
+* Memgraph: Add tutorial (https://github.com/graphistry/pygraphistry/pull/507 by https://github.com/karmenrabar)
+
+## [0.29.5 - 2023-08-23]
+
+### Fixed
+
+* Lint: Update flake8 in test
+* AI: UMAP ignores reserved columns and fewer exceptions on low dimensionaltiy
+
+## [0.29.4 - 2023-08-22]
+
+### Fixed
+
+* Lint: Dynamic type checks
+
+### Infra
+
+* Adding Python 3.10, 3.11 to more of test matrix
+* Unpin `setuptools` and `pandas`
+* Fix tests that were breaking on pandas 2+
+
 ## [0.29.3 - 2023-07-19]
 
 ### Changed

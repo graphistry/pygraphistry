@@ -132,13 +132,13 @@ class NodeXLGraphistryBase(object):
         p = print if verbose else (lambda x: 1)
 
         # source is either undefined, a string, or a (partial) bindings object
-        if type(source) is str and source not in self.source_to_mappings:
+        if isinstance(source, str) and source not in self.source_to_mappings:
             p('Unknown source type', source)
             raise Exception('Unknown nodexl source type %s' % str(source))
-        bindings = self.source_to_mappings[source] if type(source) is str else source
+        bindings = self.source_to_mappings[source] if isinstance(source, str) else source
         
         p('Fetching...')
-        xls = pd.ExcelFile(xls_or_url) if type(xls_or_url) is str else xls_or_url
+        xls = pd.ExcelFile(xls_or_url) if isinstance(xls_or_url, str) else xls_or_url
 
         p('Formatting edges')
         edges_df = self.xls_to_edges_df(xls, bindings['edges_df_transformer'])

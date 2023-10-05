@@ -374,10 +374,7 @@ class TestUMAPMethods(unittest.TestCase):
         cols = ndf.columns
         logger.debug("g_nodes: %s", g._nodes)
         logger.debug("df: %s", df)
-        self.assertTrue(
-            np.array_equal(ndf.reset_index(drop=True), df[cols].reset_index(drop=True)),
-            f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
-        )
+        assert ndf.reset_index(drop=True).equals(df[cols].reset_index(drop=True))
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def _test_umap(self, g, use_cols, targets, name, kind, df):
@@ -405,6 +402,15 @@ class TestUMAPMethods(unittest.TestCase):
                     )
 
                     self.cases_test_graph(g2, kind=kind, df=df)
+
+    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
+    def test_umap_simplest(self):
+        df = pd.DataFrame({
+            'x': ['aa a' * 10, 'bb b' * 2, 'ccc ' * 20, 'dd abc', 'ee x1z'] * 10,
+            'y': [1.0, 2.0, 3.0, 4.0, 5.0] * 10
+        })
+        graphistry.nodes(df).umap()
+        assert True
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_node_umap(self):
