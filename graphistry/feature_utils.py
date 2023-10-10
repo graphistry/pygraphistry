@@ -25,6 +25,7 @@ from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
+from .dep_manager import DepManager
 
 # add this inside classes and have a method that can set log level
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)
@@ -69,33 +70,35 @@ else:
 
 
 #@check_set_memoize
-def lazy_import_has_dependancy_text():
-    import warnings
-    warnings.filterwarnings("ignore")
-    try:
-        from sentence_transformers import SentenceTransformer
-        return True, 'ok', SentenceTransformer
-    except ModuleNotFoundError as e:
-        return False, e, None
+# def lazy_import_has_dependancy_text():
+#     import warnings
+#     warnings.filterwarnings("ignore")
+#     try:
+#         from sentence_transformers import SentenceTransformer
+#         return True, 'ok', SentenceTransformer
+#     except ModuleNotFoundError as e:
+        # return False, e, None
 
-def lazy_import_has_min_dependancy():
-    import warnings
-    warnings.filterwarnings("ignore")
-    try:
-        import scipy.sparse  # noqa
-        from scipy import __version__ as scipy_version
-        from dirty_cat import __version__ as dirty_cat_version
-        from sklearn import __version__ as sklearn_version
-        logger.debug(f"SCIPY VERSION: {scipy_version}")
-        logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
-        logger.debug(f"sklearn VERSION: {sklearn_version}")
-        return True, 'ok'
-    except ModuleNotFoundError as e:
-        return False, e
+# def lazy_import_has_min_dependancy():
+#     import warnings
+#     warnings.filterwarnings("ignore")
+#     try:
+#         import scipy.sparse  # noqa
+#         from scipy import __version__ as scipy_version
+#         from dirty_cat import __version__ as dirty_cat_version
+#         from sklearn import __version__ as sklearn_version
+#         logger.debug(f"SCIPY VERSION: {scipy_version}")
+#         logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
+#         logger.debug(f"sklearn VERSION: {sklearn_version}")
+#         return True, 'ok'
+#     except ModuleNotFoundError as e:
+#         return False, e
 
+deps = DepManager()
 
 def assert_imported_text():
-    has_dependancy_text_, import_text_exn, _ = lazy_import_has_dependancy_text()
+    has_dependancy_text_, import_text_exn, _, _ = deps.sentence_transformers
+
     if not has_dependancy_text_:
         logger.error(  # noqa
             "AI Package sentence_transformers not found,"
@@ -105,7 +108,14 @@ def assert_imported_text():
 
 
 def assert_imported():
-    has_min_dependancy_, import_min_exn = lazy_import_has_min_dependancy()
+    _,_,_,scipy_version = deps.scipy
+    _,_,_,dirty_cat_version = deps.dirty_cat
+    _,_,_,sklearn_version = deps.sklearn
+    if not None in [scipy_version, dirty_cat_version, sklearn_version]:
+        logger.debug(f"SCIPY VERSION: {scipy_version}")
+        logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
+        logger.debug(f"sklearn VERSION: {sklearn_version}")
+
     if not has_min_dependancy_:
         logger.error(  # noqa
                      "AI Packages not found, trying running"  # noqa
@@ -149,10 +159,10 @@ def resolve_feature_engine(
         return feature_engine  # type: ignore
 
     if feature_engine == "auto":
-        has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
+        has_dependancy_text_, _, _, _ = deps.sentence_transformers
         if has_dependancy_text_:
             return "torch"
-        has_min_dependancy_, _ = lazy_import_has_min_dependancy()
+        has_min_dependancy_, _, _, _ = deps.dirty_cat
         if has_min_dependancy_:
             return "dirty_cat"
         return "pandas"
@@ -169,7 +179,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
-    if isinstance(y, pd.DataFrame) or 'cudf' in str(getmodule(y)):
+    if isinstance(y, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(y)):
         return y  # type: ignore
 
     if df is None:
@@ -190,7 +200,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
-    if isinstance(X, pd.DataFrame) or 'cudf' in str(getmodule(X)):
+    if isinstance(X, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(X)):
         return X  # type: ignore
 
     if df is None:
@@ -292,14 +302,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.IMPLICIT_NODE_ID,
         "index",  # in umap, we add as reindex
     ]
-
-    if (len(df.columns) <= 2):
-        df = df.rename(columns={c: c + '_1' for c in df.columns if c in reserved_namespace})
-        # if (isinstance(df.columns.to_list()[0],int)):
-        #     int_namespace = pd.to_numeric(df.columns, errors = 'ignore').dropna().to_list()  # type: ignore
-        #     df = df.rename(columns={c: str(c) + '_1' for c in df.columns if c in int_namespace})
-    else:
-        df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
+    df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
     return df
 
 
@@ -703,7 +706,7 @@ def encode_textual(
     max_df: float = 0.2,
     min_df: int = 3,
 ) -> Tuple[pd.DataFrame, List, Any]:
-    _, _, SentenceTransformer = lazy_import_has_dependancy_text()
+    _, _, SentenceTransformer, _ = deps.sentence_transformers
 
     t = time()
     text_cols = get_textual_columns(
@@ -1096,7 +1099,7 @@ def process_nodes_dataframes(
     text_cols: List[str] = []
     text_model: Any = None
     text_enc = pd.DataFrame([])
-    has_deps_text, import_text_exn, _ = lazy_import_has_dependancy_text()
+    has_deps_text, import_text_exn, _, _ = deps.sentence_transformers
     if has_deps_text and (feature_engine in ["torch", "auto"]):
         text_enc, text_cols, text_model = encode_textual(
             df,
@@ -1317,7 +1320,7 @@ def process_edge_dataframes(
 
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
-    lazy_import_has_min_dependancy()
+    deps.scipy
     from sklearn.preprocessing import (
         MultiLabelBinarizer,
     )
@@ -1467,7 +1470,7 @@ def transform_text(
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
-    _, _, SentenceTransformer = lazy_import_has_dependancy_text()
+    _, _, SentenceTransformer, _ = deps.sentence_transformer()
 
     logger.debug("Transforming text using:")
     if isinstance(text_model, Pipeline):
@@ -2005,8 +2008,7 @@ class FeatureMixin(MIXIN_BASE):
             logger.info("--- [[ RE-USING NODE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
             for attr in ["_node_features", "_node_target", "_node_encoder"]:
-                if hasattr(old_res, attr):
-                    setattr(fresh_res, attr, getattr(old_res, attr))
+                setattr(fresh_res, attr, getattr(old_res, attr))
 
             return fresh_res
 
@@ -2210,9 +2212,9 @@ class FeatureMixin(MIXIN_BASE):
         """
 
         # This is temporary until cucat release 
-        if 'cudf' in str(getmodule(df)):
+        if 'cudf.core.dataframe' in str(getmodule(df)):
             df = df.to_pandas()  # type: ignore
-        if (y is not None) and ('cudf' in str(getmodule(y))):
+        if (y is not None) and ('cudf.core.dataframe' in str(getmodule(y))):
             y = y.to_pandas()  # type: ignore
 
         if kind == "nodes":
