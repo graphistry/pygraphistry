@@ -108,9 +108,9 @@ def assert_imported_text():
 
 
 def assert_imported():
-    _,_,_,scipy_version = deps.scipy
-    _,_,_,dirty_cat_version = deps.dirty_cat
-    _,_,_,sklearn_version = deps.sklearn
+    has_min_dependancy_,import_min_exn,_,scipy_version = deps.scipy
+    has_min_dependancy_,import_min_exn,_,dirty_cat_version = deps.dirty_cat
+    has_min_dependancy_,import_min_exn,_,sklearn_version = deps.sklearn
     if not None in [scipy_version, dirty_cat_version, sklearn_version]:
         logger.debug(f"SCIPY VERSION: {scipy_version}")
         logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
