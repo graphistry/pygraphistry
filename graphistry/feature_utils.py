@@ -70,30 +70,6 @@ else:
 
 
 #@check_set_memoize
-# def lazy_import_has_dependancy_text():
-#     import warnings
-#     warnings.filterwarnings("ignore")
-#     try:
-#         from sentence_transformers import SentenceTransformer
-#         return True, 'ok', SentenceTransformer
-#     except ModuleNotFoundError as e:
-        # return False, e, None
-
-# def lazy_import_has_min_dependancy():
-#     import warnings
-#     warnings.filterwarnings("ignore")
-#     try:
-#         import scipy.sparse  # noqa
-#         from scipy import __version__ as scipy_version
-#         from dirty_cat import __version__ as dirty_cat_version
-#         from sklearn import __version__ as sklearn_version
-#         logger.debug(f"SCIPY VERSION: {scipy_version}")
-#         logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
-#         logger.debug(f"sklearn VERSION: {sklearn_version}")
-#         return True, 'ok'
-#     except ModuleNotFoundError as e:
-#         return False, e
-
 deps = DepManager()
 
 def assert_imported_text():
