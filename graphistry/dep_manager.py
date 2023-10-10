@@ -1,8 +1,6 @@
 import importlib
 
-DEPS = [
-        'cu_cat',
-    ]
+DEPS = ['cu_cat']
 
 class DepManager:
     def __init__(self):
@@ -14,7 +12,7 @@ class DepManager:
         try:
             return True, "ok", self.pkgs[pkg], self.pkgs[pkg].__version__
         except KeyError:
-            return False, str(pkg)+" not installed", None, None
+            return False, str(pkg) + " not installed", None, None
 
     def _add_deps(self, pkg:str):
         if pkg not in self.pkgs.keys():
