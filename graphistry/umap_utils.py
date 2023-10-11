@@ -12,6 +12,7 @@ from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
                             resolve_feature_engine)
 from .PlotterBase import Plottable, WeakValueDictionary
 from .util import check_set_memoize
+from .dep_manager import DepManager
 
 import logging
 
@@ -25,52 +26,17 @@ else:
 
 ###############################################################################
 
-
-def lazy_umap_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        import umap  # noqa
-
-        return True, "ok", umap
-    except ModuleNotFoundError as e:
-        return False, e, None
-
-
-def lazy_cuml_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore")
-            import cuml  # type: ignore
-
-        return True, "ok", cuml
-    except ModuleNotFoundError as e:
-        return False, e, None
-
-def lazy_cudf_import_has_dependancy():
-    try:
-        import warnings
-
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
-
-        return True, "ok", cudf
-    except ModuleNotFoundError as e:
-        return False, e, None
+deps = DepManager()
 
 def assert_imported():
-    has_dependancy_, import_exn, _ = lazy_umap_import_has_dependancy()
+    has_dependancy_, import_exn, _, _ = deps.umap
     if not has_dependancy_:
         logger.error("UMAP not found, trying running " "`pip install graphistry[ai]`")
         raise import_exn
 
 
 def assert_imported_cuml():
-    has_cuml_dependancy_, import_cuml_exn, _ = lazy_cuml_import_has_dependancy()
+    has_cuml_dependancy_, import_cuml_exn, _, cuml_version = deps.cuml
     if not has_cuml_dependancy_:
         logger.warning("cuML not found, trying running " "`pip install cuml`")
         raise import_cuml_exn
@@ -78,8 +44,7 @@ def assert_imported_cuml():
 
 def is_legacy_cuml():
     try:
-        import cuml
-
+        cuml = deps.cuml
         vs = cuml.__version__.split(".")
         if (vs[0] in ["0", "21"]) or (vs[0] == "22" and float(vs[1]) < 6):
             return True
@@ -99,10 +64,10 @@ def resolve_umap_engine(
     if engine in [CUML, UMAP_LEARN]:
         return engine  # type: ignore
     if engine in ["auto"]:
-        has_cuml_dependancy_, _, _ = lazy_cuml_import_has_dependancy()
+        has_cuml_dependancy_, _, _, _ = deps.cuml
         if has_cuml_dependancy_:
             return 'cuml'
-        has_umap_dependancy_, _, _ = lazy_umap_import_has_dependancy()
+        has_umap_dependancy_, _, _, _ = deps.umap
         if has_umap_dependancy_:
             return 'umap_learn'
 
@@ -113,9 +78,10 @@ def resolve_umap_engine(
     )
 
 
-def make_safe_gpu_dataframes(X, y, engine):
+def make_safe_gpu_dataframes(X, y, engine, has_cudf):
 
     def safe_cudf(X, y):
+        cudf = deps.cudf
         # remove duplicate columns
         if len(X.columns) != len(set(X.columns)):
             X = X.loc[:, ~X.columns.duplicated()]
@@ -133,9 +99,8 @@ def make_safe_gpu_dataframes(X, y, engine):
             else:
                 new_kwargs[key] = value
         return new_kwargs['X'], new_kwargs['y']
-
-    has_cudf_dependancy_, _, cudf = lazy_cudf_import_has_dependancy()
-    if has_cudf_dependancy_:
+    
+    if has_cudf:
         return safe_cudf(X, y)
     else:
         return X, y
@@ -203,9 +168,9 @@ class UMAPMixin(MIXIN_BASE):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == UMAP_LEARN:
-            _, _, umap_engine = lazy_umap_import_has_dependancy()
+            umap_engine = deps.umap
         elif engine_resolved == CUML:
-            _, _, umap_engine = lazy_cuml_import_has_dependancy()
+            umap_engine = deps.cuml
         else:
             raise ValueError(
                 "No umap engine, ensure 'auto', 'umap_learn', or 'cuml', and the library is installed"
@@ -335,14 +300,14 @@ class UMAPMixin(MIXIN_BASE):
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
             verbose: Whether to print information about the graph inference
         """
-        df, y = make_safe_gpu_dataframes(df, y, 'pandas')
+        df, y = make_safe_gpu_dataframes(df, y, 'pandas', self.has_cudf)
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
-        X, y_ = make_safe_gpu_dataframes(X, y_, self.engine)  # type: ignore
+        X, y_ = make_safe_gpu_dataframes(X, y_, self.engine, self.has_cudf)  # type: ignore
         emb = self._umap.transform(X)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
-            emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas')  # for now so we don't have to touch infer_edges, force to pandas
-            X, y_ = make_safe_gpu_dataframes(X, y_, 'pandas')
+            emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas', self.has_cudf)  # for now so we don't have to touch infer_edges, force to pandas
+            X, y_ = make_safe_gpu_dataframes(X, y_, 'pandas', self.has_cudf)
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors,
@@ -554,9 +519,9 @@ class UMAPMixin(MIXIN_BASE):
         logger.debug("umap_kwargs: %s", umap_kwargs)
 
         # temporary until we have full cudf support in feature_utils.py
-        has_cudf, _, cudf = lazy_cudf_import_has_dependancy()
+        self.has_cudf, _, cudf, _ = deps.cudf
 
-        if has_cudf:
+        if self.has_cudf:
             flag_nodes_cudf = isinstance(self._nodes, cudf.DataFrame)
             flag_edges_cudf = isinstance(self._edges, cudf.DataFrame)
 
@@ -618,7 +583,7 @@ class UMAPMixin(MIXIN_BASE):
                 index_to_nodes_dict = nodes  # {}?
 
             # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)  # type: ignore
+            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine, self.has_cudf)  # type: ignore
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, verbose, **umap_kwargs
@@ -648,7 +613,7 @@ class UMAPMixin(MIXIN_BASE):
             )
 
             # add the safe coercion here 
-            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine)  # type: ignore
+            X_, y_ = make_safe_gpu_dataframes(X_, y_, res.engine, self.has_cudf)  # type: ignore
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs
