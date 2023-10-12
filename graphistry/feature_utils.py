@@ -85,20 +85,23 @@ def assert_imported_text():
 
 
 def assert_imported():
-    _,_,_,scipy_version = deps.scipy
-    _,_,_,dirty_cat_version = deps.dirty_cat
-    _,_,_,sklearn_version = deps.sklearn
+    _,e_scipy,_,scipy_version = deps.scipy
+    _,e_dirty_cat,_,dirty_cat_version = deps.dirty_cat
+    _,e_sklearn,_,sklearn_version = deps.sklearn
     if None not in [scipy_version, dirty_cat_version, sklearn_version]:
         logger.debug(f"SCIPY VERSION: {scipy_version}")
         logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
         logger.debug(f"sklearn VERSIOgtN: {sklearn_version}")
         has_min_dependancy_ = True
 
-    if not has_min_dependancy_:
+    # if not has_min_dependancy_:
+    else:
         logger.error(  # noqa
                      "AI Packages not found, trying running"  # noqa
                      "`pip install graphistry[ai]`"  # noqa
         )
+        err_list = [e_scipy,e_dirty_cat,e_sklearn]
+        import_min_exn = [e for e in err_list if 'ok' not in e]
         raise import_min_exn
 
 
