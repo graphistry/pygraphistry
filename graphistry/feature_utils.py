@@ -91,8 +91,8 @@ def assert_imported():
     if None not in [scipy_version, dirty_cat_version, sklearn_version]:
         logger.debug(f"SCIPY VERSION: {scipy_version}")
         logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
-        logger.debug(f"sklearn VERSION: {sklearn_version}")
-        has_min_dependany = True
+        logger.debug(f"sklearn VERSIOgtN: {sklearn_version}")
+        has_min_dependany_ = True
 
     if not has_min_dependancy_:
         logger.error(  # noqa
