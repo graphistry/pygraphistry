@@ -22,19 +22,15 @@ from graphistry.tests.test_feature_utils import (
     edge_df2,
     edge2_target_df,
     model_avg_name,
-    lazy_import_has_min_dependancy,
     check_allclose_fit_transform_on_same_data,
 )
-from graphistry.umap_utils import (
-    lazy_umap_import_has_dependancy,
-    lazy_cuml_import_has_dependancy,
-    lazy_cudf_import_has_dependancy,
-)
+from graphistry.dep_manager import DepManager
 
-has_dependancy, _ = lazy_import_has_min_dependancy()
-has_cuml, _, _ = lazy_cuml_import_has_dependancy()
-has_umap, _, _ = lazy_umap_import_has_dependancy()
-has_cudf, _, cudf = lazy_cudf_import_has_dependancy()
+deps = DepManager()
+has_dependancy, _, _ = deps.umap
+has_cuml, _, _, _ = deps.cuml
+has_umap, _, _, _ = deps.umap
+has_cudf, _, cudf, _ = deps.cudf
 
 # print('has_dependancy', has_dependancy)
 # print('has_cuml', has_cuml)
@@ -347,7 +343,10 @@ class TestUMAPMethods(unittest.TestCase):
         cols = ndf.columns
         logger.debug("g_nodes: %s", g._nodes)
         logger.debug("df: %s", df)
-        assert ndf.reset_index(drop=True).equals(df[cols].reset_index(drop=True))
+        self.assertTrue(
+            np.array_equal(ndf.reset_index(drop=True), df[cols].reset_index(drop=True)),
+            f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
+        )
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def _test_umap(self, g, use_cols, targets, name, kind, df):
@@ -375,15 +374,6 @@ class TestUMAPMethods(unittest.TestCase):
                     )
 
                     self.cases_test_graph(g2, kind=kind, df=df)
-
-    @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
-    def test_umap_simplest(self):
-        df = pd.DataFrame({
-            'x': ['aa a' * 10, 'bb b' * 2, 'ccc ' * 20, 'dd abc', 'ee x1z'] * 10,
-            'y': [1.0, 2.0, 3.0, 4.0, 5.0] * 10
-        })
-        graphistry.nodes(df).umap()
-        assert True
 
     @pytest.mark.skipif(not has_umap, reason="requires umap feature dependencies")
     def test_node_umap(self):

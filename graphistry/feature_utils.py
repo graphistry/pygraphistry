@@ -70,6 +70,7 @@ else:
 
 
 #@check_set_memoize
+
 deps = DepManager()
 
 def assert_imported_text():
@@ -84,13 +85,14 @@ def assert_imported_text():
 
 
 def assert_imported():
-    has_min_dependancy_,import_min_exn,_,scipy_version = deps.scipy
-    has_min_dependancy_,import_min_exn,_,dirty_cat_version = deps.dirty_cat
-    has_min_dependancy_,import_min_exn,_,sklearn_version = deps.sklearn
+    _,_,_,scipy_version = deps.scipy
+    _,_,_,dirty_cat_version = deps.dirty_cat
+    _,_,_,sklearn_version = deps.sklearn
     if None not in [scipy_version, dirty_cat_version, sklearn_version]:
         logger.debug(f"SCIPY VERSION: {scipy_version}")
         logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
         logger.debug(f"sklearn VERSION: {sklearn_version}")
+        has_min_dependany = True
 
     if not has_min_dependancy_:
         logger.error(  # noqa
@@ -133,13 +135,12 @@ def resolve_feature_engine(
 
     if feature_engine in ["none", "pandas", "dirty_cat", "torch"]:
         return feature_engine  # type: ignore
-
     if feature_engine == "auto":
         has_dependancy_text_, _, _, _ = deps.sentence_transformers
         if has_dependancy_text_:
             return "torch"
-        has_min_dependancy_, _, _, _ = deps.dirty_cat
-        if has_min_dependancy_:
+        has_dirty_cat_, _, _, _ = deps.dirty_cat
+        if has_dirty_cat_:
             return "dirty_cat"
         return "pandas"
 
