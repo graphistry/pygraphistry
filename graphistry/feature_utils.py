@@ -92,7 +92,7 @@ def assert_imported():
         logger.debug(f"SCIPY VERSION: {scipy_version}")
         logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
         logger.debug(f"sklearn VERSIOgtN: {sklearn_version}")
-        has_min_dependany_ = True
+        has_min_dependancy_ = True
 
     if not has_min_dependancy_:
         logger.error(  # noqa
