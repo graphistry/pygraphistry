@@ -202,7 +202,7 @@ class PyGraphistry(object):
         return PyGraphistry.api_token()
 
     @staticmethod
-    def sso_login(org_name=None, idp_name=None, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS):
+    def sso_login(org_name=None, idp_name=None, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS, opt_into_type=None):
         """Authenticate with SSO and set token for reuse (api=3).
 
         :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
@@ -211,8 +211,8 @@ class PyGraphistry(object):
         :type idp_name: Optional[str]
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
         :type sso_timeout: Optional[int]
-        :returns: None.
-        :rtype: None
+        :returns: token or auth_url
+        :rtype: Optional[str]
 
         SSO Login logic.
 
@@ -244,11 +244,12 @@ class PyGraphistry(object):
             auth_url = arrow_uploader.sso_auth_url
             # print("auth_url : {}".format(auth_url))
             if auth_url and not PyGraphistry.api_token():
-                PyGraphistry._handle_auth_url(auth_url, sso_timeout)
+                PyGraphistry._handle_auth_url(auth_url, sso_timeout, opt_into_type)  
 
+                return auth_url
 
     @staticmethod
-    def _handle_auth_url(auth_url, sso_timeout):
+    def _handle_auth_url(auth_url, sso_timeout, opt_into_type):
         """Internal function to handle what to do with the auth_url 
            based on the client mode python/ipython console or notebook.
 
@@ -256,14 +257,14 @@ class PyGraphistry(object):
         :type auth_url: str
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
         :type sso_timeout: Optional[int]
-        :returns: None.
-        :rtype: None
+        :returns: token
+        :rtype: token: Optional[str]
 
         SSO Login logic.
 
         """
 
-        if in_ipython() or in_databricks():  # If run in notebook, just display the HTML
+        if in_ipython() or in_databricks() or opt_into_type == 'display':  # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
             display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
@@ -271,13 +272,16 @@ class PyGraphistry(object):
             print(f"If you cannot see the link, please open browser, browse to this link: {auth_url}")
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
-        else:
+        elif opt_into_type == 'browser':
             print("Please minimize browser after SSO login to back to pygraphistry")
 
             import webbrowser
             input("Press Enter to open browser ...")
             # open browser to auth_url
             webbrowser.open(auth_url)
+        else:
+            print(f"Please open browser, browse to this link: {auth_url}")
+            print("Please run graphistry.sso_get_token() to complete the authentication if you get timeout error")
 
         if sso_timeout is not None:
             time.sleep(1)
@@ -563,7 +567,8 @@ class PyGraphistry(object):
         org_name: Optional[str] = None,
         idp_name: Optional[str] = None,
         is_sso_login: Optional[bool] = False,
-        sso_timeout: Optional[int] = SSO_GET_TOKEN_ELAPSE_SECONDS
+        sso_timeout: Optional[int] = SSO_GET_TOKEN_ELAPSE_SECONDS,
+        sso_opt_into_type: Optional[str] = None 
     ):
         """API key registration and server selection
 
@@ -691,7 +696,7 @@ class PyGraphistry(object):
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         elif not (org_name is None) or is_sso_login:
             print(MSG_REGISTER_ENTER_SSO_LOGIN)
-            PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
+            PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout, sso_opt_into_type=None)
 
     @staticmethod
     def __check_login_type_to_reset_token_creds(
