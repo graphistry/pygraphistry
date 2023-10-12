@@ -268,6 +268,7 @@ class PyGraphistry(object):
             from IPython.display import display, HTML
             display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
             print("Please click the above link to open browser to login")
+            print(f"If you cannot see the link, please open browser, browse to this link: {auth_url}")
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
         else:
