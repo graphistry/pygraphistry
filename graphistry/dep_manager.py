@@ -6,7 +6,6 @@ class DepManager:
     def __init__(self):
         self.pkgs = {}
         self.deps()
-        return types
 
     def __getattr__(self, pkg:str):
         self._add_deps(pkg)
