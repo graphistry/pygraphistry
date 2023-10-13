@@ -211,8 +211,8 @@ class PyGraphistry(object):
         :type idp_name: Optional[str]
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
         :type sso_timeout: Optional[int]
-        :param opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
-        :type opt_into_type: Optional[Literal["display", "browser"]]
+        :param sso_opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
+        :type sso_opt_into_type: Optional[Literal["display", "browser"]]
         :returns: token or auth_url
         :rtype: Optional[str]
 
@@ -259,8 +259,8 @@ class PyGraphistry(object):
         :type auth_url: str
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
         :type sso_timeout: Optional[int]
-        :param opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
-        :type opt_into_type: Optional[Literal["display", "browser"]]
+        :param sso_opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
+        :type sso_opt_into_type: Optional[Literal["display", "browser"]]
         :returns: token
         :rtype: token: Optional[str]
 
@@ -710,7 +710,7 @@ class PyGraphistry(object):
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         elif not (org_name is None) or is_sso_login:
             print(MSG_REGISTER_ENTER_SSO_LOGIN)
-            PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout, opt_into_type=sso_opt_into_type)
+            PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout, sso_opt_into_type=sso_opt_into_type)
 
     @staticmethod
     def __check_login_type_to_reset_token_creds(
