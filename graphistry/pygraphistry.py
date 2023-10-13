@@ -211,7 +211,7 @@ class PyGraphistry(object):
         :type idp_name: Optional[str]
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
         :type sso_timeout: Optional[int]
-        :param sso_opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
+        :param sso_opt_into_type: Show the SSO URL with display(), webbrowser.open(), or print()
         :type sso_opt_into_type: Optional[Literal["display", "browser"]]
         :returns: token or auth_url
         :rtype: Optional[str]
@@ -247,7 +247,6 @@ class PyGraphistry(object):
             # print("auth_url : {}".format(auth_url))
             if auth_url and not PyGraphistry.api_token():
                 PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)  
-
                 return auth_url
 
     @staticmethod
@@ -272,20 +271,20 @@ class PyGraphistry(object):
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
             display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
-            print("Please click the above link to open browser to login")
-            print(f"If you cannot see the link, please open browser, browse to this link: {auth_url}")
+            print("Please click the above URL to open browser to login")
+            print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
         elif sso_opt_into_type == 'browser':
-            print("Please minimize browser after SSO login to back to pygraphistry")
+            print("Please minimize browser after your SSO login and go back to pygraphistry")
 
             import webbrowser
             input("Press Enter to open browser ...")
             # open browser to auth_url
             webbrowser.open(auth_url)
         else:
-            print(f"Please open browser, browse to this link: {auth_url}")
-            print("Please run graphistry.sso_get_token() to complete the authentication if you get timeout error")
+            print(f"Please open a browser, browse to this URL, and sign in: {auth_url}")
+            print("After, if you get timeout error, run graphistry.sso_get_token() to complete the authentication")
 
         if sso_timeout is not None:
             time.sleep(1)
@@ -314,7 +313,7 @@ class PyGraphistry(object):
                 # set org_name to sso org
                 PyGraphistry._config['org_name'] = org_name
 
-                print("Successfully got a token")
+                print("Successfully logged in")
                 return PyGraphistry.api_token()
             else:
                 return None
