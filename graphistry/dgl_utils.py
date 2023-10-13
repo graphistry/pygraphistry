@@ -73,7 +73,7 @@ def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):  # typ
     :param y_enc: DataFrame Matrix of Values for Target
     :return: Dictionary of torch encoded arrays
     """
-    torch = deps.torch  # noqa: F811
+    _, _, torch, _ = deps.torch  # noqa: F811
 
     if not y_enc.empty:  # type: ignore
         data = {
@@ -98,7 +98,7 @@ def get_available_devices():
         device (torch.device): Main device (GPU 0 or CPU).
         gpu_ids (list): List of IDs of all GPUs that are available.
     """
-    torch = deps.torch  # noqa: F811
+    _, _, torch, _ = deps.torch  # noqa: F811
 
     gpu_ids = []
     if torch.cuda.is_available():
@@ -198,7 +198,7 @@ def get_torch_train_test_mask(n: int, ratio: float = 0.8):
     :param ratio: mimics train/test split. `ratio` sets number of True vs False mask entries.
     :return: train and test torch tensor masks
     """
-    torch = deps.torch  # noqa: F811
+    _, _, torch, _ = deps.torch  # noqa: F811
 
     train_mask = torch.zeros(n, dtype=torch.bool).bernoulli(ratio)
     test_mask = ~train_mask

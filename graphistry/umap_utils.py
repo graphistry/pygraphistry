@@ -36,6 +36,7 @@ def assert_imported():
 
 
 def assert_imported_cuml():
+    deps = DepManager()
     has_cuml_dependancy_, import_cuml_exn, _, cuml_version = deps.cuml
     if not has_cuml_dependancy_:
         logger.warning("cuML not found, trying running " "`pip install cuml`")
@@ -168,7 +169,7 @@ class UMAPMixin(MIXIN_BASE):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == UMAP_LEARN:
-            umap_engine = deps.umap
+            _, _, umap_engine, _ = deps.umap
         elif engine_resolved == CUML:
             umap_engine = deps.cuml
         else:
