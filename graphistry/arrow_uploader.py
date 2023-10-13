@@ -309,6 +309,7 @@ class ArrowUploader:
 
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
+            print("\nThere is error with the sso login, please check your SSO and IDP configuration")
             raise
             
         return self
