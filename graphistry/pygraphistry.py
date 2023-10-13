@@ -314,7 +314,7 @@ class PyGraphistry(object):
                 # set org_name to sso org
                 PyGraphistry._config['org_name'] = org_name
 
-                print("Successfully get a token")
+                print("Successfully got a token")
                 return PyGraphistry.api_token()
             else:
                 return None
