@@ -220,7 +220,7 @@ class PyGraphistry(object):
 
         if PyGraphistry._config['store_token_creds_in_memory']:
             PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
-                org_name, idp_name, sso_timeout
+                org_name, idp_name, sso_timeout, sso_opt_into_type
             )
 
         PyGraphistry._is_authenticated = False
@@ -244,12 +244,12 @@ class PyGraphistry(object):
             auth_url = arrow_uploader.sso_auth_url
             # print("auth_url : {}".format(auth_url))
             if auth_url and not PyGraphistry.api_token():
-                PyGraphistry._handle_auth_url(auth_url, sso_timeout, opt_into_type)  
+                PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)  
 
                 return auth_url
 
     @staticmethod
-    def _handle_auth_url(auth_url, sso_timeout, opt_into_type):
+    def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type):
         """Internal function to handle what to do with the auth_url 
            based on the client mode python/ipython console or notebook.
 
@@ -264,7 +264,7 @@ class PyGraphistry(object):
 
         """
 
-        if in_ipython() or in_databricks() or opt_into_type == 'display':  # If run in notebook, just display the HTML
+        if in_ipython() or in_databricks() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
             display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
@@ -272,7 +272,7 @@ class PyGraphistry(object):
             print(f"If you cannot see the link, please open browser, browse to this link: {auth_url}")
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
-        elif opt_into_type == 'browser':
+        elif sso_opt_into_type == 'browser':
             print("Please minimize browser after SSO login to back to pygraphistry")
 
             import webbrowser
