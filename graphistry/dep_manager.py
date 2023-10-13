@@ -9,6 +9,9 @@ class DepManager:
 
     def __getattr__(self, pkg:str):
         self._add_deps(pkg)
+        if str(pkg).contains('.'):
+            str(pkg).split('.')[1]
+            return self.pkgs[pkg].
         try:
             return True, "ok", self.pkgs[pkg], self.pkgs[pkg].__version__
         except KeyError:

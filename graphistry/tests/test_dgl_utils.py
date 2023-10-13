@@ -4,9 +4,10 @@ import graphistry
 import pandas as pd
 from graphistry.util import setup_logger
 
-from graphistry.dgl_utils import lazy_dgl_import_has_dependency
+from graphistry.dep_manager import DepManager
 
-has_dgl, _, dgl = lazy_dgl_import_has_dependency()
+deps = DepManager()
+has_dgl, _, dgl, _ = deps.dgl
 
 if has_dgl:
     import torch
