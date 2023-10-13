@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 deps = DepManager()
 
 _, _, torch, _ = deps.torch
-_, _, nn, _ = deps.torch.nn
+_, _, nn, _ = deps.torch_nn
 _, _, dgl, _ = deps.dgl
-_, _, GraphDataLoader, _ = deps.dgl.dataloading
-_, _, F, _ = deps.torch.nn.functional
-_, _, HeteroEmbed, _ = deps.graphistry.embeddings.networks
-_, _, trange, _ = deps.tqdm
+_, _, GraphDataLoader, _ = deps.dgl_dataloading_GraphDataLoader
+_, _, F, _ = deps.torch_nn_functional
+_, _, HeteroEmbed, _ = deps.graphistry_embeddings_networks_HeteroEmbed
+_, _, trange, _ = deps.tqdm_trange
 
 if None not in [torch, nn, dgl, GraphDataLoader, F, HeteroEmbed, trange]:
     dep_flag = True

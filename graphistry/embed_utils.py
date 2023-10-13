@@ -165,8 +165,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def _init_model(self, res, batch_size:int, sample_size:int, num_steps:int, device):
         # _, _, _, _, GraphDataLoader, HeteroEmbed, _, _ = lazy_embed_import_dep()
-        _, _, GraphDataLoader, _ = deps.dgl.dataloading
-         _, _, HeteroEmbed, _ = deps.networks.HeteroEmbed
+        _, _, GraphDataLoader, _ = deps.dgl_dataloading
+         _, _, HeteroEmbed, _ = deps.networks_HeteroEmbed
         g_iter = SubgraphIterator(res._kg_dgl, sample_size, num_steps)
         g_dataloader = dgl.GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
@@ -573,11 +573,11 @@ class SubgraphIterator:
     def __getitem__(self, i:int):
         # _, torch, nn, dgl, GraphDataLoader, _, F, _ = lazy_embed_import_dep()
         _, _, torch, _ = deps.torch
-        _, _, nn, _ = deps.torch.nn
+        _, _, nn, _ = deps.torch_nn
         _, _, dgl, _ = deps.dgl
-        _, _, GraphDataLoader, _ = deps.dgl.dataloading
-        _, _, F, _ = deps.torch.nn.functional
-        
+        _, _, GraphDataLoader, _ = deps.dgl_dataloading
+        _, _, F, _ = deps.torch_nn_functional
+
         eids = torch.from_numpy(np.random.choice(self.eids, self.sample_size))
 
         src, dst = self.g.find_edges(eids)
