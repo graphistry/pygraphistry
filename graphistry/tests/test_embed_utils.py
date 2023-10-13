@@ -5,13 +5,25 @@ import unittest
 import graphistry
 import numpy as np
 
-from graphistry.embed_utils import lazy_embed_import_dep, check_cudf
+from graphistry.dep_manager import DepManager
 
 import logging
 logger = logging.getLogger(__name__)
 
-dep_flag, _, _, _, _, _, _, _ = lazy_embed_import_dep()
-has_cudf, cudf = check_cudf()
+deps = DepManager()
+
+_, _, torch, _ = deps.torch
+_, _, nn, _ = deps.torch.nn
+_, _, dgl, _ = deps.dgl
+_, _, GraphDataLoader, _ = deps.dgl.dataloading
+_, _, F, _ = deps.torch.nn.functional
+_, _, HeteroEmbed, _ = deps.graphistry.embeddings.networks
+_, _, trange, _ = deps.tqdm
+
+if None not in [torch, nn, dgl, GraphDataLoader, F, HeteroEmbed, trange]:
+    dep_flag = True
+
+has_cudf, _, cudf, _ = deps.cudf
 
 # enable tests if has cudf and env didn't explicitly disable
 is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
