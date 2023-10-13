@@ -202,7 +202,7 @@ class PyGraphistry(object):
         return PyGraphistry.api_token()
 
     @staticmethod
-    def sso_login(org_name=None, idp_name=None, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS, opt_into_type=None):
+    def sso_login(org_name=None, idp_name=None, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS, sso_opt_into_type=None):
         """Authenticate with SSO and set token for reuse (api=3).
 
         :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
