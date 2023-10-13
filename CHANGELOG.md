@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.29.6 - 2023-10-23]
+
 ### Docs
 
 * Memgraph: Add tutorial (https://github.com/graphistry/pygraphistry/pull/507 by https://github.com/karmenrabar)
@@ -14,6 +16,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 * Guard against potential `requests`` null dereference in uploader error handling
+
+### Security
+
+* Add control `register(..., sso_opt_into_type='browser' | 'display' | None)`
+* Fix display of SSO URL
 
 ## [0.29.5 - 2023-08-23]
 
