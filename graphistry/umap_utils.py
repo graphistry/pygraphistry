@@ -45,7 +45,7 @@ def assert_imported_cuml():
 
 def is_legacy_cuml():
     try:
-        cuml = deps.cuml
+        _, _, cuml, _ = deps.cuml
         vs = cuml.__version__.split(".")
         if (vs[0] in ["0", "21"]) or (vs[0] == "22" and float(vs[1]) < 6):
             return True
@@ -82,7 +82,7 @@ def resolve_umap_engine(
 def make_safe_gpu_dataframes(X, y, engine, has_cudf):
 
     def safe_cudf(X, y):
-        cudf = deps.cudf
+        _, _, cudf, _ = deps.cudf
         # remove duplicate columns
         if len(X.columns) != len(set(X.columns)):
             X = X.loc[:, ~X.columns.duplicated()]
@@ -171,7 +171,7 @@ class UMAPMixin(MIXIN_BASE):
         if engine_resolved == UMAP_LEARN:
             _, _, umap_engine, _ = deps.umap
         elif engine_resolved == CUML:
-            umap_engine = deps.cuml
+            _, _, umap_engine, _ = deps.cuml
         else:
             raise ValueError(
                 "No umap engine, ensure 'auto', 'umap_learn', or 'cuml', and the library is installed"
