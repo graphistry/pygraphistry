@@ -1298,7 +1298,7 @@ def process_edge_dataframes(
 
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
-    deps.scipy
+    _, _, scipy, _ = deps.scipy
     from sklearn.preprocessing import (
         MultiLabelBinarizer,
     )
