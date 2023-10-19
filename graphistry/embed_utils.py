@@ -25,7 +25,7 @@ from .dep_manager import DepManager
 deps = DepManager()
 
 if TYPE_CHECKING:
-    _, _, torch, _ = deps.torch
+    torch = deps.torch
     TT = torch.Tensor
     MIXIN_BASE = ComputeMixin
 else:
@@ -34,7 +34,7 @@ else:
     torch = Any
 
 
-has_cudf, _, cudf, _ = deps.cudf
+# cudf = deps.cudf
 
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]  # type: ignore
@@ -95,7 +95,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         self._device = "cpu"
 
     def _preprocess_embedding_data(self, res, train_split:Union[float, int] = 0.8) -> Plottable:
-        _, _, torch, _ = deps.torch
+        torch = deps.torch
         log('Preprocessing embedding data')
         src, dst = res._source, res._destination
         relation = res._relation
@@ -142,7 +142,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return res
 
     def _build_graph(self, res) -> Plottable:
-        _, _, dgl, _ = deps.dgl
+        dgl = deps.dgl
         s, r, t = res._triplets.T
 
         if res._train_idx is not None:
@@ -165,8 +165,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     def _init_model(self, res, batch_size:int, sample_size:int, num_steps:int, device):
         # _, _, _, _, GraphDataLoader, HeteroEmbed, _, _ = lazy_embed_import_dep()
-        _, _, GraphDataLoader, _ = deps.dgl_dataloading
-        _, _, HeteroEmbed, _ = deps.networks_HeteroEmbed
+        GraphDataLoader = deps.dgl_dataloading
+        HeteroEmbed = deps.networks_HeteroEmbed
         g_iter = SubgraphIterator(res._kg_dgl, sample_size, num_steps)
         g_dataloader = dgl.GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
@@ -232,7 +232,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
     @property
     def _gcn_node_embeddings(self):
-        _, _, torch, _ = deps.torch
+        torch = deps.torch
         g_dgl = self._kg_dgl.to(self._device)
         em = self._embed_model(g_dgl).detach()
         torch.cuda.empty_cache()
@@ -540,7 +540,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         
 
     def _score(self, triplets: Union[np.ndarray, TT]) -> TT:  # type: ignore
-        _, _, torch, _ = deps.torch
+        torch = deps.torch
         emb = self._kg_embeddings.clone().detach()
         if not isinstance(triplets, torch.Tensor):
             triplets = torch.tensor(triplets)
@@ -572,11 +572,11 @@ class SubgraphIterator:
 
     def __getitem__(self, i:int):
         # _, torch, nn, dgl, GraphDataLoader, _, F, _ = lazy_embed_import_dep()
-        _, _, torch, _ = deps.torch
-        _, _, nn, _ = deps.torch_nn
-        _, _, dgl, _ = deps.dgl
-        _, _, GraphDataLoader, _ = deps.dgl_dataloading
-        _, _, F, _ = deps.torch_nn_functional
+        torch = deps.torch
+        nn = deps.torch_nn
+        dgl = deps.dgl
+        GraphDataLoader = deps.dgl_dataloading
+        F = deps.torch_nn_functional
 
         eids = torch.from_numpy(np.random.choice(self.eids, self.sample_size))
 
@@ -599,7 +599,7 @@ class SubgraphIterator:
 
     @staticmethod
     def _sample_neg(triplets:np.ndarray, num_nodes:int) -> Tuple[TT, TT]:  # type: ignore
-        _, _, torch, _ = deps.torch
+        torch = deps.torch
         triplets = torch.tensor(triplets)
         h, r, t = triplets.T
         h_o_t = torch.randint(high=2, size=h.size())
