@@ -571,11 +571,11 @@ class SubgraphIterator:
 
     def __getitem__(self, i:int):
         # _, torch, nn, dgl, GraphDataLoader, _, F, _ = lazy_embed_import_dep()
-        torch = deps.torch
-        nn = deps.torch_nn
+        # torch = deps.torch
+        # nn = deps.torch_nn
         dgl = deps.dgl
-        GraphDataLoader = deps.dgl_dataloading
-        F = deps.torch_nn_functional
+        # GraphDataLoader = deps.dgl_dataloading
+        # F = deps.torch_nn_functional
 
         eids = torch.from_numpy(np.random.choice(self.eids, self.sample_size))
 

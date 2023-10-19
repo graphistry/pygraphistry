@@ -10,18 +10,18 @@ class DepManager:
             name = pkg.split('_')[-1]
             self.import_from(module, name)
             try:
-                # return True, "ok", 
-                return self.pkgs[name] #, self.pkgs[module].__version
+                #  return True, "ok", 
+                return self.pkgs[name]  #  , self.pkgs[module].__version
             except KeyError:
-                # return False, str([module,name]) + " not installed", 
-                return None #, None
+                #  return False, str([module,name]) + " not installed", 
+                return None  #, None
         else:
             self._add_deps(pkg)
             try:
-                # return True, "ok", 
-                return self.pkgs[pkg] #, self.pkgs[pkg].__version__
+                #  return True, "ok", 
+                return self.pkgs[pkg]  #  , self.pkgs[pkg].__version__
             except KeyError:
-                # return False, str(pkg) + " not installed", 
+                #  return False, str(pkg) + " not installed", 
                 return None #, None
 
     def _add_deps(self, pkg:str):

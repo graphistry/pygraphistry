@@ -1090,7 +1090,7 @@ def process_nodes_dataframes(
     else:
         logger.debug(
             "! Skipping encoding any textual features"
-            f"since dependency Sentence Transformers is not met"
+            "since dependency Sentence Transformers is not met"
         )
 
     other_df = df.drop(columns=text_cols, errors="ignore")  # type: ignore
@@ -1297,7 +1297,7 @@ def process_edge_dataframes(
 
     :return: Encoded data matrix and target (if not None), the data encoders, and the label encoder.
     """
-    scipy = deps.scipy
+    # scipy = deps.scipy
     from sklearn.preprocessing import (
         MultiLabelBinarizer,
     )
