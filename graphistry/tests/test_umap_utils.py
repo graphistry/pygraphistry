@@ -32,10 +32,6 @@ has_cuml = deps.cuml
 has_umap = deps.umap
 cudf = deps.cudf
 
-# print('has_dependancy', has_dependancy)
-# print('has_cuml', has_cuml)
-# print('has_umap', has_umap)
-
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore")
