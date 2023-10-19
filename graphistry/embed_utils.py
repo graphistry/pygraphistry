@@ -167,7 +167,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         GraphDataLoader = deps.dgl_dataloading
         HeteroEmbed = deps.networks_HeteroEmbed
         g_iter = SubgraphIterator(res._kg_dgl, sample_size, num_steps)
-        g_dataloader = dgl.GraphDataLoader(
+        g_dataloader = GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
         )
 
