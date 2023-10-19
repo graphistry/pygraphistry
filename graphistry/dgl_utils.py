@@ -56,6 +56,7 @@ else:
 
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)
 
+deps = DepManager()
 
 
 # #########################################################################################
