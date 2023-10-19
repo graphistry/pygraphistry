@@ -97,7 +97,7 @@ def assert_imported():
                      "AI Packages not found, trying running"  # noqa
                      "`pip install graphistry[ai]`"  # noqa
         )
-        err_list = [e_scipy,e_dirty_cat,e_sklearn]
+        err_list = [scipy_,dirty_cat_,sklearn_]
         import_min_exn = [e for e in err_list if 'ok' not in e]
         raise import_min_exn
 

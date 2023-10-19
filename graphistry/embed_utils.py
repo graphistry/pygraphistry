@@ -33,8 +33,7 @@ else:
     MIXIN_BASE = object
     torch = Any
 
-
-# cudf = deps.cudf
+cudf = deps.cudf
 
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]  # type: ignore
