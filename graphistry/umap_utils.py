@@ -29,23 +29,23 @@ else:
 deps = DepManager()
 
 def assert_imported():
-    has_dependancy_, import_exn, _, _ = deps.umap
-    if not has_dependancy_:
+    umap_ = deps.umap
+    if not umap_:
         logger.error("UMAP not found, trying running " "`pip install graphistry[ai]`")
-        raise import_exn
+        # raise import_exn
 
 
 def assert_imported_cuml():
     deps = DepManager()
-    has_cuml_dependancy_, import_cuml_exn, _, cuml_version = deps.cuml
-    if not has_cuml_dependancy_:
+    cuml_ = deps.cuml
+    if not cuml_:
         logger.warning("cuML not found, trying running " "`pip install cuml`")
-        raise import_cuml_exn
+        # raise import_cuml_exn
 
 
 def is_legacy_cuml():
     try:
-        _, _, cuml, _ = deps.cuml
+        cuml = deps.cuml
         vs = cuml.__version__.split(".")
         if (vs[0] in ["0", "21"]) or (vs[0] == "22" and float(vs[1]) < 6):
             return True
@@ -65,11 +65,11 @@ def resolve_umap_engine(
     if engine in [CUML, UMAP_LEARN]:
         return engine  # type: ignore
     if engine in ["auto"]:
-        has_cuml_dependancy_, _, _, _ = deps.cuml
-        if has_cuml_dependancy_:
+        cuml_ = deps.cuml
+        if cuml_:
             return 'cuml'
-        has_umap_dependancy_, _, _, _ = deps.umap
-        if has_umap_dependancy_:
+        umap_ = deps.umap
+        if umap_:
             return 'umap_learn'
 
     raise ValueError(  # noqa
@@ -82,7 +82,7 @@ def resolve_umap_engine(
 def make_safe_gpu_dataframes(X, y, engine, has_cudf):
 
     def safe_cudf(X, y):
-        _, _, cudf, _ = deps.cudf
+        cudf = deps.cudf
         # remove duplicate columns
         if len(X.columns) != len(set(X.columns)):
             X = X.loc[:, ~X.columns.duplicated()]
@@ -169,9 +169,9 @@ class UMAPMixin(MIXIN_BASE):
         engine_resolved = resolve_umap_engine(engine)
         # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == UMAP_LEARN:
-            _, _, umap_engine, _ = deps.umap
+            umap_engine = deps.umap
         elif engine_resolved == CUML:
-            _, _, umap_engine, _ = deps.cuml
+            umap_engine = deps.cuml
         else:
             raise ValueError(
                 "No umap engine, ensure 'auto', 'umap_learn', or 'cuml', and the library is installed"
@@ -520,7 +520,8 @@ class UMAPMixin(MIXIN_BASE):
         logger.debug("umap_kwargs: %s", umap_kwargs)
 
         # temporary until we have full cudf support in feature_utils.py
-        self.has_cudf, _, cudf, _ = deps.cudf
+        self.has_cudf = deps.cudf
+        cudf = deps.cudf
 
         if self.has_cudf:
             flag_nodes_cudf = isinstance(self._nodes, cudf.DataFrame)
