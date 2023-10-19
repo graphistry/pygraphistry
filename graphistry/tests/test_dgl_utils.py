@@ -7,9 +7,9 @@ from graphistry.util import setup_logger
 from graphistry.dep_manager import DepManager
 
 deps = DepManager()
-has_dgl, _, dgl, _ = deps.dgl
+dgl = deps.dgl
 
-if has_dgl:
+if dgl:
     import torch
 
 logger = setup_logger("test_DGL_utils", verbose=True)
