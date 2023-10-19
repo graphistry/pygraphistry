@@ -24,12 +24,12 @@ from graphistry.dep_manager import DepManager
 np.random.seed(137)
 
 deps = DepManager()
-has_dirty_cat, _, _, _ = deps.dirty_cat
-has_scipy, _, _, _ = deps.scipy
-has_sklearn, _, _, _ = deps.sklearn
+has_dirty_cat = deps.dirty_cat
+has_scipy = deps.scipy
+has_sklearn = deps.sklearn
 if False not in [has_dirty_cat, has_scipy, has_sklearn]:
     has_min_dependancy = True
-has_min_dependancy_text, _, _, _ = deps.sentence_transformers
+has_min_dependancy_text = deps.sentence_transformers
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")

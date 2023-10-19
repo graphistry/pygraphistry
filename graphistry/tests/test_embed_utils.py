@@ -12,21 +12,21 @@ logger = logging.getLogger(__name__)
 
 deps = DepManager()
 
-_, _, torch, _ = deps.torch
-_, _, nn, _ = deps.torch_nn
-_, _, dgl, _ = deps.dgl
-_, _, GraphDataLoader, _ = deps.dgl_dataloading_GraphDataLoader
-_, _, F, _ = deps.torch_nn_functional
-_, _, HeteroEmbed, _ = deps.graphistry_embeddings_networks_HeteroEmbed
-_, _, trange, _ = deps.tqdm_trange
+torch = deps.torch
+nn = deps.torch_nn
+dgl = deps.dgl
+GraphDataLoader = deps.dgl_dataloading_GraphDataLoader
+F = deps.torch_nn_functional
+HeteroEmbed = deps.graphistry_embeddings_networks_HeteroEmbed
+trange = deps.tqdm_trange
 
 if None not in [torch, nn, dgl, GraphDataLoader, F, HeteroEmbed, trange]:
     dep_flag = True
 
-has_cudf, _, cudf, _ = deps.cudf
+cudf = deps.cudf
 
 # enable tests if has cudf and env didn't explicitly disable
-is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
+is_test_cudf = cudf and os.environ["TEST_CUDF"] != "0"
 
 class TestEmbed(unittest.TestCase):
 

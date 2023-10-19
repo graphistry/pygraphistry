@@ -27,10 +27,10 @@ from graphistry.tests.test_feature_utils import (
 from graphistry.dep_manager import DepManager
 
 deps = DepManager()
-has_dependancy, _, _ = deps.umap
-has_cuml, _, _, _ = deps.cuml
-has_umap, _, _, _ = deps.umap
-has_cudf, _, cudf, _ = deps.cudf
+has_dependancy = deps.umap
+has_cuml = deps.cuml
+has_umap = deps.umap
+cudf = deps.cudf
 
 # print('has_dependancy', has_dependancy)
 # print('has_cuml', has_cuml)
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
 
 # enable tests if has cudf and env didn't explicitly disable
-is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
+is_test_cudf = cudf and os.environ["TEST_CUDF"] != "0"
 
 triangleEdges = pd.DataFrame(
     {
@@ -264,7 +264,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 assert True
             else:
                 objs = (pd.DataFrame,)
-                if has_cudf:
+                if cudf:
                     objs = (pd.DataFrame, cudf.DataFrame)
                 assert len(g4) == 3
                 assert isinstance(g4[0], objs)
@@ -290,7 +290,7 @@ class TestUMAPMethods(unittest.TestCase):
         msg = "Graphistry instance after umap should have `{}` as attribute"
         msg2 = "Graphistry instance after umap should not have None values for `{}`"
         objs = (pd.DataFrame,)
-        if has_cudf:
+        if cudf:
             objs = (pd.DataFrame, cudf.DataFrame)
 
         for attribute in attributes:
