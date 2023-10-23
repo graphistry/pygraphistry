@@ -5,20 +5,11 @@ class DepManager:
         self.pkgs = {}
 
     def __getattr__(self, pkg:str):
-        if '_' in pkg:
-            module = '.'.join(pkg.split('_')[:-1])
-            name = pkg.split('_')[-1]
-            self.import_from(module, name)
-            try:
-                return self.pkgs[name]
-            except KeyError:
-                return None
-        else:
-            self._add_deps(pkg)
-            try:
-                return self.pkgs[pkg]
-            except KeyError:
-                return None
+        self._add_deps(pkg)
+        try:
+            return self.pkgs[pkg]
+        except KeyError:
+            return None
 
     def _add_deps(self, pkg:str):
         try:
