@@ -4,14 +4,14 @@ import pandas as pd
 import unittest
 import graphistry
 import numpy as np
-
+import tqdm as tqdm_
 from graphistry.dep_manager import DepManager
 
 import logging
 logger = logging.getLogger(__name__)
 
 deps = DepManager()
-## not imported before but needed to check if we can run tests via dep_flag
+# not previously imported but needed to check if we can run tests via dep_flag
 torch_ = deps.torch
 nn_ = deps.torch_nn
 dgl_ = deps.dgl
@@ -21,7 +21,6 @@ if torch_:
     from torch import nn_
     from torch.nn import functional as F_
 HeteroEmbed_ = deps.graphistry.embeddings.networks.HeteroEmbed
-import tqdm as tqdm_
 if tqdm_:
     from tqdm import trange_
 
