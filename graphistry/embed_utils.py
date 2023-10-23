@@ -8,20 +8,6 @@ from .compute.ComputeMixin import ComputeMixin
 from .dep_manager import DepManager
 
 
-# def lazy_embed_import_dep():
-#     try:
-#         import torch
-#         import torch.nn as nn
-#         import dgl
-#         from dgl.dataloading import GraphDataLoader
-#         import torch.nn.functional as F
-#         from .networks import HeteroEmbed
-#         from tqdm import trange
-#         return True, torch, nn, dgl, GraphDataLoader, HeteroEmbed, F, trange
-
-#     except:
-#         return False, None, None, None, None, None, None, None
-
 deps = DepManager()
 
 if TYPE_CHECKING:
@@ -163,9 +149,10 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
 
 
     def _init_model(self, res, batch_size:int, sample_size:int, num_steps:int, device):
-        # _, _, _, _, GraphDataLoader, HeteroEmbed, _, _ = lazy_embed_import_dep()
-        GraphDataLoader = deps.dgl_dataloading
-        HeteroEmbed = deps.networks_HeteroEmbed
+        dgl_ = deps.dgl
+        if dgl_: 
+            from dgl.dataloading import GraphDataLoader
+        from .networks import HeteroEmbed
         g_iter = SubgraphIterator(res._kg_dgl, sample_size, num_steps)
         g_dataloader = GraphDataLoader(
             g_iter, batch_size=batch_size, collate_fn=lambda x: x[0]
@@ -184,10 +171,12 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return model, g_dataloader
 
     def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device) -> Plottable:
-        # _, torch, nn, _, _, _, _, trange = lazy_embed_import_dep()
-        _, _, torch, _ = deps.torch
-        _, _, nn, _ = deps.torch.nn
-        _, _, trange, _ = deps.tqdm.trange
+        torch = deps.torch
+        if torch:
+            from torch import nn
+        import tqdm
+        if tqdm:
+            from tqdm import trange
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
@@ -570,12 +559,13 @@ class SubgraphIterator:
         return self.num_steps
 
     def __getitem__(self, i:int):
-        # _, torch, nn, dgl, GraphDataLoader, _, F, _ = lazy_embed_import_dep()
-        # torch = deps.torch
-        # nn = deps.torch_nn
+        torch = deps.torch
+        if torch:
+            from torch import nn
+            from torch.nn import functional as F
         dgl = deps.dgl
-        # GraphDataLoader = deps.dgl_dataloading
-        # F = deps.torch_nn_functional
+        if dgl:
+            from dgl_dataloading import GraphDataLoader
 
         eids = torch.from_numpy(np.random.choice(self.eids, self.sample_size))
 

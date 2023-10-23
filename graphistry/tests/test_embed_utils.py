@@ -11,16 +11,21 @@ import logging
 logger = logging.getLogger(__name__)
 
 deps = DepManager()
+## not imported before but needed to check if we can run tests via dep_flag
+torch_ = deps.torch
+nn_ = deps.torch_nn
+dgl_ = deps.dgl
+if dgl_:
+    from dgl_dataloading import GraphDataLoader_
+if torch_:
+    from torch import nn_
+    from torch.nn import functional as F_
+HeteroEmbed_ = deps.graphistry.embeddings.networks.HeteroEmbed
+import tqdm as tqdm_
+if tqdm_:
+    from tqdm import trange_
 
-torch = deps.torch
-nn = deps.torch_nn
-dgl = deps.dgl
-GraphDataLoader = deps.dgl_dataloading_GraphDataLoader
-F = deps.torch_nn_functional
-HeteroEmbed = deps.graphistry_embeddings_networks_HeteroEmbed
-trange = deps.tqdm_trange
-
-if None not in [torch, nn, dgl, GraphDataLoader, F, HeteroEmbed, trange]:
+if None not in [torch_, nn_, dgl_, GraphDataLoader_, F_, HeteroEmbed_, trange_]:
     dep_flag = True
 
 cudf = deps.cudf
