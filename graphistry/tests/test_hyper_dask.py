@@ -71,7 +71,7 @@ def honeypot_pdf() -> pd.DataFrame:
         #'graphistry/tests/data/honeypot.csv',
         dtype=base_csv_dtypes,
         parse_dates=["time(max)", "time(min)"],
-        date_parser=lambda v: pd.to_datetime(int(v)),
+        date_parser=lambda v: pd.to_datetime(int(float(v))),
     )
     assert df.dtypes.to_dict() == base_dtypes
     assert len(df) == HONEYPOT_ROWS
