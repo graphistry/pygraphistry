@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Fixed
+
+* Type error in arrow uploader exception handler
+* Parsing error in hypergraph dask tests
+
 ## [0.29.6 - 2023-10-23]
 
 ### Docs
