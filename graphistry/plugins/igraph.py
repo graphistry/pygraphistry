@@ -267,6 +267,7 @@ compute_algs = [
     'community_leading_eigenvector',
     'community_leiden',
     'community_multilevel',
+    'community_optimal_modularity',
     'community_spinglass',
     'community_walktrap',
     'constraint',
