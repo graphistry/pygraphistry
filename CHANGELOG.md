@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 * igraph: support `compute_igraph('community_optimal_modularity')`
+* igraph: `compute_igraph('articulation_points')` labels nodes that are articulation points
 
 ### Fixed
 

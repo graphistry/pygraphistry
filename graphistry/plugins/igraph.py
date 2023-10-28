@@ -250,6 +250,7 @@ def to_igraph(
 
 
 compute_algs = [
+    'articulation_points',
     'authority_score',
     'betweenness',
     'bibcoupling',
@@ -379,6 +380,12 @@ def compute_igraph(
         return from_igraph(self, out)
     elif isinstance(out, list) and self._nodes is None:
         raise ValueError("No g._nodes table found; use .bind(), .nodes(), .materialize_nodes()")
+    elif alg == 'articulation_points':
+        assert isinstance(out, list)  # List[int]
+        membership = [0] * len(ig.vs)
+        for i in out:
+            membership[i] = 1
+        clustering = membership
     elif isinstance(out, list) and len(out) == len(self._nodes):
         if stringify_rich_types and len(out) > 0 and all((isinstance(c, igraph.Graph) for c in out)):
             #ex: k_core
@@ -386,7 +393,12 @@ def compute_igraph(
         else:
             clustering = out
     else:
-        raise RuntimeError(f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')
+        if isinstance(out, list) and len(out) > 0:
+            xtra = f" (element 0 type: {type(out[0])})"
+        else:
+            xtra = ""
+
+        raise RuntimeError(f'Unexpected output type "{type(out)}"{xtra}; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')
 
     ig.vs[out_col] = clustering
 
