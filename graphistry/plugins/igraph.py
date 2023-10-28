@@ -288,7 +288,8 @@ def compute_igraph(
     out_col: Optional[str] = None,
     directed: Optional[bool] = None,
     use_vids=False,
-    params: dict = {}
+    params: dict = {},
+    stringify_rich_types=True
 ) -> Plottable:
     """Enrich or replace graph using igraph methods
 
@@ -306,6 +307,9 @@ def compute_igraph(
 
     :param params: Any named parameters to pass to the underlying igraph method
     :type params: dict
+
+    :param stringify_rich_types: When rich types like igraph.Graph are returned, which may be problematic for downstream rendering, coerce them to strings
+    :type stringify_rich_types: bool 
 
     :returns: Plotter
     :rtype: Plotter
@@ -374,10 +378,14 @@ def compute_igraph(
         return from_igraph(self, out)
     elif isinstance(out, list) and self._nodes is None:
         raise ValueError("No g._nodes table found; use .bind(), .nodes(), .materialize_nodes()")
-    elif len(out) == len(self._nodes):
-        clustering = out
+    elif isinstance(out, list) and len(out) == len(self._nodes):
+        if stringify_rich_types and len(out) > 0 and all((isinstance(c, igraph.Graph) for c in out)):
+            #ex: k_core
+            clustering = [str(c) for c in out]
+        else:
+            clustering = out
     else:
-        raise RuntimeError(f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')    
+        raise RuntimeError(f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')
 
     ig.vs[out_col] = clustering
 

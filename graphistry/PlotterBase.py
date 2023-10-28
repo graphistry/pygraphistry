@@ -1462,9 +1462,9 @@ class PlotterBase(Plottable):
 
 
     def compute_igraph(self,
-        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, use_vids: bool = False, params: dict = {}
+        alg: str, out_col: Optional[str] = None, directed: Optional[bool] = None, use_vids: bool = False, params: dict = {}, stringify_rich_types: bool = True
     ):
-        return compute_igraph_base(self, alg, out_col, directed, use_vids, params)
+        return compute_igraph_base(self, alg, out_col, directed, use_vids, params, stringify_rich_types)
     compute_igraph.__doc__ = compute_igraph_base.__doc__
 
 
