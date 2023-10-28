@@ -1,3 +1,5 @@
+import pyarrow as pa
+
 import graphistry, logging, pandas as pd, pytest, warnings
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
@@ -508,13 +510,23 @@ class Test_igraph_compute(NoAuthTestCase):
                     with warnings.catch_warnings(record=True) as w:
                         # Cause all warnings to always be triggered.
                         warnings.simplefilter("always")
-                        assert compute_igraph(g, alg, **opts) is not None
+                        g2 = compute_igraph(g, alg, **opts)
+                        assert g2 is not None
+                        assert g2._nodes is not None
+                        assert g2._edges is not None
+                        pa.Table.from_pandas(g2._nodes)
+                        pa.Table.from_pandas(g2._edges)
                         #assert len(w) == 1
                         assert issubclass(w[-1].category, DeprecationWarning)
                 else:
                     with warnings.catch_warnings():
                         warnings.filterwarnings("ignore", category=FutureWarning)
-                        assert compute_igraph(g, alg, **opts) is not None
+                        g2 = compute_igraph(g, alg, **opts)
+                        assert g2 is not None
+                        assert g2._nodes is not None
+                        assert g2._edges is not None
+                        pa.Table.from_pandas(g2._nodes)
+                        pa.Table.from_pandas(g2._edges)
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_layouts(NoAuthTestCase):

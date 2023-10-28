@@ -7,10 +7,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+
+* igraph: support `compute_igraph('community_optimal_modularity')`
+
 ### Fixed
 
 * Type error in arrow uploader exception handler
-* Parsing error in hypergraph dask tests
+* igraph: default coerce Graph-type node labels to strings, enabling plotting of g.compute_igraph('k_core')
+
+### Infra
+
+* dask: Fixed parsing error in hypergraph dask tests
+* igraph: Ensure in compute_igraph tests that default mode results coerce to arrow tables  
 
 ## [0.29.6 - 2023-10-23]
 
