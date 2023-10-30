@@ -20,7 +20,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Infra
 
 * dask: Fixed parsing error in hypergraph dask tests
-* igraph: Ensure in compute_igraph tests that default mode results coerce to arrow tables  
+* igraph: Ensure in compute_igraph tests that default mode results coerce to arrow tables
+* igraph: Test chaining
 
 ## [0.29.6 - 2023-10-23]
 

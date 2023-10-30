@@ -478,6 +478,35 @@ class Test_igraph_usage(NoAuthTestCase):
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_compute(NoAuthTestCase):
 
+    def chain_1_rename(self, alg: str) -> None: 
+
+        g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
+
+        g2 = compute_igraph(g, alg)
+        assert alg in g2._nodes
+
+        g3 = compute_igraph(g2, alg, f'{alg}2')
+        assert f'{alg}2' in g3._nodes
+        assert g2._nodes[alg].equals(g3._nodes[alg])
+        assert g2._nodes[alg].equals(g3._nodes[f'{alg}2'])
+
+        g3b = compute_igraph(g2, alg)
+        assert alg in g3b._nodes
+        assert g3b._nodes.shape == g2._nodes.shape
+
+    def test_chain_1_rename_pagerank(self):
+        self.chain_1_rename('pagerank')
+
+    def test_chain_2_rename_articulation_points(self):
+        self.chain_1_rename('articulation_points')
+
+    def test_chain_3_seq(self):
+        g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
+        g2 = compute_igraph(g, 'pagerank')
+        g3 = compute_igraph(g2, 'articulation_points')
+        assert 'pagerank' in g3._nodes
+        assert 'articulation_points' in g3._nodes
+
     def test_all_calls(self):
         overrides = {
             'bipartite_projection': {
