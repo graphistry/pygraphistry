@@ -16,6 +16,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * Type error in arrow uploader exception handler
 * igraph: default coerce Graph-type node labels to strings, enabling plotting of g.compute_igraph('k_core')
+* igraph: fix coercions when using numeric IDs that were confused by igraph swizzling
 
 ### Infra
 
