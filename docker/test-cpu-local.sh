@@ -46,6 +46,7 @@ docker run \
     -e WITH_TYPECHECK=$WITH_TYPECHECK \
     -e WITH_BUILD=$WITH_BUILD \
     -e WITH_TEST=$WITH_TEST \
+    -v "`pwd`/../graphistry:/opt/pygraphistry/graphistry:ro" \
     --rm \
     ${NETWORK} \
     graphistry/test-cpu:${TEST_CPU_VERSION} \
