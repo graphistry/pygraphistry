@@ -105,6 +105,8 @@ def from_igraph(self,
             nodes_df = nodes_df[ node_attributes ]
 
         if g._nodes is not None and merge_if_existing:
+            if g._node is None:
+                raise ValueError('Non-None g._nodes and merge_if_existing=True, yet no g._node is defined')
             if len(g._nodes) != len(nodes_df):
                 logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
 
