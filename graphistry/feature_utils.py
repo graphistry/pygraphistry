@@ -116,8 +116,7 @@ def assert_imported_cucat():
                      "cuml not found, trying running"  # noqa
                      "`pip install rapids`"  # noqa
         )
-        err_list = [cudf_]
-        import_exn = [e for e in err_list if 'ok' not in e]
+        import_exn = 'cudf not installed'
 
         raise import_exn
 
