@@ -110,19 +110,21 @@ def assert_imported():
 
 
 def assert_imported_cucat():
-    has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
-    if not has_dependancy_cudf_:
+    cudf_ = deps.cudf
+    if not cudf_:
         logger.error(  # noqa
                      "cuml not found, trying running"  # noqa
                      "`pip install rapids`"  # noqa
         )
+        err_list = [cudf_]
+        import_exn = [e for e in err_list if 'ok' not in e]
+
         raise import_exn
 
 
 def make_safe_gpu_dataframes(X, y, engine):
-    has_dependancy_cudf_, _, cudf = lazy_import_has_dependancy_cudf()
-    
-    if has_dependancy_cudf_:
+    cudf = deps.cudf
+    if cudf:
         assert cudf is not None
         new_kwargs = {}
         kwargs = {'X': X, 'y': y}
@@ -253,7 +255,7 @@ def features_without_target(
     :param y: target DataFrame
     :return: DataFrames of model and target
     """
-    _, _, cudf = lazy_import_has_dependancy_cudf()
+    cudf=deps.cudf
     if y is None:
         return df
     remove_cols = []
@@ -284,7 +286,7 @@ def features_without_target(
 
 
 def remove_node_column_from_symbolic(X_symbolic, node):
-    _, _, cudf = lazy_import_has_dependancy_cudf()
+    cudf=deps.cudf
     if isinstance(X_symbolic, list):
         if node in X_symbolic:
             logger.info(f"Removing `{node}` from input X_symbolic list")
@@ -370,7 +372,7 @@ def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
     if 'cudf' not in X_type:
         df[new_col] = pd.to_datetime(df[cols], errors="coerce").fillna(0)
     else:
-        _, _, cudf = lazy_import_has_dependancy_cudf()
+        _, _, cudf = cudf=deps.cudf()
         assert cudf is not None
         for col in df.columns:
             try:
@@ -666,7 +668,7 @@ def fit_pipeline(
         X = transformer.fit_transform(X)
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
-        _, _, cudf = lazy_import_has_dependancy_cudf()
+        _, _, cudf = cudf=deps.cudf()
         assert cudf is not None
         X = cudf.DataFrame(X, columns=columns, index=index)
     return X
@@ -984,7 +986,7 @@ def process_dirty_dataframes(
             )
             X_enc = X_enc.fillna(0.0)
         else:
-            _, _, cudf = lazy_import_has_dependancy_cudf()
+            _, _, cudf = cudf=deps.cudf()
             X_enc = cudf.DataFrame(
                 X_enc
             )
@@ -1345,7 +1347,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
     if 'cudf' in edf_type:
-        _, _, cudf = lazy_import_has_dependancy_cudf()
+        _, _, cudf = cudf=deps.cudf()
         T = cudf.DataFrame(T, columns=columns, index=edf.index)
     else:
         T = pd.DataFrame(T, columns=columns, index=edf.index)
@@ -1421,7 +1423,7 @@ def process_edge_dataframes(
         MultiLabelBinarizer()
     )  # create new one so we can use encode_edges later in
     # transform with fit=False
-    _, _, cudf = lazy_import_has_dependancy_cudf()
+    _, _, cudf = cudf=deps.cudf()
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
     )
