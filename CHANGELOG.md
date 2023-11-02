@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.29.7 - 2023-11-02]
+
 ### Added
 
 * igraph: support `compute_igraph('community_optimal_modularity')`
