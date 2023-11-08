@@ -105,20 +105,19 @@ def assert_imported():
                      "`pip install graphistry[ai]`"  # noqa
         )
         err_list = [scipy_,dirty_cat_,sklearn_]
-        import_min_exn = [e for e in err_list if 'ok' not in e]
+        import_min_exn = [e for e in err_list if None in e]
         raise import_min_exn
 
 
 def assert_imported_cucat():
     cudf_ = deps.cudf
-    if not cudf_:
+    if cudf_ is None:
         logger.error(  # noqa
                      "cuml not found, trying running"  # noqa
                      "`pip install rapids`"  # noqa
         )
-        import_exn = 'cudf not installed'
-
-        raise import_exn
+        import_exn = cudf_
+        # raise import_exn
 
 
 def make_safe_gpu_dataframes(X, y, engine):
@@ -922,13 +921,13 @@ def process_dirty_dataframes(
             the data encoder, and the label encoder.
     """
 
-    if feature_engine == CUDA_CAT:
+    if feature_engine == CUDA_CAT and deps.cudf:
         assert_imported_cucat()
         from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
 
     else:  # if feature_engine == "dirty_cat":  # DIRTY_CAT
-        from dirty_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
+        from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
         from sklearn.preprocessing import FunctionTransformer
 
     t = time()
@@ -965,7 +964,7 @@ def process_dirty_dataframes(
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
-        if feature_engine == CUDA_CAT:
+        if feature_engine == CUDA_CAT and deps.cudf:
             logger.info(f"-Shape of [[cu_cat fit]] data {X_enc.shape}")
         elif feature_engine == DIRTY_CAT:
             logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
@@ -2597,9 +2596,9 @@ class FeatureMixin(MIXIN_BASE):
         """
         feature_engine = resolve_feature_engine(feature_engine)
 
-        if feature_engine == 'dirty_cat':
+        if feature_engine == 'dirty_cat' and not deps.cudf:
             assert_imported_min()
-        elif feature_engine == 'cu_cat':
+        elif feature_engine == 'cu_cat' and deps.cudf:
             assert_imported_cucat()
 
         if inplace:
