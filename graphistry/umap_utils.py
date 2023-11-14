@@ -46,9 +46,10 @@ def assert_imported_cuml():
 def is_legacy_cuml():
     try:
         cuml = deps.cuml
-        vs = cuml.__version__.split(".")
-        if (vs[0] in ["0", "21"]) or (vs[0] == "22" and float(vs[1]) < 6):
-            return True
+        if cuml:
+            vs = cuml.__version__.split(".")
+            if (vs[0] in ["0", "21"]) or (vs[0] == "22" and float(vs[1]) < 6):
+                return True
         else:
             return False
     except ModuleNotFoundError:
