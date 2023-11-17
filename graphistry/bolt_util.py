@@ -32,7 +32,7 @@ def bolt_graph_to_edges_dataframe(graph):
         util.merge_two_dicts(
             { key: value for (key, value) in relationship.items() },
             {
-                relationship_id_key:   relationship.element_id,  # noqa: E241
+                relationship_id_key:   relationship.element_id if 'element_id' in relationship else relationship.id,  # noqa: E241
                 relationship_type_key: relationship.type,  # noqa: E241
                 start_node_id_key:     relationship.start_node.element_id if 'element_id' in relationship.start_node else relationship.start_node.id, # noqa: E241
                 end_node_id_key:       relationship.end_node.element_id if 'element_id' in relationship.end_node else relationship.end_node.id, # noqa: E241
