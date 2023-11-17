@@ -28,15 +28,28 @@ def to_bolt_driver(driver=None):
 
 #TODO catch additional encodings
 def bolt_graph_to_edges_dataframe(graph):
+
+    for relationship in graph.relationships:
+        if hasattr(relationship, 'element_id'):
+            map_dict = {
+                         relationship_id_key:   relationship.element_id,  # noqa: E241
+                         relationship_type_key: relationship.type,  # noqa: E241
+                         start_node_id_key:     relationship.start_node.element_id, # noqa: E241
+                         end_node_id_key:       relationship.end_node.element_id, # noqa: E241
+                        }
+        else:
+            map_dict = {
+                         relationship_id_key:   relationship.id,  # noqa: E241
+                         relationship_type_key: relationship.type,  # noqa: E241
+                         start_node_id_key:     relationship.start_node.id, # noqa: E241
+                         end_node_id_key:       relationship.end_node.id, # noqa: E241
+                        }
+        break
+
     df = pd.DataFrame([
         util.merge_two_dicts(
             { key: value for (key, value) in relationship.items() },
-            {
-                relationship_id_key:   relationship.element_id if 'element_id' in relationship else relationship.id,  # noqa: E241
-                relationship_type_key: relationship.type,  # noqa: E241
-                start_node_id_key:     relationship.start_node.element_id if 'element_id' in relationship.start_node else relationship.start_node.id, # noqa: E241
-                end_node_id_key:       relationship.end_node.element_id if 'element_id' in relationship.end_node else relationship.end_node.id, # noqa: E241
-            }
+            map_dict
         )
         for relationship in graph.relationships
     ])
