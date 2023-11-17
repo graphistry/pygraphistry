@@ -65,12 +65,19 @@ def bolt_graph_to_edges_dataframe(graph):
 
 
 def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
+    for node in graph.nodes:
+        if hasattr(node, 'element_id'):
+            map_id_col = node.element_id
+        else:
+            map_id_col = node.id
+        break
+
     df = pd.DataFrame([
         util.merge_two_dicts(
             { key: value for (key, value) in node.items() },
             util.merge_two_dicts(
                 {
-                    node_id_key: node.element_id,
+                    node_id_key: map_id_col,
                     node_type_key: ",".join(sorted([str(label) for label in node.labels]))
                 },
                 { node_label_prefix_key + str(label): True for label in node.labels }))
