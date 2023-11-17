@@ -34,8 +34,8 @@ def bolt_graph_to_edges_dataframe(graph):
             {
                 relationship_id_key:   relationship.element_id,  # noqa: E241
                 relationship_type_key: relationship.type,  # noqa: E241
-                start_node_id_key:     relationship.start_node.element_id,  # noqa: E241
-                end_node_id_key:       relationship.end_node.element_id  # noqa: E241
+                start_node_id_key:     relationship.start_node.element_id if 'element_id' in relationship.start_node else relationship.start_node.id, # noqa: E241
+                end_node_id_key:       relationship.end_node.element_id if 'element_id' in relationship.end_node else relationship.end_node.id, # noqa: E241
             }
         )
         for relationship in graph.relationships
@@ -56,9 +56,9 @@ def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
         util.merge_two_dicts(
             { key: value for (key, value) in node.items() },
             util.merge_two_dicts(
-                { 
-                    node_id_key: node.element_id, 
-                    node_type_key: ",".join(sorted([str(label) for label in node.labels])) 
+                {
+                    node_id_key: node.element_id,
+                    node_type_key: ",".join(sorted([str(label) for label in node.labels]))
                 },
                 { node_label_prefix_key + str(label): True for label in node.labels }))
         for node in graph.nodes
@@ -171,12 +171,12 @@ def flatten_spatial(df : pd.DataFrame, col) -> pd.DataFrame:
         all_t0 = (with_vals.apply(lambda s: s.__class__) == t0.__class__).all()  # type: ignore
     except:
         all_t0 = False
-    
+
     if all_t0:
         out_df = flatten_spatial_col(df, col)
     else:
         out_df[col] = df[col].apply(stringify_spatial)
-  
+
     return out_df
 
 
