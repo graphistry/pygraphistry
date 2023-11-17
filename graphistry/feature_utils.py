@@ -370,7 +370,7 @@ def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
     if 'cudf' not in X_type:
         df[new_col] = pd.to_datetime(df[cols], errors="coerce").fillna(0)
     else:
-        _, _, cudf = cudf=deps.cudf()
+        cudf=deps.cudf()
         assert cudf is not None
         for col in df.columns:
             try:
@@ -666,7 +666,7 @@ def fit_pipeline(
         X = transformer.fit_transform(X)
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
-        _, _, cudf = cudf=deps.cudf()
+        cudf=deps.cudf()
         assert cudf is not None
         X = cudf.DataFrame(X, columns=columns, index=index)
     return X
@@ -984,7 +984,7 @@ def process_dirty_dataframes(
             )
             X_enc = X_enc.fillna(0.0)
         else:
-            _, _, cudf = cudf=deps.cudf()
+            cudf=deps.cudf()
             X_enc = cudf.DataFrame(
                 X_enc
             )
@@ -1345,7 +1345,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
     if 'cudf' in edf_type:
-        _, _, cudf = cudf=deps.cudf()
+        cudf=deps.cudf()
         T = cudf.DataFrame(T, columns=columns, index=edf.index)
     else:
         T = pd.DataFrame(T, columns=columns, index=edf.index)
@@ -1421,7 +1421,7 @@ def process_edge_dataframes(
         MultiLabelBinarizer()
     )  # create new one so we can use encode_edges later in
     # transform with fit=False
-    _, _, cudf = cudf=deps.cudf()
+    cudf=deps.cudf()
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
     )
