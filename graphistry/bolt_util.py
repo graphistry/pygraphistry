@@ -29,7 +29,7 @@ def to_bolt_driver(driver=None):
 #TODO catch additional encodings
 def bolt_graph_to_edges_dataframe(graph):
 
-    is_neptune=False
+    is_neptune = False
 
     for relationship in graph.relationships:
         # neptune results not returing element_id, so use id instead
@@ -37,26 +37,28 @@ def bolt_graph_to_edges_dataframe(graph):
         break
 
     if is_neptune:
-        map_dict_df = pd.DataFrame ([
+        map_dict_df = pd.DataFrame([
             {
                 relationship_id_key:   relationship.id,  # noqa: E241
                 relationship_type_key: relationship.type,  # noqa: E241
-                start_node_id_key:     relationship.start_node.id, # noqa: E241
-                end_node_id_key:       relationship.end_node.id, # noqa: E241
+                start_node_id_key:     relationship.start_node.id,  # noqa: E241
+                end_node_id_key:       relationship.end_node.id,  # noqa: E241
             }
             for relationship in graph.relationships])
     else:
-        map_dict_df = pd.DataFrame ([
+        map_dict_df = pd.DataFrame([
             {
                 relationship_id_key:   relationship.element_id,  # noqa: E241
                 relationship_type_key: relationship.type,  # noqa: E241
-                start_node_id_key:     relationship.start_node.element_id, # noqa: E241
-                end_node_id_key:       relationship.end_node.element_id, # noqa: E241
+                start_node_id_key:     relationship.start_node.element_id,  # noqa: E241
+                end_node_id_key:       relationship.end_node.element_id,  # noqa: E241
             }
             for relationship in graph.relationships])
 
     df = pd.DataFrame([
-            { key: value for (key, value) in relationship.items() }
+        { 
+            key: value for (key, value) in relationship.items() 
+        }
         for relationship in graph.relationships
     ])
 
@@ -75,7 +77,7 @@ def bolt_graph_to_edges_dataframe(graph):
 
 def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
 
-    is_neptune=False
+    is_neptune = False
 
     for node in graph.nodes:
         # neptune results not returing element_id, so use id instead
@@ -83,20 +85,20 @@ def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
         break
 
     if is_neptune:
-        map_dict_df = pd.DataFrame ([
-                {
-                    node_id_key: node.id,
-                    node_type_key: ",".join(sorted([str(label) for label in node.labels]))
-                }
-                for node in graph.nodes
+        map_dict_df = pd.DataFrame([
+            {
+                node_id_key: node.id,
+                node_type_key: ",".join(sorted([str(label) for label in node.labels]))
+            }
+            for node in graph.nodes
         ])
     else:
-        map_dict_df = pd.DataFrame ([
-                {
-                    node_id_key: node.element_id,
-                    node_type_key: ",".join(sorted([str(label) for label in node.labels]))
-                }
-                for node in graph.nodes
+        map_dict_df = pd.DataFrame([
+            {
+                node_id_key: node.element_id,
+                node_type_key: ",".join(sorted([str(label) for label in node.labels]))
+            }
+            for node in graph.nodes
         ])
 
     df = pd.DataFrame([
