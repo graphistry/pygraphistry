@@ -174,8 +174,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         torch = deps.torch
         if torch:
             from torch import nn
-        import tqdm
-        if tqdm:
+        if deps.tqdm:
             from tqdm import trange
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
