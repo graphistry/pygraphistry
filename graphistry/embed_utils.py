@@ -203,8 +203,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 pbar.set_description(
-                    f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.4f}%"
-                )
+                    f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.4f}%" 
+                )  # type: ignore
 
             model.eval()
             res._kg_embeddings = model(res._kg_dgl.to(device)).detach()
@@ -213,7 +213,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 score = res._eval(threshold=0.5)
                 pbar.set_description(
                     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
-                )
+                )  # type: ignore
 
         return res
 
