@@ -565,7 +565,7 @@ class SubgraphIterator:
             from torch.nn import functional as F
         dgl = deps.dgl
         if dgl:
-            from dgl_dataloading import GraphDataLoader
+            from dgl.dataloading import GraphDataLoader
 
         eids = torch.from_numpy(np.random.choice(self.eids, self.sample_size))
 
