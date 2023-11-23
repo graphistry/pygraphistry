@@ -6,7 +6,7 @@ from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 from .dep_manager import DepManager
-
+from tqdm import trange
 
 deps = DepManager()
 
@@ -174,8 +174,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         torch = deps.torch
         if torch:
             from torch import nn
-        if deps.tqdm:
-            from tqdm import trange
+        # if deps.tqdm:
+            # from tqdm import trange
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
