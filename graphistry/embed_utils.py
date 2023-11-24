@@ -186,7 +186,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         pbar = trange(epochs, desc=None)
         model.to(device)
 
-        score = 0
+        # score = 0
         for epoch in pbar:
             model.train()
             for data in g_dataloader:
@@ -210,7 +210,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             res._kg_embeddings = model(res._kg_dgl.to(device)).detach()
             res._embed_model = model
             if res._eval_flag and res._train_idx is not None:
-                score = res._eval(threshold=0.5)
+                # score = res._eval(threshold=0.5)
                 # pbar.set_description(
                 #     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
                 # )  # type: ignore
