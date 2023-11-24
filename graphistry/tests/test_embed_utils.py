@@ -6,6 +6,7 @@ import graphistry
 import numpy as np
 # import tqdm as tqdm_
 from graphistry.dep_manager import DepManager
+from graphistry import networks
 
 import logging
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ if dgl_:
 if torch_:
     from torch import nn_
     from torch.nn import functional as F_
+
 HeteroEmbed_ = deps.graphistry.networks.HeteroEmbed
 if tqdm:
     from tqdm import trange
