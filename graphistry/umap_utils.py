@@ -62,17 +62,17 @@ UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
 def resolve_umap_engine(
     engine: UMAPEngine,
 ) -> UMAPEngineConcrete:  # noqa
-    if engine in [CUML, UMAP_LEARN]:
-        return engine  # type: ignore
+    # if engine in [CUML, UMAP_LEARN]:
+        # return engine  # type: ignore
     # if engine in ['auto', None]:
-    else:
-        deps = DepManager()
-        cuml_ = deps.cuml
-        if cuml_:
-            return 'cuml'  # type: ignore
-        umap_ = deps.umap
-        if umap_:
-            return 'umap_learn'  # type: ignore
+    # else:
+    #     deps = DepManager()
+    #     cuml_ = deps.cuml
+    #     if cuml_:
+    #         return 'cuml'  # type: ignore
+    umap_ = deps.umap
+    if umap_:
+        return 'umap_learn'  # type: ignore
 
     raise ValueError(  # noqa
         f'engine expected to be "auto", '
