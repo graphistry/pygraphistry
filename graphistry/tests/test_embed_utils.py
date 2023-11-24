@@ -29,6 +29,8 @@ if tqdm_:
 
 if None not in [torch_, dgl_, HeteroEmbed_, tqdm_]:
     dep_flag = True
+else:
+    dep_flag = False
 
 cudf = deps.cudf
 
