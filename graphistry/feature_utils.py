@@ -98,7 +98,7 @@ def assert_imported():
                      "`pip install graphistry[ai]`"  # noqa
         )
         err_list = [scipy_,dirty_cat_,sklearn_]
-        import_min_exn = [e for e in err_list if 'ok' not in e]
+        import_min_exn = [e for e in err_list if None in e]
         raise import_min_exn
 
 
