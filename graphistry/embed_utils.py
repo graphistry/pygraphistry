@@ -209,7 +209,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             model.eval()
             res._kg_embeddings = model(res._kg_dgl.to(device)).detach()
             res._embed_model = model
-            if res._eval_flag and res._train_idx is not None:
+            # if res._eval_flag and res._train_idx is not None:
                 # score = res._eval(threshold=0.5)
                 # pbar.set_description(
                 #     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
