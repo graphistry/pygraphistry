@@ -10,13 +10,12 @@ from graphistry.feature_utils import remove_internal_namespace_if_present
 from graphistry.tests.test_feature_utils import (
     ndf_reddit,
     edge_df,
-    lazy_import_has_min_dependancy,
+    assert_imported as assert_imported_feature_utils
 )
 
-from graphistry.umap_utils import lazy_umap_import_has_dependancy
-
-has_dependancy, _ = lazy_import_has_min_dependancy()
-has_umap, _, _ = lazy_umap_import_has_dependancy()
+from graphistry.umap_utils import assert_imported as assert_imported_umap
+has_dependancy = assert_imported_feature_utils
+has_umap = assert_imported_umap
 
 logger = logging.getLogger(__name__)
 
