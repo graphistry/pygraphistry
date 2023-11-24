@@ -16,7 +16,7 @@ deps = DepManager()
 torch_ = deps.torch
 nn_ = deps.torch_nn
 dgl_ = deps.dgl
-tqdm = deps.tqdm
+tqdm_ = deps.tqdm
 if dgl_:
     from dgl_dataloading import GraphDataLoader_
 if torch_:
@@ -24,10 +24,10 @@ if torch_:
     from torch.nn import functional as F_
 
 HeteroEmbed_ = deps.graphistry.networks.HeteroEmbed
-if tqdm:
+if tqdm_:
     from tqdm import trange
 
-if None not in [torch_, nn_, dgl_, GraphDataLoader_, F_, HeteroEmbed_, trange]:
+if None not in [torch_, dgl_, HeteroEmbed_, tqdm_]:
     dep_flag = True
 
 cudf = deps.cudf
