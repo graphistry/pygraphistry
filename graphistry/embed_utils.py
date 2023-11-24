@@ -6,7 +6,7 @@ from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 from .dep_manager import DepManager
-from tqdm import trange
+
 
 deps = DepManager()
 
@@ -174,8 +174,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         torch = deps.torch
         if torch:
             from torch import nn
-        # if deps.tqdm:
-            # from tqdm import trange
+        if deps.tqdm:
+            from tqdm import trange
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
@@ -202,18 +202,18 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
-                pbar.set_description(
-                    f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.4f}%" 
-                )  # type: ignore
+                # pbar.set_description(
+                #     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.4f}%" 
+                # )  # type: ignore
 
             model.eval()
             res._kg_embeddings = model(res._kg_dgl.to(device)).detach()
             res._embed_model = model
             if res._eval_flag and res._train_idx is not None:
                 score = res._eval(threshold=0.5)
-                pbar.set_description(
-                    f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
-                )  # type: ignore
+                # pbar.set_description(
+                #     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
+                # )  # type: ignore
 
         return res
 
