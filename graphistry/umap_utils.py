@@ -67,10 +67,10 @@ def resolve_umap_engine(
     if engine == 'auto':
         cuml_ = deps.cuml
         if cuml_:
-            return 'cuml'
+            return 'cuml' # type: ignore
         umap_ = deps.umap
         if umap_:
-            return 'umap_learn'
+            return 'umap_learn' # type: ignore
 
     raise ValueError(  # noqa
         f'engine expected to be "auto", '
