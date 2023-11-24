@@ -72,11 +72,11 @@ def resolve_umap_engine(
         if umap_:
             return 'umap_learn'  # type: ignore
 
-    raise ValueError(  # noqa
-        f'engine expected to be "auto", '
-        '"umap_learn", or  "cuml" '
-        f"but received: {engine} :: {type(engine)}"
-    )
+    # raise ValueError(  # noqa
+    #     f'engine expected to be "auto", '
+    #     '"umap_learn", or  "cuml" '
+    #     f"but received: {engine} :: {type(engine)}"
+    # )
 
 
 def make_safe_gpu_dataframes(X, y, engine, has_cudf):
