@@ -64,7 +64,8 @@ def resolve_umap_engine(
 ) -> UMAPEngineConcrete:  # noqa
     if engine in [CUML, UMAP_LEARN]:
         return engine  # type: ignore
-    if engine in ['auto', None]:
+    # if engine in ['auto', None]:
+    else:
         cuml_ = deps.cuml
         if cuml_:
             return 'cuml'  # type: ignore
