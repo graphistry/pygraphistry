@@ -66,6 +66,7 @@ def resolve_umap_engine(
         return engine  # type: ignore
     # if engine in ['auto', None]:
     else:
+        deps = DepManager()
         cuml_ = deps.cuml
         if cuml_:
             return 'cuml'  # type: ignore
