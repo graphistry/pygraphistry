@@ -21,7 +21,7 @@ if dgl_:
 if torch_:
     from torch import nn_
     from torch.nn import functional as F_
-HeteroEmbed_ = deps.graphistry.embeddings.networks.HeteroEmbed
+HeteroEmbed_ = deps.graphistry.networks.HeteroEmbed
 if tqdm:
     from tqdm import trange
 
