@@ -62,8 +62,9 @@ UMAPEngine = Literal[UMAPEngineConcrete, "auto"]
 def resolve_umap_engine(
     engine: UMAPEngine,
 ) -> UMAPEngineConcrete:  # noqa
-    umap_ = deps.umap
-    if umap_:
+    # umap_ = deps.umap
+    import umap
+    if umap:
         return 'umap_learn'
 
     raise ValueError(  # noqa
