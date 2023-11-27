@@ -17,6 +17,7 @@ core_requires = [
   'typing-extensions',
   'packaging >= 20.1',
   'setuptools',
+  'scikit-learn',
 ]
 
 stubs = [
@@ -42,7 +43,7 @@ base_extras_light = {
 }
 
 base_extras_heavy = {
-  'umap-learn': ['umap-learn', 'dirty-cat==0.2.0', 'scikit-learn>=1.0'],
+  'umap-learn': ['umap-learn', 'dirty-cat==0.4.0', 'scikit-learn>=1.0'],
 }
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
 base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch<2', 'sentence-transformers', 'faiss-cpu', 'joblib']
