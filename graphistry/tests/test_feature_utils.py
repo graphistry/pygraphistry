@@ -307,7 +307,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 )
                 self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
-    @pytest.mark.skipif(not has_min_dependancy, reason="requires minimal feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy, reason="requires minimal feature dependencies")
     def test_multi_label_binarizer(self):
         g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
         with warnings.catch_warnings():
