@@ -1079,8 +1079,7 @@ def process_nodes_dataframes(
     text_cols: List[str] = []
     text_model: Any = None
     text_enc = pd.DataFrame([])
-    SentenceTransformer = deps.sentence_transformers.SentenceTransformer
-    if SentenceTransformer and (feature_engine in ["torch", "auto"]):
+    if deps.sentence_transformers and (feature_engine in ["torch", "auto"]):
         text_enc, text_cols, text_model = encode_textual(
             df,
             min_words=min_words,
