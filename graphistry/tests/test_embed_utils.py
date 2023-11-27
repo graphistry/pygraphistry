@@ -32,7 +32,8 @@ if None not in [torch_, dgl_, HeteroEmbed_, tqdm_]:
 else:
     dep_flag = False
 
-if deps.cudf:
+cudf = deps.cudf
+if cudf:
     test_cudf = True
 
 # enable tests if has cudf and env didn't explicitly disable
