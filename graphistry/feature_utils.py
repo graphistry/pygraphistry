@@ -74,9 +74,9 @@ else:
 deps = DepManager()
 
 # def assert_imported_text():
-#     Sentence_Transformer_ = deps.sentence_transformers
+#     Sentence_Transformer = deps.sentence_transformers.SentenceTransformer
 
-#     if not Sentence_Transformer_:
+#     if not Sentence_Transformer:
 #         logger.error(  # noqa
 #             "AI Package sentence_transformers not found,"
 #             "trying running `pip install graphistry[ai]`"
@@ -141,11 +141,11 @@ def resolve_feature_engine(
     if feature_engine in ["none", "pandas", "dirty_cat", "torch"]:
         return feature_engine  # type: ignore
     if feature_engine == "auto":
-        SentenceTransformer_ = deps.sentence_transformers
-        if SentenceTransformer_:
+        SentenceTransformer = deps.sentence_transformers.SentenceTransformer
+        if SentenceTransformer:
             return "torch"
-        dirty_cat_ = deps.dirty_cat
-        if dirty_cat_:
+        dirty_cat = deps.dirty_cat
+        if dirty_cat:
             return "dirty_cat"
         return "pandas"
 
@@ -688,7 +688,7 @@ def encode_textual(
     max_df: float = 0.2,
     min_df: int = 3,
 ) -> Tuple[pd.DataFrame, List, Any]:
-    SentenceTransformer = deps.sentence_transformers
+    SentenceTransformer = deps.sentence_transformers.SentenceTransformer
 
     t = time()
     text_cols = get_textual_columns(
@@ -1081,8 +1081,8 @@ def process_nodes_dataframes(
     text_cols: List[str] = []
     text_model: Any = None
     text_enc = pd.DataFrame([])
-    SentenceTransformer_ = deps.sentence_transformers
-    if SentenceTransformer_ and (feature_engine in ["torch", "auto"]):
+    SentenceTransformer = deps.sentence_transformers.SentenceTransformer
+    if SentenceTransformer and (feature_engine in ["torch", "auto"]):
         text_enc, text_cols, text_model = encode_textual(
             df,
             min_words=min_words,
