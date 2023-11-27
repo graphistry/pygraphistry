@@ -35,6 +35,8 @@ else:
 cudf = deps.cudf
 if cudf:
     test_cudf = True
+else:
+    test_cudf = False
 
 # enable tests if has cudf and env didn't explicitly disable
 is_test_cudf = test_cudf and os.environ["TEST_CUDF"] != "0"
