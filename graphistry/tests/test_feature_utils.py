@@ -356,7 +356,8 @@ class TestFeatureMethods(unittest.TestCase):
             self.cases_check_edge_attributes(g)
 
         cols = ndf.columns
-        np.all(ndf == df[cols])
+        # np.all(ndf == df[cols])
+        np.array_equal(ndf, df[cols])
 
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():

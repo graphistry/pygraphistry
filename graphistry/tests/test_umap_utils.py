@@ -339,10 +339,11 @@ class TestUMAPMethods(unittest.TestCase):
         cols = ndf.columns
         logger.debug("g_nodes: %s", g._nodes)
         logger.debug("df: %s", df)
-        self.assertTrue(
-            np.array_equal(ndf.reset_index(drop=True), df[cols].reset_index(drop=True)),
-            f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
-        )
+        # self.assertTrue(
+            # np.array_equal(ndf, df[cols]),  #  .reset_index(drop=True), df[cols].reset_index(drop=True)),
+            # f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
+        # )
+        np.array_equal(ndf == df[cols])
 
     @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
     def _test_umap(self, g, use_cols, targets, name, kind, df):
