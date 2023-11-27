@@ -18,9 +18,9 @@ nn_ = deps.torch_nn
 dgl_ = deps.dgl
 tqdm_ = deps.tqdm
 if dgl_:
-    from dgl_dataloading import GraphDataLoader_
+    from dgl.dataloading import GraphDataLoader
 if torch_:
-    from torch import nn_
+    from torch import nn
     from torch.nn import functional as F_
 
 HeteroEmbed_ = deps.graphistry.networks.HeteroEmbed
@@ -32,10 +32,11 @@ if None not in [torch_, dgl_, HeteroEmbed_, tqdm_]:
 else:
     dep_flag = False
 
-cudf = deps.cudf
+if deps.cudf:
+    test_cudf = True
 
 # enable tests if has cudf and env didn't explicitly disable
-is_test_cudf = cudf and os.environ["TEST_CUDF"] != "0"
+is_test_cudf = test_cudf and os.environ["TEST_CUDF"] != "0"
 
 class TestEmbed(unittest.TestCase):
 
