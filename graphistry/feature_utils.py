@@ -1452,7 +1452,7 @@ def transform_text(
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
-    SentenceTransformer = deps.sentence_transformer
+    SentenceTransformer = deps.sentence_transformers.SentenceTransformer
 
     logger.debug("Transforming text using:")
     if isinstance(text_model, Pipeline):
