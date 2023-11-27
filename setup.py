@@ -18,6 +18,7 @@ core_requires = [
   'packaging >= 20.1',
   'setuptools',
   'scikit-learn',
+  'umap-learn'
 ]
 
 stubs = [
