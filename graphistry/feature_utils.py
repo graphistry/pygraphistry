@@ -84,13 +84,13 @@ deps = DepManager()
 
 
 def assert_imported():
-    scipy_ = deps.scipy
-    dirty_cat_ = deps.dirty_cat
-    sklearn_ = deps.sklearn
-    if None not in [scipy_, dirty_cat_, sklearn_]:
-        logger.debug(f"SCIPY VERSION: {scipy_.__version__}")
-        logger.debug(f"Dirty CAT VERSION: {dirty_cat_.__version__}")
-        logger.debug(f"sklearn VERSION: {sklearn_.__version__}")
+    scipy = deps.scipy
+    dirty_cat = deps.dirty_cat
+    sklearn = deps.sklearn
+    if None not in [scipy, dirty_cat, sklearn]:
+        logger.debug(f"SCIPY VERSION: {scipy.__version__}")
+        logger.debug(f"Dirty CAT VERSION: {dirty_cat.__version__}")
+        logger.debug(f"sklearn VERSION: {sklearn.__version__}")
 
     # else:
     #     logger.error(  # noqa

@@ -27,8 +27,10 @@ deps = DepManager()
 dirty_cat = deps.dirty_cat
 scipy = deps.scipy
 sklearn = deps.sklearn
-if False not in [dirty_cat, scipy, sklearn]:
+if None not in [dirty_cat, scipy, sklearn]:
     has_min_dependancy = True
+else:
+    has_min_dependancy = False
 has_min_dependancy_text = deps.sentence_transformers
 
 logger = logging.getLogger(__name__)
