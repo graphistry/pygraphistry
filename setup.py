@@ -17,10 +17,10 @@ core_requires = [
   'typing-extensions',
   'packaging >= 20.1',
   'setuptools',
-  'scikit-learn',
-  'umap-learn',
-  'scipy',
-  'dirty-cat'
+  # 'scikit-learn',
+  # 'umap-learn',
+  # 'scipy',
+  # 'dirty-cat'
 ]
 
 stubs = [

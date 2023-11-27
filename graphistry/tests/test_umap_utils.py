@@ -29,7 +29,7 @@ from graphistry.dep_manager import DepManager
 deps = DepManager()
 has_dependancy = deps.umap
 has_cuml = deps.cuml
-has_umap = deps.umap
+umap = deps.umap
 cudf = deps.cudf
 
 logger = logging.getLogger(__name__)
