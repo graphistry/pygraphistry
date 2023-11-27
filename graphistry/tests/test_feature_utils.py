@@ -24,13 +24,11 @@ from graphistry.dep_manager import DepManager
 np.random.seed(137)
 
 deps = DepManager()
-dirty_cat = deps.dirty_cat
-scipy = deps.scipy
-sklearn = deps.sklearn
-if None not in [dirty_cat, scipy, sklearn]:
+has_dirty_cat = deps.dirty_cat
+has_scipy = deps.scipy
+has_sklearn = deps.sklearn
+if False not in [has_dirty_cat, has_scipy, has_sklearn]:
     has_min_dependancy = True
-else:
-    has_min_dependancy = False
 has_min_dependancy_text = deps.sentence_transformers
 
 logger = logging.getLogger(__name__)
@@ -216,7 +214,7 @@ class TestFeaturizeGetMethods(unittest.TestCase):
         
         # topic
         assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
-        # assert list(self.g3.get_matrix(['language', 'freedom']).columns) == freedom, self.g3.get_matrix(['language', 'freedom']).columns
+        assert list(self.g3.get_matrix(['language', 'freedom']).columns) == freedom, self.g3.get_matrix(['language', 'freedom']).columns
 
 class TestFastEncoder(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
@@ -307,7 +305,7 @@ class TestFeatureProcessors(unittest.TestCase):
                 )
                 self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
-    @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy, reason="requires minimal feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy, reason="requires minimal feature dependencies")
     def test_multi_label_binarizer(self):
         g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
         with warnings.catch_warnings():
@@ -356,10 +354,10 @@ class TestFeatureMethods(unittest.TestCase):
             self.cases_check_edge_attributes(g)
 
         cols = ndf.columns
-        # self.assertTrue(
-        #     np.all(ndf == df[cols]),
-        #     f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
-        # )
+        self.assertTrue(
+            np.allclose(ndf == df[cols]),
+            f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
+        )
 
     def _test_featurizations(self, g, use_cols, targets, name, kind, df):
         with warnings.catch_warnings():
@@ -385,8 +383,8 @@ class TestFeatureMethods(unittest.TestCase):
                                 use_scaler=None,
                                 use_scaler_target=None,
                                 use_ngrams=use_ngram,
-                                min_df=0.0,
-                                max_df=1.0,
+                                min_df=0,
+                                max_df=1.,
                                 cardinality_threshold=cardinality,
                                 cardinality_threshold_target=cardinality
                             )
