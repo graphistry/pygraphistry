@@ -18,7 +18,9 @@ core_requires = [
   'packaging >= 20.1',
   'setuptools',
   'scikit-learn',
-  'umap-learn'
+  'umap-learn',
+  'scipy',
+  'dirty-cat'
 ]
 
 stubs = [
