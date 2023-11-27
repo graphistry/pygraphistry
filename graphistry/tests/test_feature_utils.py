@@ -357,7 +357,7 @@ class TestFeatureMethods(unittest.TestCase):
 
         cols = ndf.columns
         self.assertTrue(
-            np.allclose(ndf == df[cols]),
+            np.allclose(ndf, df[cols]),
             f"Graphistry {kind}-dataframe does not match outside dataframe it was fed",
         )
 
