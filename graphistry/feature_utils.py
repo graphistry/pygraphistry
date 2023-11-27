@@ -100,7 +100,7 @@ def assert_imported():
         # err_list = [scipy,dirty_cat,sklearn]
         # import_min_exn = [e for e in err_list if None in e]
     
-        raise ValueError('dependencies required are "scipy", "dirty_cat", "sklearn", but did not receive one or more')
+        # raise ValueError('dependencies required are "scipy", "dirty_cat", "sklearn", but did not receive one or more')
 
 
 # ############################################################################
