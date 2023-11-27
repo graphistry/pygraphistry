@@ -346,14 +346,14 @@ class TestFeatureMethods(unittest.TestCase):
         ]
         self._check_attributes(g, attributes)
 
-    def cases_test_graph(self, g, name, value, kind="nodes", df=ndf_reddit):
-        print(f'<{name} test graph: {value}>')
-        if kind == "nodes":
-            ndf = g._nodes
-            self.cases_check_node_attributes(g)
-        else:
-            ndf = g._edges
-            self.cases_check_edge_attributes(g)
+    # def cases_test_graph(self, g, name, value, kind="nodes", df=ndf_reddit):
+    #     print(f'<{name} test graph: {value}>')
+    #     if kind == "nodes":
+    #         ndf = g._nodes
+    #         self.cases_check_node_attributes(g)
+    #     else:
+    #         ndf = g._edges
+    #         self.cases_check_edge_attributes(g)
 
         # cols = ndf.columns
         # self.assertTrue(
