@@ -92,19 +92,19 @@ def assert_imported():
         logger.debug(f"Dirty CAT VERSION: {dirty_cat_.__version__}")
         logger.debug(f"sklearn VERSION: {sklearn_.__version__}")
 
-    # else:
-    #     logger.error(  # noqa
-    #                  "AI Packages not found, trying running"  # noqa
-    #                  "`pip install graphistry[ai]`"  # noqa
-    #     )
-    #     err_list = [scipy_,dirty_cat_,sklearn_]
-    #     import_min_exn = [e for e in err_list if None in e]
+    else:
+        logger.error(  # noqa
+                     "AI Packages not found, trying running"  # noqa
+                     "`pip install graphistry[ai]`"  # noqa
+        )
+        err_list = [scipy_,dirty_cat_,sklearn_]
+        import_min_exn = [e for e in err_list if None in e]
     
-    #     raise ValueError(  # noqa
-    #         f'dependencies required are'
-    #         '"scipy", "dirty_cat", "sklearn",'
-    #         f'but did not receive: {import_min_exn}'
-    #     )
+        raise ValueError(  # noqa
+            f'dependencies required are'
+            '"scipy", "dirty_cat", "sklearn",'
+            f'but did not receive: {import_min_exn}'
+        )
 
 
 # ############################################################################
