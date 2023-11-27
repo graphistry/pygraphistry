@@ -103,7 +103,7 @@ def assert_imported():
         raise ValueError(  # noqa
             f'dependencies required are'
             '"scipy", "dirty_cat", "sklearn",'
-            f'but did not receive one or more' #{import_min_exn}'
+            f'but did not receive one or more'  # {import_min_exn}'
         )
 
 
