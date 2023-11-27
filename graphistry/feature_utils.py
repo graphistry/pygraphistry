@@ -141,11 +141,9 @@ def resolve_feature_engine(
     if feature_engine in ["none", "pandas", "dirty_cat", "torch"]:
         return feature_engine  # type: ignore
     if feature_engine == "auto":
-        SentenceTransformer = deps.sentence_transformers.SentenceTransformer
-        if SentenceTransformer:
+        if deps.sentence_transformers:
             return "torch"
-        dirty_cat = deps.dirty_cat
-        if dirty_cat:
+        if deps.dirty_cat:
             return "dirty_cat"
         return "pandas"
 
