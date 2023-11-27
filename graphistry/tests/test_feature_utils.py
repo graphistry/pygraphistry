@@ -24,10 +24,10 @@ from graphistry.dep_manager import DepManager
 np.random.seed(137)
 
 deps = DepManager()
-has_dirty_cat = deps.dirty_cat
-has_scipy = deps.scipy
-has_sklearn = deps.sklearn
-if False not in [has_dirty_cat, has_scipy, has_sklearn]:
+dirty_cat = deps.dirty_cat
+scipy = deps.scipy
+sklearn = deps.sklearn
+if False not in [dirty_cat, scipy, sklearn]:
     has_min_dependancy = True
 has_min_dependancy_text = deps.sentence_transformers
 

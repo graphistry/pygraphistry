@@ -1943,6 +1943,8 @@ class FeatureMixin(MIXIN_BASE):
         # `X = ndf[cols]` and `X = cols` resolve to same thing
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
+        
+        assert_imported()
 
         feature_engine = resolve_feature_engine(feature_engine)
         
