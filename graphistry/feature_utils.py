@@ -90,7 +90,7 @@ def assert_imported():
     if None not in [scipy_, dirty_cat_, sklearn_]:
         logger.debug(f"SCIPY VERSION: {scipy_.__version__}")
         logger.debug(f"Dirty CAT VERSION: {dirty_cat_.__version__}")
-        logger.debug(f"sklearn VERSIOgtN: {sklearn_.__version__}")
+        logger.debug(f"sklearn VERSION: {sklearn_.__version__}")
 
     else:
         logger.error(  # noqa
@@ -99,7 +99,12 @@ def assert_imported():
         )
         err_list = [scipy_,dirty_cat_,sklearn_]
         import_min_exn = [e for e in err_list if None in e]
-        raise import_min_exn
+    
+        raise ValueError(  # noqa
+            f'dependencies required are'
+            '"scipy", "dirty_cat", "sklearn",'
+            f'but did not receive: {import_min_exn}'
+        )
 
 
 # ############################################################################
