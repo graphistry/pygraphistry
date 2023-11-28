@@ -447,7 +447,7 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     @pytest.mark.skipif(not deps.cudf, reason="requires cudf")
     def setUp(self) -> None:
-        cudf = deps.cudf
+        # cudf = deps.cudf
         ndf_malware = pd.read_csv("graphistry/tests/data/malware_capture_bot.csv", index_col=0)
         g = graphistry.nodes(cudf.from_pandas(ndf_malware))
 
@@ -462,9 +462,9 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
         self.g3 = g3
         
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
-    @pytest.mark.skipif(not deps.cudf, reason="requires cudf")
+    # @pytest.mark.skipif(not deps.cudf, reason="requires cudf")
     def test_get_col_matrix(self):
-        cudf = deps.cudf
+        # cudf = deps.cudf
         # no edges so this should be None
         assert self.g2.get_matrix(kind='edges') is None
         
