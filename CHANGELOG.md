@@ -7,9 +7,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.29.7 - 2023-11-02]
+
+### Added
+
+* igraph: support `compute_igraph('community_optimal_modularity')`
+* igraph: `compute_igraph('articulation_points')` labels nodes that are articulation points
+
+### Fixed
+
+* Type error in arrow uploader exception handler
+* igraph: default coerce Graph-type node labels to strings, enabling plotting of g.compute_igraph('k_core')
+* igraph: fix coercions when using numeric IDs that were confused by igraph swizzling
+
+### Infra
+
+* dask: Fixed parsing error in hypergraph dask tests
+* igraph: Ensure in compute_igraph tests that default mode results coerce to arrow tables
+* igraph: Test chaining
+* tests: mount source folders to enable dev iterations without rebuilding
+
+## [0.29.6 - 2023-10-23]
+
 ### Docs
 
 * Memgraph: Add tutorial (https://github.com/graphistry/pygraphistry/pull/507 by https://github.com/karmenrabar)
+
+### Fixed
+
+* Guard against potential `requests`` null dereference in uploader error handling
+
+### Security
+
+* Add control `register(..., sso_opt_into_type='browser' | 'display' | None)`
+* Fix display of SSO URL
 
 ## [0.29.5 - 2023-08-23]
 

@@ -39,6 +39,7 @@ docker run \
     -e WITH_TYPECHECK=$WITH_TYPECHECK \
     -e WITH_TEST=$WITH_TEST \
     -e WITH_BUILD=$WITH_BUILD \
+    -v "`pwd`/../graphistry:/opt/pygraphistry/graphistry:ro" \
     --security-opt seccomp=unconfined \
     --rm \
     ${NETWORK} \
