@@ -81,9 +81,9 @@ else:
 deps = DepManager()
 
 # def assert_imported_text():
-#     Sentence_Transformer_ = deps.sentence_transformers
+#     Sentence_Transformer = deps.sentence_transformers.SentenceTransformer
 
-#     if not Sentence_Transformer_:
+#     if not Sentence_Transformer:
 #         logger.error(  # noqa
 #             "AI Package sentence_transformers not found,"
 #             "trying running `pip install graphistry[ai]`"
@@ -91,22 +91,27 @@ deps = DepManager()
 
 
 def assert_imported():
-    scipy_ = deps.scipy
-    dirty_cat_ = deps.dirty_cat
-    sklearn_ = deps.sklearn
-    if None not in [scipy_, dirty_cat_, sklearn_]:
-        logger.debug(f"SCIPY VERSION: {scipy_.__version__}")
-        logger.debug(f"Dirty CAT VERSION: {dirty_cat_.__version__}")
-        logger.debug(f"sklearn VERSIOgtN: {sklearn_.__version__}")
+    scipy = deps.scipy
+    dirty_cat = deps.dirty_cat
+    sklearn = deps.sklearn
+    if None not in [scipy, dirty_cat, sklearn]:
+        logger.debug(f"SCIPY VERSION: {scipy.__version__}")
+        logger.debug(f"Dirty CAT VERSION: {dirty_cat.__version__}")
+        logger.debug(f"sklearn VERSION: {sklearn.__version__}")
 
-    else:
-        logger.error(  # noqa
-                     "AI Packages not found, trying running"  # noqa
-                     "`pip install graphistry[ai]`"  # noqa
-        )
-        err_list = [scipy_,dirty_cat_,sklearn_]
-        import_min_exn = [e for e in err_list if None in e]
-        raise import_min_exn
+    # else:
+    #     logger.error(  # noqa
+    #                  "AI Packages not found, trying running"  # noqa
+    #                  "`pip install graphistry[ai]`"  # noqa
+    #     )
+    #     err_list = [scipy_,dirty_cat_,sklearn_]
+    #     import_min_exn = [e for e in err_list if None in e]
+    
+    #     raise ValueError(  # noqa
+    #         f'dependencies required are'
+    #         '"scipy", "dirty_cat", "sklearn",'
+    #         f'but did not receive: {import_min_exn}'
+    #     )
 
 
 def assert_imported_cucat():
@@ -172,11 +177,9 @@ def resolve_feature_engine(
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
     if feature_engine == "auto":
-        SentenceTransformer_ = deps.sentence_transformers
-        if SentenceTransformer_:
+        if deps.sentence_transformers:
             return "torch"
-        dirty_cat_ = deps.dirty_cat
-        if dirty_cat_:
+        if deps.dirty_cat:
             return "dirty_cat"
         return "pandas"
 
@@ -742,7 +745,7 @@ def encode_textual(
     max_df: float = 0.2,
     min_df: int = 3,
 ) -> Tuple[pd.DataFrame, List, Any]:
-    SentenceTransformer = deps.sentence_transformers
+    SentenceTransformer = deps.sentence_transformers.SentenceTransformer
 
     t = time()
     text_cols = get_textual_columns(
@@ -1176,8 +1179,7 @@ def process_nodes_dataframes(
     text_cols: List[str] = []
     text_model: Any = None
     text_enc = pd.DataFrame([])
-    SentenceTransformer_ = deps.sentence_transformers
-    if SentenceTransformer_ and (feature_engine in ["torch", "auto"]):
+    if deps.sentence_transformers and (feature_engine in ["torch", "auto"]):
         text_enc, text_cols, text_model = encode_textual(
             df,
             min_words=min_words,
@@ -1564,7 +1566,7 @@ def transform_text(
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
-    SentenceTransformer = deps.sentence_transformer()
+    SentenceTransformer = deps.sentence_transformers.SentenceTransformer
 
     logger.debug("Transforming text using:")
     if isinstance(text_model, Pipeline):
@@ -2056,6 +2058,8 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
 
+        assert_imported()
+        
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
         
         from .features import ModelDict
