@@ -2059,7 +2059,7 @@ class FeatureMixin(MIXIN_BASE):
         y_resolved = resolve_y(ndf, y)
 
         assert_imported()
-        
+
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
         
         from .features import ModelDict
@@ -2600,7 +2600,7 @@ class FeatureMixin(MIXIN_BASE):
         feature_engine = resolve_feature_engine(feature_engine)
 
         if feature_engine == 'dirty_cat' and not deps.cudf:
-            assert_imported_min()
+            assert_imported()
         elif feature_engine == 'cu_cat' and deps.cudf:
             assert_imported_cucat()
 
