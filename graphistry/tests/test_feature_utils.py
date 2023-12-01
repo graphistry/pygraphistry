@@ -185,9 +185,6 @@ class TestFeaturizeGetMethods(unittest.TestCase):
     
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self) -> None:
-        # cudf = deps.cudf
-        # if cudf:
-            # ndf_reddit = cudf.from_pandas(ndf_reddit)
         g = graphistry.nodes(ndf_reddit)
 
         g2 = g.featurize(y=double_target_reddit,  # ngrams
