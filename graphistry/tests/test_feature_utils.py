@@ -256,7 +256,7 @@ class TestFastEncoder(unittest.TestCase):
         
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
-        import dirty_cat
+        cu_cat = deps.cu_cat
         self.assertIsInstance(
             x,
             pd.DataFrame,
@@ -277,13 +277,13 @@ class TestFeatureProcessors(unittest.TestCase):
         )
         self.assertIsInstance(
             data_encoder,
-            dirty_cat.super_vectorizer.SuperVectorizer,
-            f"Data Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
+            cu_cat.super_vectorizer.SuperVectorizer,
+            f"Data Encoder is not a cu_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
         )
         self.assertIsInstance(
             target_encoder,
-            dirty_cat.super_vectorizer.SuperVectorizer,
-            f"Data Target Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
+            cu_cat.super_vectorizer.SuperVectorizer,
+            f"Data Target Encoder is not a cu_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
         )
 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
