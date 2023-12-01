@@ -41,14 +41,14 @@ if TYPE_CHECKING:
         from sentence_transformers import SentenceTransformer
     except:
         SentenceTransformer = Any
-    try:
-        from dirty_cat import (
-            SuperVectorizer,
-            GapEncoder,
-        )
-    except:
-        SuperVectorizer = Any
-        GapEncoder = Any
+    # try:
+    #     from dirty_cat import (
+    #         SuperVectorizer,
+    #         GapEncoder,
+    #     )
+    # except:
+    #     SuperVectorizer = Any
+    #     GapEncoder = Any
         
     try:
         from cu_cat import (
@@ -115,9 +115,12 @@ def assert_imported():
 
 
 def assert_imported_cucat():
+    cu_cat = deps.cu_cat
     cudf = deps.cudf
     cuml = deps.cuml
     if cuml is None or cudf is None:
+        scipy = deps.scipy
+        sklearn = deps.sklearn
         logger.error(  # noqa
                      "cudf or cuml not found, trying running"  # noqa
                      "`pip install rapids`"  # noqa
@@ -180,7 +183,10 @@ def resolve_feature_engine(
             return "torch"
         if deps.dirty_cat:
             return "dirty_cat"
-        return "pandas"
+        if deps.cu_cat:
+            return "cu_cat"
+        else:
+            return "pandas"
 
     raise ValueError(  # noqa
         f'feature_engine expected to be "none", '
@@ -922,14 +928,14 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    if feature_engine == CUDA_CAT and deps.cudf:
-        assert_imported_cucat()
-        from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
-        from cuml.preprocessing import FunctionTransformer
+    # if feature_engine == CUDA_CAT and deps.cudf:
+    assert_imported_cucat()
+    from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
+    from cuml.preprocessing import FunctionTransformer
 
-    else:  # if feature_engine == "dirty_cat":  # DIRTY_CAT
-        from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
-        from sklearn.preprocessing import FunctionTransformer
+    # else:  # if feature_engine == "dirty_cat":  # DIRTY_CAT
+    #     from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
+    #     from sklearn.preprocessing import FunctionTransformer
 
     t = time()
 
@@ -965,10 +971,10 @@ def process_dirty_dataframes(
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
-        if feature_engine == CUDA_CAT and deps.cudf:
-            logger.info(f"-Shape of [[cu_cat fit]] data {X_enc.shape}")
-        elif feature_engine == DIRTY_CAT:
-            logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
+        # if feature_engine == CUDA_CAT and deps.cudf:
+        logger.info(f"-Shape of [[cu_cat fit]] data {X_enc.shape}")
+        # elif feature_engine == DIRTY_CAT:
+            # logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
         logger.debug(f"-Transformers: \n{all_transformers}\n")
         logger.debug(
             f"-Transformed Columns: \n{features_transformed[:20]}...\n"
@@ -2598,10 +2604,10 @@ class FeatureMixin(MIXIN_BASE):
         """
         feature_engine = resolve_feature_engine(feature_engine)
 
-        if feature_engine == 'dirty_cat' and not deps.cudf:
-            assert_imported()
-        elif feature_engine == 'cu_cat' and deps.cudf:
-            assert_imported_cucat()
+        # if feature_engine == 'dirty_cat' and not deps.cudf:
+            # assert_imported()
+        # elif feature_engine == 'cu_cat' and deps.cudf:
+        assert_imported_cucat()
 
         if inplace:
             res = self
