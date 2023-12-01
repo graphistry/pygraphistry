@@ -1,7 +1,8 @@
-from typing import Any, Optional
+from typing import Any, List, Optional
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from .filter_by_dict import is_in, IsIn
 
 import logging
 logger = logging.getLogger(__name__)

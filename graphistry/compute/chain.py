@@ -141,6 +141,21 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
             ])
             print('# hits:', len(g_risky._nodes[ g_risky._nodes.hit ]))
 
+    **Example: Filter by multiple node types at each step using is_in**
+
+    ::
+
+            from graphistry.ast import n, e_forward, e_reverse, is_in
+
+            g_risky = g.chain([
+                n({"type": is_in(["person", "company"])}),
+                e_forward({"e_type": is_in(["owns", "reviews"])}, to_fixed=True),
+                n({"type": is_in(["transaction", "account"])}, name="hit"),
+                e_reverse(to_fixed=True),
+                n({"risk2": True})
+            ])
+            print('# hits:', len(g_risky._nodes[ g_risky._nodes.hit ]))
+
     """
 
     if len(ops) == 0:

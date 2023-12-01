@@ -1108,7 +1108,8 @@ g2.plot() # nodes are values from cols s, d, k1
     destination_node_match={"k2": 2})
   .chain([ # filter to subgraph
     n(),
-    n({'k2': 0}),
+    n({'k2': 0, "m": 'ok'}), #specific values
+    n({'type': is_in(["type1", "type2"])}), #multiple valid values
     n(name="start"), # add column 'start':bool
     e_forward({'k1': 'x'}, hops=1), # same API as hop()
     e_undirected(name='second_edge'),
@@ -1200,10 +1201,11 @@ g5.plot()
 Rich compound patterns are enabled via `.chain()`:
 
 ```python
-from graphistry import n, e_forward, e_reverse, e_undirected
+from graphistry import n, e_forward, e_reverse, e_undirected, is_in
 
 g2.chain([ n() ])
-g2.chain([ n({"v": 1, "y": True}) ])
+g2.chain([ n({"x": 1, "y": True}) ]),
+g2.chain([ n({"z": is_in([1,2,4,'z'])}) ]), # multiple valid values
 g2.chain([ e_forward({"type": "x"}, hops=2) ]) # simple multi-hop
 g3 = g2.chain([
   n(name="start"),  # tag node matches

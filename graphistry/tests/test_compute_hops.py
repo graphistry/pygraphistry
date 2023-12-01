@@ -2,8 +2,8 @@ import pandas as pd
 from common import NoAuthTestCase
 from functools import lru_cache
 
+from graphistry.compute.filter_by_dict import is_in
 from graphistry.tests.test_compute import CGFull
-
 
 @lru_cache(maxsize=1)
 def hops_graph():
@@ -180,3 +180,7 @@ class TestComputeHopMixin(NoAuthTestCase):
             destination_node_match={'t': 'm'})
         assert g5a._nodes.shape == (2, 2)
         assert g5a._edges.shape == (1, 3)
+
+    def test_is_in(self):
+        g = hops_graph()
+        assert g.hop(source_node_match={'node': is_in(['e', 'k'])})._edges.shape == (3, 3)
