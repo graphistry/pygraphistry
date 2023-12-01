@@ -931,7 +931,10 @@ def process_dirty_dataframes(
     # if feature_engine == CUDA_CAT and deps.cudf:
     assert_imported_cucat()
     from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
-    from cuml.preprocessing import FunctionTransformer
+    if deps.cuml:
+        from cuml.preprocessing import FunctionTransformer
+    else:
+        from sklearn.preprocessing import FunctionTransformer
 
     # else:  # if feature_engine == "dirty_cat":  # DIRTY_CAT
     #     from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
