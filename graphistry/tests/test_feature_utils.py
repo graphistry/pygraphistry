@@ -188,7 +188,6 @@ class TestFeaturizeGetMethods(unittest.TestCase):
         cudf = deps.cudf
         if cudf:
             ndf_reddit = cudf.from_pandas(ndf_reddit)
-            double_target_reddit = cudf.from_pandas(double_target_reddit)
         g = graphistry.nodes(ndf_reddit)
 
         g2 = g.featurize(y=double_target_reddit,  # ngrams
