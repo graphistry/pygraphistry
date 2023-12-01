@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+
+* chain/hop: `is_in()` membership predicate, `.chain([ n({'type': is_in(['a', 'b'])}) ])`
+
 ### Fixed
 
 * chain/hop: source_node_match was being mishandled when multiple node attributes exist

@@ -1,7 +1,15 @@
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+
+
+class IsIn():
+    def __init__(self, options: List[Any]) -> None:
+        self.options = options
+
+def is_in(options: List[Any]) -> IsIn:
+    return IsIn(options)
 
 
 def filter_by_dict(df, filter_dict: Optional[dict] = None) -> pd.DataFrame:
@@ -12,11 +20,25 @@ def filter_by_dict(df, filter_dict: Optional[dict] = None) -> pd.DataFrame:
     if filter_dict is None or filter_dict == {}:
         return df
 
-    for col in filter_dict.keys():
+    ins: Dict[str, IsIn] = {}
+    for col, val in filter_dict.items():
         if col not in df.columns:
             raise ValueError(f'Key "{col}" not in columns of df, available columns are: {df.columns}')
+        if isinstance(val, IsIn):
+            ins[col] = val
+    filter_dict_concrete = filter_dict if not ins else {
+        k: v
+        for k, v in filter_dict.items()
+        if not isinstance(v, IsIn)
+    }
 
-    hits = (df[list(filter_dict)] == pd.Series(filter_dict)).all(axis=1)
+    if filter_dict_concrete:
+        hits = (df[list(filter_dict_concrete)] == pd.Series(filter_dict_concrete)).all(axis=1)
+    else:
+        hits = df[[]].assign(x=True).x
+    if ins:
+        for col, val in ins.items():
+            hits = hits & df[col].isin(val.options)
     return df[hits]
 
 

@@ -2,7 +2,7 @@ import pandas as pd
 from common import NoAuthTestCase
 
 from graphistry.tests.test_compute_hops import hops_graph
-from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected
+from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in
 
 
 class TestComputeChainMixin(NoAuthTestCase):
@@ -100,3 +100,7 @@ class TestComputeChainMixin(NoAuthTestCase):
         assert sorted(g2._edges[ g2._edges.e2 ][g2._source].to_list()) == ["g", "l"]
         assert sorted(g2._edges[ g2._edges.e2 ][g2._destination].to_list()) == ["a", "b"]
         assert sorted(g2._nodes[ g2._nodes.n2 ][g2._node].to_list()) == ["a", "b"]
+
+    def test_chain_is_in(self):
+        g = hops_graph()
+        assert g.chain([n({'node': is_in(['e', 'k'])})])._nodes.shape == (2, 2)
