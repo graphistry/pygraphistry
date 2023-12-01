@@ -447,9 +447,11 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     @pytest.mark.skipif(not deps.cudf, reason="requires cudf")
     def setUp(self) -> None:
-        cudf = deps.cudf
         ndf_malware = pd.read_csv("graphistry/tests/data/malware_capture_bot.csv", index_col=0)
-        g = graphistry.nodes(cudf.from_pandas(ndf_malware))
+        cudf = deps.cudf
+        if cudf:
+            ndf_malware = cudf.from_pandas(ndf_malware)
+        g = graphistry.nodes(ndf_malware)
 
         g2 = g.featurize(y=cudf.from_pandas(double_target_reddit),  # ngrams
                 use_ngrams=True,
