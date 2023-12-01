@@ -90,14 +90,14 @@ deps = DepManager()
 #         )
 
 
-def assert_imported():
-    scipy = deps.scipy
-    dirty_cat = deps.dirty_cat
-    sklearn = deps.sklearn
-    if None not in [scipy, dirty_cat, sklearn]:
-        logger.debug(f"SCIPY VERSION: {scipy.__version__}")
-        logger.debug(f"Dirty CAT VERSION: {dirty_cat.__version__}")
-        logger.debug(f"sklearn VERSION: {sklearn.__version__}")
+# def assert_imported():
+#     scipy = deps.scipy
+#     dirty_cat = deps.dirty_cat
+#     sklearn = deps.sklearn
+#     if None not in [scipy, dirty_cat, sklearn]:
+#         logger.debug(f"SCIPY VERSION: {scipy.__version__}")
+#         logger.debug(f"Dirty CAT VERSION: {dirty_cat.__version__}")
+#         logger.debug(f"sklearn VERSION: {sklearn.__version__}")
 
     # else:
     #     logger.error(  # noqa
@@ -118,9 +118,16 @@ def assert_imported_cucat():
     cu_cat = deps.cu_cat
     cudf = deps.cudf
     cuml = deps.cuml
+    if None not in [cudf, cuml,cu_cat]:
+        logger.debug(f"CUML VERSION: {cuml.__version__}")
+        logger.debug(f"CUDF VERSION: {cudf.__version__}")
+        logger.debug(f"CUDF VERSION: {cu_cat.__version__}")
     if cuml is None or cudf is None:
         scipy = deps.scipy
         sklearn = deps.sklearn
+        if None not in [scipy, sklearn]:
+            logger.debug(f"SCIPY VERSION: {scipy.__version__}")
+            logger.debug(f"sklearn VERSION: {sklearn.__version__}")
         logger.error(  # noqa
                      "cudf or cuml not found, trying running"  # noqa
                      "`pip install rapids`"  # noqa
@@ -2066,7 +2073,8 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
 
-        assert_imported()
+        # assert_imported()
+        assert_imported_cucat()
 
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
         
