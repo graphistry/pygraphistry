@@ -59,7 +59,7 @@ def hop(self: Plottable,
         raise ValueError('Source and destination binding cannot be None, please set g._source and g._destination via bind() or edges()')
 
     hops_remaining = hops
-    wave_front = filter_by_dict(nodes[[ g2._node ]], source_node_match)
+    wave_front = filter_by_dict(nodes, source_node_match)[[ g2._node ]]
     matches_nodes = None
     matches_edges = edges_indexed[[EDGE_ID]][:0]
 
