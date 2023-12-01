@@ -278,12 +278,12 @@ class TestFeatureProcessors(unittest.TestCase):
         self.assertIsInstance(
             data_encoder,
             cu_cat.table_vectorizer.TableVectorizer,
-            f"Data Encoder is not a cu_cat.table_vectorizer.TableVectorizer instance for {name} {value}",
+            f"Data Encoder is not a cu_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
         )
         self.assertIsInstance(
             target_encoder,
             cu_cat.table_vectorizer.TableVectorizer,
-            f"Data Target Encoder is not a cu_cat.table_vectorizer.TableVectorizer instance for {name} {value}",
+            f"Data Target Encoder is not a cu_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
         )
 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
