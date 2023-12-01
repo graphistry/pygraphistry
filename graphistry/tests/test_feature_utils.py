@@ -185,13 +185,18 @@ class TestFeaturizeGetMethods(unittest.TestCase):
     
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self) -> None:
-        g = graphistry.nodes(ndf_reddit)
+        cudf = deps.cudf
+        if cudf:
+            ndf_malware = cudf.from_pandas(ndf_malware)
+            double_target_reddit = cudf.from_pandas(double_target_reddit)
+        g = graphistry.nodes(ndf_malware)
+
         g2 = g.featurize(y=double_target_reddit,  # ngrams
                 use_ngrams=True,
                 ngram_range=(1, 4)
                 )
         
-        g3 = g.featurize(**topic_model  # topic model       
+        g3 = g.featurize(**topic_model,feature_engine="cu_cat",  # topic model       
         )
         self.g = g
         self.g2 = g2
@@ -451,9 +456,10 @@ class TestFeaturizeGetMethodsCucat(unittest.TestCase):
         cudf = deps.cudf
         if cudf:
             ndf_malware = cudf.from_pandas(ndf_malware)
+            double_target_reddit = cudf.from_pandas(double_target_reddit)
         g = graphistry.nodes(ndf_malware)
 
-        g2 = g.featurize(y=cudf.from_pandas(double_target_reddit),  # ngrams
+        g2 = g.featurize(y=double_target_reddit,  # ngrams
                 use_ngrams=True,
                 ngram_range=(1, 4)
                 )
