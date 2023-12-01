@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Fixed
+
+* chain/hop: source_node_match was being mishandled when multiple node attributes exist
+
 ## [0.29.7 - 2023-11-02]
 
 ### Added
