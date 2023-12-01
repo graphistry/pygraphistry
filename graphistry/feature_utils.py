@@ -80,40 +80,6 @@ else:
 
 deps = DepManager()
 
-# def assert_imported_text():
-#     Sentence_Transformer = deps.sentence_transformers.SentenceTransformer
-
-#     if not Sentence_Transformer:
-#         logger.error(  # noqa
-#             "AI Package sentence_transformers not found,"
-#             "trying running `pip install graphistry[ai]`"
-#         )
-
-
-# def assert_imported():
-#     scipy = deps.scipy
-#     dirty_cat = deps.dirty_cat
-#     sklearn = deps.sklearn
-#     if None not in [scipy, dirty_cat, sklearn]:
-#         logger.debug(f"SCIPY VERSION: {scipy.__version__}")
-#         logger.debug(f"Dirty CAT VERSION: {dirty_cat.__version__}")
-#         logger.debug(f"sklearn VERSION: {sklearn.__version__}")
-
-    # else:
-    #     logger.error(  # noqa
-    #                  "AI Packages not found, trying running"  # noqa
-    #                  "`pip install graphistry[ai]`"  # noqa
-    #     )
-    #     err_list = [scipy_,dirty_cat_,sklearn_]
-    #     import_min_exn = [e for e in err_list if None in e]
-    
-    #     raise ValueError(  # noqa
-    #         f'dependencies required are'
-    #         '"scipy", "dirty_cat", "sklearn",'
-    #         f'but did not receive: {import_min_exn}'
-    #     )
-
-
 def assert_imported_cucat():
     cu_cat = deps.cu_cat
     cudf = deps.cudf
@@ -935,17 +901,13 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    # if feature_engine == CUDA_CAT and deps.cudf:
+
     assert_imported_cucat()
     from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
     if deps.cuml:
         from cuml.preprocessing import FunctionTransformer
     else:
         from sklearn.preprocessing import FunctionTransformer
-
-    # else:  # if feature_engine == "dirty_cat":  # DIRTY_CAT
-    #     from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
-    #     from sklearn.preprocessing import FunctionTransformer
 
     t = time()
 
@@ -1017,7 +979,6 @@ def process_dirty_dataframes(
     else:
         logger.info("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
-
 
     if multilabel and y is not None:
         y_enc, label_encoder = encode_multi_target(y, mlb=None)
@@ -2073,7 +2034,6 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
 
-        # assert_imported()
         assert_imported_cucat()
 
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
@@ -2615,9 +2575,6 @@ class FeatureMixin(MIXIN_BASE):
         """
         feature_engine = resolve_feature_engine(feature_engine)
 
-        # if feature_engine == 'dirty_cat' and not deps.cudf:
-            # assert_imported()
-        # elif feature_engine == 'cu_cat' and deps.cudf:
         assert_imported_cucat()
 
         if inplace:
