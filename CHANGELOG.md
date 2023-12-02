@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 * chain/hop: source_node_match was being mishandled when multiple node attributes exist
+* compute logging no longer default-overrides level to DEBUG
 
 ## [0.29.7 - 2023-11-02]
 
