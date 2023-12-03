@@ -190,14 +190,17 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
     #forwards
     g_stack : List[Plottable] = []
     for op in ops:
+        prev_step_nodes = (  # start from only prev step's wavefront node
+            None  # first uses full graph
+            if len(g_stack) == 0
+            else g_stack[-1]._nodes
+        )
         g_step = (
             op(
-                g=g,
-                prev_node_wavefront=(
-                    None  # first uses full graph
-                    if len(g_stack) == 0
-                    else g_stack[-1]._nodes
-                )))
+                g=g,  # transition via any original edge
+                prev_node_wavefront=prev_step_nodes,
+            )
+        )
         g_stack.append(g_step)
 
     encountered_nodes_df = pd.concat([
