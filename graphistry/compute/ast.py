@@ -136,6 +136,12 @@ class ASTEdge(ASTObject):
 
     def reverse(self) -> 'ASTEdge':
         # updates both edges and nodes
+        if self._direction == 'reverse':
+            direction = 'forward'
+        elif self._direction == 'forward':
+            direction = 'reverse'
+        else:
+            direction = 'undirected'
         return ASTEdge(
             direction=(
                 'forward' if self._direction == 'reverse' else 'reverse'
