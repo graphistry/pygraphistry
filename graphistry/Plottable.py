@@ -209,7 +209,8 @@ class Plottable(object):
         edge_match: Optional[dict] = None,
         source_node_match: Optional[dict] = None,
         destination_node_match: Optional[dict] = None,
-        return_as_wave_front: bool = False
+        return_as_wave_front: bool = False,
+        target_wave_front: Optional[pd.DataFrame] = None
     ) -> 'Plottable':
         if 1 + 1:
             raise RuntimeError('should not happen')
