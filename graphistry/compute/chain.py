@@ -210,9 +210,14 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
 
     logger.debug('============ BACKWARDS ============')
 
-    #backwards
-    g_stack_reverse : List[Plottable] = [g_stack[-1]]
+    g_stack_reverse : List[Plottable] = []
     for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
+        prev_loop_step = g_stack[-1] if len(g_stack_reverse) == 0 else g_stack_reverse[-1]
+        if len(g_stack_reverse) == len(g_stack) - 1:
+            prev_orig_step = None
+        else:
+            prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
+        assert prev_loop_step._nodes is not None
         g_step_reverse = (
             (op.reverse())(
 
@@ -227,10 +232,10 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
         g_stack_reverse.append(g_step_reverse)
 
     logger.debug('============ COMBINE NODES ============')
-    final_nodes_df = combine_steps(g, 'nodes', list(zip(reversed(ops), g_stack_reverse[1:])))
+    final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))))
 
     logger.debug('============ COMBINE EDGES ============')
-    final_edges_df = combine_steps(g, 'edges', list(zip(reversed(ops), g_stack_reverse[1:])))
+    final_edges_df = combine_steps(g, 'edges', list(zip(ops, reversed(g_stack_reverse))))
     if added_edge_index:
         final_edges_df = final_edges_df.drop(columns=['index'])
 
