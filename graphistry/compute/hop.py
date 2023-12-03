@@ -6,27 +6,37 @@ from .filter_by_dict import filter_by_dict
 
 
 def hop(self: Plottable,
-    nodes: Optional[pd.DataFrame] = None,
+    nodes: Optional[pd.DataFrame] = None,  # chain: incoming wavefront
     hops: Optional[int] = 1,
     to_fixed_point: bool = False,
     direction: str = 'forward',
     edge_match: Optional[dict] = None,
     source_node_match: Optional[dict] = None,
     destination_node_match: Optional[dict] = None,
-    return_as_wave_front = False
+    return_as_wave_front = False,
+    target_wave_front: Optional[pd.DataFrame] = None  # chain: limit hits to these for reverse pass
 ) -> Plottable:
     """
     Given a graph and some source nodes, return subgraph of all paths within k-hops from the sources
 
     g: Plotter
     nodes: dataframe with id column matching g._node. None signifies all nodes (default).
-    hops: how many hops to consider, if any bound (default 1)
+    hops: consider paths of length 1 to 'hops' steps, if any (default 1).
     to_fixed_point: keep hopping until no new nodes are found (ignores hops)
     direction: 'forward', 'reverse', 'undirected'
     edge_match: dict of kv-pairs to exact match (see also: filter_edges_by_dict)
     source_node_match: dict of kv-pairs to match nodes before hopping
     destination_node_match: dict of kv-pairs to match nodes after hopping (including intermediate)
     return_as_wave_front: Only return the nodes/edges reached, ignoring past ones (primarily for internal use)
+    target_wave_front: Only consider these nodes for reachability (primarily for internal use by reverse pass)
+    """
+
+    """
+    When called by chain() during reverse phase:
+    - return_as_wave_front: True
+    - this hop will be `op.reverse()`
+    - nodes will be the wavefront of the next step
+    
     """
 
     if not to_fixed_point and not isinstance(hops, int):
@@ -82,8 +92,9 @@ def hop(self: Plottable,
             new_node_ids_forward = hop_edges_forward[[g2._destination]].rename(columns={g2._destination: g2._node}).drop_duplicates()
 
             if destination_node_match is not None:
+                base_nodes = target_wave_front if target_wave_front is not None else g2._nodes
                 new_node_ids_forward = filter_by_dict(
-                    g2._nodes.merge(new_node_ids_forward, on=g2._node, how='inner'),
+                    base_nodes.merge(new_node_ids_forward, on=g2._node, how='inner'),
                     destination_node_match
                 )[[g2._node]]
                 hop_edges_forward = hop_edges_forward.merge(
@@ -105,8 +116,9 @@ def hop(self: Plottable,
             new_node_ids_reverse = hop_edges_reverse[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()
 
             if destination_node_match is not None:
+                base_nodes = target_wave_front if target_wave_front is not None else g2._nodes
                 new_node_ids_reverse = filter_by_dict(
-                    g2._nodes.merge(new_node_ids_reverse, on=g2._node, how='inner'),
+                    base_nodes.merge(new_node_ids_reverse, on=g2._node, how='inner'),
                     destination_node_match
                 )[[g2._node]]
                 hop_edges_reverse = hop_edges_reverse.merge(
@@ -161,7 +173,11 @@ def hop(self: Plottable,
 
     #hydrate nodes
     if self._nodes is not None:
-        final_nodes = self._nodes.merge(
+        if target_wave_front is not None:
+            rich_nodes = target_wave_front
+        else:
+            rich_nodes = self._nodes
+        final_nodes = rich_nodes.merge(
             matches_nodes if matches_nodes is not None else wave_front[:0],
             on=self._node,
             how='inner')

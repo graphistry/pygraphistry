@@ -30,8 +30,14 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
         logger.debug('EDGES << recompute forwards given reduced set')
         steps = [
             (
-                op,
-                op(g=g.edges(g_step._edges), prev_node_wavefront=g_step._nodes)
+                op,  # forward op
+                op(
+                    g=g.edges(g_step._edges),  # transition via any found edge
+                    prev_node_wavefront=g_step._nodes,  # start from where backwards step says is reachable
+
+                    #target_wave_front=steps[i+1][1]._nodes  # end at where next backwards step says is reachable
+                    target_wave_front=None  # ^^^ optimization: valid transitions already limit to known-good ones
+                )
             )
             for (op, g_step) in steps
         ]
@@ -199,6 +205,7 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
             op(
                 g=g,  # transition via any original edge
                 prev_node_wavefront=prev_step_nodes,
+                target_wave_front=None  # implicit any
             )
         )
         g_stack.append(g_step)
@@ -221,12 +228,16 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
         g_step_reverse = (
             (op.reverse())(
 
-                # all encountered nodes + step's edges
-                g=g_step.nodes(encountered_nodes_df),
+                # Edges: edges used in step (subset matching prev_node_wavefront will be returned)
+                # Nodes: nodes reached in step (subset matching prev_node_wavefront will be returned)
+                g=g_step,
 
                 # check for hits against fully valid targets
-                prev_node_wavefront=g_stack_reverse[-1]._nodes
+                # ast will replace g.node() with this as its starting points
+                prev_node_wavefront=prev_loop_step._nodes,
 
+                # only allow transitions to these nodes (vs prev_node_wavefront)
+                target_wave_front=prev_orig_step._nodes if prev_orig_step is not None else None
             )
         )
         g_stack_reverse.append(g_step_reverse)

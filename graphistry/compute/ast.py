@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, List, Optional, cast
 import pandas as pd
 
 from graphistry.Plottable import Plottable
@@ -20,7 +20,7 @@ class ASTObject(object):
         self._name = name
         pass
 
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame]) -> Plottable:
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
         raise RuntimeError('__call__ not implemented')
         
     def reverse(self) -> 'ASTObject':
@@ -45,12 +45,17 @@ class ASTNode(ASTObject):
     def __repr__(self) -> str:
         return f'ASTNode(filter_dict={self._filter_dict}, name={self._name})'
 
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame]) -> Plottable:
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
         out_g = (g
             .nodes(prev_node_wavefront if prev_node_wavefront is not None else g._nodes)
             .filter_nodes_by_dict(self._filter_dict)
             .edges(g._edges[:0])
         )
+        if target_wave_front is not None:
+            assert g._node is not None
+            reduced_nodes = cast(pd.DataFrame, out_g._nodes).merge(target_wave_front[[g._node]], on=g._node, how='inner')
+            out_g = out_g.nodes(reduced_nodes)
+
         if self._name is not None:
             out_g = out_g.nodes(out_g._nodes.assign(**{self._name: True}))
 
@@ -111,7 +116,7 @@ class ASTEdge(ASTObject):
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self._direction}, edge_match={self._edge_match}, hops={self._hops}, to_fixed_point={self._to_fixed_point}, source_node_match={self._source_node_match}, destination_node_match={self._destination_node_match}, name={self._name})'
 
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame]) -> Plottable:
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
 
         out_g = g.hop(
             nodes=prev_node_wavefront,
@@ -121,7 +126,8 @@ class ASTEdge(ASTObject):
             source_node_match=self._source_node_match,
             edge_match=self._edge_match,
             destination_node_match=self._destination_node_match,
-            return_as_wave_front=True
+            return_as_wave_front=True,
+            target_wave_front=target_wave_front
         )
 
         if self._name is not None:
