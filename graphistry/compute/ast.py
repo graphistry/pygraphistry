@@ -143,9 +143,7 @@ class ASTEdge(ASTObject):
         else:
             direction = 'undirected'
         return ASTEdge(
-            direction=(
-                'forward' if self._direction == 'reverse' else 'reverse'
-            ) if self._direction != 'undirected' else 'undirected',
+            direction=direction,
             edge_match=self._edge_match,
             hops=self._hops,
             to_fixed_point=self._to_fixed_point,
