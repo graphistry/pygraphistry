@@ -2,14 +2,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import pandas as pd
 
 from graphistry.Plottable import Plottable
-
-
-class IsIn():
-    def __init__(self, options: List[Any]) -> None:
-        self.options = options
-
-def is_in(options: List[Any]) -> IsIn:
-    return IsIn(options)
+from .predicates.is_in import IsIn
 
 
 def filter_by_dict(df, filter_dict: Optional[dict] = None) -> pd.DataFrame:

@@ -2,7 +2,7 @@ import pandas as pd
 from common import NoAuthTestCase
 from functools import lru_cache
 
-from graphistry.compute.filter_by_dict import is_in
+from graphistry.compute.ast import is_in
 from graphistry.tests.test_compute import CGFull
 
 @lru_cache(maxsize=1)

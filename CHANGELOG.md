@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * chain: optional df queries:
   - `chain([n(query='...')])`
   - `chain([e_forward(..., source_node_query='...', edge_query='...', destination_node_query='...')])`
+* `ASTPredicate` base class for filter matching
 
 ### Fixed
 
@@ -21,6 +22,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * chain: backwards validation pass was too permissive; add `target_wave_front` check`
 * hop: multi-hops with `source_node_match` specified was not checking intermediate hops
 * compute logging no longer default-overrides level to DEBUG
+
+### Changed
+
+* refactor: move `is_in`, `IsIn` implementations to `graphistry.ast.predicates`; old imports preserved
+* `IsIn` now implements `ASTPredicate`
 
 ## [0.29.7 - 2023-11-02]
 
