@@ -404,3 +404,245 @@ class TestComputeChainWavefront1Mixin(NoAuthTestCase):
         compare_graphs(g3_undirected_chain_closed, g_out_nodes, g_out_edges)
 
 
+class TestComputeChainWavefront2Mixin(NoAuthTestCase):
+    """
+    Test individual steps for 2-hop
+    """
+
+    def test_hop_chain_2(self):
+
+        g = chain_graph()
+
+        g_out_nodes_hop = [{'n': 'b'}, {'n': 'c'}]
+        g_out_nodes = [{'n': 'a'}, {'n': 'b'}, {'n': 'c'}]
+        g_out_edges = [{'s': 'a', 'd': 'b'}, {'s': 'b', 'd': 'c'}]
+
+        g2_forward = g.hop(
+            nodes = pd.DataFrame({'n': ['a']}),
+            hops = 2,
+            to_fixed_point = False,
+            direction = 'forward',
+            source_node_match = None,
+            edge_match = None,
+            destination_node_match = None,
+            return_as_wave_front = True
+        )
+        compare_graphs(g2_forward, g_out_nodes_hop, g_out_edges)
+
+        # source _node_match would require each hop to start with {'n': 'a'}
+        #g2_forward_triple = g.chain([
+        #    e_forward({}, source_node_match={'n': 'a'}, hops=2)
+        #])
+        #compare_graphs(g2_forward_triple, g_out_nodes, g_out_edges)
+
+        g2_forward_chain = g.chain([
+            n({'n': 'a'}),
+            e_forward({}, hops=2)
+        ])
+        compare_graphs(g2_forward_chain, g_out_nodes, g_out_edges)
+
+        g2_forward_chain_closed = g.chain([
+            n({'n': 'a'}),
+            e_forward({}, hops=2),
+            n({})
+        ])
+        compare_graphs(g2_forward_chain_closed, g_out_nodes, g_out_edges)
+
+
+    def test_hop_chain_2_reverse(self):
+
+        g = chain_graph()
+
+        g_out_nodes_hop = []
+        g_out_nodes = []
+        g_out_edges = []
+
+        g2_reverse = g.hop(
+            nodes = pd.DataFrame({'n': ['a']}),
+            hops = 2,
+            to_fixed_point = False,
+            direction = 'reverse',
+            source_node_match = None,
+            edge_match = None,
+            destination_node_match = None,
+            return_as_wave_front = True
+        )
+        compare_graphs(g2_reverse, g_out_nodes_hop, g_out_edges)
+
+        # source _node_match would require each hop to start with {'n': 'a'}
+        #g2_reverse_triple = g.chain([
+        #    e_reverse({}, source_node_match={'n': 'a'}, hops=2)
+        #])
+        #compare_graphs(g2_reverse_triple, g_out_nodes, g_out_edges)
+
+        g2_reverse_chain = g.chain([
+            n({'n': 'a'}),
+            e_reverse({}, hops=2)
+        ])
+        compare_graphs(g2_reverse_chain, g_out_nodes, g_out_edges)
+
+        g2_reverse_chain_closed = g.chain([
+            n({'n': 'a'}),
+            e_reverse({}, hops=2),
+            n({})
+        ])
+        compare_graphs(g2_reverse_chain_closed, g_out_nodes, g_out_edges)
+
+    def test_hop_chain_2_undirected(self):
+
+        g = chain_graph()
+
+        g_out_nodes_hop = [{'n': 'a'}, {'n': 'b'}, {'n': 'c'}]
+        g_out_nodes = [{'n': 'a'}, {'n': 'b'}, {'n': 'c'}]
+        g_out_edges = [{'s': 'a', 'd': 'b'}, {'s': 'b', 'd': 'c'}]
+
+        g2_undirected = g.hop(
+            nodes = pd.DataFrame({'n': ['a']}),
+            hops = 2,
+            to_fixed_point = False,
+            direction = 'undirected',
+            source_node_match = None,
+            edge_match = None,
+            destination_node_match = None,
+            return_as_wave_front = True
+        )
+        compare_graphs(g2_undirected, g_out_nodes_hop, g_out_edges)
+
+        # source _node_match would require each hop to start with {'n': 'a'}
+        #g2_undirected_triple = g.chain([
+        #    e_undirected({}, source_node_match={'n': 'a'}, hops=2)
+        #])
+        #compare_graphs(g2_undirected_triple, g_out_nodes, g_out_edges)
+
+        g2_undirected_chain = g.chain([
+            n({'n': 'a'}),
+            e_undirected({}, hops=2)
+        ])
+        compare_graphs(g2_undirected_chain, g_out_nodes, g_out_edges)
+
+        g2_undirected_chain_closed = g.chain([
+            n({'n': 'a'}),
+            e_undirected({}, hops=2),
+            n({})
+        ])
+        compare_graphs(g2_undirected_chain_closed, g_out_nodes, g_out_edges)
+
+
+    def test_hop_chain_2_end(self):
+
+        g = chain_graph()
+
+        g_out_nodes_hop = []
+        g_out_nodes = []
+        g_out_edges = []
+
+        g3_forward = g.hop(
+            nodes = pd.DataFrame({'n': ['d']}),
+            hops = 2,
+            to_fixed_point = False,
+            direction = 'forward',
+            source_node_match = None,
+            edge_match = None,
+            destination_node_match = None,
+            return_as_wave_front = True
+        )
+        compare_graphs(g3_forward, g_out_nodes_hop, g_out_edges)
+
+        # source _node_match would require each hop to start with {'n': 'd'}
+        #g3_forward_triple = g.chain([
+        #    e_forward({}, source_node_match={'n': 'd'}, hops=2)
+        #])
+        #compare_graphs(g3_forward_triple, g_out_nodes, g_out_edges)
+
+        g3_forward_chain = g.chain([
+            n({'n': 'd'}),
+            e_forward({}, hops=2)
+        ])
+        compare_graphs(g3_forward_chain, g_out_nodes, g_out_edges)
+
+        g3_forward_chain_closed = g.chain([
+            n({'n': 'd'}),
+            e_forward({}, hops=2),
+            n({})
+        ])
+        compare_graphs(g3_forward_chain_closed, g_out_nodes, g_out_edges)
+
+
+    def test_hop_chain_2_end_reverse(self):
+
+        g = chain_graph()
+
+        g_out_nodes_hop = [{'n': 'b'}, {'n': 'c'}]
+        g_out_nodes = [{'n': 'b'}, {'n': 'c'}, {'n': 'd'}]
+        g_out_edges = [{'s': 'b', 'd': 'c'}, {'s': 'c', 'd': 'd'}]
+
+        g3_reverse = g.hop(
+            nodes = pd.DataFrame({'n': ['d']}),
+            hops = 2,
+            to_fixed_point = False,
+            direction = 'reverse',
+            source_node_match = None,
+            edge_match = None,
+            destination_node_match = None,
+            return_as_wave_front = True
+        )
+        compare_graphs(g3_reverse, g_out_nodes_hop, g_out_edges)
+
+        # source _node_match would require each hop to start with {'n': 'd'}
+        # g3_reverse_triple = g.chain([
+        #    e_reverse({}, source_node_match={'n': 'd'}, hops=2)
+        #])
+        #compare_graphs(g3_reverse_triple, g_out_nodes, g_out_edges)
+
+        g3_reverse_chain = g.chain([
+            n({'n': 'd'}),
+            e_reverse({}, hops=2)
+        ])
+        compare_graphs(g3_reverse_chain, g_out_nodes, g_out_edges)
+
+        g3_reverse_chain_closed = g.chain([
+            n({'n': 'd'}),
+            e_reverse({}, hops=2),
+            n({})
+        ])
+        compare_graphs(g3_reverse_chain_closed, g_out_nodes, g_out_edges)
+
+    
+    def test_hop_chain_2_end_undirected(self):
+
+        g = chain_graph()
+
+        g_out_nodes_hop = [{'n': 'b'}, {'n': 'c'}, {'n': 'd'}]
+        g_out_nodes = [{'n': 'b'}, {'n': 'c'}, {'n': 'd'}]
+        g_out_edges = [{'s': 'b', 'd': 'c'}, {'s': 'c', 'd': 'd'}]
+
+        g3_undirected = g.hop(
+            nodes = pd.DataFrame({'n': ['d']}),
+            hops = 2,
+            to_fixed_point = False,
+            direction = 'undirected',
+            source_node_match = None,
+            edge_match = None,
+            destination_node_match = None,
+            return_as_wave_front = True
+        )
+        compare_graphs(g3_undirected, g_out_nodes_hop, g_out_edges)
+
+        # source _node_match would require each hop to start with {'n': 'd'}
+        #g3_undirected_triple = g.chain([
+        #    e_undirected({}, source_node_match={'n': 'd'}, hops=2)
+        #])
+        #compare_graphs(g3_undirected_triple, g_out_nodes, g_out_edges)
+
+        g3_undirected_chain = g.chain([
+            n({'n': 'd'}),
+            e_undirected({}, hops=2)
+        ])
+        compare_graphs(g3_undirected_chain, g_out_nodes, g_out_edges)
+
+        g3_undirected_chain_closed = g.chain([
+            n({'n': 'd'}),
+            e_undirected({}, hops=2),
+            n({})
+        ])
+        compare_graphs(g3_undirected_chain_closed, g_out_nodes, g_out_edges)
