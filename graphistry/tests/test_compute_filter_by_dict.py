@@ -1,7 +1,8 @@
 import pandas as pd
 from functools import lru_cache
 
-from graphistry.compute.filter_by_dict import filter_by_dict, is_in, IsIn
+from graphistry.compute.ast import is_in, IsIn
+from graphistry.compute.filter_by_dict import filter_by_dict
 from graphistry.tests.test_compute import CGFull
 
 @lru_cache(maxsize=1)

@@ -2,7 +2,9 @@ from typing import Any, List, Optional, cast
 import pandas as pd
 
 from graphistry.Plottable import Plottable
-from .filter_by_dict import is_in, IsIn
+from .predicates.ASTPredicate import ASTPredicate
+from .predicates.is_in import is_in, IsIn
+from .filter_by_dict import filter_by_dict
 
 import logging
 logger = logging.getLogger(__name__)
@@ -15,6 +17,7 @@ logger = logging.getLogger(__name__)
 class ASTObject(object):
     """
     Internal, not intended for use outside of this module.
+    These are operator-level expressions used as g.chain(List<ASTObject>)
     """
     def __init__(self, name: Optional[str] = None):
         self._name = name
