@@ -69,21 +69,36 @@ def hop(self: Plottable,
         raise ValueError('Source and destination binding cannot be None, please set g._source and g._destination via bind() or edges()')
 
     hops_remaining = hops
-    wave_front = filter_by_dict(nodes, source_node_match)[[ g2._node ]]
+
+    wave_front = nodes[[g2._node]][:0]
+
     matches_nodes = None
     matches_edges = edges_indexed[[EDGE_ID]][:0]
 
+    #richly-attributed subset for dest matching & return-enriching
+    base_target_nodes = target_wave_front if target_wave_front is not None else g2._nodes
+
+    first_iter = True
     while True:
         if not to_fixed_point and hops_remaining is not None:
             if hops_remaining < 1:
                 break
             hops_remaining = hops_remaining - 1
+        
+        assert len(wave_front.columns) == 1, "just indexes"
+        wave_front_iter : pd.DataFrame = (
+            filter_by_dict(
+                nodes if first_iter else wave_front.merge(nodes, on=g2._node, how='left'),
+                source_node_match
+            )[[ g2._node ]]
+        )
+        first_iter = False
 
         hop_edges_forward = None
         new_node_ids_forward = None
         if direction in ['forward', 'undirected']:
             hop_edges_forward = (
-                wave_front.merge(
+                wave_front_iter.merge(
                     edges_indexed[[g2._source, g2._destination, EDGE_ID]].assign(**{g2._node: edges_indexed[g2._source]}),
                     how='inner',
                     on=g2._node)
@@ -94,7 +109,7 @@ def hop(self: Plottable,
             if destination_node_match is not None:
                 base_nodes = target_wave_front if target_wave_front is not None else g2._nodes
                 new_node_ids_forward = filter_by_dict(
-                    base_nodes.merge(new_node_ids_forward, on=g2._node, how='inner'),
+                    base_target_nodes.merge(new_node_ids_forward, on=g2._node, how='inner'),
                     destination_node_match
                 )[[g2._node]]
                 hop_edges_forward = hop_edges_forward.merge(
@@ -106,8 +121,9 @@ def hop(self: Plottable,
         hop_edges_reverse = None
         new_node_ids_reverse = None
         if direction in ['reverse', 'undirected']:
+            #TODO limit by target_wave_front if exists?
             hop_edges_reverse = (
-                wave_front.merge(
+                wave_front_iter.merge(
                     edges_indexed[[g2._destination, g2._source, EDGE_ID]].assign(**{g2._node: edges_indexed[g2._destination]}),
                     how='inner',
                     on=g2._node)
@@ -118,7 +134,7 @@ def hop(self: Plottable,
             if destination_node_match is not None:
                 base_nodes = target_wave_front if target_wave_front is not None else g2._nodes
                 new_node_ids_reverse = filter_by_dict(
-                    base_nodes.merge(new_node_ids_reverse, on=g2._node, how='inner'),
+                    base_target_nodes.merge(new_node_ids_reverse, on=g2._node, how='inner'),
                     destination_node_match
                 )[[g2._node]]
                 hop_edges_reverse = hop_edges_reverse.merge(
