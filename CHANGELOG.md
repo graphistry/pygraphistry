@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 * chain/hop: `is_in()` membership predicate, `.chain([ n({'type': is_in(['a', 'b'])}) ])`
+* hop: optional df queries - `hop(..., source_node_query='...', edge_query='...', destination_node_query='...')`
+* chain: optional df queries:
+  - `chain([n(query='...')])`
+  - `chain([e_forward(..., source_node_query='...', edge_query='...', destination_node_query='...')])`
 
 ### Fixed
 
