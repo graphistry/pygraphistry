@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing_extensions import Literal
 import pandas as pd
 
 from .ASTPredicate import ASTPredicate
