@@ -147,6 +147,25 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
+* Cypher-style graph pattern mining queries on dataframes ([ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb))
+
+  Run Cypher-style graph queries natively on dataframes without going to a database or Java:
+
+    ```python
+    from graphistry import n, e_undirected, is_in
+
+    g2 = g.chain([
+      n({'user': 'Biden'}),
+      e_undirected(),
+      n(name='bridge'),
+      e_undirected(),
+      n({'user': is_in(['Trump', 'Obama'])})
+    ])
+
+    print('# bridges', len(g2._nodes[g2._nodes.bridge]))
+    g2.plot()
+    ```
+
 * [Spark](https://spark.apache.org/)/[Databricks](https://databricks.com/) ([ipynb demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb), [dbc demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.dbc))
 
     ```python
@@ -1217,6 +1236,10 @@ assert 'pagerank' in g2._nodes.columns
 ```
 
 #### Graph pattern matching
+
+PyGraphistry supports a PyData-native variant of the popular Cypher graph query language, meaning you can do graph pattern matching directly from Pandas dataframes without installing a database or Java
+
+See also [graph pattern matching tutorial](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb)
 
 Traverse within a graph, or expand one graph against another
 

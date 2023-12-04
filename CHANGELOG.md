@@ -36,6 +36,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Docs
 
 * hop/chain: new query and predicate forms
+* hop/chain graph pattern mining tutorial: [ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb)
 
 ## [0.29.7 - 2023-11-02]
 
