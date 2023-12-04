@@ -119,6 +119,7 @@ def hop(self: Plottable,
             )
             new_node_ids_forward = hop_edges_forward[[g2._destination]].rename(columns={g2._destination: g2._node}).drop_duplicates()
 
+            if destination_node_query is not None or destination_node_match is not None:
                 new_node_ids_forward = query_if_not_none(
                     destination_node_query,
                     filter_by_dict(
@@ -144,6 +145,7 @@ def hop(self: Plottable,
             )
             new_node_ids_reverse = hop_edges_reverse[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()
 
+            if destination_node_query is not None or destination_node_match is not None:
                 new_node_ids_reverse = query_if_not_none(
                     destination_node_query,
                     filter_by_dict(
