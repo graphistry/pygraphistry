@@ -180,7 +180,7 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert g5a._nodes.shape == (2, 2)
         assert g5a._edges.shape == (1, 3)
 
-    def test_is_in(self):
+    def test_predicate_is_in(self):
         g = hops_graph()
         assert g.hop(source_node_match={'node': is_in(['e', 'k'])})._edges.shape == (3, 3)
 
