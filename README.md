@@ -1265,7 +1265,7 @@ g2b = g2.hop(
   edge_match={"v": 1, "type": "z"},
   destination_node_match={g2._node: "b"})
 g2b = g2.hop(
-  source_node_query='n == "a",
+  source_node_query='n == "a"',
   edge_query='v == 1 and type == "z"',
   destination_node_query='n == "b"')
 
