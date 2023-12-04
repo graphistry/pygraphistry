@@ -25,7 +25,7 @@ from . import constants as config
 from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger, check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
-from .dep_manager import DepManager
+from .dep_manager import deps
 
 # add this inside classes and have a method that can set log level
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)
@@ -70,8 +70,6 @@ else:
 
 
 #@check_set_memoize
-
-deps = DepManager()
 
 # def assert_imported_text():
 #     Sentence_Transformer = deps.sentence_transformers.SentenceTransformer
