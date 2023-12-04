@@ -101,7 +101,7 @@ class TestComputeChainMixin(NoAuthTestCase):
             e_forward({}, hops=1)
         ])
 
-        assert g2b._nodes.equals(g2a._nodes)
+        assert g2b._nodes.sort_values(by=['node']).reset_index(drop=True).equals(g2a._nodes.sort_values(by=['node']).reset_index(drop=True))
         assert g2b._edges.equals(g2b._edges)
 
     def test_chain_named(self):
