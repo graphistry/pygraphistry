@@ -121,7 +121,7 @@ class TestComputeChainMixin(NoAuthTestCase):
         assert sorted(g2._edges[ g2._edges.e2 ][g2._destination].to_list()) == ["a", "b"]
         assert sorted(g2._nodes[ g2._nodes.n2 ][g2._node].to_list()) == ["a", "b"]
 
-    def test_chain_is_in(self):
+    def test_chain_predicate_is_in(self):
         g = hops_graph()
         assert g.chain([n({'node': is_in(['e', 'k'])})])._nodes.shape == (2, 2)
 

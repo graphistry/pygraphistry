@@ -15,6 +15,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - `chain([n(query='...')])`
   - `chain([e_forward(..., source_node_query='...', edge_query='...', destination_node_query='...')])`
 * `ASTPredicate` base class for filter matching
+* Additional predicates for hop and chain match expressions:
+  - categorical: is_in (example above), duplicated
+  - temporal: is_month_start, is_month_end, is_quarter_start, is_quarter_end, is_year_start, is_year_end, is_leap_year
+  - numeric: gt, lt, ge, le, eq, ne, between, isna, notna
+  - str: contains, startswith, endswith, match, isnumeric, isalpha, isdigit, islower, isupper, isspace, isalnum, isdecimal, istitle, isnull, notnull
 
 ### Fixed
 
@@ -27,6 +32,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * refactor: move `is_in`, `IsIn` implementations to `graphistry.ast.predicates`; old imports preserved
 * `IsIn` now implements `ASTPredicate`
+
+### Docs
+
+* hop/chain: new query and predicate forms
 
 ## [0.29.7 - 2023-11-02]
 
