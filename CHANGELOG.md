@@ -14,6 +14,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 * chain/hop: source_node_match was being mishandled when multiple node attributes exist
+* chain: backwards validation pass was too permissive; add `target_wave_front` check`
+* hop: multi-hops with `source_node_match` specified was not checking intermediate hops
 * compute logging no longer default-overrides level to DEBUG
 
 ## [0.29.7 - 2023-11-02]
