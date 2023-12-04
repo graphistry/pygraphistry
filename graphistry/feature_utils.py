@@ -141,7 +141,7 @@ def resolve_feature_engine(
     if feature_engine == "auto":
         if deps.sentence_transformers:
             return "torch"
-        if deps.dirty_cat:
+        if deps.dirty_cat and deps.scipy and deps.sklearn:
             return "dirty_cat"
         return "pandas"
 
