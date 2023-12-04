@@ -646,3 +646,47 @@ class TestComputeChainWavefront2Mixin(NoAuthTestCase):
             n({})
         ])
         compare_graphs(g3_undirected_chain_closed, g_out_nodes, g_out_edges)
+
+class TestComputeChainQuery(NoAuthTestCase):
+
+    def test_node_query(self):
+
+        g = chain_graph()
+
+        g2 = g.chain([
+            n(query='n == "a"')
+        ])
+
+        assert g2._nodes.to_dict(orient='records') == [{'n': 'a'}]
+        assert g2._edges.to_dict(orient='records') == []
+
+    def test_edge_query(self):
+
+        g = chain_graph()
+
+        g2 = g.chain([
+            e_forward(edge_query='s == "a"')
+        ])
+
+        assert g2._nodes.to_dict(orient='records') == [{'n': 'a'}, {'n': 'b'}]
+        assert g2._edges.to_dict(orient='records') == [{'s': 'a', 'd': 'b'}]
+
+    def test_edge_source_query(self):
+
+        g = chain_graph()
+
+        g2 = g.chain([
+            e_forward(source_node_query='n == "a"')
+        ])
+        assert g2._nodes.to_dict(orient='records') == [{'n': 'a'}, {'n': 'b'}]
+        assert g2._edges.to_dict(orient='records') == [{'s': 'a', 'd': 'b'}]
+
+    def test_edge_destination_query(self):
+
+        g = chain_graph()
+
+        g2 = g.chain([
+            e_forward(destination_node_query='n == "b"')
+        ])
+        assert g2._nodes.to_dict(orient='records') == [{'n': 'a'}, {'n': 'b'}]
+        assert g2._edges.to_dict(orient='records') == [{'s': 'a', 'd': 'b'}]

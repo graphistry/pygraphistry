@@ -5,6 +5,12 @@ from graphistry.Plottable import Plottable
 from .filter_by_dict import filter_by_dict
 
 
+def query_if_not_none(query: Optional[str], df: pd.DataFrame) -> pd.DataFrame:
+    if query is None:
+        return df
+    return df.query(query)
+
+
 def hop(self: Plottable,
     nodes: Optional[pd.DataFrame] = None,  # chain: incoming wavefront
     hops: Optional[int] = 1,
@@ -13,6 +19,9 @@ def hop(self: Plottable,
     edge_match: Optional[dict] = None,
     source_node_match: Optional[dict] = None,
     destination_node_match: Optional[dict] = None,
+    source_node_query: Optional[str] = None,
+    destination_node_query: Optional[str] = None,
+    edge_query: Optional[str] = None,
     return_as_wave_front = False,
     target_wave_front: Optional[pd.DataFrame] = None  # chain: limit hits to these for reverse pass
 ) -> Plottable:
@@ -25,8 +34,11 @@ def hop(self: Plottable,
     to_fixed_point: keep hopping until no new nodes are found (ignores hops)
     direction: 'forward', 'reverse', 'undirected'
     edge_match: dict of kv-pairs to exact match (see also: filter_edges_by_dict)
-    source_node_match: dict of kv-pairs to match nodes before hopping
+    source_node_match: dict of kv-pairs to match nodes before hopping (including intermediate)
     destination_node_match: dict of kv-pairs to match nodes after hopping (including intermediate)
+    source_node_query: dataframe query to match nodes before hopping (including intermediate)
+    destination_node_query: dataframe query to match nodes after hopping (including intermediate)
+    edge_query: dataframe query to match edges before hopping (including intermediate)
     return_as_wave_front: Only return the nodes/edges reached, ignoring past ones (primarily for internal use)
     target_wave_front: Only consider these nodes for reachability (primarily for internal use by reverse pass)
     """
@@ -56,10 +68,10 @@ def hop(self: Plottable,
     if g2._edge is None:
         if 'index' in g2._edges.columns:
             raise ValueError('Edges cannot have column "index", please remove or set as g._edge via bind() or edges()')
-        edges_indexed = g2.filter_edges_by_dict(edge_match)._edges.reset_index()
+        edges_indexed = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges).reset_index()
         EDGE_ID = 'index'
     else:
-        edges_indexed = g2.filter_edges_by_dict(edge_match)._edges
+        edges_indexed = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges)
         EDGE_ID = g2._edge
 
     if g2._node is None:
@@ -86,12 +98,13 @@ def hop(self: Plottable,
             hops_remaining = hops_remaining - 1
         
         assert len(wave_front.columns) == 1, "just indexes"
-        wave_front_iter : pd.DataFrame = (
-            filter_by_dict(
-                nodes if first_iter else wave_front.merge(nodes, on=g2._node, how='left'),
-                source_node_match
-            )[[ g2._node ]]
-        )
+        wave_front_iter : pd.DataFrame = query_if_not_none(
+            source_node_query,
+                filter_by_dict(
+                    nodes if first_iter else wave_front.merge(nodes, on=g2._node, how='left'),
+                    source_node_match
+                )
+        )[[ g2._node ]]
         first_iter = False
 
         hop_edges_forward = None
@@ -106,12 +119,12 @@ def hop(self: Plottable,
             )
             new_node_ids_forward = hop_edges_forward[[g2._destination]].rename(columns={g2._destination: g2._node}).drop_duplicates()
 
-            if destination_node_match is not None:
-                base_nodes = target_wave_front if target_wave_front is not None else g2._nodes
-                new_node_ids_forward = filter_by_dict(
-                    base_target_nodes.merge(new_node_ids_forward, on=g2._node, how='inner'),
-                    destination_node_match
-                )[[g2._node]]
+                new_node_ids_forward = query_if_not_none(
+                    destination_node_query,
+                    filter_by_dict(
+                        base_target_nodes.merge(new_node_ids_forward, on=g2._node, how='inner'),
+                        destination_node_match
+                ))[[g2._node]]
                 hop_edges_forward = hop_edges_forward.merge(
                     new_node_ids_forward.rename(columns={g2._node: g2._destination}),
                     how='inner',
@@ -131,12 +144,12 @@ def hop(self: Plottable,
             )
             new_node_ids_reverse = hop_edges_reverse[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()
 
-            if destination_node_match is not None:
-                base_nodes = target_wave_front if target_wave_front is not None else g2._nodes
-                new_node_ids_reverse = filter_by_dict(
-                    base_target_nodes.merge(new_node_ids_reverse, on=g2._node, how='inner'),
-                    destination_node_match
-                )[[g2._node]]
+                new_node_ids_reverse = query_if_not_none(
+                    destination_node_query,
+                    filter_by_dict(
+                        base_target_nodes.merge(new_node_ids_reverse, on=g2._node, how='inner'),
+                        destination_node_match
+                ))[[g2._node]]
                 hop_edges_reverse = hop_edges_reverse.merge(
                     new_node_ids_reverse.rename(columns={g2._node: g2._source}),
                     how='inner',

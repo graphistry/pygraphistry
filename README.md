@@ -1073,7 +1073,7 @@ g.addStyle(logo={
 The below methods let you quickly manipulate graphs directly and with dataframe methods: Search, pattern mine, transform, and more:
 
 ```python
-from graphistry import n, e_forward, e_reverse, e_undirected
+from graphistry import n, e_forward, e_reverse, e_undirected, is_in
 g = (graphistry
   .edges(pd.DataFrame({
     's': ['a', 'b'],
@@ -1101,19 +1101,41 @@ g2.plot() # nodes are values from cols s, d, k1
   .hop( # filter to subgraph
     #almost all optional
     direction='forward', # 'reverse', 'undirected'
-    hops=1, # number or None if to_fixed_point
+    hops=2, # number (1..n hops, inclusive) or None if to_fixed_point
     to_fixed_point=False, 
-    source_node_match={"k2": 0},
+
+    #every edge source node must match these
+    source_node_match={"k2": 0, "k3": is_in(['a', 'b', 3, 4])},
+    source_node_query='k2 == 0',
+
+    #every edge must match these
     edge_match={"k1": "x"},
-    destination_node_match={"k2": 2})
+    edge_query='k1 == "x"',
+
+    #every edge destination node must match these
+    destination_node_match={"k2": 2},
+    destination_node_query='k2 == 2 or k2 == 4',
+  )
   .chain([ # filter to subgraph
     n(),
     n({'k2': 0, "m": 'ok'}), #specific values
     n({'type': is_in(["type1", "type2"])}), #multiple valid values
+    n(query='k2 == 0 or k2 == 4'), #dataframe query
     n(name="start"), # add column 'start':bool
     e_forward({'k1': 'x'}, hops=1), # same API as hop()
     e_undirected(name='second_edge'),
+    e_reverse(
+      {'k1': 'x'}, # edge property match
+      hops=2, # 1 to 2 hops
+      #same API as hop()
+      source_node_match={"k2": 2},
+      source_node_query='k2 == 2 or k2 == 4',
+      edge_match={"k1": "x"},
+      edge_query='k1 == "x"',
+      destination_node_match={"k2": 0},
+      destination_node_query='k2 == 0')
   ])
+  # replace as one node the node w/ given id + transitively connected nodes w/ col=attr
   .collapse(node='some_id', column='some_col', attribute='some val')
 ```
 
@@ -1123,6 +1145,30 @@ g2.plot() # nodes are values from cols s, d, k1
 df = pd.read_csv('events.csv')
 hg = graphistry.hypergraph(df, ['user', 'email', 'org'], direct=True)
 g = hg['graph']  # g._edges: | src, dst, user, email, org, time, ... |
+g.plot()
+```
+
+```python
+hg = graphistry.hypergraph(
+  df,
+  ['from_user', 'to_user', 'email', 'org'],
+  direct=True,
+  opts={
+
+   # when direct=True, can define src -> [ dst1, dst2, ...] edges
+  'EDGES': {
+    'org': ['from_user'], # org->from_user
+    'from_user': ['email', 'to_user'],  #from_user->email, from_user->to_user
+  },
+
+  'CATEGORIES': {
+    # determine which columns share the same namespace for node generation:
+    # - if user 'louie' is both a from_user and to_user, show as 1 node
+    # - if a user & org are both named 'louie', they will appear as 2 different nodes
+    'user': ['from_user', 'to_user']
+  }
+})
+g = hg['graph']
 g.plot()
 ```
 
