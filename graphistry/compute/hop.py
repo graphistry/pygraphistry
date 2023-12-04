@@ -169,8 +169,9 @@ def hop(self: Plottable,
                 + ( [ new_node_ids_forward ] if new_node_ids_forward is not None else mt )  # noqa: W503
                 + ( [ new_node_ids_reverse] if new_node_ids_reverse is not None else mt ),  # noqa: W503
             ignore_index=True, sort=False).drop_duplicates()
-
-        # Finally add initial nodes as confirmed also match edge + post-node predicates, not just pre-node predicates 
+        # Finally include all initial root nodes matched against, now that edge triples satisfy all source/dest/edge predicates
+        # Only run first iteration b/c root nodes already accounted for in subsequent
+        # In wavefront mode, skip, as we only want to return reached nodes
         if matches_nodes is None:
             if return_as_wave_front:
                 matches_nodes = new_node_ids[:0]

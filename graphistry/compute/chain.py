@@ -193,7 +193,11 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
 
     logger.debug('============ FORWARDS ============')
 
-    #forwards
+    # Forwards
+    # This computes valid path *prefixes*, where each g nodes/edges is the path wavefront:
+    #  g_step._nodes: The nodes reached in this step
+    #  g_step._edges: The edges used to reach those nodes
+    # At the paths are prefixes, wavefront nodes may invalid wrt subsequent steps (e.g., halt early)
     g_stack : List[Plottable] = []
     for op in ops:
         prev_step_nodes = (  # start from only prev step's wavefront node
@@ -217,6 +221,9 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
 
     logger.debug('============ BACKWARDS ============')
 
+    # Backwards
+    # Compute reverse and thus complete paths. Dropped nodes/edges are thus the incomplete path prefixes.
+    # Each g node/edge represents a valid wavefront entry for that step.
     g_stack_reverse : List[Plottable] = []
     for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
         prev_loop_step = g_stack[-1] if len(g_stack_reverse) == 0 else g_stack_reverse[-1]
