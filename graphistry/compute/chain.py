@@ -214,11 +214,6 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
         )
         g_stack.append(g_step)
 
-    encountered_nodes_df = pd.concat([
-        g_step._nodes
-        for g_step in g_stack
-    ]).drop_duplicates(subset=[g._node])
-
     logger.debug('============ BACKWARDS ============')
 
     # Backwards
