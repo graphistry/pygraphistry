@@ -278,15 +278,36 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.IMPLICIT_NODE_ID,
         "index",  # in umap, we add as reindex
     ]
-    if (len(df.columns) <= 2):
-        df = df.rename(columns={c: c + '_1' for c in df.columns if c in reserved_namespace})
-        if (isinstance(df.columns.to_list()[0],int)):
-            int_namespace = pd.to_numeric(df.columns, errors = 'ignore').dropna().to_list()  # type: ignore
-            df = df.rename(columns={c: str(c) + '_1' for c in df.columns if c in int_namespace})
-    else:
-        df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
-    return df
+    # if (len(df.columns) <= 2):
+    #     df = df.rename(columns={c: c + '_1' for c in df.columns if c in reserved_namespace})
+    #     if (isinstance(df.columns.to_list()[0],int)):
+    #         int_namespace = pd.to_numeric(df.columns, errors = 'ignore').dropna().to_list()  # type: ignore
+    #         df = df.rename(columns={c: str(c) + '_1' for c in df.columns if c in int_namespace})
+    # else:
+    #     df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
+    # return df
 
+    def rename_columns(df, reserved_namespace):
+        if len(df.columns) <= 2:
+            df = rename_reserved_columns(df, reserved_namespace)
+            df = rename_integer_columns(df)
+        else:
+            df = drop_reserved_columns(df, reserved_namespace)
+        return df
+
+    def rename_reserved_columns(df, reserved_namespace):
+        rename_dict = {c: c + '_1' for c in df.columns if c in reserved_namespace}
+        return df.rename(columns=rename_dict)
+
+    def rename_integer_columns(df):
+        int_columns = [c for c in df.columns if isinstance(c, int)]
+        rename_dict = {c: str(c) + '_1' for c in int_columns}
+        return df.rename(columns=rename_dict)
+
+    def drop_reserved_columns(df, reserved_namespace):
+        return df.drop(columns=reserved_namespace, errors="ignore")
+
+    return rename_columns(df, reserved_namespace)
 
 # ###########################################################################
 #
