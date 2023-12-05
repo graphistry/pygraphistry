@@ -1,7 +1,9 @@
-from typing import Any, List, Optional, cast
+import logging
+from typing import Optional, cast
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from graphistry.util import setup_logger
 from .predicates.ASTPredicate import ASTPredicate
 from .predicates.is_in import (
     is_in, IsIn
@@ -47,9 +49,8 @@ from .predicates.str import (
 )
 from .filter_by_dict import filter_by_dict
 
-import logging
-logger = logging.getLogger(__name__)
-#logger.setLevel(logging.DEBUG)
+
+logger = setup_logger(__name__)
 
 
 ##############################################################################
