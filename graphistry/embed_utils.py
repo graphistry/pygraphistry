@@ -178,7 +178,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             log("--Reusing previous model")
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        pbar = tqdm(epochs, desc=None)
+        pbar = tqdm(0:epochs, desc=None)  # type: ignore
         model.to(device)
 
         score = 0
@@ -199,7 +199,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 optimizer.step()
                 pbar.set_description(
                     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.4f}%"
-                )
+                )  # type:ignore
 
             model.eval()
             res._kg_embeddings = model(res._kg_dgl.to(device)).detach()
@@ -208,7 +208,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 score = res._eval(threshold=0.5)
                 pbar.set_description(
                     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
-                )
+                )  # type:ignore
 
         return res
 
