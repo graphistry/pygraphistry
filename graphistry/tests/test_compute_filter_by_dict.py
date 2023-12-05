@@ -108,7 +108,7 @@ class TestEdgeFilterByDict(object):
         g = hops_graph()
         assert g.filter_edges_by_dict({'i': -100, 'type': 'e'})._edges.equals(g._edges[:0])
 
-class TestIsIn(object):
+class TestPredicateIsIn(object):
 
     def test_standalone(self):
         g = hops_graph()
