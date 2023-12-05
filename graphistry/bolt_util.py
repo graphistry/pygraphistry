@@ -28,19 +28,43 @@ def to_bolt_driver(driver=None):
 
 #TODO catch additional encodings
 def bolt_graph_to_edges_dataframe(graph):
-    df = pd.DataFrame([
-        util.merge_two_dicts(
-            { key: value for (key, value) in relationship.items() },
+
+    is_neptune = False
+
+    for relationship in graph.relationships:
+        # neptune results not returing element_id, so use id instead
+        is_neptune = not hasattr(relationship, 'element_id')
+        break
+
+    if is_neptune:
+        map_dict_df = pd.DataFrame([
+            {
+                relationship_id_key:   relationship.id,  # noqa: E241
+                relationship_type_key: relationship.type,  # noqa: E241
+                start_node_id_key:     relationship.start_node.id,  # noqa: E241
+                end_node_id_key:       relationship.end_node.id,  # noqa: E241
+            }
+            for relationship in graph.relationships])
+    else:
+        map_dict_df = pd.DataFrame([
             {
                 relationship_id_key:   relationship.element_id,  # noqa: E241
                 relationship_type_key: relationship.type,  # noqa: E241
                 start_node_id_key:     relationship.start_node.element_id,  # noqa: E241
-                end_node_id_key:       relationship.end_node.element_id  # noqa: E241
+                end_node_id_key:       relationship.end_node.element_id,  # noqa: E241
             }
-        )
+            for relationship in graph.relationships])
+
+    df = pd.DataFrame([
+        { 
+            key: value for (key, value) in relationship.items() 
+        }
         for relationship in graph.relationships
     ])
-    if len(df) == 0:
+
+    joined_df = map_dict_df.join(df)
+
+    if len(joined_df) == 0:
         util.warn('Query returned no edges; may have surprising visual results or need to add missing columns for encodings')
         return pd.DataFrame({
             relationship_id_key: pd.Series([], dtype='int32'),
@@ -48,28 +72,52 @@ def bolt_graph_to_edges_dataframe(graph):
             start_node_id_key: pd.Series([], dtype='int32'),
             end_node_id_key: pd.Series([], dtype='int32')
         })
-    return neo_df_to_pd_df(df)
+    return neo_df_to_pd_df(joined_df)
 
 
 def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
+
+    is_neptune = False
+
+    for node in graph.nodes:
+        # neptune results not returing element_id, so use id instead
+        is_neptune = not hasattr(node, 'element_id')
+        break
+
+    if is_neptune:
+        map_dict_df = pd.DataFrame([
+            {
+                node_id_key: node.id,
+                node_type_key: ",".join(sorted([str(label) for label in node.labels]))
+            }
+            for node in graph.nodes
+        ])
+    else:
+        map_dict_df = pd.DataFrame([
+            {
+                node_id_key: node.element_id,
+                node_type_key: ",".join(sorted([str(label) for label in node.labels]))
+            }
+            for node in graph.nodes
+        ])
+
     df = pd.DataFrame([
         util.merge_two_dicts(
             { key: value for (key, value) in node.items() },
-            util.merge_two_dicts(
-                { 
-                    node_id_key: node.element_id, 
-                    node_type_key: ",".join(sorted([str(label) for label in node.labels])) 
-                },
-                { node_label_prefix_key + str(label): True for label in node.labels }))
+            { node_label_prefix_key + str(label): True for label in node.labels })
         for node in graph.nodes
     ])
-    if len(df) == 0:
+
+    joined_df = map_dict_df.merge(df, how='outer', left_index=True, right_index=True)
+
+    if len(joined_df) == 0:
         util.warn('Query returned no nodes')
         return pd.DataFrame({
             node_id_key: pd.Series([], dtype='int32'),
             node_type_key: pd.Series([], dtype='object')
         })
-    return neo_df_to_pd_df(df)
+    return neo_df_to_pd_df(joined_df)
+
 
 
 # Knowing a col is all-spatial, flatten into primitive cols
@@ -171,12 +219,12 @@ def flatten_spatial(df : pd.DataFrame, col) -> pd.DataFrame:
         all_t0 = (with_vals.apply(lambda s: s.__class__) == t0.__class__).all()  # type: ignore
     except:
         all_t0 = False
-    
+
     if all_t0:
         out_df = flatten_spatial_col(df, col)
     else:
         out_df[col] = df[col].apply(stringify_spatial)
-  
+
     return out_df
 
 

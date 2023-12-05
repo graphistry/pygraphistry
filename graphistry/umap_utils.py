@@ -12,7 +12,7 @@ from .feature_utils import (FeatureMixin, Literal, XSymbolic, YSymbolic,
                             resolve_feature_engine)
 from .PlotterBase import Plottable, WeakValueDictionary
 from .util import check_set_memoize
-from .dep_manager import DepManager
+from .dep_manager import deps
 
 import logging
 
@@ -26,8 +26,6 @@ else:
 
 ###############################################################################
 
-deps = DepManager()
-
 def assert_imported():
     umap_ = deps.umap
     if not umap_:
@@ -36,7 +34,6 @@ def assert_imported():
 
 
 def assert_imported_cuml():
-    deps = DepManager()
     cuml_ = deps.cuml
     if not cuml_:
         logger.warning("cuML not found, trying running " "`pip install cuml`")

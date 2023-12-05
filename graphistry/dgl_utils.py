@@ -17,7 +17,7 @@ from .feature_utils import (
 )
 
 from .util import setup_logger
-from .dep_manager import DepManager
+from .dep_manager import deps
 
 if TYPE_CHECKING:
     import scipy
@@ -55,8 +55,6 @@ else:
 
 
 logger = setup_logger(name=__name__, verbose=config.VERBOSE)
-
-deps = DepManager()
 
 
 # #########################################################################################
@@ -182,7 +180,6 @@ def pandas_to_dgl_graph(
         sp_mat: sparse scipy matrix
         ordered_nodes_dict: dict ordered from most common src and dst nodes
     """
-    deps = DepManager()
     dgl = deps.dgl  # noqa: F811
 
     sp_mat, ordered_nodes_dict = pandas_to_sparse_adjacency(df, src, dst, weight_col)

@@ -25,3 +25,6 @@ class DepManager:
             self.pkgs[name] = module
         except:
             pass
+
+
+deps = DepManager()
