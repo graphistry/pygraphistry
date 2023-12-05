@@ -99,9 +99,7 @@ def assert_imported():
     #     import_min_exn = [e for e in err_list if None in e]
     
         raise ValueError(  # noqa
-            f'dependencies required are'
-            '"scipy", "dirty_cat", "sklearn",'
-            f'but did not receive.'
+            'dependencies required are "scipy", "dirty_cat", "sklearn", but did not receive.'
         )
 
 
