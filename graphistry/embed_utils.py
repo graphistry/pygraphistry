@@ -1,8 +1,7 @@
-import logging
+import logging, tqdm
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
-# from tqdm import trange
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 from .dep_manager import deps
