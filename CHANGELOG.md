@@ -29,6 +29,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * hop: multi-hops reverse validation was mishandling intermediate nodes
 * compute logging no longer default-overrides level to DEBUG
 
+### Infra
+
+* Docker tests support LOG_LEVEL
+
 ### Changed
 
 * refactor: move `is_in`, `IsIn` implementations to `graphistry.ast.predicates`; old imports preserved
