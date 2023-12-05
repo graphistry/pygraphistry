@@ -2,7 +2,7 @@ import pandas as pd
 from common import NoAuthTestCase
 from functools import lru_cache
 
-from graphistry.compute.filter_by_dict import is_in
+from graphistry.compute.ast import is_in
 from graphistry.tests.test_compute import CGFull
 
 @lru_cache(maxsize=1)
@@ -48,7 +48,6 @@ def hops_graph():
     ]).assign(type='e')
 
     return CGFull().nodes(nodes_df, 'node').edges(edges_df, 's', 'd')
-
 
 class TestComputeHopMixin(NoAuthTestCase):
 
@@ -181,6 +180,26 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert g5a._nodes.shape == (2, 2)
         assert g5a._edges.shape == (1, 3)
 
-    def test_is_in(self):
+    def test_predicate_is_in(self):
         g = hops_graph()
         assert g.hop(source_node_match={'node': is_in(['e', 'k'])})._edges.shape == (3, 3)
+
+class TestComputeHopMixinQuery(NoAuthTestCase):
+
+    def test_hop_source_query(self):
+        g = hops_graph()
+        g2 = g.hop(source_node_query='node == "d"', direction='forward', hops=1)
+        assert g2._nodes.shape == (6, 2)
+        assert g2._edges.shape == (5, 3)
+
+    def test_hop_destination_query(self):
+        g = hops_graph()
+        g2 = g.hop(destination_node_query='node == "d"', direction='reverse', hops=1)
+        assert g2._nodes.shape == (6, 2)
+        assert g2._edges.shape == (5, 3)
+
+    def test_hop_edge_query(self):
+        g = hops_graph()
+        g2 = g.hop(edge_query='s == "d"', direction='forward', hops=1)
+        assert g2._nodes.shape == (6, 2)
+        assert g2._edges.shape == (5, 3)

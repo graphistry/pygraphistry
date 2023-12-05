@@ -51,7 +51,43 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
 
 from graphistry.compute import (
     n, e_forward, e_reverse, e_undirected,
-    is_in, IsIn
+
+    is_in, IsIn,
+
+    duplicated, Duplicated,
+
+    is_month_start, IsMonthStart,
+    is_month_end, IsMonthEnd,
+    is_quarter_start, IsQuarterStart,
+    is_quarter_end, IsQuarterEnd,
+    is_year_start, IsYearStart,
+    is_leap_year, IsLeapYear,
+
+    gt, GT,
+    lt, LT,
+    ge, GE,
+    le, LE,
+    eq, EQ,
+    ne, NE,
+    between, Between,
+    isna, IsNA,
+    notna, NotNA,
+
+    contains, Contains,
+    startswith, Startswith,
+    endswith, Endswith,
+    match, Match,
+    isnumeric, IsNumeric,
+    isalpha, IsAlpha,
+    isdigit, IsDigit,
+    islower, IsLower,
+    isupper, IsUpper,
+    isspace, IsSpace,
+    isalnum, IsAlnum,
+    isdecimal, IsDecimal,
+    istitle, IsTitle,
+    isnull, IsNull,
+    notnull, NotNull,
 )
 
 from graphistry.Engine import Engine

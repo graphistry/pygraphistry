@@ -209,6 +209,9 @@ class Plottable(object):
         edge_match: Optional[dict] = None,
         source_node_match: Optional[dict] = None,
         destination_node_match: Optional[dict] = None,
+        source_node_query: Optional[str] = None,
+        destination_node_query: Optional[str] = None,
+        edge_query: Optional[str] = None,
         return_as_wave_front: bool = False,
         target_wave_front: Optional[pd.DataFrame] = None
     ) -> 'Plottable':
