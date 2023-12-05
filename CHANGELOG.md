@@ -26,12 +26,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * chain/hop: source_node_match was being mishandled when multiple node attributes exist
 * chain: backwards validation pass was too permissive; add `target_wave_front` check`
 * hop: multi-hops with `source_node_match` specified was not checking intermediate hops
+* hop: multi-hops reverse validation was mishandling intermediate nodes
 * compute logging no longer default-overrides level to DEBUG
 
 ### Changed
 
 * refactor: move `is_in`, `IsIn` implementations to `graphistry.ast.predicates`; old imports preserved
 * `IsIn` now implements `ASTPredicate`
+* Refactor: use `setup_logger(__name__)` more consistently instead of `logging.getLogger(__name__)`
+* Refactor: drop unused imports
+* Redo `setup_logger()` to activate formatted stream handler iff verbose / LOG_LEVEL
 
 ### Docs
 
