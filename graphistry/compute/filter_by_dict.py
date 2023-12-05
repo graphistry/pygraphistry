@@ -1,15 +1,8 @@
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, Optional
 import pandas as pd
 
 from graphistry.Plottable import Plottable
-
-
-class IsIn():
-    def __init__(self, options: List[Any]) -> None:
-        self.options = options
-
-def is_in(options: List[Any]) -> IsIn:
-    return IsIn(options)
+from .predicates.ASTPredicate import ASTPredicate
 
 
 def filter_by_dict(df, filter_dict: Optional[dict] = None) -> pd.DataFrame:
@@ -20,25 +13,25 @@ def filter_by_dict(df, filter_dict: Optional[dict] = None) -> pd.DataFrame:
     if filter_dict is None or filter_dict == {}:
         return df
 
-    ins: Dict[str, IsIn] = {}
+    predicates: Dict[str, ASTPredicate] = {}
     for col, val in filter_dict.items():
         if col not in df.columns:
             raise ValueError(f'Key "{col}" not in columns of df, available columns are: {df.columns}')
-        if isinstance(val, IsIn):
-            ins[col] = val
-    filter_dict_concrete = filter_dict if not ins else {
+        if isinstance(val, ASTPredicate):
+            predicates[col] = val
+    filter_dict_concrete = filter_dict if not predicates else {
         k: v
         for k, v in filter_dict.items()
-        if not isinstance(v, IsIn)
+        if not isinstance(v, ASTPredicate)
     }
 
     if filter_dict_concrete:
         hits = (df[list(filter_dict_concrete)] == pd.Series(filter_dict_concrete)).all(axis=1)
     else:
         hits = df[[]].assign(x=True).x
-    if ins:
-        for col, val in ins.items():
-            hits = hits & df[col].isin(val.options)
+    if predicates:
+        for col, op in predicates.items():
+            hits = hits & op(df[col])
     return df[hits]
 
 

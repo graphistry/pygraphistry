@@ -1,13 +1,11 @@
-from typing import cast, List, Optional, Tuple, Union
+from typing import cast, List, Tuple
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from graphistry.util import setup_logger
 from .ast import ASTObject, ASTNode, ASTEdge
-from .filter_by_dict import filter_by_dict
 
-import logging
-logger = logging.getLogger(__name__)
-#logger.setLevel(logging.DEBUG)
+logger = setup_logger(__name__)
 
 
 ###############################################################################
@@ -191,9 +189,13 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
         added_edge_index = False
     
 
-    logger.debug('============ FORWARDS ============')
+    logger.debug('======================== FORWARDS ========================')
 
-    #forwards
+    # Forwards
+    # This computes valid path *prefixes*, where each g nodes/edges is the path wavefront:
+    #  g_step._nodes: The nodes reached in this step
+    #  g_step._edges: The edges used to reach those nodes
+    # At the paths are prefixes, wavefront nodes may invalid wrt subsequent steps (e.g., halt early)
     g_stack : List[Plottable] = []
     for op in ops:
         prev_step_nodes = (  # start from only prev step's wavefront node
@@ -210,13 +212,11 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
         )
         g_stack.append(g_step)
 
-    encountered_nodes_df = pd.concat([
-        g_step._nodes
-        for g_step in g_stack
-    ]).drop_duplicates(subset=[g._node])
+    logger.debug('======================== BACKWARDS ========================')
 
-    logger.debug('============ BACKWARDS ============')
-
+    # Backwards
+    # Compute reverse and thus complete paths. Dropped nodes/edges are thus the incomplete path prefixes.
+    # Each g node/edge represents a valid wavefront entry for that step.
     g_stack_reverse : List[Plottable] = []
     for (op, g_step) in zip(reversed(ops), reversed(g_stack)):
         prev_loop_step = g_stack[-1] if len(g_stack_reverse) == 0 else g_stack_reverse[-1]
