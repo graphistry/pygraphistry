@@ -1,8 +1,7 @@
 from .util import setup_logger
-from .constants import VERBOSE, TRACE
 from .util import ModelDict
 
-logger = setup_logger("graphistry.features", verbose=VERBOSE, fullpath=TRACE)
+logger = setup_logger(__name__)
 
 # ###############################################################
 UNK = "UNK"

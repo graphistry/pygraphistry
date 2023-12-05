@@ -11,7 +11,7 @@ has_dgl, _, dgl = lazy_dgl_import_has_dependency()
 if has_dgl:
     import torch
 
-logger = setup_logger("test_DGL_utils", verbose=True)
+logger = setup_logger(__name__)
 
 edf = pd.read_csv(
     "graphistry/tests/data/malware_capture_bot.csv", index_col=0, nrows=50
