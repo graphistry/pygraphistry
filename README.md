@@ -147,6 +147,25 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
+* Cypher-style graph pattern mining queries on dataframes ([ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb))
+
+  Run Cypher-style graph queries natively on dataframes without going to a database or Java:
+
+    ```python
+    from graphistry import n, e_undirected, is_in
+
+    g2 = g.chain([
+      n({'user': 'Biden'}),
+      e_undirected(),
+      n(name='bridge'),
+      e_undirected(),
+      n({'user': is_in(['Trump', 'Obama'])})
+    ])
+
+    print('# bridges', len(g2._nodes[g2._nodes.bridge]))
+    g2.plot()
+    ```
+
 * [Spark](https://spark.apache.org/)/[Databricks](https://databricks.com/) ([ipynb demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb), [dbc demo](demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.dbc))
 
     ```python
@@ -1139,6 +1158,15 @@ g2.plot() # nodes are values from cols s, d, k1
   .collapse(node='some_id', column='some_col', attribute='some val')
 ```
 
+Both `hop()` and `chain()` match dictionary expressions support dataframe series *predicates*. The above examples show `is_in([x, y, z, ...])`. Additional predicates include:
+
+* categorical: is_in, duplicated
+* temporal: is_month_start, is_month_end, is_quarter_start, is_quarter_end, is_year_start, is_year_end
+* numeric: gt, lt, ge, le, eq, ne, between, isna, notna
+* string: contains, startswith, endswith, match, isnumeric, isalpha, isdigit, islower, isupper, isspace, isalnum, isdecimal, istitle, isnull, notnull
+
+
+
 #### Table to graph
 
 ```python
@@ -1209,6 +1237,10 @@ assert 'pagerank' in g2._nodes.columns
 
 #### Graph pattern matching
 
+PyGraphistry supports a PyData-native variant of the popular Cypher graph query language, meaning you can do graph pattern matching directly from Pandas dataframes without installing a database or Java
+
+See also [graph pattern matching tutorial](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb)
+
 Traverse within a graph, or expand one graph against another
 
 Simple node and edge filtering via `filter_edges_by_dict()` and `filter_nodes_by_dict()`:
@@ -1225,16 +1257,37 @@ Method `.hop()` enables slightly more complicated edge filters:
 
 ```python
 
+from graphistry import is_in, gt
+
 # (a)-[{"v": 1, "type": "z"}]->(b) based on g
 g2b = g2.hop(
   source_node_match={g2._node: "a"},
   edge_match={"v": 1, "type": "z"},
   destination_node_match={g2._node: "b"})
+g2b = g2.hop(
+  source_node_query='n == "a"',
+  edge_query='v == 1 and type == "z"',
+  destination_node_query='n == "b"')
+
+# (a {x in [1,2] and y > 3})-[e]->(b) based on g
+g2c = g2.hop(
+  source_node_match={
+    g2._node: "a",
+    "x": is_in([1,2]),
+    "y": gt(3)
+  },
+  destination_node_match={g2._node: "b"})
+)
 
 # (a or b)-[1 to 8 hops]->(anynode), based on graph g2
 g3 = g2.hop(pd.DataFrame({g2._node: ['a', 'b']}), hops=8)
 
+# (a or b)-[1 to 8 hops]->(anynode), based on graph g2
+g3 = g2.hop(pd.DataFrame({g2._node: is_in(['a', 'b'])}), hops=8)
+
 # (c)<-[any number of hops]-(any node), based on graph g3
+# Note multihop matches check source/destination/edge match/query predicates 
+# against every encountered edge for it to be included
 g4 = g3.hop(source_node_match={"node": "c"}, direction='reverse', to_fixed_point=True)
 
 # (c)-[incoming or outgoing edge]-(any node),
@@ -1251,6 +1304,7 @@ from graphistry import n, e_forward, e_reverse, e_undirected, is_in
 
 g2.chain([ n() ])
 g2.chain([ n({"x": 1, "y": True}) ]),
+g2.chain([ n(query='x == 1 and y == True') ]),
 g2.chain([ n({"z": is_in([1,2,4,'z'])}) ]), # multiple valid values
 g2.chain([ e_forward({"type": "x"}, hops=2) ]) # simple multi-hop
 g3 = g2.chain([
@@ -1263,6 +1317,8 @@ g2.chain(n(), e_forward(), n(), e_reverse(), n()])  # rich shapes
 print('# end nodes: ', len(g3._nodes[ g3._nodes.end ]))
 print('# end edges: ', len(g3._edges[ g3._edges.final_edge ]))
 ```
+
+See table above for more predicates like `is_in()` and `gt()`
 
 #### Pipelining
 
