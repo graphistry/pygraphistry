@@ -11,6 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+* Neptune: Can now use PyGraphistry OpenCypher/BOLT bindings with Neptune, in addition to existing Gremlin bindings
 * chain/hop: `is_in()` membership predicate, `.chain([ n({'type': is_in(['a', 'b'])}) ])`
 * hop: optional df queries - `hop(..., source_node_query='...', edge_query='...', destination_node_query='...')`
 * chain: optional df queries:
@@ -47,6 +48,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * hop/chain: new query and predicate forms
 * hop/chain graph pattern mining tutorial: [ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb)
+* Neptune: Initial tutorial for using PyGraphistry with Amazon Neptune's OpenCypher/BOLT bindings
 
 ## [0.29.7 - 2023-11-02]
 
