@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.30.1 - 2023-12-05]
+
 ### Docs
 
 * Update readthedocs yml to work around ReadTheDocs v2 yml interpretation regressions
