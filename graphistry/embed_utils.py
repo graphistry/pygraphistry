@@ -7,6 +7,7 @@ from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 from .dep_manager import deps
 
+
 if TYPE_CHECKING:
     torch = deps.torch
     TT = torch.Tensor
@@ -17,6 +18,7 @@ else:
     torch = Any
 
 cudf = deps.cudf
+from tqdm import trange
 
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]  # type: ignore
@@ -198,18 +200,17 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 pbar.set_description(
-                    f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.4f}%" 
-                )  # type: ignore
+                    f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.4f}%"
+                )
 
             model.eval()
             res._kg_embeddings = model(res._kg_dgl.to(device)).detach()
             res._embed_model = model
             if res._eval_flag and res._train_idx is not None:
                 score = res._eval(threshold=0.5)
-                score = res._eval(threshold=0.5)
                 pbar.set_description(
                     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
-                )  # type: ignore
+                )
 
         return res
 
