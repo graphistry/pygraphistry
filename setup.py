@@ -16,11 +16,8 @@ core_requires = [
   'squarify',
   'typing-extensions',
   'packaging >= 20.1',
+  'tqdm'
   'setuptools',
-  # 'scikit-learn',
-  # 'umap-learn',
-  # 'scipy',
-  # 'dirty-cat'
 ]
 
 stubs = [
