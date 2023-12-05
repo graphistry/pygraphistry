@@ -403,6 +403,43 @@ class TestComputeChainWavefront1Mixin(NoAuthTestCase):
         ])
         compare_graphs(g3_undirected_chain_closed, g_out_nodes, g_out_edges)
 
+    def test_tricky_topology_1(self):
+
+        nodes = pd.DataFrame({
+            'n': ['a1', 'a2', 'b1', 'b2'],
+            't': [0, 0, 1, 1]
+        })
+
+        edges = pd.DataFrame({
+            's': ['a1', 'a1'  ],
+            'd': ['a2', 'b1']
+        })
+
+        n_out = pd.DataFrame({
+            'n': ['a1', 'a2'],
+            't': [0, 0]
+        })
+
+        e_out = pd.DataFrame({
+            's': ['a1'],
+            'd': ['a2']
+        })
+
+        g = CGFull().edges(edges, 's', 'd').nodes(nodes, 'n')
+
+        g2 = g.chain([
+            n({'t': 0}),
+            e_undirected(),
+            n({'t': 0})
+        ])
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug('\nNODES\n')
+            logger.debug(g2._nodes.to_dict(orient='records'))
+            logger.debug('\nEDGES\n')
+            logger.debug(g2._edges.to_dict(orient='records'))
+
+        compare_graphs(g2, n_out.to_dict(orient='records'), e_out.to_dict(orient='records'))
 
 class TestComputeChainWavefront2Mixin(NoAuthTestCase):
     """

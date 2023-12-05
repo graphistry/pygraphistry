@@ -106,10 +106,9 @@ class ASTNode(ASTObject):
         if self._name is not None:
             out_g = out_g.nodes(out_g._nodes.assign(**{self._name: True}))
 
-        logger.debug(f'CALL NODE {self} ===>')
-        logger.debug(out_g._nodes)
-        logger.debug(out_g._edges)
-        logger.debug('----------------------------------------')
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug('CALL NODE %s ====>\nnodes:\n%s\nedges:\n%s\n', self, out_g._nodes, out_g._edges)
+            logger.debug('----------------------------------------')
 
         return out_g
 
@@ -171,6 +170,15 @@ class ASTEdge(ASTObject):
 
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
 
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug('----------------------------------------')
+            logger.debug('@CALL EDGE START {%s} ===>\n', self)
+            logger.debug('prev_node_wavefront:\n%s\n', prev_node_wavefront)
+            logger.debug('target_wave_front:\n%s\n', target_wave_front)
+            logger.debug('g._nodes:\n%s\n', g._nodes)
+            logger.debug('g._edges:\n%s\n', g._edges)
+            logger.debug('----------------------------------------')
+
         out_g = g.hop(
             nodes=prev_node_wavefront,
             hops=self._hops,
@@ -189,10 +197,9 @@ class ASTEdge(ASTObject):
         if self._name is not None:
             out_g = out_g.edges(out_g._edges.assign(**{self._name: True}))
 
-        logger.debug(f'CALL EDGE {self} ===>')
-        logger.debug(out_g._nodes)
-        logger.debug(out_g._edges)
-        logger.debug('----------------------------------------')
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug('/CALL EDGE END {%s} ===>\nnodes:\n%s\nedges:\n%s\n', self, out_g._nodes, out_g._edges)
+            logger.debug('----------------------------------------')
 
         return out_g
 
