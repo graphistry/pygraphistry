@@ -1,13 +1,11 @@
-from typing import cast, List, Optional, Tuple, Union
+from typing import cast, List, Tuple
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from graphistry.util import setup_logger
 from .ast import ASTObject, ASTNode, ASTEdge
-from .filter_by_dict import filter_by_dict
 
-import logging
-logger = logging.getLogger(__name__)
-#logger.setLevel(logging.DEBUG)
+logger = setup_logger(__name__)
 
 
 ###############################################################################
@@ -191,7 +189,7 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
         added_edge_index = False
     
 
-    logger.debug('============ FORWARDS ============')
+    logger.debug('======================== FORWARDS ========================')
 
     # Forwards
     # This computes valid path *prefixes*, where each g nodes/edges is the path wavefront:
@@ -214,7 +212,7 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
         )
         g_stack.append(g_step)
 
-    logger.debug('============ BACKWARDS ============')
+    logger.debug('======================== BACKWARDS ========================')
 
     # Backwards
     # Compute reverse and thus complete paths. Dropped nodes/edges are thus the incomplete path prefixes.
