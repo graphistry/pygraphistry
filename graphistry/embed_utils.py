@@ -2,7 +2,7 @@ import logging
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
-from tqdm import trange
+from tqdm import tqdm
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 from .dep_manager import deps
@@ -178,7 +178,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             log("--Reusing previous model")
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        pbar = trange(epochs, desc=None)
+        pbar = tqdm(epochs, desc=None)
         model.to(device)
 
         score = 0
