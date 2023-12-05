@@ -1,8 +1,12 @@
+import logging
 from typing import List, Optional
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from graphistry.util import setup_logger
 from .filter_by_dict import filter_by_dict
+
+logger = setup_logger(__name__)
 
 
 def query_if_not_none(query: Optional[str], df: pd.DataFrame) -> pd.DataFrame:
