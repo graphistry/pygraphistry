@@ -7,20 +7,26 @@ from .compute.ComputeMixin import ComputeMixin
 from .dep_manager import deps
 
 
-def lazy_embed_import_dep():
+# def lazy_embed_import_dep():
+#     try:
+#         import torch
+#         import torch.nn as nn
+#         import dgl
+#         from dgl.dataloading import GraphDataLoader
+#         import torch.nn.functional as F
+#         from .networks import HeteroEmbed
+#         from tqdm import trange
+#         return True, torch, nn, dgl, GraphDataLoader, HeteroEmbed, F, trange
+
+#     except:
+#         return False, None, None, None, None, None, None, None
+def lazy_tqdm():
     try:
-        import torch
-        import torch.nn as nn
-        import dgl
-        from dgl.dataloading import GraphDataLoader
-        import torch.nn.functional as F
-        from .networks import HeteroEmbed
-        from tqdm import trange
-        return True, torch, nn, dgl, GraphDataLoader, HeteroEmbed, F, trange
-
+        trange = deps.tqdm.trange
+        return trange
     except:
-        return False, None, None, None, None, None, None, None
-
+        return None
+        
 
 if TYPE_CHECKING:
     torch = deps.torch
@@ -181,19 +187,13 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         )
 
         return model, g_dataloader
-    
-    def lazy_tqdm():
-        try:
-            trange = deps.tqdm.trange
-            return trange
-        except:
-            return None
         
     def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device) -> Plottable:
         torch = deps.torch
-        from torch import nn
+        nn = deps.torch.nn
         # from tqdm import trange
-        trange = lazy_tqdm()
+        trange = deps.tqdm.trange
+        # trange = lazy_tqdm()
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
