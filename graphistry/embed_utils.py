@@ -2,7 +2,7 @@ import logging
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
-from tqdm import tqdm
+# from tqdm import trange
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 from .dep_manager import deps
@@ -171,6 +171,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
     def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device) -> Plottable:
         torch = deps.torch
         from torch import nn
+        # from tqdm import trange
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
@@ -178,7 +179,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             log("--Reusing previous model")
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        pbar = tqdm(np.arange(epochs), desc=None)  # type: ignore
+        # from tqdm import tqdm
+        pbar = tqdm.tqdm(range(epochs), desc=None)  # type: ignore
         model.to(device)
 
         score = 0
