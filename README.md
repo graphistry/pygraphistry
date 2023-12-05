@@ -42,7 +42,7 @@ You can use PyGraphistry with traditional Python data sources like CSVs, SQL, Ne
   </tr>
 </table>
 
-## PyGraphistry is...
+## **PyGraphistry is:**
 
 * **Fast & gorgeous:** Interactively cluster, filter, inspect large amounts of data, and zip through timebars. It clusters large graphs with a descendant of the gorgeous ForceAtlas2 layout algorithm introduced in Gephi. Our data explorer connects to Graphistry's GPU cluster to layout and render hundreds of thousand of nodes+edges in your browser at unparalleled speeds.
 
@@ -410,7 +410,7 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     preds = model.predict(X_new)
     ```
 
- * Encode model definitions and compare models against each other
+* Encode model definitions and compare models against each other
 
    ```python
     # graphistry
@@ -434,7 +434,6 @@ Automatically and intelligently transform text, numbers, booleans, and other for
     # compare g2 vs g3 or add to different pipelines
     ```
 
-
 See `help(g.featurize)` for more options
 
 ### [sklearn-based UMAP](https://umap-learn.readthedocs.io/en/latest/), [cuML-based UMAP](https://docs.rapids.ai/api/cuml/stable/api.html?highlight=umap#cuml.UMAP)
@@ -455,6 +454,7 @@ See `help(g.featurize)` for more options
       new_df = pd.read_csv(...)
       embeddings, X_new, _ = g.transform_umap(new_df, None, kind='nodes', return_graph=False)
     ```
+
 * Infer a new graph from new data using the old umap coordinates to run inference without having to train a new umap model.
 
     ```python
@@ -466,7 +466,6 @@ See `help(g.featurize)` for more options
       g3 = g.transform_umap(new_df, return_graph=True, merge_policy=True)
       g3.plot()  # useful to see how new data connects to old -- play with `sample` and `n_neighbors` to control how much of old to include
     ```
-    
 
 * UMAP supports many options, such as supervised mode, working on a subset of columns, and passing arguments to underlying `featurize()` and UMAP implementations (see `help(g.umap)`):
 
@@ -551,8 +550,7 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       
     ```
 
-    
-* If edges are not given, `g.umap(..)` will supply them: 
+* If edges are not given, `g.umap(..)` will supply them:
 
     ```python
       ndf = pd.read_csv(nodes.csv)
@@ -561,7 +559,7 @@ GNN support is rapidly evolving, please contact the team directly or on Slack fo
       
       g2.search_graph('my natural language query', ...).plot()
     ```
-    
+
 See `help(g.search_graph)` for options
 
 ### Knowledge Graph Embeddings
@@ -617,7 +615,7 @@ See `help(g.search_graph)` for options
 
 See `help(g.embed)`, `help(g.predict_links)` , or `help(g.predict_links_all)` for options
 
-### DBSCAN 
+### DBSCAN
 
 * Enrich UMAP embeddings or featurization dataframe with GPU or CPU DBSCAN
 
@@ -1164,8 +1162,6 @@ Both `hop()` and `chain()` match dictionary expressions support dataframe series
 * temporal: is_month_start, is_month_end, is_quarter_start, is_quarter_end, is_year_start, is_year_end
 * numeric: gt, lt, ge, le, eq, ne, between, isna, notna
 * string: contains, startswith, endswith, match, isnumeric, isalpha, isdigit, islower, isupper, isspace, isalnum, isdecimal, istitle, isnull, notnull
-
-
 
 #### Table to graph
 
