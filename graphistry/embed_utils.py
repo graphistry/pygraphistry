@@ -178,7 +178,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             log("--Reusing previous model")
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        pbar = tqdm(0:epochs, desc=None)  # type: ignore
+        pbar = tqdm(np.arange(epochs), desc=None)  # type: ignore
         model.to(device)
 
         score = 0
