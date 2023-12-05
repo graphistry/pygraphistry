@@ -1,4 +1,4 @@
-import logging, tqdm
+import logging
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
@@ -6,6 +6,20 @@ from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 from .dep_manager import deps
 
+
+def lazy_embed_import_dep():
+    try:
+        import torch
+        import torch.nn as nn
+        import dgl
+        from dgl.dataloading import GraphDataLoader
+        import torch.nn.functional as F
+        from .networks import HeteroEmbed
+        from tqdm import trange
+        return True, torch, nn, dgl, GraphDataLoader, HeteroEmbed, F, trange
+
+    except:
+        return False, None, None, None, None, None, None, None
 
 if TYPE_CHECKING:
     torch = deps.torch
@@ -168,9 +182,10 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         return model, g_dataloader
 
     def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device) -> Plottable:
-        torch = deps.torch
-        from torch import nn
+        # torch = deps.torch
+        # from torch import nn
         # from tqdm import trange
+        _, torch, nn, _, _, _, _, trange = lazy_embed_import_dep()
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
@@ -178,8 +193,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
             log("--Reusing previous model")
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        # from tqdm import tqdm
-        pbar = tqdm.tqdm(range(epochs), desc=None)  # type: ignore
+        pbar = trange(epochs, desc=None)
         model.to(device)
 
         score = 0
@@ -200,7 +214,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 optimizer.step()
                 pbar.set_description(
                     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.4f}%"
-                )  # type:ignore
+                )
 
             model.eval()
             res._kg_embeddings = model(res._kg_dgl.to(device)).detach()
@@ -209,7 +223,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
                 score = res._eval(threshold=0.5)
                 pbar.set_description(
                     f"epoch: {epoch+1}, loss: {loss.item():.4f}, score: {100*score:.2f}%"
-                )  # type:ignore
+                )
 
         return res
 
