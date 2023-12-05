@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Docs
 
 * Update readthedocs yml to work around ReadTheDocs v2 yml interpretation regressions
+* Make README.md pass markdownlint
+* Switch markdownlint docker channel to official and pin
 
 ## [0.30.0 - 2023-12-04]
 
