@@ -4,6 +4,7 @@ from typing_extensions import Literal
 
 from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
+from graphistry.util import setup_logger
 from .chain import chain as chain_base
 from .collapse import collapse_by
 from .hop import hop as hop_base
@@ -12,7 +13,7 @@ from .filter_by_dict import (
     filter_nodes_by_dict as filter_nodes_by_dict_base
 )
 
-logger = logging.getLogger("compute")
+logger = setup_logger(__name__)
 
 if TYPE_CHECKING:
     MIXIN_BASE = Plottable
