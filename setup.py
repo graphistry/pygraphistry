@@ -16,7 +16,7 @@ core_requires = [
   'squarify',
   'typing-extensions',
   'packaging >= 20.1',
-  'tqdm'
+  'tqdm',
   'setuptools',
 ]
 
