@@ -309,6 +309,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
 
     return rename_columns(df, reserved_namespace)
 
+
 # ###########################################################################
 #
 #      Featurization Functions and Utils
