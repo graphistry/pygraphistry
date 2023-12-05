@@ -181,12 +181,19 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         )
 
         return model, g_dataloader
-
+    
+    def lazy_tqdm():
+        try:
+            trange = deps.tqdm.trange
+            return trange
+        except:
+            return None
+        
     def _train_embedding(self, res, epochs:int, batch_size:int, lr:float, sample_size:int, num_steps:int, device) -> Plottable:
-        # torch = deps.torch
-        # from torch import nn
+        torch = deps.torch
+        from torch import nn
         # from tqdm import trange
-        _, torch, nn, _, _, _, _, trange = lazy_embed_import_dep()
+        trange = lazy_tqdm()
         log('Training embedding')
         model, g_dataloader = res._init_model(res, batch_size, sample_size, num_steps, device)
         if hasattr(res, "_embed_model") and not res._build_new_embedding_model:
