@@ -89,12 +89,13 @@ def assert_imported_cucat():
     if cuml is None or cudf is None:
         scipy = deps.scipy
         sklearn = deps.sklearn
-        if None not in [scipy, sklearn]:
-            logger.debug(f"SCIPY VERSION: {scipy.__version__}")
-            logger.debug(f"sklearn VERSION: {sklearn.__version__}")
+    if None not in [scipy, sklearn]:
+        logger.debug(f"SCIPY VERSION: {scipy.__version__}")
+        logger.debug(f"sklearn VERSION: {sklearn.__version__}")
+    else:
         logger.error(  # noqa
-                     "cudf or cuml not found, trying running"  # noqa
-                     "`pip install rapids`"  # noqa
+                    "cudf or cuml not found, trying running"  # noqa
+                    "`pip install rapids`"  # noqa
         )
 
 
