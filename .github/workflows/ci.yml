@@ -188,7 +188,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install -e .[test,testai,ai]
         echo "dirty-cat: `pip show dirty-cat | grep Version`"
-        echo "dirty-cat: `pip show cu-cat | grep Version`"
+        echo "cu-cat: `pip show cu-cat | grep Version`"
         echo "pandas: `pip show pandas | grep Version`"
         echo "numpy: `pip show numpy | grep Version`"
         echo "scikit-learn: `pip show scikit-learn | grep Version`"
