@@ -41,15 +41,6 @@ if TYPE_CHECKING:
         from sentence_transformers import SentenceTransformer
     except:
         SentenceTransformer = Any
-    # try:
-    #     from dirty_cat import (
-    #         SuperVectorizer,
-    #         GapEncoder,
-    #     )
-    # except:
-    #     SuperVectorizer = Any
-    #     GapEncoder = Any
-        
     try:
         from cu_cat import (
             SuperVectorizer,
@@ -82,7 +73,7 @@ def assert_imported_cucat():
     cu_cat = deps.cu_cat
     cudf = deps.cudf
     cuml = deps.cuml
-    if None not in [cudf, cuml,cu_cat]:
+    if None not in [cudf, cuml, cu_cat]:
         logger.debug(f"CUML VERSION: {cuml.__version__}")
         logger.debug(f"CUDF VERSION: {cudf.__version__}")
         logger.debug(f"CUDF VERSION: {cu_cat.__version__}")
