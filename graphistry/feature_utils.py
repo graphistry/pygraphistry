@@ -78,16 +78,19 @@ def assert_imported_cucat():
         logger.debug(f"CUDF VERSION: {cudf.__version__}")
         logger.debug(f"CUDF VERSION: {cu_cat.__version__}")
     if cuml is None or cudf is None:
+        logger.warning(  # noqa
+                "cuml and/or cudf not found, trying running"  # noqa
+                "`pip install rapids`"  # noqa
+            )
         scipy = deps.scipy
         sklearn = deps.sklearn
-    if None not in [scipy, sklearn]:
-        logger.debug(f"SCIPY VERSION: {scipy.__version__}")
-        logger.debug(f"sklearn VERSION: {sklearn.__version__}")
-    else:
-        logger.error(  # noqa
-                    "cudf or cuml not found, trying running"  # noqa
-                    "`pip install rapids`"  # noqa
-        )
+        if None not in [scipy, sklearn]:
+            logger.debug(f"SCIPY VERSION: {scipy.__version__}")
+            logger.debug(f"sklearn VERSION: {sklearn.__version__}")
+        else:
+            logger.warning(  # noqa
+                "scipy and/or sklearn not found"  # noqa
+            )
 
 
 def make_safe_gpu_dataframes(X, y, engine):
