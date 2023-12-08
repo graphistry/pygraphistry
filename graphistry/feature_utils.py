@@ -81,7 +81,7 @@ def assert_imported_cucat():
         logger.warning(  # noqa
                 "cuml and/or cudf not found, trying running"  # noqa
                 "`pip install rapids`"  # noqa
-                "or `pip install --extra-index-url=https://pypi.nvidia.com cuml-cu11 cudf-cu11`"  #noqa
+                "or `pip install --extra-index-url=https://pypi.nvidia.com cuml-cu11 cudf-cu11`"  # noqa
             )
         scipy = deps.scipy
         sklearn = deps.sklearn
