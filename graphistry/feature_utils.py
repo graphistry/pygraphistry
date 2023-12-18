@@ -43,11 +43,11 @@ if TYPE_CHECKING:
         SentenceTransformer = Any
     try:
         from cu_cat import (
-            SuperVectorizer,
+            TableVectorizer,
             GapEncoder,
         )  # type: ignore
     except:
-        SuperVectorizer = Any
+        TableVectorizer = Any
         GapEncoder = Any
     try:
         from sklearn.preprocessing import FunctionTransformer
@@ -60,7 +60,7 @@ else:
     MIXIN_BASE = object
     Pipeline = Any
     SentenceTransformer = Any
-    SuperVectorizer = Any
+    TableVectorizer = Any
     GapEncoder = Any
     FunctionTransformer = Any
     BaseEstimator = Any
@@ -879,8 +879,8 @@ def process_dirty_dataframes(
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
-    Union[SuperVectorizer, FunctionTransformer],
-    Union[SuperVectorizer, FunctionTransformer],
+    Union[TableVectorizer, FunctionTransformer],
+    Union[TableVectorizer, FunctionTransformer],
 ]:
     """
         Dirty_Cat encoder for record level data. Will automatically turn
@@ -897,13 +897,13 @@ def process_dirty_dataframes(
             ['minmax', 'standard', 'robust', 'quantile']
     :param similarity: one of 'ngram', 'levenshtein-ratio', 'jaro',
             or'jaro-winkler'}) – The type of pairwise string similarity
-            to use. If None or False, uses a SuperVectorizer
+            to use. If None or False, uses a TableVectorizer
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
 
     assert_imported_cucat()
-    from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
+    from cu_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
     if deps.cuml:
         from cuml.preprocessing import FunctionTransformer
     else:
@@ -913,14 +913,14 @@ def process_dirty_dataframes(
 
     if not is_dataframe_all_numeric(ndf):
         if feature_engine == CUDA_CAT:
-            data_encoder = SuperVectorizer(
+            data_encoder = TableVectorizer(
                 auto_cast=True,
                 cardinality_threshold=cardinality_threshold_target,
                 high_card_cat_transformer=GapEncoder(n_topics),
                 datetime_transformer = "passthrough"
             )
         else:
-            data_encoder = SuperVectorizer(
+            data_encoder = TableVectorizer(
                 auto_cast=True,
                 cardinality_threshold=cardinality_threshold,
                 high_card_cat_transformer=GapEncoder(n_topics),
@@ -954,12 +954,12 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed) 
-        if 'cudf' not in str(getmodule(ndf)):
+        if 'numpy' in str(getmodule(X_enc)):
             X_enc = pd.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
             X_enc = X_enc.fillna(0.0)
-        else:
+        if 'cupy' in str(getmodule(X_enc)):
             cudf = deps.cudf
             X_enc = cudf.DataFrame(
                 X_enc
@@ -988,14 +988,14 @@ def process_dirty_dataframes(
         logger.debug("-Fitting Targets --\n%s", y.columns)
 
         if feature_engine == CUDA_CAT:
-            label_encoder = SuperVectorizer(
+            label_encoder = TableVectorizer(
                 auto_cast=True,
                 cardinality_threshold=cardinality_threshold_target,
                 high_card_cat_transformer=GapEncoder(n_topics_target),
                 datetime_transformer = "passthrough"
             )
         else:
-            label_encoder = SuperVectorizer(
+            label_encoder = TableVectorizer(
                 auto_cast=True,
                 cardinality_threshold=cardinality_threshold_target,
                 high_card_cat_transformer=GapEncoder(n_topics_target)
@@ -1013,7 +1013,7 @@ def process_dirty_dataframes(
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            if isinstance(label_encoder, SuperVectorizer) or isinstance(
+            if isinstance(label_encoder, TableVectorizer) or isinstance(
                 label_encoder, FunctionTransformer
             ):
                 labels_transformed = label_encoder.get_feature_names_out()
@@ -1031,7 +1031,7 @@ def process_dirty_dataframes(
         # logger.debug(f"-Target Transformers used:
         # {label_encoder.transformers}\n")
         logger.debug(
-            "--Fitting SuperVectorizer on TARGET took"
+            "--Fitting TableVectorizer on TARGET took"
             f" {(time() - t2) / 60:.2f} minutes\n"
         )
     else:
@@ -1074,8 +1074,8 @@ def process_nodes_dataframes(
     Any,
     pd.DataFrame,
     Any,
-    SuperVectorizer,
-    SuperVectorizer,
+    TableVectorizer,
+    TableVectorizer,
     Optional[Pipeline],
     Optional[Pipeline],
     Any,
@@ -1570,7 +1570,7 @@ def transform_text(
 
 def transform_dirty(
     df: pd.DataFrame,
-    data_encoder: Union[SuperVectorizer, FunctionTransformer],  # type: ignore
+    data_encoder: Union[TableVectorizer, FunctionTransformer],  # type: ignore
     name: str = "",
 ) -> pd.DataFrame:
     # from sklearn.preprocessing import MultiLabelBinarizer
