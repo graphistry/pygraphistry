@@ -954,12 +954,12 @@ def process_dirty_dataframes(
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
         data_encoder.get_feature_names_out = callThrough(features_transformed) 
-        if 'numpy' in str(getmodule(X_enc)):
+        if 'cudf' not in str(getmodule(ndf)) and 'cupy' not in str(getmodule(X_enc)):
             X_enc = pd.DataFrame(
                 X_enc, columns=features_transformed, index=ndf.index
             )
             X_enc = X_enc.fillna(0.0)
-        if 'cupy' in str(getmodule(X_enc)):
+        else:
             cudf = deps.cudf
             X_enc = cudf.DataFrame(
                 X_enc
