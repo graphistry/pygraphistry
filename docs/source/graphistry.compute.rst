@@ -1,3 +1,11 @@
+Compute Modules
+---------------
+
+.. toctree::
+   :maxdepth: 2
+
+   graphistry.compute.predicates
+
 ComputeMixin module
 ------------------------------------------------
 
@@ -6,7 +14,6 @@ ComputeMixin module
    :undoc-members:
    :show-inheritance:
    :noindex:
-
 
 Chain
 ---------------
@@ -52,6 +59,14 @@ Filter by Dictionary
 Hop
 ---------------
 .. automodule:: graphistry.compute.hop
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :noindex:
+
+predicates
+---------------
+.. automodule:: graphistry.compute.predicates
    :members:
    :undoc-members:
    :show-inheritance:

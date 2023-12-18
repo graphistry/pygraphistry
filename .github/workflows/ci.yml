@@ -304,6 +304,6 @@ jobs:
     - name: Test building docs
       continue-on-error: true
       run: |
-        docker run --rm -v "$(pwd)/README.md:/README.md:ro" avtodev/markdown-lint:v1 README.md
+        docker run --rm -v "$(pwd)/README.md:/workdir/README.md:ro" -v "$(pwd)/.markdownlint.yaml:/workdir/.markdownlint.yaml:ro" ghcr.io/igorshubovych/markdownlint-cli:v0.37.0 README.md
 
   

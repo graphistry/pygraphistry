@@ -7,12 +7,55 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
-### Added
-
-* Neptune: Can now use PyGraphistry OpenCypher/BOLT bindings with Neptune, in addition to existing Gremlin bindings
+## [0.31.1 - 2023-12-05]
 
 ### Docs
 
+* Update readthedocs yml to work around ReadTheDocs v2 yml interpretation regressions
+* Make README.md pass markdownlint
+* Switch markdownlint docker channel to official and pin
+
+## [0.30.0 - 2023-12-04]
+
+### Added
+
+* Neptune: Can now use PyGraphistry OpenCypher/BOLT bindings with Neptune, in addition to existing Gremlin bindings
+* chain/hop: `is_in()` membership predicate, `.chain([ n({'type': is_in(['a', 'b'])}) ])`
+* hop: optional df queries - `hop(..., source_node_query='...', edge_query='...', destination_node_query='...')`
+* chain: optional df queries:
+  - `chain([n(query='...')])`
+  - `chain([e_forward(..., source_node_query='...', edge_query='...', destination_node_query='...')])`
+* `ASTPredicate` base class for filter matching
+* Additional predicates for hop and chain match expressions:
+  - categorical: is_in (example above), duplicated
+  - temporal: is_month_start, is_month_end, is_quarter_start, is_quarter_end, is_year_start, is_year_end, is_leap_year
+  - numeric: gt, lt, ge, le, eq, ne, between, isna, notna
+  - str: contains, startswith, endswith, match, isnumeric, isalpha, isdigit, islower, isupper, isspace, isalnum, isdecimal, istitle, isnull, notnull
+
+### Fixed
+
+* chain/hop: source_node_match was being mishandled when multiple node attributes exist
+* chain: backwards validation pass was too permissive; add `target_wave_front` check`
+* hop: multi-hops with `source_node_match` specified was not checking intermediate hops
+* hop: multi-hops reverse validation was mishandling intermediate nodes
+* compute logging no longer default-overrides level to DEBUG
+
+### Infra
+
+* Docker tests support LOG_LEVEL
+
+### Changed
+
+* refactor: move `is_in`, `IsIn` implementations to `graphistry.ast.predicates`; old imports preserved
+* `IsIn` now implements `ASTPredicate`
+* Refactor: use `setup_logger(__name__)` more consistently instead of `logging.getLogger(__name__)`
+* Refactor: drop unused imports
+* Redo `setup_logger()` to activate formatted stream handler iff verbose / LOG_LEVEL
+
+### Docs
+
+* hop/chain: new query and predicate forms
+* hop/chain graph pattern mining tutorial: [ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb)
 * Neptune: Initial tutorial for using PyGraphistry with Amazon Neptune's OpenCypher/BOLT bindings
 
 ## [0.29.7 - 2023-11-02]
