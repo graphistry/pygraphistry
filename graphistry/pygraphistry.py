@@ -271,7 +271,7 @@ class PyGraphistry(object):
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
             display(HTML(f'<a href="{auth_url}" target="_blank">old: Login SSO</a>'))
-            display(Markdown(f'[new: Login SSO]({auth_url})"))
+            display(Markdown(f'[new: Login SSO]({auth_url})'))
             print("Please click the above URL to open browser to login")
             print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
             print("Please close browser tab after SSO login to back to notebook")
