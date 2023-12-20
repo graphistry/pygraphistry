@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Union, cast
 from typing_extensions import Literal
 from graphistry.Plottable import Plottable
 from graphistry.privacy import Mode, Privacy
+from IPython.display import Markdown
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
 import calendar, gzip, io, json, os, numpy as np, pandas as pd, requests, sys, time, warnings
