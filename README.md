@@ -147,9 +147,9 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
-* Cypher-style graph pattern mining queries on dataframes ([ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb))
+* GFQL: Cypher-style graph pattern mining queries on dataframes ([ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb))
 
-  Run Cypher-style graph queries natively on dataframes without going to a database or Java:
+  Run Cypher-style graph queries natively on dataframes without going to a database or Java with GFQL:
 
     ```python
     from graphistry import n, e_undirected, is_in
@@ -1133,7 +1133,7 @@ g2.plot() # nodes are values from cols s, d, k1
     destination_node_match={"k2": 2},
     destination_node_query='k2 == 2 or k2 == 4',
   )
-  .chain([ # filter to subgraph
+  .chain([ # filter to subgraph with Cypher-style GFQL
     n(),
     n({'k2': 0, "m": 'ok'}), #specific values
     n({'type': is_in(["type1", "type2"])}), #multiple valid values
@@ -1156,7 +1156,7 @@ g2.plot() # nodes are values from cols s, d, k1
   .collapse(node='some_id', column='some_col', attribute='some val')
 ```
 
-Both `hop()` and `chain()` match dictionary expressions support dataframe series *predicates*. The above examples show `is_in([x, y, z, ...])`. Additional predicates include:
+Both `hop()` and `chain()` (GFQL) match dictionary expressions support dataframe series *predicates*. The above examples show `is_in([x, y, z, ...])`. Additional predicates include:
 
 * categorical: is_in, duplicated
 * temporal: is_month_start, is_month_end, is_quarter_start, is_quarter_end, is_year_start, is_year_end
@@ -1233,7 +1233,7 @@ assert 'pagerank' in g2._nodes.columns
 
 #### Graph pattern matching
 
-PyGraphistry supports a PyData-native variant of the popular Cypher graph query language, meaning you can do graph pattern matching directly from Pandas dataframes without installing a database or Java
+PyGraphistry supports GFQL, its PyData-native variant of the popular Cypher graph query language, meaning you can do graph pattern matching directly from Pandas dataframes without installing a database or Java
 
 See also [graph pattern matching tutorial](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb)
 
