@@ -1,9 +1,11 @@
+from abc import abstractmethod
 import logging
+from typing import Dict, Optional, Union, cast
 from typing_extensions import Literal
 import pandas as pd
 
 from graphistry.Plottable import Plottable
-from graphistry.util import setup_logger
+from graphistry.util import is_json_serializable, setup_logger
 from .predicates.ASTPredicate import ASTPredicate
 from .predicates.is_in import (
     is_in, IsIn
@@ -66,12 +68,43 @@ class ASTObject(object):
         self._name = name
         pass
 
+    @abstractmethod
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
         raise RuntimeError('__call__ not implemented')
         
+    @abstractmethod
     def reverse(self) -> 'ASTObject':
         raise RuntimeError('reverse not implemented')
+    
+    @abstractmethod
+    def to_json(self, validate=True) -> dict:
+        raise NotImplementedError()
 
+    def validate(self) -> None:
+        pass
+
+
+##############################################################################
+
+
+def assert_record_match(d: Dict) -> None:
+    assert isinstance(d, dict)
+    for k, v in d.items():
+        assert isinstance(k, str)
+        assert isinstance(v, ASTPredicate) or is_json_serializable(v)
+
+def maybe_filter_dict_from_json(d: Dict, key: str) -> Optional[Dict]:
+    if key not in d:
+        return None
+    if key in d and isinstance(d[key], dict):
+        return {
+            k: ASTPredicate.from_json(v) if isinstance(v, dict) else v
+            for k, v in d[key].items()
+        }
+    elif key in d and d[key] is not None:
+        raise ValueError('filter_dict must be a dict or None')
+    else:
+        return None
 
 ##############################################################################
 
@@ -91,6 +124,36 @@ class ASTNode(ASTObject):
 
     def __repr__(self) -> str:
         return f'ASTNode(filter_dict={self._filter_dict}, name={self._name})'
+    
+    def validate(self) -> None:
+        if self._filter_dict is not None:
+            assert_record_match(self._filter_dict)
+        if self._name is not None:
+            assert isinstance(self._name, str)
+        if self._query is not None:
+            assert isinstance(self._query, str)
+
+    def to_json(self, validate=True) -> dict:
+        return {
+            'type': 'Node',
+            'filter_dict': {
+                k: v.to_json() if isinstance(v, ASTPredicate) else v
+                for k, v in self._filter_dict.items()
+                if v is not None
+            } if self._filter_dict is not None else {},
+            **({'name': self._name} if self._name is not None else {}),
+            **({'query': self._query } if self._query is not None else {})
+        }
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'ASTNode':
+        out = ASTNode(
+            filter_dict=maybe_filter_dict_from_json(d, 'filter_dict'),
+            name=d['name'] if 'name' in d else None,
+            query=d['query'] if 'query' in d else None
+        )
+        out.validate()
+        return out
 
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
         out_g = (g
@@ -169,6 +232,71 @@ class ASTEdge(ASTObject):
 
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self._direction}, edge_match={self._edge_match}, hops={self._hops}, to_fixed_point={self._to_fixed_point}, source_node_match={self._source_node_match}, destination_node_match={self._destination_node_match}, name={self._name}, source_node_query={self._source_node_query}, destination_node_query={self._destination_node_query}, edge_query={self._edge_query})'
+
+    def validate(self) -> None:
+        assert self._hops is None or isinstance(self._hops, int)
+        assert isinstance(self._to_fixed_point, bool)
+        assert self._direction in ['forward', 'reverse', 'undirected']
+        if self._source_node_match is not None:
+            assert_record_match(self._source_node_match)
+        if self._edge_match is not None:
+            assert_record_match(self._edge_match)
+        if self._destination_node_match is not None:
+            assert_record_match(self._destination_node_match)
+        if self._name is not None:
+            assert isinstance(self._name, str)
+        if self._source_node_query is not None:
+            assert isinstance(self._source_node_query, str)
+        if self._destination_node_query is not None:
+            assert isinstance(self._destination_node_query, str)
+        if self._edge_query is not None:
+            assert isinstance(self._edge_query, str)
+
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {
+            'type': 'Edge',
+            'hops': self._hops,
+            'to_fixed_point': self._to_fixed_point,
+            'direction': self._direction,
+            **({'source_node_match': {
+                k: v.to_json() if isinstance(v, ASTPredicate) else v
+                for k, v in self._source_node_match.items()
+                if v is not None
+            }} if self._source_node_match is not None else {}),
+            **({'edge_match': {
+                k: v.to_json() if isinstance(v, ASTPredicate) else v
+                for k, v in self._edge_match.items()
+                if v is not None
+            }} if self._edge_match is not None else {}),
+            **({'destination_node_match': {
+                k: v.to_json() if isinstance(v, ASTPredicate) else v
+                for k, v in self._destination_node_match.items()
+                if v is not None
+            }} if self._destination_node_match is not None else {}),
+            **({'name': self._name} if self._name is not None else {}),
+            **({'source_node_query': self._source_node_query} if self._source_node_query is not None else {}),
+            **({'destination_node_query': self._destination_node_query} if self._destination_node_query is not None else {}),
+            **({'edge_query': self._edge_query} if self._edge_query is not None else {})
+        }
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'ASTEdge':
+        out = ASTEdge(
+            direction=d['direction'] if 'direction' in d else None,
+            edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
+            hops=d['hops'] if 'hops' in d else None,
+            to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else None,
+            source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
+            destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
+            source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
+            destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
+            edge_query=d['edge_query'] if 'edge_query' in d else None,
+            name=d['name'] if 'name' in d else None
+        )
+        out.validate()
+        return out
 
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
 
@@ -316,3 +444,17 @@ class ASTEdgeUndirected(ASTEdge):
 
 e_undirected = ASTEdgeUndirected  # noqa: E305
 e = ASTEdgeUndirected  # noqa: E305
+
+###
+
+def from_json(o: Dict) -> Union[ASTNode, ASTEdge]:
+    assert isinstance(o, dict)
+    assert 'type' in o
+    out : Union[ASTNode, ASTEdge]
+    if o['type'] == 'Node':
+        out = ASTNode.from_json(o)
+    elif o['type'] == 'Edge':
+        out = ASTEdge.from_json(o)
+    else:
+        raise ValueError(f'Unknown type {o["type"]}')
+    return out

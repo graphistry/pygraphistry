@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import os
 import pandas as pd
@@ -418,3 +419,13 @@ def printmd(string, color=None, size=20):
 #
 #     # matches name of inner function
 #     return wrapper
+
+def is_json_serializable(data):
+    try:
+        json.dumps(data)
+        return True
+    except TypeError:
+        return False
+
+def assert_json_serializable(data):
+    assert is_json_serializable(data), f"Data is not JSON-serializable: {data}"

@@ -1,9 +1,9 @@
-from typing import cast, List, Tuple
+from typing import Dict, cast, List, Tuple
 import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTNode, ASTEdge
+from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 
 logger = setup_logger(__name__)
 
@@ -253,3 +253,18 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
     g_out = g.nodes(final_nodes_df).edges(final_edges_df)
 
     return g_out
+
+###
+
+def from_json(d: Dict) -> List[ASTObject]:
+    """
+    Convert a JSON AST into a list of ASTObjects
+    """
+    assert isinstance(d, list)
+    return [ASTObject_from_json(op) for op in d]
+
+def to_json(ops: List[ASTObject]) -> List[Dict]:
+    """
+    Convert a list of ASTObjects into a JSON AST
+    """
+    return [op.to_json() for op in ops]

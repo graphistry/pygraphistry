@@ -1,14 +1,36 @@
-from typing import Optional
+from typing import Union
 import pandas as pd
 
 from .ASTPredicate import ASTPredicate
 
-class GT(ASTPredicate):
+
+class NumericASTPredicate(ASTPredicate):
+    def __init__(self, val: Union[int, float]) -> None:
+        self.val = val
+
+    def validate(self) -> None:
+        assert isinstance(self.val, (int, float))
+
+###
+
+class GT(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s > self.val
+
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {'type': 'GT', 'val': self.val}
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'GT':
+        assert 'val' in d
+        out = GT(val=d['val'])
+        out.validate()
+        return out
 
 def gt(val: float) -> GT:
     """
@@ -16,12 +38,24 @@ def gt(val: float) -> GT:
     """
     return GT(val)
 
-class LT(ASTPredicate):
+class LT(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s < self.val
+
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {'type': 'LT', 'val': self.val}
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'LT':
+        assert 'val' in d
+        out = LT(val=d['val'])
+        out.validate()
+        return out
 
 def lt(val: float) -> LT:
     """
@@ -29,12 +63,24 @@ def lt(val: float) -> LT:
     """
     return LT(val)
 
-class GE(ASTPredicate):
+class GE(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s >= self.val
+
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {'type': 'GE', 'val': self.val}
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'GE':
+        assert 'val' in d
+        out = GE(val=d['val'])
+        out.validate()
+        return out
 
 def ge(val: float) -> GE:
     """
@@ -42,12 +88,24 @@ def ge(val: float) -> GE:
     """
     return GE(val)
 
-class LE(ASTPredicate):
+class LE(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s <= self.val
+
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {'type': 'LE', 'val': self.val}
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'LE':
+        assert 'val' in d
+        out = LE(val=d['val'])
+        out.validate()
+        return out
 
 def le(val: float) -> LE:
     """
@@ -55,12 +113,24 @@ def le(val: float) -> LE:
     """
     return LE(val)
 
-class EQ(ASTPredicate):
+class EQ(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s == self.val
+
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {'type': 'EQ', 'val': self.val}
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'EQ':
+        assert 'val' in d
+        out = EQ(val=d['val'])
+        out.validate()
+        return out
 
 def eq(val: float) -> EQ:
     """
@@ -68,12 +138,24 @@ def eq(val: float) -> EQ:
     """
     return EQ(val)
 
-class NE(ASTPredicate):
+class NE(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s != self.val
+
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {'type': 'NE', 'val': self.val}
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'NE':
+        assert 'val' in d
+        out = NE(val=d['val'])
+        out.validate()
+        return out
 
 def ne(val: float) -> NE:
     """
@@ -92,6 +174,25 @@ class Between(ASTPredicate):
             return (s >= self.lower) & (s <= self.upper)
         else:
             return (s > self.lower) & (s < self.upper)
+        
+    def validate(self) -> None:
+        assert isinstance(self.lower, (int, float))
+        assert isinstance(self.upper, (int, float))
+        assert isinstance(self.inclusive, bool)
+
+    def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
+        return {'type': 'Between', 'lower': self.lower, 'upper': self.upper, 'inclusive': self.inclusive}
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'Between':
+        assert 'lower' in d
+        assert 'upper' in d
+        assert 'inclusive' in d
+        out = Between(lower=d['lower'], upper=d['upper'], inclusive=d['inclusive'])
+        out.validate()
+        return out
 
 def between(lower: float, upper: float, inclusive: bool = True) -> Between:
     """
@@ -102,6 +203,13 @@ def between(lower: float, upper: float, inclusive: bool = True) -> Between:
 class IsNA(ASTPredicate):
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.isna()
+    
+    def to_json(self, validate=True) -> dict:
+        return {'type': 'IsNA'}
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'IsNA':
+        return IsNA()
 
 def isna() -> IsNA:
     """
@@ -113,6 +221,13 @@ def isna() -> IsNA:
 class NotNA(ASTPredicate):
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.notna()
+    
+    def to_json(self, validate=True) -> dict:
+        return {'type': 'NotNA'}
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'NotNA':
+        return NotNA()
 
 def notna() -> NotNA:
     """
