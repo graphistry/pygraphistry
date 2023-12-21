@@ -60,6 +60,7 @@ nitpick_ignore = [
     ('py:class', 'graphistry.compute.predicates.numeric.LT'),
     ('py:class', 'graphistry.compute.predicates.numeric.NE'),
     ('py:class', 'graphistry.compute.predicates.numeric.NotNA'),
+    ('py:class', 'graphistry.compute.predicates.numeric.NumericASTPredicate'),
     ('py:class', 'graphistry.compute.predicates.str.Contains'),
     ('py:class', 'graphistry.compute.predicates.str.Endswith'),
     ('py:class', 'graphistry.compute.predicates.str.IsAlnum'),
