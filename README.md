@@ -1316,6 +1316,17 @@ print('# end edges: ', len(g3._edges[ g3._edges.final_edge ]))
 
 See table above for more predicates like `is_in()` and `gt()`
 
+Queries can be serialized and deserialized, such as for saving and remote execution:
+
+```python
+from graphistry.compute.chain import from_json, to_json
+
+pattern = [n(), e(), n()]
+pattern_json = to_json(pattern)
+pattern2 = from_json(pattern_json)
+g.chain(pattern2).plot()
+```
+
 #### Pipelining
 
 ```python
