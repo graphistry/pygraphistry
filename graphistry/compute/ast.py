@@ -121,10 +121,11 @@ n = ASTNode  # noqa: E305
 
 ###############################################################################
 
+Direction = Literal['forward', 'reverse', 'undirected']
 
 DEFAULT_HOPS = 1
 DEFAULT_FIXED_POINT = False
-DEFAULT_DIRECTION = 'forward'
+DEFAULT_DIRECTION: Direction = 'forward'
 DEFAULT_FILTER_DICT = None
 
 class ASTEdge(ASTObject):
@@ -133,7 +134,7 @@ class ASTEdge(ASTObject):
     """
     def __init__(
         self,
-        direction: Optional[str] = DEFAULT_DIRECTION,
+        direction: Optional[Direction] = DEFAULT_DIRECTION,
         edge_match: Optional[dict] = DEFAULT_FILTER_DICT,
         hops: Optional[int] = DEFAULT_HOPS,
         to_fixed_point: bool = DEFAULT_FIXED_POINT,
@@ -158,7 +159,7 @@ class ASTEdge(ASTObject):
 
         self._hops = hops
         self._to_fixed_point = to_fixed_point
-        self._direction = direction
+        self._direction : Direction = direction
         self._source_node_match = source_node_match
         self._edge_match = edge_match
         self._destination_node_match = destination_node_match
@@ -206,6 +207,7 @@ class ASTEdge(ASTObject):
 
     def reverse(self) -> 'ASTEdge':
         # updates both edges and nodes
+        direction : Direction
         if self._direction == 'reverse':
             direction = 'forward'
         elif self._direction == 'forward':
