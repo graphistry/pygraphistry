@@ -253,9 +253,6 @@ class ASTEdgeForward(ASTEdge):
             edge_query=edge_query
         )
 
-    def __repr__(self) -> str:
-        return f'ASTEdgeForward(edge_match={self._edge_match}, hops={self._hops}, source_node_match={self._source_node_match}, destination_node_match={self._destination_node_match}, to_fixed_point={self._to_fixed_point}, name={self._name}, source_node_query={self._source_node_query}, destination_node_query={self._destination_node_query}, edge_query={self._edge_query})'
-
 e_forward = ASTEdgeForward  # noqa: E305
 
 class ASTEdgeReverse(ASTEdge):
@@ -285,9 +282,6 @@ class ASTEdgeReverse(ASTEdge):
             destination_node_query=destination_node_query,
             edge_query=edge_query
         )
-    
-    def __repr__(self) -> str:
-        return f'ASTEdgeReverse(edge_match={self._edge_match}, hops={self._hops}, source_node_match={self._source_node_match}, destination_node_match={self._destination_node_match}, to_fixed_point={self._to_fixed_point}, name={self._name}, source_node_query={self._source_node_query}, destination_node_query={self._destination_node_query}, edge_query={self._edge_query})'
 
 e_reverse = ASTEdgeReverse  # noqa: E305
 
@@ -318,8 +312,5 @@ class ASTEdgeUndirected(ASTEdge):
             destination_node_query=destination_node_query,
             edge_query=edge_query
         )
-
-    def __repr__(self) -> str:
-        return f'ASTEdgeUndirected(edge_match={self._edge_match}, hops={self._hops}, source_node_match={self._source_node_match}, destination_node_match={self._destination_node_match}, to_fixed_point={self._to_fixed_point}, name={self._name}, source_node_query={self._source_node_query}, destination_node_query={self._destination_node_query}, edge_query={self._edge_query})'
 
 e_undirected = ASTEdgeUndirected  # noqa: E305
