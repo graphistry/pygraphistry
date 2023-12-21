@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, cast
+from typing_extensions import Literal
 import pandas as pd
 
 from graphistry.Plottable import Plottable
