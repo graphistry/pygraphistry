@@ -223,7 +223,6 @@ class ASTEdge(ASTObject):
             destination_node_query=self._source_node_query,
             edge_query=self._edge_query
         )
-e = ASTEdge  # noqa: E305
 
 class ASTEdgeForward(ASTEdge):
     """
@@ -314,3 +313,4 @@ class ASTEdgeUndirected(ASTEdge):
         )
 
 e_undirected = ASTEdgeUndirected  # noqa: E305
+e = ASTEdgeUndirected  # noqa: E305
