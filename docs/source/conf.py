@@ -81,6 +81,7 @@ nitpick_ignore = [
     ('py:class', 'graphistry.compute.predicates.temporal.IsQuarterEnd'),
     ('py:class', 'graphistry.compute.predicates.temporal.IsQuarterStart'),
     ('py:class', 'graphistry.compute.predicates.temporal.IsYearStart'),
+    ('py:class', 'graphistry.compute.predicates.temporal.IsYearEnd'),
     ('py:class', 'graphistry.Engine.Engine'),
     ('py:class', 'graphistry.gremlin.CosmosMixin'),
     ('py:class', 'graphistry.gremlin.GremlinMixin'),
