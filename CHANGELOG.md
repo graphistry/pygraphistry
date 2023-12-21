@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 
 ### Added
+
+* GFQL query serialization: `graphistry.compute.from_json(graphistry.compute.to_json([...]))`
 * GFQL predicate `is_year_end`
 
 ### Docs

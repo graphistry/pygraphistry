@@ -10,4 +10,15 @@ class ASTPredicate():
 
     @abstractmethod
     def __call__(self, s: pd.Series) -> pd.Series:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def to_json(self, validate=True) -> dict:
+        raise NotImplementedError()
+    
+    @classmethod
+    def from_json(cls, d: dict) -> 'ASTPredicate':
+        raise NotImplementedError()
+
+    def validate(self) -> None:
         pass
