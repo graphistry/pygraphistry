@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Docs
+
+* GFQL in readme.md
+
 ## [0.31.1 - 2023-12-05]
 
 ### Docs
