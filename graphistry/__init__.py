@@ -61,6 +61,7 @@ from graphistry.compute import (
     is_quarter_start, IsQuarterStart,
     is_quarter_end, IsQuarterEnd,
     is_year_start, IsYearStart,
+    is_year_end, IsYearEnd,
     is_leap_year, IsLeapYear,
 
     gt, GT,
