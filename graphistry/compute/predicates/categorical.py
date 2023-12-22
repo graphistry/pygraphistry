@@ -13,18 +13,6 @@ class Duplicated(ASTPredicate):
     def validate(self) -> None:
         assert self.keep in ['first', 'last', False]
 
-    def to_json(self, validate=True) -> dict:
-        if validate:
-            self.validate()
-        return {'type': 'Duplicated', 'keep': self.keep}
-    
-    @classmethod
-    def from_json(cls, d: dict) -> 'Duplicated':
-        assert 'keep' in d
-        out = Duplicated(keep=d['keep'])
-        out.validate()
-        return out
-
 def duplicated(keep: Literal['first', 'last', False] = 'first') -> Duplicated:
     """
     Return whether a given value is duplicated

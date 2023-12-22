@@ -16,21 +16,6 @@ class IsIn(ASTPredicate):
     def validate(self) -> None:
         assert isinstance(self.options, list)
         assert_json_serializable(self.options)
-    
-    def to_json(self, validate=True) -> dict:
-        if validate:
-            self.validate()
-        return {
-            'type': 'IsIn',
-            'options': self.options
-        }
-    
-    @classmethod
-    def from_json(cls, d: dict) -> 'IsIn':
-        assert 'options' in d
-        out = IsIn(options=d['options'])
-        out.validate()
-        return out
 
 def is_in(options: List[Any]) -> IsIn:
     return IsIn(options)
