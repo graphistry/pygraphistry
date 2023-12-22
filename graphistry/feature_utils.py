@@ -40,6 +40,14 @@ if TYPE_CHECKING:
     except:
         SentenceTransformer = Any
     try:
+        from dirty_cat import (
+            TableVectorizer,
+            GapEncoder,
+        )  # type: ignore
+    except:
+        TableVectorizer = Any
+        GapEncoder = Any
+    try:
         from cu_cat import (
             TableVectorizer,
             GapEncoder,
@@ -67,28 +75,30 @@ else:
 
 #@check_set_memoize
 
-def assert_imported_cucat():
+def assert_imported():
     cu_cat = deps.cu_cat
     cudf = deps.cudf
     cuml = deps.cuml
     if None not in [cudf, cuml, cu_cat]:
         logger.debug(f"CUML VERSION: {cuml.__version__}")
         logger.debug(f"CUDF VERSION: {cudf.__version__}")
-        logger.debug(f"CUDF VERSION: {cu_cat.__version__}")
-    if cuml is None or cudf is None:
+        logger.debug(f"CU_CAT VERSION: {cu_cat.__version__}")
+    else:
         logger.warning(  # noqa
-                "cuml and/or cudf not found, trying running"  # noqa
+                "cu_cat, cuml and/or cudf not found, trying running"  # noqa
                 "`pip install rapids`"  # noqa
                 "or `pip install --extra-index-url=https://pypi.nvidia.com cuml-cu11 cudf-cu11`"  # noqa
             )
         scipy = deps.scipy
         sklearn = deps.sklearn
-        if None not in [scipy, sklearn]:
+        dirty_cat = deps.dirty_cat
+        if None not in [scipy, sklearn,dirty_cat]:
             logger.debug(f"SCIPY VERSION: {scipy.__version__}")
-            logger.debug(f"sklearn VERSION: {sklearn.__version__}")
+            logger.debug(f"SKLEARN VERSION: {sklearn.__version__}")
+            logger.debug(f"DIRTY_CAT VERSION: {dirty_cat.__version__}")
         else:
-            logger.warning(  # noqa
-                "scipy and/or sklearn not found"  # noqa
+            logger.error(  # noqa
+                "Neither cu_cat nor dirty_cat found for featurizing"  # noqa
             )
 
 
@@ -900,11 +910,12 @@ def process_dirty_dataframes(
             the data encoder, and the label encoder.
     """
 
-    assert_imported_cucat()
-    from cu_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
+    assert_imported()
     if deps.cuml:
+        from cu_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
     else:
+        from dirty_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
         from sklearn.preprocessing import FunctionTransformer
 
     t = time()
@@ -1406,13 +1417,16 @@ def process_edge_dataframes(
              " and is empty"
     )
 
-    if feature_engine in ["none", "pandas"]:
+    if feature_engine in ["none", "pandas","cudf"]:
 
         X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(
             other_df, y
         )
         # add the two datasets together
-        X_enc = pd.concat([T, X_enc], axis=1)
+        if feature_engine == "pandas":
+            X_enc = pd.concat([T, X_enc], axis=1)
+        if feature_engine == "cudf":
+            X_enc = cudf.concat([T, X_enc], axis=1)
         # then scale them
         X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
             X_enc,
@@ -1480,10 +1494,20 @@ def process_edge_dataframes(
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
         T_type = str(getmodule(T))
-        if 'cudf' in T_type:
+        X_type = str(getmodule(X_enc))
+        if 'cudf' in T_type and 'cudf' in X_type:
             X_enc = cudf.concat([T, X_enc], axis=1)
-        else:
+        elif 'pd' in T_type and 'pd' in X_type:
             X_enc = pd.concat([T, X_enc], axis=1)
+        else:
+            try:
+                X_enc = cudf.concat([cudf.from_pandas(T), X_enc], axis=1)
+            except:
+                pass
+            try:
+                X_enc = cudf.concat([T, cudf.from_pandas(X_enc)], axis=1)
+            except:
+                pass
     elif not T.empty and X_enc.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found only Edges =>")
@@ -2029,7 +2053,7 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
 
-        assert_imported_cucat()
+        assert_imported()
 
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
         
@@ -2570,7 +2594,7 @@ class FeatureMixin(MIXIN_BASE):
         """
         feature_engine = resolve_feature_engine(feature_engine)
 
-        assert_imported_cucat()
+        assert_imported()
 
         if inplace:
             res = self

@@ -1,10 +1,16 @@
-import pandas as pd
+import pandas as pd, numpy as np
 import unittest
 import pytest
 import graphistry
 from graphistry.constants import DBSCAN
 from graphistry.util import ModelDict
 from graphistry.compute.cluster import lazy_dbscan_import_has_dependency
+from graphistry.dep_manager import DepManager
+
+np.random.seed(137)
+
+deps = DepManager()
+dirty_cat = deps.dirty_cat
 
 has_dbscan, _, has_gpu_dbscan, _ = lazy_dbscan_import_has_dependency()
 
