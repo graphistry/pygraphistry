@@ -12,6 +12,8 @@ from graphistry.compute.predicates.temporal import (
     IsMonthStart, IsMonthEnd, IsQuarterStart, IsQuarterEnd,
     IsYearStart, IsYearEnd, IsLeapYear
 )
+from graphistry.utils.json import JSONVal
+
 
 predicates : List[Type[ASTPredicate]] = [
     Duplicated,
@@ -28,10 +30,12 @@ type_to_predicate: Dict[str, Type[ASTPredicate]] = {
     for cls in predicates
 }
 
-def from_json(d: Dict) -> ASTPredicate:
+def from_json(d: Dict[str, JSONVal]) -> ASTPredicate:
     assert isinstance(d, dict)
     assert 'type' in d
     assert d['type'] in type_to_predicate
-    out = type_to_predicate[d['type']].from_json(d)
+    assert isinstance(d['type'], str)
+    pred = type_to_predicate[d['type']]
+    out = pred.from_json(d)
     out.validate()
     return out
