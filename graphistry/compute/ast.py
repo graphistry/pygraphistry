@@ -5,7 +5,8 @@ from typing_extensions import Literal
 import pandas as pd
 
 from graphistry.Plottable import Plottable
-from graphistry.util import is_json_serializable, setup_logger
+from graphistry.util import setup_logger
+from graphistry.utils.json import is_json_serializable
 from .predicates.ASTPredicate import ASTPredicate
 from .predicates.is_in import (
     is_in, IsIn

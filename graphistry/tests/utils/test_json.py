@@ -1,4 +1,4 @@
-from graphistry.util import assert_json_serializable
+from graphistry.utils.json import assert_json_serializable
 
 class TestAssertJsonSerializable():
 
