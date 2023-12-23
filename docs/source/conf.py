@@ -48,6 +48,8 @@ nitpick_ignore = [
     ('py:class', '3'),
     ('py:class', "<class 'dict'>"),
     ('py:class', "<class 'str'>"),
+    ('py:class', "graphistry.compute.ASTSerializable.ASTSerializable"),
+    ('py:class', "graphistry.compute.chain.Chain"),
     ('py:class', "graphistry.compute.predicates.ASTPredicate.ASTPredicate"),
     ('py:class', 'graphistry.compute.predicates.categorical.Duplicated'),
     ('py:class', 'graphistry.compute.predicates.is_in.IsIn'),
