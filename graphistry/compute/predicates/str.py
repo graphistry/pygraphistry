@@ -14,6 +14,13 @@ class Contains(ASTPredicate):
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.contains(self.pat, self.case, self.flags, self.na, self.regex)
+    
+    def validate(self) -> None:
+        assert isinstance(self.pat, str)
+        assert isinstance(self.case, bool)
+        assert isinstance(self.flags, int)
+        assert isinstance(self.na, (bool, type(None)))
+        assert isinstance(self.regex, bool)
 
 def contains(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None, regex: bool = True) -> Contains:
     """
@@ -29,6 +36,10 @@ class Startswith(ASTPredicate):
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.startswith(self.pat, self.na)
+
+    def validate(self) -> None:
+        assert isinstance(self.pat, str)
+        assert isinstance(self.na, (str, type(None)))
 
 def startswith(pat: str, na: Optional[str] = None) -> Startswith:
     """
@@ -47,6 +58,10 @@ class Endswith(ASTPredicate):
         """
         return s.str.endswith(self.pat, self.na)
 
+    def validate(self) -> None:
+        assert isinstance(self.pat, str)
+        assert isinstance(self.na, (str, type(None)))
+
 def endswith(pat: str, na: Optional[str] = None) -> Endswith:
     return Endswith(pat, na)
 
@@ -59,6 +74,12 @@ class Match(ASTPredicate):
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.match(self.pat, self.case, self.flags, self.na)
+    
+    def validate(self) -> None:
+        assert isinstance(self.pat, str)
+        assert isinstance(self.case, bool)
+        assert isinstance(self.flags, int)
+        assert isinstance(self.na, (bool, type(None)))
 
 def match(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None) -> Match:
     """
@@ -67,12 +88,10 @@ def match(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None
     return Match(pat, case, flags, na)
 
 class IsNumeric(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.isnumeric()
-
+    
 def isnumeric() -> IsNumeric:
     """
     Return whether a given string is numeric
@@ -80,8 +99,6 @@ def isnumeric() -> IsNumeric:
     return IsNumeric()
 
 class IsAlpha(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.isalpha()
@@ -93,8 +110,6 @@ def isalpha() -> IsAlpha:
     return IsAlpha()
 
 class IsDigit(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.isdigit()
@@ -106,8 +121,6 @@ def isdigit() -> IsDigit:
     return IsDigit()
 
 class IsLower(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.islower()
@@ -119,8 +132,6 @@ def islower() -> IsLower:
     return IsLower()
 
 class IsUpper(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.isupper()
@@ -132,8 +143,6 @@ def isupper() -> IsUpper:
     return IsUpper()
 
 class IsSpace(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.isspace()
@@ -145,8 +154,6 @@ def isspace() -> IsSpace:
     return IsSpace()
 
 class IsAlnum(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.isalnum()
@@ -158,8 +165,6 @@ def isalnum() -> IsAlnum:
     return IsAlnum()
 
 class IsDecimal(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.isdecimal()
@@ -171,8 +176,6 @@ def isdecimal() -> IsDecimal:
     return IsDecimal()
 
 class IsTitle(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series:
         return s.str.istitle()
@@ -184,8 +187,6 @@ def istitle() -> IsTitle:
     return IsTitle()
 
 class IsNull(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series: 
         return s.isnull()
@@ -197,8 +198,6 @@ def isnull() -> IsNull:
     return IsNull()
 
 class NotNull(ASTPredicate):
-    def __init__(self) -> None:
-        pass
 
     def __call__(self, s: pd.Series) -> pd.Series: 
         return s.notnull()

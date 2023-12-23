@@ -1,11 +1,51 @@
-from typing import cast, List, Tuple
+from typing import Dict, Union, cast, List, Tuple
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTNode, ASTEdge
+from graphistry.utils.json import JSONVal
+from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
 
 logger = setup_logger(__name__)
+
+
+###############################################################################
+
+
+class Chain(ASTSerializable):
+
+    def __init__(self, chain: List[ASTObject]) -> None:
+        self.chain = chain
+
+    def validate(self) -> None:
+        assert isinstance(self.chain, list)
+        for op in self.chain:
+            assert isinstance(op, ASTObject)
+            op.validate()
+
+    @classmethod
+    def from_json(cls, d: Dict[str, JSONVal]) -> 'Chain':
+        """
+        Convert a JSON AST into a list of ASTObjects
+        """
+        assert isinstance(d, dict)
+        assert 'chain' in d
+        assert isinstance(d['chain'], list)
+        out = cls([ASTObject_from_json(op) for op in d['chain']])
+        out.validate()
+        return out
+
+    def to_json(self, validate=True) -> Dict[str, JSONVal]:
+        """
+        Convert a list of ASTObjects into a JSON AST
+        """
+        if validate:
+            self.validate()
+        return {
+            'type': self.__class__.__name__,
+            'chain': [op.to_json() for op in self.chain]
+        }
 
 
 ###############################################################################
@@ -92,12 +132,14 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 #
 ###############################################################################
 
-def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
+def chain(self: Plottable, ops: Union[List[ASTObject], Chain]) -> Plottable:
     """
-    Experimental: Chain a list of operations
+    Chain a list of ASTObject (node/edge) traversal operations
 
     Return subgraph of matches according to the list of node & edge matchers
     If any matchers are named, add a correspondingly named boolean-valued column to the output
+
+    For direct calls, exposes convenience `List[ASTObject]`. Internal operational should prefer `Chain`.
 
     :param ops: List[ASTObject] Various node and edge matchers
 
@@ -161,6 +203,9 @@ def chain(self: Plottable, ops: List[ASTObject]) -> Plottable:
             print('# hits:', len(g_risky._nodes[ g_risky._nodes.hit ]))
 
     """
+
+    if isinstance(ops, Chain):
+        ops = ops.chain
 
     if len(ops) == 0:
         return self
