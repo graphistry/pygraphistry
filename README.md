@@ -1319,11 +1319,11 @@ See table above for more predicates like `is_in()` and `gt()`
 Queries can be serialized and deserialized, such as for saving and remote execution:
 
 ```python
-from graphistry.compute.chain import from_json, to_json
+from graphistry.compute.chain import Chain
 
-pattern = [n(), e(), n()]
-pattern_json = to_json(pattern)
-pattern2 = from_json(pattern_json)
+pattern = Chain([n(), e(), n()])
+pattern_json = pattern.to_json()
+pattern2 = Chain.from_json(pattern_json)
 g.chain(pattern2).plot()
 ```
 
