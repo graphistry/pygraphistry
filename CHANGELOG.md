@@ -9,12 +9,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-* GFQL query serialization: `graphistry.compute.from_json(graphistry.compute.to_json([...]))`
+* GFQL `Chain` AST object
+* GFQL query serialization - `Chain`, `ASTObject`, and `ASTPredict` implement `ASTSerializable`
+  - Ex:`Chain.from_json(Chain([n(), e(), n()]).to_json())`
 * GFQL predicate `is_year_end`
 
 ### Docs
 
 * GFQL in readme.md
+
+### Changes
+
+* Refactor `ASTEdge`, `ASTNode` field naming convention to match other `ASTSerializable`s
 
 ### Breaking 🔥
 

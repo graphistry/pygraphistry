@@ -5,8 +5,9 @@ from typing_extensions import Literal
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.util import setup_logger
-from graphistry.utils.json import is_json_serializable
+from graphistry.utils.json import JSONVal, is_json_serializable
 from .predicates.ASTPredicate import ASTPredicate
 from .predicates.is_in import (
     is_in, IsIn
@@ -60,7 +61,7 @@ logger = setup_logger(__name__)
 ##############################################################################
 
 
-class ASTObject(object):
+class ASTObject(ASTSerializable):
     """
     Internal, not intended for use outside of this module.
     These are operator-level expressions used as g.chain(List<ASTObject>)
@@ -76,13 +77,6 @@ class ASTObject(object):
     @abstractmethod
     def reverse(self) -> 'ASTObject':
         raise RuntimeError('reverse not implemented')
-    
-    @abstractmethod
-    def to_json(self, validate=True) -> dict:
-        raise NotImplementedError()
-
-    def validate(self) -> None:
-        pass
 
 
 ##############################################################################
@@ -120,30 +114,32 @@ class ASTNode(ASTObject):
 
         if filter_dict == {}:
             filter_dict = None
-        self._filter_dict = filter_dict
-        self._query = query
+        self.filter_dict = filter_dict
+        self.query = query
 
     def __repr__(self) -> str:
-        return f'ASTNode(filter_dict={self._filter_dict}, name={self._name})'
+        return f'ASTNode(filter_dict={self.filter_dict}, name={self._name})'
     
     def validate(self) -> None:
-        if self._filter_dict is not None:
-            assert_record_match(self._filter_dict)
+        if self.filter_dict is not None:
+            assert_record_match(self.filter_dict)
         if self._name is not None:
             assert isinstance(self._name, str)
-        if self._query is not None:
-            assert isinstance(self._query, str)
+        if self.query is not None:
+            assert isinstance(self.query, str)
 
     def to_json(self, validate=True) -> dict:
+        if validate:
+            self.validate()
         return {
             'type': 'Node',
             'filter_dict': {
                 k: v.to_json() if isinstance(v, ASTPredicate) else v
-                for k, v in self._filter_dict.items()
+                for k, v in self.filter_dict.items()
                 if v is not None
-            } if self._filter_dict is not None else {},
+            } if self.filter_dict is not None else {},
             **({'name': self._name} if self._name is not None else {}),
-            **({'query': self._query } if self._query is not None else {})
+            **({'query': self.query } if self.query is not None else {})
         }
     
     @classmethod
@@ -159,8 +155,8 @@ class ASTNode(ASTObject):
     def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
         out_g = (g
             .nodes(prev_node_wavefront if prev_node_wavefront is not None else g._nodes)
-            .filter_nodes_by_dict(self._filter_dict)
-            .nodes(lambda g_dynamic: g_dynamic._nodes.query(self._query) if self._query is not None else g_dynamic._nodes)
+            .filter_nodes_by_dict(self.filter_dict)
+            .nodes(lambda g_dynamic: g_dynamic._nodes.query(self.query) if self.query is not None else g_dynamic._nodes)
             .edges(g._edges[:0])
         )
         if target_wave_front is not None:
@@ -221,65 +217,65 @@ class ASTEdge(ASTObject):
         if destination_node_match == {}:
             destination_node_match = None
 
-        self._hops = hops
-        self._to_fixed_point = to_fixed_point
-        self._direction : Direction = direction
-        self._source_node_match = source_node_match
-        self._edge_match = edge_match
-        self._destination_node_match = destination_node_match
-        self._source_node_query = source_node_query
-        self._destination_node_query = destination_node_query
-        self._edge_query = edge_query
+        self.hops = hops
+        self.to_fixed_point = to_fixed_point
+        self.direction : Direction = direction
+        self.source_node_match = source_node_match
+        self.edge_match = edge_match
+        self.destination_node_match = destination_node_match
+        self.source_node_query = source_node_query
+        self.destination_node_query = destination_node_query
+        self.edge_query = edge_query
 
     def __repr__(self) -> str:
-        return f'ASTEdge(direction={self._direction}, edge_match={self._edge_match}, hops={self._hops}, to_fixed_point={self._to_fixed_point}, source_node_match={self._source_node_match}, destination_node_match={self._destination_node_match}, name={self._name}, source_node_query={self._source_node_query}, destination_node_query={self._destination_node_query}, edge_query={self._edge_query})'
+        return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query})'
 
     def validate(self) -> None:
-        assert self._hops is None or isinstance(self._hops, int)
-        assert isinstance(self._to_fixed_point, bool)
-        assert self._direction in ['forward', 'reverse', 'undirected']
-        if self._source_node_match is not None:
-            assert_record_match(self._source_node_match)
-        if self._edge_match is not None:
-            assert_record_match(self._edge_match)
-        if self._destination_node_match is not None:
-            assert_record_match(self._destination_node_match)
+        assert self.hops is None or isinstance(self.hops, int)
+        assert isinstance(self.to_fixed_point, bool)
+        assert self.direction in ['forward', 'reverse', 'undirected']
+        if self.source_node_match is not None:
+            assert_record_match(self.source_node_match)
+        if self.edge_match is not None:
+            assert_record_match(self.edge_match)
+        if self.destination_node_match is not None:
+            assert_record_match(self.destination_node_match)
         if self._name is not None:
             assert isinstance(self._name, str)
-        if self._source_node_query is not None:
-            assert isinstance(self._source_node_query, str)
-        if self._destination_node_query is not None:
-            assert isinstance(self._destination_node_query, str)
-        if self._edge_query is not None:
-            assert isinstance(self._edge_query, str)
+        if self.source_node_query is not None:
+            assert isinstance(self.source_node_query, str)
+        if self.destination_node_query is not None:
+            assert isinstance(self.destination_node_query, str)
+        if self.edge_query is not None:
+            assert isinstance(self.edge_query, str)
 
     def to_json(self, validate=True) -> dict:
         if validate:
             self.validate()
         return {
             'type': 'Edge',
-            'hops': self._hops,
-            'to_fixed_point': self._to_fixed_point,
-            'direction': self._direction,
+            'hops': self.hops,
+            'to_fixed_point': self.to_fixed_point,
+            'direction': self.direction,
             **({'source_node_match': {
                 k: v.to_json() if isinstance(v, ASTPredicate) else v
-                for k, v in self._source_node_match.items()
+                for k, v in self.source_node_match.items()
                 if v is not None
-            }} if self._source_node_match is not None else {}),
+            }} if self.source_node_match is not None else {}),
             **({'edge_match': {
                 k: v.to_json() if isinstance(v, ASTPredicate) else v
-                for k, v in self._edge_match.items()
+                for k, v in self.edge_match.items()
                 if v is not None
-            }} if self._edge_match is not None else {}),
+            }} if self.edge_match is not None else {}),
             **({'destination_node_match': {
                 k: v.to_json() if isinstance(v, ASTPredicate) else v
-                for k, v in self._destination_node_match.items()
+                for k, v in self.destination_node_match.items()
                 if v is not None
-            }} if self._destination_node_match is not None else {}),
+            }} if self.destination_node_match is not None else {}),
             **({'name': self._name} if self._name is not None else {}),
-            **({'source_node_query': self._source_node_query} if self._source_node_query is not None else {}),
-            **({'destination_node_query': self._destination_node_query} if self._destination_node_query is not None else {}),
-            **({'edge_query': self._edge_query} if self._edge_query is not None else {})
+            **({'source_node_query': self.source_node_query} if self.source_node_query is not None else {}),
+            **({'destination_node_query': self.destination_node_query} if self.destination_node_query is not None else {}),
+            **({'edge_query': self.edge_query} if self.edge_query is not None else {})
         }
     
     @classmethod
@@ -312,17 +308,17 @@ class ASTEdge(ASTObject):
 
         out_g = g.hop(
             nodes=prev_node_wavefront,
-            hops=self._hops,
-            to_fixed_point=self._to_fixed_point,
-            direction=self._direction,
-            source_node_match=self._source_node_match,
-            edge_match=self._edge_match,
-            destination_node_match=self._destination_node_match,
+            hops=self.hops,
+            to_fixed_point=self.to_fixed_point,
+            direction=self.direction,
+            source_node_match=self.source_node_match,
+            edge_match=self.edge_match,
+            destination_node_match=self.destination_node_match,
             return_as_wave_front=True,
             target_wave_front=target_wave_front,
-            source_node_query=self._source_node_query,
-            destination_node_query=self._destination_node_query,
-            edge_query=self._edge_query
+            source_node_query=self.source_node_query,
+            destination_node_query=self.destination_node_query,
+            edge_query=self.edge_query
         )
 
         if self._name is not None:
@@ -337,22 +333,22 @@ class ASTEdge(ASTObject):
     def reverse(self) -> 'ASTEdge':
         # updates both edges and nodes
         direction : Direction
-        if self._direction == 'reverse':
+        if self.direction == 'reverse':
             direction = 'forward'
-        elif self._direction == 'forward':
+        elif self.direction == 'forward':
             direction = 'reverse'
         else:
             direction = 'undirected'
         return ASTEdge(
             direction=direction,
-            edge_match=self._edge_match,
-            hops=self._hops,
-            to_fixed_point=self._to_fixed_point,
-            source_node_match=self._destination_node_match,
-            destination_node_match=self._source_node_match,
-            source_node_query=self._destination_node_query,
-            destination_node_query=self._source_node_query,
-            edge_query=self._edge_query
+            edge_match=self.edge_match,
+            hops=self.hops,
+            to_fixed_point=self.to_fixed_point,
+            source_node_match=self.destination_node_match,
+            destination_node_match=self.source_node_match,
+            source_node_query=self.destination_node_query,
+            destination_node_query=self.source_node_query,
+            edge_query=self.edge_query
         )
 
 class ASTEdgeForward(ASTEdge):
@@ -448,7 +444,7 @@ e = ASTEdgeUndirected  # noqa: E305
 
 ###
 
-def from_json(o: Dict) -> Union[ASTNode, ASTEdge]:
+def from_json(o: JSONVal) -> Union[ASTNode, ASTEdge]:
     assert isinstance(o, dict)
     assert 'type' in o
     out : Union[ASTNode, ASTEdge]
