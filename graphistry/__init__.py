@@ -51,6 +51,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
 
 from graphistry.compute import (
     n, e_forward, e_reverse, e_undirected,
+    Chain,
 
     is_in, IsIn,
 
