@@ -1,9 +1,19 @@
-from typing import Optional
+from typing import Union
 import pandas as pd
 
 from .ASTPredicate import ASTPredicate
 
-class GT(ASTPredicate):
+
+class NumericASTPredicate(ASTPredicate):
+    def __init__(self, val: Union[int, float]) -> None:
+        self.val = val
+
+    def validate(self) -> None:
+        assert isinstance(self.val, (int, float))
+
+###
+
+class GT(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
@@ -16,7 +26,7 @@ def gt(val: float) -> GT:
     """
     return GT(val)
 
-class LT(ASTPredicate):
+class LT(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
@@ -29,7 +39,7 @@ def lt(val: float) -> LT:
     """
     return LT(val)
 
-class GE(ASTPredicate):
+class GE(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
@@ -42,7 +52,7 @@ def ge(val: float) -> GE:
     """
     return GE(val)
 
-class LE(ASTPredicate):
+class LE(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
@@ -55,7 +65,7 @@ def le(val: float) -> LE:
     """
     return LE(val)
 
-class EQ(ASTPredicate):
+class EQ(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
@@ -68,7 +78,7 @@ def eq(val: float) -> EQ:
     """
     return EQ(val)
 
-class NE(ASTPredicate):
+class NE(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
@@ -92,6 +102,11 @@ class Between(ASTPredicate):
             return (s >= self.lower) & (s <= self.upper)
         else:
             return (s > self.lower) & (s < self.upper)
+        
+    def validate(self) -> None:
+        assert isinstance(self.lower, (int, float))
+        assert isinstance(self.upper, (int, float))
+        assert isinstance(self.inclusive, bool)
 
 def between(lower: float, upper: float, inclusive: bool = True) -> Between:
     """
