@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Any
+from typing import Any, Optional
 from enum import Enum
 
 
@@ -9,10 +9,62 @@ class Engine(Enum):
     DASK : str = 'dask'
     DASK_CUDF : str = 'dask_cudf'
 
+class EngineAbstract(Enum):
+    PANDAS = Engine.PANDAS.value
+    CUDF = Engine.CUDF.value
+    DASK = Engine.DASK.value
+    DASK_CUDF = Engine.DASK_CUDF.value
+    AUTO = 'auto'
+
 
 DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
+
+#TODO use new importer when it lands (this is copied from umap_utils)
+def lazy_cudf_import_has_dependancy():
+    try:
+        import warnings
+
+        warnings.filterwarnings("ignore")
+        import cudf  # type: ignore
+
+        return True, "ok", cudf
+    except ModuleNotFoundError as e:
+        return False, e, None
+
+def resolve_engine(
+    engine: EngineAbstract,
+    g_or_df: Optional[Any] = None,
+) -> Engine:
+    # if an Engine (concrete), just use that
+    if engine != EngineAbstract.AUTO:
+        return Engine(engine.value)
+
+    if g_or_df is not None:
+        # work around circular dependency
+        from graphistry.Plottable import Plottable
+        if isinstance(g_or_df, Plottable):
+            if g_or_df._nodes is not None and g_or_df._edges is not None:
+                if not isinstance(g_or_df._nodes, type(g_or_df._edges)):
+                    raise ValueError(f'Edges and nodes must be same type for auto engine selection, got: {type(g_or_df._edges)} and {type(g_or_df._nodes)}')
+            g_or_df = g_or_df._edges if g_or_df._edges is not None else g_or_df._nodes
+    
+    if g_or_df is not None:
+        if isinstance(g_or_df, pd.DataFrame):
+            return Engine.PANDAS
+
+        has_cudf_dependancy_, _, _ = lazy_cudf_import_has_dependancy()
+        if has_cudf_dependancy_:
+            import cudf
+            if isinstance(g_or_df, cudf.DataFrame):
+                return Engine.CUDF
+            raise ValueError(f'Expected cudf dataframe, got: {type(g_or_df)}')
+    
+    has_cudf_dependancy_, _, _ = lazy_cudf_import_has_dependancy()
+    if has_cudf_dependancy_:
+        return Engine.CUDF
+    return Engine.PANDAS
 
 def df_to_pdf(df, engine: Engine):
     if engine == Engine.PANDAS:
@@ -35,8 +87,7 @@ def df_to_engine(df, engine: Engine):
             return df
         else:
             return cudf.DataFrame.from_pandas(df)
-    else:
-        raise ValueError('Only engines pandas/cudf supported')
+    raise ValueError('Only engines pandas/cudf supported')
 
 def df_concat(engine: Engine):
     if engine == Engine.PANDAS:
@@ -44,6 +95,7 @@ def df_concat(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.concat
+    raise NotImplementedError("Only pandas/cudf supported")
 
 def df_cons(engine: Engine):
     if engine == Engine.PANDAS:
@@ -51,3 +103,12 @@ def df_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.DataFrame
+    raise NotImplementedError("Only pandas/cudf supported")
+
+def s_cons(engine: Engine):
+    if engine == Engine.PANDAS:
+        return pd.Series
+    elif engine == Engine.CUDF:
+        import cudf
+        return cudf.Series
+    raise NotImplementedError("Only pandas/cudf supported")
