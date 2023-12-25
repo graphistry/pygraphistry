@@ -15,7 +15,6 @@ Plugins
    graphistry.plugins
  
 
-
 Compute 
 ==================
 .. toctree::
@@ -31,6 +30,14 @@ Layouts
 
 
    graphistry.layout
+
+
+Utilities
+==================
+.. toctree::
+   :maxdepth: 3
+
+   graphistry.utils
 
 
 Featurize 
