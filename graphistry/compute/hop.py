@@ -1,5 +1,5 @@
 import logging
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING, Union
 import pandas as pd
 
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
@@ -34,7 +34,7 @@ def hop(self: Plottable,
     edge_query: Optional[str] = None,
     return_as_wave_front = False,
     target_wave_front: Optional[DataFrameT] = None,  # chain: limit hits to these for reverse pass
-    engine: EngineAbstract = EngineAbstract.AUTO
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
 ) -> Plottable:
     """
     Given a graph and some source nodes, return subgraph of all paths within k-hops from the sources
@@ -62,6 +62,9 @@ def hop(self: Plottable,
     - nodes will be the wavefront of the next step
     
     """
+
+    if isinstance(engine, str):
+        engine = EngineAbstract(engine)
 
     engine_concrete = resolve_engine(engine, self)
     if not TYPE_CHECKING:

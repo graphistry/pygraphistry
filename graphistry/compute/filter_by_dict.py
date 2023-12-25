@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING, Union
 import pandas as pd
 from graphistry.Engine import EngineAbstract, df_to_engine, resolve_engine, s_cons
 from graphistry.util import setup_logger
@@ -15,10 +15,13 @@ if TYPE_CHECKING:
 else:
     DataFrameT = Any
 
-def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: EngineAbstract = EngineAbstract.AUTO) -> DataFrameT:
+def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> DataFrameT:
     """
     return df where rows match all values in filter_dict
     """
+
+    if isinstance(engine, str):
+        engine = EngineAbstract(engine)
 
     if filter_dict is None or filter_dict == {}:
         return df
@@ -50,7 +53,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: E
     return df[hits]
 
 
-def filter_nodes_by_dict(self: Plottable, filter_dict: dict, engine: EngineAbstract = EngineAbstract.AUTO) -> Plottable:
+def filter_nodes_by_dict(self: Plottable, filter_dict: dict, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
     """
     filter nodes to those that match all values in filter_dict
     """
@@ -58,7 +61,7 @@ def filter_nodes_by_dict(self: Plottable, filter_dict: dict, engine: EngineAbstr
     return self.nodes(nodes2)
 
 
-def filter_edges_by_dict(self: Plottable, filter_dict: dict, engine: EngineAbstract = EngineAbstract.AUTO) -> Plottable:
+def filter_edges_by_dict(self: Plottable, filter_dict: dict, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
     """
     filter edges to those that match all values in filter_dict
     """
