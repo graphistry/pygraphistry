@@ -142,7 +142,7 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
 #
 ###############################################################################
 
-def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: EngineAbstract = EngineAbstract.AUTO) -> Plottable:
+def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
 
@@ -213,6 +213,9 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: EngineAbs
             print('# hits:', len(g_risky._nodes[ g_risky._nodes.hit ]))
 
     """
+
+    if isinstance(engine, str):
+        engine = EngineAbstract(engine)
 
     if isinstance(ops, Chain):
         ops = ops.chain

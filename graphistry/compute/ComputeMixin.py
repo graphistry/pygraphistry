@@ -28,7 +28,7 @@ class ComputeMixin(MIXIN_BASE):
     def materialize_nodes(
         self,
         reuse: bool = True,
-        engine: EngineAbstract = EngineAbstract.AUTO
+        engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
     ) -> "Plottable":
         """
         Generate g._nodes based on g._edges
@@ -50,6 +50,10 @@ class ComputeMixin(MIXIN_BASE):
                 print(g2._nodes)  # pd.DataFrame
 
         """
+
+        if isinstance(engine, str):
+            engine = EngineAbstract(engine)
+
         g = self
         if g._edges is None:
             raise ValueError("Missing edges")

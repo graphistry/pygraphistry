@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from enum import Enum
 
 
@@ -34,9 +34,13 @@ def lazy_cudf_import_has_dependancy():
         return False, e, None
 
 def resolve_engine(
-    engine: EngineAbstract,
+    engine: Union[EngineAbstract, str],
     g_or_df: Optional[Any] = None,
 ) -> Engine:
+
+    if isinstance(engine, str):
+        engine = EngineAbstract(engine)
+
     # if an Engine (concrete), just use that
     if engine != EngineAbstract.AUTO:
         return Engine(engine.value)
