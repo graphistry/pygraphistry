@@ -7,17 +7,12 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
+from .typing import DataFrameT
 
 logger = setup_logger(__name__)
 
 
 ###############################################################################
-
-
-if TYPE_CHECKING:
-    DataFrameT = pd.DataFrame
-else:
-    DataFrameT = Any
 
 
 class Chain(ASTSerializable):
