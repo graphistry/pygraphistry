@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 import os, pandas as pd, pytest, unittest
-from common import NoAuthTestCase
 
 from graphistry.compute import ComputeMixin
 from graphistry.plotter import PlotterBase
+from .common import NoAuthTestCase
 
 
 class CG(ComputeMixin):
