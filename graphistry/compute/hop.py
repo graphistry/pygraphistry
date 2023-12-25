@@ -36,6 +36,10 @@ def hop(self: Plottable,
     """
     Given a graph and some source nodes, return subgraph of all paths within k-hops from the sources
 
+    This can be faster than the equivalent chain([...]) call that wraps it with additional steps
+
+    See chain() examples for examples of many of the parameters
+
     g: Plotter
     nodes: dataframe with id column matching g._node. None signifies all nodes (default).
     hops: consider paths of length 1 to 'hops' steps, if any (default 1).
@@ -49,7 +53,7 @@ def hop(self: Plottable,
     edge_query: dataframe query to match edges before hopping (including intermediate)
     return_as_wave_front: Only return the nodes/edges reached, ignoring past ones (primarily for internal use)
     target_wave_front: Only consider these nodes for reachability, and for intermediate hops, also consider nodes (primarily for internal use by reverse pass)
-    engine: 'auto', 'pandas', 'cudf'
+    engine: 'auto', 'pandas', 'cudf' (GPU)
     """
 
     """

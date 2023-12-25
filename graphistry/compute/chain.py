@@ -146,6 +146,8 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
 
     For direct calls, exposes convenience `List[ASTObject]`. Internal operational should prefer `Chain`.
 
+    Use `engine='cudf'` to force automatic GPU acceleration mode
+
     :param ops: List[ASTObject] Various node and edge matchers
 
     :returns: Plotter
@@ -206,6 +208,28 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
                 n({"risk2": True})
             ])
             print('# hits:', len(g_risky._nodes[ g_risky._nodes.hit ]))
+    
+    **Example: Run with automatic GPU acceleration**
+
+    ::
+
+            import cudf
+            import graphistry
+
+            e_gdf = cudf.from_pandas(df)
+            g1 = graphistry.edges(e_gdf, 's', 'd')
+            g2 = g1.chain([ ... ])
+
+    **Example: Run with automatic GPU acceleration, and force GPU mode**
+
+    ::
+
+            import cudf
+            import graphistry
+
+            e_gdf = cudf.from_pandas(df)
+            g1 = graphistry.edges(e_gdf, 's', 'd')
+            g2 = g1.chain([ ... ], engine='cudf')
 
     """
 
