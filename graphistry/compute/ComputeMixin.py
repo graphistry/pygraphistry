@@ -2,7 +2,7 @@ import logging, numpy as np, pandas as pd
 from typing import Any, List, Union, TYPE_CHECKING
 from typing_extensions import Literal
 
-from graphistry.Engine import Engine
+from graphistry.Engine import Engine, EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .chain import chain as chain_base
@@ -28,7 +28,7 @@ class ComputeMixin(MIXIN_BASE):
     def materialize_nodes(
         self,
         reuse: bool = True,
-        engine: Union[Engine, Literal['auto']] = "auto"
+        engine: EngineAbstract = EngineAbstract.AUTO
     ) -> "Plottable":
         """
         Generate g._nodes based on g._edges
@@ -72,21 +72,25 @@ class ComputeMixin(MIXIN_BASE):
                     return g
 
         node_id = g._node if g._node is not None else "id"
-        if engine == 'auto':
+        engine_concrete : Engine
+        if engine == EngineAbstract.AUTO:
             if isinstance(g._edges, pd.DataFrame):
-                engine = Engine.PANDAS
+                engine_concrete = Engine.PANDAS
             else:
                 try:
                     import cudf
                     if isinstance(g._edges, cudf.DataFrame):
-                        engine = Engine.CUDF
+                        engine_concrete = Engine.CUDF
                 except ImportError:
                     pass
-            if engine == 'auto':
-                raise ValueError('Could not determine engine for edges, expected pandas or cudf dataframe, got: {}'.format(type(g._edges)))
-        if engine == Engine.PANDAS:
+                if engine == EngineAbstract.AUTO:
+                    raise ValueError('Could not determine engine for edges, expected pandas or cudf dataframe, got: {}'.format(type(g._edges)))
+        else:
+            engine_concrete = Engine(engine.value)
+
+        if engine_concrete == Engine.PANDAS:
             concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
-        elif engine == Engine.CUDF:
+        elif engine_concrete == Engine.CUDF:
             import cudf
             if isinstance(g._edges, cudf.DataFrame):
                 edges_gdf = g._edges
@@ -96,7 +100,7 @@ class ComputeMixin(MIXIN_BASE):
                 raise ValueError('Unexpected edges type; convert edges to cudf.DataFrame')
             concat_df = cudf.concat([edges_gdf[g._source].rename(node_id), edges_gdf[g._destination].rename(node_id)])
         else:
-            raise ValueError('Expected engine to be pandas or cudf, got: {}'.format(engine))
+            raise ValueError('Expected engine to be pandas or cudf, got: {}'.format(engine_concrete))
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 
