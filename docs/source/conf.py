@@ -86,6 +86,7 @@ nitpick_ignore = [
     ('py:class', 'graphistry.compute.predicates.temporal.IsYearStart'),
     ('py:class', 'graphistry.compute.predicates.temporal.IsYearEnd'),
     ('py:class', 'graphistry.Engine.Engine'),
+    ('py:class', 'graphistry.Engine.EngineAbstract'),
     ('py:class', 'graphistry.gremlin.CosmosMixin'),
     ('py:class', 'graphistry.gremlin.GremlinMixin'),
     ('py:class', 'graphistry.gremlin.NeptuneMixin'),
