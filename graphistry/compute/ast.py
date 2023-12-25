@@ -54,16 +54,10 @@ from .predicates.str import (
     notnull, NotNull
 )
 from .filter_by_dict import filter_by_dict
+from .typing import DataFrameT
 
 
 logger = setup_logger(__name__)
-
-
-if TYPE_CHECKING:
-    DataFrameT = pd.DataFrame
-else:
-    DataFrameT = Any
-
 
 ##############################################################################
 

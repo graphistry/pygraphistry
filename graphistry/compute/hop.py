@@ -6,14 +6,11 @@ from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .filter_by_dict import filter_by_dict
+from .typing import DataFrameT
 
 
 logger = setup_logger(__name__)
 
-if TYPE_CHECKING:
-    DataFrameT = pd.DataFrame
-else:
-    DataFrameT = Any
 
 def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:

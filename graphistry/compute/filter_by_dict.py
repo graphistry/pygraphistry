@@ -5,15 +5,11 @@ from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
 from .predicates.ASTPredicate import ASTPredicate
+from .typing import DataFrameT
 
 
 logger = setup_logger(__name__)
 
-
-if TYPE_CHECKING:
-    DataFrameT = pd.DataFrame
-else:
-    DataFrameT = Any
 
 def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> DataFrameT:
     """
