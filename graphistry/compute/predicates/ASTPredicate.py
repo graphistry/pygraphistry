@@ -1,7 +1,14 @@
 from abc import abstractmethod
 import pandas as pd
+from typing import Any, TYPE_CHECKING
 
 from graphistry.compute.ASTSerializable import ASTSerializable
+
+
+if TYPE_CHECKING:
+    SeriesT = pd.Series
+else:
+    SeriesT = Any
 
 
 class ASTPredicate(ASTSerializable):
@@ -11,5 +18,5 @@ class ASTPredicate(ASTSerializable):
     """
 
     @abstractmethod
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         raise NotImplementedError()

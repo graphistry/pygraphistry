@@ -1,7 +1,13 @@
-from typing import Optional
+from typing import Any, TYPE_CHECKING, Optional
 import pandas as pd
 
 from .ASTPredicate import ASTPredicate
+
+
+if TYPE_CHECKING:
+    SeriesT = pd.Series
+else:
+    SeriesT = Any
 
 
 class Contains(ASTPredicate):
@@ -12,7 +18,7 @@ class Contains(ASTPredicate):
         self.na = na
         self.regex = regex
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.contains(self.pat, self.case, self.flags, self.na, self.regex)
     
     def validate(self) -> None:
@@ -34,7 +40,7 @@ class Startswith(ASTPredicate):
         self.pat = pat
         self.na = na
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.startswith(self.pat, self.na)
 
     def validate(self) -> None:
@@ -52,7 +58,7 @@ class Endswith(ASTPredicate):
         self.pat = pat
         self.na = na
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         """
         Return whether a given pattern is at the end of a string
         """
@@ -72,7 +78,7 @@ class Match(ASTPredicate):
         self.flags = flags
         self.na = na
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.match(self.pat, self.case, self.flags, self.na)
     
     def validate(self) -> None:
@@ -89,7 +95,7 @@ def match(pat: str, case: bool = True, flags: int = 0, na: Optional[bool] = None
 
 class IsNumeric(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isnumeric()
     
 def isnumeric() -> IsNumeric:
@@ -100,7 +106,7 @@ def isnumeric() -> IsNumeric:
 
 class IsAlpha(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isalpha()
 
 def isalpha() -> IsAlpha:
@@ -111,7 +117,7 @@ def isalpha() -> IsAlpha:
 
 class IsDigit(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isdigit()
 
 def isdigit() -> IsDigit:
@@ -122,7 +128,7 @@ def isdigit() -> IsDigit:
 
 class IsLower(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.islower()
 
 def islower() -> IsLower:
@@ -133,7 +139,7 @@ def islower() -> IsLower:
 
 class IsUpper(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isupper()
 
 def isupper() -> IsUpper:
@@ -144,7 +150,7 @@ def isupper() -> IsUpper:
 
 class IsSpace(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isspace()
     
 def isspace() -> IsSpace:
@@ -155,7 +161,7 @@ def isspace() -> IsSpace:
 
 class IsAlnum(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isalnum()
     
 def isalnum() -> IsAlnum:
@@ -166,7 +172,7 @@ def isalnum() -> IsAlnum:
 
 class IsDecimal(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.isdecimal()
 
 def isdecimal() -> IsDecimal:
@@ -177,7 +183,7 @@ def isdecimal() -> IsDecimal:
 
 class IsTitle(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.str.istitle()
 
 def istitle() -> IsTitle:
@@ -188,7 +194,7 @@ def istitle() -> IsTitle:
 
 class IsNull(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series: 
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.isnull()
 
 def isnull() -> IsNull:
@@ -199,7 +205,7 @@ def isnull() -> IsNull:
 
 class NotNull(ASTPredicate):
 
-    def __call__(self, s: pd.Series) -> pd.Series: 
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.notnull()
 
 def notnull() -> NotNull:

@@ -1,22 +1,25 @@
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional, TYPE_CHECKING, Union
 import pandas as pd
 
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .filter_by_dict import filter_by_dict
+from .typing import DataFrameT
+
 
 logger = setup_logger(__name__)
 
 
-def query_if_not_none(query: Optional[str], df: pd.DataFrame) -> pd.DataFrame:
+def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
     return df.query(query)
 
 
 def hop(self: Plottable,
-    nodes: Optional[pd.DataFrame] = None,  # chain: incoming wavefront
+    nodes: Optional[DataFrameT] = None,  # chain: incoming wavefront
     hops: Optional[int] = 1,
     to_fixed_point: bool = False,
     direction: str = 'forward',
@@ -27,10 +30,15 @@ def hop(self: Plottable,
     destination_node_query: Optional[str] = None,
     edge_query: Optional[str] = None,
     return_as_wave_front = False,
-    target_wave_front: Optional[pd.DataFrame] = None  # chain: limit hits to these for reverse pass
+    target_wave_front: Optional[DataFrameT] = None,  # chain: limit hits to these for reverse pass
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
 ) -> Plottable:
     """
     Given a graph and some source nodes, return subgraph of all paths within k-hops from the sources
+
+    This can be faster than the equivalent chain([...]) call that wraps it with additional steps
+
+    See chain() examples for examples of many of the parameters
 
     g: Plotter
     nodes: dataframe with id column matching g._node. None signifies all nodes (default).
@@ -45,6 +53,7 @@ def hop(self: Plottable,
     edge_query: dataframe query to match edges before hopping (including intermediate)
     return_as_wave_front: Only return the nodes/edges reached, ignoring past ones (primarily for internal use)
     target_wave_front: Only consider these nodes for reachability, and for intermediate hops, also consider nodes (primarily for internal use by reverse pass)
+    engine: 'auto', 'pandas', 'cudf' (GPU)
     """
 
     """
@@ -54,6 +63,17 @@ def hop(self: Plottable,
     - nodes will be the wavefront of the next step
     
     """
+
+    if isinstance(engine, str):
+        engine = EngineAbstract(engine)
+
+    engine_concrete = resolve_engine(engine, self)
+    if not TYPE_CHECKING:
+        DataFrameT = df_cons(engine_concrete)
+    concat = df_concat(engine_concrete)
+    
+    nodes = df_to_engine(nodes, engine_concrete) if nodes is not None else None
+    target_wave_front = df_to_engine(target_wave_front, engine_concrete) if target_wave_front is not None else None
 
     #TODO target_wave_front code also includes nodes for handling intermediate hops
     # ... better to make an explicit param of allowed intermediates? (vs recording each intermediate hop)
@@ -77,6 +97,8 @@ def hop(self: Plottable,
         logger.debug('edge_query: %s', edge_query)
         logger.debug('return_as_wave_front: %s', return_as_wave_front)
         logger.debug('target_wave_front:\n%s', target_wave_front)
+        logger.debug('engine: %s', engine)
+        logger.debug('engine_concrete: %s', engine_concrete)
         logger.debug('---------------------')
 
     if not to_fixed_point and not isinstance(hops, int):
@@ -91,7 +113,8 @@ def hop(self: Plottable,
     if destination_node_match == {}:
         destination_node_match = None
 
-    g2 = self.materialize_nodes()
+    g2 = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
+    logger.debug('materialized node/eddge types: %s, %s', type(g2._nodes), type(g2._edges))
 
     starting_nodes = nodes if nodes is not None else g2._nodes
 
@@ -145,7 +168,7 @@ def hop(self: Plottable,
             hops_remaining = hops_remaining - 1
         
         assert len(wave_front.columns) == 1, "just indexes"
-        wave_front_iter : pd.DataFrame = query_if_not_none(
+        wave_front_iter : DataFrameT = query_if_not_none(
             source_node_query,
                 filter_by_dict(
                     starting_nodes
@@ -173,7 +196,7 @@ def hop(self: Plottable,
             if target_wave_front is not None:
                 assert nodes is not None, "target_wave_front indicates nodes"
                 if hops_remaining:
-                    intermediate_target_wave_front = pd.concat([
+                    intermediate_target_wave_front = concat([
                         target_wave_front[[g2._node]],
                         nodes[[g2._node]]
                         ], sort=False, ignore_index=True
@@ -222,7 +245,7 @@ def hop(self: Plottable,
             if target_wave_front is not None:
                 assert nodes is not None, "target_wave_front indicates nodes"
                 if hops_remaining:
-                    intermediate_target_wave_front = pd.concat([
+                    intermediate_target_wave_front = concat([
                         target_wave_front[[g2._node]],
                         nodes[[g2._node]]
                         ], sort=False, ignore_index=True
@@ -258,15 +281,15 @@ def hop(self: Plottable,
                 logger.debug('hop_edges_reverse:\n%s', hop_edges_reverse)
                 logger.debug('new_node_ids_reverse:\n%s', new_node_ids_reverse)
 
-        mt : List[pd.DataFrame] = []  # help mypy
+        mt : List[DataFrameT] = []  # help mypy
 
-        matches_edges = pd.concat(
+        matches_edges = concat(
             [ matches_edges ]
             + ([ hop_edges_forward[[ EDGE_ID ]] ] if hop_edges_forward is not None else mt)  # noqa: W503
             + ([ hop_edges_reverse[[ EDGE_ID ]] ] if hop_edges_reverse is not None else mt),  # noqa: W503
             ignore_index=True, sort=False).drop_duplicates(subset=[EDGE_ID])
 
-        new_node_ids = pd.concat(
+        new_node_ids = concat(
             mt
                 + ( [ new_node_ids_forward ] if new_node_ids_forward is not None else mt )  # noqa: W503
                 + ( [ new_node_ids_reverse] if new_node_ids_reverse is not None else mt ),  # noqa: W503
@@ -284,7 +307,7 @@ def hop(self: Plottable,
             if return_as_wave_front:
                 matches_nodes = new_node_ids[:0]
             else:
-                matches_nodes = pd.concat(
+                matches_nodes = concat(
                     mt
                         + ( [hop_edges_forward[[g2._source]].rename(columns={g2._source: g2._node}).drop_duplicates()]  # noqa: W503
                             if hop_edges_forward is not None
@@ -298,7 +321,7 @@ def hop(self: Plottable,
                 logger.debug('~~~~~~~~~~ LOOP STEP MERGES 2 ~~~~~~~~~~~')
                 logger.debug('matches_edges:\n%s', matches_edges)
 
-        combined_node_ids = pd.concat([matches_nodes, new_node_ids], ignore_index=True, sort=False).drop_duplicates()
+        combined_node_ids = concat([matches_nodes, new_node_ids], ignore_index=True, sort=False).drop_duplicates()
 
         if len(combined_node_ids) == len(matches_nodes):
             #fixedpoint, exit early: future will come to same spot!
