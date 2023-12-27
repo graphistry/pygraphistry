@@ -7,6 +7,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.33.0 - 2023-12-26]
+
+### Added
+
+* GFQL: GPU acceleration of `chain`, `hop`, `filter_by_dict`
+* `AbstractEngine`  to `engine.py::Engine` enum
+* `compute.typing.DataFrameT` to centralize df-lib-agnostic type checking
+
+### Refactor
+
+* GFQL and more of compute uses generic dataframe methods and threads through engine
+
+### Infra
+
+* GPU tester threads through LOG_LEVEL
+
 ## [0.32.0 - 2023-12-22]
 
 ### Added

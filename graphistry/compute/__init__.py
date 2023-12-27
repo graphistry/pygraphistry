@@ -46,3 +46,4 @@ from .predicates.str import (
     isnull, IsNull,
     notnull, NotNull,
 )
+from .typing import DataFrameT

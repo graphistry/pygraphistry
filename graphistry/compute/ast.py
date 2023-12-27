@@ -1,8 +1,9 @@
 from abc import abstractmethod
 import logging
-from typing import Dict, Optional, Union, cast
+from typing import Any, TYPE_CHECKING, Dict, Optional, Union, cast
 from typing_extensions import Literal
 import pandas as pd
+from graphistry.Engine import Engine
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
@@ -53,10 +54,10 @@ from .predicates.str import (
     notnull, NotNull
 )
 from .filter_by_dict import filter_by_dict
+from .typing import DataFrameT
 
 
 logger = setup_logger(__name__)
-
 
 ##############################################################################
 
@@ -71,7 +72,13 @@ class ASTObject(ASTSerializable):
         pass
 
     @abstractmethod
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
+    def __call__(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
         raise RuntimeError('__call__ not implemented')
         
     @abstractmethod
@@ -152,7 +159,13 @@ class ASTNode(ASTObject):
         out.validate()
         return out
 
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
+    def __call__(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
         out_g = (g
             .nodes(prev_node_wavefront if prev_node_wavefront is not None else g._nodes)
             .filter_nodes_by_dict(self.filter_dict)
@@ -161,7 +174,7 @@ class ASTNode(ASTObject):
         )
         if target_wave_front is not None:
             assert g._node is not None
-            reduced_nodes = cast(pd.DataFrame, out_g._nodes).merge(target_wave_front[[g._node]], on=g._node, how='inner')
+            reduced_nodes = cast(DataFrameT, out_g._nodes).merge(target_wave_front[[g._node]], on=g._node, how='inner')
             out_g = out_g.nodes(reduced_nodes)
 
         if self._name is not None:
@@ -295,7 +308,13 @@ class ASTEdge(ASTObject):
         out.validate()
         return out
 
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[pd.DataFrame], target_wave_front: Optional[pd.DataFrame]) -> Plottable:
+    def __call__(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug('----------------------------------------')
