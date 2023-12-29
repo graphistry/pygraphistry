@@ -1,6 +1,7 @@
 import pandas as pd
 from functools import lru_cache
 
+from graphistry.compute.ast import is_in, IsIn
 from graphistry.compute.filter_by_dict import filter_by_dict
 from graphistry.tests.test_compute import CGFull
 
@@ -106,3 +107,17 @@ class TestEdgeFilterByDict(object):
     def test_kv_multiple_bad(self):
         g = hops_graph()
         assert g.filter_edges_by_dict({'i': -100, 'type': 'e'})._edges.equals(g._edges[:0])
+
+class TestPredicateIsIn(object):
+
+    def test_standalone(self):
+        g = hops_graph()
+        assert g.filter_nodes_by_dict({'node': is_in(['a'])})._nodes.equals(g._nodes[:1])
+        assert g.filter_nodes_by_dict({'node': is_in(['a', 'b'])})._nodes.equals(g._nodes[:2])
+    
+    def test_combined(self):
+        g = hops_graph()
+        assert g.filter_nodes_by_dict({'node': is_in(['a', 'b']), 'type': 'n'})._nodes.equals(g._nodes[:2])
+        assert g.filter_nodes_by_dict({'node': is_in(['a', 'b']), 'type': 'bad'})._nodes.equals(g._nodes[:0])
+        assert g.filter_nodes_by_dict({'node': is_in(['a', 'bad']), 'type': 'n'})._nodes.equals(g._nodes[:1])
+        assert g.filter_nodes_by_dict({'node': is_in(['a', 'bad']), 'type': 'bad'})._nodes.equals(g._nodes[:0])

@@ -11,6 +11,7 @@ WITH_TYPECHECK=${WITH_TYPECHECK:-1}
 WITH_TEST=${WITH_TEST:-1}
 WITH_BUILD=${WITH_BUILD:-1}
 TEST_CPU_VERSION=${TEST_CPU_VERSION:-latest}
+LOG_LEVEL=${LOG_LEVEL:-DEBUG}
 SENTENCE_TRANSFORMER=${SENTENCE_TRANSFORMER-average_word_embeddings_komninos}
 
 NETWORK=""
@@ -46,6 +47,8 @@ docker run \
     -e WITH_TYPECHECK=$WITH_TYPECHECK \
     -e WITH_BUILD=$WITH_BUILD \
     -e WITH_TEST=$WITH_TEST \
+    -e LOG_LEVEL=$LOG_LEVEL \
+    -v "`pwd`/../graphistry:/opt/pygraphistry/graphistry:ro" \
     --rm \
     ${NETWORK} \
     graphistry/test-cpu:${TEST_CPU_VERSION} \

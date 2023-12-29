@@ -105,6 +105,8 @@ def from_igraph(self,
             nodes_df = nodes_df[ node_attributes ]
 
         if g._nodes is not None and merge_if_existing:
+            if g._node is None:
+                raise ValueError('Non-None g._nodes and merge_if_existing=True, yet no g._node is defined')
             if len(g._nodes) != len(nodes_df):
                 logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
 
@@ -126,8 +128,21 @@ def from_igraph(self,
             node_id_col = None
         elif node_col in ig_vs_df:
             node_id_col = node_col
+        #User to_igraph() with numeric IDs may swizzle id mappings (ex: sparse numeric) so try to un-swizzle
+        #FIXME: how to handle dense edge case's swizzling?
         elif g._node is not None and g._nodes[g._node].dtype.name == ig_vs_df.reset_index()['vertex ID'].dtype.name:
-            node_id_col = None
+            found = False
+            #FIXME: This seems quite error prone... what if any fields already exist?
+            for c in ['name', 'id', 'idx', NODE]:
+                if c in ig_vs_df.columns:
+                    if g._nodes[g._node].min() == ig_vs_df[c].min() and g._nodes[g._node].max() == ig_vs_df[c].max():
+                        if g._nodes[g._node].sort_values().equals(ig_vs_df[c].sort_values()):
+                            node_id_col = c
+                            found = True
+                            break
+            if not found:
+                logger.debug('lacks matching sortable dimension, likely passed integers-as-vids, continue without remapping')
+                node_id_col = None
         elif 'name' in ig_vs_df:
             node_id_col = 'name'
         else:
@@ -250,6 +265,7 @@ def to_igraph(
 
 
 compute_algs = [
+    'articulation_points',
     'authority_score',
     'betweenness',
     'bibcoupling',
@@ -267,6 +283,7 @@ compute_algs = [
     'community_leading_eigenvector',
     'community_leiden',
     'community_multilevel',
+    'community_optimal_modularity',
     'community_spinglass',
     'community_walktrap',
     'constraint',
@@ -288,7 +305,8 @@ def compute_igraph(
     out_col: Optional[str] = None,
     directed: Optional[bool] = None,
     use_vids=False,
-    params: dict = {}
+    params: dict = {},
+    stringify_rich_types=True
 ) -> Plottable:
     """Enrich or replace graph using igraph methods
 
@@ -306,6 +324,9 @@ def compute_igraph(
 
     :param params: Any named parameters to pass to the underlying igraph method
     :type params: dict
+
+    :param stringify_rich_types: When rich types like igraph.Graph are returned, which may be problematic for downstream rendering, coerce them to strings
+    :type stringify_rich_types: bool 
 
     :returns: Plotter
     :rtype: Plotter
@@ -374,10 +395,25 @@ def compute_igraph(
         return from_igraph(self, out)
     elif isinstance(out, list) and self._nodes is None:
         raise ValueError("No g._nodes table found; use .bind(), .nodes(), .materialize_nodes()")
-    elif len(out) == len(self._nodes):
-        clustering = out
+    elif alg == 'articulation_points':
+        assert isinstance(out, list)  # List[int]
+        membership = [0] * len(ig.vs)
+        for i in out:
+            membership[i] = 1
+        clustering = membership
+    elif isinstance(out, list) and len(out) == len(self._nodes):
+        if stringify_rich_types and len(out) > 0 and all((isinstance(c, igraph.Graph) for c in out)):
+            #ex: k_core
+            clustering = [str(c) for c in out]
+        else:
+            clustering = out
     else:
-        raise RuntimeError(f'Unexpected output type "{type(out)}"; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')    
+        if isinstance(out, list) and len(out) > 0:
+            xtra = f" (element 0 type: {type(out[0])})"
+        else:
+            xtra = ""
+
+        raise RuntimeError(f'Unexpected output type "{type(out)}"{xtra}; should be VertexClustering, VertexDendrogram, Graph, or list_<|V|>')
 
     ig.vs[out_col] = clustering
 

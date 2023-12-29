@@ -8,7 +8,6 @@ import warnings
 from functools import partial
 
 from typing import (
-    Hashable,
     List,
     Union,
     Dict,
@@ -16,7 +15,6 @@ from typing import (
     Optional,
     Tuple,
     TYPE_CHECKING, 
-    Type
 )  # noqa
 from typing_extensions import Literal  # Literal native to py3.8+
 
@@ -28,7 +26,7 @@ from .util import setup_logger, check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
 
 # add this inside classes and have a method that can set log level
-logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+logger = setup_logger(__name__)
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
