@@ -1482,13 +1482,16 @@ def process_edge_dataframes(
              " and is empty"
     )
 
-    if feature_engine in ["none", "pandas"]:
+    if feature_engine in ["none", "pandas", "cudf"]:
 
         X_enc, y_enc, data_encoder, label_encoder = get_numeric_transformers(
             other_df, y
         )
         # add the two datasets together
-        X_enc = pd.concat([T, X_enc], axis=1)
+        if feature_engine == 'pandas':
+            X_enc = pd.concat([T, X_enc], axis=1)
+        elif feature_engine == 'cudf':
+            X_enc = cudf.concat([T, X_enc], axis=1)
         # then scale them
         X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
             X_enc,
@@ -1556,10 +1559,20 @@ def process_edge_dataframes(
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
         T_type = str(getmodule(T))
-        if 'cudf' in T_type:
+        X_type = str(getmodule(X_enc))
+        if 'cudf' in T_type and 'cudf' in X_type:
             X_enc = cudf.concat([T, X_enc], axis=1)
-        else:
+        elif 'pd' in T_type and 'pd' in X_type:
             X_enc = pd.concat([T, X_enc], axis=1)
+        else:
+            try:
+                X_enc = cudf.concat([cudf.from_pandas(T), X_enc], axis=1)
+            except:
+                pass
+            try:
+                X_enc = cudf.concat([T, cudf.from_pandas(X_enc)], axis=1)
+            except:
+                pass
     elif not T.empty and X_enc.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found only Edges =>")
