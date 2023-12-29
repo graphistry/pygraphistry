@@ -201,7 +201,7 @@ def resolve_feature_engine(
     feature_engine: FeatureEngine,
 ) -> FeatureEngineConcrete:  # noqa
 
-    if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
+    if feature_engine in ["none", "pandas", "dirty_cat", "torch", "cu_cat"]:
         return feature_engine  # type: ignore
     if feature_engine == "auto":
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
@@ -967,19 +967,19 @@ def process_dirty_dataframes(
             the data encoder, and the label encoder.
     """
 
-    if feature_engine == CUDA_CAT:
+    if feature_engine == "cu_cat":
         assert_imported_cucat()
-        from cu_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
+        from cu_cat import SuperVectorizer, GapEncoder
         from cuml.preprocessing import FunctionTransformer
-
-    else:  # if feature_engine == "dirty_cat":  # DIRTY_CAT
-        from dirty_cat import SuperVectorizer, GapEncoder  # , SimilarityEncoder
+    
+    else:
+        from dirty_cat import SuperVectorizer, GapEncoder
         from sklearn.preprocessing import FunctionTransformer
 
     t = time()
 
     if not is_dataframe_all_numeric(ndf):
-        if feature_engine == CUDA_CAT:
+        if feature_engine == "cu_cat":
             data_encoder = SuperVectorizer(
                 auto_cast=True,
                 cardinality_threshold=cardinality_threshold_target,
@@ -1010,9 +1010,9 @@ def process_dirty_dataframes(
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
-        if feature_engine == CUDA_CAT:
+        if feature_engine == "cu_cat":
             logger.info(f"-Shape of [[cu_cat fit]] data {X_enc.shape}")
-        elif feature_engine == DIRTY_CAT:
+        else:
             logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
         logger.debug(f"-Transformers: \n{all_transformers}\n")
         logger.debug(
@@ -1058,7 +1058,7 @@ def process_dirty_dataframes(
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
 
-        if feature_engine == CUDA_CAT:
+        if feature_engine == "cu_cat":
             label_encoder = SuperVectorizer(
                 auto_cast=True,
                 cardinality_threshold=cardinality_threshold_target,
@@ -1486,10 +1486,17 @@ def process_edge_dataframes(
             other_df, y
         )
         # add the two datasets together
-        if feature_engine == 'pandas':
-            X_enc = pd.concat([T, X_enc], axis=1)
-        elif feature_engine == 'cudf':
+        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
+        T_type = str(getmodule(T))
+        X_type = str(getmodule(X_enc))
+        if 'cudf' in T_type and 'cudf' in X_type:
             X_enc = cudf.concat([T, X_enc], axis=1)
+        elif 'pd' in T_type and 'pd' in X_type:
+            X_enc = pd.concat([T, X_enc], axis=1)
+        elif 'cudf' in T_type and 'pd' in X_type:
+            X_enc = cudf.concat([cudf.from_pandas(T), X_enc], axis=1)
+        elif 'pd' in T_type and 'cudf' in X_type:
+            X_enc = cudf.concat([T, cudf.from_pandas(X_enc)], axis=1)
         # then scale them
         X_encs, y_encs, scaling_pipeline, scaling_pipeline_target = smart_scaler(  # noqa
             X_enc,
@@ -1556,21 +1563,17 @@ def process_edge_dataframes(
     if not X_enc.empty and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
+        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
         T_type = str(getmodule(T))
         X_type = str(getmodule(X_enc))
         if 'cudf' in T_type and 'cudf' in X_type:
             X_enc = cudf.concat([T, X_enc], axis=1)
         elif 'pd' in T_type and 'pd' in X_type:
             X_enc = pd.concat([T, X_enc], axis=1)
-        else:
-            try:
-                X_enc = cudf.concat([cudf.from_pandas(T), X_enc], axis=1)
-            except:
-                pass
-            try:
-                X_enc = cudf.concat([T, cudf.from_pandas(X_enc)], axis=1)
-            except:
-                pass
+        elif 'cudf' in T_type and 'pd' in X_type:
+            X_enc = cudf.concat([cudf.from_pandas(T), X_enc], axis=1)
+        elif 'pd' in T_type and 'cudf' in X_type:
+            X_enc = cudf.concat([T, cudf.from_pandas(X_enc)], axis=1)
     elif not T.empty and X_enc.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found only Edges =>")
@@ -1750,7 +1753,18 @@ def transform(
 
     # concat text to dirty_cat, with text in front.
     if not tX.empty and not X.empty:
-        X = pd.concat([tX, X], axis=1)
+        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
+        T_type = str(getmodule(tX))
+        X_type = str(getmodule(X))
+        if 'cudf' in T_type and 'cudf' in X_type:
+            X = cudf.concat([tX, X], axis=1)
+        elif 'pd' in T_type and 'pd' in X_type:
+            X = pd.concat([tX, X], axis=1)
+        elif 'cudf' in T_type and 'pd' in X_type:
+            X = cudf.concat([cudf.from_pandas(tX), X], axis=1)
+        elif 'pd' in T_type and 'cudf' in X_type:
+            X = cudf.concat([tX, cudf.from_pandas(X)], axis=1)
+        # X = pd.concat([tX, X], axis=1)
         logger.info("--Combining both Textual and Numeric/Dirty_Cat")
     elif not tX.empty and X.empty:
         X = tX  # textual
@@ -1765,7 +1779,18 @@ def transform(
 
     # now if edges, add T at front
     if kind == "edges":
-        X = pd.concat([T, X], axis=1)  # edges, text, dirty_cat
+        # X = pd.concat([T, X], axis=1)  # edges, text, dirty_cat
+        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
+        T_type = str(getmodule(T))
+        X_type = str(getmodule(X))
+        if 'cudf' in T_type and 'cudf' in X_type:
+            X = cudf.concat([T, X], axis=1)
+        elif 'pd' in T_type and 'pd' in X_type:
+            X = pd.concat([T, X], axis=1)
+        elif 'cudf' in T_type and 'pd' in X_type:
+            X = cudf.concat([cudf.from_pandas(T), X], axis=1)
+        elif 'pd' in T_type and 'cudf' in X_type:
+            X = cudf.concat([T, cudf.from_pandas(X)], axis=1)
         logger.info("-Combining MultiLabelBinarizer with previous features")
 
     logger.info("-" * 40)
@@ -2656,10 +2681,11 @@ class FeatureMixin(MIXIN_BASE):
         """
         feature_engine = resolve_feature_engine(feature_engine)
 
-        if feature_engine == 'dirty_cat':
-            assert_imported_min()
-        elif feature_engine == 'cu_cat':
+        
+        if feature_engine == "cu_cat":
             assert_imported_cucat()
+        else:
+            assert_imported_min()
 
         if inplace:
             res = self
