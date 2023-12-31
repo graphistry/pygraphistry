@@ -4,7 +4,7 @@ import pytest
 import graphistry
 from graphistry.constants import DBSCAN
 from graphistry.util import ModelDict
-from graphistry.compute.cluster import lazy_dbscan_import_has_dependency
+from graphistry.compute.cluster import lazy_dbscan_import_has_dependency, get_dendrogram_edges
 
 has_dbscan, _, has_gpu_dbscan, _ = lazy_dbscan_import_has_dependency()
 
@@ -67,7 +67,26 @@ class TestComputeCluster(unittest.TestCase):
         g3 = g2.transform_dbscan(ndf, ndf, verbose=True)
         self._condition(g3, kind)
         
-            
+
+class TestDendrogram(unittest.TestCase):
+
+    @pytest.mark.skipif(not has_dbscan, reason="requires ai dependencies")
+    def setUp(self) -> None:
+        g = graphistry.nodes(ndf).edges(edf, 'src', 'dst')
+        gs = []
+        for kind in ['nodes', 'edges']:
+            g2 = g.umap(kind=kind, n_topics=2, dbscan=False).dbscan(kind=kind, verbose=True)
+            gs.append(g2)
+        self.gs = gs
+
+    @pytest.mark.skipif(not has_dbscan, reason="requires ai dependencies")
+    def testDendrogramToGraph(self):
+        for kind, g2 in zip(['nodes', 'edges'], self.gs):
+            g3 = get_dendrogram_edges(g2.get_matrix(kind=kind))
+            self.assertTrue('node1' in g3._edges, 'dendrogram graph has no `node1` column')
+            self.assertTrue('node2' in g3._edges, 'dendrogram graph has no `node1` column')
+
+
 if __name__ == '__main__':
     unittest.main()
     
