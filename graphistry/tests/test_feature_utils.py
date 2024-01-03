@@ -17,7 +17,7 @@ from graphistry.feature_utils import (
     resolve_feature_engine,
     lazy_import_has_min_dependancy,
     lazy_import_has_dependancy_text,
-    lazy_import_has_dependancy_cudf,
+    lazy_import_has_cudf_dependancy,
     set_to_datetime,
     FastEncoder
 )
@@ -29,7 +29,7 @@ np.random.seed(137)
 
 has_min_dependancy, _ = lazy_import_has_min_dependancy()
 has_min_dependancy_text, _, _ = lazy_import_has_dependancy_text()
-has_cudf, _, _ = lazy_import_has_dependancy_cudf()
+has_cudf, _, _ = lazy_import_has_cudf_dependancy()
 
 # enable tests if has cudf and env didn't explicitly disable
 is_test_cudf = has_cudf and os.environ["TEST_CUDF"] != "0"
@@ -186,12 +186,12 @@ class TestFeaturizeGetMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self) -> None:
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.featurize(y=double_target_reddit,  # ngrams
+        g2 = g.featurize(y=double_target_reddit, feature_engine=resolve_feature_engine('auto'),  # ngrams
                 use_ngrams=True,
                 ngram_range=(1, 4)
                 )
         
-        g3 = g.featurize(**topic_model  # topic model       
+        g3 = g.featurize(**topic_model, feature_engine=resolve_feature_engine('auto')  # topic model       
         )
         self.g = g
         self.g2 = g2
@@ -313,7 +313,7 @@ class TestFeatureProcessors(unittest.TestCase):
         g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
-            g2 = g.featurize(y=['list_str'], X=['src'], multilabel=True)
+            g2 = g.featurize(y=['list_str'], X=['src'], multilabel=True,feature_engine=resolve_feature_engine('auto'))
         y = g2._get_target('node')
         assert y.shape == (4, 4)
         assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
@@ -385,6 +385,7 @@ class TestFeatureMethods(unittest.TestCase):
                                 use_scaler=None,
                                 use_scaler_target=None,
                                 use_ngrams=use_ngram,
+                                feature_engine=resolve_feature_engine('auto'),
                                 min_df=0.0,
                                 max_df=1.0,
                                 cardinality_threshold=cardinality,
@@ -426,7 +427,7 @@ class TestFeatureMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_node_scaling(self):
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.featurize(X="title", y='label', use_scaler=None, use_scaler_target=None)
+        g2 = g.featurize(X="title", y='label', use_scaler=None, use_scaler_target=None,feature_engine=resolve_feature_engine('auto'))
         for scaler in SCALERS:
             X, y, c, d = g2.scale(ndf_reddit, single_target_reddit, kind='nodes', 
                                   use_scaler=scaler, 
@@ -436,7 +437,7 @@ class TestFeatureMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_scaling(self):
         g = graphistry.edges(edge_df2, "src", "dst")
-        g2 = g.featurize(y='label', kind='edges', use_scaler=None, use_scaler_target=None)
+        g2 = g.featurize(y='label', kind='edges', use_scaler=None, use_scaler_target=None,feature_engine=resolve_feature_engine('auto'))
         for scaler in SCALERS:
             X, y, c, d = g2.scale(edge_df2, edge2_target_df, kind='edges', 
                                   use_scaler=scaler, 

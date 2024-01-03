@@ -98,22 +98,14 @@ def lazy_import_has_min_dependancy():
     except ModuleNotFoundError as e:
         return False, e
 
-def lazy_import_has_dependancy_cudf():
+def lazy_import_has_cudf_dependancy():
     import warnings
     warnings.filterwarnings("ignore")
     try:
-        import scipy.sparse  # noqa
-        from scipy import __version__ as scipy_version
         from cu_cat import __version__ as cu_cat_version
-        import cu_cat
-        from sklearn import __version__ as sklearn_version
         from cuml import __version__ as cuml_version
-        import cuml
         from cudf import __version__ as cudf_version
-        import cudf
-        logger.debug(f"SCIPY VERSION: {scipy_version}")
         logger.debug(f"Cuda CAT VERSION: {cu_cat_version}")
-        logger.debug(f"sklearn VERSION: {sklearn_version}")
         logger.debug(f"cuml VERSION: {cuml_version}")
         logger.debug(f"cudf VERSION: {cudf_version}")
         return True, 'ok', cudf
@@ -142,17 +134,17 @@ def assert_imported_min():
 
 
 def assert_imported_cucat():
-    has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
+    has_dependancy_cudf_, import_exn, cudf = lazy_import_has_cudf_dependancy()
     if not has_dependancy_cudf_:
         logger.error(  # noqa
                      "cuml not found, trying running"  # noqa
-                     "`pip install rapids`"  # noqa
+                     "`pip install --extra-index-url=https://pypi.nvidia.com cuml-cu12 cudf-cu12`"  # noqa
         )
         raise import_exn
 
 
 def make_safe_gpu_dataframes(X, y, engine):
-    has_dependancy_cudf_, _, cudf = lazy_import_has_dependancy_cudf()
+    has_dependancy_cudf_, _, cudf = lazy_import_has_cudf_dependancy()
     
     if has_dependancy_cudf_:
         assert cudf is not None
@@ -207,7 +199,7 @@ def resolve_feature_engine(
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
         if has_dependancy_text_:
             return "torch"
-        has_dependancy_cudf_, _, cudf = lazy_import_has_dependancy_cudf()
+        has_dependancy_cudf_, _, _ = lazy_import_has_cudf_dependancy()
         if has_dependancy_cudf_:
             return "cu_cat"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
@@ -227,7 +219,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
-    _, _, cudf = lazy_import_has_dependancy_cudf()
+    _, _, cudf = lazy_import_has_cudf_dependancy()
     
     if isinstance(y, pd.DataFrame) or (cudf is not None and 'cudf' in str(getmodule(y))):
         return y  # type: ignore
@@ -250,7 +242,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
-    _, _, cudf = lazy_import_has_dependancy_cudf()
+    _, _, cudf = lazy_import_has_cudf_dependancy()
     
     if isinstance(X, pd.DataFrame) or (cudf is not None and 'cudf' in str(getmodule(X))):
         return X  # type: ignore
@@ -292,7 +284,7 @@ def features_without_target(
     :param y: target DataFrame
     :return: DataFrames of model and target
     """
-    _, _, cudf = lazy_import_has_dependancy_cudf()
+    _, _, cudf = lazy_import_has_cudf_dependancy()
     if y is None:
         return df
     remove_cols = []
@@ -323,7 +315,7 @@ def features_without_target(
 
 
 def remove_node_column_from_symbolic(X_symbolic, node):
-    _, _, cudf = lazy_import_has_dependancy_cudf()
+    _, _, cudf = lazy_import_has_cudf_dependancy()
     if isinstance(X_symbolic, list):
         if node in X_symbolic:
             logger.info(f"Removing `{node}` from input X_symbolic list")
@@ -416,7 +408,7 @@ def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
     if 'cudf' not in X_type:
         df[new_col] = pd.to_datetime(df[cols], errors="coerce").fillna(0)
     else:
-        _, _, cudf = lazy_import_has_dependancy_cudf()
+        _, _, cudf = lazy_import_has_cudf_dependancy()
         assert cudf is not None
         for col in df.columns:
             try:
@@ -712,7 +704,7 @@ def fit_pipeline(
         X = transformer.fit_transform(X)
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
-        _, _, cudf = lazy_import_has_dependancy_cudf()
+        _, _, cudf = lazy_import_has_cudf_dependancy()
         assert cudf is not None
         X = cudf.DataFrame(X, columns=columns, index=index)
     return X
@@ -1030,7 +1022,7 @@ def process_dirty_dataframes(
             )
             X_enc = X_enc.fillna(0.0)
         else:
-            _, _, cudf = lazy_import_has_dependancy_cudf()
+            _, _, cudf = lazy_import_has_cudf_dependancy()
             X_enc = cudf.DataFrame(
                 X_enc
             )
@@ -1391,7 +1383,7 @@ def encode_edges(edf, src, dst, mlb, fit=False):
     mlb.get_feature_names_out = callThrough(columns)
     mlb.columns_ = [src, dst]
     if 'cudf' in edf_type:
-        _, _, cudf = lazy_import_has_dependancy_cudf()
+        _, _, cudf = lazy_import_has_cudf_dependancy()
         T = cudf.DataFrame(T, columns=columns, index=edf.index)
     else:
         T = pd.DataFrame(T, columns=columns, index=edf.index)
@@ -1467,7 +1459,7 @@ def process_edge_dataframes(
         MultiLabelBinarizer()
     )  # create new one so we can use encode_edges later in
     # transform with fit=False
-    _, _, cudf = lazy_import_has_dependancy_cudf()
+    _, _, cudf = lazy_import_has_cudf_dependancy()
     T, mlb_pairwise_edge_encoder = encode_edges(
         edf, src, dst, mlb_pairwise_edge_encoder, fit=True
     )
@@ -1486,7 +1478,7 @@ def process_edge_dataframes(
             other_df, y
         )
         # add the two datasets together
-        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
+        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_cudf_dependancy()
         T_type = str(getmodule(T))
         X_type = str(getmodule(X_enc))
         if 'cudf' in T_type and 'cudf' in X_type:
@@ -1563,7 +1555,7 @@ def process_edge_dataframes(
     if not X_enc.empty and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
-        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
+        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_cudf_dependancy()
         T_type = str(getmodule(T))
         X_type = str(getmodule(X_enc))
         if 'cudf' in T_type and 'cudf' in X_type:
@@ -1753,7 +1745,7 @@ def transform(
 
     # concat text to dirty_cat, with text in front.
     if not tX.empty and not X.empty:
-        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
+        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_cudf_dependancy()
         T_type = str(getmodule(tX))
         X_type = str(getmodule(X))
         if 'cudf' in T_type and 'cudf' in X_type:
@@ -1780,7 +1772,7 @@ def transform(
     # now if edges, add T at front
     if kind == "edges":
         # X = pd.concat([T, X], axis=1)  # edges, text, dirty_cat
-        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_dependancy_cudf()
+        has_dependancy_cudf_, import_exn, cudf = lazy_import_has_cudf_dependancy()
         T_type = str(getmodule(T))
         X_type = str(getmodule(X))
         if 'cudf' in T_type and 'cudf' in X_type:
