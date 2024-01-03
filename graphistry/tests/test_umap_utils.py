@@ -31,7 +31,6 @@ has_dependancy = deps.umap
 cuml = deps.cuml
 umap = deps.umap
 cudf = deps.cudf
-dirty_cat = deps.dirty_cat
 
 logger = logging.getLogger(__name__)
 
