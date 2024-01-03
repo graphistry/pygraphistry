@@ -105,6 +105,7 @@ def lazy_import_has_cudf_dependancy():
         from cu_cat import __version__ as cu_cat_version
         from cuml import __version__ as cuml_version
         from cudf import __version__ as cudf_version
+        import cudf
         logger.debug(f"Cuda CAT VERSION: {cu_cat_version}")
         logger.debug(f"cuml VERSION: {cuml_version}")
         logger.debug(f"cudf VERSION: {cudf_version}")
