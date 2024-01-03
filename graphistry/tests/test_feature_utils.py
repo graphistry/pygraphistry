@@ -192,7 +192,7 @@ class TestFeaturizeGetMethods(unittest.TestCase):
                 ngram_range=(1, 4)
                 )
         
-        g3 = g.featurize(**topic_model,feature_engine="cu_cat",  # topic model       
+        g3 = g.featurize(**topic_model,feature_engine="dirty_cat",  # topic model       
         )
         self.g = g
         self.g2 = g2
@@ -256,7 +256,6 @@ class TestFastEncoder(unittest.TestCase):
         
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
-        cu_cat = deps.cu_cat
         self.assertIsInstance(
             x,
             pd.DataFrame,
@@ -277,13 +276,13 @@ class TestFeatureProcessors(unittest.TestCase):
         )
         self.assertIsInstance(
             data_encoder,
-            cu_cat._table_vectorizer.TableVectorizer,
-            f"Data Encoder is not a cu_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
+            dirty_cat._table_vectorizer.TableVectorizer,
+            f"Data Encoder is not a dirty_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
         )
         self.assertIsInstance(
             target_encoder,
-            cu_cat._table_vectorizer.TableVectorizer,
-            f"Data Target Encoder is not a cu_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
+            dirty_cat._table_vectorizer.TableVectorizer,
+            f"Data Target Encoder is not a dirty_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
         )
 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
@@ -460,7 +459,7 @@ class TestFeatureMethods(unittest.TestCase):
 #                 ngram_range=(1, 4)
 #                 )
         
-#         g3 = g.featurize(**topic_model, feature_engine="cu_cat")  # topic model
+#         g3 = g.featurize(**topic_model, feature_engine="dirty_cat")  # topic model
 #         self.g = g
 #         self.g2 = g2
 #         self.g3 = g3
