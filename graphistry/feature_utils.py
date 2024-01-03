@@ -40,6 +40,14 @@ if TYPE_CHECKING:
     except:
         SentenceTransformer = Any
     try:
+        from dirty_cat import (
+            TableVectorizer,
+            GapEncoder,
+        )  # type: ignore
+    except:
+        TableVectorizer = Any
+        GapEncoder = Any
+    try:
         from cu_cat import (
             TableVectorizer,
             GapEncoder,
@@ -74,21 +82,23 @@ def assert_imported_cucat():
     if None not in [cudf, cuml, cu_cat]:
         logger.debug(f"CUML VERSION: {cuml.__version__}")
         logger.debug(f"CUDF VERSION: {cudf.__version__}")
-        logger.debug(f"CUDF VERSION: {cu_cat.__version__}")
-    if cuml is None or cudf is None:
+        logger.debug(f"CU_CAT VERSION: {cu_cat.__version__}")
+    else:
         logger.warning(  # noqa
-                "cuml and/or cudf not found, trying running"  # noqa
+                "cu_cat, cuml and/or cudf not found, trying running"  # noqa
                 "`pip install rapids`"  # noqa
                 "or `pip install --extra-index-url=https://pypi.nvidia.com cuml-cu11 cudf-cu11`"  # noqa
             )
         scipy = deps.scipy
         sklearn = deps.sklearn
-        if None not in [scipy, sklearn]:
+        dirty_cat = deps.dirty_cat
+        if None not in [scipy, sklearn, dirty_cat]:
             logger.debug(f"SCIPY VERSION: {scipy.__version__}")
-            logger.debug(f"sklearn VERSION: {sklearn.__version__}")
+            logger.debug(f"SKLEARN VERSION: {sklearn.__version__}")
+            logger.debug(f"DIRTY_CAT VERSION: {dirty_cat.__version__}")
         else:
-            logger.warning(  # noqa
-                "scipy and/or sklearn not found"  # noqa
+            logger.error(  # noqa
+                "Neither cu_cat nor dirty_cat found for featurizing"  # noqa
             )
 
 
@@ -901,10 +911,12 @@ def process_dirty_dataframes(
     """
 
     assert_imported_cucat()
-    from cu_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
+    
     if deps.cuml:
+        from cu_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
     else:
+        from dirty_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
         from sklearn.preprocessing import FunctionTransformer
 
     t = time()
