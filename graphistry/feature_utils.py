@@ -912,7 +912,7 @@ def process_dirty_dataframes(
 
     assert_imported_cucat()
     
-    if deps.cuml:
+    if deps.cuml and deps.cu_cat and feature_engine == CUDA_CAT:
         from cu_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
     else:
