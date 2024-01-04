@@ -276,12 +276,12 @@ class TestFeatureProcessors(unittest.TestCase):
         )
         self.assertIsInstance(
             data_encoder,
-            dirty_cat.super_vectorizer.SuperVectorizer,
+            dirty_cat.table_vectorizer.TableVectorizer,
             f"Data Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
         )
         self.assertIsInstance(
             target_encoder,
-            dirty_cat.super_vectorizer.SuperVectorizer,
+            dirty_cat.table_vectorizer.TableVectorizer,
             f"Data Target Encoder is not a dirty_cat.super_vectorizer.SuperVectorizer instance for {name} {value}",
         )
 
