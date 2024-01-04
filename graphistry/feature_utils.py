@@ -200,12 +200,12 @@ def resolve_feature_engine(
         has_dependancy_text_, _, _ = lazy_import_has_dependancy_text()
         if has_dependancy_text_:
             return "torch"
-        has_dependancy_cudf_, _, _ = lazy_import_has_cudf_dependancy()
-        if has_dependancy_cudf_:
-            return "cu_cat"
         has_min_dependancy_, _ = lazy_import_has_min_dependancy()
         if has_min_dependancy_:
             return "dirty_cat"
+        has_dependancy_cudf_, _, _ = lazy_import_has_cudf_dependancy()
+        if has_dependancy_cudf_:
+            return "cu_cat"
         return "pandas"
 
     raise ValueError(  # noqa
