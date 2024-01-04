@@ -969,7 +969,7 @@ def process_dirty_dataframes(
                 X_enc, columns=features_transformed, index=ndf.index
             )
             X_enc = X_enc.fillna(0.0)
-        elif 'cudf' in str(getmodule(ndf)) and 'cudf' not in str(getmodule(X_enc):
+        elif 'cudf' in str(getmodule(ndf)) and 'cudf' not in str(getmodule(X_enc)):
             cudf = deps.cudf
             try:
                 X_enc = cudf.DataFrame(X_enc)
