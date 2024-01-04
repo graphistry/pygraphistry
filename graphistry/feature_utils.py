@@ -974,7 +974,7 @@ def process_dirty_dataframes(
             try:
                 X_enc = cudf.DataFrame(X_enc)
             except TypeError:
-                X_enc = cudf.DataFrame(X_enc.toarray()) ## if sparse cupy array
+                X_enc = cudf.DataFrame(X_enc.toarray())  # if sparse cupy array
             # ndf = set_to_datetime(ndf,'A','A')
             dt_count = ndf.select_dtypes(include=["datetime", "datetimetz"]).columns.to_list()
             if len(dt_count) > 0:
