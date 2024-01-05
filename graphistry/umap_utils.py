@@ -128,7 +128,7 @@ def make_safe_gpu_dataframes(X, y, engine):
         for key, value in kwargs.items():
             if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "dirty_cat"]:
                 new_kwargs[key] = value.to_pandas()
-            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat"]:
+            elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat", "cuda"]:
                 new_kwargs[key] = cudf.from_pandas(value)
             else:
                 new_kwargs[key] = value
@@ -352,9 +352,9 @@ class UMAPMixin(MIXIN_BASE):
 
     def _bundle_embedding(self, emb, index):
         # Converts Embedding into dataframe and takes care if emb.dim > 2
-        if emb.shape[1] == 2 and 'cudf.core.dataframe' not in str(getmodule(emb)) and not hasattr(emb, 'device'):
+        if emb.shape[1] == 2 and 'cudf' not in str(getmodule(emb)) and not hasattr(emb, 'device'):
             emb = pd.DataFrame(emb, columns=[config.X, config.Y], index=index)
-        elif emb.shape[1] == 2 and 'cudf.core.dataframe' in str(getmodule(emb)):
+        elif emb.shape[1] == 2 and 'cudf' in str(getmodule(emb)):
             emb.rename(columns={0: config.X, 1: config.Y}, inplace=True)
         elif emb.shape[1] == 2 and hasattr(emb, 'device'):
             import cudf
@@ -363,9 +363,9 @@ class UMAPMixin(MIXIN_BASE):
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1])
             ]
-            if 'cudf.core.dataframe' not in str(getmodule(emb)):
+            if 'cudf' not in str(getmodule(emb)):
                 emb = pd.DataFrame(emb, columns=columns, index=index)
-            elif 'cudf.core.dataframe' in str(getmodule(emb)):
+            elif 'cudf' in str(getmodule(emb)):
                 emb.columns = columns
         return emb
 
@@ -412,8 +412,15 @@ class UMAPMixin(MIXIN_BASE):
         print('** Fitting UMAP') if verbose else None
         res = res.umap_lazy_init(res, verbose=verbose, **umap_kwargs_pure)
         
+        self.datetime_columns = X_.select_dtypes(
+            include=["datetime", "datetimetz"]
+        ).columns.to_list()
+        
+        self.R_ = X_[self.datetime_columns]
+        X_ = X_.drop(columns=self.datetime_columns)
+        
         emb = res._umap_fit_transform(X_, y_, verbose=verbose)
-        res._xy = emb
+        res._xy = emb.join(self.R_)
         return res
 
     def _set_features(  # noqa: E303
@@ -614,7 +621,7 @@ class UMAPMixin(MIXIN_BASE):
             logger.debug("data is type :: %s", (type(X_)))
             if isinstance(X_, pd.DataFrame):
                 index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-            elif 'cudf.core.dataframe' in str(getmodule(X_)):
+            elif 'cudf' in str(getmodule(X_)):
                 index_to_nodes_dict = nodes  # {}?
 
             # add the safe coercion here 
@@ -721,12 +728,19 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._edge_embedding
             
         if isinstance(df, type(emb)):
-            df[x_name] = emb.values.T[0]
-            df[y_name] = emb.values.T[1]
-        elif isinstance(df, pd.DataFrame) and 'cudf.core.dataframe' in str(getmodule(emb)):
-            df[x_name] = emb.to_numpy().T[0]
-            df[y_name] = emb.to_numpy().T[1]
-
+            try:
+                df[x_name] = emb.values.T[0]
+                df[y_name] = emb.values.T[1]
+            except ValueError:
+                df[x_name] = emb.values[0]
+                df[y_name] = emb.values[1]
+        elif isinstance(df, pd.DataFrame) and 'cudf' in str(getmodule(emb)):
+            try:
+                df[x_name] = emb.to_numpy().T[0]
+                df[y_name] = emb.to_numpy().T[1]
+            except ValueError:
+                df[x_name] = emb.to_numpy()[0]
+                df[y_name] = emb.to_numpy()[1]
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 
         if encode_weight and kind == "nodes":

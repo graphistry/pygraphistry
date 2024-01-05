@@ -2,7 +2,7 @@ import logging
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Callable, List, TYPE_CHECKING, Any, Tuple
-
+from inspect import getmodule
 from .PlotterBase import Plottable
 from .compute.ComputeMixin import ComputeMixin
 
@@ -21,13 +21,7 @@ def lazy_embed_import_dep():
     except:
         return False, None, None, None, None, None, None, None
 
-def check_cudf():
-    try:
-        import cudf
-        return True, cudf
-    except:
-        return False, object
-        
+
 
 if TYPE_CHECKING:
     _, torch, _, _, _, _, _, _ = lazy_embed_import_dep()
@@ -37,8 +31,6 @@ else:
     TT = Any
     MIXIN_BASE = object
     torch = Any
-
-has_cudf, cudf = check_cudf()
 
 XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 ProtoSymbolic = Optional[Union[str, Callable[[TT, TT, TT], TT]]]  # type: ignore
@@ -301,12 +293,12 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         """
         # this is temporary, will be fixed in future releases
         try:
-            if isinstance(self._nodes, cudf.DataFrame):
+            if 'cudf' in str(getmodule(self._nodes)):
                 self._nodes = self._nodes.to_pandas()
         except:
             pass
         try:
-            if isinstance(self._edges, cudf.DataFrame):
+            if 'cudf' in str(getmodule(self._edges)):
                 self._edges = self._edges.to_pandas()
         except:
             pass
@@ -436,7 +428,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         else:
             # this is temporary, will be removed after gpu feature utils
             try:
-                if isinstance(source, cudf.DataFrame):
+                if 'cudf' in str(getmodule(source)):
                     source = source.to_pandas()  # type: ignore
             except:
                 pass
@@ -448,7 +440,7 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         else:
             # this is temporary, will be removed after gpu feature utils
             try:
-                if isinstance(relation, cudf.DataFrame):
+                if 'cudf' in str(getmodule(relation)):
                     relation = relation.to_pandas()  # type: ignore
             except:
                 pass
@@ -460,7 +452,8 @@ class HeterographEmbedModuleMixin(MIXIN_BASE):
         else:
             # this is temporary, will be removed after gpu feature utils
             try:
-                if isinstance(destination, cudf.DataFrame):
+                # if isinstance(destination, cudf.DataFrame):
+                if 'cudf' in str(getmodule(destination)):
                     destination = destination.to_pandas()  # type: ignore
             except:
                 pass
