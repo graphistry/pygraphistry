@@ -693,11 +693,19 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._edge_embedding
             
         if isinstance(df, type(emb)):
-            df[x_name] = emb.values.T[0]
-            df[y_name] = emb.values.T[1]
+            try:
+                df[x_name] = emb.values.T[0]
+                df[y_name] = emb.values.T[1]
+            except ValueError:
+                df[x_name] = emb.values[0]
+                df[y_name] = emb.values[1]
         elif isinstance(df, pd.DataFrame) and 'cudf' in str(getmodule(emb)):
-            df[x_name] = emb.to_numpy().T[0]
-            df[y_name] = emb.to_numpy().T[1]
+            try:
+                df[x_name] = emb.to_numpy().T[0]
+                df[y_name] = emb.to_numpy().T[1]
+            except ValueError:
+                df[x_name] = emb.to_numpy()[0]
+                df[y_name] = emb.to_numpy()[1]
 
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 
