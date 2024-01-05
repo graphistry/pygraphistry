@@ -731,24 +731,16 @@ class UMAPMixin(MIXIN_BASE):
             try:
                 df[x_name] = emb.values.T[0]
                 df[y_name] = emb.values.T[1]
-            except:
-                pass
-            try:
+            except ValueError:
                 df[x_name] = emb.values[0]
                 df[y_name] = emb.values[1]
-            except:
-                pass
         elif isinstance(df, pd.DataFrame) and 'cudf' in str(getmodule(emb)):
             try:
                 df[x_name] = emb.to_numpy().T[0]
                 df[y_name] = emb.to_numpy().T[1]
-            except:
-                pass
-            try:
+            except ValueError:
                 df[x_name] = emb.to_numpy()[0]
                 df[y_name] = emb.to_numpy()[1]
-            except:
-                pass
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 
         if encode_weight and kind == "nodes":
