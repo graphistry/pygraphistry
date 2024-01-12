@@ -969,7 +969,7 @@ def process_dirty_dataframes(
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
             if deps.cuml and deps.cu_cat and feature_engine == CUDA_CAT:
-                data_encoder.fit_transform(limit_text_length(ndf,100), y) ## rerun to limit text length after X_enc fit
+                data_encoder.fit_transform(limit_text_length(ndf,100), y)  # rerun to limit text length after X_enc fit
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
