@@ -911,6 +911,24 @@ def process_dirty_dataframes(
     """
 
     assert_imported_cucat()
+    def limit_text_length(data, char_limit):
+        # Check if the input is a DataFrame
+        if 'dataframe' in str(getmodule(data)):
+            # If it's a DataFrame, apply the function to each column
+            for col in data.columns:
+                # data[col] = data[col].apply(lambda x: x[:char_limit] if isinstance(x, str) else x)
+                try:
+                    data[col] = data[col].str.slice(stop=char_limit)
+                except:
+                    pass
+        else:
+            # If it's not a DataFrame (e.g., a Series), apply the function directly
+            # data = data.apply(lambda x: x[:char_limit] if isinstance(x, str) else x)
+            try:
+                data = data.str.slice(stop=char_limit)
+            except:
+                pass
+        return data
     
     if deps.cuml and deps.cu_cat and feature_engine == CUDA_CAT:
         from cu_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
@@ -950,6 +968,8 @@ def process_dirty_dataframes(
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
+            if deps.cuml and deps.cu_cat and feature_engine == CUDA_CAT:
+                data_encoder.fit_transform(limit_text_length(ndf,100), y) ## rerun to limit text length after X_enc fit
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
@@ -999,6 +1019,7 @@ def process_dirty_dataframes(
         logger.debug("-Fitting Targets --\n%s", y.columns)
 
         if feature_engine == CUDA_CAT:
+
             label_encoder = TableVectorizer(
                 auto_cast=True,
                 cardinality_threshold=cardinality_threshold_target,
