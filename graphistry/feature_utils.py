@@ -1000,7 +1000,10 @@ def process_dirty_dataframes(
             if len(dt_count) > 0:
                 dt_new = ['datetime_' + str(n) for n in range(len(dt_count))]
                 features_transformed.extend(dt_new)
-            X_enc.columns = features_transformed
+            try:
+                X_enc.columns = features_transformed
+            except ValueError:
+                X_enc.columns = np.arange(len(X_enc))
             X_enc.set_index(ndf.index)
             X_enc = X_enc.fillna(0.0)
 
