@@ -287,8 +287,9 @@ class PyGraphistry(object):
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
         elif sso_opt_into_type == 'browser':
-            import webbrowser
             print("Please minimize browser after your SSO login and go back to pygraphistry")
+
+            import webbrowser
             if isinstance(auth_url ,list):
                 if len(auth_url) == 1:
                     print(f"idp name: {auth_url[0][0]}")
