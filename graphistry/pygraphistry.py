@@ -250,7 +250,7 @@ class PyGraphistry(object):
                 return auth_url
 
     @staticmethod
-    def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type, relogin=False):
+    def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type='browser', relogin=False):
         """Internal function to handle what to do with the auth_url 
            based on the client mode python/ipython console or notebook.
 
