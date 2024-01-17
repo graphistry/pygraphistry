@@ -2,8 +2,8 @@ import pandas as pd
 from common import NoAuthTestCase
 from functools import lru_cache
 
+from graphistry.compute.ast import is_in
 from graphistry.tests.test_compute import CGFull
-
 
 @lru_cache(maxsize=1)
 def hops_graph():
@@ -48,7 +48,6 @@ def hops_graph():
     ]).assign(type='e')
 
     return CGFull().nodes(nodes_df, 'node').edges(edges_df, 's', 'd')
-
 
 class TestComputeHopMixin(NoAuthTestCase):
 
@@ -138,3 +137,69 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert (g2._nodes[g2._node].sort_values().to_list() ==  # noqa: W504
             sorted(['e', 'l']))
         assert g2._edges.shape == (1, 3)
+
+    def test_hop_filter_types(self):
+
+        e_df = pd.DataFrame({
+            's': ['a', 'a', 'd', 'd', 'f', 'f'],
+            'd': ['b', 'b', 'e', 'e', 'g', 'g'],
+            't': ['x', 'h', 'x', 'h', 'x', 'h']
+        })
+        n_df = pd.DataFrame({
+            'n': ['a', 'b', 'd', 'e', 'f', 'g'],
+            't': ['x', 'm', 'x', 'n', 'x', 'o']
+        })
+        g = CGFull().edges(e_df, 's', 'd').nodes(n_df, 'n')
+
+        g2a = g.hop(source_node_match={'n': 'a'})
+        assert g2a._nodes.shape == (2, 2)
+        assert g2a._edges.shape == (2, 3)
+
+        g2b = g.hop(source_node_match={'t': 'm'}, direction='forward')
+        assert g2b._nodes.shape == (0, 2)
+        assert g2b._edges.shape == (0, 3)
+
+        g3a = g.hop(edge_match={'t': 'h', 's': 'a'})
+        assert g3a._nodes.shape == (2, 2)
+        assert g3a._edges.shape == (1, 3)
+
+        #TODO investigate
+        #g4a = g.hop(destination_node_match={'t': 'n'}, direction='reverse')
+        #assert g4a._nodes.shape == (2, 2)
+        #assert g4a._edges.shape == (2, 3)
+
+        g4a = g.hop(destination_node_match={'t': 'n'})
+        assert g4a._nodes.shape == (2, 2)
+        assert g4a._edges.shape == (2, 3)
+
+        #TODO investigate setting to reverse
+        g5a = g.hop(
+            source_node_match={'t': 'x', 'n': 'a'},
+            edge_match={'t': 'h'},
+            destination_node_match={'t': 'm'})
+        assert g5a._nodes.shape == (2, 2)
+        assert g5a._edges.shape == (1, 3)
+
+    def test_predicate_is_in(self):
+        g = hops_graph()
+        assert g.hop(source_node_match={'node': is_in(['e', 'k'])})._edges.shape == (3, 3)
+
+class TestComputeHopMixinQuery(NoAuthTestCase):
+
+    def test_hop_source_query(self):
+        g = hops_graph()
+        g2 = g.hop(source_node_query='node == "d"', direction='forward', hops=1)
+        assert g2._nodes.shape == (6, 2)
+        assert g2._edges.shape == (5, 3)
+
+    def test_hop_destination_query(self):
+        g = hops_graph()
+        g2 = g.hop(destination_node_query='node == "d"', direction='reverse', hops=1)
+        assert g2._nodes.shape == (6, 2)
+        assert g2._edges.shape == (5, 3)
+
+    def test_hop_edge_query(self):
+        g = hops_graph()
+        g2 = g.hop(edge_query='s == "d"', direction='forward', hops=1)
+        assert g2._nodes.shape == (6, 2)
+        assert g2._edges.shape == (5, 3)

@@ -147,7 +147,7 @@ class PyGraphistry(object):
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
         By default, must be reinvoked within 24hr."""
         logger.debug("@PyGraphistry login : org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, PyGraphistry.org_name()))
-        
+
         if not org_name:
             org_name = PyGraphistry.org_name()
 
@@ -167,7 +167,7 @@ class PyGraphistry(object):
             .login(username, password, org_name)
             .token
         )
-        
+
         logger.debug("@PyGraphistry login After ArrowUploader.login: org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, PyGraphistry.org_name()))
 
         PyGraphistry.api_token(token)
@@ -202,7 +202,7 @@ class PyGraphistry(object):
         return PyGraphistry.api_token()
 
     @staticmethod
-    def sso_login(org_name=None, idp_name=None, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS):
+    def sso_login(org_name=None, idp_name=None, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS, sso_opt_into_type=None):
         """Authenticate with SSO and set token for reuse (api=3).
 
         :param org_name: Set login organization's name(slug). Defaults to user's personal organization.
@@ -211,15 +211,19 @@ class PyGraphistry(object):
         :type idp_name: Optional[str]
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
         :type sso_timeout: Optional[int]
-        :returns: None.
-        :rtype: None
+        :param sso_opt_into_type: Show the SSO URL with display(), webbrowser.open(), or print()
+        :type sso_opt_into_type: Optional[Literal["display", "browser"]]
+        :returns: token or auth_url
+        :rtype: Optional[str]
 
         SSO Login logic.
 
         """
 
         if PyGraphistry._config['store_token_creds_in_memory']:
-            PyGraphistry.relogin = lambda: PyGraphistry.sso_login(org_name, idp_name, sso_timeout)
+            PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
+                org_name, idp_name, sso_timeout, sso_opt_into_type
+            )
 
         PyGraphistry._is_authenticated = False
         arrow_uploader = ArrowUploader(
@@ -242,11 +246,11 @@ class PyGraphistry(object):
             auth_url = arrow_uploader.sso_auth_url
             # print("auth_url : {}".format(auth_url))
             if auth_url and not PyGraphistry.api_token():
-                PyGraphistry._handle_auth_url(auth_url, sso_timeout)
-
+                PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
+                return auth_url
 
     @staticmethod
-    def _handle_auth_url(auth_url, sso_timeout, relogin=False):
+    def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type, relogin=False):
         """Internal function to handle what to do with the auth_url 
            based on the client mode python/ipython console or notebook.
 
@@ -254,14 +258,16 @@ class PyGraphistry(object):
         :type auth_url: str or list in list([[name1,url1], [name2,url2], [name3,url3])
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
         :type sso_timeout: Optional[int]
-        :returns: None.
-        :rtype: None
+        :param sso_opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
+        :type sso_opt_into_type: Optional[Literal["display", "browser"]]
+        :returns: token
+        :rtype: token: Optional[str]
 
         SSO Login logic.
 
         """
 
-        if in_ipython() or in_databricks():  # If run in notebook, just display the HTML
+        if in_ipython() or in_databricks() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
             from IPython.display import display, HTML
             if isinstance(auth_url ,list):
@@ -276,11 +282,13 @@ class PyGraphistry(object):
                 print("Please click the above link to open browser to access SSO organization")
             else:
                 print("Please click the above link to open browser to login")
+            print("Please click the above URL to open browser to login")
+            print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
-        else:
+        elif sso_opt_into_type == 'browser':
             import webbrowser
-            print("Please minimize browser after SSO login to back to pygraphistry")
+            print("Please minimize browser after your SSO login and go back to pygraphistry")
             if isinstance(auth_url ,list):
                 if len(auth_url) == 1:
                     print(f"idp name: {auth_url[0][0]}")
@@ -306,12 +314,15 @@ class PyGraphistry(object):
                 input("Press Enter to open browser ...")
                 # open browser to auth_url
                 webbrowser.open(auth_url)
+        else:
+            print(f"Please open a browser, browse to this URL, and sign in: {auth_url}")
+            print("After, if you get timeout error, run graphistry.sso_get_token() to complete the authentication")
 
         if sso_timeout is not None:
             time.sleep(1)
             elapsed_time = 1
             token = None
-            
+
             while True:
                 token, org_name = PyGraphistry._sso_get_token()
                 try:
@@ -334,7 +345,7 @@ class PyGraphistry(object):
                 # set org_name to sso org
                 PyGraphistry._config['org_name'] = org_name
 
-                print(f"Successfully get a token, org_name is {org_name}")
+                print(f"Successfully logged in, current active organization is {org_name}")
                 return PyGraphistry.api_token()
             else:
                 return None
@@ -349,7 +360,7 @@ class PyGraphistry(object):
         # set org_name to sso org
         PyGraphistry._config['org_name'] = org_name
         return token
-    
+
     @staticmethod
     def _sso_get_token():
         token = None
@@ -535,7 +546,7 @@ class PyGraphistry(object):
         """Set or get the API version: 1 for 1.0 (deprecated), 3 for 2.0.
         Setting api=2 (protobuf) fully deprecated from the PyGraphistry client.
         Also set via environment variable GRAPHISTRY_API_VERSION."""
-        
+
         import re
         if value is None:
             #if set by env var, interpret
@@ -592,7 +603,8 @@ class PyGraphistry(object):
         org_name: Optional[str] = None,
         idp_name: Optional[str] = None,
         is_sso_login: Optional[bool] = False,
-        sso_timeout: Optional[int] = SSO_GET_TOKEN_ELAPSE_SECONDS
+        sso_timeout: Optional[int] = SSO_GET_TOKEN_ELAPSE_SECONDS,
+        sso_opt_into_type: Optional[Literal["display", "browser"]] = None
     ):
         """API key registration and server selection
 
@@ -636,6 +648,8 @@ class PyGraphistry(object):
         :type idp_name: Optional[str]
         :param sso_timeout: Set sso login getting token timeout in seconds (blocking mode), set to None if non-blocking mode. Default as SSO_GET_TOKEN_ELAPSE_SECONDS.
         :type sso_timeout: Optional[int]
+        :param sso_opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
+        :type sso_opt_into_type: Optional[Literal["display", "browser"]]
         :returns: None.
         :rtype: None
 
@@ -650,6 +664,14 @@ class PyGraphistry(object):
 
                     import graphistry
                     graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name")
+
+        **Example: Override SSO url display method to use `display()`, `webbrowser.open()`, or just `print()`**
+                ::
+
+                    import graphistry
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name", sso_opt_into_type="display")
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name", sso_opt_into_type="browser")
+                    graphistry.register(api=3, protocol='http', server='200.1.1.1', org_name="org-name", sso_opt_into_type=None)
 
         **Example: Standard (2.0 api by username/password with org_name)**
                 ::
@@ -699,7 +721,7 @@ class PyGraphistry(object):
         PyGraphistry.set_bolt_driver(bolt)
         # Reset token creds
         PyGraphistry.__reset_token_creds_in_memory()
- 
+
         if not (username is None) and not (password is None):
             PyGraphistry.login(username, password, org_name)
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
@@ -720,7 +742,7 @@ class PyGraphistry(object):
             PyGraphistry.api_token(token or PyGraphistry._config['api_token'])
         elif not (org_name is None) or is_sso_login:
             print(MSG_REGISTER_ENTER_SSO_LOGIN)
-            PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout)
+            PyGraphistry.sso_login(org_name, idp_name, sso_timeout=sso_timeout, sso_opt_into_type=sso_opt_into_type)
 
     @staticmethod
     def __check_login_type_to_reset_token_creds(
@@ -729,7 +751,7 @@ class PyGraphistry(object):
         ):
         if origin_login_type != new_login_type:
             PyGraphistry.__reset_token_creds_in_memory()
-        
+
     @staticmethod
     def privacy(
             mode: Optional[Mode] = None,
@@ -1973,7 +1995,7 @@ class PyGraphistry(object):
 
         **Example**
             ::
-            
+
                 import graphistry
 
                 def sample_nodes(g, n):
@@ -2319,7 +2341,7 @@ class PyGraphistry(object):
 
         # setter, use switch_org instead
         if 'org_name' not in PyGraphistry._config or value is not PyGraphistry._config['org_name']:
-            try: 
+            try:
                 PyGraphistry.switch_org(value.strip())
                 # PyGraphistry._config['org_name'] = value.strip()
             except:
@@ -2362,7 +2384,7 @@ class PyGraphistry(object):
         point_size: Optional[float] = None,
         edge_curvature: Optional[float] = None,
         edge_opacity: Optional[float] = None,
-        point_opacity: Optional[float] = None,        
+        point_opacity: Optional[float] = None,
     ):
         return Plotter().scene_settings(
             menu,
@@ -2456,7 +2478,7 @@ class PyGraphistry(object):
             logger.error('Error: %s', response, exc_info=True)
             raise Exception("Unknown Error")
 
-        
+
 
 
 client_protocol_hostname = PyGraphistry.client_protocol_hostname

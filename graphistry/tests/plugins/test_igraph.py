@@ -1,3 +1,5 @@
+import pyarrow as pa
+
 import graphistry, logging, pandas as pd, pytest, warnings
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
@@ -18,6 +20,14 @@ logger.setLevel(logging.DEBUG)
 
 edges = [(0, 1), (0, 2), (0, 3), (1, 2), (2, 4)]
 names = ["my", "list", "of", "five", "edges"]
+
+edges_sparse = [(2, 3), (3, 4), (6, 2)]
+edges_sparse_renamed = [(0, 1), (1, 2), (3, 0)]
+names_sparse = ['ab', 'bc', 'da']
+nodes_sparse = [2, 3, 4, 6]
+nodes_sparse_renamed = [0, 1, 2, 3]
+names_sparse_v = ['a', 'b', 'c', 'd']
+names_dense_v = ['u0', 'u1', 'a', 'b', 'c', 'u5', 'd']
 
 nodes = [0, 1, 2, 3, 4]
 names_v = ["eggs", "spam", "ham", "bacon", "yello"]
@@ -45,6 +55,14 @@ nodes3_df = pd.DataFrame({
     't': [0, 1, 0, 1]
 })
 
+edges4_df = pd.DataFrame({
+    #no 0
+    's': [5, 6, 2, 5, 4, 2, 9, 4, 7, 10],
+    'd': [10, 1, 8, 7, 10, 10, 3, 10, 1, 3],
+    'w': [5.58851127, 9.12320228, 4.58717668, 6.59665844, 8.62772521,
+       2.48654683, 1.4533045 , 4.47252362, 3.38562727, 9.16188751]
+})
+
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_from_igraph(NoAuthTestCase):
 
@@ -57,6 +75,15 @@ class Test_from_igraph(NoAuthTestCase):
         assert len(g._edges[g._source].dropna()) == len(edges)
         assert len(g._edges[g._destination].dropna()) == len(edges)
 
+    def test_minimal_edges_sparse(self):
+        ig = igraph.Graph(edges_sparse)
+        g = graphistry.from_igraph(ig, load_nodes=False)
+        assert g._nodes is None and g._node is None
+        assert len(g._edges) == len(edges_sparse)
+        assert g._source is not None and g._destination is not None
+        assert len(g._edges[g._source].dropna()) == len(edges_sparse)
+        assert len(g._edges[g._destination].dropna()) == len(edges_sparse)
+
     def test_minimal_attributed_edges(self):
         ig = igraph.Graph(edges)
         ig.es["name"] = names
@@ -67,6 +94,17 @@ class Test_from_igraph(NoAuthTestCase):
         assert len(g._edges[g._source].dropna()) == len(edges)
         assert len(g._edges[g._destination].dropna()) == len(edges)
         assert (g._edges['name'] == pd.Series(names)).all()
+
+    def test_minimal_attributed_edges_sparse(self):
+        ig = igraph.Graph(edges_sparse)
+        ig.es["name"] = names_sparse
+        g = graphistry.from_igraph(ig, load_nodes=False)
+        assert g._nodes is None and g._node is None
+        assert len(g._edges) == len(edges_sparse)
+        assert g._source is not None and g._destination is not None
+        assert len(g._edges[g._source].dropna()) == len(edges_sparse)
+        assert len(g._edges[g._destination].dropna()) == len(edges_sparse)
+        assert (g._edges['name'] == pd.Series(names_sparse)).all()
 
     def test_minimal_nodes(self):
         ig = igraph.Graph(edges)
@@ -79,6 +117,19 @@ class Test_from_igraph(NoAuthTestCase):
         assert g._source is not None and g._destination is not None
         assert len(g._edges[g._source].dropna()) == len(edges)
         assert len(g._edges[g._destination].dropna()) == len(edges)
+
+    def test_minimal_nodes_sparse(self):
+        ig = igraph.Graph(edges_sparse)
+        g = graphistry.from_igraph(ig)
+        assert g._node is not None and g._nodes is not None
+        assert len(g._nodes) == max(nodes_sparse) + 1
+        assert len(g._nodes) == len(names_dense_v)
+        assert g._nodes[g._node].sort_values().to_list() == list(range(max(nodes_sparse) + 1))
+        assert g._nodes.columns == [ g._node ]
+        assert len(g._edges) == len(edges_sparse)
+        assert g._source is not None and g._destination is not None
+        assert len(g._edges[g._source].dropna()) == len(edges_sparse)
+        assert len(g._edges[g._destination].dropna()) == len(edges_sparse)
 
     def test_minimal_nodes_attributed(self):
         ig = igraph.Graph(edges)
@@ -93,6 +144,21 @@ class Test_from_igraph(NoAuthTestCase):
         assert g._source is not None and g._destination is not None
         assert len(g._edges[g._source].dropna()) == len(edges)
         assert len(g._edges[g._destination].dropna()) == len(edges)
+
+    def test_minimal_nodes_attributed_sparse(self):
+        ig = igraph.Graph(edges_sparse)
+        ig.vs["name"] = names_dense_v
+        g = graphistry.from_igraph(ig)
+        assert g._node is not None and g._nodes is not None
+        assert g._node == NODE
+        assert len(g._nodes) == max(nodes_sparse) + 1
+        assert sorted(g._nodes.columns) == sorted([ NODE ])
+        assert len(g._nodes) == len(names_dense_v)
+        assert g._nodes[g._node].sort_values().to_list() == sorted(names_dense_v)
+        assert len(g._edges) == len(edges_sparse)
+        assert g._source is not None and g._destination is not None
+        assert len(g._edges[g._source].dropna()) == len(edges_sparse)
+        assert len(g._edges[g._destination].dropna()) == len(edges_sparse)
 
     def test_merge_existing_nodes(self):
         ig = igraph.Graph(edges)
@@ -233,6 +299,104 @@ class Test_to_igraph(NoAuthTestCase):
             NODE: nodes
         }))
         assert g2._node == NODE
+
+    def test_sparse_edges_renamed(self):
+        g = graphistry.edges(pd.DataFrame([{'s': s, 'd': d} for (s, d) in edges_sparse]), 's', 'd')
+        ig = g.to_igraph()
+        logger.debug('ig: %s', ig)
+        g2 = graphistry.from_igraph(ig)
+        assert g2._edges.shape == g._edges.shape
+        assert g2._source == SRC_IGRAPH
+        assert g2._destination == DST_IGRAPH
+        assert g2._edge is None
+        logger.debug('g2._nodes: %s', g2._nodes)
+        assert sorted(g2._nodes[g2._node].to_list()) == sorted(nodes_sparse)
+        assert g2._node == NODE
+
+    def test_swizzles_1_none(self):
+        g = graphistry.edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'a'], 'v': ['aa', 'bb']}), 's', 'd')
+        ig = g.to_igraph()
+        g2 = g.from_igraph(ig)
+        assert g2._edges.equals(g._edges)
+        
+        gb = g.nodes(pd.DataFrame({'n': ['a', 'b'], 'v': ['aa', 'bb']}), 'n')
+        ig = gb.to_igraph()
+        gb2 = gb.from_igraph(ig)
+        assert gb2._nodes.equals(gb._nodes)
+
+        gc = g.nodes(pd.DataFrame({'n': ['b', 'a'], 'v': ['bb', 'aa']}), 'n')
+        ig = gc.to_igraph()
+        gc2 = gc.from_igraph(ig)
+        assert gc2._nodes.equals(gc._nodes)
+
+        gd = g.materialize_nodes()
+        ig = gd.to_igraph()
+        gd2 = gd.from_igraph(ig)
+        assert gd2._nodes.equals(gd._nodes)
+
+    def test_swizzles_1_none_numeric(self):
+        g = graphistry.edges(pd.DataFrame({'s': [0, 1], 'd': [0, 1], 'v': ['aa', 'bb']}), 's', 'd')
+        ig = g.to_igraph()
+        g2 = g.from_igraph(ig)
+        assert g2._edges.equals(g._edges)
+        
+        gb = g.nodes(pd.DataFrame({'n': [0, 1], 'v': ['aa', 'bb']}), 'n')
+        ig = gb.to_igraph()
+        gb2 = gb.from_igraph(ig)
+        assert gb2._nodes.equals(gb._nodes)
+
+        gc = g.nodes(pd.DataFrame({'n': [1, 0], 'v': ['bb', 'aa']}), 'n')
+        ig = gc.to_igraph()
+        gc2 = gc.from_igraph(ig)
+        assert gc2._nodes.equals(gc._nodes)
+
+        gd = g.materialize_nodes()
+        ig = gd.to_igraph()
+        gd2 = gd.from_igraph(ig)
+        assert gd2._nodes.equals(gd._nodes)
+
+    def test_swizzles_2_sparse(self):
+        g = graphistry.edges(pd.DataFrame({'s': [1, 2], 'd': [1, 2], 'v': ['11', '22']}), 's', 'd')
+        ig = g.to_igraph()
+        g2 = g.from_igraph(ig)
+        assert g2._edges.equals(g._edges)
+
+        gb = g.nodes(pd.DataFrame({'n': [1, 2], 'v': ['11', '22']}), 'n')
+        ig = gb.to_igraph()
+        gb2 = gb.from_igraph(ig)
+        assert gb2._nodes.equals(gb._nodes)
+
+        gc = g.nodes(pd.DataFrame({'n': [2, 1], 'v': ['22', '11']}), 'n')
+        ig = gc.to_igraph()
+        gc2 = gc.from_igraph(ig)
+        assert gc2._nodes.equals(gc._nodes)
+
+        gd = g.materialize_nodes()
+        ig = gd.to_igraph()
+        gd2 = gd.from_igraph(ig)
+        assert gd2._nodes.equals(gd._nodes)
+
+    def test_swizzles_2_dense(self):
+        g = graphistry.edges(pd.DataFrame({'s': [1, 0], 'd': [1, 0], 'v': ['11', '00']}), 's', 'd')
+        ig = g.to_igraph()
+        g2 = g.from_igraph(ig)
+        assert g2._edges.equals(g._edges)
+
+        gb = g.nodes(pd.DataFrame({'n': [1, 0], 'v': ['11', '00']}), 'n')
+        ig = gb.to_igraph()
+        gb2 = gb.from_igraph(ig)
+        assert gb2._nodes.equals(gb._nodes)
+
+        gc = g.nodes(pd.DataFrame({'n': [0, 1], 'v': ['00', '11']}), 'n')
+        ig = gc.to_igraph()
+        gc2 = gc.from_igraph(ig)
+        assert gc2._nodes.equals(gc._nodes)
+
+        gd = g.materialize_nodes()
+        ig = gd.to_igraph()
+        gd2 = gd.from_igraph(ig)
+        assert gd2._nodes.equals(gd._nodes)
+
 
     def test_minimal_edges_renamed(self):
         g = (graphistry
@@ -476,6 +640,47 @@ class Test_igraph_usage(NoAuthTestCase):
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_compute(NoAuthTestCase):
 
+    def chain_1_rename(self, alg: str) -> None: 
+
+        g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
+
+        g2 = compute_igraph(g, alg)
+        assert alg in g2._nodes
+
+        g3 = compute_igraph(g2, alg, f'{alg}2')
+        assert f'{alg}2' in g3._nodes
+        assert g2._nodes[alg].equals(g3._nodes[alg])
+        assert g2._nodes[alg].equals(g3._nodes[f'{alg}2'])
+
+        g3b = compute_igraph(g2, alg)
+        assert alg in g3b._nodes
+        assert g3b._nodes.shape == g2._nodes.shape
+
+    def test_chain_1_rename_pagerank(self):
+        self.chain_1_rename('pagerank')
+
+    def test_chain_2_rename_articulation_points(self):
+        self.chain_1_rename('articulation_points')
+
+    def test_chain_3_seq(self):
+        g = graphistry.edges(edges3_df, 'a', 'b').materialize_nodes()
+        g2 = compute_igraph(g, 'pagerank')
+        g3 = compute_igraph(g2, 'articulation_points')
+        assert 'pagerank' in g3._nodes
+        assert 'articulation_points' in g3._nodes
+
+    def test_chain_4_sparse(self):
+
+        #From https://github.com/graphistry/pygraphistry/pull/513#issuecomment-1784161313
+
+        g = graphistry.edges(edges4_df, 's', 'd').materialize_nodes()
+        g2 = g.compute_igraph('articulation_points')
+        assert 'articulation_points' in g2._nodes
+        g2b = g.compute_igraph('community_optimal_modularity')
+        assert 'community_optimal_modularity' in g2b._nodes
+        g3 = g2.compute_igraph('community_optimal_modularity')
+        assert g3._nodes.community_optimal_modularity.equals(g2b._nodes.community_optimal_modularity)
+
     def test_all_calls(self):
         overrides = {
             'bipartite_projection': {
@@ -508,13 +713,23 @@ class Test_igraph_compute(NoAuthTestCase):
                     with warnings.catch_warnings(record=True) as w:
                         # Cause all warnings to always be triggered.
                         warnings.simplefilter("always")
-                        assert compute_igraph(g, alg, **opts) is not None
+                        g2 = compute_igraph(g, alg, **opts)
+                        assert g2 is not None
+                        assert g2._nodes is not None
+                        assert g2._edges is not None
+                        pa.Table.from_pandas(g2._nodes)
+                        pa.Table.from_pandas(g2._edges)
                         #assert len(w) == 1
                         assert issubclass(w[-1].category, DeprecationWarning)
                 else:
                     with warnings.catch_warnings():
                         warnings.filterwarnings("ignore", category=FutureWarning)
-                        assert compute_igraph(g, alg, **opts) is not None
+                        g2 = compute_igraph(g, alg, **opts)
+                        assert g2 is not None
+                        assert g2._nodes is not None
+                        assert g2._edges is not None
+                        pa.Table.from_pandas(g2._nodes)
+                        pa.Table.from_pandas(g2._edges)
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 class Test_igraph_layouts(NoAuthTestCase):

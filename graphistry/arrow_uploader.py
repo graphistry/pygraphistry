@@ -183,12 +183,12 @@ class ArrowUploader:
             # check current org_name
             from .pygraphistry import PyGraphistry
             if 'org_name' in PyGraphistry._config:
-                logger.debug("@ArrowUploader.__init__: There is an org_name : {}".format(PyGraphistry._config['org_name']))
+                logger.debug("@ArrowUploader.__init__: There is an org_name : %s", PyGraphistry._config['org_name'])
                 self.__org_name = PyGraphistry._config['org_name']
             else:
                 self.__org_name = None
 
-        logger.debug("2. @ArrowUploader.__init__: After set self.org_name: {}, self.__org_name : {}".format(self.org_name, self.__org_name))
+        logger.debug("2. @ArrowUploader.__init__: After set self.org_name: %s, self.__org_name : %s", self.org_name, self.__org_name)
 
 
     def login(self, username, password, org_name=None):
@@ -254,7 +254,7 @@ class ArrowUploader:
                     del PyGraphistry._config['org_name']
             else:
                 if org_name in PyGraphistry._config:
-                    logger.debug("@ArrowUploder, handle login reponse, org_name: {}".format(PyGraphistry._config['org_name']))
+                    logger.debug("@ArrowUploder, handle login reponse, org_name: %s", PyGraphistry._config['org_name'])
                 PyGraphistry._config['org_name'] = logged_in_org_name 
                 # PyGraphistry.org_name(logged_in_org_name)
         except Exception:
@@ -287,17 +287,18 @@ class ArrowUploader:
             url, data={'client-type': 'pygraphistry'},
             verify=self.certificate_validation
         )
-        # print(out.text)
+
         json_response = None
         try:
+            logger.debug("@ArrowUploader.sso_login, out.text: %s", out.text)
             json_response = out.json()
-            logger.debug("@ArrowUploader.sso_login, json_response: {}".format(json_response))
+            logger.debug("@ArrowUploader.sso_login, json_response: %s", json_response)
             self.token = None
             if not ('status' in json_response):
                 raise Exception(out.text)
             else:
                 if json_response['status'] == 'OK':
-                    logger.debug("@ArrowUploader.sso_login, json_data : {}".format(json_response['data']))
+                    logger.debug("@ArrowUploader.sso_login, json_data : %s", json_response['data'])
                     if 'state' in json_response['data']:
                         self.sso_state = json_response['data']['state']
                         self.sso_auth_url = json_response['data']['auth_url']
@@ -308,6 +309,7 @@ class ArrowUploader:
 
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
+            print("\nThere is error with the SSO login, please check your SSO and IDP configuration")
             raise
             
         return self
@@ -334,7 +336,7 @@ class ArrowUploader:
                     if 'token' in json_response['data']:
                         self.token = json_response['data']['token']
                     if 'active_organization' in json_response['data']:
-                        logger.debug("@ArrowUploader.sso_get_token, org_name: {}".format(json_response['data']['active_organization']['slug']))
+                        logger.debug("@ArrowUploader.sso_get_token, org_name: %s", json_response['data']['active_organization']['slug'])
                         self.org_name = json_response['data']['active_organization']['slug']
                     if 'state' in json_response['data']:
                         self.state = json_response['data']['state']
@@ -382,7 +384,7 @@ class ArrowUploader:
         tok = self.token
         if self.org_name: 
             json['org_name'] = self.org_name
-        logger.debug("@ArrowUploder create_dataset json: {}".format(json))
+        logger.debug("@ArrowUploder create_dataset json: %s", json)
         res = requests.post(
             self.server_base_path + '/api/v2/upload/datasets/',
             verify=self.certificate_validation,
@@ -490,7 +492,7 @@ class ArrowUploader:
         """
         Note: likely want to pair with self.maybe_post_share_link(g)
         """
-        logger.debug("@ArrowUploader.post, self.org_name : {}".format(self.org_name))
+        logger.debug("@ArrowUploader.post, self.org_name : %s", self.org_name)
         if as_files:
 
             file_uploader = ArrowFileUploader(self)
@@ -656,9 +658,9 @@ class ArrowUploader:
                 raise Exception('No success indicator in server response')
             return out
         except requests.exceptions.HTTPError as e:
-            logger.error('Failed to post arrow to %s (%s)', sub_path, e.request.url, exc_info=True)
+            logger.error('Failed to post arrow to %s (%s)', sub_path, "{}/{}{}".format(self.server_base_path, sub_path, f"?{opts}" if len(opts) > 0 else ""), exc_info=True)
             logger.error('%s', e)
-            logger.error('%s', e.response.text)
+            logger.error('%s', e.response.text if e.response else None)
             raise e
         except Exception as e:
             logger.error('Failed to post arrow to %s', sub_path, exc_info=True)
