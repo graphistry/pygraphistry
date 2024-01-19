@@ -1003,7 +1003,7 @@ def process_dirty_dataframes(
 
             duplicates = list(set([x for x in features_transformed if features_transformed.count(x) > 1]))
             if len(duplicates) > 0:
-                counts = {}
+                counts = {}  # type: ignore
                 new_list = []
                 for x in features_transformed:
                     counts[x] = counts.get(x, 0) + 1
