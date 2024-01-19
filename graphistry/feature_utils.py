@@ -1000,12 +1000,23 @@ def process_dirty_dataframes(
             if len(dt_count) > 0:
                 dt_new = ['datetime_' + str(n) for n in range(len(dt_count))]
                 features_transformed.extend(dt_new)
-            try:
+
+            duplicates = list(set([x for x in features_transformed if features_transformed.count(x) > 1]))
+            if len(duplicates) > 0:
+                counts = {}
+                new_list = []
+                for x in features_transformed:
+                    counts[x] = counts.get(x, 0) + 1
+                    new_list.append(f"{x}_{counts[x]}" if counts[x] > 1 else x)
+                X_enc.columns = new_list
+            else:
                 X_enc.columns = features_transformed
-            except ValueError:
-                X_enc.columns = np.arange(max(X_enc.shape))
             X_enc.set_index(ndf.index)
             X_enc = X_enc.fillna(0.0)
+            unnamed_cols = [col for col in X_enc.columns if 'Unnamed: 0: ' in col]
+            if len(unnamed_cols) > 1:
+                X_enc['Unnamed: 0'] = X_enc[unnamed_cols].sum(axis=1)
+                X_enc = X_enc.drop(columns=unnamed_cols)
 
     else:
         logger.info("-*-*- DataFrame is completely numeric")
@@ -1054,8 +1065,20 @@ def process_dirty_dataframes(
                 labels_transformed = label_encoder.get_feature_names_out()
             else:  # Similarity Encoding uses categories_
                 labels_transformed = label_encoder.categories_
+        if 'cudf' in str(getmodule(X_enc)):
+            try:
+                y_enc = cudf.DataFrame(y_enc)
+            except TypeError:
+                y_enc = cudf.DataFrame(y_enc.toarray()) 
+            try:
+                y_enc.columns = labels_transformed
+            except ValueError:
+                y_enc.columns = np.arange(max(y_enc.shape))
+            y_enc.set_index(y.index)
+            y_enc = y_enc.fillna(0.0)
 
-        y_enc = pd.DataFrame(y_enc,
+        else:
+            y_enc = pd.DataFrame(y_enc,
                              columns=labels_transformed,
                              index=y.index)
         # y_enc = y_enc.fillna(0)
@@ -1960,7 +1983,15 @@ def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Optional[Union[lis
         return X
     if isinstance(column_parts, str):
         column_parts = [column_parts]
-    res = pd.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)  # type: ignore
+    if 'cudf.core.dataframe' in str(getmodule(X)):
+        cudf = deps.cudf
+        res = cudf.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)  # type: ignore
+    else:
+        try:
+            res = pd.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)  # type: ignore
+        except TypeError:
+            res = pd.concat([get_matrix_by_column_part(X.to_pandas(), column_part) for column_part in column_parts], axis=1)  # type: ignore
+
     res = res.loc[:, ~res.columns.duplicated()]  # type: ignore
     return res
 
