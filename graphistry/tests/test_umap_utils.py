@@ -24,9 +24,8 @@ from graphistry.tests.test_feature_utils import (
     model_avg_name,
     check_allclose_fit_transform_on_same_data,
 )
-from graphistry.dep_manager import DepManager
+from graphistry.dep_manager import deps
 
-deps = DepManager()
 has_dependancy = deps.umap
 cuml = deps.cuml
 umap = deps.umap

@@ -1003,7 +1003,7 @@ def process_dirty_dataframes(
             try:
                 X_enc.columns = features_transformed
             except ValueError:
-                X_enc.columns = np.arange(len(X_enc))
+                X_enc.columns = np.arange(max(X_enc.shape))
             X_enc.set_index(ndf.index)
             X_enc = X_enc.fillna(0.0)
 

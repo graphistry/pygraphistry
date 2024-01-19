@@ -20,11 +20,10 @@ from graphistry.feature_utils import (
 
 from graphistry.features import topic_model, ngrams_model
 from graphistry.constants import SCALERS
-from graphistry.dep_manager import DepManager
+from graphistry.dep_manager import deps
 
 np.random.seed(137)
 
-deps = DepManager()
 dirty_cat = deps.dirty_cat
 scipy = deps.scipy
 sklearn = deps.sklearn

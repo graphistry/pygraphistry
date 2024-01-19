@@ -5,13 +5,12 @@ import unittest
 import graphistry
 import numpy as np
 # import tqdm as tqdm_
-from graphistry.dep_manager import DepManager
+from graphistry.dep_manager import deps
 from graphistry import networks
 
 import logging
 logger = logging.getLogger(__name__)
 
-deps = DepManager()
 # not previously imported but needed to check if we can run tests via dep_flag
 torch_ = deps.torch
 nn_ = deps.torch_nn
