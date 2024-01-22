@@ -379,7 +379,6 @@ class PyGraphistry(object):
             try:
                 token = arrow_uploader.token
                 org_name = arrow_uploader.org_name
-                PyGraphistry.sso_state(arrow_uploader.state)
             except Exception:
                 pass
             logger.debug("jwt token :{}".format(token))
