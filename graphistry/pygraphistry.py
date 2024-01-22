@@ -32,6 +32,7 @@ logger = setup_logger(__name__)
 ###############################################################################
 
 SSO_GET_TOKEN_ELAPSE_SECONDS = 50
+SSO_STATE_SPLIT = "|"
 
 EnvVarNames = {
     "api_key": "GRAPHISTRY_API_KEY",
@@ -2457,7 +2458,7 @@ class PyGraphistry(object):
                 for idp_name in data['idp']:
                     idp_name_with_url_list.append([idp_name, data['idp'][idp_name]['auth_url']])
                     idp_state_list.append(data['idp'][idp_name]['state'])
-                multiple_idp_state = 'SEPARATE'.join(idp_state_list)
+                multiple_idp_state = SSO_STATE_SPLIT.join(idp_state_list)
                 PyGraphistry.sso_state(multiple_idp_state)
                 PyGraphistry._handle_auth_url(idp_name_with_url_list, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS, relogin=True)
             else:
