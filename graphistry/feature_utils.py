@@ -674,7 +674,7 @@ def fit_pipeline(
         try:
             X = transformer.fit_transform(X)
         except TypeError:
-            X = transformer.fit_transform(X.to_cupy())
+            X = transformer.fit_transform(X.to_cupy())  #  type: ignore  # noqa
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         cudf = deps.cudf
