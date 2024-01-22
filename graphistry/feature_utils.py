@@ -62,6 +62,10 @@ if TYPE_CHECKING:
         FunctionTransformer = Any
         BaseEstimator = object
         TransformerMixin = object
+    try:
+        from cuml.preprocessing import FunctionTransformer
+    except:
+        FunctionTransformer = Any
 else:
     MIXIN_BASE = object
     Pipeline = Any
@@ -545,6 +549,7 @@ def identity(x):
 
 
 def get_preprocessing_pipeline(
+    X: pd.DataFrame,
     use_scaler: str = "robust",
     impute: bool = True,
     n_quantiles: int = 10,
@@ -574,17 +579,31 @@ def get_preprocessing_pipeline(
             `uniform`, `quantile`, `kmeans`, default 'quantile'
     :return: scaled array, imputer instances or None, scaler instance or None
     """
-    from sklearn.preprocessing import (
-        FunctionTransformer,
-        KBinsDiscretizer,
-        MinMaxScaler,
-        MultiLabelBinarizer,
-        QuantileTransformer,
-        RobustScaler,
-        StandardScaler,
-    )
+    if 'cudf' in str(getmodule(X)):
+        from cuml.preprocessing import (
+            FunctionTransformer,
+            KBinsDiscretizer,
+            MinMaxScaler,
+            # MultiLabelBinarizer,
+            QuantileTransformer,
+            RobustScaler,
+            StandardScaler,
+            SimpleImputer,
+        )
+        from sklearn.preprocessing import MultiLabelBinarizer
+    else:
+        from sklearn.preprocessing import (
+            FunctionTransformer,
+            KBinsDiscretizer,
+            MinMaxScaler,
+            MultiLabelBinarizer,
+            QuantileTransformer,
+            RobustScaler,
+            StandardScaler,
+        )
+        from sklearn.impute import SimpleImputer
     from sklearn.pipeline import Pipeline
-    from sklearn.impute import SimpleImputer
+    
     available_preprocessors = [
         "minmax",
         "quantile",
@@ -644,7 +663,7 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-
+    X, _ = make_safe_gpu_dataframes(X, None, engine='cu_cat')
     X_type = str(getmodule(X))
     if 'cudf' not in X_type:
         X = transformer.fit_transform(X)
@@ -652,7 +671,10 @@ def fit_pipeline(
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         X = pd.DataFrame(X, columns=columns, index=index)
     else:
-        X = transformer.fit_transform(X)
+        try:
+            X = transformer.fit_transform(X)
+        except TypeError:
+            X = transformer.fit_transform(X.to_cupy())
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         cudf = deps.cudf
@@ -675,6 +697,7 @@ def impute_and_scale_df(
 ) -> Tuple[pd.DataFrame, Pipeline]:
 
     transformer = get_preprocessing_pipeline(
+        X = df,
         impute=impute,
         use_scaler=use_scaler,
         n_quantiles=n_quantiles,
@@ -800,14 +823,24 @@ def smart_scaler(
             strategy=strategy,
             keep_n_decimals=keep_n_decimals,
         )  # noqa
-
-    if use_scaler and not X_enc.empty:
+    
+    if use_scaler and not X_enc.size!=0:
         logger.info(f"-Feature scaling using {use_scaler}")
         X_enc, pipeline = encoder(X_enc, use_scaler)  # noqa
 
-    if use_scaler_target and not y_enc.empty:
+    if use_scaler_target and not y_enc.size!=0:
         logger.info(f"-Target scaling using {use_scaler_target}")
         y_enc, pipeline_target = encoder(y_enc, use_scaler_target)  # noqa
+    
+    print(str(getmodule(X_enc)))
+    if not 'dataframe' in str(getmodule(X_enc)):
+        try:
+            X_enc = pd.DataFrame(X_enc)
+            y_enc = pd.DataFrame(y_enc)
+        except:
+            cudf = deps.cudf
+            X_enc = cudf.DataFrame(X_enc)
+            y_enc = cudf.DataFrame(y_enc)
 
     return X_enc, y_enc, pipeline, pipeline_target
 
@@ -849,7 +882,10 @@ class callThrough:
 def get_numeric_transformers(ndf, y=None):
     # numeric selector needs to embody memorization of columns
     # for later .transform consistency.
-    from sklearn.preprocessing import FunctionTransformer
+    if 'cudf' in str(getmodule(ndf)):
+        from cuml.preprocessing import FunctionTransformer
+    else:
+        from sklearn.preprocessing import FunctionTransformer
     label_encoder = False
     data_encoder = False
     y_ = y
@@ -1065,7 +1101,8 @@ def process_dirty_dataframes(
                 labels_transformed = label_encoder.get_feature_names_out()
             else:  # Similarity Encoding uses categories_
                 labels_transformed = label_encoder.categories_
-        if 'cudf' in str(getmodule(X_enc)):
+        if 'cudf' in str(getmodule(X_enc)) or feature_engine == CUDA_CAT:
+            cudf = deps.cudf
             try:
                 y_enc = cudf.DataFrame(y_enc)
             except TypeError:
@@ -1298,7 +1335,10 @@ class FastMLB:
     
     def __call__(self, df):
         ydf = df[self.columns]
-        return self.mlb.transform(ydf.squeeze())
+        if 'cudf' not in str(getmodule(ydf)):
+            return self.mlb.transform(ydf.squeeze())
+        elif 'cudf' in str(getmodule(ydf)) and len(ydf.columns) == 1:
+            return self.mlb.transform(ydf[ydf.columns[0]])
     
     def fit(self, X, y=None):
         return self
@@ -1319,11 +1359,18 @@ class FastMLB:
 
 def encode_multi_target(ydf, mlb = None):
     from sklearn.preprocessing import (
-        MultiLabelBinarizer,
+        MultiLabelBinarizer,  # Not available on cuml and arrow has trouble comparing unique strings for some reason
     )
-    ydf = ydf.squeeze()  # since its a dataframe, we want series
-    assert isinstance(ydf, pd.Series), 'Target needs to be a single column of (list of lists)'
-    column_name = ydf.name
+    if 'cudf' not in str(getmodule(ydf)):
+        ydf = ydf.squeeze()  # since its a dataframe, we want series
+        column_name = ydf.name
+        assert isinstance(ydf, pd.Series), 'Target needs to be a single column of (list of lists)'
+    elif 'cudf' in str(getmodule(ydf)) and len(ydf.columns) == 1:
+        ydf = ydf[ydf.columns[0]]
+        column_name = ydf.name
+        ydf = ydf.to_pandas()
+        print(str(getmodule(ydf)))
+        # assert 'arrow' in str(getmodule(ydf)), 'Target needs to be a single column of (list of lists), also needs to be pyarrow.Series'
     
     if mlb is None:
         mlb = MultiLabelBinarizer()
@@ -1821,6 +1868,14 @@ class FastEncoder:
         self._hecho(res)
         # data_encoder.feature_names_in = self.feature_names_in
         # label_encoder.target_names_in = self.target_names_in
+        if not 'dataframe' in str(getmodule(X_enc)):
+            try:
+                X_enc = pd.DataFrame(X_enc)
+                y_enc = pd.DataFrame(y_enc)
+            except:
+                cudf = deps.cudf
+                X_enc = cudf.DataFrame(X_enc)
+                y_enc = cudf.DataFrame(y_enc)
         self.feature_columns = X_enc.columns
         self.feature_columns_target = y_enc.columns
         self.X = X_encs
@@ -1873,7 +1928,7 @@ class FastEncoder:
         **Example:**
             ::
 
-                from graphisty.features import SCALERS, SCALER_OPTIONS
+                from graphistry.features import SCALERS, SCALER_OPTIONS
                 print(SCALERS)
                 g = graphistry.nodes(df)
                 # set a scaling strategy for features and targets -- umap uses those and produces different results depending.
