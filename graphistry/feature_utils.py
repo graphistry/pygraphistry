@@ -824,16 +824,16 @@ def smart_scaler(
             keep_n_decimals=keep_n_decimals,
         )  # noqa
     
-    if use_scaler and not X_enc.size!=0:
+    if use_scaler and not X_enc.size != 0:
         logger.info(f"-Feature scaling using {use_scaler}")
         X_enc, pipeline = encoder(X_enc, use_scaler)  # noqa
 
-    if use_scaler_target and not y_enc.size!=0:
+    if use_scaler_target and not y_enc.size != 0:
         logger.info(f"-Target scaling using {use_scaler_target}")
         y_enc, pipeline_target = encoder(y_enc, use_scaler_target)  # noqa
     
     print(str(getmodule(X_enc)))
-    if not 'dataframe' in str(getmodule(X_enc)):
+    if 'dataframe' not in str(getmodule(X_enc)):
         try:
             X_enc = pd.DataFrame(X_enc)
             y_enc = pd.DataFrame(y_enc)
@@ -1868,7 +1868,7 @@ class FastEncoder:
         self._hecho(res)
         # data_encoder.feature_names_in = self.feature_names_in
         # label_encoder.target_names_in = self.target_names_in
-        if not 'dataframe' in str(getmodule(X_enc)):
+        if 'dataframe' not in str(getmodule(X_enc)):
             try:
                 X_enc = pd.DataFrame(X_enc)
                 y_enc = pd.DataFrame(y_enc)
