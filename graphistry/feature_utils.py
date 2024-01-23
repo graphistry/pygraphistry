@@ -832,7 +832,6 @@ def smart_scaler(
         logger.info(f"-Target scaling using {use_scaler_target}")
         y_enc, pipeline_target = encoder(y_enc, use_scaler_target)  # noqa
     
-    print(str(getmodule(X_enc)))
     if 'dataframe' not in str(getmodule(X_enc)):
         try:
             X_enc = pd.DataFrame(X_enc)
@@ -1110,7 +1109,7 @@ def process_dirty_dataframes(
             try:
                 y_enc.columns = labels_transformed
             except ValueError:
-                y_enc.columns = np.arange(max(y_enc.shape))
+                y_enc.columns = np.arange((y_enc.shape[1]))
             y_enc.set_index(y.index)
             y_enc = y_enc.fillna(0.0)
 
@@ -1368,13 +1367,15 @@ def encode_multi_target(ydf, mlb = None):
     elif 'cudf' in str(getmodule(ydf)) and len(ydf.columns) == 1:
         ydf = ydf[ydf.columns[0]]
         column_name = ydf.name
-        ydf = ydf.to_pandas()
-        print(str(getmodule(ydf)))
-        # assert 'arrow' in str(getmodule(ydf)), 'Target needs to be a single column of (list of lists), also needs to be pyarrow.Series'
+        ydf = ydf.to_pandas()  # arrow()
+        # assert 'arrow' in str((ydf)), 'Target needs to be a single column of (list of lists), also needs to be pyarrow.Series'
     
     if mlb is None:
         mlb = MultiLabelBinarizer()
-        T = mlb.fit_transform(ydf) 
+        # try:
+        T = mlb.fit_transform(ydf)
+        # except TypeError:
+            # T = mlb.fit_transform(ydf.to_pylist())
     else:
         T = mlb.transform(ydf)
 
@@ -1583,7 +1584,7 @@ def process_edge_dataframes(
         feature_engine=feature_engine,
     )
 
-    if not X_enc.empty and not T.empty:
+    if not X_enc.size != 0 and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
         T_type = str(getmodule(T))
@@ -1591,7 +1592,7 @@ def process_edge_dataframes(
             X_enc = cudf.concat([T, X_enc], axis=1)
         else:
             X_enc = pd.concat([T, X_enc], axis=1)
-    elif not T.empty and X_enc.empty:
+    elif not T.empty and X_enc.size != 0:
         logger.debug("-" * 60)
         logger.debug("<= Found only Edges =>")
         X_enc = T
