@@ -1372,10 +1372,7 @@ def encode_multi_target(ydf, mlb = None):
     
     if mlb is None:
         mlb = MultiLabelBinarizer()
-        # try:
         T = mlb.fit_transform(ydf)
-        # except TypeError:
-            # T = mlb.fit_transform(ydf.to_pylist())
     else:
         T = mlb.transform(ydf)
 
