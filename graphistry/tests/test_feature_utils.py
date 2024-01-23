@@ -6,6 +6,7 @@ import logging
 import numpy as np
 import pandas as pd
 from typing import Any
+from inspect import getmodule
 
 import pytest
 import unittest
@@ -24,10 +25,12 @@ from graphistry.dep_manager import deps
 
 np.random.seed(137)
 
+cudf = deps.cudf
+cu_cat = deps.cu_cat
 dirty_cat = deps.dirty_cat
 scipy = deps.scipy
 sklearn = deps.sklearn
-if None not in [dirty_cat, scipy, sklearn]:
+if None not in [scipy, sklearn, cu_cat]:
     has_min_dependancy = True
 else:
     has_min_dependancy = False
@@ -159,12 +162,16 @@ freedom = ['title: dyslexics, experience, language',
 # ndf_stocks, price_df_stocks = get_stocks_dataframe()
 
 def allclose_stats(X, x, tol, name):
+    if 'cudf' in str(getmodule(X)) or 'cupy' in str(getmodule(X)):
+        x = x.to_numpy()
+        X = X.to_numpy()
     if not np.allclose(X.std(), x.std(), tol):
         print(f'{name}.std() are not aligned at {tol} tolerance...!')
 
     if not np.allclose(X.mean(), x.mean(), tol):
         print(f'{name}.means() are not aligned at {tol} tolerance...!')
-
+    # print([str(getmodule(X)),str(getmodule(x))])
+    # print([X,x])
     if not np.allclose(X, x, tol):
         print(f'{name}s are not aligned at {tol} tolerance...!')
 
@@ -187,11 +194,12 @@ class TestFeaturizeGetMethods(unittest.TestCase):
         g = graphistry.nodes(ndf_reddit)
 
         g2 = g.featurize(y=double_target_reddit,  # ngrams
+                feature_engine='cu_cat',
                 use_ngrams=True,
                 ngram_range=(1, 4)
                 )
         
-        g3 = g.featurize(**topic_model,feature_engine="dirty_cat",  # topic model       
+        g3 = g.featurize(**topic_model,feature_engine="cu_cat",  # topic model       
         )
         self.g = g
         self.g2 = g2
@@ -208,7 +216,7 @@ class TestFeaturizeGetMethods(unittest.TestCase):
         # test str vs list 
         assert (self.g2.get_matrix('Anxiety', target=True) == self.g2.get_matrix(['Anxiety'], target=True)).all().values[0]
 
-        # assert list(self.g2.get_matrix(['Anxiety', 'education', 'computer'], target=True).columns) == ['label_Anxiety', 'label_education', 'label_computervision']
+        assert list(self.g2.get_matrix(['Anxiety', 'education', 'computer'], target=True).columns) == ['label_Anxiety', 'label_education', 'label_computervision']
     
         # test feature methods
         # ngrams
@@ -217,7 +225,7 @@ class TestFeaturizeGetMethods(unittest.TestCase):
         
         # topic
         assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
-        # assert list(self.g3.get_matrix(['language', 'freedom']).columns) == freedom, self.g3.get_matrix(['language', 'freedom']).columns
+        assert list(self.g3.get_matrix(['language', 'freedom']).columns) == freedom, self.g3.get_matrix(['language', 'freedom']).columns
 
 class TestFastEncoder(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
@@ -225,20 +233,26 @@ class TestFastEncoder(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self):
         fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
-        fenc.fit(feature_engine=resolve_feature_engine('auto'),
+        self.x, self.y = fenc.fit_transform(feature_engine=resolve_feature_engine('cu_cat'),
+                 use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
+        fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
+        fenc.fit(feature_engine=resolve_feature_engine('cu_cat'),
                  use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
         self.X, self.Y = fenc.X, fenc.y
-        self.x, self.y = fenc.transform(ndf_reddit, ydf=double_target_reddit)
 
         fenc = FastEncoder(edge_df2, y=edge2_target_df, kind='edges')
-        fenc.fit(src='src', dst='dst', feature_engine=resolve_feature_engine('auto'),
+        self.xe, self.ye = fenc.fit_transform(src='src', dst='dst', feature_engine=resolve_feature_engine('cu_cat'),
                  use_ngrams=True, ngram_range=(1, 1),
                  use_scaler=None,
                  use_scaler_target=None,
                  cardinality_threshold=2, n_topics=4)
-        
+        fenc = FastEncoder(edge_df2, y=edge2_target_df, kind='edges')
+        fenc.fit(src='src', dst='dst', feature_engine=resolve_feature_engine('cu_cat'),
+                 use_ngrams=True, ngram_range=(1, 1),
+                 use_scaler=None,
+                 use_scaler_target=None,
+                 cardinality_threshold=2, n_topics=4)
         self.Xe, self.Ye = fenc.X, fenc.y
-        self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
         
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_allclose_fit_transform_on_same_data(self):
@@ -255,33 +269,53 @@ class TestFastEncoder(unittest.TestCase):
         
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
-        self.assertIsInstance(
-            x,
-            pd.DataFrame,
-            f"Returned data matrix is not Pandas DataFrame for {name} {value}",
-        )
-        self.assertFalse(
-            x.empty,
-            f"Pandas DataFrame should not be empty for {name} {value}",
-        )
-        self.assertIsInstance(
-            y,
-            pd.DataFrame,
-            f"Returned Target is not a Pandas DataFrame for {name} {value}",
-        )
+        # print(str(getmodule(data_encoder)))
+        if 'cu_cat' in str(getmodule(data_encoder)):
+            assert 'cupy' in str(getmodule(x))
+            # assert 'cupy' in str(getmodule(y))
+            # self.assertIsInstance(
+            #     x,
+            #     cupy.ndarray,
+            #     f"Returned data matrix is not DataFrame for {name} {value}",
+            # )
+            self.assertFalse(
+                cudf.DataFrame(x).empty,  # from cupy to cudf
+                f"DataFrame should not be empty for {name} {value}",
+            )
+            self.assertIsInstance(
+                y,
+                cudf.DataFrame,
+                f"Returned Target is not a cudf DataFrame for {name} {value}",
+            )
+        else:
+            self.assertIsInstance(
+                x,
+                pd.DataFrame,
+                f"Returned data matrix is not Pandas DataFrame for {name} {value}",
+            )
+            self.assertIsInstance(
+                y,
+                pd.DataFrame,
+                f"Returned Target is not a Pandas DataFrame for {name} {value}",
+            )
+            self.assertFalse(
+                x.empty,
+                f"DataFrame should not be empty for {name} {value}",
+            )
+        
         self.assertFalse(
             y.empty,
-            f"Pandas Target DataFrame should not be empty for {name} {value}",
+            f"Target DataFrame should not be empty for {name} {value}",
         )
         self.assertIsInstance(
             data_encoder,
-            dirty_cat._table_vectorizer.TableVectorizer,
-            f"Data Encoder is not a dirty_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
+            cu_cat._table_vectorizer.TableVectorizer,
+            f"Data Encoder is not a cu_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
         )
         self.assertIsInstance(
             target_encoder,
-            dirty_cat._table_vectorizer.TableVectorizer,
-            f"Data Target Encoder is not a dirty_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
+            cu_cat._table_vectorizer.TableVectorizer,
+            f"Data Target Encoder is not a cu_cat._table_vectorizer.TableVectorizer instance for {name} {value}",
         )
 
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
@@ -292,7 +326,7 @@ class TestFeatureProcessors(unittest.TestCase):
             for min_words in [
                 2,
                 4000,
-            ]:  # last one should skip encoding, and throw all to dirty_cat
+            ]:  # last one should skip encoding, and throw all to cu_cat
 
                 X_enc, y_enc, X_encs, y_encs, data_encoder, label_encoder, ordinal_pipeline, ordinal_pipeline_target, text_model, text_cols = process_nodes_dataframes(
                     ndf_reddit,
@@ -303,7 +337,7 @@ class TestFeatureProcessors(unittest.TestCase):
                     n_topics=20,
                     min_words=min_words,
                     model_name=model_avg_name,
-                    feature_engine=resolve_feature_engine('auto')
+                    feature_engine=resolve_feature_engine('cu_cat')
                 )
                 self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
@@ -312,7 +346,7 @@ class TestFeatureProcessors(unittest.TestCase):
         g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
-            g2 = g.featurize(y=['list_str'], X=['src'], multilabel=True)
+            g2 = g.featurize(y=['list_str'], X=['src'], feature_engine='cu_cat',multilabel=True)
         y = g2._get_target('node')
         assert y.shape == (4, 4)
         assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
@@ -323,9 +357,13 @@ class TestFeatureMethods(unittest.TestCase):
         msg = "Graphistry instance after featurization should have `{}` as attribute"
         for attribute in attributes:
             self.assertTrue(hasattr(g, attribute), msg.format(attribute))
-            if 'features' in attribute:
+            if 'features' in attribute and deps.cudf:
+                self.assertIsInstance(getattr(g, attribute), cudf.DataFrame, msg.format(attribute))
+            elif 'features' in attribute and not deps.cudf:
                 self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
-            if 'target' in attribute:
+            if 'target' in attribute and deps.cudf:
+                self.assertIsInstance(getattr(g, attribute), cudf.DataFrame, msg.format(attribute))
+            elif 'target' in attribute and not deps.cudf:
                 self.assertIsInstance(getattr(g, attribute), pd.DataFrame, msg.format(attribute))
             if 'encoder' in attribute:
                 self.assertIsInstance(getattr(g, attribute), FastEncoder, msg.format(attribute))
@@ -378,6 +416,7 @@ class TestFeatureMethods(unittest.TestCase):
                                 kind=kind,
                                 X=use_col,
                                 y=target,
+                                feature_engine='cu_cat',
                                 model_name=model_avg_name,
                                 use_scaler=None,
                                 use_scaler_target=None,
@@ -423,7 +462,7 @@ class TestFeatureMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_node_scaling(self):
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.featurize(X="title", y='label', use_scaler=None, use_scaler_target=None)
+        g2 = g.featurize(X="title", y='label', use_scaler=None, feature_engine='cu_cat',use_scaler_target=None)
         for scaler in SCALERS:
             X, y, c, d = g2.scale(ndf_reddit, single_target_reddit, kind='nodes', 
                                   use_scaler=scaler, 
@@ -433,58 +472,13 @@ class TestFeatureMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_scaling(self):
         g = graphistry.edges(edge_df2, "src", "dst")
-        g2 = g.featurize(y='label', kind='edges', use_scaler=None, use_scaler_target=None)
+        g2 = g.featurize(y='label', kind='edges', use_scaler=None, feature_engine='cu_cat',use_scaler_target=None)
         for scaler in SCALERS:
             X, y, c, d = g2.scale(edge_df2, edge2_target_df, kind='edges', 
                                   use_scaler=scaler, 
                                   use_scaler_target=np.random.choice(SCALERS), 
                                   return_scalers=True)
 
-
-# class TestFeaturizeGetMethodsCucat(unittest.TestCase):
-    
-#     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
-#     @pytest.mark.skipif(not deps.cudf, reason="requires cudf")
-#     def setUp(self) -> None:
-#         ndf_malware = pd.read_csv("graphistry/tests/data/malware_capture_bot.csv", index_col=0)
-#         cudf = deps.cudf
-#         if cudf:
-#             ndf_malware = cudf.from_pandas(ndf_malware)
-#             double_target_reddit = cudf.from_pandas(double_target_reddit)
-#         g = graphistry.nodes(ndf_malware)
-
-#         g2 = g.featurize(y=double_target_reddit,  # ngrams
-#                 use_ngrams=True,
-#                 ngram_range=(1, 4)
-#                 )
-        
-#         g3 = g.featurize(**topic_model, feature_engine="dirty_cat")  # topic model
-#         self.g = g
-#         self.g2 = g2
-#         self.g3 = g3
-        
-#     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
-#     # @pytest.mark.skipif(not deps.cudf, reason="requires cudf")
-#     def test_get_col_matrix(self):
-#         # cudf = deps.cudf
-#         # no edges so this should be None
-#         assert self.g2.get_matrix(kind='edges') is None
-        
-#         # test target methods
-#         assert all(self.g2.get_matrix(target=True).columns == self.g2._node_target.columns)
-#         # assert self.g2.get_matrix('Anxiety', target=True).shape[0] == len(self.g2._node_target)
-#         # test str vs list 
-#         # assert (self.g2.get_matrix('Anxiety', target=True) == self.g2.get_matrix(['Anxiety'], target=True)).all().values[0]
-
-#         # assert list(self.g2.get_matrix(['Anxiety', 'education', 'computer'], target=True).columns) == ['label_Anxiety', 'label_education', 'label_computervision']
-    
-#         # test feature methods
-#         # ngrams
-#         assert (self.g2.get_matrix().columns == self.g2._node_features.columns).all()
-#         # assert list(self.g2.get_matrix('what').columns) == what, list(self.g2.get_matrix('what').columns)
-        
-#         # topic
-#         assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
 
 
 if __name__ == "__main__":
