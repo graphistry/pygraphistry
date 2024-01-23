@@ -1048,10 +1048,10 @@ def process_dirty_dataframes(
                 X_enc.columns = features_transformed
             X_enc.set_index(ndf.index)
             X_enc = X_enc.fillna(0.0)
-            unnamed_cols = [col for col in X_enc.columns if 'Unnamed: 0: ' in col]
-            if len(unnamed_cols) > 1:
-                X_enc['Unnamed: 0'] = X_enc[unnamed_cols].sum(axis=1)
-                X_enc = X_enc.drop(columns=unnamed_cols)
+            # unnamed_cols = [col for col in X_enc.columns if 'Unnamed: 0: ' in col]
+            # if len(unnamed_cols) > 1:
+            #     X_enc['Unnamed: 0'] = X_enc[unnamed_cols].sum(axis=1)
+            #     X_enc = X_enc.drop(columns=unnamed_cols)
 
     else:
         logger.info("-*-*- DataFrame is completely numeric")
@@ -1281,13 +1281,13 @@ def process_nodes_dataframes(
         data_encoder = Embedding(df)
         X_enc = data_encoder.fit_transform(n_dim=n_topics)
 
-    if not text_enc.empty and not X_enc.empty:
+    if not text_enc.empty and not X_enc.size != 0:
         logger.info("-" * 60)
         logger.info("<= Found both a textual embedding + dirty_cat =>")
         X_enc = pd.concat(
             [text_enc, X_enc], axis=1
         )  # np.c_[embeddings, X_enc.values]
-    elif not text_enc.empty and X_enc.empty:
+    elif not text_enc.empty and X_enc.size != 0:
         logger.info("-" * 60)
         logger.info("<= Found only textual embedding =>")
         X_enc = text_enc
