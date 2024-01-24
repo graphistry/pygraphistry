@@ -10,8 +10,9 @@ import logging
 import numpy as np
 import pandas as pd
 from graphistry import Plottable
-from graphistry.tests.test_feature_utils import (
 from graphistry.feature_utils import remove_internal_namespace_if_present, resolve_feature_engine
+
+from graphistry.tests.test_feature_utils import (
     ndf_reddit,
     text_cols_reddit,
     meta_cols_reddit,
