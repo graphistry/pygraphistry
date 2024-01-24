@@ -28,7 +28,7 @@ dev_extras = {
     'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs,
     'testai': [
       'numba>=0.57.1',  # https://github.com/numba/numba/issues/8615
-      'scikit-learn<=1.3.2'
+      'scikit-learn!=1.4.0,!=1.4.0rc1'
     ],
     'build': ['build']
 }
