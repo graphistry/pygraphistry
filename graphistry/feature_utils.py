@@ -158,12 +158,12 @@ def resolve_feature_engine(
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
     if feature_engine == "auto":
-        if deps.sentence_transformers:
-            return "torch"
-        if deps.dirty_cat and deps.scipy and deps.sklearn:
+        if deps.dirty_cat and deps.scipy and deps.sklearn and not deps.cu_cat:
             return "dirty_cat"
         if deps.cu_cat:
             return "cu_cat"
+        if deps.sentence_transformers:
+            return "torch"
         else:
             return "pandas"
 
@@ -1100,7 +1100,7 @@ def process_dirty_dataframes(
                 labels_transformed = label_encoder.get_feature_names_out()
             else:  # Similarity Encoding uses categories_
                 labels_transformed = label_encoder.categories_
-        if 'cudf' in str(getmodule(X_enc)) or feature_engine == CUDA_CAT:
+        if 'cudf' in str(getmodule(X_enc)) and feature_engine == CUDA_CAT:
             cudf = deps.cudf
             try:
                 y_enc = cudf.DataFrame(y_enc)
