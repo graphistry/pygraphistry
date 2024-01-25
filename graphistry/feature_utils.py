@@ -158,8 +158,8 @@ def resolve_feature_engine(
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
     if feature_engine == "auto":
-        # if deps.dirty_cat and deps.scipy and deps.sklearn and not deps.cu_cat:
-        #     return "dirty_cat"
+        if deps.dirty_cat and deps.scipy and deps.sklearn and not deps.cu_cat:
+            return "dirty_cat"
         if deps.cu_cat:
             return "cu_cat"
         if deps.sentence_transformers:
@@ -663,7 +663,7 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-    X, _ = make_safe_gpu_dataframes(X, None, engine=CUDA_CAT)
+    # X, _ = make_safe_gpu_dataframes(X, None, engine=resolve_feature_engine('auto'))
     X_type = str(getmodule(X))
     if 'cudf' not in X_type:
         X = transformer.fit_transform(X)
@@ -1100,7 +1100,7 @@ def process_dirty_dataframes(
                 labels_transformed = label_encoder.get_feature_names_out()
             else:  # Similarity Encoding uses categories_
                 labels_transformed = label_encoder.categories_
-        if 'cudf' in str(getmodule(X_enc)) or feature_engine == CUDA_CAT:
+        if 'cudf' in str(getmodule(X_enc)) or feature_engine == CUDA_CAT:  # since CC can be cpu this needs strict GPU/cudf check
             cudf = deps.cudf
             try:
                 y_enc = cudf.DataFrame(y_enc)
