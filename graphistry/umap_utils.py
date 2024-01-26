@@ -333,9 +333,9 @@ class UMAPMixin(MIXIN_BASE):
             columns = [config.X, config.Y] + [
                 f"umap_{k}" for k in range(2, emb.shape[1])
             ]
-            if 'cudf' not in str(getmodule(emb)):
+            if 'cudf' not in str(getmodule(emb)) and 'cupy' not in str(getmodule(emb)):
                 emb = pd.DataFrame(emb, columns=columns, index=index)
-            elif 'cudf' in str(getmodule(emb)):
+            else:  # 'cudf' in str(getmodule(emb)):
                 emb.columns = columns
         return emb
 
@@ -390,7 +390,12 @@ class UMAPMixin(MIXIN_BASE):
         X_ = X_.drop(columns=self.datetime_columns)
         
         emb = res._umap_fit_transform(X_, y_, verbose=verbose)
-        res._xy = emb.join(self.R_)
+        if 'DataFrame' not in str(getmodule(emb)):
+            if resolve_feature_engine('auto') == 'cu_cat':
+                cudf = deps.cudf
+                emb = cudf.DataFrame(emb)
+            else:
+                emb = pd.DataFrame(emb)
         return res
 
     def _set_features(  # noqa: E303

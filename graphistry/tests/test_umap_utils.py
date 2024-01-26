@@ -67,23 +67,26 @@ node_numeric = node_ints + node_floats
 node_target = triangleNodes[["y"]]
 
 def _eq(df1, df2):
-    try:
-        df1 = df1.values.get()  # can by cupy
-    except:
-        df1 = df1.to_numpy() # or cudf
-    try:
-        df1 = np.sort(df1).to_pandas()
-    except:
-        pass
-    try:
-        df2 = df2.values.get()  # can by cupy
-    except:
-        df2 = df2.to_numpy() # or cudf
-    try:
-        df2 = np.sort(df2).to_pandas()
-    except:
-        pass
-    return df1 == df2
+    def tr(df):
+        try:
+            df = (df.values.get())  # from cupy
+        except:
+            pass
+        try:
+            df = (df.to_numpy())  # from cudf to np
+        except:
+            pass
+        try:
+            df = (df).to_pandas()  # from cudf to pd
+        except:
+            pass
+        try:
+            df = np.sort(df)  # sort
+        except:
+            pass
+        return df
+        
+    return tr(df1) == tr(df2)
 
 
 class TestUMAPFitTransform(unittest.TestCase):
