@@ -832,7 +832,7 @@ def smart_scaler(
         logger.info(f"-Target scaling using {use_scaler_target}")
         y_enc, pipeline_target = encoder(y_enc, use_scaler_target)  # noqa
     
-    if 'dataframe' not in str(getmodule(X_enc)):
+    if 'DataFrame' not in str(getmodule(X_enc)):
         try:
             X_enc = pd.DataFrame(X_enc)
             y_enc = pd.DataFrame(y_enc)
