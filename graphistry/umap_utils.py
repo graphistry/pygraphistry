@@ -93,11 +93,10 @@ def make_safe_gpu_dataframes(X, y, engine, has_cudf):
         for key, value in kwargs.items():
             if isinstance(value, cudf.DataFrame) and engine in ["pandas", "umap_learn", "dirty_cat"]:
                 new_kwargs[key] = value.to_pandas()
+            elif 'cupy' in str(getmodule(value)) and engine in ["pandas", "umap_learn", "dirty_cat"]:
+                new_kwargs[key] = pd.DataFrame(value.get())
             elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat", "cuda"]:
-                try:
-                    new_kwargs[key] = cudf.from_pandas(value)
-                except:
-                    new_kwargs[key] = value
+                new_kwargs[key] = cudf.from_pandas(value)
             else:
                 new_kwargs[key] = value
         return new_kwargs['X'], new_kwargs['y']
@@ -312,7 +311,10 @@ class UMAPMixin(MIXIN_BASE):
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
             emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas', self.has_cudf)  # for now so we don't have to touch infer_edges, force to pandas
-            # X, y_ = make_safe_gpu_dataframes(X, y_, 'pandas', self.has_cudf)
+            X, y_ = make_safe_gpu_dataframes(X, y_, 'pandas', self.has_cudf)
+            if not hasattr(emb, 'x'):
+                emb.x = X
+                emb.y = y_
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors,
@@ -396,6 +398,7 @@ class UMAPMixin(MIXIN_BASE):
                 emb = cudf.DataFrame(emb)
             else:
                 emb = pd.DataFrame(emb)
+        res._xy = emb.join(self.R_)
         return res
 
     def _set_features(  # noqa: E303
