@@ -258,10 +258,10 @@ class TestFastEncoder(unittest.TestCase):
 
         if resolve_feature_engine('auto') == 'cu_cat':
             self.xe, self.ye = fenc.fit_transform(src='src', dst='dst', feature_engine = resolve_feature_engine('auto'),
-                 use_ngrams=True, ngram_range=(1, 1),
-                 use_scaler=None,
-                 use_scaler_target=None,
-                 cardinality_threshold=2, n_topics=4)
+                use_ngrams=True, ngram_range=(1, 1),
+                use_scaler=None,
+                use_scaler_target=None,
+                cardinality_threshold=2, n_topics=4)
         else:
             self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
         

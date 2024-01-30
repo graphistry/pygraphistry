@@ -545,7 +545,7 @@ class Embedding:
             cudf = deps.cudf
             res = cudf.DataFrame(res)
             res.set_index(index,inplace=True)
-            res.columns=self.columns  # type: ignore
+            res.columns = self.columns  # type: ignore
         return res  # type: ignore
 
     def fit_transform(self, n_dim: int):
@@ -802,7 +802,7 @@ def encode_textual(
     except TypeError:
         cudf = deps.cudf
         res = cudf.DataFrame(embeddings)
-        res.columns=transformed_columns,
+        res.columns = transformed_columns,
         res.set_index(df.index,inplace=True)
 
     return res, text_cols, model
@@ -980,7 +980,7 @@ def process_dirty_dataframes(
                 pass
         return data
     
-    if deps.cuml and deps.cu_cat:# and feature_engine == CUDA_CAT:
+    if deps.cuml and deps.cu_cat:  # and feature_engine == CUDA_CAT:
         from cu_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
     else:
@@ -1674,7 +1674,7 @@ def transform_text(
         except TypeError:
             cudf = deps.cudf
             tX = cudf.DataFrame(tX)
-            tX.columns=list(text_model[0].get_feature_names()),
+            tX.columns = list(text_model[0].get_feature_names()),
             tX.set_index(df.index,inplace=True)
     elif isinstance(text_model, SentenceTransformer):
         logger.debug(f"--HuggingFace Transformer {text_model}")
@@ -1688,7 +1688,7 @@ def transform_text(
         except TypeError:
             cudf = deps.cudf
             tX = cudf.DataFrame(tX)
-            tX.columns=_get_sentence_transformer_headers(tX, text_cols),
+            tX.columns = _get_sentence_transformer_headers(tX, text_cols),
             tX.set_index(df.index,inplace=True)
     else:
         raise ValueError(
