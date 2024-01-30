@@ -395,9 +395,15 @@ class UMAPMixin(MIXIN_BASE):
         if 'DataFrame' not in str(getmodule(emb)):
             if resolve_feature_engine('auto') == 'cu_cat':
                 cudf = deps.cudf
-                emb = cudf.DataFrame(emb)
+                try:
+                    emb = cudf.DataFrame(emb)
+                    self.R_ = cudf.DataFrame(self.R_)
+                except TypeError:
+                    emb = cudf.DataFrame(emb.blocks[0].values)
+                    self.R_ = cudf.DataFrame(self.R_.blocks[0].values)
             else:
                 emb = pd.DataFrame(emb)
+                self.R_ = PeriodDtype.DataFrame(self.R_)
         res._xy = emb.join(self.R_)
         return res
 

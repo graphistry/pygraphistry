@@ -543,7 +543,9 @@ class Embedding:
             res = pd.DataFrame(res, index=index, columns=self.columns)  # type: ignore
         except TypeError:
             cudf = deps.cudf
-            res = cudf.DataFrame(res, index=index, columns=self.columns)  # type: ignore
+            res = cudf.DataFrame(res)
+            res.set_index(index,inplace=True)
+            res.columns=self.columns  # type: ignore
         return res  # type: ignore
 
     def fit_transform(self, n_dim: int):
