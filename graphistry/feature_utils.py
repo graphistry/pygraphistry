@@ -116,7 +116,10 @@ def make_safe_gpu_dataframes(X, y, engine):
             if isinstance(value, cudf.DataFrame) and engine in ["pandas", "dirty_cat", "torch"]:
                 new_kwargs[key] = value.to_pandas()
             elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat", "cuda", "gpu"]:
-                new_kwargs[key] = cudf.from_pandas(value)
+                try:
+                    new_kwargs[key] = cudf.from_pandas(value)
+                except:
+                    new_kwargs[key] = cudf.from_pandas(value.astype(np.float64))
             else:
                 new_kwargs[key] = value
         return new_kwargs['X'], new_kwargs['y']
