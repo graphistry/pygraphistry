@@ -536,7 +536,11 @@ class Embedding:
         mask = self.index.isin(ids)
         index = self.index[mask]  # type: ignore
         res = self.vectors[mask]
-        res = pd.DataFrame(res, index=index, columns=self.columns)  # type: ignore
+        try:
+            res = pd.DataFrame(res, index=index, columns=self.columns)  # type: ignore
+        except TypeError:
+            cudf = deps.cudf
+            res = cudf.DataFrame(res, index=index, columns=self.columns)  # type: ignore
         return res  # type: ignore
 
     def fit_transform(self, n_dim: int):
@@ -786,9 +790,15 @@ def encode_textual(
             f"Encoded Textual Data using {model} at "
             f"{len(df) / ((time() - t) / 60):.2f} rows per minute"
         )
-    res = pd.DataFrame(embeddings,
+    try:
+        res = pd.DataFrame(embeddings,
                        columns=transformed_columns,
                        index=df.index)
+    except TypeError:
+        cudf = deps.cudf
+        res = cudf.DataFrame(embeddings)
+        res.columns=transformed_columns,
+        res.set_index(df.index,inplace=True)
 
     return res, text_cols, model
 
@@ -824,14 +834,14 @@ def smart_scaler(
             keep_n_decimals=keep_n_decimals,
         )  # noqa
     
-    if use_scaler and not X_enc.size != 0:
+    if use_scaler and X_enc.size != 0:
         logger.info(f"-Feature scaling using {use_scaler}")
         X_enc, pipeline = encoder(X_enc, use_scaler)  # noqa
 
-    if use_scaler_target and not y_enc.size != 0:
+    if use_scaler_target and y_enc.size != 0:
         logger.info(f"-Target scaling using {use_scaler_target}")
         y_enc, pipeline_target = encoder(y_enc, use_scaler_target)  # noqa
-    
+
     if 'DataFrame' not in str(getmodule(X_enc)):
         try:
             X_enc = pd.DataFrame(X_enc)
@@ -1282,7 +1292,7 @@ def process_nodes_dataframes(
         data_encoder = Embedding(df)
         X_enc = data_encoder.fit_transform(n_dim=n_topics)
 
-    if not text_enc.empty and not X_enc.size != 0:
+    if not text_enc.empty and X_enc.size != 0:
         logger.info("-" * 60)
         logger.info("<= Found both a textual embedding + dirty_cat =>")
         X_enc = pd.concat(
@@ -1381,7 +1391,7 @@ def encode_multi_target(ydf, mlb = None):
     columns = [
         str(k) for k in mlb.classes_
     ]
-    T = pd.DataFrame(T, columns=columns, index=ydf.index)
+    T = pd.DataFrame(T, columns=columns, index=ydf.index)  # pandas here since no mlb in cuml
     logger.info(f"Shape of Target Encoding: {T.shape}")
         
     label_encoder = FastMLB(mlb=mlb, in_column=[column_name], out_columns=columns)  # memorizes which cols to use.
@@ -1582,7 +1592,7 @@ def process_edge_dataframes(
         feature_engine=feature_engine,
     )
 
-    if not X_enc.size != 0 and not T.empty:
+    if X_enc.size != 0 and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
         T_type = str(getmodule(T))
@@ -1650,19 +1660,29 @@ def transform_text(
         logger.debug(f"--Ngram tfidf {text_model}")
         tX = text_model.transform(df)
         tX = make_array(tX)
-        tX = pd.DataFrame(
-            tX,
-            columns=list(text_model[0].vocabulary_.keys()),
-            index=df.index
-            )
+        try:
+            tX = pd.DataFrame(  # how abot cudf here?
+                tX,
+                columns=list(text_model[0].vocabulary_.keys()),
+                index=df.index
+                )
+        except TypeError:
+            tX = cudf.DataFrame(tX)
+            tX.columns=list(text_model[0].get_feature_names()),
+            tX.set_index(df.index,inplace=True)
     elif isinstance(text_model, SentenceTransformer):
         logger.debug(f"--HuggingFace Transformer {text_model}")
         tX = text_model.encode(df.values)
-        tX = pd.DataFrame(
-            tX,
-            columns=_get_sentence_transformer_headers(tX, text_cols),
-            index=df.index,
-        )
+        try:
+            tX = pd.DataFrame(  # and here?
+                tX,
+                columns=_get_sentence_transformer_headers(tX, text_cols),
+                index=df.index,
+            )
+        except TypeError:
+            tX = cudf.DataFrame(tX)
+            tX.columns=_get_sentence_transformer_headers(tX, text_cols),
+            tX.set_index(df.index,inplace=True)
     else:
         raise ValueError(
             "`text_model` should be instance of"
@@ -1904,10 +1924,18 @@ class FastEncoder:
     def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target):
         """Transform with scaling fit durning fit."""
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
-        if scaling_pipeline is not None and not X.empty:
-            X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
-        if scaling_pipeline_target is not None and y is not None and not y.empty:
-            y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns, index=y.index)
+        X, y = make_safe_gpu_dataframes(X, y, engine=resolve_feature_engine('auto'))
+        if 'cudf' in str(getmodule(X)):
+            cudf = deps.cudf
+            if scaling_pipeline is not None and not X.empty:
+                X = cudf.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
+            if scaling_pipeline_target is not None and y is not None and not y.empty:
+                y = cudf.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns, index=y.index)
+        else:
+            if scaling_pipeline is not None and not X.empty:
+                X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
+            if scaling_pipeline_target is not None and y is not None and not y.empty:
+                y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns, index=y.index)
         return X, y
     
     def transform_scaled(self, df, ydf=None, scaling_pipeline=None, scaling_pipeline_target=None):
