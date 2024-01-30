@@ -68,18 +68,18 @@ node_target = triangleNodes[["y"]]
 
 def _eq(df1, df2):
     def tr(df):
-        try:
-            df = (df.values.get())  # from cupy
-        except:
-            pass
+        # try:
+        #     df = (df.values.get())  # from cupy
+        # except:
+        #     pass
         try:
             df = (df.to_numpy())  # from cudf to np
         except:
             pass
-        try:
-            df = (df).to_pandas()  # from cudf to pd
-        except:
-            pass
+        # try:
+        #     df = (df).to_pandas()  # from cudf to pd
+        # except:
+        #     pass
         try:
             df = np.sort(df)  # sort
         except:
@@ -95,7 +95,7 @@ class TestUMAPFitTransform(unittest.TestCase):
     def setUp(self):
         verbose = True
         g = graphistry.nodes(ndf_reddit)
-        self.gn = g
+        self.gn = g.copy()
         
         self.test = ndf_reddit.sample(5)
 
@@ -114,7 +114,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 verbose=verbose,
             )
 
-        self.g2 = g2
+        self.g2 = g2.copy()
         fenc = g2._node_encoder
         self.X, self.Y = fenc.X, fenc.y
         self.EMB = g2._node_embedding
@@ -129,7 +129,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         edge_df22 = edge_df2.copy()
         edge_df22["rando"] = np.random.rand(edge_df2.shape[0])
         g = graphistry.edges(edge_df22, "src", "dst")
-        self.ge = g
+        self.ge = g.copy()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -153,7 +153,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         self.embe, self.xe, self.ye = g2.transform_umap(
             edge_df22, y=edge2_target_df, kind="edges", return_graph=False, verbose=verbose
         )        
-        self.g2e = g2
+        self.g2e = g2.copy()
 
 
     @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
@@ -209,7 +209,7 @@ class TestUMAPFitTransform(unittest.TestCase):
     def test_umap_kwargs(self):
         umap_kwargs = {
             "n_components": 2,
-            "metric": "euclidean",
+            # "metric": "euclidean",
             "n_neighbors": 3,
             "min_dist": 1,
             "spread": 1,

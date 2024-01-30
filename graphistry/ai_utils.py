@@ -447,6 +447,10 @@ def infer_self_graph(res,
 
     for i in range(X_new.shape[0]):
         diff = X_previously_fit - X_new.iloc[i, :]
+        try:
+            diff = np.array(diff, dtype = 'float')
+        except TypeError:
+            pass
         dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
         mdists.append(dist)
 

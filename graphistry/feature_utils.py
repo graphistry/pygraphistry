@@ -1046,7 +1046,7 @@ def process_dirty_dataframes(
                 X_enc.columns = new_list
             else:
                 X_enc.columns = features_transformed
-            X_enc.set_index(ndf.index)
+            X_enc.set_index(ndf.index, inplace=True)
             X_enc = X_enc.fillna(0.0)
             # unnamed_cols = [col for col in X_enc.columns if 'Unnamed: 0: ' in col]
             # if len(unnamed_cols) > 1:
@@ -1111,7 +1111,7 @@ def process_dirty_dataframes(
                 y_enc.columns = labels_transformed
             except ValueError:
                 y_enc.columns = np.arange((y_enc.shape[1]))
-            y_enc.set_index(y.index)
+            y_enc.set_index(y.index, inplace=True)
             y_enc = y_enc.fillna(0.0)
 
         else:
