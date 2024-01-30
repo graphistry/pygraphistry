@@ -1672,6 +1672,7 @@ def transform_text(
                 index=df.index
                 )
         except TypeError:
+            cudf = deps.cudf
             tX = cudf.DataFrame(tX)
             tX.columns=list(text_model[0].get_feature_names()),
             tX.set_index(df.index,inplace=True)
@@ -1685,6 +1686,7 @@ def transform_text(
                 index=df.index,
             )
         except TypeError:
+            cudf = deps.cudf
             tX = cudf.DataFrame(tX)
             tX.columns=_get_sentence_transformer_headers(tX, text_cols),
             tX.set_index(df.index,inplace=True)

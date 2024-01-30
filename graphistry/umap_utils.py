@@ -403,7 +403,7 @@ class UMAPMixin(MIXIN_BASE):
                     self.R_ = cudf.DataFrame(self.R_.blocks[0].values)
             else:
                 emb = pd.DataFrame(emb)
-                self.R_ = PeriodDtype.DataFrame(self.R_)
+                self.R_ = pd.DataFrame(self.R_)
         res._xy = emb.join(self.R_)
         return res
 
