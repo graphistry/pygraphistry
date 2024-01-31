@@ -380,7 +380,17 @@ class ArrowUploader:
             json={'token': token})
         return out.status_code == requests.codes.ok
 
-    def create_dataset(self, json):  # noqa: F811
+    def validate_encoding(self, json):
+        edge_attribute = json['edge_encodings']['complex']['default']['edgeColorEncoding']['attribute']
+        edge_attributes = self.edges.column_names
+        if not edge_attribute in edge_attributes:
+            err = f'Invalid edge encoding: attribute {edge_attribute} does not exists in {str(edge_attributes)}'
+            logger.error(err)
+            raise Exception(err)
+
+    def create_dataset(self, json, validate: bool = True):  # noqa: F811
+        if validate:
+            self.validate_encoding(json)
         tok = self.token
         if self.org_name: 
             json['org_name'] = self.org_name
@@ -488,7 +498,7 @@ class ArrowUploader:
         return encodings
 
 
-    def post(self, as_files: bool = True, memoize: bool = True):
+    def post(self, as_files: bool = True, memoize: bool = True, validate: bool = True):
         """
         Note: likely want to pair with self.maybe_post_share_link(g)
         """
@@ -513,7 +523,7 @@ class ArrowUploader:
                 "description": self.description,
                 "edge_files": [ e_file_id ],
                 **({"node_files": [ n_file_id ] if not (self.nodes is None) else []})
-            })
+            }, validate)
 
         else:
 
@@ -523,7 +533,7 @@ class ArrowUploader:
                 "metadata": self.metadata,
                 "name": self.name,
                 "description": self.description
-            })
+            }, validate)
             
             self.post_edges_arrow()
             
