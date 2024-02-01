@@ -309,7 +309,7 @@ def validate_complex_encoding_badge(kind, mode, name, badge):
 # { 
 # }
 # NOTE: auto-adds graphType, encodingType based on name
-def validate_complex_encoding(kind, mode, name, enc, attributes: list):
+def validate_complex_encoding(kind, mode, name, enc, attributes: list = []):
 
 
     name_match = re.match(r'^(point|edge)(Legend(Type|Pivot))?(Axis|Badge|Color|Icon|Opacity|Size|Weight)(Top|TopLeft|Left|BottomLeft|Bottom|BottomRight|Right|TopRight|Cover)?Encoding$', name)
@@ -412,7 +412,7 @@ def validate_complex_encoding(kind, mode, name, enc, attributes: list):
         
         out['mapping'] = validate_mapping(enc['mapping'], f'{kind}_encodings.complex.{mode}.{name}')
 
-    if name != 'pointAxisEncoding': # 'degree' won't be part of the node attributes
+    if attributes and name != 'pointAxisEncoding': # 'degree' won't be part of the node attributes
         attr = out['attribute']
         if not attr in attributes:
             raise Exception(f'Invalid {kind} encoding: attribute \'{attr}\' does not exists in {str(attributes)}')
@@ -467,7 +467,7 @@ def validate_mapping(mapping, base_path):
     return out
 
 #{?'complex': {?'current', ?'default}} => ?{?'current', ?'default'}
-def validate_complex(encodings, kind, attributes: list):
+def validate_complex(encodings, kind, attributes: list = []):
     if not ('complex' in encodings):
         return None
 
@@ -492,19 +492,19 @@ def validate_complex(encodings, kind, attributes: list):
     return out
 
 
-def validate_node_encodings(encodings, node_attributes: list):
+def validate_node_encodings(encodings, node_attributes: list = []):
     validate_encodings_generic(encodings, 'node', required_bindings=[])
     complex_encodings = validate_complex(encodings, 'node', node_attributes)
     return encodings if complex_encodings is None else {**encodings, 'complex': complex_encodings}
 
-def validate_edge_encodings(encodings, edge_attributes: list):
+def validate_edge_encodings(encodings, edge_attributes: list = []):
     validate_encodings_generic(encodings, 'edge', required_bindings=['source', 'destination'])
     complex_encodings = validate_complex(encodings, 'edge', edge_attributes)
     return encodings if complex_encodings is None else {**encodings, 'complex': complex_encodings}
 
 
 #json * json * -> {'node_encodings': json, 'edge_encodings': dict} raises ValueError({'message': str, ?'data': json})
-def validate_encodings(node_encodings: dict, edge_encodings: dict, node_attributes: list, edge_attributes: list) -> dict:
+def validate_encodings(node_encodings: dict, edge_encodings: dict, node_attributes: list = [], edge_attributes: list = []) -> dict:
     node_encodings2 = validate_node_encodings(node_encodings, node_attributes)
     edge_encodings2 = validate_edge_encodings(edge_encodings, edge_attributes)
     return {'node_encodings': node_encodings2, 'edge_encodings': edge_encodings2}
