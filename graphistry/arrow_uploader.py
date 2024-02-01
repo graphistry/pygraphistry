@@ -5,6 +5,7 @@ import io, pyarrow as pa, requests, sys
 from graphistry.privacy import Mode, Privacy
 
 from .ArrowFileUploader import ArrowFileUploader
+from .validate_encodings import validate_encodings
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -380,17 +381,13 @@ class ArrowUploader:
             json={'token': token})
         return out.status_code == requests.codes.ok
 
-    def validate_encoding(self, json):
-        edge_attribute = json['edge_encodings']['complex']['default']['edgeColorEncoding']['attribute']
-        edge_attributes = self.edges.column_names
-        if not edge_attribute in edge_attributes:
-            err = f'Invalid edge encoding: attribute {edge_attribute} does not exists in {str(edge_attributes)}'
-            logger.error(err)
-            raise Exception(err)
-
     def create_dataset(self, json, validate: bool = True):  # noqa: F811
         if validate:
-            self.validate_encoding(json)
+            validate_encodings(
+                json.get('node_encodings', {}),
+                json.get('edge_encodings', {}),
+                self.nodes.column_names,
+                self.edges.column_names)
         tok = self.token
         if self.org_name: 
             json['org_name'] = self.org_name
