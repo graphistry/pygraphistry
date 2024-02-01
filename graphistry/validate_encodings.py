@@ -27,7 +27,7 @@ def validate_encodings_generic(encodings, kind, required_bindings):
         raise ValueError({'message': f'Field {kind}_encodings cannot be empty'})
 
     if not ('bindings' in encodings) or (encodings['bindings'] is None):
-            raise ValueError({'message': f'Field {kind}_encodings.bindings cannot be empty'})
+        raise ValueError({'message': f'Field {kind}_encodings.bindings cannot be empty'})
 
     if not isinstance(encodings['bindings'], dict):
         raise ValueError({
@@ -48,7 +48,7 @@ def validate_style(base_path, enc):
     if not isinstance(enc, dict):
         raise ValueError({
             'message': f'Field {base_path} should be an object',
-            'data':  {'style': enc, 'type': str(type(enc))}})
+            'data': {'style': enc, 'type': str(type(enc))}})
     styles = ['opacity', 'grayscale', 'brightness', 'contrast', 'hueRotate', 'saturate']
     safelist = styles
     unsafe = [ k for k in enc.keys() if not (k in safelist) ]
@@ -202,7 +202,7 @@ def validate_complex_encoding_badge(kind, mode, name, badge):
                 'message': f'Field {kind}_encodings.complex.{mode}.{name}.bg. must be a dictionary',
                 'data': { 'bg': badge['bg'], 'type': str(type(badge['bg'])) } })
         safelist = ['color', 'image', 'style']
-        unsafe = [ k for k in badge['bg'].keys() if not k in safelist ]
+        unsafe = [ k for k in badge['bg'].keys() if k not in safelist ]
         if len(unsafe) > 0:
             raise ValueError({
                 'message': f'Unexpected keys in field {kind}_encodings.complex.{mode}.{name}.bg', 
@@ -257,7 +257,7 @@ def validate_complex_encoding_badge(kind, mode, name, badge):
                 'message': f'Field {kind}_encodings.complex.{mode}.{name}.border must be a dictionary',
                 'data': { 'border': badge['border'], 'type': str(type(badge['border'])) } })
         safelist = ['color', 'stroke', 'width']
-        unsafe = [ k for k in badge['border'].keys() if not k in safelist ]
+        unsafe = [ k for k in badge['border'].keys() if k not in safelist ]
         if len(unsafe) > 0:
             raise ValueError({
                 'message': f'Unexpected keys in field {kind}_encodings.complex.{mode}.{name}.border', 
@@ -371,7 +371,7 @@ def validate_complex_encoding(kind, mode, name, enc, attributes: list = []):
     
 
     should_validate_mapping = False
-    #### Type-directed checks
+    # Type-directed checks
     if n_enc == 'Color':
         out['name'] = enc['name'] if 'name' in enc else 'custom'
         if 'colors' in enc:
@@ -412,9 +412,9 @@ def validate_complex_encoding(kind, mode, name, enc, attributes: list = []):
         
         out['mapping'] = validate_mapping(enc['mapping'], f'{kind}_encodings.complex.{mode}.{name}')
 
-    if attributes and name != 'pointAxisEncoding': # 'degree' won't be part of the node attributes
+    if attributes and name != 'pointAxisEncoding':  # 'degree' won't be part of the node attributes
         attr = out['attribute']
-        if not attr in attributes:
+        if attr not in attributes:
             raise Exception(f'Invalid {kind} encoding: attribute \'{attr}\' does not exists in {str(attributes)}')
 
     return out
@@ -428,7 +428,7 @@ def validate_mapping(mapping, base_path):
             'data': {'mapping': mapping, 'type': 'None' if mapping is None else str(type(mapping))}})
 
     if 'categorical' in mapping:
-        if  not isinstance(mapping['categorical'], dict):
+        if not isinstance(mapping['categorical'], dict):
             raise ValueError({
                 'message': f'Field {base_path}.mapping.categorical must be a dictionary',
                 'data': {'mapping': mapping, 'type:mapping.categorical': str(type(mapping['categorical'] if 'categorical' in mapping else None)) }})
@@ -441,7 +441,7 @@ def validate_mapping(mapping, base_path):
         if 'other' in cat:
             out['categorical']['other'] = cat['other']
     elif 'continuous' in mapping:
-        if  not isinstance(mapping['continuous'], dict):
+        if not isinstance(mapping['continuous'], dict):
             raise ValueError({
                 'message': f'Field {base_path}.mapping.continuous must be a',
                 'data': {'mapping': mapping, 'type:mapping.continuous': str(type(mapping['continuous'] if 'continuous' in mapping else None)) }})
@@ -479,7 +479,7 @@ def validate_complex(encodings, kind, attributes: list = []):
             'data': {'bindings': encodings['bindings'], 'type': str(type(encodings['bindings']))}})
 
     safelist = ['default', 'current']
-    unsafe = [ k for k in c.keys() if not k in safelist ]
+    unsafe = [ k for k in c.keys() if k not in safelist ]
     if len(unsafe) > 0:
         raise ValueError({'message': f'Unexpected keys in field {kind}_encodings.complex', 'data': { 'unsafe': unsafe } })
 
