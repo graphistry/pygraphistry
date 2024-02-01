@@ -415,7 +415,9 @@ def validate_complex_encoding(kind, mode, name, enc, attributes: list = []):
     if attributes and name != 'pointAxisEncoding':  # 'degree' won't be part of the node attributes
         attr = out['attribute']
         if attr not in attributes:
-            raise Exception(f'Invalid {kind} encoding: attribute \'{attr}\' does not exists in {str(attributes)}')
+            raise ValueError({
+                'message': f'Field {kind}_encodings.complex.{mode}.{name}.attribute does not exist in {kind}.attributes',
+                'data': {'attribute': attr, f'{kind}.attributes': str(attributes)}})
 
     return out
 
