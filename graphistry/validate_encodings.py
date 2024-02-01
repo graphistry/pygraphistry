@@ -485,7 +485,7 @@ def validate_complex(encodings, kind, attributes: list = []):
     if len(unsafe) > 0:
         raise ValueError({'message': f'Unexpected keys in field {kind}_encodings.complex', 'data': { 'unsafe': unsafe } })
 
-    out = {}
+    out = {}  # type: ignore
     for c_type in safelist:
         if c_type in c:
             out[c_type] = {}
