@@ -423,6 +423,7 @@ def test_validate_encodings_with_attributes_good():
                         "encodingType": "color",
                         "attribute": "attribute_2",
                         "variation": "categorical",
+                        "name": "name1",
                         "mapping": {
                             "categorical": {
                                 "fixed": {
@@ -456,4 +457,16 @@ def test_validate_encodings_with_attributes_good():
     # notice we have 'attribute_2' (for 'pointColorEncoding') and 'attribute_4' (for 'edgeColorEncoding')
     attributes = ["attribute_1", "attribute_2", "attribute_3", "attribute_4"]
 
-    validate_encodings(orig['node_encodings'], orig['edge_encodings'], node_attributes = attributes, edge_attributes = attributes)
+    assert validate_encodings(orig['node_encodings'], orig['edge_encodings'], node_attributes = attributes) == orig
+    assert validate_encodings(orig['node_encodings'], orig['edge_encodings'], edge_attributes = attributes) == orig
+    assert validate_encodings(orig['node_encodings'], orig['edge_encodings'], node_attributes = attributes, edge_attributes = attributes) == orig
+
+
+def test_validate_encodings_with_empty_attributes_good():
+
+    orig = {
+        "node_encodings": { "bindings": {"node": "n" } },
+        "edge_encodings": { "bindings": {"source": "s", "destination": "d"} }
+    }
+
+    assert validate_encodings(orig['node_encodings'], orig['edge_encodings']) == orig
