@@ -1,6 +1,6 @@
 import copy, os, pandas as pd, pytest
 
-from graphistry.validate_encodings import validate_encodings
+from graphistry.validate.validate_encodings import validate_encodings
 
 def test_validate_encodings_big_good():
 

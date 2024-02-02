@@ -5,7 +5,7 @@ import io, pyarrow as pa, requests, sys
 from graphistry.privacy import Mode, Privacy
 
 from .ArrowFileUploader import ArrowFileUploader
-from .validate_encodings import validate_encodings
+from .validate.validate_encodings import validate_encodings
 from .util import setup_logger
 logger = setup_logger(__name__)
 
