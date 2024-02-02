@@ -161,7 +161,7 @@ def resolve_feature_engine(
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
     if feature_engine == "auto":
-        if deps.dirty_cat and deps.scipy and deps.sklearn:  # and not deps.cu_cat:
+        if deps.dirty_cat and deps.scipy and deps.sklearn and not deps.cu_cat:
             return "dirty_cat"
         if deps.cu_cat:
             return "cu_cat"
@@ -672,7 +672,7 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-    # X, _ = make_safe_gpu_dataframes(X, None, engine=resolve_feature_engine('auto'))
+    X, _ = make_safe_gpu_dataframes(X, None, engine=resolve_feature_engine('auto'))
     X_type = str(getmodule(X))
     if 'cudf' not in X_type:
         X = transformer.fit_transform(X)
@@ -839,15 +839,15 @@ def smart_scaler(
             keep_n_decimals=keep_n_decimals,
         )  # noqa
     
-    if use_scaler and X_enc.size != 0:
+    if use_scaler and not X_enc.size != 0:
         logger.info(f"-Feature scaling using {use_scaler}")
         X_enc, pipeline = encoder(X_enc, use_scaler)  # noqa
 
-    if use_scaler_target and y_enc.size != 0:
+    if use_scaler_target and not y_enc.size != 0:
         logger.info(f"-Target scaling using {use_scaler_target}")
         y_enc, pipeline_target = encoder(y_enc, use_scaler_target)  # noqa
-
-    if 'DataFrame' not in str(getmodule(X_enc)):
+    
+    if 'dataframe' not in str(getmodule(X_enc)):
         try:
             X_enc = pd.DataFrame(X_enc)
             y_enc = pd.DataFrame(y_enc)
@@ -1115,8 +1115,7 @@ def process_dirty_dataframes(
                 labels_transformed = label_encoder.get_feature_names_out()
             else:  # Similarity Encoding uses categories_
                 labels_transformed = label_encoder.categories_
-        # if 'cudf' in str(getmodule(X_enc)) or 
-        if feature_engine == CUDA_CAT:  # since CC can be cpu this needs strict GPU/cudf check
+        if 'cudf' in str(getmodule(X_enc)) or feature_engine == CUDA_CAT:  # since CC can be cpu this needs strict GPU/cudf check
             cudf = deps.cudf
             try:
                 y_enc = cudf.DataFrame(y_enc)
@@ -1297,7 +1296,7 @@ def process_nodes_dataframes(
         data_encoder = Embedding(df)
         X_enc = data_encoder.fit_transform(n_dim=n_topics)
 
-    if not text_enc.empty and X_enc.size != 0:
+    if not text_enc.empty and not X_enc.size != 0:
         logger.info("-" * 60)
         logger.info("<= Found both a textual embedding + dirty_cat =>")
         X_enc = pd.concat(
@@ -1597,9 +1596,10 @@ def process_edge_dataframes(
         feature_engine=feature_engine,
     )
 
-    if X_enc.size != 0 and not T.empty:
+    if not X_enc.size != 0 and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
+        T,X_enc = make_safe_gpu_dataframes(T, X_enc,engine=resolve_feature_engine('auto'))
         T_type = str(getmodule(T))
         if 'cudf' in T_type:
             X_enc = cudf.concat([T, X_enc], axis=1)

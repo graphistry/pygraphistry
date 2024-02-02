@@ -95,6 +95,8 @@ def make_safe_gpu_dataframes(X, y, engine, has_cudf):
                 new_kwargs[key] = value.to_pandas()
             elif 'cupy' in str(getmodule(value)) and engine in ["pandas", "umap_learn", "dirty_cat"]:
                 new_kwargs[key] = pd.DataFrame(value.get())
+            elif 'cupy' in str(getmodule(value)) and engine in ["cuml", "cu_cat", "cuda"]:
+                new_kwargs[key] = cudf.DataFrame(value)
             elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat", "cuda"]:
                 new_kwargs[key] = cudf.from_pandas(value)
             else:
