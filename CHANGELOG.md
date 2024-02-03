@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+
+* Validations for dataset encodings.
+
 ## [0.33.0 - 2023-12-26]
 
 ### Added
