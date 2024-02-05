@@ -117,9 +117,9 @@ def make_safe_gpu_dataframes(X, y, engine):
                 new_kwargs[key] = value.to_pandas()
             elif isinstance(value, pd.DataFrame) and engine in ["cuml", "cu_cat", "cuda", "gpu"]:
                 try:
-                    new_kwargs[key] = cudf.from_pandas(value)
-                except:
                     new_kwargs[key] = cudf.from_pandas(value.astype(np.float64))
+                except:
+                    new_kwargs[key] = cudf.from_pandas(value)
             else:
                 new_kwargs[key] = value
         return new_kwargs['X'], new_kwargs['y']
@@ -672,14 +672,14 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-    X, _ = make_safe_gpu_dataframes(X, None, engine=resolve_feature_engine('auto'))
+    # X, _ = make_safe_gpu_dataframes(X, None, engine=resolve_feature_engine('auto'))
     X_type = str(getmodule(X))
     if 'cudf' not in X_type:
         X = transformer.fit_transform(X)
         if keep_n_decimals:
             X = np.round(X, decimals=keep_n_decimals)  #  type: ignore  # noqa
         X = pd.DataFrame(X, columns=columns, index=index)
-    else:
+    elif 'cudf' in X_type:
         try:
             X = transformer.fit_transform(X)
         except TypeError:
@@ -1050,10 +1050,10 @@ def process_dirty_dataframes(
             if len(dt_count) > 0:
                 dt_new = ['datetime_' + str(n) for n in range(len(dt_count))]
                 features_transformed.extend(dt_new)
-            if deps.cu_cat and feature_engine == CUDA_CAT:
-                features_transformed = deps.cu_cat.deduplicate(features_transformed)  # speficially for ndf_reddit test case 'Unnamed: 0', as below, but more general here
-            elif deps.dirty_cat:
-                features_transformed = deps.dirty_cat.deduplicate(features_transformed)
+            # if deps.cu_cat and feature_engine == CUDA_CAT:
+            #     features_transformed = deps.cu_cat.deduplicate(features_transformed)  # speficially for ndf_reddit test case 'Unnamed: 0', as below, but more general here
+            # elif deps.dirty_cat:
+            #     features_transformed = deps.dirty_cat.deduplicate(features_transformed)
             duplicates = list(set([x for x in features_transformed if features_transformed.count(x) > 1]))
             if len(duplicates) > 0:
                 counts = {}  # type: ignore
@@ -1067,10 +1067,6 @@ def process_dirty_dataframes(
             X_enc.set_index(ndf.index, inplace=True)
             X_enc = X_enc.fillna(0.0)
 
-            unnamed_cols = [col for col in X_enc.columns if 'Unnamed: 0: ' in col]
-            if len(unnamed_cols) > 1:
-                X_enc['Unnamed: 0'] = X_enc[unnamed_cols].sum(axis=1)
-                X_enc = X_enc.drop(columns=unnamed_cols)
 
     else:
         logger.info("-*-*- DataFrame is completely numeric")

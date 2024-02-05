@@ -460,7 +460,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                                     y=target,
                                     model_name=model_avg_name,
                                     use_scaler=scaler,
-                                    use_scaler_target=scaler,
+                                    # use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
                                     engine="umap_learn",
                                     feature_engine = resolve_feature_engine('auto'),

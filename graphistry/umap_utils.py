@@ -312,8 +312,8 @@ class UMAPMixin(MIXIN_BASE):
             emb = self._umap.transform(X)  # type: ignore
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
-            emb, _ = make_safe_gpu_dataframes(emb, None, resolve_feature_engine('auto'), self.has_cudf)  # for now so we don't have to touch infer_edges, force to pandas
-            X, y_ = make_safe_gpu_dataframes(X, y_, resolve_feature_engine('auto'), self.has_cudf)
+            emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas', self.has_cudf)  # for now so we don't have to touch infer_edges, force to pandas
+            X, y_ = make_safe_gpu_dataframes(X, y_, 'pandas', self.has_cudf)
             # if not hasattr(emb, 'x'):
             #     emb.x = X
             #     emb.y = y_
