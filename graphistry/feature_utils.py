@@ -543,8 +543,8 @@ class Embedding:
             res = pd.DataFrame(res, index=index, columns=self.columns)  # type: ignore
         except TypeError:
             cudf = deps.cudf
-            res = cudf.DataFrame(res)
-            res.set_index(index,inplace=True)
+            res = cudf.DataFrame(res)  # type: ignore
+            res.set_index(index,inplace=True)  # type: ignore
             res.columns = self.columns  # type: ignore
         return res  # type: ignore
 
