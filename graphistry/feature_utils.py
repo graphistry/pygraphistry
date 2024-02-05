@@ -1938,7 +1938,7 @@ class FastEncoder:
         _X, _y = make_safe_gpu_dataframes(_X, _y, engine=resolve_feature_engine('auto'))
         if 'cudf' in str(getmodule(_X)):
             cudf = deps.cudf
-            if scaling_pipeline is not None and not X.empty:
+            if scaling_pipeline is not None and not_X.empty:
                 X = cudf.DataFrame(scaling_pipeline.transform(_X))
                 X.columns = _X.columns
                 X.set_index(_X.index,inplace=True)
