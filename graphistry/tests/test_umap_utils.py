@@ -95,7 +95,7 @@ class TestUMAPFitTransform(unittest.TestCase):
     def setUp(self):
         verbose = True
         g = graphistry.nodes(ndf_reddit)
-        self.gn = g.copy()
+        self.gn = g
         
         self.test = ndf_reddit.sample(5)
 
@@ -114,7 +114,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 verbose=verbose,
             )
 
-        self.g2 = g2.copy()
+        self.g2 = g2
         fenc = g2._node_encoder
         self.X, self.Y = fenc.X, fenc.y
         self.EMB = g2._node_embedding
@@ -126,10 +126,10 @@ class TestUMAPFitTransform(unittest.TestCase):
         )
 
         # do the same for edges
-        edge_df22 = edge_df2.copy()
+        edge_df22 = edge_df2
         edge_df22["rando"] = np.random.rand(edge_df2.shape[0])
         g = graphistry.edges(edge_df22, "src", "dst")
-        self.ge = g.copy()
+        self.ge = g
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -153,7 +153,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         self.embe, self.xe, self.ye = g2.transform_umap(
             edge_df22, y=edge2_target_df, kind="edges", return_graph=False, verbose=verbose
         )        
-        self.g2e = g2.copy()
+        self.g2e = g2
 
 
     @pytest.mark.skipif(not umap, reason="requires umap feature dependencies")
