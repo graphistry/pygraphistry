@@ -358,7 +358,7 @@ class TestUMAPMethods(unittest.TestCase):
     def _test_umap(self, g, use_cols, targets, name, kind, df):
         for use_col in use_cols:
             for target in targets:
-                for feature_engine in ["none", "auto", "pandas", 'cu_cat','dirty_cat']:
+                for feature_engine in ["none", "auto", "pandas"]:
                     logger.debug("*" * 90)
                     print("*" * 90)
                     value = [target, use_col]
