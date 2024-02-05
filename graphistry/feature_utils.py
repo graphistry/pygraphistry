@@ -1939,14 +1939,16 @@ class FastEncoder:
         if 'cudf' in str(getmodule(X)):
             cudf = deps.cudf
             if scaling_pipeline is not None and not X.empty:
-                x_index = X.index; col = X.columns
+                x_index = X.index
+                x_col = X.columns
                 X = cudf.DataFrame(scaling_pipeline.transform(X))
-                X.columns = col
+                X.columns = x_col
                 X.set_index(x_index,inplace=True)
             if scaling_pipeline_target is not None and y is not None and not y.empty:
-                y_index = y.index; col = y.columns
+                y_index = y.index
+                y_col = y.columns
                 y = cudf.DataFrame(scaling_pipeline_target.transform(y))
-                y.columns = col
+                y.columns = y_col
                 y.set_index(y_index,inplace=True)
         else:
             if scaling_pipeline is not None and not X.empty:
