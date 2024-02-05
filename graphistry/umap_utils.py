@@ -303,10 +303,10 @@ class UMAPMixin(MIXIN_BASE):
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
             verbose: Whether to print information about the graph inference
         """
-        df, y = make_safe_gpu_dataframes(df, y, res.engine, self.has_cudf)
+        df, y = make_safe_gpu_dataframes(df, y, self.engine, self.has_cudf)
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
-        # X, y_ = make_safe_gpu_dataframes(X, y_, res.engine, self.has_cudf)
-        if 'cudf' in str(getmodule(df)):  # cuml umap has issues with fit().transform()
+        # X, y_ = make_safe_gpu_dataframes(X, y_, self.engine, self.has_cudf)
+        if 'cudf' in str(getmodule(df)):  # cuml umap has reproducibility issues with some fit().transform()
             emb = self._umap.fit_transform(X)  # type: ignore
         else:
             emb = self._umap.transform(X)  # type: ignore
