@@ -1050,7 +1050,10 @@ def process_dirty_dataframes(
             if len(dt_count) > 0:
                 dt_new = ['datetime_' + str(n) for n in range(len(dt_count))]
                 features_transformed.extend(dt_new)
-
+            if deps.cu_cat and feature_engine == CUDA_CAT:
+                features_transformed = deps.cu_cat.deduplicate(features_transformed)  # speficially for ndf_reddit test case 'Unnamed: 0', as below, but more general here
+            elif deps.dirty_cat:
+                features_transformed = deps.dirty_cat.deduplicate(features_transformed)
             duplicates = list(set([x for x in features_transformed if features_transformed.count(x) > 1]))
             if len(duplicates) > 0:
                 counts = {}  # type: ignore
@@ -1063,6 +1066,7 @@ def process_dirty_dataframes(
                 X_enc.columns = features_transformed
             X_enc.set_index(ndf.index, inplace=True)
             X_enc = X_enc.fillna(0.0)
+
             # unnamed_cols = [col for col in X_enc.columns if 'Unnamed: 0: ' in col]
             # if len(unnamed_cols) > 1:
             #     X_enc['Unnamed: 0'] = X_enc[unnamed_cols].sum(axis=1)
