@@ -1934,23 +1934,25 @@ class FastEncoder:
     
     def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target):
         """Transform with scaling fit durning fit."""
-        _X, _y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
-        _X, _y = make_safe_gpu_dataframes(_X, _y, engine=resolve_feature_engine('auto'))
-        if 'cudf' in str(getmodule(_X)):
+        X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
+        X, y = make_safe_gpu_dataframes(X, y, engine=resolve_feature_engine('auto'))
+        if 'cudf' in str(getmodule(X)):
             cudf = deps.cudf
-            if scaling_pipeline is not None and not _X.empty:
-                X = cudf.DataFrame(scaling_pipeline.transform(_X))
-                X.columns = _X.columns
-                X.set_index(_X.index,inplace=True)
-            if scaling_pipeline_target is not None and _y is not None and not _y.empty:
-                y = cudf.DataFrame(scaling_pipeline_target.transform(_y))
-                y.columns = _y.columns
-                y.set_index(_y.index,inplace=True)
+            if scaling_pipeline is not None and not X.empty:
+                x_index = X.index; col = X.columns
+                X = cudf.DataFrame(scaling_pipeline.transform(X))
+                X.columns = col
+                X.set_index(x_index,inplace=True)
+            if scaling_pipeline_target is not None and y is not None and not y.empty:
+                y_index = y.index; col = y.columns
+                y = cudf.DataFrame(scaling_pipeline_target.transform(y))
+                y.columns = col
+                y.set_index(y_index,inplace=True)
         else:
-            if scaling_pipeline is not None and not _X.empty:
-                X = pd.DataFrame(scaling_pipeline.transform(_X), columns=_X.columns, index=_X.index)
-            if scaling_pipeline_target is not None and _y is not None and not _y.empty:
-                y = pd.DataFrame(scaling_pipeline_target.transform(_y), columns=_y.columns, index=_y.index)
+            if scaling_pipeline is not None and not X.empty:
+                X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=X.index)
+            if scaling_pipeline_target is not None and y is not None and not y.empty:
+                y = pd.DataFrame(scaling_pipeline_target.transform(y), columns=y.columns, index=y.index)
         return X, y
     
     def transform_scaled(self, df, ydf=None, scaling_pipeline=None, scaling_pipeline_target=None):
