@@ -422,7 +422,10 @@ def infer_self_graph(res,
         assert (
             emb.shape[0] == df.shape[0]
         ), "minibatches emb and X must have same number of rows since h(df) = emb"
-        df = df.assign(x=emb.x, y=emb.y)  # add x and y to df for graphistry instance
+        try:
+            df = df.assign(x=emb.x, y=emb.y)  # add x and y to df for graphistry instance
+        except AttributeError:
+            df = df.assign(x=emb[0], y=emb[1])  # if umap kwargs n_components > 2, take first 2 here 
     else:  # if umap has been fit, but only transforming over features, need to add x and y or breaks plot binds of res
         df['x'] = np.random.random(df.shape[0])
         df['y'] = np.random.random(df.shape[0])

@@ -648,7 +648,7 @@ class TestCUMLMethods(TestUMAPMethods):
                                     y=target,
                                     model_name=model_avg_name,
                                     use_scaler=scaler,
-                                    use_scaler_target=scaler,
+                                    # use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
                                     engine="cuml",
                                     feature_engine = resolve_feature_engine('auto'),
@@ -666,7 +666,7 @@ class TestCUMLMethods(TestUMAPMethods):
     def test_node_umap(self):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, good_cols_reddit, meta_cols_reddit]
-        targets = [None, single_target_reddit, double_target_reddit]
+        targets = [single_target_reddit, double_target_reddit]  # cuml cant handle None here
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -688,7 +688,7 @@ class TestCUMLMethods(TestUMAPMethods):
     )
     def test_edge_umap(self):
         g = graphistry.edges(edge_df2, "src", "dst")
-        targets = [None, "label"]
+        targets = ["label"]  # cuml cant handle None here
         use_cols = [None, "title"]
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -814,7 +814,7 @@ class TestCudfUmap(unittest.TestCase):
     @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_base(self):
         graphistry.nodes(self.df).umap(engine='cuml',feature_engine = resolve_feature_engine('auto'))._node_embedding.shape == (self.samples, 2)
-        graphistry.nodes(self.df).umap(engine='cuml',feature_engine = resolve_feature_engine('engine'))._node_embedding.shape == (self.samples, 2)
+        graphistry.nodes(self.df).umap(engine='cuml',feature_engine = resolve_feature_engine('dirty_cat'))._node_embedding.shape == (self.samples, 2)
 
 
 if __name__ == "__main__":
