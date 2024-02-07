@@ -22,6 +22,7 @@ from graphistry.feature_utils import (
 from graphistry.features import topic_model, ngrams_model
 from graphistry.constants import SCALERS
 from graphistry.dep_manager import deps
+from parameterized import parameterized_class
 
 np.random.seed(137)
 
@@ -191,7 +192,14 @@ def check_allclose_fit_transform_on_same_data(X, x, Y=None, y=None):
             if name == 'Target' and Y is not None and y is not None:
                 allclose_stats(Y, y, value, name)
 
+feature_engines = []
+if deps.cu_cat and deps.cuml:
+    feature_engines.append('cu_cat')
+if deps.dirty_cat:
+    feature_engines.append('dirty_cat')
+    
 
+@parameterized_class([{"feature_engine": fe} for fe in feature_engines])
 class TestFeaturizeGetMethods(unittest.TestCase):
     
     @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
@@ -199,12 +207,12 @@ class TestFeaturizeGetMethods(unittest.TestCase):
         g = graphistry.nodes(ndf_reddit)
 
         g2 = g.featurize(y=double_target_reddit,  # ngrams
-                feature_engine = resolve_feature_engine('auto'),
+                feature_engine = resolve_feature_engine(self.feature_engine),
                 use_ngrams=True,
                 ngram_range=(1, 4)
                 )
         
-        g3 = g.featurize(**topic_model,feature_engine = resolve_feature_engine('auto'),  # topic model       
+        g3 = g.featurize(**topic_model,feature_engine = resolve_feature_engine(self.feature_engine),  # topic model       
         )
         self.g = g
         self.g2 = g2
@@ -231,33 +239,35 @@ class TestFeaturizeGetMethods(unittest.TestCase):
         # topic
         assert all(self.g3.get_matrix().columns == self.g3._node_features.columns)
         # assert list(self.g3.get_matrix(['language', 'freedom']).columns) == freedom, self.g3.get_matrix(['language', 'freedom']).columns
+        
 
+@parameterized_class([{"feature_engine": fe} for fe in feature_engines])
 class TestFastEncoder(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
     
     @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self):
         fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
-        fenc.fit(feature_engine = resolve_feature_engine('auto'),
+        fenc.fit(feature_engine = resolve_feature_engine(self.feature_engine),
                  use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
         self.X, self.Y = fenc.X, fenc.y
-        if resolve_feature_engine('auto') == 'cu_cat':
+        if self.feature_engine == 'cu_cat':
             fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
-            self.x, self.y = fenc.fit_transform(feature_engine = resolve_feature_engine('auto'),  # cu_cat fit_transform >> fit().transform()
+            self.x, self.y = fenc.fit_transform(feature_engine = resolve_feature_engine(self.feature_engine),  # cu_cat fit_transform >> fit().transform()
                     use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
         else:
             self.x, self.y = fenc.transform(ndf_reddit, ydf=double_target_reddit)
 
         fenc = FastEncoder(edge_df2, y=edge2_target_df, kind='edges')
-        fenc.fit(src='src', dst='dst', feature_engine = resolve_feature_engine('auto'),
+        fenc.fit(src='src', dst='dst', feature_engine = resolve_feature_engine(self.feature_engine),
                  use_ngrams=True, ngram_range=(1, 1),
                  use_scaler=None,
                  use_scaler_target=None,
                  cardinality_threshold=2, n_topics=4)
         self.Xe, self.Ye = fenc.X, fenc.y
 
-        if resolve_feature_engine('auto') == 'cu_cat':
-            self.xe, self.ye = fenc.fit_transform(src='src', dst='dst', feature_engine = resolve_feature_engine('auto'),
+        if self.feature_engine == 'cu_cat':
+            self.xe, self.ye = fenc.fit_transform(src='src', dst='dst', feature_engine = resolve_feature_engine(self.feature_engine),
                 use_ngrams=True, ngram_range=(1, 1),
                 use_scaler=None,
                 use_scaler_target=None,
@@ -277,7 +287,8 @@ class TestFastEncoder(unittest.TestCase):
         assert all(self.Xe.columns == self.xe.columns), 'Edge Feature Columns do not match'
         assert all(self.Ye.columns == self.ye.columns), 'Edge Target Columns do not match'
         
-        
+
+@parameterized_class([{"feature_engine": fe} for fe in feature_engines])        
 class TestFeatureProcessors(unittest.TestCase):
     def cases_tests(self, x, y, data_encoder, target_encoder, name, value):
         if 'cu_cat' in str(getmodule(data_encoder)):
@@ -357,7 +368,7 @@ class TestFeatureProcessors(unittest.TestCase):
                     n_topics=20,
                     min_words=min_words,
                     model_name=model_avg_name,
-                    feature_engine = resolve_feature_engine('auto')
+                    feature_engine = resolve_feature_engine(self.feature_engine),
                 )
                 self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
@@ -366,11 +377,13 @@ class TestFeatureProcessors(unittest.TestCase):
         g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
-            g2 = g.featurize(y=['list_str'], X=['src'], feature_engine = resolve_feature_engine('auto'),multilabel=True)
+            g2 = g.featurize(y=['list_str'], X=['src'], feature_engine = resolve_feature_engine(self.feature_engine),multilabel=True)
         y = g2._get_target('node')
         assert y.shape == (4, 4)
         assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
-        
+
+
+@parameterized_class([{"feature_engine": fe} for fe in feature_engines])
 class TestFeatureMethods(unittest.TestCase):
 
     def _check_attributes(self, g, attributes):
@@ -436,7 +449,7 @@ class TestFeatureMethods(unittest.TestCase):
                                 kind=kind,
                                 X=use_col,
                                 y=target,
-                                feature_engine = resolve_feature_engine('auto'),
+                                feature_engine = resolve_feature_engine(self.feature_engine),
                                 model_name=model_avg_name,
                                 use_scaler=None,
                                 use_scaler_target=None,
@@ -482,7 +495,7 @@ class TestFeatureMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_node_scaling(self):
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.featurize(X="title", y='label', use_scaler=None, feature_engine = resolve_feature_engine('auto'),use_scaler_target=None)
+        g2 = g.featurize(X="title", y='label', use_scaler=None, feature_engine = resolve_feature_engine(self.feature_engine),use_scaler_target=None)
         for scaler in SCALERS:
             X, y, c, d = g2.scale(ndf_reddit, single_target_reddit, kind='nodes', 
                                   use_scaler=scaler, 
@@ -492,7 +505,7 @@ class TestFeatureMethods(unittest.TestCase):
     @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_scaling(self):
         g = graphistry.edges(edge_df2, "src", "dst")
-        g2 = g.featurize(y='label', kind='edges', use_scaler=None, feature_engine = resolve_feature_engine('auto'),use_scaler_target=None)
+        g2 = g.featurize(y='label', kind='edges', use_scaler=None, feature_engine = resolve_feature_engine(self.feature_engine),use_scaler_target=None)
         for scaler in SCALERS:
             X, y, c, d = g2.scale(edge_df2, edge2_target_df, kind='edges', 
                                   use_scaler=scaler, 
