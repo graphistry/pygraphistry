@@ -192,6 +192,7 @@ def check_allclose_fit_transform_on_same_data(X, x, Y=None, y=None):
             if name == 'Target' and Y is not None and y is not None:
                 allclose_stats(Y, y, value, name)
 
+
 feature_engines = []
 if deps.cu_cat and deps.cuml:
     feature_engines.append('cu_cat')

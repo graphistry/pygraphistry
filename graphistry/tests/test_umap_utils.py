@@ -81,6 +81,7 @@ def _eq(df1, df2):
         
     return tr(df1) == tr(df2)
 
+
 feature_engines = []
 if deps.cu_cat and deps.cuml:
     feature_engines.append('cu_cat')
@@ -325,7 +326,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 assert isinstance(g4[1], objs)
                 assert isinstance(g4[2], objs)
                 assert g4[0].shape[1] == 2
-                assert g4[1].shape[1] >= 2  ##
+                assert g4[1].shape[1] >= 2
                 assert g4[2].shape[0] == test.shape[0]
         for n_neigh in n_neighbors:
             g4 = self.g2.transform_umap(test, n_neighbors=n_neigh)
