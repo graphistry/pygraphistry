@@ -10,7 +10,7 @@ import logging
 import numpy as np
 import pandas as pd
 from graphistry import Plottable
-from graphistry.feature_utils import remove_internal_namespace_if_present, 
+from graphistry.feature_utils import remove_internal_namespace_if_present
 
 from graphistry.tests.test_feature_utils import (
     ndf_reddit,
