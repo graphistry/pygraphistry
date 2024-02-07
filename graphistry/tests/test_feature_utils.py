@@ -15,7 +15,6 @@ import warnings
 from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_nodes_dataframes,
-    resolve_feature_engine,
     FastEncoder
 )
 
@@ -27,6 +26,7 @@ from parameterized import parameterized_class
 np.random.seed(137)
 
 cudf = deps.cudf
+cuml = deps.cuml
 cu_cat = deps.cu_cat
 dirty_cat = None
 if not cu_cat:
@@ -37,7 +37,7 @@ has_min_dependancy = None
 has_cuda_dependancy = None
 if None not in [dirty_cat, scipy, sklearn]:
     has_min_dependancy = True
-elif None not in [cu_cat, scipy, sklearn]:
+elif None not in [cu_cat, cudf, cuml]:
     has_cuda_dependancy = True
 else:
     has_min_dependancy = False
@@ -194,7 +194,7 @@ def check_allclose_fit_transform_on_same_data(X, x, Y=None, y=None):
 
 
 feature_engines = []
-if deps.cu_cat and deps.cuml:
+if deps.cu_cat and deps.cuml and deps.cudf:
     feature_engines.append('cu_cat')
 if deps.dirty_cat:
     feature_engines.append('dirty_cat')
@@ -203,23 +203,23 @@ if deps.dirty_cat:
 @parameterized_class([{"feature_engine": fe} for fe in feature_engines])
 class TestFeaturizeGetMethods(unittest.TestCase):
     
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self) -> None:
         g = graphistry.nodes(ndf_reddit)
 
         g2 = g.featurize(y=double_target_reddit,  # ngrams
-                feature_engine = resolve_feature_engine(self.feature_engine),
+                feature_engine = self.feature_engine,
                 use_ngrams=True,
                 ngram_range=(1, 4)
                 )
         
-        g3 = g.featurize(**topic_model,feature_engine = resolve_feature_engine(self.feature_engine),  # topic model       
+        g3 = g.featurize(**topic_model,feature_engine = self.feature_engine,  # topic model       
         )
         self.g = g
         self.g2 = g2
         self.g3 = g3
         
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_get_col_matrix(self):
         # no edges so this should be None
         assert self.g2.get_matrix(kind='edges') is None
@@ -246,21 +246,21 @@ class TestFeaturizeGetMethods(unittest.TestCase):
 class TestFastEncoder(unittest.TestCase):
     # we test how far off the fit returned values different from the transformed
     
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def setUp(self):
         fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
-        fenc.fit(feature_engine = resolve_feature_engine(self.feature_engine),
+        fenc.fit(feature_engine = self.feature_engine,
                  use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
         self.X, self.Y = fenc.X, fenc.y
         if self.feature_engine == 'cu_cat':
             fenc = FastEncoder(ndf_reddit, y=double_target_reddit, kind='nodes')
-            self.x, self.y = fenc.fit_transform(feature_engine = resolve_feature_engine(self.feature_engine),  # cu_cat fit_transform >> fit().transform()
+            self.x, self.y = fenc.fit_transform(feature_engine = 'cu_cat',  # cu_cat fit_transform >> fit().transform()
                     use_ngrams=True, ngram_range=(1, 1), use_scaler='robust', cardinality_threshold=100)
         else:
             self.x, self.y = fenc.transform(ndf_reddit, ydf=double_target_reddit)
 
         fenc = FastEncoder(edge_df2, y=edge2_target_df, kind='edges')
-        fenc.fit(src='src', dst='dst', feature_engine = resolve_feature_engine(self.feature_engine),
+        fenc.fit(src='src', dst='dst', feature_engine = self.feature_engine,
                  use_ngrams=True, ngram_range=(1, 1),
                  use_scaler=None,
                  use_scaler_target=None,
@@ -268,7 +268,7 @@ class TestFastEncoder(unittest.TestCase):
         self.Xe, self.Ye = fenc.X, fenc.y
 
         if self.feature_engine == 'cu_cat':
-            self.xe, self.ye = fenc.fit_transform(src='src', dst='dst', feature_engine = resolve_feature_engine(self.feature_engine),
+            self.xe, self.ye = fenc.fit_transform(src='src', dst='dst', feature_engine = 'cu_cat',
                 use_ngrams=True, ngram_range=(1, 1),
                 use_scaler=None,
                 use_scaler_target=None,
@@ -276,12 +276,12 @@ class TestFastEncoder(unittest.TestCase):
         else:
             self.xe, self.ye = fenc.transform(edge_df2, ydf=edge2_target_df)
         
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_allclose_fit_transform_on_same_data(self):
         check_allclose_fit_transform_on_same_data(self.X, self.x, self.Y, self.y)
         check_allclose_fit_transform_on_same_data(self.Xe, self.xe, self.Ye, self.ye)
         
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_columns_match(self):
         assert all(self.X.columns == self.x.columns), 'Node Feature Columns do not match'
         assert all(self.Y.columns == self.y.columns), 'Node Target Columns do not match'
@@ -350,7 +350,7 @@ class TestFeatureProcessors(unittest.TestCase):
         )
         
 
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_process_node_dataframes_min_words(self):
         # test different target cardinality
         with warnings.catch_warnings():
@@ -369,16 +369,16 @@ class TestFeatureProcessors(unittest.TestCase):
                     n_topics=20,
                     min_words=min_words,
                     model_name=model_avg_name,
-                    feature_engine = resolve_feature_engine(self.feature_engine),
+                    feature_engine = self.feature_engine,
                 )
                 self.cases_tests(X_enc, y_enc, data_encoder, label_encoder, "min_words", min_words)
     
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires minimal feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires minimal feature dependencies")
     def test_multi_label_binarizer(self):
         g = graphistry.nodes(bad_df)  # can take in a list of lists and convert to multiOutput
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
-            g2 = g.featurize(y=['list_str'], X=['src'], feature_engine = resolve_feature_engine(self.feature_engine),multilabel=True)
+            g2 = g.featurize(y=['list_str'], X=['src'], feature_engine = self.feature_engine,multilabel=True)
         y = g2._get_target('node')
         assert y.shape == (4, 4)
         assert sum(y.sum(1).values - np.array([1., 2., 1., 0.])) == 0
@@ -450,7 +450,7 @@ class TestFeatureMethods(unittest.TestCase):
                                 kind=kind,
                                 X=use_col,
                                 y=target,
-                                feature_engine = resolve_feature_engine(self.feature_engine),
+                                feature_engine = self.feature_engine,
                                 model_name=model_avg_name,
                                 use_scaler=None,
                                 use_scaler_target=None,
@@ -464,7 +464,7 @@ class TestFeatureMethods(unittest.TestCase):
                             self.cases_test_graph(g2, name=name, value=value, kind=kind, df=df)
                                 
                 
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_node_featurizations(self):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, meta_cols_reddit]
@@ -479,7 +479,7 @@ class TestFeatureMethods(unittest.TestCase):
         )
         
 
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_featurization(self):
         g = graphistry.edges(edge_df, "src", "dst")
         targets = [None, single_target_edge, double_target_edge] + target_names_edge
@@ -493,20 +493,20 @@ class TestFeatureMethods(unittest.TestCase):
             df=edge_df,
         )
         
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_node_scaling(self):
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.featurize(X="title", y='label', use_scaler=None, feature_engine = resolve_feature_engine(self.feature_engine),use_scaler_target=None)
+        g2 = g.featurize(X="title", y='label', use_scaler=None, feature_engine = self.feature_engine,use_scaler_target=None)
         for scaler in SCALERS:
             X, y, c, d = g2.scale(ndf_reddit, single_target_reddit, kind='nodes', 
                                   use_scaler=scaler, 
                                   use_scaler_target=np.random.choice(SCALERS), 
                                   return_scalers=True)
 
-    @pytest.mark.skipif(not has_min_dependancy and not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
+    @pytest.mark.skipif(not has_min_dependancy or not has_cuda_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_edge_scaling(self):
         g = graphistry.edges(edge_df2, "src", "dst")
-        g2 = g.featurize(y='label', kind='edges', use_scaler=None, feature_engine = resolve_feature_engine(self.feature_engine),use_scaler_target=None)
+        g2 = g.featurize(y='label', kind='edges', use_scaler=None, feature_engine = self.feature_engine,use_scaler_target=None)
         for scaler in SCALERS:
             X, y, c, d = g2.scale(edge_df2, edge2_target_df, kind='edges', 
                                   use_scaler=scaler, 

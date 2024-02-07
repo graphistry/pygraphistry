@@ -10,7 +10,7 @@ import logging
 import numpy as np
 import pandas as pd
 from graphistry import Plottable
-from graphistry.feature_utils import remove_internal_namespace_if_present, resolve_feature_engine
+from graphistry.feature_utils import remove_internal_namespace_if_present, 
 
 from graphistry.tests.test_feature_utils import (
     ndf_reddit,
@@ -108,7 +108,7 @@ class TestUMAPFitTransform(unittest.TestCase):
             g2 = g.umap(
                 y=['label', 'type'],
                 use_ngrams=True,
-                feature_engine = resolve_feature_engine(self.feature_engine),
+                feature_engine = self.feature_engine,
                 ngram_range=(1, 2),
                 use_scaler="robust",
                 cardinality_threshold=2,
@@ -141,7 +141,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 use_ngrams=True,
                 ngram_range=(1, 2),
                 use_scaler=None,
-                feature_engine = resolve_feature_engine(self.feature_engine),
+                feature_engine = self.feature_engine,
                 use_scaler_target=None,
                 cardinality_threshold=2,
                 n_topics=4,
@@ -226,8 +226,8 @@ class TestUMAPFitTransform(unittest.TestCase):
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(**umap_kwargs, feature_engine = resolve_feature_engine('auto'))
-            g3 = g.umap(**umap_kwargs2, feature_engine = resolve_feature_engine('auto'))
+            g2 = g.umap(**umap_kwargs, feature_engine = self.feature_engine)
+            g3 = g.umap(**umap_kwargs2, feature_engine = self.feature_engine)
         assert g2._umap_params == umap_kwargs
         assert (
             g2._umap_params == umap_kwargs
@@ -270,8 +270,8 @@ class TestUMAPFitTransform(unittest.TestCase):
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(**umap_kwargs, feature_engine = resolve_feature_engine('auto'))
-            g3 = g.umap(**umap_kwargs2, feature_engine = resolve_feature_engine('auto'))
+            g2 = g.umap(**umap_kwargs, feature_engine = self.feature_engine)
+            g3 = g.umap(**umap_kwargs2, feature_engine = self.feature_engine)
         assert g2._umap_params == umap_kwargs
         assert (
             g2._umap_params == umap_kwargs
@@ -461,7 +461,7 @@ class TestUMAPMethods(unittest.TestCase):
     )
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(triangleNodes))]:
-            g2 = g.umap(kind=kind, feature_engine=resolve_feature_engine('auto'))
+            g2 = g.umap(kind=kind, feature_engine=self.feature_engine)
             last_shape = 0
             for scale in np.linspace(0, 1, 8):
                 g3 = g2.filter_weighted_edges(scale=scale)
@@ -511,7 +511,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
                                     # use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
                                     engine="umap_learn",
-                                    feature_engine = resolve_feature_engine(self.feature_engine),
+                                    feature_engine = self.feature_engine,
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality,
                                     n_neighbors=3,
@@ -571,10 +571,10 @@ class TestUMAPAIMethods(TestUMAPMethods):
     )
     def test_chaining_nodes(self):
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.umap(dbscan=False,feature_engine = resolve_feature_engine('auto'))
+        g2 = g.umap(dbscan=False,feature_engine = self.feature_engine)
 
         logger.debug("======= g.umap() done ======")
-        g3a = g2.featurize(feature_engine = resolve_feature_engine('auto'))
+        g3a = g2.featurize(feature_engine = self.feature_engine)
         logger.debug("======= g3a.featurize() done ======")
         g3 = g3a.umap(dbscan=False)
         logger.debug("======= g3.umap() done ======")
@@ -598,8 +598,8 @@ class TestUMAPAIMethods(TestUMAPMethods):
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(kind="edges", feature_engine = resolve_feature_engine(self.feature_engine),dbscan=False)
-            g3 = g.featurize(kind="edges").umap(kind="edges", feature_engine = resolve_feature_engine(self.feature_engine),dbscan=False)
+            g2 = g.umap(kind="edges", feature_engine = self.feature_engine,dbscan=False)
+            g3 = g.featurize(kind="edges").umap(kind="edges", feature_engine = self.feature_engine,dbscan=False)
 
         assert all(g2._feature_params["edges"]["X"] == g3._feature_params["edges"]["X"])
         assert all(
@@ -623,12 +623,12 @@ class TestUMAPAIMethods(TestUMAPMethods):
             g2 = g.umap(
                 X="type",
                 y="label",
-                feature_engine = resolve_feature_engine(self.feature_engine),
+                feature_engine = self.feature_engine,
                 cardinality_threshold_target=3,
                 n_topics_target=n_topics_target,
             )  # makes a GapEncoded Target
             g3 = g.umap(
-                X="type", y="label", feature_engine = resolve_feature_engine(self.feature_engine),cardinality_threshold_target=30000
+                X="type", y="label", feature_engine = self.feature_engine,cardinality_threshold_target=30000
             )  # makes a one-hot-encoded target
 
         assert all(
@@ -648,7 +648,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
     )
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(ndf_reddit))]:
-            g2 = g.umap(kind=kind, feature_engine = resolve_feature_engine(self.feature_engine),model_name=model_avg_name)
+            g2 = g.umap(kind=kind, feature_engine = self.feature_engine,model_name=model_avg_name)
             last_shape = 0
             for scale in np.linspace(0, 1, 8):  # six sigma in 8 steps
                 g3 = g2.filter_weighted_edges(scale=scale)
@@ -699,7 +699,7 @@ class TestCUMLMethods(TestUMAPMethods):
                                     # use_scaler_target=scaler,
                                     use_ngrams=use_ngram,
                                     engine="cuml",
-                                    feature_engine = resolve_feature_engine(self.feature_engine),
+                                    feature_engine = self.feature_engine,
                                     cardinality_threshold=cardinality,
                                     cardinality_threshold_target=cardinality,
                                     n_neighbors=3,
@@ -758,10 +758,10 @@ class TestCUMLMethods(TestUMAPMethods):
     )
     def test_chaining_nodes(self):
         g = graphistry.nodes(ndf_reddit)
-        g2 = g.umap(feature_engine = resolve_feature_engine('auto'))
+        g2 = g.umap(feature_engine = self.feature_engine)
 
         logger.debug("======= g.umap() done ======")
-        g3a = g2.featurize(feature_engine = resolve_feature_engine('auto'))
+        g3a = g2.featurize(feature_engine = self.feature_engine)
         logger.debug("======= g3a.featurize() done ======")
         g3 = g3a.umap()
         logger.debug("======= g3.umap() done ======")
@@ -785,8 +785,8 @@ class TestCUMLMethods(TestUMAPMethods):
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(kind="edges",feature_engine = resolve_feature_engine('auto'))
-            g3 = g.featurize(kind="edges").umap(kind="edges",feature_engine = resolve_feature_engine('auto'))
+            g2 = g.umap(kind="edges",feature_engine = self.feature_engine)
+            g3 = g.featurize(kind="edges").umap(kind="edges",feature_engine = self.feature_engine)
 
         assert all(g2._feature_params["edges"]["X"] == g3._feature_params["edges"]["X"])
         assert all(
@@ -810,12 +810,12 @@ class TestCUMLMethods(TestUMAPMethods):
             g2 = g.umap(
                 X="type",
                 y="label",
-                feature_engine = resolve_feature_engine(self.feature_engine),
+                feature_engine = self.feature_engine,
                 cardinality_threshold_target=3,
                 n_topics_target=n_topics_target,
             )  # makes a GapEncoded Target
             g3 = g.umap(
-                X="type", y="label", feature_engine = resolve_feature_engine(self.feature_engine),cardinality_threshold_target=30000
+                X="type", y="label", feature_engine = self.feature_engine,cardinality_threshold_target=30000
             )  # makes a one-hot-encoded target
 
         assert all(
@@ -835,7 +835,7 @@ class TestCUMLMethods(TestUMAPMethods):
     )
     def test_filter_edges(self):
         for kind, g in [("nodes", graphistry.nodes(ndf_reddit))]:
-            g2 = g.umap(kind=kind, feature_engine = resolve_feature_engine(self.feature_engine),model_name=model_avg_name)
+            g2 = g.umap(kind=kind, feature_engine = self.feature_engine,model_name=model_avg_name)
             last_shape = 0
             for scale in np.linspace(0, 1, 8):  # six sigma in 8 steps
                 g3 = g2.filter_weighted_edges(scale=scale)
@@ -861,8 +861,8 @@ class TestCudfUmap(unittest.TestCase):
     @pytest.mark.skipif(not has_dependancy or not cuml, reason="requires cuml dependencies")
     @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
     def test_base(self):
-        graphistry.nodes(self.df).umap(feature_engine = resolve_feature_engine('auto'))._node_embedding.shape == (self.samples, 2)
-        graphistry.nodes(self.df).umap(feature_engine = resolve_feature_engine('dirty_cat'))._node_embedding.shape == (self.samples, 2)
+        graphistry.nodes(self.df).umap(feature_engine = self.feature_engine)._node_embedding.shape == (self.samples, 2)
+        graphistry.nodes(self.df).umap(feature_engine = ('dirty_cat'))._node_embedding.shape == (self.samples, 2)
 
 
 if __name__ == "__main__":
