@@ -7,6 +7,43 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.33.0 - 2023-12-26]
+
+### Added
+
+* GFQL: GPU acceleration of `chain`, `hop`, `filter_by_dict`
+* `AbstractEngine`  to `engine.py::Engine` enum
+* `compute.typing.DataFrameT` to centralize df-lib-agnostic type checking
+
+### Refactor
+
+* GFQL and more of compute uses generic dataframe methods and threads through engine
+
+### Infra
+
+* GPU tester threads through LOG_LEVEL
+
+## [0.32.0 - 2023-12-22]
+
+### Added
+
+* GFQL `Chain` AST object
+* GFQL query serialization - `Chain`, `ASTObject`, and `ASTPredict` implement `ASTSerializable`
+  - Ex:`Chain.from_json(Chain([n(), e(), n()]).to_json())`
+* GFQL predicate `is_year_end`
+
+### Docs
+
+* GFQL in readme.md
+
+### Changes
+
+* Refactor `ASTEdge`, `ASTNode` field naming convention to match other `ASTSerializable`s
+
+### Breaking 🔥
+
+* GFQL `e()` now aliases `e_undirected` instead of the base class `ASTEdge`
+
 ## [0.31.1 - 2023-12-05]
 
 ### Docs

@@ -51,6 +51,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
 
 from graphistry.compute import (
     n, e_forward, e_reverse, e_undirected,
+    Chain,
 
     is_in, IsIn,
 
@@ -61,6 +62,7 @@ from graphistry.compute import (
     is_quarter_start, IsQuarterStart,
     is_quarter_end, IsQuarterEnd,
     is_year_start, IsYearStart,
+    is_year_end, IsYearEnd,
     is_leap_year, IsLeapYear,
 
     gt, GT,

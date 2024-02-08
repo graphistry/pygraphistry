@@ -1,13 +1,29 @@
-from typing import Optional
+from typing import Any, TYPE_CHECKING, Union
 import pandas as pd
 
 from .ASTPredicate import ASTPredicate
 
-class GT(ASTPredicate):
+
+if TYPE_CHECKING:
+    SeriesT = pd.Series
+else:
+    SeriesT = Any
+
+
+class NumericASTPredicate(ASTPredicate):
+    def __init__(self, val: Union[int, float]) -> None:
+        self.val = val
+
+    def validate(self) -> None:
+        assert isinstance(self.val, (int, float))
+
+###
+
+class GT(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s > self.val
 
 def gt(val: float) -> GT:
@@ -16,11 +32,11 @@ def gt(val: float) -> GT:
     """
     return GT(val)
 
-class LT(ASTPredicate):
+class LT(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s < self.val
 
 def lt(val: float) -> LT:
@@ -29,11 +45,11 @@ def lt(val: float) -> LT:
     """
     return LT(val)
 
-class GE(ASTPredicate):
+class GE(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s >= self.val
 
 def ge(val: float) -> GE:
@@ -42,11 +58,11 @@ def ge(val: float) -> GE:
     """
     return GE(val)
 
-class LE(ASTPredicate):
+class LE(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s <= self.val
 
 def le(val: float) -> LE:
@@ -55,11 +71,11 @@ def le(val: float) -> LE:
     """
     return LE(val)
 
-class EQ(ASTPredicate):
+class EQ(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s == self.val
 
 def eq(val: float) -> EQ:
@@ -68,11 +84,11 @@ def eq(val: float) -> EQ:
     """
     return EQ(val)
 
-class NE(ASTPredicate):
+class NE(NumericASTPredicate):
     def __init__(self, val: float) -> None:
         self.val = val
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s != self.val
 
 def ne(val: float) -> NE:
@@ -87,11 +103,16 @@ class Between(ASTPredicate):
         self.upper = upper
         self.inclusive = inclusive
 
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         if self.inclusive:
             return (s >= self.lower) & (s <= self.upper)
         else:
             return (s > self.lower) & (s < self.upper)
+        
+    def validate(self) -> None:
+        assert isinstance(self.lower, (int, float))
+        assert isinstance(self.upper, (int, float))
+        assert isinstance(self.inclusive, bool)
 
 def between(lower: float, upper: float, inclusive: bool = True) -> Between:
     """
@@ -100,7 +121,7 @@ def between(lower: float, upper: float, inclusive: bool = True) -> Between:
     return Between(lower, upper, inclusive)
 
 class IsNA(ASTPredicate):
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.isna()
 
 def isna() -> IsNA:
@@ -111,7 +132,7 @@ def isna() -> IsNA:
 
 
 class NotNA(ASTPredicate):
-    def __call__(self, s: pd.Series) -> pd.Series:
+    def __call__(self, s: SeriesT) -> SeriesT:
         return s.notna()
 
 def notna() -> NotNA:
