@@ -666,6 +666,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
     not has_dependancy or not cuml,
     reason="requires cuml feature dependencies",
 )
+@parameterized_class([{"feature_engine": fe} for fe in feature_engines])
 class TestCUMLMethods(TestUMAPMethods):
     @pytest.mark.skipif(
         not has_dependancy or not cuml,
@@ -848,6 +849,8 @@ class TestCUMLMethods(TestUMAPMethods):
                 self.assertGreaterEqual(shape[0], last_shape)
                 last_shape = shape[0]
 
+
+@parameterized_class([{"feature_engine": fe} for fe in feature_engines])
 class TestCudfUmap(unittest.TestCase):
     # temporary tests for cudf pass thru umap
     @pytest.mark.skipif(not is_test_cudf, reason="requires cudf")
