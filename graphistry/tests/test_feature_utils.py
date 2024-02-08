@@ -28,9 +28,7 @@ np.random.seed(137)
 cudf = deps.cudf
 cuml = deps.cuml
 cu_cat = deps.cu_cat
-dirty_cat = None
-if not cu_cat:
-    dirty_cat = deps.dirty_cat
+dirty_cat = deps.dirty_cat
 scipy = deps.scipy
 sklearn = deps.sklearn
 has_min_dependancy = None

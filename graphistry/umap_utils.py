@@ -311,8 +311,8 @@ class UMAPMixin(MIXIN_BASE):
             emb = self._umap.fit_transform(X)  # type: ignore  
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
-            emb, _ = make_safe_gpu_dataframes(emb, None, 'pandas', self.has_cudf)  # for now so we don't have to touch infer_edges, force to pandas
-            X, y_ = make_safe_gpu_dataframes(X, y_, 'pandas', self.has_cudf)
+            emb, _ = make_safe_gpu_dataframes(emb, None, resolve_feature_engine('auto'), self.has_cudf)  # for now so we don't have to touch infer_edges, force to pandas
+            X, y_ = make_safe_gpu_dataframes(X, y_, resolve_feature_engine('auto'), self.has_cudf)
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors,
@@ -390,7 +390,7 @@ class UMAPMixin(MIXIN_BASE):
         X_ = X_.drop(columns=self.datetime_columns)
         
         emb = res._umap_fit_transform(X_, y_, verbose=verbose)
-        if 'DataFrame' not in str(getmodule(emb)):
+        if 'dataframe' not in str(getmodule(emb)) or 'DataFrame' not in str(getmodule(emb)):
             if resolve_feature_engine('auto') == 'cu_cat':
                 cudf = deps.cudf
                 try:
