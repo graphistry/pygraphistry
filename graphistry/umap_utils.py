@@ -391,8 +391,8 @@ class UMAPMixin(MIXIN_BASE):
         
         emb = res._umap_fit_transform(X_, y_, verbose=verbose)
         if 'dataframe' not in str(getmodule(emb)) or 'DataFrame' not in str(getmodule(emb)):
-            if resolve_feature_engine('auto') == 'cu_cat':
-                cudf = deps.cudf
+            cudf = deps.cudf
+            if cudf:
                 try:
                     emb = cudf.DataFrame(emb)
                     self.R_ = cudf.DataFrame(self.R_)
