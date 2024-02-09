@@ -269,10 +269,10 @@ class PyGraphistry(object):
 
         if in_ipython() or in_databricks() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
             # from IPython.core.display import HTML
-            from IPython.display import display, HTML
+            from IPython.display import display
+            from ipywidgets import HTML
             display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
             print("Please click the above URL to open browser to login")
-            print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
             print("Please close browser tab after SSO login to back to notebook")
             # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
         elif sso_opt_into_type == 'browser':
