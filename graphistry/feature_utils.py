@@ -1115,7 +1115,7 @@ def process_dirty_dataframes(
                 labels_transformed = label_encoder.get_feature_names_out()
             else:  # Similarity Encoding uses categories_
                 labels_transformed = label_encoder.categories_
-        X_enc, y_enc, _ = make_safe_gpu_dataframes(X_enc, y_enc,engine=feature_engine)
+        X_enc, y_enc = make_safe_gpu_dataframes(X_enc, y_enc,engine=feature_engine)
         if 'cudf' in str(getmodule(X_enc)) or feature_engine == CUDA_CAT:  # since CC can be cpu this needs strict GPU/cudf check
             cudf = deps.cudf
             try:
