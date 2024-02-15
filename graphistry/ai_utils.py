@@ -454,7 +454,10 @@ def infer_self_graph(res,
             diff = np.array(diff, dtype = 'float')
         except TypeError:
             pass
-        dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
+        try:
+            dist = np.linalg.norm(diff, axis=1)  # Euclidean distance
+        except TypeError:
+            dist = np.linalg.norm(diff.to_pandas(), axis=1)  # Euclidean distance
         mdists.append(dist)
 
     m, std = np.mean(mdists), np.std(mdists)

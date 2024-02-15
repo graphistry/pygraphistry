@@ -303,7 +303,7 @@ class UMAPMixin(MIXIN_BASE):
             fit_umap_embedding: Whether to infer graph from the UMAP embedding on the new data, default True
             verbose: Whether to print information about the graph inference
         """
-        df, y = make_safe_gpu_dataframes(df, y, resolve_feature_engine('auto'), self.has_cudf)
+        df, y = make_safe_gpu_dataframes(df, y, self.engine, self.has_cudf)
         X, y_ = self.transform(df, y, kind=kind, return_graph=False, verbose=verbose)
         try:  # cuml has reproducibility issues with fit().transform() vs .fit_transform()
             emb = self._umap.transform(X)  # type: ignore
@@ -311,8 +311,8 @@ class UMAPMixin(MIXIN_BASE):
             emb = self._umap.fit_transform(X)  # type: ignore  
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind not in ["edges"]:
-            emb, _ = make_safe_gpu_dataframes(emb, None, resolve_feature_engine('auto'), self.has_cudf)  # for now so we don't have to touch infer_edges, force to pandas
-            X, y_ = make_safe_gpu_dataframes(X, y_, resolve_feature_engine('auto'), self.has_cudf)
+            emb, _ = make_safe_gpu_dataframes(emb, None, self.engine, self.has_cudf)  # for now so we don't have to touch infer_edges, force to pandas
+            # X, y_ = make_safe_gpu_dataframes(X, y_, self.engine, self.has_cudf)
             g = self._infer_edges(emb, X, y_, df, 
                                   infer_on_umap_embedding=fit_umap_embedding, merge_policy=merge_policy,
                                   eps=min_dist, sample=sample, n_neighbors=n_neighbors,

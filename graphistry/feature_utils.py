@@ -163,9 +163,9 @@ def resolve_feature_engine(
     if feature_engine == "auto":
         if deps.dirty_cat and deps.scipy and deps.sklearn:  # and not deps.cu_cat:
             return "dirty_cat"
-        if deps.cu_cat:
+        elif deps.cu_cat:
             return "cu_cat"
-        if deps.sentence_transformers:
+        elif deps.sentence_transformers:
             return "torch"
         else:
             return "pandas"
@@ -672,7 +672,6 @@ def fit_pipeline(
     """
     columns = X.columns
     index = X.index
-    # X, _ = make_safe_gpu_dataframes(X, None, engine=resolve_feature_engine('auto'))
     X_type = str(getmodule(X))
     if 'cudf' not in X_type:
         X = transformer.fit_transform(X)
@@ -1050,10 +1049,6 @@ def process_dirty_dataframes(
             if len(dt_count) > 0:
                 dt_new = ['datetime_' + str(n) for n in range(len(dt_count))]
                 features_transformed.extend(dt_new)
-            # if deps.cu_cat and feature_engine == CUDA_CAT:
-            #     features_transformed = deps.cu_cat.deduplicate(features_transformed)  # speficially for ndf_reddit test case 'Unnamed: 0', as below, but more general here
-            # elif deps.dirty_cat:
-            #     features_transformed = deps.dirty_cat.deduplicate(features_transformed)
             duplicates = list(set([x for x in features_transformed if features_transformed.count(x) > 1]))
             if len(duplicates) > 0:
                 counts = {}  # type: ignore
@@ -1604,7 +1599,7 @@ def process_edge_dataframes(
     if not X_enc.size != 0 and not T.empty:
         logger.debug("-" * 60)
         logger.debug("<= Found Edges and Dirty_cat encoding =>")
-        T,X_enc = make_safe_gpu_dataframes(T, X_enc,engine=resolve_feature_engine('auto'))
+        T,X_enc = make_safe_gpu_dataframes(T, X_enc,engine=feature_engine)
         T_type = str(getmodule(T))
         if 'cudf' in T_type:
             X_enc = cudf.concat([T, X_enc], axis=1)
@@ -1836,12 +1831,13 @@ def transform(
 
 
 class FastEncoder:
-    def __init__(self, df, y=None, kind="nodes"):
+    def __init__(self, df, y=None, kind="nodes", feature_engine="auto"):
         self._df = df
         self.feature_names_in = df.columns  
         self._y = pd.DataFrame([], index=df.index) if y is None else y
         self.target_names_in = self._y.columns
         self.kind = kind
+        self.feature_engine = feature_engine
         self._assertions()
         # these are the parts we can use to reconstruct transform.
         self.res_names = ("X_enc y_enc data_encoder label_encoder "
@@ -1933,10 +1929,10 @@ class FastEncoder:
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
         return X, y
     
-    def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target):
+    def _transform_scaled(self, df, ydf, scaling_pipeline, scaling_pipeline_target, feature_engine):
         """Transform with scaling fit durning fit."""
         X, y = transform(df, ydf, self.res, self.kind, self.src, self.dst)
-        X, y = make_safe_gpu_dataframes(X, y, engine=resolve_feature_engine('auto'))
+        X, y = make_safe_gpu_dataframes(X, y, engine=feature_engine)
         if 'cudf' in str(getmodule(X)):
             cudf = deps.cudf
             if scaling_pipeline is not None and not X.empty:
@@ -1963,7 +1959,7 @@ class FastEncoder:
             scaling_pipeline = self.scaling_pipeline
         if scaling_pipeline_target is None:
             scaling_pipeline_target = self.scaling_pipeline_target
-        return self._transform_scaled(df, ydf, scaling_pipeline, scaling_pipeline_target)
+        return self._transform_scaled(df, ydf, scaling_pipeline, scaling_pipeline_target, feature_engine)
 
     def fit_transform(self, src=None, dst=None, *args, **kwargs):
         self.fit(src=src, dst=dst, *args, **kwargs)
@@ -2263,7 +2259,7 @@ class FeatureMixin(MIXIN_BASE):
         print('-' * 80) if verbose else None
         print("** Featuring nodes") if verbose else None
         # ############################################################
-        encoder = FastEncoder(X_resolved, y_resolved, kind="nodes")
+        encoder = FastEncoder(X_resolved, y_resolved, kind="nodes", feature_engine=feature_engine)
         encoder.fit(**nfkwargs)
         # ###########################################################
 
@@ -2383,7 +2379,7 @@ class FeatureMixin(MIXIN_BASE):
 
         print("** Featuring edges") if verbose else None
         ###############################################################
-        encoder = FastEncoder(X_resolved, y_resolved, kind="edges")
+        encoder = FastEncoder(X_resolved, y_resolved, kind="edges", feature_engine=feature_engine)
         encoder.fit(src=res._source, dst=res._destination, **nfkwargs)
         ##############################################################
 
