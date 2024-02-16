@@ -79,28 +79,24 @@ else:
 
 #@check_set_memoize
 
-def assert_imported_cucat():
-    cu_cat = deps.cu_cat
-    cudf = deps.cudf
-    cuml = deps.cuml
-    if None not in [cudf, cuml, cu_cat]:
-        logger.debug(f"CUML VERSION: {cuml.__version__}")
-        logger.debug(f"CUDF VERSION: {cudf.__version__}")
-        logger.debug(f"CU_CAT VERSION: {cu_cat.__version__}")
-    else:
+def assert_imported_engine(feature_engine):
+    if None not in [deps.cudf, deps.cuml, deps.cu_cat] and feature_engine == CUDA_CAT:
+        logger.debug(f"CUML VERSION: {deps.cuml.__version__}")
+        logger.debug(f"CUDF VERSION: {deps.cudf.__version__}")
+        logger.debug(f"CU_CAT VERSION: {deps.cu_cat.__version__}")
+    elif None in [deps.cudf, deps.cuml, deps.cu_cat] and feature_engine == CUDA_CAT:
         logger.warning(  # noqa
                 "cu_cat, cuml and/or cudf not found, trying running"  # noqa
                 "`pip install rapids`"  # noqa
                 "or `pip install --extra-index-url=https://pypi.nvidia.com cuml-cu11 cudf-cu11`"  # noqa
             )
-        scipy = deps.scipy
-        sklearn = deps.sklearn
-        dirty_cat = deps.dirty_cat
-        if None not in [scipy, sklearn, dirty_cat]:
-            logger.debug(f"SCIPY VERSION: {scipy.__version__}")
-            logger.debug(f"SKLEARN VERSION: {sklearn.__version__}")
-            logger.debug(f"DIRTY_CAT VERSION: {dirty_cat.__version__}")
-        else:
+    if None not in [deps.cudf, deps.cuml, deps.cu_cat] and feature_engine == DIRTY_CAT:
+        
+        # if None not in [scipy, sklearn, dirty_cat]:
+        logger.debug(f"SCIPY VERSION: {deps.scipy.__version__}")
+        logger.debug(f"SKLEARN VERSION: {deps.sklearn.__version__}")
+        logger.debug(f"DIRTY_CAT VERSION: {deps.dirty_cat.__version__}")
+    elif None in [deps.cudf, deps.cuml, deps.cu_cat] and feature_engine == DIRTY_CAT:
             logger.error(  # noqa
                 "Neither cu_cat nor dirty_cat found for featurizing"  # noqa
             )
@@ -160,15 +156,15 @@ def resolve_feature_engine(
 
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
-    if feature_engine == "auto":
-        if deps.dirty_cat and deps.scipy and deps.sklearn:  # and not deps.cu_cat:
-            return "dirty_cat"
-        elif deps.cu_cat:
-            return "cu_cat"
-        elif deps.sentence_transformers:
-            return "torch"
-        else:
-            return "pandas"
+    # if feature_engine == "auto":
+    #     if deps.dirty_cat and deps.scipy and deps.sklearn:  # and not deps.cu_cat:
+    #         return "dirty_cat"
+    #     elif deps.cu_cat:
+    #         return "cu_cat"
+    #     elif deps.sentence_transformers:
+    #         return "torch"
+    #     else:
+    #         return "pandas"
 
     raise ValueError(  # noqa
         f'feature_engine expected to be "none", '
@@ -959,7 +955,7 @@ def process_dirty_dataframes(
             the data encoder, and the label encoder.
     """
 
-    assert_imported_cucat()
+    assert_imported_engine(feature_engine)
     def limit_text_length(data, char_limit):
         # Check if the input is a DataFrame
         if 'dataframe' in str(getmodule(data)):
@@ -979,7 +975,7 @@ def process_dirty_dataframes(
                 pass
         return data
     
-    if deps.cuml and deps.cu_cat:  # and feature_engine == CUDA_CAT:
+    if deps.cuml and deps.cu_cat and feature_engine == CUDA_CAT:
         from cu_cat import TableVectorizer, GapEncoder  # , SimilarityEncoder
         from cuml.preprocessing import FunctionTransformer
     else:
@@ -1022,7 +1018,7 @@ def process_dirty_dataframes(
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
-        logger.info(f"-Shape of [[cu_cat fit]] data {X_enc.shape}")
+        logger.info(f"-Shape of [[featurize fit]] data {X_enc.shape}")
         logger.debug(f"-Transformers: \n{all_transformers}\n")
         logger.debug(
             f"-Transformed Columns: \n{features_transformed[:20]}...\n"
@@ -1831,7 +1827,7 @@ def transform(
 
 
 class FastEncoder:
-    def __init__(self, df, y=None, kind="nodes", feature_engine="auto"):
+    def __init__(self, df, y=None, kind="nodes", feature_engine="pandas"):
         self._df = df
         self.feature_names_in = df.columns  
         self._y = pd.DataFrame([], index=df.index) if y is None else y
@@ -2195,7 +2191,7 @@ class FeatureMixin(MIXIN_BASE):
         X_resolved = resolve_X(ndf, X)
         y_resolved = resolve_y(ndf, y)
 
-        assert_imported_cucat()
+        assert_imported_engine(feature_engine)
 
         X_resolved, y_resolved = make_safe_gpu_dataframes(X_resolved, y_resolved, engine=feature_engine)
         
@@ -2625,15 +2621,15 @@ class FeatureMixin(MIXIN_BASE):
         keep_n_decimals: int = 5,
         remove_node_column: bool = True,
         inplace: bool = False,
-        feature_engine: FeatureEngine = "auto",
-        engine: FeatureEngine = "auto",
+        feature_engine: FeatureEngine = "pandas",
+        engine: str = "pandas",
         dbscan: bool = False,
         min_dist: float = 0.5,  # DBSCAN eps
         min_samples: int = 1,  # DBSCAN min_samples
         memoize: bool = True,
         verbose: bool = False,
     ):
-        r"""Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
+        """Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
         
         :param kind: specify whether to featurize `nodes` or `edges`.
                 Edge featurization includes a pairwise
@@ -2736,7 +2732,7 @@ class FeatureMixin(MIXIN_BASE):
         """
         feature_engine = resolve_feature_engine(feature_engine)
 
-        assert_imported_cucat()
+        assert_imported_engine(feature_engine)
 
         if inplace:
             res = self
