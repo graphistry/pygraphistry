@@ -2629,7 +2629,7 @@ class FeatureMixin(MIXIN_BASE):
         memoize: bool = True,
         verbose: bool = False,
     ):
-        """Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
+        r"""Featurize Nodes or Edges of the underlying nodes/edges DataFrames.
         
         :param kind: specify whether to featurize `nodes` or `edges`.
                 Edge featurization includes a pairwise
