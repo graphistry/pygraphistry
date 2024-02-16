@@ -6,7 +6,7 @@ import graphistry
 import logging
 import numpy as np
 import pandas as pd
-from graphistry.feature_utils import remove_internal_namespace_if_present, assert_imported_cucat as assert_imported_feature_utils
+from graphistry.feature_utils import remove_internal_namespace_if_present, assert_imported_engine as assert_imported_feature_utils
 from graphistry.tests.test_feature_utils import (
     ndf_reddit,
     edge_df,
