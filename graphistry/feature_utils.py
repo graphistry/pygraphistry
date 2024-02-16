@@ -1959,7 +1959,7 @@ class FastEncoder:
             scaling_pipeline = self.scaling_pipeline
         if scaling_pipeline_target is None:
             scaling_pipeline_target = self.scaling_pipeline_target
-        return self._transform_scaled(df, ydf, scaling_pipeline, scaling_pipeline_target, feature_engine)
+        return self._transform_scaled(df, ydf, scaling_pipeline, scaling_pipeline_target, self.feature_engine)
 
     def fit_transform(self, src=None, dst=None, *args, **kwargs):
         self.fit(src=src, dst=dst, *args, **kwargs)
