@@ -156,15 +156,15 @@ def resolve_feature_engine(
 
     if feature_engine in ["none", "pandas", DIRTY_CAT, "torch", CUDA_CAT]:
         return feature_engine  # type: ignore
-    # if feature_engine == "auto":
-    #     if deps.dirty_cat and deps.scipy and deps.sklearn:  # and not deps.cu_cat:
-    #         return "dirty_cat"
-    #     elif deps.cu_cat:
-    #         return "cu_cat"
-    #     elif deps.sentence_transformers:
-    #         return "torch"
-    #     else:
-    #         return "pandas"
+    if feature_engine == "auto":
+        if deps.dirty_cat and deps.scipy and deps.sklearn:  # and not deps.cu_cat:
+            return "dirty_cat"
+        elif deps.cu_cat:
+            return "cu_cat"
+        elif deps.sentence_transformers:
+            return "torch"
+        else:
+            return "pandas"
 
     raise ValueError(  # noqa
         f'feature_engine expected to be "none", '
