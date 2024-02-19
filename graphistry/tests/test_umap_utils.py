@@ -210,7 +210,7 @@ class TestUMAPFitTransform(unittest.TestCase):
     def test_umap_kwargs(self):
         umap_kwargs = {
             "n_components": 2,
-            # "metric": "euclidean",  # umap default already
+            "metric": "euclidean",  # umap default already
             "n_neighbors": 3,
             "min_dist": 1,
             "spread": 1,
@@ -220,7 +220,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         }
 
         umap_kwargs2 = {k: v + 1 for k, v in umap_kwargs.items() if k not in ['metric']}  # type: ignore
-        # umap_kwargs2['metric'] = 'euclidean'
+        umap_kwargs2['metric'] = 'euclidean'
         g = graphistry.nodes(self.test)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
