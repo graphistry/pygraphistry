@@ -210,7 +210,7 @@ class TestUMAPFitTransform(unittest.TestCase):
     def test_umap_kwargs(self):
         umap_kwargs = {
             "n_components": 2,
-            "metric": "euclidean",  # umap default already
+            # "metric": "euclidean",  # umap default already
             "n_neighbors": 3,
             "min_dist": 1,
             "spread": 1,
@@ -220,7 +220,7 @@ class TestUMAPFitTransform(unittest.TestCase):
         }
 
         umap_kwargs2 = {k: v + 1 for k, v in umap_kwargs.items() if k not in ['metric']}  # type: ignore
-        umap_kwargs2['metric'] = 'euclidean'
+        # umap_kwargs2['metric'] = 'euclidean'
         g = graphistry.nodes(self.test)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -576,13 +576,16 @@ class TestUMAPAIMethods(TestUMAPMethods):
         logger.debug("======= g.umap() done ======")
         g3a = g2.featurize(feature_engine = self.feature_engine)
         logger.debug("======= g3a.featurize() done ======")
-        g3 = g3a.umap(dbscan=False)
+        g3 = g3a.umap(dbscan=False, feature_engine = self.feature_engine)
         logger.debug("======= g3.umap() done ======")
         assert g2._node_features.shape == g3._node_features.shape
         # since g3 has feature params with x and y.
         g3._feature_params["nodes"]["X"].pop("x")
         g3._feature_params["nodes"]["X"].pop("y")
-        assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
+        if self.feature_engine == 'cu_cat':
+            assert all(g2._feature_params["nodes"]["X"].to_pandas() == g3._feature_params["nodes"]["X"]) 
+        else:
+            assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
         assert (
             g2._feature_params["nodes"]["y"].shape == g3._feature_params["nodes"]["y"].shape
         )  # None
@@ -764,13 +767,16 @@ class TestCUMLMethods(TestUMAPMethods):
         logger.debug("======= g.umap() done ======")
         g3a = g2.featurize(feature_engine = self.feature_engine)
         logger.debug("======= g3a.featurize() done ======")
-        g3 = g3a.umap()
+        g3 = g3a.umap(feature_engine = self.feature_engine)
         logger.debug("======= g3.umap() done ======")
         assert g2._node_features.shape == g3._node_features.shape, f"featurize() should be idempotent, found {g2._node_features.shape} != {g3._node_features.shape}"
         # since g3 has feature params with x and y.
         g3._feature_params["nodes"]["X"].pop("x")
         g3._feature_params["nodes"]["X"].pop("y")
-        assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
+        if self.feature_engine == 'cu_cat':
+            assert all(g2._feature_params["nodes"]["X"].to_pandas() == g3._feature_params["nodes"]["X"])
+        else:
+            assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
         assert (
             g2._feature_params["nodes"]["y"].shape == g3._feature_params["nodes"]["y"].shape
         )  # None
