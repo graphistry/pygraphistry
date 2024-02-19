@@ -583,7 +583,7 @@ class TestUMAPAIMethods(TestUMAPMethods):
         g3._feature_params["nodes"]["X"].pop("x")
         g3._feature_params["nodes"]["X"].pop("y")
         if self.feature_engine == 'cu_cat':
-            assert all(g2._feature_params["nodes"]["X"].to_pandas() == g3._feature_params["nodes"]["X"]) 
+            assert all(g2._feature_params["nodes"]["X"].to_pandas() == g3._feature_params["nodes"]["X"].to_pandas() ) 
         else:
             assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
         assert (
@@ -774,7 +774,7 @@ class TestCUMLMethods(TestUMAPMethods):
         g3._feature_params["nodes"]["X"].pop("x")
         g3._feature_params["nodes"]["X"].pop("y")
         if self.feature_engine == 'cu_cat':
-            assert all(g2._feature_params["nodes"]["X"].to_pandas() == g3._feature_params["nodes"]["X"])
+            assert all(g2._feature_params["nodes"]["X"].to_pandas() == g3._feature_params["nodes"]["X"].to_pandas() )
         else:
             assert all(g2._feature_params["nodes"]["X"] == g3._feature_params["nodes"]["X"])
         assert (
