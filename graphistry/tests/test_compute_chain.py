@@ -146,6 +146,37 @@ class TestComputeChainMixin(NoAuthTestCase):
         ])
         assert len(g2._nodes) == 1
 
+    def test_shortest_path(self):
+
+        g = chain_graph()
+
+        if False:
+            g2a = g.chain([n({'n': 'a'}), e_forward(hops=1), n()])
+            assert g2a._nodes.shape == (2, 1)
+            assert g2a._edges.shape == (1, 2)
+
+            g2b = g.chain([n({'n': 'a'}), e_forward(hops=2), n()])
+            assert g2b._nodes.shape == (3, 1)
+            assert g2b._edges.shape == (2, 2)
+
+            g3a = g.chain([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'})])
+            assert g3a._nodes.shape == (2, 1)
+            assert g3a._edges.shape == (1, 2)
+
+        g3b = g.chain([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'})])
+        assert g3b._nodes.shape == (3, 1)
+        assert g3b._edges.shape == (2, 2)
+
+        if False:
+
+            g3c = g.chain([n({'n': 'a'}), e_undirected(hops=2), n({'n': 'c'})])
+            assert g3c._nodes.shape == (3, 1)
+            assert g3c._edges.shape == (2, 2)
+
+            g3d = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'})])
+            assert g3d._nodes.shape == (3, 1)
+            assert g3d._edges.shape == (2, 2)
+
 
 def compare_graphs(g, nodes: List[Dict[str, str]], edges: List[Dict[str, str]]) -> None:
     assert g._nodes.sort_values(by='n').to_dict(orient='records') == nodes
