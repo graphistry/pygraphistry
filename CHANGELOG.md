@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+### Added
+
+* GFQL: Export shorter alias `e` for `e_undirected`
+
 ## [0.33.0 - 2023-12-26]
 
 ### Added
