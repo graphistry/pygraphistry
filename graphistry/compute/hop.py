@@ -298,7 +298,10 @@ def hop(self: Plottable,
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('~~~~~~~~~~ LOOP STEP MERGES 1 ~~~~~~~~~~~')
             logger.debug('matches_edges:\n%s', matches_edges)
+            logger.debug('matches_nodes:\n%s', matches_nodes)
             logger.debug('new_node_ids:\n%s', new_node_ids)
+            logger.debug('hop_edges_forward:\n%s', hop_edges_forward)
+            logger.debug('hop_edges_reverse:\n%s', hop_edges_reverse)
 
         # Finally include all initial root nodes matched against, now that edge triples satisfy all source/dest/edge predicates
         # Only run first iteration b/c root nodes already accounted for in subsequent

@@ -293,6 +293,13 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
         )
         g_stack.append(g_step)
 
+    import logging
+    if logger.isEnabledFor(logging.DEBUG):
+        for (i, g_step) in enumerate(g_stack):
+            logger.debug('~' * 10 + '\nstep %s', i)
+            logger.debug('nodes: %s', g_step._nodes)
+            logger.debug('edges: %s', g_step._edges)
+
     logger.debug('======================== BACKWARDS ========================')
 
     # Backwards
@@ -324,6 +331,13 @@ def chain(self: Plottable, ops: Union[List[ASTObject], Chain], engine: Union[Eng
             )
         )
         g_stack_reverse.append(g_step_reverse)
+
+    import logging
+    if logger.isEnabledFor(logging.DEBUG):
+        for (i, g_step) in enumerate(g_stack_reverse):
+            logger.debug('~' * 10 + '\nstep %s', i)
+            logger.debug('nodes: %s', g_step._nodes)
+            logger.debug('edges: %s', g_step._edges)
 
     logger.debug('============ COMBINE NODES ============')
     final_nodes_df = combine_steps(g, 'nodes', list(zip(ops, reversed(g_stack_reverse))), engine_concrete)
