@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 * GFQL: Export shorter alias `e` for `e_undirected`
+* Featurize: More auto-dropping of non-numerics when no `dirty_cat`
 
 ### Fixed
 
@@ -19,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Infra
 
 * Pin test env to work around test fails: `'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs + test_workarounds,` +  `test_workarounds = ['scikit-learn<=1.3.2']`
+* Skip dbscan tests that require umap when it is not available
 
 ## [0.33.0 - 2023-12-26]
 
