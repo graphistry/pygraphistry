@@ -1147,7 +1147,7 @@ def process_dirty_dataframes(
         and not has_dirty_cat  # noqa: E126,W503
     ):
         logger.warning("-*-*- y is not numeric and no dirty_cat, dropping non-numeric")
-        y2 = y.select_dtypes(include=[np.number])
+        y2 = y.select_dtypes(include=[np.number])  # type: ignore
         y_enc, _, _, label_encoder = get_numeric_transformers(y2, None)
     else:
         y_enc, _, label_encoder, _ = get_numeric_transformers(y, None)
