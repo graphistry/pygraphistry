@@ -152,6 +152,7 @@ def hop(self: Plottable,
         logger.debug('=====================')
 
     first_iter = True
+    combined_node_ids = None
     while True:
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
@@ -341,6 +342,15 @@ def hop(self: Plottable,
             logger.debug('wave_front:\n%s', wave_front)
             logger.debug('matches_nodes:\n%s', matches_nodes)
 
+    if debugging_hop and logger.isEnabledFor(logging.DEBUG):
+        logger.debug('~~~~~~~~~~ LOOP END POST ~~~~~~~~~~~')
+        logger.debug('matches_nodes:\n%s', matches_nodes)
+        logger.debug('matches_edges:\n%s', matches_edges)
+        logger.debug('combined_node_ids:\n%s', combined_node_ids)
+        logger.debug('nodes (self):\n%s', self._nodes)
+        logger.debug('nodes (init):\n%s', nodes)
+        logger.debug('target_wave_front:\n%s', target_wave_front)
+
     #hydrate edges
     final_edges = edges_indexed.merge(matches_edges, on=EDGE_ID, how='inner')
     if EDGE_ID not in self._edges:
@@ -358,6 +368,7 @@ def hop(self: Plottable,
         rich_nodes = self._nodes
         if target_wave_front is not None:
             rich_nodes = concat([rich_nodes, target_wave_front], ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])
+        logger.debug('rich_nodes available for inner merge:\n%s', rich_nodes[[self._node]])
         final_nodes = rich_nodes.merge(
             matches_nodes if matches_nodes is not None else wave_front[:0],
             on=self._node,
