@@ -885,12 +885,13 @@ def process_dirty_dataframes(
             the data encoder, and the label encoder.
     """
     has_dirty_cat, _, dirty_cat = lazy_import_has_dirty_cat()
+    if has_dirty_cat:
+        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
     t = time()
 
     all_numeric = is_dataframe_all_numeric(ndf)
     if not all_numeric and has_dirty_cat:
-        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
         data_encoder = SuperVectorizer(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold,
@@ -947,7 +948,6 @@ def process_dirty_dataframes(
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
         and has_dirty_cat  # noqa: E126,W503
     ):
-        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
 
