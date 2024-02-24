@@ -11,6 +11,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * GFQL: Export shorter alias `e` for `e_undirected`
 
+### Fixed
+
+* GFQL: `hop()` defaults to `debugging_hop=False`
+
 ## [0.33.0 - 2023-12-26]
 
 ### Added
