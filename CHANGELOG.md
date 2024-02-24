@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 * GFQL: `hop()` defaults to `debugging_hop=False`
+* GFQL: Edge cases around shortest-path multi-hop queries failing to enrich against target nodes during backwards pass
 
 ## [0.33.0 - 2023-12-26]
 

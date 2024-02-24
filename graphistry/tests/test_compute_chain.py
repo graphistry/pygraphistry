@@ -25,6 +25,27 @@ def chain_graph():
         'n'
     )
 
+@lru_cache(maxsize=1)
+def chain_graph_rich():
+    return CGFull().edges(
+        pd.DataFrame({
+            's': ['a', 'b', 'c'],
+            'd': ['b', 'c', 'd'],
+            'u': [0, 1, 2]
+        }),
+        's', 'd'
+    ).nodes(
+        pd.DataFrame({
+            'n': ['a', 'b', 'c', 'd'],
+            'v': [0, 1, 2, 3]
+        }),
+        'n'
+    )
+
+def compare_graphs(g, nodes: List[Dict[str, str]], edges: List[Dict[str, str]]) -> None:
+    assert g._nodes.sort_values(by='n').to_dict(orient='records') == nodes
+    assert g._edges.sort_values(by=['s', 'd']).to_dict(orient='records') == edges
+
 class TestComputeChainMixin(NoAuthTestCase):
 
     def test_chain_0(self):
@@ -148,39 +169,93 @@ class TestComputeChainMixin(NoAuthTestCase):
 
     def test_shortest_path(self):
 
-        g = chain_graph()
+        g = chain_graph_rich()
 
-        if False:
-            g2a = g.chain([n({'n': 'a'}), e_forward(hops=1), n()])
-            assert g2a._nodes.shape == (2, 1)
-            assert g2a._edges.shape == (1, 2)
+        g_out_nodes_1_hop = [{'n': 'a', 'v': 0}, {'n': 'b', 'v': 1}]
+        g_out_edges_1_hop = [{'s': 'a', 'd': 'b', 'u': 0}]
 
-            g2b = g.chain([n({'n': 'a'}), e_forward(hops=2), n()])
-            assert g2b._nodes.shape == (3, 1)
-            assert g2b._edges.shape == (2, 2)
+        g_out_nodes_2_hops = [{'n': 'a', 'v': 0}, {'n': 'b', 'v': 1}, {'n': 'c', 'v': 2}]
+        g_out_edges_2_hops = [{'s': 'a', 'd': 'b', 'u': 0}, {'s': 'b', 'd': 'c', 'u': 1}]
 
-            g3a = g.chain([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'})])
-            assert g3a._nodes.shape == (2, 1)
-            assert g3a._edges.shape == (1, 2)
+        g2a = g.chain([n({'n': 'a'}), e_forward(hops=1), n()])
+        assert g2a._nodes.shape == (2, 2)
+        assert g2a._edges.shape == (1, 3)
+        compare_graphs(g2a, g_out_nodes_1_hop, g_out_edges_1_hop)
+
+        g2b = g.chain([n({'n': 'a'}), e_forward(hops=2), n()])
+        assert g2b._nodes.shape == (3, 2)
+        assert g2b._edges.shape == (2, 3)
+        compare_graphs(g2b, g_out_nodes_2_hops, g_out_edges_2_hops)
+
+        g3a = g.chain([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'})])
+        assert g3a._nodes.shape == (2, 2)
+        assert g3a._edges.shape == (1, 3)
+        compare_graphs(g3a, g_out_nodes_1_hop, g_out_edges_1_hop)
 
         g3b = g.chain([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'})])
-        assert g3b._nodes.shape == (3, 1)
-        assert g3b._edges.shape == (2, 2)
+        assert g3b._nodes.shape == (3, 2)
+        assert g3b._edges.shape == (2, 3)
+        compare_graphs(g3b, g_out_nodes_2_hops, g_out_edges_2_hops)
 
-        if False:
+        g3c = g.chain([n({'n': 'a'}), e_undirected(hops=2), n({'n': 'c'})])
+        assert g3c._nodes.shape == (3, 2)
+        assert g3c._edges.shape == (2, 3)
+        compare_graphs(g3c, g_out_nodes_2_hops, g_out_edges_2_hops)
 
-            g3c = g.chain([n({'n': 'a'}), e_undirected(hops=2), n({'n': 'c'})])
-            assert g3c._nodes.shape == (3, 1)
-            assert g3c._edges.shape == (2, 2)
+        g3d = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'})])
+        assert g3d._nodes.shape == (3, 2)
+        assert g3d._edges.shape == (2, 3)
+        compare_graphs(g3d, g_out_nodes_2_hops, g_out_edges_2_hops)
 
-            g3d = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'})])
-            assert g3d._nodes.shape == (3, 1)
-            assert g3d._edges.shape == (2, 2)
+    def test_shortest_path_chained(self):
 
+        g = chain_graph_rich()
 
-def compare_graphs(g, nodes: List[Dict[str, str]], edges: List[Dict[str, str]]) -> None:
-    assert g._nodes.sort_values(by='n').to_dict(orient='records') == nodes
-    assert g._edges.sort_values(by=['s', 'd']).to_dict(orient='records') == edges
+        g_out_nodes_2_hops = [{'n': 'a', 'v': 0}, {'n': 'b', 'v': 1}, {'n': 'c', 'v': 2}]
+        g_out_edges_2_hops = [{'s': 'a', 'd': 'b', 'u': 0}, {'s': 'b', 'd': 'c', 'u': 1}]
+
+        g_out_nodes_3_hops = [{'n': 'a', 'v': 0}, {'n': 'b', 'v': 1}, {'n': 'c', 'v': 2}, {'n': 'd', 'v': 3}]
+        g_out_edges_3_hops = [{'s': 'a', 'd': 'b', 'u': 0}, {'s': 'b', 'd': 'c', 'u': 1}, {'s': 'c', 'd': 'd', 'u': 2}]
+
+        g2a = g.chain([n({'n': 'a'}), e_forward(hops=1), n({'n': 'b'}), e_forward(hops=1), n()])
+        assert g2a._nodes.shape == (3, 2)
+        assert g2a._edges.shape == (2, 3)
+        compare_graphs(g2a, g_out_nodes_2_hops, g_out_edges_2_hops)
+
+        g2b = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'b'}), e_forward(hops=1), n()])
+        assert g2b._nodes.shape == (3, 2)
+        assert g2b._edges.shape == (2, 3)
+        compare_graphs(g2b, g_out_nodes_2_hops, g_out_edges_2_hops)
+
+        g2c = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'b'}), e_forward(hops=1), n({'n': 'c'})])
+        assert g2c._nodes.shape == (3, 2)
+        assert g2c._edges.shape == (2, 3)
+        compare_graphs(g2c, g_out_nodes_2_hops, g_out_edges_2_hops)
+
+        g2d = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n(), e_forward(hops=1), n({'n': 'c'})])
+        assert g2d._nodes.shape == (3, 2)
+        assert g2d._edges.shape == (2, 3)
+        compare_graphs(g2c, g_out_nodes_2_hops, g_out_edges_2_hops)
+
+        g3a = g.chain([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'}), e_forward(hops=1), n()])
+        assert g3a._nodes.shape == (4, 2)
+        assert g3a._edges.shape == (3, 3)
+        compare_graphs(g3a, g_out_nodes_3_hops, g_out_edges_3_hops)
+
+        g3b = g.chain([n({'n': 'a'}), e_forward(hops=2), n({'n': 'c'}), e_forward(hops=1), n({'n': 'd'})])
+        assert g3b._nodes.shape == (4, 2)
+        assert g3b._edges.shape == (3, 3)
+        compare_graphs(g3b, g_out_nodes_3_hops, g_out_edges_3_hops)
+
+        g3c = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'}), e_forward(hops=1), n({'n': 'd'})])
+        assert g3c._nodes.shape == (4, 2)
+        assert g3c._edges.shape == (3, 3)
+        compare_graphs(g3c, g_out_nodes_3_hops, g_out_edges_3_hops)
+
+        g3d = g.chain([n({'n': 'a'}), e_forward(to_fixed_point=True), n({'n': 'c'}), e_forward(to_fixed_point=True), n({'n': 'd'})])
+        assert g3d._nodes.shape == (4, 2)
+        assert g3d._edges.shape == (3, 3)
+        compare_graphs(g3d, g_out_nodes_3_hops, g_out_edges_3_hops)
 
 
 class TestComputeChainWavefront1Mixin(NoAuthTestCase):
