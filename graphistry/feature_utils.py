@@ -1060,7 +1060,7 @@ def process_dirty_dataframes(
 
 
     else:
-        logger.info("-*-*- DataFrame is completely numeric")
+        logger.debug("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
 
     if multilabel and y is not None:
@@ -1069,6 +1069,7 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
+        and has_dirty_cat
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
@@ -1139,6 +1140,15 @@ def process_dirty_dataframes(
             "--Fitting TableVectorizer on TARGET took"
             f" {(time() - t2) / 60:.2f} minutes\n"
         )
+    elif (
+        y is not None
+        and len(y.columns) > 0  # noqa: E126,W503
+        and not is_dataframe_all_numeric(y)  # noqa: E126,W503
+        and not has_dirty_cat
+    ):
+        logger.warning("-*-*- y is not numeric and no dirty_cat, dropping non-numeric")
+        y2 = y.select_dtypes(include=[np.number])
+        y_enc, _, _, label_encoder = get_numeric_transformers(y2, None)
     else:
         y_enc, _, label_encoder, _ = get_numeric_transformers(y, None)
 
