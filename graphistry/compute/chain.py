@@ -90,6 +90,9 @@ def combine_steps(g: Plottable, kind: str, steps: List[Tuple[ASTObject,Plottable
         getattr(g_step, df_fld)[[id]]
         for (_, g_step) in steps
     ]).drop_duplicates(subset=[id])
+    for (op, g_step) in steps:
+        logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
+        logger.debug('adding edges to concat: %s', g_step._edges[[g_step._source, g_step._destination]])
 
     # df[[id, op_name1, ...]]
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
