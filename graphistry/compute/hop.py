@@ -242,7 +242,8 @@ def hop(self: Plottable,
                 logger.debug('--- direction in [reverse, undirected] ---')
                 logger.debug('hop_edges_reverse basic:\n%s', hop_edges_reverse)
 
-            if target_wave_front is not None:
+            #FIXME: What test case does this enable? Disabled to pass shortest path backwards pass steps
+            if False and target_wave_front is not None:
                 assert nodes is not None, "target_wave_front indicates nodes"
                 if hops_remaining:
                     intermediate_target_wave_front = concat([
@@ -348,10 +349,15 @@ def hop(self: Plottable,
 
     #hydrate nodes
     if self._nodes is not None:
+        logger.debug('~~~~~~~~~~ NODES HYDRATION ~~~~~~~~~~~')
+        #FIXME what was this for? Removed for shortest-path reverse pass fixes
+        #if target_wave_front is not None:
+        #    rich_nodes = target_wave_front
+        #else:
+        #    rich_nodes = self._nodes
+        rich_nodes = self._nodes
         if target_wave_front is not None:
-            rich_nodes = target_wave_front
-        else:
-            rich_nodes = self._nodes
+            rich_nodes = concat([rich_nodes, target_wave_front], ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])
         final_nodes = rich_nodes.merge(
             matches_nodes if matches_nodes is not None else wave_front[:0],
             on=self._node,
