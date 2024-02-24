@@ -78,7 +78,8 @@ def hop(self: Plottable,
     #TODO target_wave_front code also includes nodes for handling intermediate hops
     # ... better to make an explicit param of allowed intermediates? (vs recording each intermediate hop)
 
-    debugging_hop = True
+    # ensure False when publishing
+    debugging_hop = False
 
     if debugging_hop and logger.isEnabledFor(logging.DEBUG):
         logger.debug('=======================')
