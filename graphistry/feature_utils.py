@@ -1071,6 +1071,7 @@ def process_dirty_dataframes(
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
         and has_dirty_cat  # noqa: E126,W503
     ):
+        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
 
