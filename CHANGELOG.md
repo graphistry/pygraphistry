@@ -16,6 +16,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * GFQL: `hop()` defaults to `debugging_hop=False`
 * GFQL: Edge cases around shortest-path multi-hop queries failing to enrich against target nodes during backwards pass
 
+### Infra
+
+* Pin test env to work around test fails: `'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs + test_workarounds,` +  `test_workarounds = ['scikit-learn<=1.3.2']`
+
 ## [0.33.0 - 2023-12-26]
 
 ### Added
