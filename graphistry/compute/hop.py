@@ -78,7 +78,7 @@ def hop(self: Plottable,
     #TODO target_wave_front code also includes nodes for handling intermediate hops
     # ... better to make an explicit param of allowed intermediates? (vs recording each intermediate hop)
 
-    debugging_hop = True
+    debugging_hop = False
 
     if debugging_hop and logger.isEnabledFor(logging.DEBUG):
         logger.debug('=======================')
@@ -152,6 +152,7 @@ def hop(self: Plottable,
         logger.debug('=====================')
 
     first_iter = True
+    combined_node_ids = None
     while True:
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
@@ -242,7 +243,8 @@ def hop(self: Plottable,
                 logger.debug('--- direction in [reverse, undirected] ---')
                 logger.debug('hop_edges_reverse basic:\n%s', hop_edges_reverse)
 
-            if target_wave_front is not None:
+            #FIXME: What test case does this enable? Disabled to pass shortest path backwards pass steps
+            if False and target_wave_front is not None:
                 assert nodes is not None, "target_wave_front indicates nodes"
                 if hops_remaining:
                     intermediate_target_wave_front = concat([
@@ -298,7 +300,10 @@ def hop(self: Plottable,
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('~~~~~~~~~~ LOOP STEP MERGES 1 ~~~~~~~~~~~')
             logger.debug('matches_edges:\n%s', matches_edges)
+            logger.debug('matches_nodes:\n%s', matches_nodes)
             logger.debug('new_node_ids:\n%s', new_node_ids)
+            logger.debug('hop_edges_forward:\n%s', hop_edges_forward)
+            logger.debug('hop_edges_reverse:\n%s', hop_edges_reverse)
 
         # Finally include all initial root nodes matched against, now that edge triples satisfy all source/dest/edge predicates
         # Only run first iteration b/c root nodes already accounted for in subsequent
@@ -337,6 +342,15 @@ def hop(self: Plottable,
             logger.debug('wave_front:\n%s', wave_front)
             logger.debug('matches_nodes:\n%s', matches_nodes)
 
+    if debugging_hop and logger.isEnabledFor(logging.DEBUG):
+        logger.debug('~~~~~~~~~~ LOOP END POST ~~~~~~~~~~~')
+        logger.debug('matches_nodes:\n%s', matches_nodes)
+        logger.debug('matches_edges:\n%s', matches_edges)
+        logger.debug('combined_node_ids:\n%s', combined_node_ids)
+        logger.debug('nodes (self):\n%s', self._nodes)
+        logger.debug('nodes (init):\n%s', nodes)
+        logger.debug('target_wave_front:\n%s', target_wave_front)
+
     #hydrate edges
     final_edges = edges_indexed.merge(matches_edges, on=EDGE_ID, how='inner')
     if EDGE_ID not in self._edges:
@@ -345,10 +359,16 @@ def hop(self: Plottable,
 
     #hydrate nodes
     if self._nodes is not None:
+        logger.debug('~~~~~~~~~~ NODES HYDRATION ~~~~~~~~~~~')
+        #FIXME what was this for? Removed for shortest-path reverse pass fixes
+        #if target_wave_front is not None:
+        #    rich_nodes = target_wave_front
+        #else:
+        #    rich_nodes = self._nodes
+        rich_nodes = self._nodes
         if target_wave_front is not None:
-            rich_nodes = target_wave_front
-        else:
-            rich_nodes = self._nodes
+            rich_nodes = concat([rich_nodes, target_wave_front], ignore_index=True, sort=False).drop_duplicates(subset=[g2._node])
+        logger.debug('rich_nodes available for inner merge:\n%s', rich_nodes[[self._node]])
         final_nodes = rich_nodes.merge(
             matches_nodes if matches_nodes is not None else wave_front[:0],
             on=self._node,
