@@ -106,8 +106,6 @@ GitHub Actions: See `.github/workflows`
 
 ## Publish: Merge, Tag, & Upload
 
-1. Merge the desired PR to master and switch to master head (`git checkout master && git pull`)
-
 1. Manually update CHANGELOG.md
 
 1. Tag the repository with a new version number. We use semantic version numbers of the form *X.Y.Z*.
@@ -120,3 +118,5 @@ GitHub Actions: See `.github/workflows`
 1. Confirm the [publish](https://github.com/graphistry/pygraphistry/actions?query=workflow%3A%22Publish+Python+%F0%9F%90%8D+distributions+%F0%9F%93%A6+to+PyPI+and+TestPyPI%22) Github Action published to [pypi](https://pypi.org/project/graphistry/), or manually run it for the master branch
 
 1. Toggle version as active at [ReadTheDocs](https://readthedocs.org/projects/pygraphistry/versions/)
+
+1. Merge the desired PR to master and switch to master head (`git checkout master && git pull`)
