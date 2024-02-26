@@ -1,6 +1,6 @@
 from .ComputeMixin import ComputeMixin
 from .ast import (
-    n, e_forward, e_reverse, e_undirected
+    n, e, e_forward, e_reverse, e_undirected
 )
 from .chain import Chain
 from .predicates.is_in import (
