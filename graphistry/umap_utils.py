@@ -336,7 +336,14 @@ class UMAPMixin(MIXIN_BASE):
             ]
             if 'cudf' not in str(getmodule(emb)) and 'cupy' not in str(getmodule(emb)):
                 emb = pd.DataFrame(emb, columns=columns, index=index)
-            else:  # 'cudf' in str(getmodule(emb)):
+            elif 'ndarray' in str(getmodule(emb)):
+                try:
+                    emb = pd.DataFrame(emb)
+                    emb.columns = columns
+                except:
+                    emb = cudf.DataFrame(emb)
+                    emb.columns = columns
+            else:
                 emb.columns = columns
         return emb
 
