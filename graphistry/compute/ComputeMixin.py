@@ -85,9 +85,7 @@ class ComputeMixin(MIXIN_BASE):
                     import cudf
                     if isinstance(g._edges, cudf.DataFrame):
                         engine_concrete = Engine.CUDF
-                except ImportError:
-                    pass
-                if engine == EngineAbstract.AUTO:
+                except:
                     raise ValueError('Could not determine engine for edges, expected pandas or cudf dataframe, got: {}'.format(type(g._edges)))
         else:
             engine_concrete = Engine(engine.value)
