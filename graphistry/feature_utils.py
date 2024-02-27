@@ -1072,7 +1072,7 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and has_dirty_cat  # noqa: E126,W503
+        and deps.dirty_cat or deps.cu_cat  # noqa: E126,W503
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
@@ -1147,9 +1147,9 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and not has_dirty_cat  # noqa: E126,W503
+        and not deps.dirty_cat or deps.cu_cat  # noqa: E126,W503
     ):
-        logger.warning("-*-*- y is not numeric and no dirty_cat, dropping non-numeric")
+        logger.warning("-*-*- y is not numeric and no featurizer, dropping non-numeric")
         y2 = y.select_dtypes(include=[np.number])  # type: ignore
         y_enc, _, _, label_encoder = get_numeric_transformers(y2, None)
     else:
