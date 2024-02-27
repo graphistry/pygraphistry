@@ -205,7 +205,8 @@ class TestFeaturizeGetMethods(unittest.TestCase):
         g2 = g.featurize(y=double_target_reddit,  # ngrams
                 feature_engine = self.feature_engine,
                 use_ngrams=True,
-                ngram_range=(1, 4)
+                ngram_range=(1, 4),
+                feature_engine=resolve_feature_engine('auto'),
                 )
         
         g3 = g.featurize(**topic_model,feature_engine = self.feature_engine,  # topic model       
@@ -451,6 +452,7 @@ class TestFeatureMethods(unittest.TestCase):
                                 use_scaler=None,
                                 use_scaler_target=None,
                                 use_ngrams=use_ngram,
+                                feature_engine=resolve_feature_engine('auto'),
                                 min_df=0.0,
                                 max_df=1.0,
                                 cardinality_threshold=cardinality,
@@ -508,3 +510,7 @@ class TestFeatureMethods(unittest.TestCase):
                                   use_scaler=scaler, 
                                   use_scaler_target=np.random.choice(SCALERS), 
                                   return_scalers=True)
+
+
+if __name__ == "__main__":
+    unittest.main()
