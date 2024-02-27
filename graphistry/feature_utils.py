@@ -1075,7 +1075,7 @@ def process_dirty_dataframes(
         and deps.dirty_cat or deps.cu_cat  # noqa: E126,W503
     ):
         t2 = time()
-        logger.debug("-Fitting Targets --\n%s", y.columns)
+        logger.debug("-Fitting Targets --\n%s", y.columns)  # type: ignore
 
         if feature_engine == CUDA_CAT:
 
@@ -1121,7 +1121,7 @@ def process_dirty_dataframes(
                 y_enc.columns = labels_transformed
             except ValueError:
                 y_enc.columns = np.arange((y_enc.shape[1]))
-            y_enc.set_index(y.index, inplace=True)
+            y_enc.set_index(y.index, inplace=True)  # type: ignore
             y_enc = y_enc.fillna(0.0)
 
         else:
@@ -1131,7 +1131,7 @@ def process_dirty_dataframes(
                 pass
             y_enc = pd.DataFrame(y_enc,
                              columns=labels_transformed,
-                             index=y.index)
+                             index=y.index)  # type: ignore
         # y_enc = y_enc.fillna(0)
         # add for later
         label_encoder.get_feature_names_out = callThrough(labels_transformed)
