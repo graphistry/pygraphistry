@@ -5,10 +5,10 @@ import graphistry
 from graphistry.constants import DBSCAN
 from graphistry.util import ModelDict
 from graphistry.compute.cluster import lazy_dbscan_import_has_dependency
-from graphistry.umap_utils import lazy_umap_import_has_dependancy
+from graphistry.dep_manager import deps
 
 has_dbscan, _, has_gpu_dbscan, _ = lazy_dbscan_import_has_dependency()
-has_umap, _, _ = lazy_umap_import_has_dependancy()
+has_umap = deps.umap
 
 
 ndf = edf = pd.DataFrame({'src': [1, 2, 1, 4], 'dst': [4, 5, 6, 1], 'label': ['a', 'b', 'b', 'c']})
