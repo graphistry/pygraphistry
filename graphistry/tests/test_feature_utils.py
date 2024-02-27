@@ -206,7 +206,6 @@ class TestFeaturizeGetMethods(unittest.TestCase):
                 feature_engine = self.feature_engine,
                 use_ngrams=True,
                 ngram_range=(1, 4),
-                feature_engine=resolve_feature_engine('auto'),
                 )
         
         g3 = g.featurize(**topic_model,feature_engine = self.feature_engine,  # topic model       
