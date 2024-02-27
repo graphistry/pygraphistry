@@ -220,7 +220,9 @@ class TestUMAPFitTransform(unittest.TestCase):
         }
 
         umap_kwargs2 = {k: v + 1 for k, v in umap_kwargs.items() if k not in ['metric']}  # type: ignore
-        # umap_kwargs2['metric'] = 'euclidean'
+        if self.feature_engine == 'dirty_cat':
+            umap_kwargs2['metric'] = 'euclidean'
+            umap_kwargs['metric'] = 'euclidean'
         g = graphistry.nodes(self.test)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -264,7 +266,9 @@ class TestUMAPFitTransform(unittest.TestCase):
         }
 
         umap_kwargs2 = {k: v + 1 for k, v in umap_kwargs.items() if k not in ['metric']}  # type: ignore
-        # umap_kwargs2['metric'] = 'euclidean'
+        if self.feature_engine == 'dirty_cat':
+            umap_kwargs2['metric'] = 'euclidean'
+            umap_kwargs['metric'] = 'euclidean'
         g = graphistry.nodes(self.test)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
