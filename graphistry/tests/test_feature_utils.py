@@ -451,7 +451,6 @@ class TestFeatureMethods(unittest.TestCase):
                                 use_scaler=None,
                                 use_scaler_target=None,
                                 use_ngrams=use_ngram,
-                                feature_engine=resolve_feature_engine('auto'),
                                 min_df=0.0,
                                 max_df=1.0,
                                 cardinality_threshold=cardinality,
