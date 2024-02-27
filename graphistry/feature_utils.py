@@ -100,7 +100,7 @@ def assert_imported_engine(feature_engine):
             logger.error(  # noqa
                 "Neither cu_cat nor dirty_cat found for featurizing"  # noqa
             )
-
+        
 
 def make_safe_gpu_dataframes(X, y, engine):
     cudf = deps.cudf
@@ -1003,6 +1003,7 @@ def process_dirty_dataframes(
                 #  does not provide get_feature_names.
             )
 
+
         logger.info(":: Encoding DataFrame might take a few minutes ------")
         
         X_enc = data_encoder.fit_transform(ndf, y)
@@ -1018,6 +1019,7 @@ def process_dirty_dataframes(
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
+
         logger.info(f"-Shape of [[featurize fit]] data {X_enc.shape}")
         logger.debug(f"-Transformers: \n{all_transformers}\n")
         logger.debug(
@@ -1028,6 +1030,7 @@ def process_dirty_dataframes(
         )
         #  now just set the feature names, since dirty cat changes them in
         #  a weird way...
+
         data_encoder.get_feature_names_out = callThrough(features_transformed) 
         if 'cudf' not in str(getmodule(ndf)) and 'cupy' not in str(getmodule(X_enc)):
             X_enc = pd.DataFrame(
