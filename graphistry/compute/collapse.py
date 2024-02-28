@@ -4,12 +4,12 @@ import copy, logging, pandas as pd, numpy as np
 from graphistry.PlotterBase import Plottable
 
 logger = logging.getLogger("collapse")
-logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.DEBUG)
 
 # create console handler and set level to debug
 # best for development or debugging
 consoleHandler = logging.StreamHandler()
-consoleHandler.setLevel(logging.DEBUG)
+#consoleHandler.setLevel(logging.DEBUG)
 
 # create formatter
 formatter = logging.Formatter(': %(message)s')

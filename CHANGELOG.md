@@ -7,6 +7,153 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.33.2 - 2024-02-24]
+
+### Added
+
+* GFQL: Export shorter alias `e` for `e_undirected`
+* Featurize: More auto-dropping of non-numerics when no `dirty_cat`
+
+### Fixed
+
+* GFQL: `hop()` defaults to `debugging_hop=False`
+* GFQL: Edge cases around shortest-path multi-hop queries failing to enrich against target nodes during backwards pass
+
+### Infra
+
+* Pin test env to work around test fails: `'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest'] + stubs + test_workarounds,` +  `test_workarounds = ['scikit-learn<=1.3.2']`
+* Skip dbscan tests that require umap when it is not available
+
+## [0.33.0 - 2023-12-26]
+
+### Added
+
+* GFQL: GPU acceleration of `chain`, `hop`, `filter_by_dict`
+* `AbstractEngine`  to `engine.py::Engine` enum
+* `compute.typing.DataFrameT` to centralize df-lib-agnostic type checking
+
+### Refactor
+
+* GFQL and more of compute uses generic dataframe methods and threads through engine
+
+### Infra
+
+* GPU tester threads through LOG_LEVEL
+
+## [0.32.0 - 2023-12-22]
+
+### Added
+
+* GFQL `Chain` AST object
+* GFQL query serialization - `Chain`, `ASTObject`, and `ASTPredict` implement `ASTSerializable`
+  - Ex:`Chain.from_json(Chain([n(), e(), n()]).to_json())`
+* GFQL predicate `is_year_end`
+
+### Docs
+
+* GFQL in readme.md
+
+### Changes
+
+* Refactor `ASTEdge`, `ASTNode` field naming convention to match other `ASTSerializable`s
+
+### Breaking 🔥
+
+* GFQL `e()` now aliases `e_undirected` instead of the base class `ASTEdge`
+
+## [0.31.1 - 2023-12-05]
+
+### Docs
+
+* Update readthedocs yml to work around ReadTheDocs v2 yml interpretation regressions
+* Make README.md pass markdownlint
+* Switch markdownlint docker channel to official and pin
+
+## [0.30.0 - 2023-12-04]
+
+### Added
+
+* Neptune: Can now use PyGraphistry OpenCypher/BOLT bindings with Neptune, in addition to existing Gremlin bindings
+* chain/hop: `is_in()` membership predicate, `.chain([ n({'type': is_in(['a', 'b'])}) ])`
+* hop: optional df queries - `hop(..., source_node_query='...', edge_query='...', destination_node_query='...')`
+* chain: optional df queries:
+  - `chain([n(query='...')])`
+  - `chain([e_forward(..., source_node_query='...', edge_query='...', destination_node_query='...')])`
+* `ASTPredicate` base class for filter matching
+* Additional predicates for hop and chain match expressions:
+  - categorical: is_in (example above), duplicated
+  - temporal: is_month_start, is_month_end, is_quarter_start, is_quarter_end, is_year_start, is_year_end, is_leap_year
+  - numeric: gt, lt, ge, le, eq, ne, between, isna, notna
+  - str: contains, startswith, endswith, match, isnumeric, isalpha, isdigit, islower, isupper, isspace, isalnum, isdecimal, istitle, isnull, notnull
+
+### Fixed
+
+* chain/hop: source_node_match was being mishandled when multiple node attributes exist
+* chain: backwards validation pass was too permissive; add `target_wave_front` check`
+* hop: multi-hops with `source_node_match` specified was not checking intermediate hops
+* hop: multi-hops reverse validation was mishandling intermediate nodes
+* compute logging no longer default-overrides level to DEBUG
+
+### Infra
+
+* Docker tests support LOG_LEVEL
+
+### Changed
+
+* refactor: move `is_in`, `IsIn` implementations to `graphistry.ast.predicates`; old imports preserved
+* `IsIn` now implements `ASTPredicate`
+* Refactor: use `setup_logger(__name__)` more consistently instead of `logging.getLogger(__name__)`
+* Refactor: drop unused imports
+* Redo `setup_logger()` to activate formatted stream handler iff verbose / LOG_LEVEL
+
+### Docs
+
+* hop/chain: new query and predicate forms
+* hop/chain graph pattern mining tutorial: [ipynb demo](demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb)
+* Neptune: Initial tutorial for using PyGraphistry with Amazon Neptune's OpenCypher/BOLT bindings
+
+## [0.29.7 - 2023-11-02]
+
+### Added
+
+* igraph: support `compute_igraph('community_optimal_modularity')`
+* igraph: `compute_igraph('articulation_points')` labels nodes that are articulation points
+
+### Fixed
+
+* Type error in arrow uploader exception handler
+* igraph: default coerce Graph-type node labels to strings, enabling plotting of g.compute_igraph('k_core')
+* igraph: fix coercions when using numeric IDs that were confused by igraph swizzling
+
+### Infra
+
+* dask: Fixed parsing error in hypergraph dask tests
+* igraph: Ensure in compute_igraph tests that default mode results coerce to arrow tables
+* igraph: Test chaining
+* tests: mount source folders to enable dev iterations without rebuilding
+
+## [0.29.6 - 2023-10-23]
+
+### Docs
+
+* Memgraph: Add tutorial (https://github.com/graphistry/pygraphistry/pull/507 by https://github.com/karmenrabar)
+
+### Fixed
+
+* Guard against potential `requests`` null dereference in uploader error handling
+
+### Security
+
+* Add control `register(..., sso_opt_into_type='browser' | 'display' | None)`
+* Fix display of SSO URL
+
+## [0.29.5 - 2023-08-23]
+
+### Fixed
+
+* Lint: Update flake8 in test
+* AI: UMAP ignores reserved columns and fewer exceptions on low dimensionaltiy
+
 ## [0.29.4 - 2023-08-22]
 
 ### Fixed

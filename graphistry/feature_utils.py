@@ -8,7 +8,6 @@ import warnings
 from functools import partial
 
 from typing import (
-    Hashable,
     List,
     Union,
     Dict,
@@ -16,7 +15,6 @@ from typing import (
     Optional,
     Tuple,
     TYPE_CHECKING, 
-    Type
 )  # noqa
 from typing_extensions import Literal  # Literal native to py3.8+
 
@@ -27,7 +25,7 @@ from .util import setup_logger, check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
 
 # add this inside classes and have a method that can set log level
-logger = setup_logger(name=__name__, verbose=config.VERBOSE)
+logger = setup_logger(__name__)
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
@@ -84,15 +82,21 @@ def lazy_import_has_min_dependancy():
     try:
         import scipy.sparse  # noqa
         from scipy import __version__ as scipy_version
-        from dirty_cat import __version__ as dirty_cat_version
         from sklearn import __version__ as sklearn_version
         logger.debug(f"SCIPY VERSION: {scipy_version}")
-        logger.debug(f"Dirty CAT VERSION: {dirty_cat_version}")
         logger.debug(f"sklearn VERSION: {sklearn_version}")
         return True, 'ok'
     except ModuleNotFoundError as e:
         return False, e
 
+def lazy_import_has_dirty_cat():
+    import warnings
+    warnings.filterwarnings("ignore")
+    try:
+        import dirty_cat 
+        return True, 'ok', dirty_cat
+    except ModuleNotFoundError as e:
+        return False, e, None
 
 def assert_imported_text():
     has_dependancy_text_, import_text_exn, _ = lazy_import_has_dependancy_text()
@@ -169,7 +173,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
-    if isinstance(y, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(y)):
+    if isinstance(y, pd.DataFrame) or 'cudf' in str(getmodule(y)):
         return y  # type: ignore
 
     if df is None:
@@ -190,7 +194,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
-    if isinstance(X, pd.DataFrame) or 'cudf.core.dataframe' in str(getmodule(X)):
+    if isinstance(X, pd.DataFrame) or 'cudf' in str(getmodule(X)):
         return X  # type: ignore
 
     if df is None:
@@ -292,7 +296,14 @@ def remove_internal_namespace_if_present(df: pd.DataFrame):
         config.IMPLICIT_NODE_ID,
         "index",  # in umap, we add as reindex
     ]
-    df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
+
+    if (len(df.columns) <= 2):
+        df = df.rename(columns={c: c + '_1' for c in df.columns if c in reserved_namespace})
+        # if (isinstance(df.columns.to_list()[0],int)):
+        #     int_namespace = pd.to_numeric(df.columns, errors = 'ignore').dropna().to_list()  # type: ignore
+        #     df = df.rename(columns={c: str(c) + '_1' for c in df.columns if c in int_namespace})
+    else:
+        df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
     return df
 
 
@@ -873,11 +884,14 @@ def process_dirty_dataframes(
     :return: Encoded data matrix and target (if not None),
             the data encoder, and the label encoder.
     """
-    from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
+    has_dirty_cat, _, dirty_cat = lazy_import_has_dirty_cat()
+    if has_dirty_cat:
+        from dirty_cat import SuperVectorizer, GapEncoder, SimilarityEncoder
     from sklearn.preprocessing import FunctionTransformer
     t = time()
 
-    if not is_dataframe_all_numeric(ndf):
+    all_numeric = is_dataframe_all_numeric(ndf)
+    if not all_numeric and has_dirty_cat:
         data_encoder = SuperVectorizer(
             auto_cast=True,
             cardinality_threshold=cardinality_threshold,
@@ -901,7 +915,7 @@ def process_dirty_dataframes(
             features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers
-        logger.info(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
+        logger.debug(f"-Shape of [[dirty_cat fit]] data {X_enc.shape}")
         logger.debug(f"-Transformers: \n{all_transformers}\n")
         logger.debug(
             f"-Transformed Columns: \n{features_transformed[:20]}...\n"
@@ -917,8 +931,12 @@ def process_dirty_dataframes(
             X_enc, columns=features_transformed, index=ndf.index
         )
         X_enc = X_enc.fillna(0.0)
+    elif all_numeric and not has_dirty_cat:
+        numeric_ndf = ndf.select_dtypes(include=[np.number])  # type: ignore
+        logger.warning("-*-*- DataFrame is not numeric and no dirty_cat, dropping non-numeric")
+        X_enc, _, data_encoder, _ = get_numeric_transformers(numeric_ndf, None)
     else:
-        logger.info("-*-*- DataFrame is completely numeric")
+        logger.debug("-*-*- DataFrame is completely numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(ndf, None)
 
 
@@ -928,6 +946,7 @@ def process_dirty_dataframes(
         y is not None
         and len(y.columns) > 0  # noqa: E126,W503
         and not is_dataframe_all_numeric(y)  # noqa: E126,W503
+        and has_dirty_cat  # noqa: E126,W503
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
@@ -971,6 +990,15 @@ def process_dirty_dataframes(
             "--Fitting SuperVectorizer on TARGET took"
             f" {(time() - t2) / 60:.2f} minutes\n"
         )
+    elif (
+        y is not None
+        and len(y.columns) > 0  # noqa: E126,W503
+        and not is_dataframe_all_numeric(y)  # noqa: E126,W503
+        and not has_dirty_cat  # noqa: E126,W503
+    ):
+        logger.warning("-*-*- y is not numeric and no dirty_cat, dropping non-numeric")
+        y2 = y.select_dtypes(include=[np.number])  # type: ignore
+        y_enc, _, _, label_encoder = get_numeric_transformers(y2, None)
     else:
         y_enc, _, label_encoder, _ = get_numeric_transformers(y, None)
 
@@ -1998,7 +2026,8 @@ class FeatureMixin(MIXIN_BASE):
             logger.info("--- [[ RE-USING NODE FEATURIZATION ]]")
             fresh_res = copy.copy(res)
             for attr in ["_node_features", "_node_target", "_node_encoder"]:
-                setattr(fresh_res, attr, getattr(old_res, attr))
+                if hasattr(old_res, attr):
+                    setattr(fresh_res, attr, getattr(old_res, attr))
 
             return fresh_res
 
@@ -2202,9 +2231,9 @@ class FeatureMixin(MIXIN_BASE):
         """
 
         # This is temporary until cucat release 
-        if 'cudf.core.dataframe' in str(getmodule(df)):
+        if 'cudf' in str(getmodule(df)):
             df = df.to_pandas()  # type: ignore
-        if (y is not None) and ('cudf.core.dataframe' in str(getmodule(y))):
+        if (y is not None) and ('cudf' in str(getmodule(y))):
             y = y.to_pandas()  # type: ignore
 
         if kind == "nodes":

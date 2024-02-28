@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import os
 import pandas as pd
@@ -17,25 +18,34 @@ from .constants import VERBOSE, CACHE_COERCION_SIZE, TRACE
 
 # #####################################
 
+@lru_cache(maxsize=1)
+def get_handler(short=False):
+    if short:
+        formatter = logging.Formatter("%(filename)s:%(lineno)s %(message)s\n")
+    else:
+        formatter = logging.Formatter("\n[%(filename)s:%(lineno)s - %(funcName)20s() ]   %(message)s\n")
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    return handler
 
-def global_logger():
-    logger = logging.getLogger()
+def setup_logger(name='', verbose=VERBOSE, fullpath=TRACE):
+    logger = logging.getLogger(name)
+
+    if verbose is not None:
+        if verbose:
+            logger.setLevel(logging.DEBUG)
+        else:
+            logger.setLevel(logging.ERROR)
+    elif os.environ.get('LOG_LEVEL', None) is not None:
+        if os.environ['LOG_LEVEL'] == 'TRACE':
+            logger.setLevel(logging.DEBUG)
+        else:
+            logger.setLevel(os.environ['LOG_LEVEL'])
+
+    if not logger.handlers and (verbose is not None or os.environ.get('LOG_LEVEL', None) is not None):
+        logger.addHandler(get_handler(short=False))
+
     return logger
-
-
-def setup_logger(name, verbose=VERBOSE, fullpath=TRACE):
-    # if fullpath:
-    #    FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ]\n   %(message)s\n"
-    # else:
-    #    FORMAT = " %(message)s\n"
-    # logging.basicConfig(format=FORMAT)
-    # logger = logging.getLogger()#f'graphistry.{name}')
-    # if verbose is None:
-    #    logger.setLevel(logging.ERROR)
-    # else:
-    #    logger.setLevel(logging.INFO if verbose else logging.DEBUG)
-    # return logger
-    return global_logger()
 
 
 # #####################################
