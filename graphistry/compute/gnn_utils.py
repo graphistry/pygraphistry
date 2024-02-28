@@ -6,6 +6,7 @@ from torch_geometric.nn import GCNConv
 from torch_geometric.data import DataLoader
 from torch_geometric.datasets import Planetoid
 import torch.optim as optim
+import numpy as np
 
 from sklearn.metrics import roc_auc_score
 from collections import defaultdict
