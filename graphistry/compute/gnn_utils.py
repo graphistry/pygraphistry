@@ -47,7 +47,7 @@ class NodePredictionModel(nn.Module):
     def __init__(self, base_model, n_classes=10):
         super(NodePredictionModel, self).__init__()
         self.base_model = base_model
-        self.classifier = nn.Linear(base_model.conv2.out_channels, n_classes)  #classes for node prediction
+        self.classifier = nn.Linear(base_model.conv2.out_channels, n_classes)  # classes for node prediction
     
     def forward(self, data):
         x = self.base_model(data)
@@ -92,8 +92,7 @@ def joint_loss(node_pred, node_labels, link_pred_pos, link_pred_neg):
     link_labels_pos = torch.ones(link_pred_pos.shape[0]).to(link_pred_pos.device)
     link_labels_neg = torch.zeros(link_pred_neg.shape[0]).to(link_pred_neg.device)
     
-    link_loss = F.binary_cross_entropy_with_logits(link_pred_pos, link_labels_pos) + \
-                F.binary_cross_entropy_with_logits(link_pred_neg, link_labels_neg)
+    link_loss = F.binary_cross_entropy_with_logits(link_pred_pos, link_labels_pos) + F.binary_cross_entropy_with_logits(link_pred_neg, link_labels_neg)
     
     return node_loss + link_loss
 
@@ -137,7 +136,7 @@ def sample_edges(edge_index, num_samples, balance_degree=False):
     while len(neg_samples) < num_samples:
         u, v = np.random.randint(0, num_nodes, 2)
         if u != v and (u, v) not in adjacency_set and (v, u) not in adjacency_set:
-            print(f"Adding negative sample: ({u}, {v})") if u+v %10 ==0 else None
+            print(f"Adding negative sample: ({u}, {v})") if u + v %10 == 0 else None
             neg_samples.add((u, v))
 
     neg_samples = torch.tensor(list(neg_samples), dtype=torch.long)
@@ -145,6 +144,7 @@ def sample_edges(edge_index, num_samples, balance_degree=False):
     print(f"Negative samples:\n{len(neg_samples)}")
 
     return pos_samples.t(), neg_samples.t()
+
 
 if __name__ == '__main__':
     # use Planetoid's CORA dataset as an example.
