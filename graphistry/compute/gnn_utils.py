@@ -136,7 +136,7 @@ def sample_edges(edge_index, num_samples, balance_degree=False):
     while len(neg_samples) < num_samples:
         u, v = np.random.randint(0, num_nodes, 2)
         if u != v and (u, v) not in adjacency_set and (v, u) not in adjacency_set:
-            print(f"Adding negative sample: ({u}, {v})") if u + v %10 == 0 else None
+            print(f"Adding negative sample: ({u}, {v})") if u + v % 10 == 0 else None
             neg_samples.add((u, v))
 
     neg_samples = torch.tensor(list(neg_samples), dtype=torch.long)
