@@ -5,6 +5,7 @@ import io, pyarrow as pa, requests, sys
 from graphistry.privacy import Mode, Privacy
 
 from .ArrowFileUploader import ArrowFileUploader
+from .validate.validate_encodings import validate_encodings
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -380,7 +381,13 @@ class ArrowUploader:
             json={'token': token})
         return out.status_code == requests.codes.ok
 
-    def create_dataset(self, json):  # noqa: F811
+    def create_dataset(self, json, validate: bool = True):  # noqa: F811
+        if validate:
+            validate_encodings(
+                json.get('node_encodings', {}),
+                json.get('edge_encodings', {}),
+                self.nodes.column_names,
+                self.edges.column_names)
         tok = self.token
         if self.org_name: 
             json['org_name'] = self.org_name
@@ -488,7 +495,7 @@ class ArrowUploader:
         return encodings
 
 
-    def post(self, as_files: bool = True, memoize: bool = True):
+    def post(self, as_files: bool = True, memoize: bool = True, validate: bool = True):
         """
         Note: likely want to pair with self.maybe_post_share_link(g)
         """
@@ -513,7 +520,7 @@ class ArrowUploader:
                 "description": self.description,
                 "edge_files": [ e_file_id ],
                 **({"node_files": [ n_file_id ] if not (self.nodes is None) else []})
-            })
+            }, validate)
 
         else:
 
@@ -523,7 +530,7 @@ class ArrowUploader:
                 "metadata": self.metadata,
                 "name": self.name,
                 "description": self.description
-            })
+            }, validate)
             
             self.post_edges_arrow()
             
