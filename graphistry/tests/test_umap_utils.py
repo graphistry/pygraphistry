@@ -83,7 +83,8 @@ def _eq(df1, df2):
     return tr(df1) == tr(df2)
 
 
-feature_engines = []; engines = []
+feature_engines = []
+engines = []
 if cu_cat and cuml:
     feature_engines.append('cu_cat')
     engines.append('cuml')
