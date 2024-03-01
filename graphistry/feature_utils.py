@@ -90,13 +90,11 @@ def assert_imported_engine(feature_engine):
                 "`pip install rapids`"  # noqa
                 "or `pip install --extra-index-url=https://pypi.nvidia.com cuml-cu11 cudf-cu11`"  # noqa
             )
-    if None not in [deps.cudf, deps.cuml, deps.cu_cat] and feature_engine == DIRTY_CAT:
-        
-        # if None not in [scipy, sklearn, dirty_cat]:
+    if None not in [deps.scipy, deps.sklearn, deps.dirty_cat]:  # and feature_engine == DIRTY_CAT:
         logger.debug(f"SCIPY VERSION: {deps.scipy.__version__}")
         logger.debug(f"SKLEARN VERSION: {deps.sklearn.__version__}")
         logger.debug(f"DIRTY_CAT VERSION: {deps.dirty_cat.__version__}")
-    elif None in [deps.cudf, deps.cuml, deps.cu_cat] and feature_engine == DIRTY_CAT:
+    elif None in [deps.scipy, deps.sklearn, deps.dirty_cat]:  # and feature_engine == DIRTY_CAT:
             logger.error(  # noqa
                 "Neither cu_cat nor dirty_cat found for featurizing"  # noqa
             )
