@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.33.4 - 2024-02-29]
+
+### Added
+
+* Fix validations import.
+
 ## [0.33.3 - 2024-02-28]
 
 ### Added
