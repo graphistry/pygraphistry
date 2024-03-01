@@ -470,7 +470,7 @@ class UMAPMixin(MIXIN_BASE):
         encode_weight: bool = True,
         dbscan: bool = False,
         engine: UMAPEngine = "auto",
-        feature_engine: str = "pandas",
+        feature_engine: str = "auto",
         inplace: bool = False,
         memoize: bool = True,
         verbose: bool = False,
