@@ -581,7 +581,7 @@ class UMAPMixin(MIXIN_BASE):
         logger.debug("umap input y :: %s", y)
 
         featurize_kwargs = self._set_features(
-            res, X, y, kind, self.feature_engine, {**featurize_kwargs, "memoize": memoize}
+            res, X, y, kind, feature_engine, {**featurize_kwargs, "memoize": memoize}
         )
 
         if kind == "nodes":
