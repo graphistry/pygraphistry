@@ -114,6 +114,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 y=['label', 'type'],
                 use_ngrams=True,
                 feature_engine = self.feature_engine,
+                engine = self.engine,
                 ngram_range=(1, 2),
                 use_scaler="robust",
                 cardinality_threshold=2,
@@ -147,6 +148,7 @@ class TestUMAPFitTransform(unittest.TestCase):
                 ngram_range=(1, 2),
                 use_scaler=None,
                 feature_engine = self.feature_engine,
+                engine = self.engine,
                 use_scaler_target=None,
                 cardinality_threshold=2,
                 n_topics=4,
@@ -225,62 +227,16 @@ class TestUMAPFitTransform(unittest.TestCase):
         }
 
         umap_kwargs2 = {k: v + 1 for k, v in umap_kwargs.items() if k not in ['metric']}  # type: ignore
-        # if self.feature_engine == 'dirty_cat':
-        #     umap_kwargs2['metric'] = 'euclidean'
-        #     umap_kwargs['metric'] = 'euclidean'
+        if self.feature_engine == 'dirty_cat':
+            umap_kwargs2['metric'] = 'euclidean'
+            umap_kwargs['metric'] = 'euclidean'
         g = graphistry.nodes(self.test)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(**umap_kwargs, feature_engine = self.feature_engine)
-            g3 = g.umap(**umap_kwargs2, feature_engine = self.feature_engine)
-        assert g2._umap_params == umap_kwargs
-        assert (
-            g2._umap_params == umap_kwargs
-        ), f"Umap params do not match, found {g2._umap_params} vs {umap_kwargs}"
-        assert len(g2._node_embedding.columns) == 2, f"Umap params do not match, found {len(g2._node_embedding.columns)} vs 2"
-
-        assert (
-            g3._umap_params == umap_kwargs2
-        ), f"Umap params do not match, found {g3._umap_params} vs {umap_kwargs2}"
-        assert len(g3._node_embedding.columns) == 3, f"Umap params do not match, found {len(g3._node_embedding.columns)} vs 3"
-        
-        g4 = g2.transform_umap(self.test)
-        assert (
-            g4._umap_params == umap_kwargs
-        ), f"Umap params do not match, found {g4._umap_params} vs {umap_kwargs}"
-        assert g4._n_components == 2, f"Umap params do not match, found {g2._n_components} vs 2"
-
-        g5 = g3.transform_umap(self.test)
-        assert (
-            g5._umap_params == umap_kwargs2
-        ), f"Umap params do not match, found {g5._umap_params} vs {umap_kwargs2}"
-
-    @pytest.mark.skipif(not cuml, reason="requires cuml umap feature dependencies")
-    def test_cuml_umap_kwargs(self):
-        umap_kwargs = {
-            "n_components": 2,
-            # "metric": "euclidean",  # cuml umap default already
-            "n_neighbors": 3,
-            "min_dist": 1,
-            "spread": 1,
-            "local_connectivity": 1,
-            "repulsion_strength": 1,
-            "negative_sample_rate": 5,
-        }
-
-        umap_kwargs2 = {k: v + 1 for k, v in umap_kwargs.items() if k not in ['metric']}  # type: ignore
-        # if self.feature_engine == 'dirty_cat':
-        #     umap_kwargs2['metric'] = 'euclidean'
-        #     umap_kwargs['metric'] = 'euclidean'
-        g = graphistry.nodes(self.test)
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            warnings.filterwarnings("ignore", category=DeprecationWarning)
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            g2 = g.umap(**umap_kwargs, feature_engine = self.feature_engine)
-            g3 = g.umap(**umap_kwargs2, feature_engine = self.feature_engine)
+            g2 = g.umap(**umap_kwargs, feature_engine = self.feature_engine, engine=self.engine)
+            g3 = g.umap(**umap_kwargs2, feature_engine = self.feature_engine, engine=self.engine)
         assert g2._umap_params == umap_kwargs
         assert (
             g2._umap_params == umap_kwargs
@@ -537,7 +493,7 @@ class TestUMAPAICUMLMethods(TestUMAPMethods):
     def test_node_umap(self):
         g = graphistry.nodes(ndf_reddit)
         use_cols = [None, text_cols_reddit, good_cols_reddit, meta_cols_reddit]
-        targets = [single_target_reddit, double_target_reddit]  # cuml cant handle None here
+        targets = [single_target_reddit, double_target_reddit]  # , None] cuml cant handle None here
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
