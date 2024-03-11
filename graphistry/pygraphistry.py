@@ -282,14 +282,12 @@ class PyGraphistry(object):
             auth_url = arrow_uploader.sso_auth_url
             # print("auth_url : {}".format(auth_url))
             if auth_url and not PyGraphistry.api_token():
-                PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
-
-            from IPython.display import display, HTML
-            display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
-            print("Please click the above URL to open browser to login")
-            print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
-            print("Please close browser tab after SSO login to back to notebook")
-            # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
+                from IPython.display import display, HTML
+                display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
+                print("Please click the above URL to open browser to login")
+                print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
+                print("Please close browser tab after SSO login to back to notebook")
+                # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
 
 
     @staticmethod
@@ -719,7 +717,7 @@ class PyGraphistry(object):
         **Example: Databricks notebook and dashboard users need to call the following before register to correctly display the HTML link: 
                  ::
                     import graphistry     
-                    databricks_notebook_sso_login
+                    databricks_notebook_sso_login()
                     graphistry.register(api=3, protocol='https', server='200.1.1.1', is_sso_login=True) 
 
         **Example: Standard (1.0)**
