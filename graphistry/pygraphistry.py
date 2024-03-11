@@ -2526,6 +2526,8 @@ from_cugraph = PyGraphistry.from_cugraph
 personal_key_id = PyGraphistry.personal_key_id
 personal_key_secret = PyGraphistry.personal_key_secret
 switch_org = PyGraphistry.switch_org
+databricks_notebook_sso_login = PyGraphistry.databricks_notebook_sso_login
+
 
 
 
