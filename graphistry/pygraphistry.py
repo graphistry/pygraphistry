@@ -201,6 +201,9 @@ class PyGraphistry(object):
 
         return PyGraphistry.api_token()
 
+
+       
+
     @staticmethod
     def sso_login(org_name=None, idp_name=None, sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS, sso_opt_into_type=None):
         """Authenticate with SSO and set token for reuse (api=3).
@@ -242,12 +245,52 @@ class PyGraphistry(object):
         except Exception:  # required to log on
             # print("required to log on")
             PyGraphistry.sso_state(arrow_uploader.sso_state)
-
             auth_url = arrow_uploader.sso_auth_url
             # print("auth_url : {}".format(auth_url))
             if auth_url and not PyGraphistry.api_token():
-                PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)  
-                return auth_url
+                PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
+  
+    @staticmethod
+    def databricks_notebook_sso_login():
+        org_name=None 
+        idp_name=None 
+        sso_timeout=SSO_GET_TOKEN_ELAPSE_SECONDS 
+        sso_opt_into_type=None
+        
+        if PyGraphistry._config['store_token_creds_in_memory']:
+            PyGraphistry.relogin = lambda: PyGraphistry.sso_login(
+                org_name, idp_name, sso_timeout, sso_opt_into_type
+            )
+
+        PyGraphistry._is_authenticated = False
+        arrow_uploader = ArrowUploader(
+            server_base_path=PyGraphistry.protocol()
+            + "://"                     # noqa: W503
+            + PyGraphistry.server(),    # noqa: W503
+            certificate_validation=PyGraphistry.certificate_validation(),
+        ).sso_login(org_name, idp_name)
+
+        try:
+            if arrow_uploader.token:
+                PyGraphistry.api_token(arrow_uploader.token)
+                PyGraphistry._is_authenticated = True
+                arrow_uploader.token = None
+                return PyGraphistry.api_token()
+        except Exception:  # required to log on
+            # print("required to log on")
+            PyGraphistry.sso_state(arrow_uploader.sso_state)
+            auth_url = arrow_uploader.sso_auth_url
+            # print("auth_url : {}".format(auth_url))
+            if auth_url and not PyGraphistry.api_token():
+                PyGraphistry._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
+
+            from IPython.display import display, HTML
+            display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
+            print("Please click the above URL to open browser to login")
+            print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
+            print("Please close browser tab after SSO login to back to notebook")
+            # return HTML(make_iframe(auth_url, 20, extra_html=extra_html, override_html_style=override_html_style))
+
 
     @staticmethod
     def _handle_auth_url(auth_url, sso_timeout, sso_opt_into_type):
@@ -266,55 +309,26 @@ class PyGraphistry(object):
         SSO Login logic.
 
         """
+        if not in_databricks():
+            # elif in_ipython() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
+            if in_ipython() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
 
-        if in_databricks():  # If run in databricks notebook, display the HTML and timer using javascript issue #539
-            from IPython.display import display, HTML
+                from IPython.display import display, HTML
+                display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
+                print("Please click the above URL to open browser to login")
+                print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
+                print("Please close browser tab after SSO login to back to notebook")
 
-            # this function was required due to bug where databricks notebooks do not display the html link while a timer is running 
-            def display_link_and_timer(auth_url, sso_timeout):
-                html_content = f"""
-                <a href="{auth_url}" target="_blank">Graphistry SSO Login</a><br><br>
-                <div id='timerDiv'>Timer starts...</div>
+            elif sso_opt_into_type == 'browser':
+                print("Please minimize browser after your SSO login and go back to pygraphistry")
 
-                <script>
-                function startTimer(timeoutDuration) {{
-                    var seconds = timeoutDuration;
-                    var interval = setInterval(function() {{
-                        document.getElementById('timerDiv').innerText = seconds + " seconds remaining";
-                        seconds--;
-                        if (seconds < 0) {{
-                            clearInterval(interval);
-                            document.getElementById('timerDiv').innerText = "Timer Expired.";
-                        }}
-                    }}, 1000);
-                }}
-
-                startTimer({sso_timeout});
-                </script>
-                """
-                display(HTML(html_content))
-
-            display_link_and_timer(auth_url, sso_timeout)
-            logger.info("display_link_and_timer() done")
-
-        elif in_ipython() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
-            from IPython.display import display, HTML
-            display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
-            print("Please click the above URL to open browser to login")
-            print(f"If you cannot see the URL, please open browser, browse to this URL: {auth_url}")
-            print("Please close browser tab after SSO login to back to notebook")
-
-            
-        elif sso_opt_into_type == 'browser':
-            print("Please minimize browser after your SSO login and go back to pygraphistry")
-
-            import webbrowser
-            input("Press Enter to open browser ...")
-            # open browser to auth_url
-            webbrowser.open(auth_url)
-        else:
-            print(f"Please open a browser, browse to this URL, and sign in: {auth_url}")
-            print("After, if you get timeout error, run graphistry.sso_get_token() to complete the authentication")
+                import webbrowser
+                input("Press Enter to open browser ...")
+                # open browser to auth_url
+                webbrowser.open(auth_url)
+            else:
+                print(f"Please open a browser, browse to this URL, and sign in: {auth_url}")
+                print("After, if you get timeout error, run graphistry.sso_get_token() to complete the authentication")
 
         if sso_timeout is not None:
             time.sleep(1)
@@ -335,6 +349,8 @@ class PyGraphistry(object):
                     else:
                         break
                 except SsoRetrieveTokenTimeoutException as toe:
+                    if in_databricks(): 
+                        print('Error:  Make sure to call databricks_notebook_sso_login() function before register() to display SSO html login link')
                     logger.debug(toe, exc_info=1)
                     break
                 except Exception:
@@ -699,6 +715,12 @@ class PyGraphistry(object):
 
                     import graphistry
                     graphistry.register(api=3, protocol='http', server='nginx', client_protocol_hostname='https://my.site.com', token='abc')
+
+        **Example: Databricks notebook and dashboard users need to call the following before register to correctly display the HTML link: 
+                 ::
+                    import graphistry     
+                    databricks_notebook_sso_login
+                    graphistry.register(api=3, protocol='https', server='200.1.1.1', is_sso_login=True) 
 
         **Example: Standard (1.0)**
                 ::
