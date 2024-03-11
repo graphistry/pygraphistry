@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 
+## [0.33.5 - 2024-03-11]
+
 ### Fixed
 
 * Fix upload-time validation rejecting graphs without a nodes table
