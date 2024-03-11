@@ -46,7 +46,8 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     ArrowFileUploader,
     PyGraphistry,
     from_igraph,
-    from_cugraph
+    from_cugraph,
+    databricks_notebook_sso_login
 )
 
 from graphistry.compute import (
