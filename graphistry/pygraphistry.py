@@ -297,8 +297,7 @@ class PyGraphistry(object):
             display_link_and_timer(auth_url, sso_timeout)
             logger.info("display_link_and_timer() done")
 
-        else: 
-        if in_ipython() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
+        elif in_ipython() or sso_opt_into_type == 'display':  # If run in notebook, just display the HTML
             from IPython.display import display, HTML
             display(HTML(f'<a href="{auth_url}" target="_blank">Login SSO</a>'))
             print("Please click the above URL to open browser to login")
@@ -2521,3 +2520,7 @@ class NumpyJSONEncoder(json.JSONEncoder):
         elif isinstance(obj, datetime):
             return obj.isoformat()
         return json.JSONEncoder.default(self, obj)
+
+
+
+
